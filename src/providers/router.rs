@@ -25,6 +25,20 @@ struct AgentsToml {
     providers: HashMap<String, ProviderConfig>,
     #[serde(default)]
     routing: Vec<RouteHint>,
+    #[serde(default)]
+    smart_routing: Option<SmartRoutingConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SmartRoutingConfig {
+    pub classifier_provider: Option<String>,
+    pub classifier_model: Option<String>,
+    #[serde(default)]
+    pub simple_providers: Vec<String>,
+    #[serde(default)]
+    pub medium_providers: Vec<String>,
+    #[serde(default)]
+    pub complex_providers: Vec<String>,
 }
 
 /// Provider Router — manages multiple LLM providers with hint-based routing.
@@ -41,6 +55,14 @@ pub struct ProviderRouter {
     codex_token_manager: Option<Arc<CodexTokenManager>>,
     /// Codex base URL for model listing / usage queries
     codex_base_url: Option<String>,
+    /// Request classifier for smart tiered routing
+    classifier: Option<Arc<super::classifier::RequestClassifier>>,
+    /// Provider names for simple requests
+    simple_providers: Vec<String>,
+    /// Provider names for medium requests
+    medium_providers: Vec<String>,
+    /// Provider names for complex requests
+    complex_providers: Vec<String>,
 }
 
 // Default provider configs (used if agents.toml not found or provider missing)
@@ -260,7 +282,7 @@ impl ProviderRouter {
     /// Create a new ProviderRouter, loading config from the given TOML path.
     /// Falls back to defaults if the file doesn't exist.
     pub fn new(config_path: &str) -> Result<Self> {
-        let (provider_configs, routes) = if std::path::Path::new(config_path).exists() {
+        let (provider_configs, routes, smart_routing_config) = if std::path::Path::new(config_path).exists() {
             let content = std::fs::read_to_string(config_path)?;
             let parsed: AgentsToml = toml::from_str(&content)?;
             let configs = if parsed.providers.is_empty() {
@@ -272,10 +294,10 @@ impl ProviderRouter {
                 .into_iter()
                 .map(|r| (r.hint, (r.provider, r.model)))
                 .collect();
-            (configs, routes)
+            (configs, routes, parsed.smart_routing)
         } else {
             warn!("Config not found at {}, using defaults", config_path);
-            (default_provider_configs(), HashMap::new())
+            (default_provider_configs(), HashMap::new(), None)
         };
 
         if !routes.is_empty() {
@@ -307,7 +329,30 @@ impl ProviderRouter {
 
         info!("Initialized {} providers: {:?}", providers.len(), providers.keys().collect::<Vec<_>>());
 
-        Ok(Self { providers, routes, auto_order, rotation: None, codex_token_manager, codex_base_url })
+        // Parse smart routing tiers from config
+        let mut smart_simple = Vec::new();
+        let mut smart_medium = Vec::new();
+        let mut smart_complex = Vec::new();
+        if let Some(ref sr) = smart_routing_config {
+            smart_simple = sr.simple_providers.clone();
+            smart_medium = sr.medium_providers.clone();
+            smart_complex = sr.complex_providers.clone();
+            tracing::info!("Smart routing configured: simple={:?}, medium={:?}, complex={:?}",
+                sr.simple_providers, sr.medium_providers, sr.complex_providers);
+        }
+
+        Ok(Self {
+            providers,
+            routes,
+            auto_order,
+            rotation: None,
+            codex_token_manager,
+            codex_base_url,
+            classifier: None,  // Set via set_classifier() after construction
+            simple_providers: smart_simple,
+            medium_providers: smart_medium,
+            complex_providers: smart_complex,
+        })
     }
 
     /// Attach a rotation engine for rate-limit-aware provider selection.
@@ -318,6 +363,25 @@ impl ProviderRouter {
     /// Get rotation engine reference (if attached).
     pub fn rotation(&self) -> Option<&Arc<ProviderRotation>> {
         self.rotation.as_ref()
+    }
+
+    /// Attach a request classifier for smart tiered routing.
+    pub fn set_classifier(&mut self, classifier: Arc<super::classifier::RequestClassifier>) {
+        self.classifier = Some(classifier);
+    }
+
+    /// Set the provider tiers for smart routing.
+    pub fn set_tiers(&mut self, simple: Vec<String>, medium: Vec<String>, complex: Vec<String>) {
+        self.simple_providers = simple;
+        self.medium_providers = medium;
+        self.complex_providers = complex;
+    }
+
+    /// Check if smart routing is configured (classifier + at least one tier).
+    pub fn has_smart_routing(&self) -> bool {
+        self.classifier.is_some() && (!self.simple_providers.is_empty()
+            || !self.medium_providers.is_empty()
+            || !self.complex_providers.is_empty())
     }
 
     /// Check if a provider with the given name exists
@@ -408,6 +472,44 @@ impl ProviderRouter {
         provider: &str,
     ) -> Result<ChatResponse> {
         let (resolved, model_override) = self.resolve_hint(provider);
+
+        // Smart tiered routing: if hint is "auto" or empty and classifier is configured
+        if (resolved.is_empty() || resolved == "auto") && self.classifier.is_some() {
+            let classifier = self.classifier.as_ref().unwrap();
+            let complexity = classifier.classify(messages).await;
+
+            let tier_candidates = match complexity {
+                super::classifier::RequestComplexity::Simple => &self.simple_providers,
+                super::classifier::RequestComplexity::Medium => &self.medium_providers,
+                super::classifier::RequestComplexity::Complex => &self.complex_providers,
+            };
+
+            if !tier_candidates.is_empty() {
+                tracing::debug!("Classified as {:?}, candidates: {:?}", complexity, tier_candidates);
+
+                for candidate in tier_candidates {
+                    if let Some(p) = self.providers.get(candidate) {
+                        let model_to_use = p.default_model().to_string();
+                        match p.chat(messages, tools, &model_to_use).await {
+                            Ok(resp) => {
+                                if let Some(ref rot) = self.rotation {
+                                    rot.record_success(candidate);
+                                }
+                                return Ok(resp);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Tier provider {} failed: {}, trying next", candidate, e);
+                                if let Some(ref rot) = self.rotation {
+                                    rot.record_rate_limit(candidate);  // sync, no .await
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
+                tracing::warn!("All tier candidates failed, falling back to normal routing");
+            }
+        }
 
         let (provider_ref, model) = if resolved == "auto" {
             let p = self.find_alive_provider().await
