@@ -10,6 +10,7 @@ pub mod router;
 pub mod reliable;
 pub mod rotation;
 pub mod chatgpt_backend;
+pub mod chatgpt_ws;
 pub mod mock;
 
 pub use traits::*;
@@ -18,4 +19,5 @@ pub use reliable::ReliableProvider;
 pub use rotation::{ProviderRotation, RotationConfig, ProviderRotationStatus};
 pub use codex::{CodexTokenManager, CodexAwareProvider, CodexCredential, CodexUsageSnapshot, ModelInfo};
 pub use chatgpt_backend::ChatGptBackendProvider;
+pub use chatgpt_ws::ChatGptWsProvider;
 pub use mock::MockProvider;
