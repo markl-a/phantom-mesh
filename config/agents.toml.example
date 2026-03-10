@@ -1,0 +1,123 @@
+# clawtex-core agent configuration
+# Copy to ~/.clawtex/agents.toml and edit as needed
+
+[core]
+host = "127.0.0.1"
+port = 7878
+db_path = "~/.clawtex/core.db"
+
+# ── LLM Providers ────────────────────────────────────────────────────────────
+
+[providers.ollama]
+type = "ollama"
+url = "http://localhost:11434"
+default_model = "qwen3:8b"
+
+[providers.lmstudio]
+type = "openai_compat"
+url = "http://localhost:1234"
+# default_model = "qwen3-coder-next"
+
+[providers.lemonade]
+type = "openai_compat"
+url = "http://localhost:8000/api/v0"
+# default_model = "Mistral-7B"
+
+# Cloud providers (optional)
+# [providers.openai]
+# type = "openai"
+# api_key = "${OPENAI_API_KEY}"
+# default_model = "gpt-4o"
+
+# [providers.anthropic]
+# type = "anthropic"
+# api_key = "${ANTHROPIC_API_KEY}"
+# default_model = "claude-sonnet-4-6"
+
+# ChatGPT Backend API (uses Codex OAuth tokens from ~/.codex/auth.json)
+# [providers.chatgpt]
+# type = "chatgpt_backend"
+# default_model = "gpt-4o"
+
+# ChatGPT WebSocket API (native tools support, uses Codex OAuth tokens)
+# [providers.chatgpt_ws]
+# type = "chatgpt_ws"
+# default_model = "gpt-4o"
+
+# ── Smart Routing (Tiered Request Classification) ─────────────────────────────
+# Automatically route requests by complexity: simple→fast local model,
+# medium→cloud, complex→best available
+# [smart_routing]
+# classifier_provider = "ollama"       # Provider for request complexity classification
+# classifier_model = "qwen3:0.6b"      # Small, fast model for classification
+# simple_providers = ["ollama", "lmstudio"]        # Route simple queries here
+# medium_providers = ["groq", "gemini"]            # Route medium queries here
+# complex_providers = ["chatgpt"]                   # Route complex queries here
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+
+[agent.master]
+provider = "ollama"
+model = "qwen3:8b"
+subagents = ["coder", "browser", "reviewer", "analyst"]
+instructions = """
+You are the MasterAgent for this machine.
+Coordinate specialised subagents to complete complex tasks.
+
+Available subagents:
+- coder: writes and tests Python code in a sandbox
+- browser: fetches and analyses web pages
+- reviewer: reviews code or text and gives actionable feedback
+- analyst: combines code execution and web research for insights
+
+Always synthesise subagent results into a clear, concise final answer.
+"""
+
+[agent.coder]
+provider = "ollama"
+model = "qwen3:8b"
+tools = ["sandbox"]
+instructions = """
+You are an expert Python programmer.
+Write clean, efficient, well-tested code.
+Always run code in the sandbox to verify it works before returning results.
+"""
+
+[agent.browser]
+provider = "ollama"
+model = "qwen3:8b"
+tools = ["playwright"]
+instructions = """
+You are a web research agent.
+Fetch web pages accurately and summarise the key information.
+Extract facts, data, and relevant details from pages you visit.
+"""
+
+[agent.reviewer]
+provider = "ollama"
+model = "qwen3:8b"
+tools = []
+instructions = """
+You are a senior code reviewer and technical editor.
+Give concise, actionable feedback focused on correctness, clarity, and best practices.
+Be specific about what should change and why.
+"""
+
+[agent.analyst]
+provider = "ollama"
+model = "qwen3:8b"
+tools = ["sandbox", "playwright"]
+instructions = """
+You are a data analyst and researcher.
+Use web fetching to gather data and Python execution to analyse it.
+Produce clear, evidence-based insights backed by your findings.
+"""
+
+# ── Per-machine overrides ─────────────────────────────────────────────────────
+# On Z13 (powerful): use larger model for coder
+# [agent.coder]
+# model = "qwen3-coder:30b"
+
+# On Ayaneo (weak): use smaller model
+# [agent.master]
+# model = "qwen3:4b"
