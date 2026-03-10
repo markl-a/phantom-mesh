@@ -12,6 +12,8 @@ pub mod rotation;
 pub mod chatgpt_backend;
 pub mod chatgpt_ws;
 pub mod mock;
+pub mod key_pool;
+pub mod classifier;
 
 pub use traits::*;
 pub use router::ProviderRouter;
@@ -21,3 +23,5 @@ pub use codex::{CodexTokenManager, CodexAwareProvider, CodexCredential, CodexUsa
 pub use chatgpt_backend::ChatGptBackendProvider;
 pub use chatgpt_ws::ChatGptWsProvider;
 pub use mock::MockProvider;
+pub use key_pool::KeyPool;
+pub use classifier::{RequestClassifier, RequestComplexity};
