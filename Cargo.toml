@@ -1,0 +1,105 @@
+[package]
+name = "clawtex-core"
+version = "0.1.0"
+edition = "2021"
+description = "Clawtex LLM Cluster Core — lightweight Rust daemon for LLM routing, task queue, and agent coordination"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/markl-a/Clawtex"
+default-run = "clawtex-core"
+
+[[bin]]
+name = "clawtex-core"
+path = "src/main.rs"
+
+[lib]
+name = "clawtex_core"
+path = "src/lib.rs"
+
+[features]
+default = []
+pg = ["dep:tokio-postgres", "dep:pgvector"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# HTTP server
+axum = { version = "0.7", features = ["ws"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# HTTP client (for LLM API calls + Telegram Bot API)
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# SQLite (bundled — no external sqlite3.dll needed on Windows)
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+# Base64 encoding (for screenshot data in Computer Use)
+base64 = "0.22"
+
+# Regex (for credential scrubbing)
+regex = "1"
+once_cell = "1"
+
+# Utilities
+anyhow = "1"
+thiserror = "1"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+urlencoding = "2"
+
+# Streaming support
+futures-util = "0.3"
+tokio-stream = "0.1"
+
+# WebSocket client (for ChatGPT backend-api realtime)
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+
+# URL parsing (for http_request tool domain allowlist)
+url = "2"
+
+# Home directory resolution (for Codex OAuth)
+dirs = "5"
+
+# Encrypted secrets (Sprint 3)
+chacha20poly1305 = "0.10"
+hex = "0.4"
+rand = "0.8"
+
+# PostgreSQL + pgvector (optional — for semantic memory pgvector backend)
+tokio-postgres = { version = "0.7", optional = true }
+pgvector = { version = "0.4", features = ["postgres"], optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "core_benchmarks"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+# CI 用的 profile — 比 debug 快但比 release 快編譯
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 4
+strip = false
