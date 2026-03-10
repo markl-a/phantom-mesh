@@ -17,4 +17,5 @@ pub use router::ProviderRouter;
 pub use reliable::ReliableProvider;
 pub use rotation::{ProviderRotation, RotationConfig, ProviderRotationStatus};
 pub use codex::{CodexTokenManager, CodexAwareProvider, CodexCredential, CodexUsageSnapshot, ModelInfo};
+pub use chatgpt_backend::ChatGptBackendProvider;
 pub use mock::MockProvider;
