@@ -207,6 +207,15 @@ fn create_provider(name: &str, config: &ProviderConfig) -> CreateProviderResult 
                 codex_base_url: None,
             }
         }
+        "chatgpt_ws" => {
+            let tm = Arc::new(CodexTokenManager::new());
+            let provider = super::chatgpt_ws::ChatGptWsProvider::new(tm.clone());
+            CreateProviderResult {
+                provider: Box::new(provider),
+                codex_token_manager: Some(tm),
+                codex_base_url: None,
+            }
+        }
         "gemini" => {
             let api_key = resolve_api_key(&config.api_key, &env_vars);
             CreateProviderResult {
