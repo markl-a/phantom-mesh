@@ -1,7 +1,11 @@
-//! ChatGPT Backend API provider: message format translation and Provider implementation.
+//! ChatGPT Backend Provider: uses Codex CLI subprocess for ChatGPT Plus subscription access.
 //!
-//! Talks directly to chatgpt.com/backend-api/conversation using Codex OAuth tokens,
-//! translating between clawtex ChatMessage format and the backend SSE protocol.
+//! Primary mode: runs `codex exec --json` as a subprocess, capturing JSONL streaming events.
+//! This bypasses the chatgpt.com sentinel/anti-bot pipeline by using the official Codex CLI
+//! which handles WebSocket connections to api.openai.com natively.
+//!
+//! Also includes REST backend-api message format translation functions for future use
+//! when/if direct REST access becomes viable.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -9,19 +13,19 @@ use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::Stream;
-use reqwest::Client;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::debug;
+use tracing::{debug, warn};
+
 use uuid::Uuid;
 
 use super::codex::CodexTokenManager;
 use super::traits::{
-    ChatMessage, ChatResponse, ProviderCapabilities, Provider, StreamChunk,
+    ChatMessage, ChatResponse, ProviderCapabilities, Provider, StreamChunk, TokenUsage,
 };
 
-// ── Message format translation ───────────────────────────────────────────────
+// ── Message format translation (for future REST backend-api use) ────────────
 
 /// Convert a single ChatMessage to the ChatGPT backend-api message format.
 fn chatmessage_to_backend(msg: &ChatMessage) -> Value {
@@ -44,11 +48,6 @@ fn build_backend_messages(messages: &[ChatMessage]) -> (Vec<Value>, String) {
 }
 
 /// Parse a single SSE data line from the backend-api response.
-///
-/// Returns (content, is_done, conversation_id):
-/// - content: the full text from the message parts (if present)
-/// - is_done: true if this is [DONE] or status == "finished_successfully"
-/// - conversation_id: the conversation ID (if present)
 fn parse_backend_sse_line(line: &str) -> (Option<String>, bool, Option<String>) {
     let line = line.trim();
 
@@ -77,30 +76,216 @@ fn parse_backend_sse_line(line: &str) -> (Option<String>, bool, Option<String>) 
     (content, is_done, conv_id)
 }
 
+// ── Codex CLI subprocess helpers ────────────────────────────────────────────
+
+/// Build a prompt string from ChatMessages for the Codex CLI.
+fn messages_to_prompt(messages: &[ChatMessage]) -> String {
+    let mut parts = Vec::new();
+    for msg in messages {
+        match msg.role.as_str() {
+            "system" => {
+                parts.push(format!("[System instruction: {}]", msg.content));
+            }
+            "user" => {
+                parts.push(msg.content.clone());
+            }
+            "assistant" => {
+                parts.push(format!("[Previous assistant response: {}]", msg.content));
+            }
+            "tool" => {
+                parts.push(format!("[Tool result: {}]", msg.content));
+            }
+            _ => {
+                parts.push(msg.content.clone());
+            }
+        }
+    }
+    parts.join("\n\n")
+}
+
+/// Parse Codex CLI JSONL output into (response_text, token_usage).
+///
+/// Expected JSONL events:
+/// - `{"type":"thread.started","thread_id":"..."}`
+/// - `{"type":"turn.started"}`
+/// - `{"type":"item.completed","item":{"id":"...","type":"agent_message","text":"..."}}`
+/// - `{"type":"turn.completed","usage":{"input_tokens":N,"output_tokens":N,...}}`
+fn parse_codex_jsonl(output: &str) -> Result<(String, Option<TokenUsage>)> {
+    let mut response_text = String::new();
+    let mut usage = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let parsed: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let event_type = parsed["type"].as_str().unwrap_or("");
+
+        match event_type {
+            "item.completed" => {
+                if let Some(text) = parsed["item"]["text"].as_str() {
+                    response_text = text.to_string();
+                }
+            }
+            "turn.completed" => {
+                if let Some(u) = parsed.get("usage") {
+                    let input = u["input_tokens"].as_u64().unwrap_or(0) as u32;
+                    let output_t = u["output_tokens"].as_u64().unwrap_or(0) as u32;
+                    usage = Some(TokenUsage {
+                        prompt_tokens: input,
+                        completion_tokens: output_t,
+                        total_tokens: input + output_t,
+                    });
+                }
+            }
+            _ => {} // thread.started, turn.started, etc.
+        }
+    }
+
+    if response_text.is_empty() {
+        anyhow::bail!("No response text in Codex CLI output");
+    }
+
+    Ok((response_text, usage))
+}
+
+/// Build a sanitized environment for subprocess execution.
+/// Strips sensitive keys (API tokens, secrets) to prevent leakage.
+/// Reference: OpenFang subprocess env stripping pattern.
+fn safe_subprocess_env() -> Vec<(String, String)> {
+    // Keys that are safe to pass through
+    let sensitive_prefixes = [
+        "ANTHROPIC_", "OPENAI_", "GEMINI_", "GROQ_", "DEEPSEEK_",
+        "SERPER_", "TAVILY_", "BRAVE_", "EXA_", "STRIPE_",
+        "CLAWTEX_SECRET", "CLAWTEX_HUB_KEY",
+        "TWITTER_", "SMTP_", "EMAIL_",
+    ];
+    let sensitive_exact = [
+        "SECRET_KEY", "API_KEY", "ACCESS_TOKEN", "REFRESH_TOKEN",
+        "BOT_TOKEN", "WEBHOOK_SECRET",
+    ];
+
+    std::env::vars()
+        .filter(|(key, _)| {
+            let upper = key.to_uppercase();
+            // Keep the key if it does NOT match any sensitive pattern
+            !sensitive_prefixes.iter().any(|p| upper.starts_with(p))
+                && !sensitive_exact.iter().any(|s| upper.contains(s))
+        })
+        .collect()
+}
+
+/// Codex binary resolution result.
+/// On Windows we bypass `.cmd` wrappers (they break on Unicode args)
+/// and call `node codex.js` directly.
+struct CodexBinary {
+    program: String,
+    /// If set, this JS file is prepended to args (for `node <script>` invocation)
+    script: Option<String>,
+}
+
+/// Find the `codex` executable, resolving `.cmd` wrappers on Windows.
+fn find_codex_binary() -> Option<CodexBinary> {
+    if cfg!(windows) {
+        // 1. Try to resolve codex.cmd → extract the JS entry point → call node directly
+        if let Ok(output) = std::process::Command::new("where")
+            .arg("codex.cmd")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            if output.status.success() {
+                let cmd_path = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !cmd_path.is_empty() {
+                    // Read .cmd to find the JS entry point
+                    if let Ok(content) = std::fs::read_to_string(&cmd_path) {
+                        // npm .cmd wrappers contain a line like:
+                        //   "%_prog%"  "%dp0%\node_modules\@openai\codex\bin\codex.js" %*
+                        for line in content.lines() {
+                            if let Some(start) = line.find("node_modules") {
+                                // Extract path between quotes or until %*
+                                let rest = &line[start..];
+                                let end = rest.find('"')
+                                    .or_else(|| rest.find('%'))
+                                    .unwrap_or(rest.len());
+                                let rel_path = rest[..end].trim();
+                                let dir = std::path::Path::new(&cmd_path).parent()?;
+                                let js_path = dir.join(rel_path);
+                                if js_path.exists() {
+                                    return Some(CodexBinary {
+                                        program: "node".to_string(),
+                                        script: Some(js_path.to_string_lossy().to_string()),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    // Fallback: use codex.cmd (may fail on Unicode)
+                    return Some(CodexBinary {
+                        program: cmd_path,
+                        script: None,
+                    });
+                }
+            }
+        }
+        None
+    } else {
+        // Unix: check for `codex` in PATH
+        let check = std::process::Command::new("which")
+            .arg("codex")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if let Ok(s) = check {
+            if s.success() {
+                return Some(CodexBinary {
+                    program: "codex".to_string(),
+                    script: None,
+                });
+            }
+        }
+        None
+    }
+}
+
 // ── ChatGptBackendProvider ───────────────────────────────────────────────────
 
-const BACKEND_API_URL: &str = "https://chatgpt.com/backend-api/conversation";
-
-/// Provider that talks to the ChatGPT backend-api (chatgpt.com/backend-api/conversation)
-/// using Codex OAuth tokens for authentication.
+/// Provider that uses the Codex CLI (`codex exec --json`) as a subprocess
+/// to access ChatGPT models via the Plus subscription.
+///
+/// Falls back to REST backend-api if configured (future, requires sentinel pipeline).
 pub struct ChatGptBackendProvider {
     token_manager: Arc<CodexTokenManager>,
-    client: Client,
+    default_model_name: String,
 }
 
 impl ChatGptBackendProvider {
     pub fn new(token_manager: Arc<CodexTokenManager>) -> Self {
-        let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
-            .build()
-            .unwrap_or_default();
         Self {
             token_manager,
-            client,
+            default_model_name: "gpt-5.4".to_string(),
         }
     }
 
-    /// Build the JSON request body for the backend-api conversation endpoint.
+    pub fn with_model(token_manager: Arc<CodexTokenManager>, model: &str) -> Self {
+        Self {
+            token_manager,
+            default_model_name: model.to_string(),
+        }
+    }
+
+    /// Build the JSON request body for the backend-api (kept for future REST use).
     pub fn build_request_body(&self, messages: &[ChatMessage], model: &str) -> Value {
         let (backend_msgs, parent_id) = build_backend_messages(messages);
         json!({
@@ -111,17 +296,7 @@ impl ChatGptBackendProvider {
         })
     }
 
-    /// Get authentication headers (token, optional account_id) from the token manager.
-    async fn get_auth_headers(&self) -> Result<(String, Option<String>)> {
-        let cred = self
-            .token_manager
-            .get_credential()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to get ChatGPT credential: {}", e))?;
-        Ok((cred.access_token, cred.account_id))
-    }
-
-    /// Parse a complete SSE response body into a ChatResponse.
+    /// Parse a complete SSE response body (kept for future REST use).
     fn parse_full_sse_response(body: &str) -> Result<ChatResponse> {
         let mut final_content = String::new();
 
@@ -157,6 +332,98 @@ impl ChatGptBackendProvider {
             usage: None,
         })
     }
+
+    /// Run the Codex CLI subprocess and return JSONL output.
+    async fn run_codex_cli(&self, prompt: &str, model: &str) -> Result<String> {
+        let codex_bin = find_codex_binary()
+            .ok_or_else(|| anyhow::anyhow!("Codex CLI not found. Install with: npm install -g @openai/codex"))?;
+
+        debug!("Running Codex CLI: model={}, prompt_len={}", model, prompt.len());
+
+        let mut args: Vec<String> = Vec::new();
+        // If resolved to node + script, prepend the JS file
+        if let Some(ref script) = codex_bin.script {
+            args.push(script.clone());
+        }
+        args.push("exec".to_string());
+        args.push("--json".to_string());
+        // Only pass --model if explicitly set (not empty/auto/default)
+        if !model.is_empty() && model != "auto" && model != "default" {
+            args.push("--model".to_string());
+            args.push(model.to_string());
+        }
+        args.push("--skip-git-repo-check".to_string());
+        args.push("--ephemeral".to_string());
+
+        // Windows has ~32K command-line limit (OS error 206 when exceeded).
+        // For long prompts, write to a temp file and pass via stdin.
+        let use_stdin = prompt.len() > 8000;
+        if !use_stdin {
+            args.push(prompt.to_string());
+        }
+
+        let mut cmd = tokio::process::Command::new(&codex_bin.program);
+        cmd.args(&args)
+            .env_clear()
+            .envs(safe_subprocess_env())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let output = if use_stdin {
+            debug!("Codex CLI: prompt too long ({}), using stdin", prompt.len());
+            cmd.stdin(std::process::Stdio::piped());
+            let mut child = cmd.spawn()
+                .map_err(|e| anyhow::anyhow!("Failed to spawn Codex CLI: {}", e))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                use tokio::io::AsyncWriteExt;
+                let _ = stdin.write_all(prompt.as_bytes()).await;
+                drop(stdin);
+            }
+            // 5 minute timeout
+            tokio::time::timeout(
+                std::time::Duration::from_secs(300),
+                child.wait_with_output(),
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("Codex CLI timed out after 300s"))?
+            .map_err(|e| anyhow::anyhow!("Failed to run Codex CLI: {}", e))?
+        } else {
+            // 5 minute timeout
+            tokio::time::timeout(
+                std::time::Duration::from_secs(300),
+                cmd.output(),
+            )
+            .await
+            .map_err(|_| anyhow::anyhow!("Codex CLI timed out after 300s"))?
+            .map_err(|e| anyhow::anyhow!("Failed to run Codex CLI: {}", e))?
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() {
+            warn!("Codex CLI stderr: {}", stderr);
+            // Try to extract error from JSONL or stderr
+            if !stdout.is_empty() {
+                // Check for error events in JSONL
+                for line in stdout.lines() {
+                    if let Ok(v) = serde_json::from_str::<Value>(line) {
+                        if v["type"].as_str() == Some("error") {
+                            let msg = v["message"].as_str().unwrap_or("Unknown error");
+                            anyhow::bail!("Codex CLI error: {}", msg);
+                        }
+                    }
+                }
+            }
+            anyhow::bail!(
+                "Codex CLI exited with status {}: {}",
+                output.status,
+                if stderr.is_empty() { &stdout } else { &stderr }
+            );
+        }
+
+        Ok(stdout)
+    }
 }
 
 #[async_trait]
@@ -166,14 +433,14 @@ impl Provider for ChatGptBackendProvider {
     }
 
     fn default_model(&self) -> &str {
-        "gpt-4o"
+        &self.default_model_name
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities {
             streaming: true,
             native_tools: false,
-            vision: true,
+            vision: false, // Codex CLI doesn't support image input easily
         }
     }
 
@@ -183,31 +450,21 @@ impl Provider for ChatGptBackendProvider {
         _tools: &[Value],
         model: &str,
     ) -> Result<ChatResponse> {
-        let (token, account_id) = self.get_auth_headers().await?;
-        let body = self.build_request_body(messages, model);
-        debug!("ChatGPT backend request: model={}", model);
+        let model = if model.is_empty() { &self.default_model_name } else { model };
+        let prompt = messages_to_prompt(messages);
 
-        let mut req = self
-            .client
-            .post(BACKEND_API_URL)
-            .bearer_auth(&token)
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream");
+        let jsonl_output = self.run_codex_cli(&prompt, model).await?;
+        let (text, usage) = parse_codex_jsonl(&jsonl_output)?;
 
-        if let Some(ref acct_id) = account_id {
-            req = req.header("ChatGPT-Account-Id", acct_id);
-        }
-
-        let resp = req.json(&body).send().await?;
-        let status = resp.status();
-
-        if !status.is_success() {
-            let error_body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("ChatGPT backend error {}: {}", status, error_body);
-        }
-
-        let sse_body = resp.text().await?;
-        Self::parse_full_sse_response(&sse_body)
+        Ok(ChatResponse {
+            message: ChatMessage {
+                role: "assistant".to_string(),
+                content: text,
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            usage,
+        })
     }
 
     async fn stream_chat(
@@ -216,97 +473,139 @@ impl Provider for ChatGptBackendProvider {
         _tools: &[Value],
         model: &str,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamChunk>> + Send>>> {
-        let (token, account_id) = self.get_auth_headers().await?;
-        let body = self.build_request_body(messages, model);
+        let model_str = if model.is_empty() {
+            self.default_model_name.clone()
+        } else {
+            model.to_string()
+        };
+        let prompt = messages_to_prompt(messages);
 
-        let mut req = self
-            .client
-            .post(BACKEND_API_URL)
-            .bearer_auth(&token)
-            .header("Content-Type", "application/json")
-            .header("Accept", "text/event-stream");
-
-        if let Some(ref acct_id) = account_id {
-            req = req.header("ChatGPT-Account-Id", acct_id);
-        }
-
-        let resp = req.json(&body).send().await?;
-        let status = resp.status();
-
-        if !status.is_success() {
-            let error_body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("ChatGPT backend stream error {}: {}", status, error_body);
-        }
+        let codex_bin = find_codex_binary()
+            .ok_or_else(|| anyhow::anyhow!("Codex CLI not found"))?;
 
         let (tx, rx) = mpsc::channel::<Result<StreamChunk>>(64);
-        let byte_stream = resp.bytes_stream();
+
+        let bin_program = codex_bin.program;
+        let bin_script = codex_bin.script;
 
         tokio::spawn(async move {
-            use futures_util::StreamExt;
+            let mut args: Vec<String> = Vec::new();
+            if let Some(ref script) = bin_script {
+                args.push(script.clone());
+            }
+            args.push("exec".to_string());
+            args.push("--json".to_string());
+            if !model_str.is_empty() && model_str != "auto" && model_str != "default" {
+                args.push("--model".to_string());
+                args.push(model_str.clone());
+            }
+            args.push("--skip-git-repo-check".to_string());
+            args.push("--ephemeral".to_string());
 
-            let mut stream = byte_stream;
-            let mut buffer = String::new();
-            let mut last_content = String::new();
+            let use_stdin = prompt.len() > 8000;
+            if !use_stdin {
+                args.push(prompt.clone());
+            }
 
-            while let Some(chunk_result) = stream.next().await {
-                let chunk = match chunk_result {
-                    Ok(c) => c,
-                    Err(e) => {
-                        let _ = tx
-                            .send(Err(anyhow::anyhow!("Stream read error: {}", e)))
-                            .await;
-                        break;
-                    }
-                };
+            let mut cmd = tokio::process::Command::new(&bin_program);
+            cmd.args(&args)
+                .env_clear()
+                .envs(safe_subprocess_env())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null());
+            if use_stdin {
+                cmd.stdin(std::process::Stdio::piped());
+            }
 
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = tx.send(Err(anyhow::anyhow!("Spawn failed: {}", e))).await;
+                    return;
+                }
+            };
 
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || line.starts_with(':') {
-                        continue;
-                    }
-
-                    let data = match line.strip_prefix("data: ") {
-                        Some(d) => d,
-                        None => continue,
-                    };
-
-                    let (content, is_done, _) = parse_backend_sse_line(data);
-
-                    if let Some(ref c) = content {
-                        // Backend sends full accumulated text each time; compute delta
-                        if c.len() > last_content.len() {
-                            let delta = &c[last_content.len()..];
-                            if !delta.is_empty() {
-                                let _ = tx
-                                    .send(Ok(StreamChunk::ContentDelta(delta.to_string())))
-                                    .await;
-                            }
-                        }
-                        last_content = c.clone();
-                    }
-
-                    if is_done {
-                        let _ = tx.send(Ok(StreamChunk::Done { usage: None })).await;
-                        return;
-                    }
+            // Feed prompt via stdin for long prompts
+            if use_stdin {
+                if let Some(mut stdin) = child.stdin.take() {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = stdin.write_all(prompt.as_bytes()).await;
+                    drop(stdin);
                 }
             }
 
-            // If stream ends without explicit [DONE], still send Done
-            let _ = tx.send(Ok(StreamChunk::Done { usage: None })).await;
+            let stdout = match child.stdout.take() {
+                Some(s) => s,
+                None => {
+                    let _ = tx.send(Err(anyhow::anyhow!("No stdout"))).await;
+                    return;
+                }
+            };
+
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+            let mut usage = None;
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
+
+                let parsed: Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let event_type = parsed["type"].as_str().unwrap_or("");
+
+                match event_type {
+                    "item.completed" => {
+                        if let Some(text) = parsed["item"]["text"].as_str() {
+                            let _ = tx
+                                .send(Ok(StreamChunk::ContentDelta(text.to_string())))
+                                .await;
+                        }
+                    }
+                    "turn.completed" => {
+                        if let Some(u) = parsed.get("usage") {
+                            let input = u["input_tokens"].as_u64().unwrap_or(0) as u32;
+                            let output_t = u["output_tokens"].as_u64().unwrap_or(0) as u32;
+                            usage = Some(TokenUsage {
+                                prompt_tokens: input,
+                                completion_tokens: output_t,
+                                total_tokens: input + output_t,
+                            });
+                        }
+                    }
+                    "error" => {
+                        let msg = parsed["message"]
+                            .as_str()
+                            .unwrap_or("Codex error")
+                            .to_string();
+                        let _ = tx.send(Err(anyhow::anyhow!("{}", msg))).await;
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+
+            let _ = tx.send(Ok(StreamChunk::Done { usage })).await;
+            let _ = child.wait().await;
         });
 
         Ok(Box::pin(ReceiverStream::new(rx)))
     }
 
     async fn is_alive(&self) -> bool {
-        match self.token_manager.get_credential().await {
-            Ok(cred) => !cred.access_token.is_empty(),
-            Err(_) => false,
+        // Check if Codex CLI exists and auth is valid
+        if find_codex_binary().is_none() {
+            return false;
+        }
+        match self.token_manager.get_credential_clone().await {
+            Some(cred) => !cred.access_token.is_empty(),
+            None => false,
         }
     }
 }
@@ -317,7 +616,7 @@ impl Provider for ChatGptBackendProvider {
 mod tests {
     use super::*;
 
-    // ── Message format translation tests ──
+    // ── Message format translation tests (REST backend-api) ──
 
     #[test]
     fn test_user_message_to_backend() {
@@ -421,6 +720,119 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // ── Codex CLI JSONL parsing tests ──
+
+    #[test]
+    fn test_parse_codex_jsonl_simple() {
+        let output = r#"{"type":"thread.started","thread_id":"abc"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Hello!"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}"#;
+        let (text, usage) = parse_codex_jsonl(output).unwrap();
+        assert_eq!(text, "Hello!");
+        let u = usage.unwrap();
+        assert_eq!(u.prompt_tokens, 100);
+        assert_eq!(u.completion_tokens, 10);
+        assert_eq!(u.total_tokens, 110);
+    }
+
+    #[test]
+    fn test_parse_codex_jsonl_no_usage() {
+        let output = r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"World"}}"#;
+        let (text, usage) = parse_codex_jsonl(output).unwrap();
+        assert_eq!(text, "World");
+        assert!(usage.is_none());
+    }
+
+    #[test]
+    fn test_parse_codex_jsonl_empty() {
+        let result = parse_codex_jsonl("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_codex_jsonl_multiple_items() {
+        let output = r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"First"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Second"}}"#;
+        let (text, _) = parse_codex_jsonl(output).unwrap();
+        // Last item wins
+        assert_eq!(text, "Second");
+    }
+
+    #[test]
+    fn test_parse_codex_jsonl_with_cached_tokens() {
+        let output = r#"{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"OK"}}
+{"type":"turn.completed","usage":{"input_tokens":8625,"cached_input_tokens":7040,"output_tokens":48}}"#;
+        let (text, usage) = parse_codex_jsonl(output).unwrap();
+        assert_eq!(text, "OK");
+        let u = usage.unwrap();
+        assert_eq!(u.prompt_tokens, 8625);
+        assert_eq!(u.completion_tokens, 48);
+    }
+
+    // ── Prompt building tests ──
+
+    #[test]
+    fn test_messages_to_prompt_user_only() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        let prompt = messages_to_prompt(&messages);
+        assert_eq!(prompt, "Hello");
+    }
+
+    #[test]
+    fn test_messages_to_prompt_system_and_user() {
+        let messages = vec![
+            ChatMessage {
+                role: "system".to_string(),
+                content: "Be helpful".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Hello".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        let prompt = messages_to_prompt(&messages);
+        assert!(prompt.contains("[System instruction: Be helpful]"));
+        assert!(prompt.contains("Hello"));
+    }
+
+    #[test]
+    fn test_messages_to_prompt_multi_turn() {
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "What is 2+2?".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: "4".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "And 3+3?".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            },
+        ];
+        let prompt = messages_to_prompt(&messages);
+        assert!(prompt.contains("What is 2+2?"));
+        assert!(prompt.contains("[Previous assistant response: 4]"));
+        assert!(prompt.contains("And 3+3?"));
+    }
+
     // ── Provider struct tests ──
 
     #[tokio::test]
@@ -428,10 +840,16 @@ mod tests {
         let tm = Arc::new(CodexTokenManager::new());
         let provider = ChatGptBackendProvider::new(tm);
         assert_eq!(provider.name(), "chatgpt_backend");
-        assert_eq!(provider.default_model(), "gpt-4o");
+        assert_eq!(provider.default_model(), "gpt-5.4");
         assert!(provider.capabilities().streaming);
-        assert!(provider.capabilities().vision);
         assert!(!provider.capabilities().native_tools);
+    }
+
+    #[tokio::test]
+    async fn test_provider_with_custom_model() {
+        let tm = Arc::new(CodexTokenManager::new());
+        let provider = ChatGptBackendProvider::with_model(tm, "gpt-5.4");
+        assert_eq!(provider.default_model(), "gpt-5.4");
     }
 
     #[tokio::test]

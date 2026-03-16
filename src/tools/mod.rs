@@ -1,0 +1,633 @@
+// Tool system — inspired by ZeroClaw's Tool trait
+// Provides: Tool trait, ToolResult, ToolRegistry, built-in tools
+// Rate limiting + credential scrubbing (ZeroClaw-inspired)
+
+pub mod shell;
+pub mod file_read;
+pub mod file_write;
+pub mod file_edit;
+pub mod web_search;
+pub mod http_request;
+pub mod memory_tools;
+pub mod glob_search;
+pub mod content_search;
+pub mod delegate;
+pub mod delegate_to_provider;
+pub mod ai_code;
+pub mod computer_use;
+pub mod browser;
+pub mod vision;
+pub mod email;
+pub mod twitter;
+pub mod blog_publish;
+pub mod pdf_export;
+pub mod run_hand;
+pub mod skeleton_generate;
+pub mod stripe;
+pub mod render_deploy;
+pub mod scaffold_saas;
+pub mod cli_anything;
+
+use anyhow::Result;
+use async_trait::async_trait;
+use once_cell::sync::Lazy;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tracing::warn;
+
+// ── Rate Limiting ─────────────────────────────────────────────────────────────
+
+/// Sliding-window action tracker (inspired by ZeroClaw's ActionTracker)
+#[derive(Debug)]
+pub struct ActionTracker {
+    /// Timestamps of recent actions within the window
+    actions: Mutex<Vec<Instant>>,
+    /// Window duration (default: 1 hour)
+    window: Duration,
+}
+
+impl ActionTracker {
+    pub fn new(window: Duration) -> Self {
+        Self {
+            actions: Mutex::new(Vec::new()),
+            window,
+        }
+    }
+
+    /// Record an action and return the count in the current window
+    pub fn record(&self) -> usize {
+        let mut actions = self.actions.lock().unwrap();
+        let now = Instant::now();
+        // Use checked_sub to avoid overflow on Windows where Instant epoch may be recent
+        if let Some(cutoff) = now.checked_sub(self.window) {
+            actions.retain(|t| *t > cutoff);
+        }
+        actions.push(now);
+        actions.len()
+    }
+
+    /// Get the count of actions in the current window (non-recording)
+    pub fn count(&self) -> usize {
+        let mut actions = self.actions.lock().unwrap();
+        let now = Instant::now();
+        if let Some(cutoff) = now.checked_sub(self.window) {
+            actions.retain(|t| *t > cutoff);
+        }
+        actions.len()
+    }
+
+    /// Reset the tracker
+    pub fn reset(&self) {
+        let mut actions = self.actions.lock().unwrap();
+        actions.clear();
+    }
+}
+
+impl Default for ActionTracker {
+    fn default() -> Self {
+        Self::new(Duration::from_secs(3600)) // 1 hour window
+    }
+}
+
+/// Rate limit configuration
+#[derive(Debug, Clone, Deserialize)]
+pub struct RateLimitConfig {
+    /// Max tool calls per hour (global across all tools)
+    #[serde(default = "default_max_actions")]
+    pub max_actions_per_hour: u32,
+    /// Max calls per tool per hour (per-tool limit)
+    #[serde(default = "default_max_per_tool")]
+    pub max_per_tool_per_hour: u32,
+}
+
+fn default_max_actions() -> u32 { 60 }
+fn default_max_per_tool() -> u32 { 30 }
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_actions_per_hour: default_max_actions(),
+            max_per_tool_per_hour: default_max_per_tool(),
+        }
+    }
+}
+
+// ── Credential Scrubbing ──────────────────────────────────────────────────────
+
+/// Regex patterns for detecting sensitive key-value pairs in tool output
+static SENSITIVE_KV_REGEX: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r#"(?i)(token|api[_\-]?key|password|passwd|secret|user[_\-]?key|bearer|credential|auth[_\-]?token|access[_\-]?key|private[_\-]?key)["']?\s*[:=]\s*(?:"([^"]{8,})"|'([^']{8,})'|([a-zA-Z0-9_\-\.\/\+]{8,}))"#
+    ).unwrap()
+});
+
+/// Regex for common API key formats (standalone, not key-value)
+static API_KEY_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
+    vec![
+        // AWS Access Key ID
+        Regex::new(r"(?:^|[^a-zA-Z0-9])AKIA[0-9A-Z]{16}(?:[^a-zA-Z0-9]|$)").unwrap(),
+        // Stripe secret key
+        Regex::new(r"sk_live_[a-zA-Z0-9]{20,}").unwrap(),
+        // OpenAI API key
+        Regex::new(r"sk-[a-zA-Z0-9]{32,}").unwrap(),
+        // GitHub token
+        Regex::new(r"gh[ps]_[a-zA-Z0-9]{36,}").unwrap(),
+        // Generic Bearer token
+        Regex::new(r"Bearer\s+[a-zA-Z0-9\-_\.]{20,}").unwrap(),
+        // Private key block
+        Regex::new(r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----").unwrap(),
+        // JWT token (3 base64 segments with dots)
+        Regex::new(r"eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+").unwrap(),
+    ]
+});
+
+/// Scrub credentials from text output (inspired by ZeroClaw's scrub_credentials)
+pub fn scrub_credentials(input: &str) -> String {
+    let mut output = SENSITIVE_KV_REGEX.replace_all(input, |caps: &regex::Captures| {
+        let key = caps.get(1).map(|m| m.as_str()).unwrap_or("key");
+        // Find the actual value (could be in group 2, 3, or 4)
+        let val = caps.get(2)
+            .or_else(|| caps.get(3))
+            .or_else(|| caps.get(4))
+            .map(|m| m.as_str())
+            .unwrap_or("");
+        let prefix = if val.len() > 4 { &val[..4] } else { "" };
+        format!("{}: {}****[REDACTED]", key, prefix)
+    }).to_string();
+
+    // Scrub standalone API key patterns
+    for pattern in API_KEY_PATTERNS.iter() {
+        output = pattern.replace_all(&output, "[REDACTED_KEY]").to_string();
+    }
+
+    output
+}
+
+// ── Tool Types ────────────────────────────────────────────────────────────────
+
+/// Result of a tool execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub success: bool,
+    pub output: String,
+}
+
+/// Tool specification for LLM function calling
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolSpec {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+/// Tool trait — any executable tool implements this
+#[async_trait]
+pub trait Tool: Send + Sync {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn parameters_schema(&self) -> Value;
+    async fn execute(&self, args: Value) -> Result<ToolResult>;
+
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: self.name().to_string(),
+            description: self.description().to_string(),
+            parameters: self.parameters_schema(),
+        }
+    }
+}
+
+/// Security config for tool execution
+#[derive(Debug, Clone, Deserialize)]
+pub struct SecurityConfig {
+    #[serde(default = "default_workspace")]
+    pub workspace_dir: String,
+    #[serde(default = "default_true")]
+    pub workspace_only: bool,
+    #[serde(default = "default_allowed_commands")]
+    pub allowed_commands: Vec<String>,
+    #[serde(default)]
+    pub rate_limit: RateLimitConfig,
+    /// Additional paths allowed when workspace_only is true (e.g., src/ for self-modify)
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+}
+
+fn default_workspace() -> String {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+    format!("{}/.clawtex/workspace", home)
+}
+
+fn default_true() -> bool { true }
+
+pub(crate) fn default_allowed_commands() -> Vec<String> {
+    vec![
+        "git", "python", "python3", "pip", "pip3",
+        "cargo", "npm", "node", "npx",
+        "ls", "dir", "cat", "head", "tail", "grep", "find", "echo",
+        "mkdir", "cp", "mv", "pwd", "which", "where", "wc", "sort", "tree",
+        "date", "time", "whoami", "hostname",
+        "sqlite3", "jq",
+    ].into_iter().map(String::from).collect()
+}
+
+// ── Path Normalization (ACI poka-yoke) ───────────────────────────────────────
+
+/// Expand ~ or ~/ to the user's home directory.
+pub(crate) fn expand_home(path: &str) -> String {
+    if path.starts_with("~/") || path.starts_with("~\\") {
+        let home = std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string());
+        format!("{}/{}", home, &path[2..])
+    } else if path == "~" {
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .unwrap_or_else(|_| ".".to_string())
+    } else {
+        path.to_string()
+    }
+}
+
+/// Normalize a file path that an LLM might produce incorrectly.
+/// Fixes: ~/ expansion, /home/user/ → Windows home, duplicate workspace prefix, forward slashes.
+pub(crate) fn normalize_llm_path(path: &str, workspace: &std::path::Path) -> String {
+    let mut p = path.to_string();
+
+    // 1. Expand ~/
+    p = expand_home(&p);
+
+    // 2. Fix Linux-style /home/user/ on Windows
+    #[cfg(target_os = "windows")]
+    {
+        let home = std::env::var("USERPROFILE").unwrap_or_default();
+        let username = home.rsplit(['\\', '/']).next().unwrap_or("");
+        if !username.is_empty() {
+            let linux_home = format!("/home/{}/", username);
+            if p.starts_with(&linux_home) {
+                p = format!("{}/{}", home, &p[linux_home.len()..]);
+            }
+        }
+    }
+
+    // 3. Remove duplicate workspace prefix (workspace/~/.clawtex/workspace/X → workspace/X)
+    let ws_str = workspace.to_string_lossy().replace('\\', "/");
+    let ws_suffix = if ws_str.ends_with('/') { &ws_str } else { &format!("{}/", ws_str) };
+    // Check if path contains workspace path embedded after workspace join
+    if p.replace('\\', "/").matches(&ws_str.replace('\\', "/")).count() > 1 {
+        // e.g., C:/Users/m4932/.clawtex/workspace/~/.clawtex/workspace/file.py
+        // Keep only the last occurrence
+        if let Some(last_idx) = p.replace('\\', "/").rfind(&ws_str.replace('\\', "/")) {
+            p = p[last_idx..].to_string();
+        }
+    }
+
+    // 4. Normalize slashes to platform style
+    #[cfg(target_os = "windows")]
+    {
+        // Keep forward slashes (Rust/Git handle them fine on Windows)
+    }
+
+    p
+}
+
+/// Normalize a shell command's embedded paths.
+/// Expands ~ references inside command strings.
+pub(crate) fn normalize_shell_command(command: &str) -> String {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_else(|_| ".".to_string());
+
+    // Replace ~/ with home dir — this is the #1 LLM mistake on Windows
+    // Safe: ~/ in shell commands virtually always means home directory
+    if command.contains("~/") {
+        command.replace("~/", &format!("{}/", home))
+    } else {
+        command.to_string()
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            workspace_dir: default_workspace(),
+            workspace_only: true,
+            allowed_commands: default_allowed_commands(),
+            rate_limit: RateLimitConfig::default(),
+            allowed_paths: Vec::new(),
+        }
+    }
+}
+
+impl SecurityConfig {
+    pub fn workspace_path(&self) -> PathBuf {
+        PathBuf::from(expand_home(&self.workspace_dir))
+    }
+
+    /// Check if a path is within workspace OR any allowed_paths entry.
+    pub fn is_allowed_path(&self, path: &std::path::Path) -> bool {
+        let workspace = self.workspace_path();
+        let ws_canonical = workspace.canonicalize().unwrap_or(workspace);
+        if path.starts_with(&ws_canonical) {
+            return true;
+        }
+        for allowed in &self.allowed_paths {
+            let allowed_path = PathBuf::from(allowed);
+            let allowed_canonical = allowed_path.canonicalize().unwrap_or(allowed_path);
+            if path.starts_with(&allowed_canonical) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+// ── Tool Registry ─────────────────────────────────────────────────────────────
+
+/// Registry of available tools — with rate limiting and credential scrubbing
+pub struct ToolRegistry {
+    tools: HashMap<String, Box<dyn Tool>>,
+    workspace_dir: String,
+    /// Global action tracker (all tools combined)
+    global_tracker: ActionTracker,
+    /// Per-tool action trackers
+    tool_trackers: Mutex<HashMap<String, ActionTracker>>,
+    /// Rate limit config
+    rate_limit: RateLimitConfig,
+    /// Whether to scrub credentials from tool output
+    scrub_enabled: bool,
+}
+
+impl ToolRegistry {
+    /// Create registry with default tools (no search API keys)
+    pub fn new(security: SecurityConfig) -> Self {
+        Self::new_with_search(security, web_search::SearchConfig::default())
+    }
+
+    /// Create registry with search API configuration
+    pub fn new_with_search(security: SecurityConfig, search_config: web_search::SearchConfig) -> Self {
+        let mut tools: HashMap<String, Box<dyn Tool>> = HashMap::new();
+
+        // Ensure workspace exists
+        let ws = security.workspace_path();
+        let _ = std::fs::create_dir_all(&ws);
+
+        tools.insert("shell".to_string(), Box::new(shell::ShellTool::new(security.clone())));
+        tools.insert("file_read".to_string(), Box::new(file_read::FileReadTool::new(security.clone())));
+        let workspace_dir = security.workspace_dir.clone();
+        let rate_limit = security.rate_limit.clone();
+        let allowed_paths = security.allowed_paths.clone();
+        tools.insert("file_write".to_string(), Box::new(file_write::FileWriteTool::new(security)));
+        tools.insert("web_search".to_string(), Box::new(web_search::WebSearchTool::new(search_config)));
+
+        // Sprint 2 tools — inherit allowed_paths from main security config
+        let sec_for_tools = SecurityConfig {
+            workspace_dir: workspace_dir.clone(),
+            rate_limit: rate_limit.clone(),
+            allowed_paths: allowed_paths,
+            ..SecurityConfig::default()
+        };
+        tools.insert("file_edit".to_string(), Box::new(file_edit::FileEditTool::new(sec_for_tools.clone())));
+        tools.insert("http_request".to_string(), Box::new(http_request::HttpRequestTool::new(vec![])));
+        tools.insert("glob_search".to_string(), Box::new(glob_search::GlobSearchTool::new(sec_for_tools.clone())));
+        tools.insert("content_search".to_string(), Box::new(content_search::ContentSearchTool::new(sec_for_tools)));
+        tools.insert("browser".to_string(), Box::new(browser::BrowserTool::new()));
+
+        Self {
+            tools,
+            workspace_dir,
+            global_tracker: ActionTracker::default(),
+            tool_trackers: Mutex::new(HashMap::new()),
+            rate_limit,
+            scrub_enabled: true,
+        }
+    }
+
+    pub fn workspace_dir(&self) -> &str {
+        &self.workspace_dir
+    }
+
+    pub fn get(&self, name: &str) -> Option<&dyn Tool> {
+        self.tools.get(name).map(|t| t.as_ref())
+    }
+
+    pub fn specs(&self) -> Vec<ToolSpec> {
+        self.tools.values().map(|t| t.spec()).collect()
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        let mut names: Vec<_> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Register an additional tool (used for delegate which needs Arcs created after init)
+    pub fn register(&mut self, tool: Box<dyn Tool>) {
+        let name = tool.name().to_string();
+        self.tools.insert(name, tool);
+    }
+
+    /// Check if a tool call is within rate limits
+    pub fn check_rate_limit(&self, tool_name: &str) -> Result<(), String> {
+        // Check global limit
+        let global_count = self.global_tracker.count();
+        if global_count >= self.rate_limit.max_actions_per_hour as usize {
+            return Err(format!(
+                "Global rate limit exceeded: {}/{} actions per hour",
+                global_count, self.rate_limit.max_actions_per_hour
+            ));
+        }
+
+        // Check per-tool limit
+        let mut trackers = self.tool_trackers.lock().unwrap();
+        let tracker = trackers
+            .entry(tool_name.to_string())
+            .or_insert_with(ActionTracker::default);
+        let tool_count = tracker.count();
+        if tool_count >= self.rate_limit.max_per_tool_per_hour as usize {
+            return Err(format!(
+                "Tool '{}' rate limit exceeded: {}/{} per hour",
+                tool_name, tool_count, self.rate_limit.max_per_tool_per_hour
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Record a tool call (after successful execution)
+    pub fn record_tool_call(&self, tool_name: &str) {
+        self.global_tracker.record();
+        let mut trackers = self.tool_trackers.lock().unwrap();
+        let tracker = trackers
+            .entry(tool_name.to_string())
+            .or_insert_with(ActionTracker::default);
+        tracker.record();
+    }
+
+    /// Execute a tool with rate limiting and credential scrubbing
+    pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<ToolResult> {
+        // 1. Check rate limit
+        if let Err(msg) = self.check_rate_limit(tool_name) {
+            warn!("Rate limited: {}", msg);
+            return Ok(ToolResult {
+                success: false,
+                output: format!("Rate limit exceeded: {}", msg),
+            });
+        }
+
+        // 2. Execute tool
+        let tool = self.tools.get(tool_name)
+            .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", tool_name))?;
+
+        let result = tool.execute(args).await?;
+
+        // 3. Record the action
+        self.record_tool_call(tool_name);
+
+        // 4. Scrub credentials from output
+        if self.scrub_enabled {
+            Ok(ToolResult {
+                success: result.success,
+                output: scrub_credentials(&result.output),
+            })
+        } else {
+            Ok(result)
+        }
+    }
+
+    /// Get rate limit stats for monitoring
+    pub fn rate_limit_stats(&self) -> HashMap<String, usize> {
+        let mut stats = HashMap::new();
+        stats.insert("global".to_string(), self.global_tracker.count());
+        let trackers = self.tool_trackers.lock().unwrap();
+        for (name, tracker) in trackers.iter() {
+            stats.insert(name.clone(), tracker.count());
+        }
+        stats
+    }
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_action_tracker_records() {
+        let tracker = ActionTracker::new(Duration::from_secs(60));
+        assert_eq!(tracker.count(), 0);
+        assert_eq!(tracker.record(), 1);
+        assert_eq!(tracker.record(), 2);
+        assert_eq!(tracker.count(), 2);
+    }
+
+    #[test]
+    fn test_action_tracker_reset() {
+        let tracker = ActionTracker::new(Duration::from_secs(60));
+        tracker.record();
+        tracker.record();
+        assert_eq!(tracker.count(), 2);
+        tracker.reset();
+        assert_eq!(tracker.count(), 0);
+    }
+
+    #[test]
+    fn test_rate_limit_check() {
+        let security = SecurityConfig {
+            rate_limit: RateLimitConfig {
+                max_actions_per_hour: 3,
+                max_per_tool_per_hour: 2,
+            },
+            ..Default::default()
+        };
+        let registry = ToolRegistry::new(security);
+
+        // First 2 calls should pass
+        assert!(registry.check_rate_limit("shell").is_ok());
+        registry.record_tool_call("shell");
+        assert!(registry.check_rate_limit("shell").is_ok());
+        registry.record_tool_call("shell");
+
+        // 3rd call for same tool should fail (per-tool limit = 2)
+        assert!(registry.check_rate_limit("shell").is_err());
+
+        // Different tool should still work (global = 2/3)
+        assert!(registry.check_rate_limit("file_read").is_ok());
+        registry.record_tool_call("file_read");
+
+        // Now global limit (3) is hit
+        assert!(registry.check_rate_limit("file_read").is_err());
+    }
+
+    #[test]
+    fn test_scrub_kv_patterns() {
+        let input = r#"api_key = "sk-abcdefghijklmnop""#;
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("[REDACTED]"));
+        assert!(!scrubbed.contains("abcdefghijklmnop"));
+    }
+
+    #[test]
+    fn test_scrub_token_pattern() {
+        let input = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123def456";
+        let scrubbed = scrub_credentials(input);
+        assert!(!scrubbed.contains("eyJhbGciOiJIUzI1NiJ9"));
+    }
+
+    #[test]
+    fn test_scrub_aws_key() {
+        let input = "Found key: AKIAIOSFODNN7EXAMPLE in config";
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("[REDACTED_KEY]"));
+        assert!(!scrubbed.contains("AKIAIOSFODNN7EXAMPLE"));
+    }
+
+    #[test]
+    fn test_scrub_openai_key() {
+        let input = "key is sk-abc123def456ghi789jkl012mno345pqr678";
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("[REDACTED_KEY]"));
+    }
+
+    #[test]
+    fn test_scrub_preserves_normal_text() {
+        let input = "Hello world, this is a normal message with no secrets.";
+        let scrubbed = scrub_credentials(input);
+        assert_eq!(input, scrubbed);
+    }
+
+    #[test]
+    fn test_scrub_short_values_ignored() {
+        // Values shorter than 8 chars should NOT be redacted (too many false positives)
+        let input = r#"token = "abc""#;
+        let scrubbed = scrub_credentials(input);
+        assert_eq!(input, scrubbed);
+    }
+
+    #[test]
+    fn test_scrub_private_key() {
+        let input = "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBg...";
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("[REDACTED_KEY]"));
+    }
+
+    #[test]
+    fn test_rate_limit_stats() {
+        let registry = ToolRegistry::new(SecurityConfig::default());
+        registry.record_tool_call("shell");
+        registry.record_tool_call("shell");
+        registry.record_tool_call("file_read");
+        let stats = registry.rate_limit_stats();
+        assert_eq!(stats.get("global"), Some(&3));
+        assert_eq!(stats.get("shell"), Some(&2));
+        assert_eq!(stats.get("file_read"), Some(&1));
+    }
+}

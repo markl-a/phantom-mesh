@@ -1,0 +1,21 @@
+# clawtex-core Worker 配置 — M1 (MacBook Air M1)
+# IP: 100.87.93.58 (Tailscale)
+# 特點: Apple Silicon, 適合 llama3.1:8b 和 qwen2.5:14b
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+[providers.ollama]
+type = "ollama"
+url = "http://localhost:11434"
+default_model = "llama3.1:8b"
+
+[agent.worker]
+provider = "ollama"
+model = "llama3.1:8b"
+tools = []
+instructions = """
+You are a worker node agent running on M1 Mac.
+Process delegated tasks from the Hub and return results.
+"""

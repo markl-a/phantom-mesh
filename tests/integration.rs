@@ -33,10 +33,10 @@ async fn test_chatgpt_backend_provider_creation() {
     let tm = Arc::new(CodexTokenManager::new());
     let provider = ChatGptBackendProvider::new(tm);
     assert_eq!(provider.name(), "chatgpt_backend");
-    assert_eq!(provider.default_model(), "gpt-4o");
+    assert_eq!(provider.default_model(), "gpt-5.4");
     assert!(provider.capabilities().streaming);
     assert!(!provider.capabilities().native_tools); // Backend API doesn't support native tools
-    assert!(provider.capabilities().vision);
+    assert!(!provider.capabilities().vision); // Codex CLI doesn't support image input
 }
 
 #[tokio::test]
@@ -562,6 +562,8 @@ fn test_e2e_hand_context_preparation() {
             m
         },
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
 
     let context = HandRunner::prepare_context(&hand, "Find AI companies");
@@ -3183,6 +3185,8 @@ async fn test_e2e_system_wiring_smoke_test() {
             system_prompt: "Test prompt".into(),
             max_rounds: 1,
             condition: None,
+            target_worker: None,
+            target_capability: None,
         }],
         tools: vec!["file_write".into()],
         output_format: "markdown".into(),
@@ -3191,6 +3195,8 @@ async fn test_e2e_system_wiring_smoke_test() {
             ("key".into(), "value".into()),
         ]),
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
     let ctx = HandRunner::prepare_context(&hand, "smoke input");
     assert!(ctx.contains("smoke input"));

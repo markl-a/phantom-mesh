@@ -63,6 +63,9 @@ pub struct ProviderRouter {
     medium_providers: Vec<String>,
     /// Provider names for complex requests
     complex_providers: Vec<String>,
+    /// Budget ratio (0.0 - 1.0) for automatic provider downgrade.
+    /// Updated externally via set_budget_ratio(). 0.0 = no spend, 1.0 = budget exhausted.
+    budget_ratio: std::sync::atomic::AtomicU32,
 }
 
 // Default provider configs (used if agents.toml not found or provider missing)
@@ -238,6 +241,20 @@ fn create_provider(name: &str, config: &ProviderConfig) -> CreateProviderResult 
                 codex_base_url: None,
             }
         }
+        "opencode_backend" => {
+            let model = config.default_model.clone().unwrap_or_default();
+            let provider = if model.is_empty() {
+                super::opencode_backend::OpenCodeBackendProvider::new()
+            } else {
+                super::opencode_backend::OpenCodeBackendProvider::with_model(&model)
+            };
+            info!("opencode_backend: default_model={}", provider.default_model());
+            CreateProviderResult {
+                provider: Box::new(provider),
+                codex_token_manager: None,
+                codex_base_url: None,
+            }
+        }
         "gemini" => {
             let api_key = resolve_api_key(&config.api_key, &env_vars);
             CreateProviderResult {
@@ -284,6 +301,37 @@ impl ProviderRouter {
     pub fn new(config_path: &str) -> Result<Self> {
         let (provider_configs, routes, smart_routing_config) = if std::path::Path::new(config_path).exists() {
             let content = std::fs::read_to_string(config_path)?;
+
+            // Decrypt enc2: secrets in config before parsing
+            let content = {
+                let clawtex_dir = config_path
+                    .rsplit_once('/')
+                    .or_else(|| config_path.rsplit_once('\\'))
+                    .map(|(dir, _)| dir.to_string())
+                    .unwrap_or_else(|| ".".to_string());
+                match crate::SecretManager::new(&clawtex_dir) {
+                    Ok(sm) => {
+                        let mut s = content;
+                        while let Some(start) = s.find("enc2:") {
+                            let rest = &s[start..];
+                            let end = rest.find('"')
+                                .or_else(|| rest.find('\''))
+                                .or_else(|| rest.find('\n'))
+                                .unwrap_or(rest.len());
+                            let enc_val = s[start..start + end].to_string();
+                            match sm.decrypt(&enc_val) {
+                                Ok(plain) => {
+                                    s = format!("{}{}{}", &s[..start], plain, &s[start + end..]);
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        s
+                    }
+                    Err(_) => content,
+                }
+            };
+
             let parsed: AgentsToml = toml::from_str(&content)?;
             let configs = if parsed.providers.is_empty() {
                 default_provider_configs()
@@ -352,6 +400,7 @@ impl ProviderRouter {
             simple_providers: smart_simple,
             medium_providers: smart_medium,
             complex_providers: smart_complex,
+            budget_ratio: std::sync::atomic::AtomicU32::new(0),
         })
     }
 
@@ -382,6 +431,40 @@ impl ProviderRouter {
         self.classifier.is_some() && (!self.simple_providers.is_empty()
             || !self.medium_providers.is_empty()
             || !self.complex_providers.is_empty())
+    }
+
+    /// Update the budget usage ratio (0.0 = no spend, 1.0 = fully spent).
+    /// When ratio >= 0.5, routing prefers medium-tier providers.
+    /// When ratio >= 0.8, routing prefers local/cheap providers only.
+    pub fn set_budget_ratio(&self, ratio: f32) {
+        let clamped = ratio.clamp(0.0, 1.0);
+        self.budget_ratio.store(
+            clamped.to_bits(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        if clamped >= 0.8 {
+            info!("Budget at {:.0}% — routing to local providers only", clamped * 100.0);
+        } else if clamped >= 0.5 {
+            info!("Budget at {:.0}% — routing to medium-tier providers", clamped * 100.0);
+        }
+    }
+
+    /// Get current budget ratio
+    pub fn budget_ratio(&self) -> f32 {
+        f32::from_bits(self.budget_ratio.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Get the budget-adjusted provider tier.
+    /// Returns which tier to prefer based on budget pressure.
+    pub fn budget_tier(&self) -> &str {
+        let ratio = self.budget_ratio();
+        if ratio >= 0.8 {
+            "local"  // L3: use only local providers (ollama, lmstudio)
+        } else if ratio >= 0.5 {
+            "medium"  // L2: prefer medium-cost providers
+        } else {
+            "full"  // L1: all providers available
+        }
     }
 
     /// Check if a provider with the given name exists
@@ -417,9 +500,47 @@ impl ProviderRouter {
     }
 
     /// Find the first alive provider (auto-routing), skipping those in cooldown.
+    /// Respects budget_ratio: at >=80% prefer local, at >=50% prefer medium tier.
     async fn find_alive_provider(&self) -> Option<&dyn Provider> {
+        let tier = self.budget_tier();
+        let local_names: Vec<&str> = vec!["ollama", "lmstudio"];
+
+        // Budget L3: try local-only first
+        if tier == "local" {
+            for name in &self.auto_order {
+                if !local_names.contains(&name.as_str()) {
+                    continue;
+                }
+                if let Some(ref rotation) = self.rotation {
+                    if rotation.is_cooling_down(name) { continue; }
+                }
+                if let Some(p) = self.providers.get(name) {
+                    if p.is_alive().await {
+                        debug!("Auto-route (budget L3 local): using '{}'", name);
+                        return Some(p.as_ref());
+                    }
+                }
+            }
+            // Fall through to any provider if no local available
+        }
+
+        // Budget L2: try medium tier first (if configured)
+        if tier == "medium" && !self.medium_providers.is_empty() {
+            for name in &self.medium_providers {
+                if let Some(ref rotation) = self.rotation {
+                    if rotation.is_cooling_down(name) { continue; }
+                }
+                if let Some(p) = self.providers.get(name) {
+                    if p.is_alive().await {
+                        debug!("Auto-route (budget L2 medium): using '{}'", name);
+                        return Some(p.as_ref());
+                    }
+                }
+            }
+        }
+
+        // Normal fallback: try all providers in order
         for name in &self.auto_order {
-            // Skip providers in cooldown
             if let Some(ref rotation) = self.rotation {
                 if rotation.is_cooling_down(name) {
                     debug!("Auto-route: skipping '{}' (cooling down)", name);
@@ -536,31 +657,39 @@ impl ProviderRouter {
                     if error_class == ErrorClass::RateLimited {
                         rotation.record_rate_limit(provider_ref.name());
 
-                        // Try to find another provider
+                        // Try ALL available providers in order (not just one)
                         let candidates: Vec<String> = self.auto_order.clone();
-                        if let Some(fallback_name) = rotation.select_available(&candidates) {
-                            if fallback_name != provider_ref.name() {
-                                if let Some(fallback) = self.providers.get(&fallback_name) {
-                                    let fb_model = model_override.unwrap_or_default();
-                                    info!(
-                                        "Rotation: '{}' rate-limited, trying '{}'",
-                                        provider_ref.name(), fallback_name
-                                    );
-                                    match fallback.chat(messages, tools, &fb_model).await {
-                                        Ok(resp) => {
-                                            rotation.record_success(&fallback_name);
-                                            return Ok(resp);
+                        let mut last_err = e;
+                        for candidate_name in &candidates {
+                            if candidate_name == provider_ref.name() { continue; }
+                            if rotation.is_cooling_down(candidate_name) { continue; }
+                            if let Some(fallback) = self.providers.get(candidate_name) {
+                                let fb_model = fallback.default_model().to_string();
+                                info!(
+                                    "Rotation: '{}' rate-limited, trying '{}'",
+                                    provider_ref.name(), candidate_name
+                                );
+                                match fallback.chat(messages, tools, &fb_model).await {
+                                    Ok(resp) => {
+                                        rotation.record_success(candidate_name);
+                                        return Ok(resp);
+                                    }
+                                    Err(e2) => {
+                                        let e2_class = classify_error(&e2);
+                                        if e2_class == ErrorClass::RateLimited {
+                                            rotation.record_rate_limit(candidate_name);
                                         }
-                                        Err(e2) => {
-                                            if classify_error(&e2) == ErrorClass::RateLimited {
-                                                rotation.record_rate_limit(&fallback_name);
-                                            }
-                                            return Err(e2);
-                                        }
+                                        warn!(
+                                            "Rotation: fallback '{}' also failed ({:?}): {}",
+                                            candidate_name, e2_class, e2
+                                        );
+                                        last_err = e2;
+                                        continue; // Try next provider
                                     }
                                 }
                             }
                         }
+                        return Err(last_err);
                     }
                 }
                 Err(e)

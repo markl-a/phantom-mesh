@@ -111,6 +111,10 @@ async fn s01_route_a_freelancer_pipeline() {
                         .map(|w| w.name).unwrap_or("(none)".into());
                     format!("→ {} (full worker)", best)
                 },
+                ToolRouting::MobileOnly => {
+                    total_dispatched += 1;
+                    "→ mobile worker".to_string()
+                },
             };
             println!("  {} → {}", tool, target);
         }
@@ -147,7 +151,8 @@ async fn s02_route_b_lead_outreach_chain() {
             ToolRouting::AnyWorker => "→ light worker (network)",
             ToolRouting::FullWorkerOnly => "→ full worker",
             ToolRouting::Local => "→ hub (local)",
-        };
+                ToolRouting::MobileOnly => "→ mobile worker",
+            };
         println!("  {} {}", tool, where_str);
     }
 
@@ -160,7 +165,8 @@ async fn s02_route_b_lead_outreach_chain() {
             ToolRouting::AnyWorker => "→ light worker (network)",
             ToolRouting::FullWorkerOnly => "→ full worker",
             ToolRouting::Local => "→ hub (local)",
-        };
+                ToolRouting::MobileOnly => "→ mobile worker",
+            };
         println!("  {} {}", tool, where_str);
     }
 
@@ -221,6 +227,10 @@ async fn s03_route_c_seo_blog_twitter() {
                     kept_local += 1;
                     println!("  {} → hub local (filesystem)", tool);
                 },
+                ToolRouting::MobileOnly => {
+                    distributed_to_light += 1;
+                    println!("  {} → mobile worker", tool);
+                },
             }
         }
     }
@@ -258,6 +268,7 @@ async fn s04_route_d_market_intelligence() {
         let target = match routing {
             ToolRouting::AnyWorker => "→ any of 4 light workers",
             ToolRouting::Local => "→ hub (local)",
+                ToolRouting::MobileOnly => "→ mobile worker",
             ToolRouting::FullWorkerOnly => "→ full worker",
         };
         println!("  {} {}", tool, target);
@@ -339,6 +350,7 @@ async fn s06_route_f_trading_analysis() {
                 _ => {},
             }
             let target = match routing {
+                ToolRouting::MobileOnly => "→ mobile worker".into(),
                 ToolRouting::AnyWorker => {
                     let w = registry.online_workers().await;
                     let light: Vec<_> = w.iter().filter(|w| w.device_type == "light").collect();
@@ -378,6 +390,7 @@ async fn s07_route_g_content_daily() {
             ToolRouting::AnyWorker => "light worker (phone/tablet)",
             ToolRouting::FullWorkerOnly => "full worker (M1/Ayaneo)",
             ToolRouting::Local => "hub Z13",
+            ToolRouting::MobileOnly => "mobile worker (sensor/llm)",
         };
         println!("  {} → {}", tool, device);
     }
@@ -445,6 +458,7 @@ async fn s08_route_h_saas_pipeline() {
                 ToolRouting::AnyWorker => { network += 1; println!("    {} → light worker", tool); },
                 ToolRouting::FullWorkerOnly => { compute += 1; println!("    {} → full worker (M1/Ayaneo)", tool); },
                 ToolRouting::Local => { local += 1; println!("    {} → hub local", tool); },
+                ToolRouting::MobileOnly => { network += 1; println!("    {} → mobile worker", tool); },
             }
         }
     }
@@ -493,6 +507,7 @@ async fn s09_route_i_auto_report() {
                 },
                 ToolRouting::FullWorkerOnly => "→ full worker".into(),
                 ToolRouting::Local => "→ hub (local)".into(),
+                ToolRouting::MobileOnly => "→ mobile worker".into(),
             };
             println!("    {} {}", tool, target);
         }
@@ -531,6 +546,7 @@ async fn s10_route_j_cluster_self_optimize() {
             ToolRouting::AnyWorker => "→ light worker (ping all nodes)",
             ToolRouting::FullWorkerOnly => "→ full worker (shell diagnostics)",
             ToolRouting::Local => "→ hub (store results)",
+            ToolRouting::MobileOnly => "→ mobile worker",
         };
         println!("  {} {}", tool, target);
     }
@@ -545,6 +561,7 @@ async fn s10_route_j_cluster_self_optimize() {
             ToolRouting::AnyWorker => "→ any worker",
             ToolRouting::FullWorkerOnly => "→ full worker (cargo test)",
             ToolRouting::Local => "→ hub (config/code changes)",
+            ToolRouting::MobileOnly => "→ mobile worker",
         };
         println!("  {} {}", tool, target);
     }

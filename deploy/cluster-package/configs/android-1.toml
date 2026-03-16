@@ -1,0 +1,6 @@
+# Android Device 1 (連接 Acer) — Light Worker
+name = "android-1"
+device_type = "light"
+port = 7883
+hub = "http://192.168.1.104:7878"
+capabilities = ["web_search", "http_request"]

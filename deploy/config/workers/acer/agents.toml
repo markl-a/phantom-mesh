@@ -1,0 +1,22 @@
+# clawtex-core Worker 配置 — Acer
+# IP: 192.168.1.108 (區網)
+# 特點: 大硬碟, 備份推理 + 儲存節點
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+[providers.ollama]
+type = "ollama"
+url = "http://localhost:11434"
+default_model = "llama3.1:8b"
+
+[agent.worker]
+provider = "ollama"
+model = "llama3.1:8b"
+tools = []
+instructions = """
+You are a worker node agent running on Acer.
+Process delegated tasks and return results.
+Available for heavier inference tasks as backup.
+"""

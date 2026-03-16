@@ -1,0 +1,48 @@
+## Codebase Patterns
+- Windows linker LNK1104 — kill stale clawtex-core.exe before rebuild
+- Use checked_sub for Instant arithmetic on Windows
+- SQLite :memory: creates separate DB per connection — use tempfile for persistence tests
+- Tools implement Tool trait: name(), description(), parameters_schema(), execute()
+- Provider implements Provider trait: name(), chat(), stream_chat(), supports_streaming(), supports_native_tools()
+- SecurityConfig has workspace_dir, rate_limit — clone for tool constructors
+- Memory tools need Arc<MemoryStore> — register after MemoryStore creation, before Arc<ToolRegistry>
+- ToolRegistry::register() adds tools dynamically after initial construction
+- agents.toml is the central config file at ~/.clawtex/agents.toml
+- Daemon running on 127.0.0.1:7878
+- Current model: llama3.2:1b via Ollama (limited capability)
+- 15 tools, 298 lib tests (296 pass, 2 pre-existing conversation bugs), 32 integration tests
+- Provider trait: name(), default_model(), capabilities(), chat(), stream_chat(), is_alive()
+- ChatResponse: { message: ChatMessage, usage: Option<TokenUsage> }
+- ToolCall: { id: Option<String>, function: ToolCallFunction { name, arguments } }
+- Vision: [IMAGE:base64:<data>] inline format for Gemini/Groq
+- Groq = OpenAI-compatible at api.groq.com (vision via image_url content parts)
+- HandRegistry::empty() fallback when loading fails (no tempfile in bin target)
+- Windows cp950 encoding: use .encode('ascii','replace') for non-ASCII print
+---
+
+# Ralph Progress Log
+Started: 2026-03-03
+
+## Iteration 1 (all stories complete)
+- US-001: BrowserTool (Playwright Python subprocess) - 5 tests
+- US-002: GeminiProvider (free-tier vision) - 8 tests
+- US-003: VisionTool (Gemini primary + Groq fallback) - 5 tests
+- US-004: ApprovalGate (async request/respond) - 7 tests
+- US-005: HandRegistry + HandRunner (TOML workflow engine) - 5 tests
+- US-006/007/008: lead, researcher, content hands (TOML files)
+- US-009: EmailTool (Python SMTP subprocess) - 6 tests
+- US-010: GroqProvider (OpenAI-compat + vision) - 9 tests
+- US-011: Wire all features into main.rs + Telegram commands
+- US-012: pyautogui E2E test - 10/10 pass
+- Total: 298 lib tests, 32 integration tests, 10 E2E tests
+
+## Iteration 2: Money-Making Flows (Stage 4)
+- 4 new hands: outreach, freelancer, seo_content, market_intel
+- /hands HTTP API endpoint (GET /hands, POST /hand/:name/run)
+- Cold email outreach: prospect research -> scoring -> email generation -> send & track (4 phases)
+- Freelance job finder: job search -> opportunity scoring -> proposal generation -> application prep (4 phases)
+- SEO content: keyword research -> competitor analysis -> article writing -> SEO optimization (4 phases)
+- Market intelligence: market overview -> competitor mapping -> pricing analysis -> opportunity identification (4 phases)
+- E2E test: test_money_flows.py — 14/14 pass (8 API + 6 Telegram)
+- Total: 7 hands, 15 tools, 298 lib tests, 32 integration tests, 24 E2E tests
+---

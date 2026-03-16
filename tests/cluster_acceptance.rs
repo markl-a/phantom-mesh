@@ -163,6 +163,8 @@ async fn a4_self_modify_approval_gate_approved() {
                 system_prompt: "Analyze system state".to_string(),
                 max_rounds: 1,
                 condition: None,
+                    target_worker: None,
+                    target_capability: None,
             },
         ],
         tools: vec!["file_read".to_string()],
@@ -174,6 +176,8 @@ async fn a4_self_modify_approval_gate_approved() {
             s
         },
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
 
     let runtime = AgentRuntime::new("/nonexistent/path.toml").unwrap();
@@ -230,6 +234,8 @@ async fn a5_self_modify_approval_gate_denied() {
                 system_prompt: "Do something dangerous".to_string(),
                 max_rounds: 1,
                 condition: None,
+                    target_worker: None,
+                    target_capability: None,
             },
         ],
         tools: vec!["shell".to_string()],
@@ -241,6 +247,8 @@ async fn a5_self_modify_approval_gate_denied() {
             s
         },
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
 
     let runtime = AgentRuntime::new("/nonexistent/path.toml").unwrap();
@@ -393,6 +401,8 @@ async fn a9_hand_without_approval_runs_normally() {
                 system_prompt: "Do something".to_string(),
                 max_rounds: 1,
                 condition: None,
+                    target_worker: None,
+                    target_capability: None,
             },
         ],
         tools: vec![],
@@ -400,6 +410,8 @@ async fn a9_hand_without_approval_runs_normally() {
         schedule: None,
         settings: HashMap::new(),
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
 
     let runtime = AgentRuntime::new("/nonexistent/path.toml").unwrap();
@@ -438,6 +450,8 @@ async fn a10_approval_gate_timeout() {
                 system_prompt: "Wait".to_string(),
                 max_rounds: 1,
                 condition: None,
+                    target_worker: None,
+                    target_capability: None,
             },
         ],
         tools: vec![],
@@ -449,6 +463,8 @@ async fn a10_approval_gate_timeout() {
             s
         },
         chain_to: None,
+        guardrail: None,
+        eval: None,
     };
 
     let runtime = AgentRuntime::new("/nonexistent/path.toml").unwrap();

@@ -1,0 +1,99 @@
+# ============================================================================
+# Clawtex-Core 每晚任務
+# 排程：每天 UTC 02:00（台灣 10:00）
+# 內容：完整測試、效能基準、安全掃描、依賴更新檢查
+# ============================================================================
+
+name: Nightly
+
+on:
+  schedule:
+    # UTC 02:00 = 台灣 10:00 AM
+    - cron: '0 2 * * *'
+  # 手動觸發
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── 完整測試套件（含 pg feature）──────────────────────────────────────
+  full-test:
+    name: "Full Test Suite"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: clawtex_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # 預設 feature 測試
+      - name: Test (default features)
+        run: cargo test --all-targets -- --test-threads=4
+
+      # pg feature 測試（需要 PostgreSQL）
+      - name: Test (pg feature)
+        run: cargo test --all-targets --features pg -- --test-threads=2
+        env:
+          CLAWTEX_PG_URL: "postgresql://postgres:testpassword@localhost:5432/clawtex_test"
+
+  # ── Nightly Rust 編譯檢查 ───────────────────────────────────────────
+  nightly-rust:
+    name: "Nightly Rust Compat"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo +nightly build --all-targets 2>&1 || true
+      - run: cargo +nightly clippy --all-targets -- -W clippy::all 2>&1 || true
+
+  # ── 效能回歸追蹤 ────────────────────────────────────────────────────
+  benchmark:
+    name: "Nightly Benchmark"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        run: |
+          cargo install cargo-criterion 2>/dev/null || true
+          cargo criterion --message-format=json > benchmark-results.json 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-benchmark-${{ github.run_number }}
+          path: benchmark-results.json
+
+  # ── 依賴更新檢查 ────────────────────────────────────────────────────
+  deps:
+    name: "Dependency Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-outdated
+        run: cargo install cargo-outdated
+
+      - name: Check outdated deps
+        run: cargo outdated --root-deps-only --exit-code 0 || true
+
+      - name: Install cargo-deny
+        run: cargo install cargo-deny
+
+      - name: Check licenses & advisories
+        run: cargo deny check 2>&1 || true
