@@ -195,6 +195,57 @@ impl MetricsRegistry {
 
         output
     }
+
+    /// Render a JSON health summary (for /health and Telegram /status)
+    pub fn render_health_json(&self) -> serde_json::Value {
+        let counters = self.counters.read().unwrap();
+        let gauges = self.gauges.read().unwrap();
+        let histograms = self.histograms.read().unwrap();
+
+        let mut counter_map = serde_json::Map::new();
+        for (name, val) in counters.iter() {
+            counter_map.insert(name.clone(), serde_json::json!(val.load(Ordering::Relaxed)));
+        }
+
+        let mut gauge_map = serde_json::Map::new();
+        for (name, val) in gauges.iter() {
+            gauge_map.insert(name.clone(), serde_json::json!(val.load(Ordering::Relaxed)));
+        }
+
+        let mut hist_map = serde_json::Map::new();
+        for (name, hist) in histograms.iter() {
+            let count = hist.count.load(Ordering::Relaxed);
+            let sum_us = hist.sum.load(Ordering::Relaxed);
+            let avg_ms = if count > 0 { (sum_us as f64 / 1000.0) / count as f64 } else { 0.0 };
+            hist_map.insert(name.clone(), serde_json::json!({
+                "count": count,
+                "sum_ms": (sum_us as f64 / 1000.0 * 100.0).round() / 100.0,
+                "avg_ms": (avg_ms * 100.0).round() / 100.0,
+            }));
+        }
+
+        serde_json::json!({
+            "counters": counter_map,
+            "gauges": gauge_map,
+            "histograms": hist_map,
+        })
+    }
+
+    /// Register standard Clawtex metrics
+    pub fn register_defaults(&self) {
+        // Histograms
+        self.register_histogram("clawtex_dispatch_duration_ms");
+        self.register_histogram("clawtex_tool_duration_ms");
+        self.register_histogram("clawtex_llm_duration_ms");
+        // Default counters/gauges are created on first use
+    }
+}
+
+/// Helper to create a pre-configured MetricsRegistry with standard Clawtex metrics
+pub fn default_metrics() -> MetricsRegistry {
+    let m = MetricsRegistry::new();
+    m.register_defaults();
+    m
 }
 
 /// RAII timer — records elapsed time to a histogram when dropped
@@ -298,6 +349,75 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
         assert_eq!(m.histogram_count("op_duration"), 1);
+    }
+
+    #[test]
+    fn test_health_json_basic() {
+        let m = MetricsRegistry::new();
+        m.inc("requests");
+        m.gauge_set("workers", 4);
+        let health = m.render_health_json();
+        assert_eq!(health["counters"]["requests"], 1);
+        assert_eq!(health["gauges"]["workers"], 4);
+    }
+
+    #[test]
+    fn test_health_json_histograms() {
+        let m = MetricsRegistry::new();
+        m.register_histogram("latency");
+        m.observe("latency", 100.0);
+        m.observe("latency", 200.0);
+        let health = m.render_health_json();
+        assert_eq!(health["histograms"]["latency"]["count"], 2);
+    }
+
+    #[test]
+    fn test_health_json_empty() {
+        let m = MetricsRegistry::new();
+        let health = m.render_health_json();
+        assert!(health["counters"].as_object().unwrap().is_empty());
+        assert!(health["gauges"].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_register_defaults() {
+        let m = MetricsRegistry::new();
+        m.register_defaults();
+        // Should be able to observe without panic
+        m.observe("clawtex_dispatch_duration_ms", 50.0);
+        m.observe("clawtex_tool_duration_ms", 25.0);
+        m.observe("clawtex_llm_duration_ms", 150.0);
+        assert_eq!(m.histogram_count("clawtex_dispatch_duration_ms"), 1);
+    }
+
+    #[test]
+    fn test_default_metrics_fn() {
+        let m = default_metrics();
+        m.observe("clawtex_dispatch_duration_ms", 10.0);
+        assert_eq!(m.histogram_count("clawtex_dispatch_duration_ms"), 1);
+    }
+
+    #[test]
+    fn test_prometheus_render_sorted() {
+        let m = MetricsRegistry::new();
+        m.inc("z_last");
+        m.inc("a_first");
+        let output = m.render_prometheus();
+        let z_pos = output.find("z_last").unwrap();
+        let a_pos = output.find("a_first").unwrap();
+        assert!(a_pos < z_pos, "Prometheus output should be sorted alphabetically");
+    }
+
+    #[test]
+    fn test_health_json_avg_calculation() {
+        let m = MetricsRegistry::new();
+        m.register_histogram("test_lat");
+        m.observe("test_lat", 100.0);
+        m.observe("test_lat", 300.0);
+        let health = m.render_health_json();
+        // avg should be ~200
+        let avg = health["histograms"]["test_lat"]["avg_ms"].as_f64().unwrap();
+        assert!(avg > 150.0 && avg < 250.0, "avg_ms should be ~200, got {}", avg);
     }
 
     #[test]
