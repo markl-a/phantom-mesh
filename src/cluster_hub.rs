@@ -13,6 +13,12 @@ use tracing::{debug, info, warn};
 
 use crate::cluster::{ClusterNode, ClusterRegistry};
 
+/// TTL for idempotency keys (5 minutes)
+const IDEMPOTENCY_TTL_SECS: u64 = 300;
+
+/// Default task priority (mid-range)
+fn default_priority() -> u8 { 100 }
+
 /// Tools that are network-bound — can run on light workers
 const NETWORK_TOOLS: &[&str] = &[
     "web_search", "http_request", "email_send",
@@ -132,6 +138,8 @@ pub struct PendingTask {
     pub id: String,
     pub tool: String,
     pub input: Value,
+    pub priority: u8,  // 0=highest, 255=lowest, default 100
+    pub idempotency_key: Option<String>,
     pub result_tx: tokio::sync::oneshot::Sender<Value>,
     pub created_at: Instant,
 }
@@ -142,6 +150,8 @@ pub struct PollTaskResponse {
     pub task_id: String,
     pub tool: String,
     pub input: Value,
+    #[serde(default = "default_priority")]
+    pub priority: u8,
 }
 
 /// Result submitted by a polling worker
@@ -165,6 +175,7 @@ pub struct AgentTask {
 /// A pending agent task waiting for a polling worker
 pub struct PendingAgentTask {
     pub task: AgentTask,
+    pub priority: u8,  // 0=highest, 255=lowest, default 100
     pub result_tx: tokio::sync::oneshot::Sender<Value>,
     pub created_at: Instant,
 }
@@ -186,6 +197,8 @@ pub struct ClusterHub {
     pending_agent_tasks: Mutex<HashMap<String, VecDeque<PendingAgentTask>>>,
     /// Shared agent task pool for mobile workers
     shared_agent_pool: Mutex<VecDeque<PendingAgentTask>>,
+    /// Idempotency log: key → timestamp (for dedup within TTL)
+    dispatch_log: Mutex<HashMap<String, Instant>>,
 }
 
 impl ClusterHub {
@@ -205,7 +218,37 @@ impl ClusterHub {
             shared_mobile_pool: Mutex::new(VecDeque::new()),
             pending_agent_tasks: Mutex::new(HashMap::new()),
             shared_agent_pool: Mutex::new(VecDeque::new()),
+            dispatch_log: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Check idempotency key — returns error if duplicate within TTL
+    async fn check_idempotency(&self, key: &str) -> Result<()> {
+        let mut log = self.dispatch_log.lock().await;
+        if let Some(ts) = log.get(key) {
+            let age = ts.elapsed().as_secs();
+            if age < IDEMPOTENCY_TTL_SECS {
+                return Err(anyhow!("Duplicate dispatch: idempotency key '{}' seen {}s ago (TTL {}s)", key, age, IDEMPOTENCY_TTL_SECS));
+            }
+        }
+        log.insert(key.to_string(), Instant::now());
+        Ok(())
+    }
+
+    /// Find the index of the highest-priority task (lowest u8) in a VecDeque
+    fn best_priority_task_idx(queue: &VecDeque<PendingTask>) -> Option<usize> {
+        if queue.is_empty() { return None; }
+        queue.iter().enumerate()
+            .min_by_key(|(_, t)| t.priority)
+            .map(|(i, _)| i)
+    }
+
+    /// Find the index of the highest-priority agent task in a VecDeque
+    fn best_priority_agent_idx(queue: &VecDeque<PendingAgentTask>) -> Option<usize> {
+        if queue.is_empty() { return None; }
+        queue.iter().enumerate()
+            .min_by_key(|(_, t)| t.priority)
+            .map(|(i, _)| i)
     }
 
     /// Determine how a tool should be routed
@@ -324,7 +367,63 @@ impl ClusterHub {
         // Mobile workers use polling mode — enqueue task and wait for result
         self.inc_inflight(&worker.name).await;
         let result = if worker.device_type == "mobile" {
-            self.dispatch_to_mobile(&worker, tool_name, input).await
+            self.dispatch_to_mobile(&worker, tool_name, input, default_priority(), None).await
+        } else {
+            self.execute_on_worker(&worker, tool_name, input).await
+        };
+        self.dec_inflight(&worker.name).await;
+        result
+    }
+
+    /// Dispatch a tool with explicit priority (0=highest, 255=lowest).
+    pub async fn dispatch_tool_with_priority(&self, tool_name: &str, input: Value, priority: u8) -> Result<Value> {
+        self.dispatch_tool_inner(tool_name, input, priority, None).await
+    }
+
+    /// Dispatch a tool with idempotency key (prevents duplicate dispatch within 5 min).
+    pub async fn dispatch_tool_idempotent(&self, tool_name: &str, input: Value, idempotency_key: String) -> Result<Value> {
+        self.dispatch_tool_inner(tool_name, input, default_priority(), Some(idempotency_key)).await
+    }
+
+    /// Internal dispatch with priority + idempotency support.
+    async fn dispatch_tool_inner(&self, tool_name: &str, input: Value, priority: u8, idempotency_key: Option<String>) -> Result<Value> {
+        // Check idempotency before anything else
+        if let Some(ref key) = idempotency_key {
+            self.check_idempotency(key).await?;
+        }
+
+        let routing = self.tool_routing(tool_name);
+        let worker = match routing {
+            ToolRouting::Local => return Err(anyhow!("Tool '{}' is local-only", tool_name)),
+            ToolRouting::MobileOnly | ToolRouting::AnyWorker | ToolRouting::FullWorkerOnly => {
+                let workers = self.registry.online_workers().await;
+                let filtered: Vec<_> = match routing {
+                    ToolRouting::MobileOnly => workers.into_iter().filter(|w| w.device_type == "mobile").collect(),
+                    ToolRouting::AnyWorker => workers,
+                    ToolRouting::FullWorkerOnly => workers.into_iter().filter(|n| n.capabilities.iter().any(|c| c == "tools")).collect(),
+                    _ => unreachable!(),
+                };
+                if filtered.is_empty() {
+                    let msg = format!("No workers available for tool '{}' (routing: {:?})", tool_name, routing);
+                    self.metrics.record_failure("none", &msg).await;
+                    return Err(anyhow!(msg));
+                }
+                let mut best = filtered[0].clone();
+                let mut best_load = self.effective_load(&best).await;
+                for w in &filtered[1..] {
+                    let eff = self.effective_load(w).await;
+                    if eff < best_load {
+                        best = w.clone();
+                        best_load = eff;
+                    }
+                }
+                best
+            }
+        };
+
+        self.inc_inflight(&worker.name).await;
+        let result = if worker.device_type == "mobile" {
+            self.dispatch_to_mobile(&worker, tool_name, input, priority, None).await
         } else {
             self.execute_on_worker(&worker, tool_name, input).await
         };
@@ -345,7 +444,7 @@ impl ClusterHub {
 
         self.inc_inflight(worker_name).await;
         let result = if worker.device_type == "mobile" {
-            self.dispatch_to_mobile(&worker, tool_name, input).await
+            self.dispatch_to_mobile(&worker, tool_name, input, default_priority(), None).await
         } else {
             self.execute_on_worker(&worker, tool_name, input).await
         };
@@ -363,7 +462,7 @@ impl ClusterHub {
 
         self.inc_inflight(&worker.name).await;
         let result = if worker.device_type == "mobile" {
-            self.dispatch_to_mobile(&worker, tool_name, input).await
+            self.dispatch_to_mobile(&worker, tool_name, input, default_priority(), None).await
         } else {
             self.execute_on_worker(&worker, tool_name, input).await
         };
@@ -372,16 +471,23 @@ impl ClusterHub {
     }
 
     /// Enqueue a task for a mobile (polling) worker and wait for the result via oneshot channel.
-    async fn dispatch_to_mobile(&self, worker: &ClusterNode, tool_name: &str, input: Value) -> Result<Value> {
+    async fn dispatch_to_mobile(&self, worker: &ClusterNode, tool_name: &str, input: Value, priority: u8, idempotency_key: Option<String>) -> Result<Value> {
+        // Check idempotency
+        if let Some(ref key) = idempotency_key {
+            self.check_idempotency(key).await?;
+        }
+
         let task_id = format!("mt-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        debug!("Enqueuing task '{}' (tool: {}) for mobile worker '{}'", task_id, tool_name, worker.name);
+        debug!("Enqueuing task '{}' (tool: {}, priority: {}) for mobile worker '{}'", task_id, tool_name, priority, worker.name);
 
         let pending = PendingTask {
             id: task_id.clone(),
             tool: tool_name.to_string(),
             input: input.clone(),
+            priority,
+            idempotency_key,
             result_tx: tx,
             created_at: Instant::now(),
         };
@@ -423,15 +529,22 @@ impl ClusterHub {
     /// Dispatch a tool to the shared mobile pool — any mobile worker can pick it up.
     /// Returns when some mobile worker completes the task via poll+submit.
     pub async fn dispatch_to_mobile_pool(&self, tool_name: &str, input: Value) -> Result<Value> {
+        self.dispatch_to_mobile_pool_with_priority(tool_name, input, default_priority()).await
+    }
+
+    /// Dispatch to mobile pool with explicit priority.
+    pub async fn dispatch_to_mobile_pool_with_priority(&self, tool_name: &str, input: Value, priority: u8) -> Result<Value> {
         let task_id = format!("mp-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000"));
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        debug!("Enqueuing task '{}' (tool: {}) to shared mobile pool", task_id, tool_name);
+        debug!("Enqueuing task '{}' (tool: {}, priority: {}) to shared mobile pool", task_id, tool_name, priority);
 
         let pending = PendingTask {
             id: task_id.clone(),
             tool: tool_name.to_string(),
             input: input.clone(),
+            priority,
+            idempotency_key: None,
             result_tx: tx,
             created_at: Instant::now(),
         };
@@ -574,6 +687,7 @@ impl ClusterHub {
 
         let pending = PendingAgentTask {
             task: agent_task,
+            priority: default_priority(),
             result_tx: tx,
             created_at: Instant::now(),
         };
@@ -630,6 +744,7 @@ impl ClusterHub {
 
         let pending = PendingAgentTask {
             task: agent_task,
+            priority: default_priority(),
             result_tx: tx,
             created_at: Instant::now(),
         };
@@ -670,16 +785,19 @@ impl ClusterHub {
         // Update heartbeat (treat poll as heartbeat for mobile workers)
         let _ = self.registry.heartbeat(worker_name, 0.0).await;
 
-        // Priority 1: check per-worker agent task queue
+        // Priority 1: check per-worker agent task queue (highest-priority first)
         {
             let mut queues = self.pending_agent_tasks.lock().await;
             if let Some(queue) = queues.get_mut(worker_name) {
-                if let Some(agent_pending) = queue.pop_front() {
+                if let Some(idx) = Self::best_priority_agent_idx(queue) {
+                    let agent_pending = queue.remove(idx).unwrap();
                     let task_id = agent_pending.task.task_id.clone();
+                    let priority = agent_pending.priority;
                     let response = PollTaskResponse {
                         task_id: task_id.clone(),
                         tool: "__agent_task__".to_string(),
                         input: serde_json::to_value(&agent_pending.task).unwrap_or_default(),
+                        priority,
                     };
                     let mut inflight = self.inflight_results.lock().await;
                     inflight.insert(task_id, agent_pending.result_tx);
@@ -688,15 +806,18 @@ impl ClusterHub {
             }
         }
 
-        // Priority 2: check per-worker tool task queue
+        // Priority 2: check per-worker tool task queue (highest-priority first)
         {
             let mut queues = self.pending_tasks.lock().await;
             if let Some(queue) = queues.get_mut(worker_name) {
-                if let Some(task) = queue.pop_front() {
+                if let Some(idx) = Self::best_priority_task_idx(queue) {
+                    let task = queue.remove(idx).unwrap();
+                    let priority = task.priority;
                     let response = PollTaskResponse {
                         task_id: task.id.clone(),
                         tool: task.tool.clone(),
                         input: task.input.clone(),
+                        priority,
                     };
                     let mut inflight = self.inflight_results.lock().await;
                     inflight.insert(task.id, task.result_tx);
@@ -705,15 +826,18 @@ impl ClusterHub {
             }
         }
 
-        // Priority 3: shared agent pool
+        // Priority 3: shared agent pool (highest-priority first)
         {
             let mut pool = self.shared_agent_pool.lock().await;
-            if let Some(agent_pending) = pool.pop_front() {
+            if let Some(idx) = Self::best_priority_agent_idx(&pool) {
+                let agent_pending = pool.remove(idx).unwrap();
                 let task_id = agent_pending.task.task_id.clone();
+                let priority = agent_pending.priority;
                 let response = PollTaskResponse {
                     task_id: task_id.clone(),
                     tool: "__agent_task__".to_string(),
                     input: serde_json::to_value(&agent_pending.task).unwrap_or_default(),
+                    priority,
                 };
                 let mut inflight = self.inflight_results.lock().await;
                 inflight.insert(task_id, agent_pending.result_tx);
@@ -721,14 +845,17 @@ impl ClusterHub {
             }
         }
 
-        // Priority 4: shared mobile pool (tool tasks)
+        // Priority 4: shared mobile pool (highest-priority first)
         {
             let mut pool = self.shared_mobile_pool.lock().await;
-            if let Some(task) = pool.pop_front() {
+            if let Some(idx) = Self::best_priority_task_idx(&pool) {
+                let task = pool.remove(idx).unwrap();
+                let priority = task.priority;
                 let response = PollTaskResponse {
                     task_id: task.id.clone(),
                     tool: task.tool.clone(),
                     input: task.input.clone(),
+                    priority,
                 };
                 let mut inflight = self.inflight_results.lock().await;
                 inflight.insert(task.id, task.result_tx);
@@ -791,6 +918,12 @@ impl ClusterHub {
             debug!("Inflight tasks: {}", inflight.len());
         }
         let _ = inflight;
+
+        // Clean expired idempotency keys
+        if let Some(idem_cutoff) = Instant::now().checked_sub(std::time::Duration::from_secs(IDEMPOTENCY_TTL_SECS)) {
+            let mut log = self.dispatch_log.lock().await;
+            log.retain(|_, ts| *ts > idem_cutoff);
+        }
     }
 
     /// Execute a tool on a specific worker node
@@ -1088,6 +1221,8 @@ mod tests {
                 id: "mt-test1".to_string(),
                 tool: "web_search".to_string(),
                 input: json!({"query": "test"}),
+                priority: default_priority(),
+                idempotency_key: None,
                 result_tx: tx,
                 created_at: Instant::now(),
             });
@@ -1157,6 +1292,8 @@ mod tests {
                 id: "mt-tool1".to_string(),
                 tool: "web_search".to_string(),
                 input: json!({"query": "test"}),
+                priority: default_priority(),
+                idempotency_key: None,
                 result_tx: tx1,
                 created_at: Instant::now(),
             });
@@ -1173,6 +1310,7 @@ mod tests {
                     max_iterations: 5,
                     available_tools: vec!["web_search".to_string()],
                 },
+                priority: default_priority(),
                 result_tx: tx2,
                 created_at: Instant::now(),
             });
@@ -1212,6 +1350,7 @@ mod tests {
                     max_iterations: 3,
                     available_tools: vec!["web_search".to_string()],
                 },
+                priority: default_priority(),
                 result_tx: tx,
                 created_at: Instant::now(),
             });
@@ -1245,5 +1384,145 @@ mod tests {
         assert_eq!(json["task_id"], "ag-123");
         assert_eq!(json["max_iterations"], 8);
         assert_eq!(json["available_tools"].as_array().unwrap().len(), 2);
+    }
+
+    // ── SLA Priority Tests ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_priority_ordering() {
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("w1", "0.0.0.0", 0, &["web_search".into()], "mobile").await.unwrap();
+        let hub = Arc::new(ClusterHub::new(registry));
+
+        // Enqueue 3 tasks with different priorities
+        for (id, prio) in [("t-low", 200u8), ("t-high", 10u8), ("t-mid", 100u8)] {
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            hub.pending_tasks.lock().await
+                .entry("w1".to_string()).or_default()
+                .push_back(PendingTask {
+                    id: id.to_string(),
+                    tool: "web_search".to_string(),
+                    input: json!({}),
+                    priority: prio,
+                    idempotency_key: None,
+                    result_tx: tx,
+                    created_at: Instant::now(),
+                });
+        }
+
+        // Poll should return highest priority (lowest number) first
+        let p1 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p1.task_id, "t-high");
+        assert_eq!(p1.priority, 10);
+
+        let p2 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p2.task_id, "t-mid");
+        assert_eq!(p2.priority, 100);
+
+        let p3 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p3.task_id, "t-low");
+        assert_eq!(p3.priority, 200);
+    }
+
+    #[tokio::test]
+    async fn test_priority_fifo_within_same() {
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("w1", "0.0.0.0", 0, &["web_search".into()], "mobile").await.unwrap();
+        let hub = Arc::new(ClusterHub::new(registry));
+
+        // Enqueue 3 tasks with same priority — should be FIFO
+        for id in ["t-first", "t-second", "t-third"] {
+            let (tx, _rx) = tokio::sync::oneshot::channel();
+            hub.pending_tasks.lock().await
+                .entry("w1".to_string()).or_default()
+                .push_back(PendingTask {
+                    id: id.to_string(),
+                    tool: "web_search".to_string(),
+                    input: json!({}),
+                    priority: 50,
+                    idempotency_key: None,
+                    result_tx: tx,
+                    created_at: Instant::now(),
+                });
+        }
+
+        // min_by_key returns first match when equal → FIFO preserved
+        let p1 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p1.task_id, "t-first");
+        let p2 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p2.task_id, "t-second");
+        let p3 = hub.poll_task("w1").await.unwrap();
+        assert_eq!(p3.task_id, "t-third");
+    }
+
+    // ── Idempotency Tests ───────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_idempotency_dedup() {
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        let hub = ClusterHub::new(registry);
+
+        // First dispatch with key should succeed
+        hub.check_idempotency("key-abc").await.unwrap();
+
+        // Second dispatch with same key should fail
+        let result = hub.check_idempotency("key-abc").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate dispatch"));
+    }
+
+    #[tokio::test]
+    async fn test_idempotency_different_keys() {
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        let hub = ClusterHub::new(registry);
+
+        hub.check_idempotency("key-1").await.unwrap();
+        hub.check_idempotency("key-2").await.unwrap();
+        hub.check_idempotency("key-3").await.unwrap();
+        // All different keys → all succeed
+    }
+
+    #[tokio::test]
+    async fn test_idempotency_cleanup() {
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        let hub = ClusterHub::new(registry);
+
+        // Insert a key with old timestamp
+        {
+            let mut log = hub.dispatch_log.lock().await;
+            let old_time = Instant::now().checked_sub(std::time::Duration::from_secs(600)).unwrap();
+            log.insert("old-key".to_string(), old_time);
+            log.insert("new-key".to_string(), Instant::now());
+        }
+
+        hub.cleanup_expired_tasks(150).await;
+
+        let log = hub.dispatch_log.lock().await;
+        assert!(!log.contains_key("old-key")); // cleaned up
+        assert!(log.contains_key("new-key")); // still valid
+    }
+
+    #[test]
+    fn test_default_priority() {
+        assert_eq!(default_priority(), 100);
+    }
+
+    #[test]
+    fn test_poll_response_includes_priority() {
+        let resp = PollTaskResponse {
+            task_id: "t-1".to_string(),
+            tool: "web_search".to_string(),
+            input: json!({}),
+            priority: 10,
+        };
+        let json = serde_json::to_value(&resp).unwrap();
+        assert_eq!(json["priority"], 10);
+    }
+
+    #[test]
+    fn test_poll_response_default_priority() {
+        let json_str = r#"{"task_id":"t-1","tool":"test","input":{}}"#;
+        let resp: PollTaskResponse = serde_json::from_str(json_str).unwrap();
+        assert_eq!(resp.priority, 100); // default
     }
 }
