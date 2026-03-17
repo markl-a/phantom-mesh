@@ -195,6 +195,7 @@ struct AppState {
     hub_api_key: Option<String>,
     dashboard_token: String,
     public_url: Option<String>,
+    metrics_registry: Arc<clawtex_core::MetricsRegistry>,
     started_at: Instant,
 }
 
@@ -436,6 +437,38 @@ async fn cluster_dispatch(
             Ok(Json(json!({"error": e.to_string()})))
         }
     }
+}
+
+/// GET /metrics — Prometheus text exposition format
+async fn prometheus_metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String) {
+    // Update uptime gauge
+    let uptime = state.started_at.elapsed().as_secs();
+    state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
+
+    // Update worker count gauge
+    let worker_count = state.cluster.all_workers().len() as u64;
+    state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
+
+    // Update tool count gauge
+    state.metrics_registry.gauge_set("clawtex_tools_registered", state.tool_registry.names().len() as u64);
+
+    let body = state.metrics_registry.render_prometheus();
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        body,
+    )
+}
+
+/// GET /metrics/health — JSON health summary
+async fn metrics_health(State(state): State<AppState>) -> Json<Value> {
+    let uptime = state.started_at.elapsed().as_secs();
+    state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
+    let worker_count = state.cluster.all_workers().len() as u64;
+    state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
+    state.metrics_registry.gauge_set("clawtex_tools_registered", state.tool_registry.names().len() as u64);
+
+    Json(state.metrics_registry.render_health_json())
 }
 
 /// GET /cluster/metrics — cluster performance data
@@ -2409,6 +2442,7 @@ async fn main() -> anyhow::Result<()> {
         hub_api_key,
         dashboard_token,
         public_url,
+        metrics_registry: Arc::new(clawtex_core::metrics::default_metrics()),
         started_at: Instant::now(),
     };
     {
@@ -2625,6 +2659,8 @@ async fn main() -> anyhow::Result<()> {
     let auth_state = state.clone();
     let app = Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(prometheus_metrics))
+        .route("/metrics/health", get(metrics_health))
         .route("/llm/route", post(route_llm))
         .route("/task", post(task_add))
         .route("/task/:id/run", post(task_run))
