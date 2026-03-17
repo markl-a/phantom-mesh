@@ -76,6 +76,9 @@ dirs = "5"
 # System info (CPU load for cluster worker)
 sysinfo = "0.32"
 
+# CSV parsing (for csv_parse tool)
+csv = "1"
+
 # Encrypted secrets (Sprint 3)
 chacha20poly1305 = "0.10"
 hex = "0.4"

@@ -27,6 +27,10 @@ pub mod stripe;
 pub mod render_deploy;
 pub mod scaffold_saas;
 pub mod cli_anything;
+pub mod translate;
+pub mod json_transform;
+pub mod csv_parse;
+pub mod summarize;
 
 use anyhow::Result;
 use async_trait::async_trait;
