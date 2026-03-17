@@ -13,6 +13,7 @@ use crate::agent_runtime::AgentRuntime;
 use crate::approval::{ApprovalGate, ApprovalResult};
 use crate::evaluate::{self, EvalConfig, EvalResult};
 use crate::guardrail::{self, GuardrailConfig, GuardrailResult};
+use crate::knowledge_capture::KnowledgeCapturer;
 use crate::llm_router::LlmRouter;
 use crate::tools::ToolRegistry;
 
@@ -58,6 +59,9 @@ pub struct Hand {
     /// L2 eval config — LLM-as-Judge quality scoring
     #[serde(default)]
     pub eval: Option<EvalConfig>,
+    /// Catch-all for unknown top-level fields (prevents parse errors from extra TOML keys)
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, toml::Value>,
 }
 
 fn default_provider() -> String { "auto".to_string() }
@@ -94,6 +98,10 @@ pub struct Phase {
     /// not searches. Dramatically speeds up research phases.
     #[serde(default)]
     pub parallel_queries: Vec<String>,
+    /// Catch-all for unknown phase-level fields like tool_calls, tools, etc.
+    /// Prevents parse errors when hand TOMLs include extra fields not in the struct.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, toml::Value>,
 }
 
 fn default_max_rounds() -> u32 { 5 }
@@ -235,6 +243,58 @@ pub fn evaluate_condition(condition: &str, previous_output: &str) -> bool {
     true
 }
 
+/// Sanitize hand TOML content before parsing.
+/// Fixes known issues:
+/// 1. Triple-quote issues: `""""` (4+ quotes) → proper `"""`
+/// 2. Ensures multi-line strings are well-formed
+fn sanitize_hand_toml(content: &str) -> String {
+    let mut result = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
+    let mut in_multiline_string = false;
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            // Count consecutive quotes
+            let mut quote_count = 1usize;
+            while chars.peek() == Some(&'"') {
+                quote_count += 1;
+                chars.next();
+            }
+
+            if !in_multiline_string {
+                if quote_count >= 3 {
+                    // Opening multi-line string: always emit exactly 3 quotes
+                    result.push_str("\"\"\"");
+                    in_multiline_string = true;
+                    // Drop any extra quotes beyond 3
+                } else {
+                    // Regular string quotes — pass through as-is
+                    for _ in 0..quote_count {
+                        result.push('"');
+                    }
+                }
+            } else {
+                // Inside a multi-line string
+                if quote_count >= 3 {
+                    // Closing multi-line string: emit exactly 3 quotes
+                    result.push_str("\"\"\"");
+                    in_multiline_string = false;
+                    // Drop any extra quotes beyond 3
+                } else {
+                    // Quotes inside the string that don't close it
+                    for _ in 0..quote_count {
+                        result.push('"');
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
 /// Hand registry — loads and manages available Hands
 pub struct HandRegistry {
     hands: HashMap<String, Hand>,
@@ -260,8 +320,21 @@ impl HandRegistry {
                 if hand_toml.exists() {
                     match std::fs::read_to_string(&hand_toml) {
                         Ok(content) => {
-                            match toml::from_str::<Hand>(&content) {
+                            // Sanitize TOML content before parsing (fixes triple-quote issues)
+                            let sanitized = sanitize_hand_toml(&content);
+                            match toml::from_str::<Hand>(&sanitized) {
                                 Ok(hand) => {
+                                    if !hand.extra.is_empty() {
+                                        debug!("Hand '{}' has extra top-level fields (ignored): {:?}",
+                                            hand.name, hand.extra.keys().collect::<Vec<_>>());
+                                    }
+                                    for (i, phase) in hand.phases.iter().enumerate() {
+                                        if !phase.extra.is_empty() {
+                                            debug!("Hand '{}' phase '{}' has extra fields (ignored): {:?}",
+                                                hand.name, phase.name,
+                                                phase.extra.keys().collect::<Vec<_>>());
+                                        }
+                                    }
                                     info!("Loaded hand: {} — {}", hand.name, hand.description);
                                     hands.insert(hand.name.clone(), hand);
                                 }
@@ -683,6 +756,15 @@ impl HandRunner {
 
         info!("Running hand '{}' with {} phases (starting at phase {})", hand.name, hand.phases.len(), start_phase);
 
+        // Initialize knowledge capturer (best-effort, non-blocking)
+        let knowledge_capturer = {
+            let kb_path = dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".clawtex")
+                .join("knowledge.db");
+            KnowledgeCapturer::new(kb_path.to_str().unwrap_or("knowledge.db")).ok()
+        };
+
         let mut had_failure = false;
         for i in start_phase..hand.phases.len() {
             let (output, new_context) = Self::run_single_phase(
@@ -728,6 +810,21 @@ impl HandRunner {
             };
             if let Err(e) = checkpoint.save() {
                 warn!("Hand '{}' failed to save checkpoint after phase {}: {}", hand.name, i, e);
+            }
+
+            // ── Knowledge Capture: extract knowledge from successful phase output ──
+            if let Some(ref capturer) = knowledge_capturer {
+                let phase_name = &hand.phases[i].name;
+                let phase_output = &outputs.last().map(|o| o.output.as_str()).unwrap_or("");
+                match capturer.capture_from_output(&hand.name, phase_name, user_input, phase_output) {
+                    Ok(nodes) if !nodes.is_empty() => {
+                        debug!("Knowledge captured from {}/{}: {} node(s)", hand.name, phase_name, nodes.len());
+                    }
+                    Ok(_) => {} // No knowledge extracted, that's fine
+                    Err(e) => {
+                        debug!("Knowledge capture failed for {}/{}: {} (non-blocking)", hand.name, phase_name, e);
+                    }
+                }
             }
         }
 
@@ -808,6 +905,7 @@ mod tests {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: Vec::new(),
+                    extra: HashMap::new(),
                 },
                 Phase {
                     name: "analyze".to_string(),
@@ -817,6 +915,7 @@ mod tests {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: Vec::new(),
+                    extra: HashMap::new(),
                 },
             ],
             tools: vec!["web_search".to_string(), "file_write".to_string()],
@@ -826,6 +925,7 @@ mod tests {
             chain_to: None,
             guardrail: None,
             eval: None,
+            extra: HashMap::new(),
         }
     }
 
@@ -1265,5 +1365,218 @@ system_prompt = "Do it"
         assert_eq!(best.run_id, "new");
         assert_eq!(best.completed_phases.len(), 2);
         assert_eq!(best.last_phase_index, 1);
+    }
+
+    // ── TOML sanitize + extra-field tolerance tests ───────────────────
+
+    #[test]
+    fn test_sanitize_triple_quote_fix() {
+        // 4 quotes should be reduced to 3 (opening)
+        let input = r#"system_prompt = """"Hello world""""#;
+        let sanitized = sanitize_hand_toml(input);
+        assert_eq!(sanitized, r#"system_prompt = """Hello world""""#);
+    }
+
+    #[test]
+    fn test_sanitize_normal_triple_quote_unchanged() {
+        let input = "system_prompt = \"\"\"Hello\nworld\"\"\"";
+        let sanitized = sanitize_hand_toml(input);
+        assert_eq!(sanitized, input);
+    }
+
+    #[test]
+    fn test_sanitize_single_quotes_unchanged() {
+        let input = r#"name = "test""#;
+        let sanitized = sanitize_hand_toml(input);
+        assert_eq!(sanitized, input);
+    }
+
+    #[test]
+    fn test_sanitize_five_quotes_to_three() {
+        // 5 quotes → 3
+        let input = "system_prompt = \"\"\"\"\"Hello\"\"\"\"\"";
+        let sanitized = sanitize_hand_toml(input);
+        assert_eq!(sanitized, "system_prompt = \"\"\"Hello\"\"\"");
+    }
+
+    #[test]
+    fn test_phase_extra_fields_tolerated() {
+        // Phases with unknown fields like tool_calls should parse fine
+        let toml_str = r#"
+name = "test_extra"
+description = "Hand with extra fields in phases"
+
+[[phases]]
+name = "collect"
+system_prompt = "Collect data"
+tool_calls = ["web_search", "http_request"]
+
+[[phases]]
+name = "output"
+system_prompt = "Generate output"
+quality_gate = true
+node_affinity = "light"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert_eq!(hand.name, "test_extra");
+        assert_eq!(hand.phases.len(), 2);
+        assert_eq!(hand.phases[0].name, "collect");
+        assert_eq!(hand.phases[1].name, "output");
+        // Extra fields should be captured
+        assert!(hand.phases[0].extra.contains_key("tool_calls"));
+        assert!(hand.phases[1].extra.contains_key("quality_gate"));
+        assert!(hand.phases[1].extra.contains_key("node_affinity"));
+    }
+
+    #[test]
+    fn test_phase_tool_calls_as_map_tolerated() {
+        // tool_calls as a map (the report hand issue) should parse fine
+        let toml_str = r#"
+name = "test_map_tool_calls"
+description = "Hand with map-style tool_calls"
+
+[[phases]]
+name = "output"
+system_prompt = "Generate output"
+
+[phases.tool_calls]
+xlsx_export = "data.xlsx"
+docx_export = "report.docx"
+pdf_export = "report.pdf"
+"#;
+        // This tests that the inline table form also works
+        let result = toml::from_str::<Hand>(toml_str);
+        // Note: [phases.tool_calls] syntax may conflict with [[phases]] array,
+        // so we test the inline form instead
+        let toml_inline = r#"
+name = "test_map_tool_calls"
+description = "Hand with map-style tool_calls"
+
+[[phases]]
+name = "output"
+system_prompt = "Generate output"
+tool_calls = { xlsx_export = "data.xlsx", docx_export = "report.docx" }
+"#;
+        let hand: Hand = toml::from_str(toml_inline).unwrap();
+        assert_eq!(hand.phases.len(), 1);
+        assert!(hand.phases[0].extra.contains_key("tool_calls"));
+    }
+
+    #[test]
+    fn test_hand_extra_top_level_fields_tolerated() {
+        // Unknown top-level fields should be captured in extra
+        let toml_str = r#"
+name = "test_top_extra"
+description = "Hand with extra top-level fields"
+version = "1.0"
+priority = "P1"
+
+[[phases]]
+name = "do"
+system_prompt = "Do it"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert_eq!(hand.name, "test_top_extra");
+        assert!(hand.extra.contains_key("version"));
+        assert!(hand.extra.contains_key("priority"));
+    }
+
+    #[test]
+    fn test_prompt_evolve_style_multiline_parses() {
+        // Simulate the prompt_evolve hand with multi-line strings
+        let toml_str = r#"
+name = "prompt_evolve"
+description = "Weekly prompt optimization"
+category = "infrastructure"
+provider = "auto"
+tools = ["file_read", "file_write", "file_edit", "memory_store", "memory_recall", "http_request"]
+schedule = "0 4 * * 0"
+
+[[phases]]
+name = "analyze_trajectories"
+system_prompt = """Analyze trajectory data.
+1. Get trajectories via http_request
+2. Calculate quality scores
+3. List worst 3 phases"""
+
+[[phases]]
+name = "generate_improvements"
+system_prompt = """Generate improved prompts.
+Analyze good/bad examples.
+Generate 3 improved versions."""
+
+[[phases]]
+name = "apply_safely"
+system_prompt = """Apply improvements safely.
+1. Backup original hand.toml
+2. Update system_prompt
+3. Record changes to memory_store
+4. Only change system_prompt field"""
+condition = "contains:improved"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert_eq!(hand.name, "prompt_evolve");
+        assert_eq!(hand.phases.len(), 3);
+        assert!(hand.phases[0].system_prompt.contains("Analyze trajectory data"));
+        assert!(hand.phases[2].condition.is_some());
+    }
+
+    #[test]
+    fn test_sanitize_then_parse_four_quotes() {
+        // Simulate a hand.toml where someone accidentally used 4 quotes
+        let broken_toml = r#"
+name = "broken_quotes"
+description = "Has triple-quote issue"
+
+[[phases]]
+name = "test"
+system_prompt = """"This has an extra opening quote.
+Line 2 of the prompt.
+Line 3 of the prompt.""""
+"#;
+        // Without sanitize, this would fail to parse
+        let sanitized = sanitize_hand_toml(broken_toml);
+        let hand: Hand = toml::from_str(&sanitized).unwrap();
+        assert_eq!(hand.name, "broken_quotes");
+        assert_eq!(hand.phases.len(), 1);
+        assert!(hand.phases[0].system_prompt.contains("This has an extra opening quote"));
+    }
+
+    #[test]
+    fn test_report_style_hand_parses() {
+        // Simulate the report hand with tool_calls in phases
+        let toml_str = r#"
+name = "report"
+description = "Generate analysis reports"
+category = "content"
+provider = "auto"
+tools = ["web_search", "http_request", "xlsx_export", "docx_export", "pdf_export", "delegate"]
+
+[[phases]]
+name = "collect"
+system_prompt = "Collect data via web_search and http_request"
+tool_calls = ["web_search", "http_request"]
+
+[[phases]]
+name = "analyze"
+system_prompt = "Analyze collected data"
+tool_calls = ["delegate"]
+
+[[phases]]
+name = "prepare_charts"
+system_prompt = "Prepare chart data as structured JSON"
+
+[[phases]]
+name = "output"
+system_prompt = "Export to xlsx, docx, and pdf"
+tool_calls = { xlsx_export = "data", docx_export = "report", pdf_export = "report" }
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert_eq!(hand.name, "report");
+        assert_eq!(hand.phases.len(), 4);
+        // tool_calls as array
+        assert!(hand.phases[0].extra.contains_key("tool_calls"));
+        // tool_calls as map
+        assert!(hand.phases[3].extra.contains_key("tool_calls"));
     }
 }

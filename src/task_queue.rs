@@ -363,4 +363,99 @@ mod tests {
         assert_eq!(next.task_id, id);
         assert_eq!(next.priority, TaskPriority::High);
     }
+
+    // ===== Additional tests =====
+
+    #[tokio::test]
+    async fn test_next_pending_empty() {
+        let q = make_queue().await;
+        let next = q.next_pending().await.unwrap();
+        assert!(next.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_next_pending_skips_done() {
+        let q = make_queue().await;
+        let id1 = q.add("done task", "p").await.unwrap();
+        let id2 = q.add("pending task", "p").await.unwrap();
+        q.set_status(&id1, TaskStatus::Done, Some("ok"), None).unwrap();
+        let next = q.next_pending().await.unwrap().unwrap();
+        assert_eq!(next.task_id, id2);
+    }
+
+    #[tokio::test]
+    async fn test_set_status_to_running() {
+        let q = make_queue().await;
+        let id = q.add("run me", "prompt").await.unwrap();
+        q.set_status(&id, TaskStatus::Running, None, Some("ollama")).unwrap();
+        let h = q.history(1).await.unwrap();
+        assert_eq!(h[0].status, TaskStatus::Running);
+        assert_eq!(h[0].strategy_used.as_deref(), Some("ollama"));
+    }
+
+    #[tokio::test]
+    async fn test_set_status_to_done_with_result() {
+        let q = make_queue().await;
+        let id = q.add("finish me", "prompt").await.unwrap();
+        q.set_status(&id, TaskStatus::Done, Some("completed successfully"), Some("gemini")).unwrap();
+        let h = q.history(1).await.unwrap();
+        assert_eq!(h[0].status, TaskStatus::Done);
+        assert_eq!(h[0].result.as_deref(), Some("completed successfully"));
+        assert_eq!(h[0].strategy_used.as_deref(), Some("gemini"));
+    }
+
+    #[tokio::test]
+    async fn test_history_limit() {
+        let q = make_queue().await;
+        for i in 0..10 {
+            q.add(&format!("task {}", i), "p").await.unwrap();
+        }
+        let h = q.history(3).await.unwrap();
+        assert_eq!(h.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_task_priority_from_str() {
+        assert_eq!(TaskPriority::from_str("critical"), TaskPriority::Critical);
+        assert_eq!(TaskPriority::from_str("0"), TaskPriority::Critical);
+        assert_eq!(TaskPriority::from_str("high"), TaskPriority::High);
+        assert_eq!(TaskPriority::from_str("1"), TaskPriority::High);
+        assert_eq!(TaskPriority::from_str("low"), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_str("3"), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_str("normal"), TaskPriority::Normal);
+        assert_eq!(TaskPriority::from_str("anything"), TaskPriority::Normal);
+    }
+
+    #[tokio::test]
+    async fn test_task_priority_as_i32() {
+        assert_eq!(TaskPriority::Critical.as_i32(), 0);
+        assert_eq!(TaskPriority::High.as_i32(), 1);
+        assert_eq!(TaskPriority::Normal.as_i32(), 2);
+        assert_eq!(TaskPriority::Low.as_i32(), 3);
+    }
+
+    #[test]
+    fn test_task_status_display() {
+        assert_eq!(TaskStatus::Pending.to_string(), "pending");
+        assert_eq!(TaskStatus::Running.to_string(), "running");
+        assert_eq!(TaskStatus::Done.to_string(), "done");
+        assert_eq!(TaskStatus::Failed.to_string(), "failed");
+    }
+
+    #[test]
+    fn test_task_priority_display() {
+        assert_eq!(TaskPriority::Critical.to_string(), "critical");
+        assert_eq!(TaskPriority::High.to_string(), "high");
+        assert_eq!(TaskPriority::Normal.to_string(), "normal");
+        assert_eq!(TaskPriority::Low.to_string(), "low");
+    }
+
+    #[tokio::test]
+    async fn test_add_with_options_no_idempotency() {
+        let q = make_queue().await;
+        let id1 = q.add_with_options("t1", "p", TaskPriority::High, None).await.unwrap();
+        let id2 = q.add_with_options("t2", "p", TaskPriority::High, None).await.unwrap();
+        // Without idempotency key, should create different tasks
+        assert_ne!(id1, id2);
+    }
 }

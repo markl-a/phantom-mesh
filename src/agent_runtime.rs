@@ -9,7 +9,9 @@ use tracing::{debug, info, warn};
 use crate::providers::{ChatMessage, StreamChunk};
 use crate::cluster_hub::ClusterHub;
 use crate::context::ContextOptimizer;
-use crate::cost_tracker::{CostTracker, CostRecord, estimate_cost};
+use crate::cost_tracker::{CostTracker, CostRecord, BudgetBreaker, BudgetStatus, estimate_cost};
+use crate::injection_guard::InjectionGuard;
+use crate::service_tier::ServiceTierManager;
 use crate::dispatcher::{self, DispatchMode};
 use crate::llm_router::LlmRouter;
 use crate::loop_detection::{AdvancedLoopDetector, LoopDetectorConfig, LoopAction, LoopKind};
@@ -109,6 +111,9 @@ pub struct AgentRuntime {
     response_cache: Option<Arc<ResponseCache>>,
     event_bus: Option<Arc<AgentEventBus>>,
     trajectory_logger: Option<Arc<TrajectoryLogger>>,
+    budget_breaker: Option<Arc<BudgetBreaker>>,
+    injection_guard: Option<Arc<InjectionGuard>>,
+    service_tier: Option<Arc<ServiceTierManager>>,
 }
 
 impl AgentRuntime {
@@ -125,7 +130,7 @@ impl AgentRuntime {
             default_agents()
         };
 
-        Ok(Self { agents, cost_tracker: None, memory_store: None, cluster_hub: None, privacy_guard: None, response_cache: None, event_bus: None, trajectory_logger: None })
+        Ok(Self { agents, cost_tracker: None, memory_store: None, cluster_hub: None, privacy_guard: None, response_cache: None, event_bus: None, trajectory_logger: None, budget_breaker: None, injection_guard: None, service_tier: None })
     }
 
     /// Attach a cost tracker to automatically record costs for every agent run
@@ -176,6 +181,31 @@ impl AgentRuntime {
     /// Get trajectory logger reference
     pub fn trajectory_logger(&self) -> Option<&Arc<TrajectoryLogger>> {
         self.trajectory_logger.as_ref()
+    }
+
+    /// Attach a budget breaker for fast-path budget checking
+    pub fn set_budget_breaker(&mut self, breaker: Arc<BudgetBreaker>) {
+        self.budget_breaker = Some(breaker);
+    }
+
+    /// Get budget breaker reference
+    pub fn budget_breaker(&self) -> Option<&Arc<BudgetBreaker>> {
+        self.budget_breaker.as_ref()
+    }
+
+    /// Attach an injection guard for prompt safety checking
+    pub fn set_injection_guard(&mut self, guard: Arc<InjectionGuard>) {
+        self.injection_guard = Some(guard);
+    }
+
+    /// Attach a service tier manager for tool/rate access enforcement
+    pub fn set_service_tier(&mut self, tier_mgr: Arc<ServiceTierManager>) {
+        self.service_tier = Some(tier_mgr);
+    }
+
+    /// Get service tier manager reference
+    pub fn service_tier(&self) -> Option<&Arc<ServiceTierManager>> {
+        self.service_tier.as_ref()
     }
 
     /// Run a named agent with tool-call loop
@@ -257,6 +287,49 @@ impl AgentRuntime {
     ) -> Result<AgentResult> {
         info!("Agent '{}' starting: {}...", agent_name, truncate_str(prompt, 60));
         let t0 = Instant::now();
+
+        // ── Injection Guard: check user prompt for injection patterns ──
+        if let Some(ref guard) = self.injection_guard {
+            let result = guard.check(prompt);
+            if let crate::injection_guard::InjectionResult::Suspicious { ref patterns, ref severity } = result {
+                match severity {
+                    crate::injection_guard::Severity::High => {
+                        warn!("InjectionGuard BLOCKED agent '{}': {:?}", agent_name, patterns);
+                        return Ok(AgentResult {
+                            agent_name: agent_name.to_string(),
+                            output: format!("Request blocked by safety filter (detected: {})", patterns.join(", ")),
+                            tool_calls_made: 0,
+                            elapsed_secs: t0.elapsed().as_secs_f64(),
+                            total_tokens: 0,
+                        });
+                    }
+                    crate::injection_guard::Severity::Medium => {
+                        warn!("InjectionGuard WARNING for agent '{}': {:?} (allowing with sanitization)", agent_name, patterns);
+                    }
+                    crate::injection_guard::Severity::Low => {
+                        debug!("InjectionGuard LOW for agent '{}': {:?}", agent_name, patterns);
+                    }
+                }
+            }
+        }
+
+        // ── Service Tier: check daily rate limit before processing ──
+        if let Some(ref tier_mgr) = self.service_tier {
+            if let Err(denied) = tier_mgr.check_rate_limit(agent_name) {
+                warn!("ServiceTier rate limit denied for agent '{}': {}", agent_name, denied);
+                return Ok(AgentResult {
+                    agent_name: agent_name.to_string(),
+                    output: format!("Service tier rate limit: {}", denied.reason),
+                    tool_calls_made: 0,
+                    elapsed_secs: t0.elapsed().as_secs_f64(),
+                    total_tokens: 0,
+                });
+            }
+            // Record this task against the daily quota
+            if let Err(e) = tier_mgr.record_task(agent_name) {
+                warn!("Failed to record tier task for '{}': {}", agent_name, e);
+            }
+        }
 
         let instructions = config
             .instructions
@@ -393,10 +466,29 @@ impl AgentRuntime {
         let mut last_progress_report = Instant::now();
         let mut last_tool_names: Vec<String> = Vec::new();
         for round in 0..effective_max_rounds {
-            // Check budget before each LLM call
+            // ── Budget Breaker fast path: skip DB query if breaker already tripped ──
+            if let Some(ref breaker) = self.budget_breaker {
+                if breaker.is_tripped(agent_name) {
+                    let elapsed = t0.elapsed().as_secs_f64();
+                    warn!("Agent '{}' budget breaker is tripped — skipping (fast path)", agent_name);
+                    return Ok(AgentResult {
+                        agent_name: agent_name.to_string(),
+                        output: "Budget breaker tripped — agent temporarily suspended. Wait for cooldown or manual reset.".to_string(),
+                        tool_calls_made: total_tool_calls,
+                        elapsed_secs: elapsed,
+                        total_tokens,
+                    });
+                }
+            }
+
+            // Check budget before each LLM call (DB query)
             if let Some(ref ct) = self.cost_tracker {
                 if config.daily_budget_usd > 0.0 {
                     if let Err(e) = ct.check_budget(agent_name, config.daily_budget_usd) {
+                        // Trip the budget breaker so future calls skip the DB
+                        if let Some(ref breaker) = self.budget_breaker {
+                            breaker.trip(agent_name);
+                        }
                         let elapsed = t0.elapsed().as_secs_f64();
                         warn!("Agent '{}' budget exceeded: {}", agent_name, e);
                         // Log trajectory (budget exceeded)
@@ -653,13 +745,30 @@ impl AgentRuntime {
 
                     let cluster_hub_ref = &self.cluster_hub;
                     let target_worker_ref = &target_worker;
+                    let service_tier_ref = &self.service_tier;
+                    let agent_name_for_tier = agent_name.to_string();
                     let tool_futures: Vec<_> = tool_calls.iter().map(|tc| {
                         let tool_name = tc.function.name.clone();
                         let tool_args = tc.function.arguments.clone();
                         let tool_id = tc.id.clone();
                         let hub_opt = cluster_hub_ref.clone();
                         let tw = target_worker_ref.clone();
+                        let tier_opt = service_tier_ref.clone();
+                        let agent_for_tier = agent_name_for_tier.clone();
                         async move {
+                            // ── Service Tier: check tool access before execution ──
+                            if let Some(ref tier_mgr) = tier_opt {
+                                if let Err(denied) = tier_mgr.check_access(&agent_for_tier, &tool_name) {
+                                    warn!("ServiceTier denied tool '{}' for agent '{}': {}", tool_name, agent_for_tier, denied);
+                                    return ChatMessage {
+                                        role: "tool".to_string(),
+                                        content: format!("Access denied: {}", denied.reason),
+                                        tool_calls: None,
+                                        tool_call_id: tool_id,
+                                    };
+                                }
+                            }
+
                             // Try cluster dispatch first if hub is available
                             let result = if let Some(ref hub) = hub_opt {
                                 // Targeted dispatch: if target_worker is set, force dispatch there

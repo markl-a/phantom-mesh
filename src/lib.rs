@@ -47,6 +47,19 @@ pub mod trajectory;
 pub mod prompt_optimizer;
 pub mod injection_guard;
 pub mod knowledge_capture;
+pub mod auto_diagnosis;
+pub mod load_test;
+pub mod consistency_test;
+pub mod audit_log;
+pub mod service_tier;
+pub mod onboarding;
+pub mod multi_tenant;
+pub mod order_workflow;
+pub mod task_preemption;
+pub mod node_scoring;
+pub mod customer_health;
+pub mod observational_memory;
+pub mod ops_report;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -69,6 +82,7 @@ pub use tools::web_search::SearchConfig;
 pub use tools::ai_code::AiCodeConfig;
 pub use tools::computer_use::ComputerUseConfig;
 pub use tools::email::EmailConfig;
+pub use tools::email_receive::ImapConfig;
 pub use tools::twitter::TwitterConfig;
 pub use tools::blog_publish::BlogConfig;
 pub use tools::slack::SlackConfig;
@@ -86,7 +100,7 @@ pub use mcp::{McpBridge, McpServerConfig, McpToolProxy};
 pub use security::{SecretManager, AutonomyLevel, Role, RoleRegistry, PrivacyGuard, PrivacyConfig, PrivacyTier};
 pub use estop::{EStop, EStopError, Heartbeat};
 pub use gateway::{GatewayState, AgentThinkRequest, AgentThinkResponse};
-pub use approval::{ApprovalGate, ApprovalConfig, ApprovalResult, ApprovalNotifier};
+pub use approval::{ApprovalGate, ApprovalConfig, ApprovalResult, ApprovalNotifier, ApprovalTier, ApprovalPolicy, TierPolicyConfig, tier_for_tool, is_emergency_operation};
 pub use hands::{Hand, HandRegistry, HandRunner, HandResult, PhaseOutput, PreflightResult};
 pub use cost_tracker::{CostTracker, CostRecord, CostSummary, estimate_cost, BudgetBreaker, BudgetStatus};
 pub use revenue_tracker::{RevenueTracker, RevenueRecord, RevenueSummary, RevenueStatus};
@@ -113,3 +127,20 @@ pub use circuit_breaker::{ProviderCircuitBreaker, BreakerConfig, CircuitStatus};
 pub use prompt_optimizer::{PromptOptimizer, OptimizationResult, OptimizationConfig};
 pub use injection_guard::{InjectionGuard, InjectionResult, Severity};
 pub use knowledge_capture::{KnowledgeCapturer, KnowledgeNode};
+pub use auto_diagnosis::{AutoDiagnoser, ErrorContext, DiagnosisReport, ErrorCategory, KnownIssue, SimilarDiagnosis};
+pub use load_test::{
+    LoadTester, LoadTestStore, LoadTestStatus,
+    StressTestConfig, StressTestReport, EnduranceConfig, EnduranceReport,
+    HandExecutor, RealHandExecutor, TimelinePoint,
+};
+pub use consistency_test::{ConsistencyTester, ConsistencyReport, WorkerResult, PairSimilarity, BatchSummary, PREDEFINED_TEST_SUITE};
+pub use audit_log::{AuditLogger, AuditEntry, AuditFilter, ActionType, RiskLevel, Outcome, risk_level_for_tool};
+pub use service_tier::{ServiceTierManager, ServiceTier, TierConfig, TierLimits, TierUsage, TierDenied, AllowedSet, default_tier_config};
+pub use onboarding::{WorkerOnboarder, OnboardConfig, OnboardResult, OnboardStep, StepStatus, HealthStatus, OnboardingStatus, OnboardingState};
+pub use multi_tenant::{TenantManager, Tenant, extract_tenant_key};
+pub use order_workflow::{OrderWorkflow, Order, OrderStatus, PipelineSummary};
+pub use task_preemption::{PreemptionManager, PreemptionPlan, PreemptionDecision, RunningTask, PreemptedRecord};
+pub use node_scoring::{NodeScorer, NodeScore, NodeMetrics, NodeGrade};
+pub use customer_health::{CustomerHealthManager, ChurnDetector, CustomerHealth, HealthGrade, ChurnAlert, ChurnRiskLevel, ChurnSummary};
+pub use observational_memory::{ObservationalMemory, Observation, ConversationMessage};
+pub use ops_report::{OpsReporter, OpsReport, ReportType, NodeHealth, NodeStatus, CostSection, TaskSection, PipelineSection};

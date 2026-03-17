@@ -564,6 +564,7 @@ fn test_e2e_hand_context_preparation() {
         chain_to: None,
         guardrail: None,
         eval: None,
+        extra: HashMap::new(),
     };
 
     let context = HandRunner::prepare_context(&hand, "Find AI companies");
@@ -3188,6 +3189,7 @@ async fn test_e2e_system_wiring_smoke_test() {
             target_worker: None,
             target_capability: None,
             parallel_queries: vec![],
+            extra: std::collections::HashMap::new(),
         }],
         tools: vec!["file_write".into()],
         output_format: "markdown".into(),
@@ -3198,6 +3200,7 @@ async fn test_e2e_system_wiring_smoke_test() {
         chain_to: None,
         guardrail: None,
         eval: None,
+        extra: std::collections::HashMap::new(),
     };
     let ctx = HandRunner::prepare_context(&hand, "smoke input");
     assert!(ctx.contains("smoke input"));

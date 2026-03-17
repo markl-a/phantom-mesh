@@ -38,6 +38,12 @@ pub mod summarize;
 pub mod image_generate;
 pub mod docx_export;
 pub mod xlsx_export;
+pub mod tts;
+pub mod email_receive;
+pub mod video_compose;
+pub mod youtube_upload;
+pub mod music_generate;
+pub mod knowledge_import;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -47,9 +53,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::warn;
+
+use crate::audit_log::{AuditLogger, ActionType, Outcome, risk_level_for_tool};
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 
@@ -380,6 +388,8 @@ pub struct ToolRegistry {
     rate_limit: RateLimitConfig,
     /// Whether to scrub credentials from tool output
     scrub_enabled: bool,
+    /// Optional audit logger for recording tool executions
+    audit_logger: Option<Arc<AuditLogger>>,
 }
 
 impl ToolRegistry {
@@ -416,6 +426,10 @@ impl ToolRegistry {
         tools.insert("glob_search".to_string(), Box::new(glob_search::GlobSearchTool::new(sec_for_tools.clone())));
         tools.insert("content_search".to_string(), Box::new(content_search::ContentSearchTool::new(sec_for_tools)));
         tools.insert("browser".to_string(), Box::new(browser::BrowserTool::new()));
+        tools.insert("video_compose".to_string(), Box::new(video_compose::VideoComposeTool::new()));
+        tools.insert("youtube_upload".to_string(), Box::new(youtube_upload::YouTubeUploadTool::new()));
+        tools.insert("music_generate".to_string(), Box::new(music_generate::MusicGenerateTool::new()));
+        tools.insert("knowledge_import".to_string(), Box::new(knowledge_import::KnowledgeImportTool::new()));
 
         Self {
             tools,
@@ -424,7 +438,13 @@ impl ToolRegistry {
             tool_trackers: Mutex::new(HashMap::new()),
             rate_limit,
             scrub_enabled: true,
+            audit_logger: None,
         }
+    }
+
+    /// Set the audit logger for recording tool executions.
+    pub fn set_audit_logger(&mut self, logger: Arc<AuditLogger>) {
+        self.audit_logger = Some(logger);
     }
 
     pub fn workspace_dir(&self) -> &str {
@@ -488,7 +508,7 @@ impl ToolRegistry {
         tracker.record();
     }
 
-    /// Execute a tool with rate limiting and credential scrubbing
+    /// Execute a tool with rate limiting, credential scrubbing, and audit logging
     pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<ToolResult> {
         // 1. Check rate limit
         if let Err(msg) = self.check_rate_limit(tool_name) {
@@ -505,18 +525,53 @@ impl ToolRegistry {
 
         if let Err(e) = tool.preflight(&args) {
             warn!("Preflight check failed for '{}': {}", tool_name, e);
+            // Audit the preflight failure
+            if let Some(ref audit) = self.audit_logger {
+                let action_type = action_type_for_tool(tool_name);
+                let target = extract_target_from_args(tool_name, &args);
+                let _ = audit.log_action(
+                    "system",
+                    action_type,
+                    Some(tool_name),
+                    target.as_deref(),
+                    Some(serde_json::json!({"error": e.to_string(), "preflight": true})),
+                    Outcome::Failure,
+                    None,
+                    risk_level_for_tool(tool_name),
+                ).await;
+            }
             return Ok(ToolResult {
                 success: false,
                 output: format!("Preflight check failed: {}", e),
             });
         }
 
-        let result = tool.execute(args).await?;
+        let result = tool.execute(args.clone()).await?;
 
         // 3. Record the action
         self.record_tool_call(tool_name);
 
-        // 4. Scrub credentials from output
+        // 4. Audit log the tool execution
+        if let Some(ref audit) = self.audit_logger {
+            let action_type = action_type_for_tool(tool_name);
+            let target = extract_target_from_args(tool_name, &args);
+            let outcome = if result.success { Outcome::Success } else { Outcome::Failure };
+            let details = serde_json::json!({
+                "output_len": result.output.len(),
+            });
+            let _ = audit.log_action(
+                "system",
+                action_type,
+                Some(tool_name),
+                target.as_deref(),
+                Some(details),
+                outcome,
+                None,
+                risk_level_for_tool(tool_name),
+            ).await;
+        }
+
+        // 5. Scrub credentials from output
         if self.scrub_enabled {
             Ok(ToolResult {
                 success: result.success,
@@ -536,6 +591,45 @@ impl ToolRegistry {
             stats.insert(name.clone(), tracker.count());
         }
         stats
+    }
+}
+
+// ── Audit Helpers ─────────────────────────────────────────────────────────────
+
+/// Map a tool name to the most appropriate ActionType for audit logging.
+fn action_type_for_tool(tool_name: &str) -> ActionType {
+    match tool_name {
+        "shell" => ActionType::ShellCommand,
+        "file_write" | "file_edit" => ActionType::FileWrite,
+        "email" | "email_send" | "twitter" | "blog_publish" | "slack_send" | "discord_send"
+        | "line_send" | "whatsapp_send" => ActionType::ExternalSend,
+        "pdf_export" | "docx_export" | "xlsx_export" | "csv_parse" => ActionType::DataExport,
+        _ => ActionType::ToolExecution,
+    }
+}
+
+/// Extract a human-readable target from tool arguments for audit context.
+fn extract_target_from_args(tool_name: &str, args: &Value) -> Option<String> {
+    match tool_name {
+        "shell" => args.get("command").and_then(|v| v.as_str()).map(|s| {
+            if s.len() > 200 {
+                format!("{}...", &s[..s.char_indices().nth(200).map(|(i, _)| i).unwrap_or(s.len())])
+            } else {
+                s.to_string()
+            }
+        }),
+        "file_read" | "file_write" | "file_edit" => {
+            args.get("path").and_then(|v| v.as_str()).map(String::from)
+        }
+        "web_search" => args.get("query").and_then(|v| v.as_str()).map(String::from),
+        "http_request" => args.get("url").and_then(|v| v.as_str()).map(String::from),
+        "email" | "email_send" => args.get("to").and_then(|v| v.as_str()).map(String::from),
+        "email_receive" => {
+            let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("check");
+            let folder = args.get("folder").and_then(|v| v.as_str()).unwrap_or("INBOX");
+            Some(format!("{}:{}", action, folder))
+        }
+        _ => None,
     }
 }
 

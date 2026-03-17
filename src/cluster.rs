@@ -303,4 +303,113 @@ mod tests {
         let best = registry.best_worker_for("llm").await;
         assert!(best.is_none()); // w1 doesn't have "llm" capability
     }
+
+    // ===== Additional tests =====
+
+    #[tokio::test]
+    async fn test_get_node_local() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        let node = registry.get_node("local").await;
+        assert!(node.is_some());
+        let n = node.unwrap();
+        assert_eq!(n.name, "local");
+        assert_eq!(n.host, "127.0.0.1");
+        assert_eq!(n.port, 7878);
+    }
+
+    #[tokio::test]
+    async fn test_get_node_nonexistent() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        let node = registry.get_node("does-not-exist").await;
+        assert!(node.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_register_updates_host_on_conflict() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        registry.register("w1", "10.0.0.1", 7879).await.unwrap();
+        registry.register("w1", "10.0.0.99", 8080).await.unwrap();
+        let node = registry.get_node("w1").await.unwrap();
+        assert_eq!(node.host, "10.0.0.99");
+        assert_eq!(node.port, 8080);
+    }
+
+    #[tokio::test]
+    async fn test_online_workers_excludes_offline() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        registry.register("w1", "10.0.0.2", 7879).await.unwrap();
+        registry.register("w2", "10.0.0.3", 7880).await.unwrap();
+        // Force w2 to be stale
+        {
+            let conn = registry.conn.lock().unwrap();
+            let old = (Utc::now() - chrono::Duration::seconds(300)).to_rfc3339();
+            conn.execute(
+                "UPDATE cluster_nodes SET last_seen = ?1 WHERE name = 'w2'",
+                params![old],
+            ).unwrap();
+        }
+        registry.mark_offline_stale(60).await;
+        let workers = registry.online_workers().await;
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].name, "w1");
+    }
+
+    #[tokio::test]
+    async fn test_status_returns_all_nodes() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        registry.register("a", "10.0.0.1", 7879).await.unwrap();
+        registry.register("b", "10.0.0.2", 7880).await.unwrap();
+        registry.register("c", "10.0.0.3", 7881).await.unwrap();
+        let all = registry.status().await;
+        // local + a + b + c = 4
+        assert_eq!(all.len(), 4);
+    }
+
+    #[tokio::test]
+    async fn test_register_full_updates_capabilities() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        registry.register_full(
+            "w1", "10.0.0.2", 7879,
+            &["tools".to_string()],
+            "full",
+        ).await.unwrap();
+        // Re-register with different capabilities
+        registry.register_full(
+            "w1", "10.0.0.2", 7879,
+            &["tools".to_string(), "llm".to_string(), "web_search".to_string()],
+            "light",
+        ).await.unwrap();
+        let node = registry.get_node("w1").await.unwrap();
+        assert_eq!(node.capabilities.len(), 3);
+        assert_eq!(node.device_type, "light");
+    }
+
+    #[tokio::test]
+    async fn test_best_worker_for_with_multiple_capabilities() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        registry.register_full(
+            "w1", "10.0.0.2", 7879,
+            &["tools".to_string(), "llm".to_string()],
+            "full",
+        ).await.unwrap();
+        registry.register_full(
+            "w2", "10.0.0.3", 7880,
+            &["tools".to_string()],
+            "light",
+        ).await.unwrap();
+        registry.heartbeat("w1", 0.5).await.unwrap();
+        registry.heartbeat("w2", 0.3).await.unwrap();
+        // llm capability only on w1
+        let best = registry.best_worker_for("llm").await.unwrap();
+        assert_eq!(best.name, "w1");
+    }
+
+    #[tokio::test]
+    async fn test_mark_offline_stale_preserves_local() {
+        let registry = ClusterRegistry::new(":memory:").await.unwrap();
+        // Even with 0 timeout, local should remain online
+        registry.mark_offline_stale(0).await;
+        let local = registry.get_node("local").await.unwrap();
+        assert_eq!(local.status, "online");
+    }
 }

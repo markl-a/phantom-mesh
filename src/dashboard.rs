@@ -276,3 +276,222 @@ fn html_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task_queue::{Task, TaskStatus, TaskPriority};
+
+    fn make_task(id: &str, title: &str, status: TaskStatus, result: Option<&str>) -> Task {
+        Task {
+            task_id: id.to_string(),
+            title: title.to_string(),
+            prompt: "test prompt".to_string(),
+            status,
+            result: result.map(|s| s.to_string()),
+            strategy_used: None,
+            feedback_score: None,
+            priority: TaskPriority::Normal,
+            idempotency_key: None,
+            created_at: "2026-03-17T10:00:00+00:00".to_string(),
+            updated_at: "2026-03-17T10:00:00+00:00".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_render_empty_tasks() {
+        let html = render(
+            &[],
+            &["shell".to_string(), "web_search".to_string()],
+            &["master".to_string()],
+            "connected",
+            "test-token",
+            3600,
+            2,
+        );
+        let body = html.0;
+        assert!(body.contains("Clawtex Dashboard"));
+        assert!(body.contains("0 tasks"));
+        assert!(body.contains("No tasks")); // empty columns show "No tasks"
+    }
+
+    #[test]
+    fn test_render_with_tasks_in_all_columns() {
+        let tasks = vec![
+            make_task("aaaa1111-0000-0000-0000-000000000000", "Pending task", TaskStatus::Pending, None),
+            make_task("bbbb2222-0000-0000-0000-000000000000", "Running task", TaskStatus::Running, None),
+            make_task("cccc3333-0000-0000-0000-000000000000", "Done task", TaskStatus::Done, Some("result ok")),
+            make_task("dddd4444-0000-0000-0000-000000000000", "Failed task", TaskStatus::Failed, Some("error: timeout")),
+        ];
+        let html = render(
+            &tasks,
+            &["shell".to_string()],
+            &["master".to_string()],
+            "connected",
+            "tok",
+            7200,
+            5,
+        );
+        let body = html.0;
+        assert!(body.contains("4 tasks"));
+        assert!(body.contains("Pending task"));
+        assert!(body.contains("Running task"));
+        assert!(body.contains("Done task"));
+        assert!(body.contains("Failed task"));
+        assert!(body.contains("result ok"));
+        assert!(body.contains("error: timeout"));
+    }
+
+    #[test]
+    fn test_render_ollama_connected_green_dot() {
+        let html = render(&[], &[], &[], "connected", "t", 0, 0);
+        let body = html.0;
+        assert!(body.contains("dot-green"));
+        assert!(body.contains("Ollama: connected"));
+    }
+
+    #[test]
+    fn test_render_ollama_disconnected_red_dot() {
+        let html = render(&[], &[], &[], "disconnected", "t", 0, 0);
+        let body = html.0;
+        assert!(body.contains("dot-red"));
+        assert!(body.contains("Ollama: disconnected"));
+    }
+
+    #[test]
+    fn test_render_uptime_hours() {
+        let html = render(&[], &[], &[], "connected", "t", 7260, 0);
+        let body = html.0;
+        assert!(body.contains("2h 1m"));
+    }
+
+    #[test]
+    fn test_render_uptime_minutes_only() {
+        let html = render(&[], &[], &[], "connected", "t", 300, 0);
+        let body = html.0;
+        assert!(body.contains("5m"));
+    }
+
+    #[test]
+    fn test_render_tools_list() {
+        let html = render(
+            &[],
+            &["shell".to_string(), "file_read".to_string(), "web_search".to_string()],
+            &[],
+            "connected",
+            "t",
+            0,
+            0,
+        );
+        let body = html.0;
+        assert!(body.contains("shell, file_read, web_search"));
+    }
+
+    #[test]
+    fn test_render_agents_list() {
+        let html = render(
+            &[],
+            &[],
+            &["master".to_string(), "coder".to_string()],
+            "connected",
+            "t",
+            0,
+            0,
+        );
+        let body = html.0;
+        assert!(body.contains("master, coder"));
+    }
+
+    #[test]
+    fn test_render_refresh_link_with_token() {
+        let html = render(&[], &[], &[], "connected", "my-secret-token", 0, 0);
+        let body = html.0;
+        assert!(body.contains("/dashboard?token=my-secret-token"));
+    }
+
+    #[test]
+    fn test_render_active_chats() {
+        let html = render(&[], &[], &[], "connected", "t", 0, 42);
+        let body = html.0;
+        assert!(body.contains("Chats: 42"));
+    }
+
+    #[test]
+    fn test_format_uptime_zero() {
+        assert_eq!(format_uptime(0), "0m");
+    }
+
+    #[test]
+    fn test_format_uptime_hours_and_minutes() {
+        assert_eq!(format_uptime(3661), "1h 1m");
+    }
+
+    #[test]
+    fn test_format_uptime_exact_hour() {
+        assert_eq!(format_uptime(7200), "2h 0m");
+    }
+
+    #[test]
+    fn test_html_escape_special_chars() {
+        assert_eq!(html_escape("<script>alert('xss')</script>"), "&lt;script&gt;alert('xss')&lt;/script&gt;");
+        assert_eq!(html_escape("a & b"), "a &amp; b");
+        assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
+
+    #[test]
+    fn test_html_escape_no_change() {
+        assert_eq!(html_escape("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_render_cards_empty() {
+        let cards = render_cards(&[]);
+        assert!(cards.contains("No tasks"));
+    }
+
+    #[test]
+    fn test_render_cards_with_task() {
+        let task = make_task("abcd1234-5678-9012-3456-789012345678", "My Task", TaskStatus::Done, Some("Done!"));
+        let cards = render_cards(&[&task]);
+        assert!(cards.contains("My Task"));
+        assert!(cards.contains("abcd1234"));
+        assert!(cards.contains("Done!"));
+    }
+
+    #[test]
+    fn test_render_cards_html_escapes_title() {
+        let task = make_task("abcd1234-5678-9012-3456-789012345678", "<b>Bold</b>", TaskStatus::Pending, None);
+        let cards = render_cards(&[&task]);
+        assert!(cards.contains("&lt;b&gt;Bold&lt;/b&gt;"));
+        assert!(!cards.contains("<b>Bold</b>"));
+    }
+
+    #[test]
+    fn test_render_cards_long_result_truncated() {
+        let long_result = "x".repeat(200);
+        let task = make_task("abcd1234-5678-9012-3456-789012345678", "Long", TaskStatus::Done, Some(&long_result));
+        let cards = render_cards(&[&task]);
+        assert!(cards.contains("..."));
+        // The full 200-char result should not appear
+        assert!(!cards.contains(&long_result));
+    }
+
+    #[test]
+    fn test_render_column_counts() {
+        let tasks = vec![
+            make_task("a1111111-0000-0000-0000-000000000000", "P1", TaskStatus::Pending, None),
+            make_task("a2222222-0000-0000-0000-000000000000", "P2", TaskStatus::Pending, None),
+            make_task("b1111111-0000-0000-0000-000000000000", "R1", TaskStatus::Running, None),
+            make_task("c1111111-0000-0000-0000-000000000000", "D1", TaskStatus::Done, None),
+            make_task("c2222222-0000-0000-0000-000000000000", "D2", TaskStatus::Done, None),
+            make_task("c3333333-0000-0000-0000-000000000000", "D3", TaskStatus::Done, None),
+        ];
+        let html = render(&tasks, &[], &[], "connected", "t", 0, 0);
+        let body = html.0;
+        // Check column header counts
+        assert!(body.contains(r#"Pending <span class="count">2</span>"#));
+        assert!(body.contains(r#"Running <span class="count">1</span>"#));
+        assert!(body.contains(r#"Done <span class="count">3</span>"#));
+        assert!(body.contains(r#"Failed <span class="count">0</span>"#));
+    }
+}

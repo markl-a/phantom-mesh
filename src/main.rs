@@ -20,7 +20,7 @@ use clawtex_core::{
     AiCodeConfig, AgentRuntime, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
     ClusterHub, ClusterWorker, ClusterConfig, WorkerConfig, TaskResultPayload,
     ComputerUseConfig, ConversationStore, CostTracker, CostSummary, CronStore,
-    EmailConfig, EStop, EvalConfig, GatewayState, HandRegistry, HandRunner, JobAction, LlmRouter,
+    EmailConfig, ImapConfig, EStop, EvalConfig, GatewayState, HandRegistry, HandRunner, JobAction, LlmRouter,
     MemoryCategory, MemoryConfig, MemoryStore, PhaseOutput, PrivacyConfig, PrivacyGuard,
     ProviderCircuitBreaker, BreakerConfig,
     RevenueTracker, RevenueSummary,
@@ -29,6 +29,18 @@ use clawtex_core::{
     SecretManager, SecurityConfig, SkillRegistry, TaskQueue, TelegramChannel, TelegramConfig,
     ToolRegistry, TrajectoryLogger, TwitterConfig, BlogConfig, TrustLevel,
     SlackConfig, DiscordConfig, LineConfig, WhatsAppConfig,
+    AuditLogger, AuditFilter,
+    ConsistencyTester,
+    WorkerOnboarder, OnboardConfig,
+    LoadTester, StressTestConfig,
+    ServiceTierManager, ServiceTier,
+    AutoDiagnoser,
+    TenantManager, Tenant, extract_tenant_key,
+    OrderWorkflow,
+    CustomerHealthManager, ChurnDetector,
+    PreemptionManager, NodeScorer, NodeMetrics,
+    ObservationalMemory,
+    OpsReporter,
 };
 
 // ── CLI Args ───────────────────────────────────────────────────────────────────
@@ -139,6 +151,8 @@ struct AppConfig {
     #[serde(default)]
     email: Option<EmailConfig>,
     #[serde(default)]
+    imap: Option<ImapConfig>,
+    #[serde(default)]
     twitter: Option<TwitterConfig>,
     #[serde(default)]
     blog: Option<BlogConfig>,
@@ -204,6 +218,18 @@ struct AppState {
     dashboard_token: String,
     public_url: Option<String>,
     metrics_registry: Arc<clawtex_core::MetricsRegistry>,
+    audit_logger: Option<Arc<AuditLogger>>,
+    load_tester: Option<Arc<LoadTester>>,
+    worker_onboarder: Option<Arc<WorkerOnboarder>>,
+    service_tier: Option<Arc<ServiceTierManager>>,
+    auto_diagnoser: Option<Arc<AutoDiagnoser>>,
+    tenant_manager: Option<Arc<TenantManager>>,
+    order_workflow: Option<Arc<OrderWorkflow>>,
+    customer_health: Option<Arc<CustomerHealthManager>>,
+    churn_detector: Option<Arc<ChurnDetector>>,
+    observational_memory: Option<Arc<ObservationalMemory>>,
+    preemption_manager: Option<Arc<PreemptionManager>>,
+    node_scorer: Option<Arc<NodeScorer>>,
     started_at: Instant,
 }
 
@@ -454,7 +480,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> (StatusCode, [(axu
     state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
 
     // Update worker count gauge
-    let worker_count = state.cluster.all_workers().len() as u64;
+    let worker_count = state.cluster.online_workers().await.len() as u64;
     state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
 
     // Update tool count gauge
@@ -472,7 +498,7 @@ async fn prometheus_metrics(State(state): State<AppState>) -> (StatusCode, [(axu
 async fn metrics_health(State(state): State<AppState>) -> Json<Value> {
     let uptime = state.started_at.elapsed().as_secs();
     state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
-    let worker_count = state.cluster.all_workers().len() as u64;
+    let worker_count = state.cluster.online_workers().await.len() as u64;
     state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
     state.metrics_registry.gauge_set("clawtex_tools_registered", state.tool_registry.names().len() as u64);
 
@@ -574,6 +600,173 @@ async fn cluster_result(
     }
 }
 
+/// POST /cluster/onboard — start onboarding a new worker
+async fn cluster_onboard(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let onboarder = state.worker_onboarder.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let config: OnboardConfig = serde_json::from_value(body)
+        .map_err(|e| {
+            warn!("Invalid onboard config: {}", e);
+            StatusCode::BAD_REQUEST
+        })?;
+
+    info!("Onboarding worker '{}' (type: {})", config.worker_name, config.worker_type);
+
+    match onboarder.onboard_worker(config).await {
+        Ok(result) => Ok(Json(serde_json::to_value(result).unwrap_or(json!({"error": "serialization failed"})))),
+        Err(e) => {
+            error!("Onboarding failed: {}", e);
+            Ok(Json(json!({"error": e.to_string()})))
+        }
+    }
+}
+
+/// GET /cluster/onboard/status/:worker — check onboarding status for a worker
+async fn cluster_onboard_status(
+    State(state): State<AppState>,
+    Path(worker): Path<String>,
+) -> Json<Value> {
+    let onboarder = match state.worker_onboarder.as_ref() {
+        Some(o) => o,
+        None => return Json(json!({"error": "onboarder not initialized"})),
+    };
+
+    match onboarder.get_status(&worker).await {
+        Some(status) => Json(serde_json::to_value(status).unwrap_or(json!({"error": "serialization failed"}))),
+        None => {
+            // No active onboarding — check if worker exists via verify
+            match onboarder.verify_worker(&worker).await {
+                Ok(health) => Json(json!({
+                    "worker_name": worker,
+                    "state": if health.registered { "registered" } else { "unknown" },
+                    "health": serde_json::to_value(health).unwrap_or(json!({})),
+                })),
+                Err(e) => Json(json!({
+                    "worker_name": worker,
+                    "state": "unknown",
+                    "error": e.to_string(),
+                })),
+            }
+        }
+    }
+}
+
+/// GET /cluster/onboard/verify/:worker — verify worker health
+async fn cluster_onboard_verify(
+    State(state): State<AppState>,
+    Path(worker): Path<String>,
+) -> Json<Value> {
+    let onboarder = match state.worker_onboarder.as_ref() {
+        Some(o) => o,
+        None => return Json(json!({"error": "onboarder not initialized"})),
+    };
+
+    match onboarder.verify_worker(&worker).await {
+        Ok(health) => Json(serde_json::to_value(health).unwrap_or(json!({"error": "serialization failed"}))),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+/// POST /cluster/onboard/mobile — generate mobile worker join link
+async fn cluster_onboard_mobile(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let worker_name = body.get("worker_name").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let hub_url = body.get("hub_url").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let auth_token = body.get("auth_token").and_then(|v| v.as_str());
+
+    let link = clawtex_core::WorkerOnboarder::generate_mobile_link(hub_url, auth_token, worker_name);
+
+    // Also pre-register in the registry
+    let capabilities = body.get("capabilities")
+        .and_then(|v| serde_json::from_value::<Vec<String>>(v.clone()).ok())
+        .unwrap_or_else(|| vec!["web_search".to_string(), "http_request".to_string()]);
+
+    let _ = state.cluster.register_full(
+        worker_name,
+        "0.0.0.0",
+        0,
+        &capabilities,
+        "mobile",
+    ).await;
+
+    Ok(Json(json!({
+        "worker_name": worker_name,
+        "deep_link": link,
+        "instructions": "Open this link on the mobile device, or scan the QR code in the app"
+    })))
+}
+
+/// POST /cluster/consistency-test -- run cross-device consistency tests.
+async fn cluster_consistency_test(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    if state.estop.is_stopped() {
+        return Ok(Json(json!({"error": "E-Stop active"})));
+    }
+    let hub = state.cluster_hub.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let home = dirs_home();
+    let db_path = format!("{}/.clawtex/consistency.db", home);
+    let tester = ConsistencyTester::new(&db_path)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let threshold = body.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.90);
+    let tester = tester.with_threshold(threshold);
+    let use_predefined = body.get("predefined").and_then(|v| v.as_bool()).unwrap_or(false);
+    let workers: Vec<String> = if let Some(arr) = body.get("workers").and_then(|v| v.as_array()) {
+        arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+    } else {
+        hub.registry.online_workers().await.iter().map(|w| w.name.clone()).collect()
+    };
+    if workers.len() < 2 {
+        return Ok(Json(json!({"error": "Need at least 2 workers", "online_workers": workers.len()})));
+    }
+    if use_predefined {
+        let summary = tester.run_predefined_suite(workers, hub).await;
+        return Ok(Json(json!({"status": "complete", "total_prompts": summary.total_prompts, "passed": summary.passed, "failed": summary.failed, "avg_similarity": summary.avg_similarity, "reports": summary.reports})));
+    }
+    let prompts: Vec<String> = body.get("prompts").and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()).unwrap_or_default();
+    if prompts.is_empty() {
+        return Ok(Json(json!({"error": "Provide 'prompts' array or set 'predefined': true"})));
+    }
+    let reports = tester.run_batch(prompts, workers, hub).await;
+    let passed = reports.iter().filter(|r| r.pass).count();
+    let total = reports.len();
+    let avg_sim = if total > 0 { reports.iter().map(|r| r.avg_similarity).sum::<f64>() / total as f64 } else { 0.0 };
+    Ok(Json(json!({"status": "complete", "total_prompts": total, "passed": passed, "failed": total - passed, "avg_similarity": avg_sim, "reports": reports})))
+}
+
+/// GET /cluster/consistency-history -- view historical consistency test results
+async fn cluster_consistency_history(
+    State(_state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let home = dirs_home();
+    let db_path = format!("{}/.clawtex/consistency.db", home);
+    let tester = match ConsistencyTester::new(&db_path) {
+        Ok(t) => t,
+        Err(e) => return Json(json!({"error": format!("Failed to open DB: {}", e)})),
+    };
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(20);
+    match tester.history_summary() {
+        Ok(summary) => {
+            let recent = tester.recent_reports(limit).unwrap_or_default();
+            Json(json!({"summary": summary, "recent_reports": recent}))
+        }
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+async fn preemption_pending(State(state): State<AppState>) -> Json<Value> { let mgr = match state.preemption_manager.as_ref() { Some(m) => m, None => return Json(json!({"error": "preemption manager not initialized"})) }; match mgr.pending_restorations() { Ok(records) => Json(json!({"pending": records, "count": records.len()})), Err(e) => Json(json!({"error": e.to_string()})) } }
+async fn preemption_history(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>) -> Json<Value> { let mgr = match state.preemption_manager.as_ref() { Some(m) => m, None => return Json(json!({"error": "preemption manager not initialized"})) }; let limit = params.get("limit").and_then(|v| v.parse::<i64>().ok()).unwrap_or(50); match mgr.history(limit) { Ok(records) => Json(json!({"history": records, "count": records.len()})), Err(e) => Json(json!({"error": e.to_string()})) } }
+async fn cluster_scores(State(state): State<AppState>) -> Json<Value> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Json(json!({"error": "node scorer not initialized"})) }; let rankings = scorer.get_rankings(); let nodes: Vec<Value> = rankings.iter().map(|(id, score)| { json!({"node_id": id, "stability": score.stability, "speed": score.speed, "cost_efficiency": score.cost_efficiency, "quality": score.quality, "overall": score.overall, "grade": format!("{}", score.grade)}) }).collect(); Json(json!({"rankings": nodes, "count": nodes.len()})) }
+async fn cluster_score_node(State(state): State<AppState>, Path(node_id): Path<String>) -> Json<Value> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Json(json!({"error": "node scorer not initialized"})) }; match scorer.get_node_details(&node_id) { Some((metrics, score)) => Json(json!({"node_id": node_id, "metrics": metrics, "score": score})), None => Json(json!({"error": format!("No data for node '{}'", node_id)})) } }
+async fn cluster_score_update(State(state): State<AppState>, Path(node_id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Err(StatusCode::SERVICE_UNAVAILABLE) }; let metrics = NodeMetrics { success_count: body.get("success_count").and_then(|v| v.as_u64()).unwrap_or(0), failure_count: body.get("failure_count").and_then(|v| v.as_u64()).unwrap_or(0), avg_latency_ms: body.get("avg_latency_ms").and_then(|v| v.as_f64()).unwrap_or(0.0), total_cost: body.get("total_cost").and_then(|v| v.as_f64()).unwrap_or(0.0), quality_score: body.get("quality_score").and_then(|v| v.as_f64()).unwrap_or(0.0) }; match scorer.update_metrics(&node_id, metrics) { Ok(score) => Ok(Json(json!({"node_id": node_id, "score": score, "status": "updated"}))), Err(e) => { warn!("Failed to update node score for '{}': {}", node_id, e); Err(StatusCode::INTERNAL_SERVER_ERROR) } } }
 async fn tools_list(State(state): State<AppState>) -> Json<Value> {
     let specs = state.tool_registry.specs();
     let tools: Vec<Value> = specs
@@ -737,6 +930,189 @@ async fn revenue_summary(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
+// ── Operations Report Endpoints ──────────────────────────────────────────────
+
+/// GET /reports/daily -- generate and return daily ops report
+async fn report_daily(State(state): State<AppState>) -> Json<Value> {
+    let reporter = OpsReporter::new(5.0);
+    let report = reporter
+        .generate_daily_report(
+            state.cost_tracker.as_deref(),
+            Some(&*state.cluster),
+            Some(&*state.task_queue),
+        )
+        .await;
+    Json(serde_json::to_value(&report).unwrap_or(json!({"error": "serialization failed"})))
+}
+
+/// GET /reports/weekly -- generate and return weekly ops report
+async fn report_weekly(State(state): State<AppState>) -> Json<Value> {
+    let reporter = OpsReporter::new(5.0);
+    let report = reporter
+        .generate_weekly_report(
+            state.cost_tracker.as_deref(),
+            Some(&*state.cluster),
+            Some(&*state.task_queue),
+        )
+        .await;
+    Json(serde_json::to_value(&report).unwrap_or(json!({"error": "serialization failed"})))
+}
+
+/// POST /reports/send -- generate daily report and format for Telegram
+async fn report_send(State(state): State<AppState>) -> Json<Value> {
+    let reporter = OpsReporter::new(5.0);
+    let report = reporter
+        .generate_daily_report(
+            state.cost_tracker.as_deref(),
+            Some(&*state.cluster),
+            Some(&*state.task_queue),
+        )
+        .await;
+    let telegram_text = OpsReporter::format_telegram(&report);
+    Json(json!({
+        "report": report,
+        "telegram_text": telegram_text,
+        "status": "generated"
+    }))
+}
+
+// ── Service Tier Endpoints ───────────────────────────────────────────────────
+
+/// GET /tier/:agent -- get agent's tier info and limits
+async fn tier_get(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.service_tier.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let tier = mgr.get_tier(&agent);
+    let limits = mgr.get_limits(tier);
+    let usage = mgr.get_usage(&agent);
+    Ok(Json(json!({
+        "agent": agent,
+        "tier": tier,
+        "limits": {
+            "max_tasks_per_day": limits.max_tasks_per_day,
+            "max_storage_bytes": limits.max_storage_bytes,
+            "priority_boost": limits.priority_boost,
+            "max_concurrent_agents": limits.max_concurrent_agents,
+        },
+        "usage": {
+            "tasks_today": usage.tasks_today,
+            "tasks_limit": usage.tasks_limit,
+            "storage_used": usage.storage_used,
+            "storage_limit": usage.storage_limit,
+        }
+    })))
+}
+
+/// PUT /tier/:agent — set agent's tier
+async fn tier_set(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.service_tier.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let tier_str = body.get("tier").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let tier = ServiceTier::from_str_loose(tier_str).ok_or(StatusCode::BAD_REQUEST)?;
+    mgr.set_tier(&agent, tier).map_err(|e| {
+        warn!("Failed to set tier for '{}': {}", agent, e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(Json(json!({
+        "agent": agent,
+        "tier": tier,
+        "status": "updated"
+    })))
+}
+
+/// GET /tier/:agent/usage — get agent's current usage stats
+async fn tier_usage(
+    State(state): State<AppState>,
+    Path(agent): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.service_tier.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let usage = mgr.get_usage(&agent);
+    Ok(Json(json!(usage)))
+}
+
+
+// ── Tenant Endpoints ──────────────────────────────────────────────────────────
+
+async fn tenant_create(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let name = body.get("name").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let tier_str = body.get("tier").and_then(|v| v.as_str()).unwrap_or("lite");
+    let tier = ServiceTier::from_str_loose(tier_str).ok_or(StatusCode::BAD_REQUEST)?;
+    match mgr.create_tenant(name, tier) {
+        Ok(tenant) => Ok(Json(json!(tenant))),
+        Err(e) => {
+            tracing::error!("Failed to create tenant: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn tenant_list(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let tenants = mgr.list_tenants();
+    Ok(Json(json!({ "tenants": tenants, "count": tenants.len() })))
+}
+
+async fn tenant_get(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match mgr.get_tenant(&id) {
+        Some(tenant) => Ok(Json(json!(tenant))),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn tenant_update_tier(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let tier_str = body.get("tier").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let tier = ServiceTier::from_str_loose(tier_str).ok_or(StatusCode::BAD_REQUEST)?;
+    mgr.update_tier(&id, tier).map_err(|e| {
+        tracing::error!("Failed to update tenant tier: {}", e);
+        StatusCode::NOT_FOUND
+    })?;
+    Ok(Json(json!({ "status": "ok", "id": id, "tier": tier.to_string() })))
+}
+
+async fn tenant_deactivate(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    mgr.deactivate_tenant(&id).map_err(|e| {
+        tracing::error!("Failed to deactivate tenant: {}", e);
+        StatusCode::NOT_FOUND
+    })?;
+    Ok(Json(json!({ "status": "ok", "id": id, "message": "Tenant deactivated" })))
+}
+
+async fn tenant_validate(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    let mgr = state.tenant_manager.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let key = params.get("key").ok_or(StatusCode::BAD_REQUEST)?;
+    match mgr.validate_api_key(key) {
+        Some(tenant) => Ok(Json(json!({ "valid": true, "tenant": tenant }))),
+        None => Ok(Json(json!({ "valid": false }))),
+    }
+}
+
 async fn estop_activate(State(state): State<AppState>) -> Json<Value> {
     state.estop.stop();
     Json(json!({ "status": "stopped", "message": "Emergency stop activated" }))
@@ -753,6 +1129,72 @@ async fn estop_status(State(state): State<AppState>) -> Json<Value> {
         "stopped": stopped,
         "status": if stopped { "stopped" } else { "running" }
     }))
+}
+
+// ── Load Testing Endpoints ──────────────────────────────────────────
+async fn test_stress_start(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> {
+    let tester = match &state.load_tester { Some(t) => t.clone(), None => return Ok(Json(json!({"error":"Load tester not available"}))) };
+    let st = tester.status().await;
+    if st.running { return Ok(Json(json!({"error":"Test already running","run_id":st.run_id}))); }
+    let (cfg, pn) = if let Some(ps) = body.get("profile").and_then(|v| v.as_str()) {
+        match clawtex_core::load_test::profile(ps) { Some(c) => (c, Some(ps.to_string())), None => return Ok(Json(json!({"error":format!("Unknown profile '{}'", ps)}))) }
+    } else { match serde_json::from_value::<StressTestConfig>(body.clone()) { Ok(c) => (c, None), Err(e) => return Ok(Json(json!({"error":format!("Invalid config: {}", e)}))) } };
+    let cs = cfg.clone(); let pc = pn.clone();
+    tokio::spawn(async move { let _ = tester.run_stress_test(cfg, pc).await; });
+    Ok(Json(json!({"status":"started","config":cs,"profile":pn})))
+}
+async fn test_stress_status(State(state): State<AppState>) -> Json<Value> {
+    match &state.load_tester { Some(t) => Json(serde_json::to_value(&t.status().await).unwrap_or(json!({}))), None => Json(json!({"error":"not available"})) }
+}
+async fn test_stress_history(State(state): State<AppState>, axum::extract::Query(p): axum::extract::Query<HashMap<String, String>>) -> Json<Value> {
+    let t = match &state.load_tester { Some(t) => t, None => return Json(json!({"error":"not available"})) };
+    let lim = p.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(20);
+    match t.store() { Some(s) => match s.recent(lim) { Ok(r) => Json(json!({"results":r,"count":r.len()})), Err(e) => Json(json!({"error":e.to_string()})) }, None => Json(json!({"error":"no store"})) }
+}
+async fn test_stress_report(State(state): State<AppState>, Path(rid): Path<String>) -> Json<Value> {
+    let t = match &state.load_tester { Some(t) => t, None => return Json(json!({"error":"not available"})) };
+    match t.store() { Some(s) => match s.get_report(&rid) { Ok(Some(r)) => Json(r), Ok(None) => Json(json!({"error":"not found"})), Err(e) => Json(json!({"error":e.to_string()})) }, None => Json(json!({"error":"no store"})) }
+}
+async fn test_profiles() -> Json<Value> {
+    let p: Vec<Value> = clawtex_core::load_test::profile_names().iter().filter_map(|n| clawtex_core::load_test::profile(n).map(|c| json!({"name":n,"concurrent_tasks":c.concurrent_tasks,"duration_secs":c.duration_secs,"multiplier":c.multiplier}))).collect();
+    Json(json!({"profiles":p}))
+}
+
+/// GET /audit — query audit log with optional filters
+/// Query params: agent, action_type, risk_level, tool, outcome, limit
+async fn audit_query(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let logger = match &state.audit_logger {
+        Some(l) => l,
+        None => return Json(json!({"error": "Audit logger not available"})),
+    };
+
+    let filter = AuditFilter {
+        agent: params.get("agent").cloned(),
+        action_type: params.get("action_type")
+            .and_then(|s| clawtex_core::ActionType::from_str(s)),
+        risk_level: params.get("risk_level")
+            .and_then(|s| clawtex_core::RiskLevel::from_str(s)),
+        tool_name: params.get("tool").cloned(),
+        outcome: params.get("outcome")
+            .and_then(|s| clawtex_core::Outcome::from_str(s)),
+        start_time: None,
+        end_time: None,
+        limit: params.get("limit").and_then(|s| s.parse().ok()),
+    };
+
+    match logger.query_audit(&filter).await {
+        Ok(entries) => {
+            let count = entries.len();
+            Json(json!({
+                "entries": entries,
+                "count": count,
+            }))
+        }
+        Err(e) => Json(json!({"error": format!("Audit query failed: {}", e)})),
+    }
 }
 
 async fn dashboard(
@@ -1412,11 +1854,26 @@ Any other message will be processed by the AI agent.";
                 return;
             }
 
-            // Handle approval responses
+            // Handle approval responses (supports Single and Multi tier)
             if text.starts_with("/approve ") {
                 let id = &text[9..];
+                // Check multi-approval status before responding (to show progress)
+                let was_multi = state.approval_gate.multi_approval_status(id).await;
                 if state.approval_gate.respond(id, true).await {
-                    let _ = telegram.send(&chat_id, "Approved.").await;
+                    if let Some((prev_approvals, required)) = was_multi {
+                        let new_count = prev_approvals + 1;
+                        if new_count >= required {
+                            let _ = telegram.send(&chat_id, &format!(
+                                "Approved ({}/{}). Quorum reached.", new_count, required
+                            )).await;
+                        } else {
+                            let _ = telegram.send(&chat_id, &format!(
+                                "Vote recorded ({}/{}). Waiting for more approvals...", new_count, required
+                            )).await;
+                        }
+                    } else {
+                        let _ = telegram.send(&chat_id, "Approved.").await;
+                    }
                 } else {
                     let _ = telegram.send(&chat_id, "No pending approval with that ID.").await;
                 }
@@ -2033,6 +2490,60 @@ async fn main() -> anyhow::Result<()> {
             info!("Privacy Guard enabled — provider routing by sensitivity tier");
         }
     }
+    // Wire budget breaker for fast-path budget checking (5 minute cooldown)
+    let budget_breaker = Arc::new(clawtex_core::BudgetBreaker::new(300));
+    agent_runtime.set_budget_breaker(budget_breaker.clone());
+    info!("Budget breaker wired (300s cooldown)");
+
+    // Wire injection guard for prompt safety
+    let injection_guard = Arc::new(clawtex_core::InjectionGuard::new());
+    agent_runtime.set_injection_guard(injection_guard.clone());
+    info!("Injection guard wired (8 patterns)");
+
+    // ── Service Tier Manager ─────────────────────────────────────────
+    let tier_db_path = format!("{}/.clawtex/tiers.db", home);
+    let service_tier: Option<Arc<ServiceTierManager>> = match ServiceTierManager::new(&tier_db_path) {
+        Ok(stm) => {
+            let stm = Arc::new(stm);
+            agent_runtime.set_service_tier(stm.clone());
+            info!("Service tier manager initialized (db: {})", tier_db_path);
+            Some(stm)
+        }
+        Err(e) => {
+            warn!("Service tier manager failed to init: {}", e);
+            None
+        }
+    };
+
+    // ── Tenant Manager ────────────────────────────────────────────────
+    let tenant_db_path = format!("{}/.clawtex/tenants.db", home);
+    let tenant_base_dir = format!("{}/.clawtex/tenants", home);
+    let tenant_manager: Option<Arc<TenantManager>> = match TenantManager::new(&tenant_db_path, &tenant_base_dir) {
+        Ok(tm) => {
+            let tm = Arc::new(tm);
+            info!("Tenant manager initialized (db: {}, base: {})", tenant_db_path, tenant_base_dir);
+            Some(tm)
+        }
+        Err(e) => {
+            warn!("Tenant manager failed to init: {}", e);
+            None
+        }
+    };
+
+    // ── Order Workflow ─────────────────────────────────────────────
+    let orders_db_path = format!("{}/.clawtex/orders.db", home);
+    let order_workflow: Option<Arc<OrderWorkflow>> = match OrderWorkflow::new(&orders_db_path) {
+        Ok(ow) => {
+            let ow = Arc::new(ow);
+            info!("Order workflow initialized (db: {})", orders_db_path);
+            Some(ow)
+        }
+        Err(e) => {
+            warn!("Order workflow failed to init: {}", e);
+            None
+        }
+    };
+
     let agent_runtime = Arc::new(agent_runtime);
     // Load search API config
     let search_config = app_config.search.unwrap_or_default();
@@ -2124,6 +2635,17 @@ async fn main() -> anyhow::Result<()> {
             info!("Email tool registered (SMTP configured)");
         } else {
             info!("Email tool: SMTP username not set, skipping");
+        }
+    }
+
+    // Register email receive tool (IMAP read — uses Python imaplib subprocess)
+    {
+        let imap_config = app_config.imap.unwrap_or_default();
+        tool_registry.register(Box::new(clawtex_core::tools::email_receive::EmailReceiveTool::new(imap_config.clone())));
+        if imap_config.is_configured() {
+            info!("Email receive tool registered (IMAP configured: {})", imap_config.host);
+        } else {
+            info!("Email receive tool registered (IMAP config pending — will use env vars or args at runtime)");
         }
     }
 
@@ -2234,6 +2756,18 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Register TTS (text-to-speech) tool — always available (edge-tts is free, elevenlabs needs API key)
+    tool_registry.register(Box::new(clawtex_core::tools::tts::TtsTool::new()));
+    info!("tts tool registered");
+
+    // Register video_compose tool — always available (requires ffmpeg in PATH)
+    tool_registry.register(Box::new(clawtex_core::tools::video_compose::VideoComposeTool::new()));
+    info!("video_compose tool registered");
+
+    // Register youtube_upload tool — always available (requires YOUTUBE_OAUTH_TOKEN or YOUTUBE_API_KEY)
+    tool_registry.register(Box::new(clawtex_core::tools::youtube_upload::YouTubeUploadTool::new()));
+    info!("youtube_upload tool registered");
+
     // Register stripe tool (payment integration) — config first, env var fallback
     let stripe_key = app_config.stripe.as_ref()
         .map(|c| c.secret_key.clone())
@@ -2279,6 +2813,21 @@ async fn main() -> anyhow::Result<()> {
         hands.clone(),
     )));
     info!("run_hand tool registered ({} hands available)", hands.names().len());
+
+    // ── Audit Logger ─────────────────────────────────────────────────
+    let audit_db_path = format!("{}/.clawtex/audit.db", home);
+    let audit_logger: Option<Arc<AuditLogger>> = match AuditLogger::new(&audit_db_path) {
+        Ok(al) => {
+            let al = Arc::new(al);
+            tool_registry.set_audit_logger(al.clone());
+            info!("Audit logger initialized and wired to tool registry");
+            Some(al)
+        }
+        Err(e) => {
+            warn!("Audit logger failed to init: {}", e);
+            None
+        }
+    };
 
     let tool_registry = Arc::new(tool_registry);
 
@@ -2332,6 +2881,11 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Approval Gate ──────────────────────────────────────────────
     let approval_gate = Arc::new(ApprovalGate::new(Default::default()));
+    // Wire audit logger into approval gate for logging approval decisions
+    if let Some(ref al) = audit_logger {
+        approval_gate.set_audit_logger(al.clone()).await;
+        info!("Audit logger wired to approval gate");
+    }
 
     // Generate dashboard access token
     let dashboard_token = uuid::Uuid::new_v4().to_string().replace("-", "")[..16].to_string();
@@ -2446,6 +3000,96 @@ async fn main() -> anyhow::Result<()> {
 
     // Reuse the ClusterHub created earlier for agent_runtime dispatch
 
+    // Initialize load tester
+    let load_test_db_path = format!("{}/.clawtex/load_tests.db", dirs_home());
+    let load_tester: Option<Arc<LoadTester>> = match LoadTester::new(
+        agent_runtime.clone(),
+        llm_router.clone(),
+        tool_registry.clone(),
+        hands.clone(),
+        Some(&load_test_db_path),
+    ) {
+        Ok(lt) => {
+            info!("Load tester initialized (db: {})", load_test_db_path);
+            Some(Arc::new(lt))
+        }
+        Err(e) => {
+            warn!("Load tester failed to init: {}", e);
+            None
+        }
+    };
+
+    // ── Worker Onboarder ────────────────────────────────────────────
+    let worker_onboarder = Arc::new(WorkerOnboarder::new(cluster.clone()));
+    info!("Worker onboarder initialized");
+
+    // ── Auto Diagnoser ──────────────────────────────────────────────
+    let diagnosis_db_path = format!("{}/.clawtex/diagnosis.db", home);
+    let auto_diagnoser: Option<Arc<AutoDiagnoser>> = match AutoDiagnoser::new(&diagnosis_db_path) {
+        Ok(ad) => {
+            info!("Auto-diagnosis engine initialized ({} known patterns, db: {})",
+                  ad.get_common_issues().len(), diagnosis_db_path);
+            Some(Arc::new(ad))
+        }
+        Err(e) => {
+            warn!("Auto-diagnosis engine failed to init: {}", e);
+            None
+        }
+    };
+
+    // ── Customer Health & Churn Detection ──────────────────────────
+    let customer_health_db_path = format!("{}/.clawtex/customer_health.db", home);
+    let (customer_health, churn_detector) = match CustomerHealthManager::new(&customer_health_db_path) {
+        Ok(mgr) => {
+            let detector = ChurnDetector::new(&customer_health_db_path).ok().map(Arc::new);
+            info!("Customer health manager initialized (db: {})", customer_health_db_path);
+            (Some(Arc::new(mgr)), detector)
+        }
+        Err(e) => {
+            warn!("Customer health manager failed to init: {}", e);
+            (None, None)
+        }
+    };
+
+    // ── Observational Memory ─────────────────────────────────────────
+    let obs_db_path = format!("{}/.clawtex/observations.db", home);
+    let observational_memory: Option<Arc<ObservationalMemory>> = match ObservationalMemory::new(&obs_db_path) {
+        Ok(om) => {
+            info!("Observational memory initialized (db: {})", obs_db_path);
+            Some(Arc::new(om))
+        }
+        Err(e) => {
+            warn!("Observational memory disabled: {}", e);
+            None
+        }
+    };
+
+    // ── Task Preemption Manager ─────────────────────────────────────
+    let preemption_db_path = format!("{}/.clawtex/core.db", home);
+    let preemption_manager: Option<Arc<PreemptionManager>> = match PreemptionManager::new(&preemption_db_path) {
+        Ok(pm) => {
+            info!("Task preemption manager initialized (db: {})", preemption_db_path);
+            Some(Arc::new(pm))
+        }
+        Err(e) => {
+            warn!("Task preemption manager failed to init: {}", e);
+            None
+        }
+    };
+
+    // ── Node Capability Scorer ──────────────────────────────────────
+    let scoring_db_path = format!("{}/.clawtex/core.db", home);
+    let node_scorer: Option<Arc<NodeScorer>> = match NodeScorer::new(&scoring_db_path) {
+        Ok(ns) => {
+            info!("Node capability scorer initialized (db: {})", scoring_db_path);
+            Some(Arc::new(ns))
+        }
+        Err(e) => {
+            warn!("Node capability scorer failed to init: {}", e);
+            None
+        }
+    };
+
     let state = AppState {
         llm_router,
         task_queue,
@@ -2467,6 +3111,18 @@ async fn main() -> anyhow::Result<()> {
         dashboard_token,
         public_url,
         metrics_registry: Arc::new(clawtex_core::metrics::default_metrics()),
+        audit_logger,
+        load_tester,
+        worker_onboarder: Some(worker_onboarder),
+        service_tier,
+        auto_diagnoser,
+        tenant_manager,
+        order_workflow,
+        customer_health,
+        churn_detector,
+        observational_memory,
+        preemption_manager,
+        node_scorer,
         started_at: Instant::now(),
     };
     {
@@ -2677,6 +3333,72 @@ async fn main() -> anyhow::Result<()> {
     });
     info!("Watchdog monitoring loop started (60s interval)");
 
+    // ── Customer Health Endpoint Handlers ──────────────────────────
+
+    async fn customers_health_list(State(state): State<AppState>) -> Json<Value> {
+        let mgr = match &state.customer_health {
+            Some(m) => m,
+            None => return Json(json!({ "error": "Customer health manager not available" })),
+        };
+        let all = mgr.list_all().unwrap_or_default();
+        let avg = mgr.average_health().unwrap_or(0.0);
+        Json(json!({ "customers": all, "count": all.len(), "average_health": avg }))
+    }
+
+    async fn customers_health_get(
+        State(state): State<AppState>, Path(id): Path<String>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let mgr = state.customer_health.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        match mgr.get_health(&id) {
+            Ok(Some(h)) => Ok(Json(json!(h))),
+            Ok(None) => Err(StatusCode::NOT_FOUND),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+
+    async fn customers_health_update(
+        State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<Value>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let mgr = state.customer_health.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+        let eff = body.get("efficiency").and_then(|v| v.as_f64()).ok_or(StatusCode::BAD_REQUEST)?;
+        let qual = body.get("quality").and_then(|v| v.as_f64()).ok_or(StatusCode::BAD_REQUEST)?;
+        let spd = body.get("speed").and_then(|v| v.as_f64()).ok_or(StatusCode::BAD_REQUEST)?;
+        let sat = body.get("satisfaction").and_then(|v| v.as_f64()).ok_or(StatusCode::BAD_REQUEST)?;
+        mgr.update_scores(&id, name, eff, qual, spd, sat)
+            .map(|h| Json(json!(h)))
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    }
+
+    async fn customers_at_risk(State(state): State<AppState>) -> Json<Value> {
+        let mgr = match &state.customer_health {
+            Some(m) => m,
+            None => return Json(json!({ "error": "Customer health manager not available" })),
+        };
+        let at_risk = mgr.get_at_risk().unwrap_or_default();
+        Json(json!({ "at_risk": at_risk, "count": at_risk.len() }))
+    }
+
+    async fn customers_churn_alerts(State(state): State<AppState>) -> Json<Value> {
+        let detector = match &state.churn_detector {
+            Some(d) => d,
+            None => return Json(json!({ "error": "Churn detector not available" })),
+        };
+        let alerts = detector.get_all_active_alerts().unwrap_or_default();
+        let summary = detector.churn_summary().unwrap_or(clawtex_core::ChurnSummary {
+            total_active: 0, low: 0, medium: 0, high: 0, critical: 0,
+        });
+        Json(json!({ "alerts": alerts, "summary": summary }))
+    }
+
+    async fn customers_record_activity(
+        State(state): State<AppState>, Path(id): Path<String>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let detector = state.churn_detector.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        detector.record_activity(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(Json(json!({ "status": "ok", "customer_id": id })))
+    }
+
     let host = args.host;
     let port = args.port;
 
@@ -2699,13 +3421,70 @@ async fn main() -> anyhow::Result<()> {
         .route("/cluster/metrics/:worker", get(cluster_metrics_worker))
         .route("/cluster/poll", get(cluster_poll))
         .route("/cluster/result", post(cluster_result))
+        .route("/cluster/onboard", post(cluster_onboard))
+        .route("/cluster/onboard/status/:worker", get(cluster_onboard_status))
+        .route("/cluster/onboard/verify/:worker", get(cluster_onboard_verify))
+        .route("/cluster/onboard/mobile", post(cluster_onboard_mobile))
+        .route("/cluster/consistency-test", post(cluster_consistency_test))
+        .route("/cluster/consistency-history", get(cluster_consistency_history))
+        .route("/cluster/preemption/pending", get(preemption_pending))
+        .route("/cluster/preemption/history", get(preemption_history))
+        .route("/cluster/scores", get(cluster_scores))
+        .route("/cluster/scores/:node", get(cluster_score_node).post(cluster_score_update))
         .route("/tools", get(tools_list))
         .route("/hands", get(hands_list))
         .route("/hand/:name/run", post(hand_run))
         .route("/workspace/files", get(workspace_files))
         .route("/costs", get(costs_summary))
         .route("/revenue", get(revenue_summary))
+        // Operations report endpoints
+        .route("/reports/daily", get(report_daily))
+        .route("/reports/weekly", get(report_weekly))
+        .route("/reports/send", post(report_send))
+        .route("/tier/:agent", get(tier_get))
+        .route("/tier/:agent", axum::routing::put(tier_set))
+        .route("/tier/:agent/usage", get(tier_usage))
+        .route("/audit", get(audit_query))
+        // Tenant management endpoints
+        .route("/tenants", post(tenant_create))
+        .route("/tenants", get(tenant_list))
+        .route("/tenants/validate", get(tenant_validate))
+        .route("/tenants/:id", get(tenant_get))
+        .route("/tenants/:id/tier", axum::routing::put(tenant_update_tier))
+        .route("/tenants/:id", axum::routing::delete(tenant_deactivate))
+        // Load testing endpoints
+        .route("/test/stress", post(test_stress_start))
+        .route("/test/stress/status", get(test_stress_status))
+        .route("/test/stress/history", get(test_stress_history))
+        .route("/test/stress/report/:run_id", get(test_stress_report))
+        .route("/test/profiles", get(test_profiles))
+        // Auto-diagnosis endpoints
+        .route("/diagnose", post(diagnose_error_handler))
+        .route("/diagnose/recent", get(diagnose_recent_handler))
+        .route("/diagnose/stats", get(diagnose_stats_handler))
+        .route("/diagnose/known-issues", get(diagnose_known_issues_handler))
+        .route("/diagnose/:error_id", get(diagnose_get_handler))
         .route("/dashboard", get(dashboard))
+        // Observational memory endpoints
+        .route("/memory/observe", post(memory_observe))
+        .route("/memory/observations", get(memory_observations))
+        .route("/memory/observations/recent", get(memory_observations_recent))
+        .route("/memory/observations/stats", get(memory_observations_stats))
+        // Customer health & churn detection endpoints
+        .route("/customers/health", get(customers_health_list))
+        .route("/customers/health/:id", get(customers_health_get))
+        .route("/customers/health/:id", axum::routing::put(customers_health_update))
+        .route("/customers/at-risk", get(customers_at_risk))
+        .route("/customers/churn-alerts", get(customers_churn_alerts))
+        .route("/customers/:id/activity", post(customers_record_activity))
+        // Order workflow endpoints
+        .route("/orders", post(orders_create))
+        .route("/orders", get(orders_list))
+        .route("/orders/pipeline", get(orders_pipeline))
+        .route("/orders/overdue", get(orders_overdue))
+        .route("/orders/:id", get(orders_get))
+        .route("/orders/:id/status", axum::routing::put(orders_transition))
+        .route("/orders/:id/note", post(orders_add_note))
         // E-Stop endpoints
         .route("/estop", post(estop_activate))
         .route("/estop", axum::routing::delete(estop_reset))
@@ -2734,6 +3513,302 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     info!("Daemon stopped.");
     Ok(())
+}
+
+// ── Auto-Diagnosis Handlers ──────────────────────────────────────────────────
+
+/// POST /diagnose — submit an error for auto-diagnosis
+async fn diagnose_error_handler(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let diagnoser = state.auto_diagnoser.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let error_message = body.get("error_message")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?
+        .to_string();
+    let agent_name = body.get("agent_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let tool_name = body.get("tool_name").and_then(|v| v.as_str()).map(String::from);
+    let hand_name = body.get("hand_name").and_then(|v| v.as_str()).map(String::from);
+    let phase = body.get("phase").and_then(|v| v.as_u64()).map(|p| p as u32);
+    let stack_trace = body.get("stack_trace").and_then(|v| v.as_str()).map(String::from);
+    let recent_logs: Vec<String> = body.get("recent_logs")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let context = clawtex_core::ErrorContext {
+        error_message,
+        tool_name,
+        hand_name,
+        phase,
+        agent_name,
+        timestamp: chrono::Utc::now(),
+        stack_trace,
+        recent_logs,
+    };
+
+    match diagnoser.diagnose_error(&context) {
+        Ok(report) => Ok(Json(json!(report))),
+        Err(e) => {
+            error!("Auto-diagnosis failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /diagnose/:error_id — retrieve a stored diagnosis by ID
+async fn diagnose_get_handler(
+    State(state): State<AppState>,
+    Path(error_id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let diagnoser = state.auto_diagnoser.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    match diagnoser.get_diagnosis(&error_id) {
+        Ok(Some(report)) => Ok(Json(json!(report))),
+        Ok(None) => Ok(Json(json!({"error": format!("Diagnosis '{}' not found", error_id)}))),
+        Err(e) => {
+            error!("Diagnosis lookup failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /diagnose/recent — list recent diagnoses
+async fn diagnose_recent_handler(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    let diagnoser = state.auto_diagnoser.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let limit = params.get("limit").and_then(|v| v.parse::<usize>().ok()).unwrap_or(20);
+
+    match diagnoser.list_recent(limit) {
+        Ok(reports) => Ok(Json(json!({
+            "diagnoses": reports,
+            "count": reports.len(),
+        }))),
+        Err(e) => {
+            error!("Diagnosis list failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /diagnose/stats — diagnosis statistics
+async fn diagnose_stats_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let diagnoser = state.auto_diagnoser.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let total = diagnoser.count().unwrap_or(0);
+    let by_category = diagnoser.stats_by_category().unwrap_or_default();
+    let known_count = diagnoser.get_common_issues().len();
+
+    Ok(Json(json!({
+        "total_diagnoses": total,
+        "known_patterns": known_count,
+        "by_category": by_category.iter().map(|(c, n)| json!({"category": c, "count": n})).collect::<Vec<_>>(),
+    })))
+}
+
+/// GET /diagnose/known-issues — list all known issue patterns
+async fn diagnose_known_issues_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let diagnoser = state.auto_diagnoser.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let issues = diagnoser.get_common_issues();
+    Ok(Json(json!({
+        "known_issues": issues,
+        "count": issues.len(),
+    })))
+}
+
+// ── Observational Memory Endpoints ─────────────────────────────────────────
+
+/// POST /memory/observe — compress conversation messages into an observation
+async fn memory_observe(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let om = state.observational_memory.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let session_id = body.get("session_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?
+        .to_string();
+
+    let messages_val = body.get("messages")
+        .and_then(|v| v.as_array())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+
+    let messages: Vec<clawtex_core::ConversationMessage> = messages_val
+        .iter()
+        .filter_map(|m| {
+            let role = m.get("role")?.as_str()?.to_string();
+            let content = m.get("content")?.as_str()?.to_string();
+            let timestamp = m.get("timestamp").and_then(|t| t.as_str()).map(String::from);
+            Some(clawtex_core::ConversationMessage { role, content, timestamp })
+        })
+        .collect();
+
+    if messages.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    match om.observe(&session_id, &messages) {
+        Ok(obs) => Ok(Json(json!(obs))),
+        Err(e) => {
+            error!("Observational memory observe failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /memory/observations?query=X&limit=10 — search observations by keyword
+async fn memory_observations(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    let om = state.observational_memory.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let query = params.get("query").map(|s| s.as_str()).unwrap_or("");
+    let limit: usize = params.get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(10);
+
+    match om.recall(query, limit) {
+        Ok(observations) => Ok(Json(json!({
+            "observations": observations,
+            "count": observations.len(),
+        }))),
+        Err(e) => {
+            error!("Observational memory recall failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /memory/observations/recent?limit=5 — most recent observations
+async fn memory_observations_recent(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Result<Json<Value>, StatusCode> {
+    let om = state.observational_memory.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let limit: usize = params.get("limit")
+        .and_then(|l| l.parse().ok())
+        .unwrap_or(5);
+
+    match om.recall_recent(limit) {
+        Ok(observations) => Ok(Json(json!({
+            "observations": observations,
+            "count": observations.len(),
+        }))),
+        Err(e) => {
+            error!("Observational memory recall_recent failed: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// GET /memory/observations/stats — observation statistics
+async fn memory_observations_stats(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let om = state.observational_memory.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let count = om.count().unwrap_or(0);
+    let tokens_saved = om.total_tokens_saved().unwrap_or(0);
+    let avg_compression = om.avg_compression_ratio().unwrap_or(0.0);
+
+    Ok(Json(json!({
+        "count": count,
+        "total_tokens_saved": tokens_saved,
+        "avg_compression_ratio": avg_compression,
+    })))
+}
+
+// ── Order Workflow Handlers ──────────────────────────────────────────────────
+
+async fn orders_create(State(state): State<AppState>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let name = body.get("customer_name").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let email = body.get("customer_email").and_then(|v| v.as_str()).unwrap_or("");
+    let tier = body.get("service_tier").and_then(|v| v.as_str()).unwrap_or("standard");
+    match wf.create_order(name, email, tier) {
+        Ok(order) => {
+            if let Some(amount) = body.get("amount_usd").and_then(|v| v.as_f64()) { let _ = wf.set_amount(&order.id, amount); }
+            if let Some(agent) = body.get("assigned_agent").and_then(|v| v.as_str()) { let _ = wf.assign_agent(&order.id, agent); }
+            let refreshed = wf.get_order(&order.id).unwrap_or(Some(order));
+            Ok(Json(json!({ "status": "created", "order": refreshed })))
+        }
+        Err(e) => { error!("Order create failed: {}", e); Err(StatusCode::INTERNAL_SERVER_ERROR) }
+    }
+}
+
+async fn orders_list(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let orders = if let Some(status_str) = params.get("status") {
+        let status = clawtex_core::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
+        wf.list_by_status(status).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        wf.list_all().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    Ok(Json(json!({ "orders": orders, "count": orders.len() })))
+}
+
+async fn orders_get(State(state): State<AppState>, Path(id): Path<String>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match wf.get_order(&id) {
+        Ok(Some(order)) => Ok(Json(json!({ "order": order }))),
+        Ok(None) => Err(StatusCode::NOT_FOUND),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn orders_transition(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let status_str = body.get("status").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    let new_status = clawtex_core::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
+    match wf.transition(&id, new_status) {
+        Ok(order) => Ok(Json(json!({ "status": "transitioned", "order": order }))),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("not found") { Err(StatusCode::NOT_FOUND) }
+            else if msg.contains("Invalid transition") { Ok(Json(json!({ "error": msg }))) }
+            else { Err(StatusCode::INTERNAL_SERVER_ERROR) }
+        }
+    }
+}
+
+async fn orders_pipeline(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match wf.pipeline_summary() {
+        Ok(summary) => Ok(Json(json!(summary))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn orders_overdue(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let sla = params.get("sla_hours").and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+    match wf.overdue_orders(sla) {
+        Ok(orders) => Ok(Json(json!({ "overdue": orders, "count": orders.len() }))),
+        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+async fn orders_add_note(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> {
+    let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let note = body.get("note").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
+    match wf.add_note(&id, note) {
+        Ok(()) => Ok(Json(json!({ "status": "note_added" }))),
+        Err(e) => { if e.to_string().contains("not found") { Err(StatusCode::NOT_FOUND) } else { Err(StatusCode::INTERNAL_SERVER_ERROR) } }
+    }
 }
 
 fn dirs_home() -> String {

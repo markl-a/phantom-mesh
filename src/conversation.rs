@@ -292,4 +292,135 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // ===== Additional tests =====
+
+    #[tokio::test]
+    async fn test_get_history_nonexistent_chat() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_6");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        let history = store.get_history("does_not_exist").await;
+        assert!(history.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_message_count() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_7");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        assert_eq!(store.message_count("chat1").await, 0);
+
+        store.append("chat1", make_msg("user", "hi"), make_msg("assistant", "hello")).await;
+        assert_eq!(store.message_count("chat1").await, 2);
+
+        store.append("chat1", make_msg("user", "how are you"), make_msg("assistant", "fine")).await;
+        assert_eq!(store.message_count("chat1").await, 4);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_active_count() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_8");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        assert_eq!(store.active_count().await, 0);
+
+        store.append("chat_a", make_msg("user", "a"), make_msg("assistant", "a")).await;
+        store.append("chat_b", make_msg("user", "b"), make_msg("assistant", "b")).await;
+        store.append("chat_c", make_msg("user", "c"), make_msg("assistant", "c")).await;
+
+        assert_eq!(store.active_count().await, 3);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_clear_does_not_affect_other_chats() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_9");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        store.append("chat_a", make_msg("user", "a"), make_msg("assistant", "a")).await;
+        store.append("chat_b", make_msg("user", "b"), make_msg("assistant", "b")).await;
+
+        store.clear("chat_a").await;
+
+        let a = store.get_history("chat_a").await;
+        let b = store.get_history("chat_b").await;
+        assert_eq!(a.len(), 0);
+        assert_eq!(b.len(), 2);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_removes_old() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_10");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        store.append("chat1", make_msg("user", "old"), make_msg("assistant", "old")).await;
+
+        // Fresh session should not be cleaned up
+        let removed = store.cleanup_stale().await;
+        assert_eq!(removed, 0);
+        assert_eq!(store.active_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_append_preserves_order() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_11");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        store.append("chat1", make_msg("user", "first"), make_msg("assistant", "first reply")).await;
+        store.append("chat1", make_msg("user", "second"), make_msg("assistant", "second reply")).await;
+
+        let history = store.get_history("chat1").await;
+        assert_eq!(history.len(), 4);
+        assert_eq!(history[0].content, "first");
+        assert_eq!(history[1].content, "first reply");
+        assert_eq!(history[2].content, "second");
+        assert_eq!(history[3].content, "second reply");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_clear_then_append() {
+        let dir = std::env::temp_dir().join("clawtex_test_conv_12");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let db = dir.join("test.db");
+        let store = ConversationStore::new(db.to_str().unwrap()).await.unwrap();
+
+        store.append("chat1", make_msg("user", "before"), make_msg("assistant", "before")).await;
+        store.clear("chat1").await;
+        store.append("chat1", make_msg("user", "after"), make_msg("assistant", "after")).await;
+
+        let history = store.get_history("chat1").await;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].content, "after");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
