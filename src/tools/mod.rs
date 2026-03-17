@@ -31,6 +31,10 @@ pub mod slack;
 pub mod discord;
 pub mod line_notify;
 pub mod whatsapp;
+pub mod translate;
+pub mod json_transform;
+pub mod csv_parse;
+pub mod summarize;
 
 use anyhow::Result;
 use async_trait::async_trait;

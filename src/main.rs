@@ -2167,6 +2167,16 @@ async fn main() -> anyhow::Result<()> {
     tool_registry.register(Box::new(clawtex_core::tools::cli_anything::CliAnythingTool::new()));
     info!("cli_anything tool registered");
 
+    // Register utility tools (no external API keys needed)
+    tool_registry.register(Box::new(clawtex_core::tools::translate::TranslateTool::new()));
+    info!("translate tool registered");
+    tool_registry.register(Box::new(clawtex_core::tools::json_transform::JsonTransformTool::new()));
+    info!("json_transform tool registered");
+    tool_registry.register(Box::new(clawtex_core::tools::csv_parse::CsvParseTool::new()));
+    info!("csv_parse tool registered");
+    tool_registry.register(Box::new(clawtex_core::tools::summarize::SummarizeTool::new()));
+    info!("summarize tool registered");
+
     // Register stripe tool (payment integration) — config first, env var fallback
     let stripe_key = app_config.stripe.as_ref()
         .map(|c| c.secret_key.clone())
