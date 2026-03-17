@@ -35,6 +35,8 @@ pub mod translate;
 pub mod json_transform;
 pub mod csv_parse;
 pub mod summarize;
+pub mod docx_export;
+pub mod xlsx_export;
 
 use anyhow::Result;
 use async_trait::async_trait;
