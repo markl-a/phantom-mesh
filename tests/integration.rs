@@ -3052,14 +3052,23 @@ fn test_e2e_all_hand_tools_exist_in_registry() {
     // Complete list of all tools registered by main.rs (default + optional)
     // This must match what ToolRegistry::new() + main.rs registrations provide
     let available_tools: Vec<String> = vec![
-        // Default tools (from ToolRegistry::new)
+        // Default tools (from ToolRegistry::new_with_search)
         "shell", "file_read", "file_write", "file_edit",
         "web_search", "http_request", "glob_search", "content_search", "browser",
+        // D3 tools added to new_with_search
+        "video_compose", "youtube_upload", "music_generate", "knowledge_import",
         // Optional tools (registered in main.rs)
         "memory_store", "memory_recall", "memory_forget",
         "ai_code", "computer_use", "delegate", "delegate_to_provider",
         "vision", "email_send", "twitter", "blog_publish", "pdf_export",
         "skeleton_generate", "stripe", "render_deploy", "scaffold_saas",
+        // Additional tools registered unconditionally in main.rs
+        "cli_anything", "translate", "json_transform", "csv_parse",
+        "summarize", "docx_export", "xlsx_export", "tts", "email_receive",
+        // Config-gated tools registered in main.rs (may or may not be present)
+        "image_generate",
+        // Messaging tools (config-gated)
+        "slack", "discord", "line_notify", "whatsapp",
     ].into_iter().map(|s| s.to_string()).collect();
 
     // Also accept tool name aliases used in hand.toml

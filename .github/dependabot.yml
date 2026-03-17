@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # ── Cargo (Rust) dependencies ──────────────────────────────────────────
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    # Open at most 10 PRs at once to avoid review overload.
+    open-pull-requests-limit: 10
+    # Group all patch-level updates into a single PR.
+    groups:
+      patch-updates:
+        update-types:
+          - patch
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # ── GitHub Actions dependencies ────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope

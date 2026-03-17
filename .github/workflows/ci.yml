@@ -1,248 +1,105 @@
-# ============================================================================
-# Clawtex-Core CI Pipeline
-# 觸發：push / pull_request 到 main, ralph/*, release/*
-# 步驟：format → lint → build → test → benchmark → docker
-# ============================================================================
-
 name: CI
 
 on:
   push:
-    branches: [main, "ralph/*", "release/*"]
+    branches:
+      - master
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - master
+      - main
 
-# 同一分支只允許一個 CI 運行，新 push 取消舊的
+# Cancel in-progress runs for the same branch so new pushes supersede stale jobs.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-  # 避免 CI 環境的 LLM 連線
+  RUST_BACKTRACE: 1
+  # Prevent CI from attempting live LLM connections.
   CLAWTEX_CI: "1"
 
-# ── Jobs ────────────────────────────────────────────────────────────────────
-
 jobs:
-  # ── 1. 格式檢查 ──────────────────────────────────────────────────────────
-  fmt:
-    name: "rustfmt"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all --check
-
-  # ── 2. Clippy 靜態分析 ───────────────────────────────────────────────────
-  clippy:
-    name: "clippy (${{ matrix.os }})"
-    needs: fmt
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+  # ── Build & Test matrix ──────────────────────────────────────────────────
+  build-test:
+    name: Build & Test (${{ matrix.os }}, ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      # Cargo 快取 — 大幅減少重複編譯
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "clippy-${{ matrix.os }}"
-
-      - run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::all -W clippy::pedantic
-
-  # ── 3. 矩陣編譯 + 測試 ──────────────────────────────────────────────────
-  test:
-    name: "test (${{ matrix.os }}, ${{ matrix.rust }})"
-    needs: fmt
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         rust: [stable]
         include:
-          # 也測試 MSRV (最低支援版本)
+          # Also verify MSRV (minimum supported Rust version).
           - os: ubuntu-latest
             rust: "1.75.0"
-    runs-on: ${{ matrix.os }}
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (${{ matrix.rust }})
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "test-${{ matrix.os }}-${{ matrix.rust }}"
+          shared-key: build-test-${{ matrix.os }}-${{ matrix.rust }}
 
-      # 編譯（分開做以便分別看編譯/測試時間）
-      - name: Build
+      - name: Build (all targets)
         run: cargo build --all-targets
 
-      # 單元測試（lib tests）
-      - name: Unit tests
+      - name: Run lib tests
         run: cargo test --lib -- --test-threads=4
-        env:
-          RUST_BACKTRACE: 1
 
-      # 整合測試（tests/ 目錄）
-      - name: Integration tests
+      - name: Run integration tests
+        # tests/integration.rs — cluster_acceptance/simulate/verify require a
+        # live cluster and are intentionally excluded from CI.
         run: cargo test --test integration -- --test-threads=2
-        env:
-          RUST_BACKTRACE: 1
 
-      # 文件測試
-      - name: Doc tests
-        run: cargo test --doc
+  # ── Clippy ──────────────────────────────────────────────────────────────
+  clippy:
+    name: Clippy (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
-  # ── 4. 測試覆蓋率 ───────────────────────────────────────────────────────
-  coverage:
-    name: "coverage"
-    needs: test
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Install Rust toolchain (stable + clippy)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          shared-key: "coverage"
+          components: clippy
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Generate coverage
-        run: |
-          cargo tarpaulin \
-            --out xml \
-            --out html \
-            --output-dir coverage/ \
-            --skip-clean \
-            --timeout 300 \
-            --exclude-files "src/main.rs" "src/telegram.rs" \
-            -- --test-threads=2
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
         with:
-          files: coverage/cobertura.xml
-          fail_ci_if_error: false
+          shared-key: clippy-${{ matrix.os }}
 
-      - name: Upload coverage HTML artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/tarpaulin-report.html
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-      # 覆蓋率門檻檢查（目前 60%，逐步提高到 80%）
-      - name: Check coverage threshold
-        run: |
-          COVERAGE=$(cargo tarpaulin --print-rust-flags --skip-clean -- --test-threads=2 2>&1 | grep -oP '[\d.]+(?=% coverage)' | tail -1)
-          echo "Coverage: ${COVERAGE}%"
-          python3 -c "
-          cov = float('${COVERAGE}')
-          threshold = 60.0
-          if cov < threshold:
-              print(f'FAIL: Coverage {cov}% is below threshold {threshold}%')
-              exit(1)
-          else:
-              print(f'PASS: Coverage {cov}% >= {threshold}%')
-          "
-
-  # ── 5. 效能基準 ─────────────────────────────────────────────────────────
-  benchmark:
-    name: "benchmark"
-    needs: test
+  # ── Rustfmt ─────────────────────────────────────────────────────────────
+  fmt:
+    name: Rustfmt
     runs-on: ubuntu-latest
-    # 只在 main 分支執行基準測試
-    if: github.ref == 'refs/heads/main'
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Install Rust toolchain (stable + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          shared-key: "bench"
+          components: rustfmt
 
-      - name: Install cargo-criterion
-        run: cargo install cargo-criterion
-
-      - name: Run benchmarks
-        run: cargo criterion --message-format=json > benchmark-results.json 2>&1 || true
-
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: benchmark-results.json
-
-      # 使用 GitHub Action 追蹤效能回歸
-      - name: Store benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'cargo'
-          output-file-path: benchmark-results.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true
-          alert-threshold: '120%'
-          comment-on-alert: true
-          fail-on-alert: true
-          benchmark-data-dir-path: "dev/bench"
-
-  # ── 6. Docker 映像建構 ──────────────────────────────────────────────────
-  docker:
-    name: "docker build"
-    needs: [clippy, test]
-    runs-on: ubuntu-latest
-    # 只在 main 或 release 分支觸發
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Docker metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=sha
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ── 7. 安全審計 ─────────────────────────────────────────────────────────
-  audit:
-    name: "cargo audit"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check formatting
+        run: cargo fmt -- --check

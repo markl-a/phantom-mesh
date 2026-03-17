@@ -44,6 +44,17 @@ pub mod video_compose;
 pub mod youtube_upload;
 pub mod music_generate;
 pub mod knowledge_import;
+pub mod calendar;
+pub mod data_analysis;
+pub mod screenshot;
+pub mod qr_generate;
+pub mod rss_reader;
+pub mod archive_extract;
+pub mod clipboard;
+pub mod system_info;
+pub mod weather;
+pub mod calculator;
+pub mod notification_center;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -430,6 +441,17 @@ impl ToolRegistry {
         tools.insert("youtube_upload".to_string(), Box::new(youtube_upload::YouTubeUploadTool::new()));
         tools.insert("music_generate".to_string(), Box::new(music_generate::MusicGenerateTool::new()));
         tools.insert("knowledge_import".to_string(), Box::new(knowledge_import::KnowledgeImportTool::new()));
+        tools.insert("calendar".to_string(), Box::new(calendar::CalendarTool::new()));
+        tools.insert("data_analysis".to_string(), Box::new(data_analysis::DataAnalysisTool::new()));
+        tools.insert("screenshot".to_string(), Box::new(screenshot::ScreenshotTool::new()));
+        tools.insert("qr_generate".to_string(), Box::new(qr_generate::QrGenerateTool::new()));
+        tools.insert("rss_reader".to_string(), Box::new(rss_reader::RssReaderTool::new()));
+        tools.insert("archive_extract".to_string(), Box::new(archive_extract::ArchiveExtractTool::new()));
+        tools.insert("clipboard".to_string(), Box::new(clipboard::ClipboardTool::new()));
+        tools.insert("system_info".to_string(), Box::new(system_info::SystemInfoTool::new()));
+        tools.insert("weather".to_string(), Box::new(weather::WeatherTool::new()));
+        tools.insert("calculator".to_string(), Box::new(calculator::CalculatorTool::new()));
+        tools.insert("notification_center".to_string(), Box::new(notification_center::NotificationCenterTool::new()));
 
         Self {
             tools,

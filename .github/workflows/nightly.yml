@@ -1,25 +1,54 @@
-# ============================================================================
-# Clawtex-Core 每晚任務
-# 排程：每天 UTC 02:00（台灣 10:00）
-# 內容：完整測試、效能基準、安全掃描、依賴更新檢查
-# ============================================================================
-
 name: Nightly
 
 on:
   schedule:
-    # UTC 02:00 = 台灣 10:00 AM
-    - cron: '0 2 * * *'
-  # 手動觸發
+    # Every day at midnight UTC.
+    - cron: "0 0 * * *"
+  # Allow manual trigger for ad-hoc runs.
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CLAWTEX_CI: "1"
 
 jobs:
-  # ── 完整測試套件（含 pg feature）──────────────────────────────────────
+  # ── Full test suite (default features) ──────────────────────────────────
   full-test:
-    name: "Full Test Suite"
+    name: Full Test Suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-${{ matrix.os }}
+
+      - name: Build (all targets)
+        run: cargo build --all-targets
+
+      - name: Run lib tests
+        run: cargo test --lib -- --test-threads=4
+
+      - name: Run integration tests
+        run: cargo test --test integration -- --test-threads=2
+
+      - name: Run doc tests
+        run: cargo test --doc
+
+  # ── Full test suite (pg feature, Linux only) ────────────────────────────
+  full-test-pg:
+    name: Full Test Suite (pg feature)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -34,66 +63,74 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # 預設 feature 測試
-      - name: Test (default features)
-        run: cargo test --all-targets -- --test-threads=4
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
 
-      # pg feature 測試（需要 PostgreSQL）
-      - name: Test (pg feature)
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: nightly-pg
+
+      - name: Run all tests (pg feature)
         run: cargo test --all-targets --features pg -- --test-threads=2
         env:
           CLAWTEX_PG_URL: "postgresql://postgres:testpassword@localhost:5432/clawtex_test"
 
-  # ── Nightly Rust 編譯檢查 ───────────────────────────────────────────
-  nightly-rust:
-    name: "Nightly Rust Compat"
+  # ── Security audit ───────────────────────────────────────────────────────
+  audit:
+    name: Security Audit (cargo audit)
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - run: cargo +nightly build --all-targets 2>&1 || true
-      - run: cargo +nightly clippy --all-targets -- -W clippy::all 2>&1 || true
 
-  # ── 效能回歸追蹤 ────────────────────────────────────────────────────
-  benchmark:
-    name: "Nightly Benchmark"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        # Audit against the RustSec advisory database. Fails the job if any
+        # known vulnerability is found in direct or transitive dependencies.
+        run: cargo audit
+
+  # ── License & dependency policy (cargo deny) ────────────────────────────
+  deny:
+    name: Cargo Deny (licenses & advisories)
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run benchmarks
-        run: |
-          cargo install cargo-criterion 2>/dev/null || true
-          cargo criterion --message-format=json > benchmark-results.json 2>&1 || true
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nightly-benchmark-${{ github.run_number }}
-          path: benchmark-results.json
-
-  # ── 依賴更新檢查 ────────────────────────────────────────────────────
-  deps:
-    name: "Dependency Check"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-outdated
-        run: cargo install cargo-outdated
-
-      - name: Check outdated deps
-        run: cargo outdated --root-deps-only --exit-code 0 || true
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Install cargo-deny
-        run: cargo install cargo-deny
+        run: cargo install cargo-deny --locked
 
-      - name: Check licenses & advisories
-        run: cargo deny check 2>&1 || true
+      - name: Check licenses, advisories, and bans
+        # deny.toml at repo root controls the policy.
+        run: cargo deny check
+
+  # ── Nightly Rust compatibility check ────────────────────────────────────
+  nightly-compat:
+    name: Nightly Rust Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Build on nightly (warnings allowed — informational only)
+        run: cargo +nightly build --all-targets 2>&1 || true
+
+      - name: Clippy on nightly (informational only)
+        run: cargo +nightly clippy --all-targets -- -W clippy::all 2>&1 || true

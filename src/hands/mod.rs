@@ -736,12 +736,47 @@ impl HandRunner {
         // ── Checkpoint resume: skip already-completed phases if a checkpoint exists ──
         let run_id = uuid::Uuid::new_v4().to_string();
         if let Some(checkpoint) = HandCheckpoint::load_latest(&hand.name) {
-            if checkpoint.last_phase_index < hand.phases.len() {
+            if checkpoint.completed_phases.is_empty() {
+                // No successful phases to resume from — stale/failed checkpoint, start fresh
+                info!(
+                    "Hand '{}' found empty checkpoint (all phases previously failed) — starting fresh",
+                    hand.name
+                );
+                checkpoint.delete();
+            } else if checkpoint.last_phase_index < hand.phases.len() {
                 info!(
                     "Hand '{}' resuming from checkpoint (run_id={}, completed {}/{} phases)",
                     hand.name, checkpoint.run_id, checkpoint.completed_phases.len(), hand.phases.len()
                 );
-                outputs = checkpoint.completed_phases;
+                // Pre-populate outputs with all phases attempted so far.
+                // Phases that succeeded are in completed_phases; generate placeholders
+                // for failed phases so that outputs.len() accurately reflects all attempted phases.
+                let num_attempted = checkpoint.last_phase_index + 1;
+                let successful_map: std::collections::HashMap<String, PhaseOutput> = checkpoint
+                    .completed_phases
+                    .into_iter()
+                    .map(|o| (o.phase_name.clone(), o))
+                    .collect();
+                for idx in 0..num_attempted {
+                    let phase_name = hand.phases.get(idx)
+                        .map(|p| p.name.as_str())
+                        .unwrap_or("unknown");
+                    if let Some(o) = successful_map.get(phase_name) {
+                        outputs.push(o.clone());
+                    } else {
+                        // Phase was attempted but failed in the previous run
+                        outputs.push(PhaseOutput {
+                            phase_name: phase_name.to_string(),
+                            output: "Phase failed: (from previous run checkpoint)".to_string(),
+                            tool_calls: 0,
+                            duration_secs: 0.0,
+                            skipped: false,
+                            guardrail_issues: Vec::new(),
+                            quality_score: None,
+                            quality_retries: 0,
+                        });
+                    }
+                }
                 context = checkpoint.context;
                 start_phase = checkpoint.last_phase_index + 1;
             } else {
@@ -832,8 +867,10 @@ impl HandRunner {
             .map(|o| o.output.clone())
             .unwrap_or_else(|| "No output".to_string());
 
-        // ── Delete checkpoint on full success (no failures) ──
-        if !had_failure {
+        // ── Delete checkpoint after run completes (success or partial failure) ──
+        // Keeping stale checkpoints causes incorrect phase skipping on next run.
+        // The checkpoint is only useful for crash recovery (not for failed phases).
+        {
             let cleanup = HandCheckpoint {
                 hand_name: hand.name.clone(),
                 run_id: run_id.clone(),
@@ -843,7 +880,11 @@ impl HandRunner {
                 created_at: String::new(),
             };
             cleanup.delete();
-            debug!("Hand '{}' completed all phases — checkpoint cleaned up", hand.name);
+            if had_failure {
+                debug!("Hand '{}' had phase failures — checkpoint cleaned up to allow fresh retry", hand.name);
+            } else {
+                debug!("Hand '{}' completed all phases — checkpoint cleaned up", hand.name);
+            }
         }
 
         // ── Auto-save: persist final output to workspace ──
