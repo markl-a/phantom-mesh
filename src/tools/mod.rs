@@ -201,6 +201,12 @@ pub trait Tool: Send + Sync {
     fn parameters_schema(&self) -> Value;
     async fn execute(&self, args: Value) -> Result<ToolResult>;
 
+    /// Lightweight pre-execution check. Return Err to block execution early.
+    /// Default implementation passes all checks.
+    fn preflight(&self, _args: &Value) -> Result<()> {
+        Ok(())
+    }
+
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: self.name().to_string(),
@@ -490,9 +496,17 @@ impl ToolRegistry {
             });
         }
 
-        // 2. Execute tool
+        // 2. Get tool and run preflight check
         let tool = self.tools.get(tool_name)
             .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", tool_name))?;
+
+        if let Err(e) = tool.preflight(&args) {
+            warn!("Preflight check failed for '{}': {}", tool_name, e);
+            return Ok(ToolResult {
+                success: false,
+                output: format!("Preflight check failed: {}", e),
+            });
+        }
 
         let result = tool.execute(args).await?;
 
@@ -637,5 +651,89 @@ mod tests {
         assert_eq!(stats.get("global"), Some(&3));
         assert_eq!(stats.get("shell"), Some(&2));
         assert_eq!(stats.get("file_read"), Some(&1));
+    }
+
+    // ── Preflight Tests ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_preflight_default_passes() {
+        // A tool with default preflight should always pass
+        let tool = super::browser::BrowserTool::new();
+        assert!(tool.preflight(&serde_json::json!({})).is_ok());
+    }
+
+    #[test]
+    fn test_preflight_shell_allowed_command() {
+        let tool = super::shell::ShellTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"command": "git status"});
+        assert!(tool.preflight(&args).is_ok());
+    }
+
+    #[test]
+    fn test_preflight_shell_blocked_command() {
+        let tool = super::shell::ShellTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"command": "rm -rf /"});
+        assert!(tool.preflight(&args).is_err());
+        let err = tool.preflight(&args).unwrap_err().to_string();
+        assert!(err.contains("not in the allowed list"));
+    }
+
+    #[test]
+    fn test_preflight_shell_empty_command() {
+        let tool = super::shell::ShellTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"command": ""});
+        assert!(tool.preflight(&args).is_err());
+    }
+
+    #[test]
+    fn test_preflight_file_read_missing_path() {
+        let tool = super::file_read::FileReadTool::new(SecurityConfig::default());
+        let args = serde_json::json!({});
+        assert!(tool.preflight(&args).is_err());
+    }
+
+    #[test]
+    fn test_preflight_file_read_nonexistent() {
+        let tool = super::file_read::FileReadTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"path": "/nonexistent/path/abc123.txt"});
+        assert!(tool.preflight(&args).is_err());
+        let err = tool.preflight(&args).unwrap_err().to_string();
+        assert!(err.contains("does not exist"));
+    }
+
+    #[test]
+    fn test_preflight_file_read_existing_file() {
+        // Use Cargo.toml which always exists in the workspace
+        let tool = super::file_read::FileReadTool::new(SecurityConfig {
+            workspace_only: false,
+            ..SecurityConfig::default()
+        });
+        // Use a path we know exists
+        let cargo_path = std::env::current_dir().unwrap().join("Cargo.toml");
+        let args = serde_json::json!({"path": cargo_path.to_string_lossy()});
+        assert!(tool.preflight(&args).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_preflight_blocks_execution() {
+        let registry = ToolRegistry::new(SecurityConfig::default());
+        // shell tool with disallowed command should fail at preflight
+        let result = registry.execute_tool("shell", serde_json::json!({"command": "rm -rf /"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.output.contains("Preflight"));
+    }
+
+    #[test]
+    fn test_preflight_shell_python_allowed() {
+        let tool = super::shell::ShellTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"command": "python --version"});
+        assert!(tool.preflight(&args).is_ok());
+    }
+
+    #[test]
+    fn test_preflight_shell_npm_allowed() {
+        let tool = super::shell::ShellTool::new(SecurityConfig::default());
+        let args = serde_json::json!({"command": "npm list"});
+        assert!(tool.preflight(&args).is_ok());
     }
 }

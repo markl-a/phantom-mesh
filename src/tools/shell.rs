@@ -35,6 +35,18 @@ impl ShellTool {
 impl Tool for ShellTool {
     fn name(&self) -> &str { "shell" }
 
+    fn preflight(&self, args: &Value) -> Result<()> {
+        let command = args.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        if command.is_empty() {
+            return Err(anyhow::anyhow!("Preflight: missing 'command' parameter"));
+        }
+        if !self.is_command_allowed(command) {
+            let base = command.split_whitespace().next().unwrap_or("");
+            return Err(anyhow::anyhow!("Preflight: command '{}' is not in the allowed list", base));
+        }
+        Ok(())
+    }
+
     fn description(&self) -> &str {
         "Execute a shell command and return its output. Only allowed commands can be run. Paths with ~/ are auto-expanded to the home directory."
     }
