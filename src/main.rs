@@ -2217,6 +2217,10 @@ async fn main() -> anyhow::Result<()> {
     info!("csv_parse tool registered");
     tool_registry.register(Box::new(clawtex_core::tools::summarize::SummarizeTool::new()));
     info!("summarize tool registered");
+    tool_registry.register(Box::new(clawtex_core::tools::docx_export::DocxExportTool::new()));
+    info!("docx_export tool registered");
+    tool_registry.register(Box::new(clawtex_core::tools::xlsx_export::XlsxExportTool::new()));
+    info!("xlsx_export tool registered");
 
     // Register image_generate tool (config-gated: requires gemini_api_key)
     if let Some(img_config) = app_config.image_generate {
