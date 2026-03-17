@@ -86,7 +86,7 @@ pub use estop::{EStop, EStopError, Heartbeat};
 pub use gateway::{GatewayState, AgentThinkRequest, AgentThinkResponse};
 pub use approval::{ApprovalGate, ApprovalConfig, ApprovalResult, ApprovalNotifier};
 pub use hands::{Hand, HandRegistry, HandRunner, HandResult, PhaseOutput, PreflightResult};
-pub use cost_tracker::{CostTracker, CostRecord, CostSummary, estimate_cost};
+pub use cost_tracker::{CostTracker, CostRecord, CostSummary, estimate_cost, BudgetBreaker, BudgetStatus};
 pub use revenue_tracker::{RevenueTracker, RevenueRecord, RevenueSummary, RevenueStatus};
 pub use dispatcher::{DispatchMode, parse_tool_calls, xml_tool_instructions, dispatch_mode_for_provider};
 pub use plugins::{PluginRegistry, PluginManifest, PluginCapability, PluginInfo, PluginStatus};

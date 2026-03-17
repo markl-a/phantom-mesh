@@ -1,10 +1,14 @@
 //! Cost Tracker — records token usage and estimates costs per agent/provider/model run.
 //! Persisted to SQLite. Queryable by day, agent, provider.
+//! Includes BudgetBreaker for in-memory circuit-breaking on budget exceeded.
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::debug;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::Instant;
+use tracing::{debug, warn};
 
 /// A single cost record
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +34,81 @@ pub struct CostSummary {
     pub total_tokens: u64,
     pub total_cost_usd: f64,
     pub call_count: u32,
+}
+
+/// Budget status returned by check_budget_status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum BudgetStatus {
+    /// Within budget, all good
+    Ok { spent: f64, remaining: f64 },
+    /// Over 80% of budget used
+    Warning { spent: f64, limit: f64, pct: f64 },
+    /// Budget exceeded
+    Exceeded { spent: f64, limit: f64 },
+}
+
+/// In-memory circuit breaker for budget-exceeded agents.
+/// Once tripped, subsequent checks skip the DB query until cooldown expires.
+pub struct BudgetBreaker {
+    tripped: Mutex<HashMap<String, Instant>>,
+    cooldown_secs: u64,
+}
+
+impl BudgetBreaker {
+    pub fn new(cooldown_secs: u64) -> Self {
+        Self {
+            tripped: Mutex::new(HashMap::new()),
+            cooldown_secs,
+        }
+    }
+
+    /// Check if an agent's budget breaker is currently tripped
+    pub fn is_tripped(&self, agent: &str) -> bool {
+        let map = self.tripped.lock().unwrap();
+        if let Some(tripped_at) = map.get(agent) {
+            tripped_at.elapsed().as_secs() < self.cooldown_secs
+        } else {
+            false
+        }
+    }
+
+    /// Trip the breaker for an agent
+    pub fn trip(&self, agent: &str) {
+        let mut map = self.tripped.lock().unwrap();
+        warn!("Budget breaker tripped for agent '{}'", agent);
+        map.insert(agent.to_string(), Instant::now());
+    }
+
+    /// Manually reset a specific agent's breaker
+    pub fn reset(&self, agent: &str) {
+        let mut map = self.tripped.lock().unwrap();
+        if map.remove(agent).is_some() {
+            debug!("Budget breaker reset for agent '{}'", agent);
+        }
+    }
+
+    /// Auto-reset any breakers whose cooldown has expired
+    pub fn auto_reset_expired(&self) -> Vec<String> {
+        let mut map = self.tripped.lock().unwrap();
+        let expired: Vec<String> = map.iter()
+            .filter(|(_, instant)| instant.elapsed().as_secs() >= self.cooldown_secs)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for agent in &expired {
+            debug!("Budget breaker auto-reset for agent '{}'", agent);
+            map.remove(agent);
+        }
+        expired
+    }
+
+    /// Get list of currently tripped agents
+    pub fn tripped_agents(&self) -> Vec<String> {
+        let map = self.tripped.lock().unwrap();
+        map.iter()
+            .filter(|(_, instant)| instant.elapsed().as_secs() < self.cooldown_secs)
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
 }
 
 /// Cost tracker with SQLite persistence
@@ -110,6 +189,31 @@ impl CostTracker {
         }
         debug!("Budget check OK for '{}': ${:.4} / ${:.2}", agent, spent, daily_limit_usd);
         Ok(())
+    }
+
+    /// Check budget and return a BudgetStatus enum instead of bailing.
+    /// Returns Ok/Warning/Exceeded based on spending vs limit.
+    pub fn check_budget_status(&self, agent: &str, daily_limit_usd: f64) -> Result<BudgetStatus> {
+        if daily_limit_usd <= 0.0 {
+            return Ok(BudgetStatus::Ok { spent: 0.0, remaining: f64::INFINITY });
+        }
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let mut stmt = conn.prepare(
+            "SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
+             FROM cost_records WHERE date_key = ?1 AND agent = ?2"
+        )?;
+        let spent: f64 = stmt.query_row(rusqlite::params![today, agent], |row| row.get(0))?;
+        if spent >= daily_limit_usd {
+            Ok(BudgetStatus::Exceeded { spent, limit: daily_limit_usd })
+        } else {
+            let pct = (spent / daily_limit_usd) * 100.0;
+            if pct >= 80.0 {
+                Ok(BudgetStatus::Warning { spent, limit: daily_limit_usd, pct })
+            } else {
+                Ok(BudgetStatus::Ok { spent, remaining: daily_limit_usd - spent })
+            }
+        }
     }
 
     /// Get total costs for today
@@ -408,5 +512,192 @@ mod tests {
         // Master should fail
         assert!(tracker.check_budget("master", 1.0).is_err());
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    // ===== BudgetBreaker tests =====
+
+    #[test]
+    fn test_breaker_new_not_tripped() {
+        let breaker = BudgetBreaker::new(60);
+        assert!(!breaker.is_tripped("master"));
+        assert!(breaker.tripped_agents().is_empty());
+    }
+
+    #[test]
+    fn test_breaker_trip_and_check() {
+        let breaker = BudgetBreaker::new(300);
+        breaker.trip("master");
+        assert!(breaker.is_tripped("master"));
+        assert!(!breaker.is_tripped("coder"));
+    }
+
+    #[test]
+    fn test_breaker_manual_reset() {
+        let breaker = BudgetBreaker::new(300);
+        breaker.trip("master");
+        assert!(breaker.is_tripped("master"));
+        breaker.reset("master");
+        assert!(!breaker.is_tripped("master"));
+    }
+
+    #[test]
+    fn test_breaker_reset_nonexistent() {
+        let breaker = BudgetBreaker::new(60);
+        // Should not panic
+        breaker.reset("nobody");
+        assert!(!breaker.is_tripped("nobody"));
+    }
+
+    #[test]
+    fn test_breaker_auto_reset_expired() {
+        let breaker = BudgetBreaker::new(0); // 0-second cooldown = instantly expired
+        breaker.trip("master");
+        // With 0-second cooldown, it should already be expired
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let expired = breaker.auto_reset_expired();
+        assert!(expired.contains(&"master".to_string()));
+        assert!(!breaker.is_tripped("master"));
+    }
+
+    #[test]
+    fn test_breaker_tripped_agents_list() {
+        let breaker = BudgetBreaker::new(300);
+        breaker.trip("agent-a");
+        breaker.trip("agent-b");
+        let list = breaker.tripped_agents();
+        assert_eq!(list.len(), 2);
+        assert!(list.contains(&"agent-a".to_string()));
+        assert!(list.contains(&"agent-b".to_string()));
+    }
+
+    #[test]
+    fn test_breaker_cooldown_respected() {
+        let breaker = BudgetBreaker::new(0); // 0 sec = expires immediately
+        breaker.trip("fast");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Should not be tripped anymore since cooldown=0
+        assert!(!breaker.is_tripped("fast"));
+    }
+
+    #[test]
+    fn test_breaker_multiple_trips_same_agent() {
+        let breaker = BudgetBreaker::new(300);
+        breaker.trip("master");
+        breaker.trip("master"); // Trip again, should update timestamp
+        assert!(breaker.is_tripped("master"));
+        let list = breaker.tripped_agents();
+        assert_eq!(list.len(), 1);
+    }
+
+    // ===== BudgetStatus tests =====
+
+    #[test]
+    fn test_budget_status_ok() {
+        let (db_str, db_path) = temp_db("status_ok");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let mut rec = sample_record("master", "anthropic", "claude-sonnet", 1000);
+        rec.estimated_cost_usd = 0.50;
+        tracker.record(&rec).unwrap();
+        let status = tracker.check_budget_status("master", 10.0).unwrap();
+        match status {
+            BudgetStatus::Ok { spent, remaining } => {
+                assert!((spent - 0.50).abs() < 0.01);
+                assert!((remaining - 9.50).abs() < 0.01);
+            }
+            _ => panic!("Expected Ok, got {:?}", status),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_warning() {
+        let (db_str, db_path) = temp_db("status_warning");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let mut rec = sample_record("master", "anthropic", "claude-sonnet", 1000);
+        rec.estimated_cost_usd = 8.50; // 85% of $10
+        tracker.record(&rec).unwrap();
+        let status = tracker.check_budget_status("master", 10.0).unwrap();
+        match status {
+            BudgetStatus::Warning { spent, limit, pct } => {
+                assert!((spent - 8.50).abs() < 0.01);
+                assert!((limit - 10.0).abs() < 0.01);
+                assert!(pct >= 80.0);
+            }
+            _ => panic!("Expected Warning, got {:?}", status),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_exceeded() {
+        let (db_str, db_path) = temp_db("status_exceeded");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let mut rec = sample_record("master", "anthropic", "claude-opus", 100_000);
+        rec.estimated_cost_usd = 15.0;
+        tracker.record(&rec).unwrap();
+        let status = tracker.check_budget_status("master", 10.0).unwrap();
+        match status {
+            BudgetStatus::Exceeded { spent, limit } => {
+                assert!((spent - 15.0).abs() < 0.01);
+                assert!((limit - 10.0).abs() < 0.01);
+            }
+            _ => panic!("Expected Exceeded, got {:?}", status),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_no_limit() {
+        let (db_str, db_path) = temp_db("status_no_limit");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let status = tracker.check_budget_status("master", 0.0).unwrap();
+        match status {
+            BudgetStatus::Ok { remaining, .. } => {
+                assert!(remaining.is_infinite());
+            }
+            _ => panic!("Expected Ok with infinite remaining"),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_zero_spent() {
+        let (db_str, db_path) = temp_db("status_zero");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let status = tracker.check_budget_status("master", 5.0).unwrap();
+        match status {
+            BudgetStatus::Ok { spent, remaining } => {
+                assert!((spent - 0.0).abs() < 0.001);
+                assert!((remaining - 5.0).abs() < 0.01);
+            }
+            _ => panic!("Expected Ok, got {:?}", status),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_exactly_at_80pct() {
+        let (db_str, db_path) = temp_db("status_80pct");
+        let tracker = CostTracker::new(&db_str).unwrap();
+        let mut rec = sample_record("master", "anthropic", "sonnet", 1000);
+        rec.estimated_cost_usd = 8.0; // exactly 80% of $10
+        tracker.record(&rec).unwrap();
+        let status = tracker.check_budget_status("master", 10.0).unwrap();
+        match status {
+            BudgetStatus::Warning { pct, .. } => {
+                assert!((pct - 80.0).abs() < 0.01);
+            }
+            _ => panic!("Expected Warning at 80%, got {:?}", status),
+        }
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_budget_status_serialize() {
+        let status = BudgetStatus::Warning { spent: 8.0, limit: 10.0, pct: 80.0 };
+        let json = serde_json::to_string(&status).unwrap();
+        assert!(json.contains("Warning"));
+        let back: BudgetStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, status);
     }
 }
