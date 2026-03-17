@@ -45,6 +45,7 @@ pub mod circuit_breaker;
 pub mod watchdog;
 pub mod trajectory;
 pub mod prompt_optimizer;
+pub mod knowledge_capture;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -109,3 +110,4 @@ pub use watchdog::{WorkerWatchdog, RecoveryConfig, WatchdogEvent, WatchdogStatus
 pub use trajectory::{TrajectoryLogger, TrajectoryEntry, QualityStats, WorkerEfficiency};
 pub use circuit_breaker::{ProviderCircuitBreaker, BreakerConfig, CircuitStatus};
 pub use prompt_optimizer::{PromptOptimizer, OptimizationResult, OptimizationConfig};
+pub use knowledge_capture::{KnowledgeCapturer, KnowledgeNode};
