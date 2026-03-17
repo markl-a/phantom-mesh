@@ -22,6 +22,26 @@ impl FileReadTool {
 impl Tool for FileReadTool {
     fn name(&self) -> &str { "file_read" }
 
+    fn preflight(&self, args: &Value) -> Result<()> {
+        let raw_path = args.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        if raw_path.is_empty() {
+            return Err(anyhow::anyhow!("Preflight: missing 'path' parameter"));
+        }
+        // Resolve the path and check existence
+        let expanded = super::expand_home(raw_path);
+        let ws = self.security.workspace_path();
+        let normalized = super::normalize_llm_path(&expanded, &ws);
+        let full_path = if std::path::Path::new(&normalized).is_absolute() {
+            std::path::PathBuf::from(&normalized)
+        } else {
+            ws.join(&normalized)
+        };
+        if !full_path.exists() {
+            return Err(anyhow::anyhow!("Preflight: file does not exist: {}", full_path.display()));
+        }
+        Ok(())
+    }
+
     fn description(&self) -> &str {
         "Read the contents of a file. Path can be relative to workspace or absolute. Paths with ~/ are auto-expanded."
     }
