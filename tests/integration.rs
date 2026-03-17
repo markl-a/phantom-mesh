@@ -1709,8 +1709,8 @@ fn test_e2e_all_10_hands_load() {
     let auto_report = registry.get("auto_report").unwrap();
     assert!(auto_report.tools.contains(&"pdf_export".to_string()),
         "Auto report hand must have pdf_export tool");
-    assert!(auto_report.tools.contains(&"email".to_string()),
-        "Auto report hand must have email tool");
+    assert!(auto_report.tools.contains(&"email_send".to_string()),
+        "Auto report hand must have email_send tool");
 
     // Verify specific route coverage:
     // Route A: freelancer has 5 phases (incl. human_review)
@@ -3057,12 +3057,12 @@ fn test_e2e_all_hand_tools_exist_in_registry() {
         // Optional tools (registered in main.rs)
         "memory_store", "memory_recall", "memory_forget",
         "ai_code", "computer_use", "delegate", "delegate_to_provider",
-        "vision", "email", "twitter", "blog_publish", "pdf_export",
+        "vision", "email_send", "twitter", "blog_publish", "pdf_export",
         "skeleton_generate", "stripe", "render_deploy", "scaffold_saas",
     ].into_iter().map(|s| s.to_string()).collect();
 
     // Also accept tool name aliases used in hand.toml
-    let known_aliases: &[&str] = &["email"]; // email_send -> email
+    let known_aliases: &[&str] = &["email"]; // alias: "email" -> real tool "email_send"
 
     // Load all hands and verify tool compatibility
     let registry = HandRegistry::load(&hands_dir).unwrap();
@@ -3187,6 +3187,7 @@ async fn test_e2e_system_wiring_smoke_test() {
             condition: None,
             target_worker: None,
             target_capability: None,
+            parallel_queries: vec![],
         }],
         tools: vec!["file_write".into()],
         output_format: "markdown".into(),

@@ -1,23 +1,24 @@
 # Clawtex-Core Development Guide
 
 ## Project Overview
-Rust-based AI agent daemon with Telegram bot interface, 24 tools, 17 hands (workflows), multi-provider LLM routing, and cluster support.
+Rust-based AI agent daemon with Telegram bot interface, 25 tools, 20 hands (workflows), 10 LLM providers, 8-device cluster support, and self-evolution system.
 
 ## Quick Reference
 - **Daemon**: `cargo run -- daemon` (port 7878)
 - **Config**: `~/.clawtex/agents.toml`
 - **Workspace**: `~/.clawtex/workspace/`
 - **Hands**: `~/.clawtex/hands/<name>/hand.toml`
-- **Tests**: `cargo test` (709+ tests)
-- **Restart**: `taskkill //F //IM clawtex-core.exe && cargo run -- daemon`
+- **Tests**: `cargo test` (820+ tests)
+- **Restart**: `taskkill //F //IM clawtex-core.exe && cargo run --release -- --host 0.0.0.0 daemon`
+- **Source**: 102 .rs files, ~44,200 LOC
 
 ## Architecture
 ```
 Telegram Bot API → clawtex-core (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq → models
                         ↓
-              src/providers/  (12+ providers)
-              src/tools/      (24 tools)
-              src/hands/      (workflow engine)
+              src/providers/  (18 files, 10 providers)
+              src/tools/      (26 files, 25 tools)
+              src/hands/      (20 workflow definitions)
               src/cluster_hub.rs + cluster_worker.rs
 ```
 
@@ -28,12 +29,16 @@ Telegram Bot API → clawtex-core (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq
 | Agent | `src/agent_runtime.rs` | Multi-round tool-calling loop |
 | Dispatch | `src/dispatcher.rs` | Native/XML/function-tag tool call parsing |
 | Tools | `src/tools/mod.rs` | Tool trait, SecurityConfig, path normalization |
-| Hands | `src/hands/runner.rs` | Multi-phase workflow execution |
+| Hands | `src/hands/mod.rs` | Multi-phase workflow execution |
 | Providers | `src/providers/router.rs` | Smart routing + classifier |
 | Telegram | `src/telegram.rs` | Bot interface |
 | Cluster | `src/cluster_hub.rs` | Hub dispatch to workers |
-| Context | `src/context_optimizer.rs` | Context compaction |
+| Context | `src/context.rs` | Context compaction |
 | Approval | `src/approval.rs` | Human-in-the-loop gate |
+| Self-Evolve | `src/trajectory.rs` | Trajectory logging + prompt evolution |
+| Circuit Breaker | `src/circuit_breaker.rs` | Provider reliability (3-state) |
+| Guardrail | `src/guardrail.rs` | L1 content safety + L2 LLM-as-Judge |
+| Security | `src/security/mod.rs` | Encryption, RBAC, privacy guard |
 
 ## Reference Project Index
 
