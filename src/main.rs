@@ -158,6 +158,14 @@ struct AppConfig {
     line: Option<LineConfig>,
     #[serde(default)]
     whatsapp: Option<WhatsAppConfig>,
+    #[serde(default)]
+    image_generate: Option<ImageGenerateAppConfig>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+struct ImageGenerateAppConfig {
+    #[serde(default)]
+    gemini_api_key: String,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -2209,6 +2217,18 @@ async fn main() -> anyhow::Result<()> {
     info!("csv_parse tool registered");
     tool_registry.register(Box::new(clawtex_core::tools::summarize::SummarizeTool::new()));
     info!("summarize tool registered");
+
+    // Register image_generate tool (config-gated: requires gemini_api_key)
+    if let Some(img_config) = app_config.image_generate {
+        if !img_config.gemini_api_key.is_empty() {
+            tool_registry.register(Box::new(clawtex_core::tools::image_generate::ImageGenerateTool::new(
+                clawtex_core::tools::image_generate::ImageGenerateConfig {
+                    gemini_api_key: img_config.gemini_api_key,
+                }
+            )));
+            info!("image_generate tool registered");
+        }
+    }
 
     // Register stripe tool (payment integration) — config first, env var fallback
     let stripe_key = app_config.stripe.as_ref()

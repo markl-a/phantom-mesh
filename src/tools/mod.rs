@@ -35,6 +35,7 @@ pub mod translate;
 pub mod json_transform;
 pub mod csv_parse;
 pub mod summarize;
+pub mod image_generate;
 
 use anyhow::Result;
 use async_trait::async_trait;
