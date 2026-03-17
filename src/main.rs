@@ -28,6 +28,7 @@ use clawtex_core::{
     Schedule, Scheduler, SearchConfig,
     SecretManager, SecurityConfig, SkillRegistry, TaskQueue, TelegramChannel, TelegramConfig,
     ToolRegistry, TrajectoryLogger, TwitterConfig, BlogConfig, TrustLevel,
+    SlackConfig, DiscordConfig, LineConfig, WhatsAppConfig,
 };
 
 // ── CLI Args ───────────────────────────────────────────────────────────────────
@@ -149,6 +150,14 @@ struct AppConfig {
     cluster: Option<ClusterConfig>,
     #[serde(default)]
     privacy: Option<PrivacyConfig>,
+    #[serde(default)]
+    slack: Option<SlackConfig>,
+    #[serde(default)]
+    discord: Option<DiscordConfig>,
+    #[serde(default)]
+    line: Option<LineConfig>,
+    #[serde(default)]
+    whatsapp: Option<WhatsAppConfig>,
 }
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -2074,6 +2083,46 @@ async fn main() -> anyhow::Result<()> {
             info!("Email tool registered (SMTP configured)");
         } else {
             info!("Email tool: SMTP username not set, skipping");
+        }
+    }
+
+    // Register slack tool (Slack Incoming Webhook)
+    if let Some(slack_config) = app_config.slack {
+        if !slack_config.webhook_url.is_empty() {
+            tool_registry.register(Box::new(clawtex_core::tools::slack::SlackTool::new(slack_config)));
+            info!("Slack tool registered");
+        } else {
+            info!("Slack tool: webhook_url not set, skipping");
+        }
+    }
+
+    // Register discord tool (Discord Webhook)
+    if let Some(discord_config) = app_config.discord {
+        if !discord_config.webhook_url.is_empty() {
+            tool_registry.register(Box::new(clawtex_core::tools::discord::DiscordTool::new(discord_config)));
+            info!("Discord tool registered");
+        } else {
+            info!("Discord tool: webhook_url not set, skipping");
+        }
+    }
+
+    // Register LINE Notify tool
+    if let Some(line_config) = app_config.line {
+        if !line_config.notify_token.is_empty() {
+            tool_registry.register(Box::new(clawtex_core::tools::line_notify::LineTool::new(line_config)));
+            info!("LINE Notify tool registered");
+        } else {
+            info!("LINE Notify tool: notify_token not set, skipping");
+        }
+    }
+
+    // Register WhatsApp tool (Business Cloud API)
+    if let Some(whatsapp_config) = app_config.whatsapp {
+        if !whatsapp_config.phone_number_id.is_empty() {
+            tool_registry.register(Box::new(clawtex_core::tools::whatsapp::WhatsAppTool::new(whatsapp_config)));
+            info!("WhatsApp tool registered");
+        } else {
+            info!("WhatsApp tool: phone_number_id not set, skipping");
         }
     }
 

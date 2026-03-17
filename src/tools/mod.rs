@@ -27,6 +27,10 @@ pub mod stripe;
 pub mod render_deploy;
 pub mod scaffold_saas;
 pub mod cli_anything;
+pub mod slack;
+pub mod discord;
+pub mod line_notify;
+pub mod whatsapp;
 
 use anyhow::Result;
 use async_trait::async_trait;
