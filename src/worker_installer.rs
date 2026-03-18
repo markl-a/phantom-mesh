@@ -8,7 +8,6 @@
 //! Usage:
 //!   `clawtex-core install-worker --hub http://100.x.x.x:7878 --name my-worker --port 7879`
 
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
 

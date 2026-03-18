@@ -4,7 +4,7 @@
 //! NativeToolDispatcher: Passes tool specs to the LLM and parses structured tool_calls.
 //! XmlToolDispatcher: Injects tool instructions into the prompt and parses <tool_call> XML tags.
 
-use crate::providers::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction};
+use crate::providers::{ChatResponse, ToolCall, ToolCallFunction};
 use regex::Regex;
 use serde_json::Value;
 use tracing::{debug, warn};
@@ -328,7 +328,7 @@ pub fn dispatch_mode_for_provider(provider: &str) -> DispatchMode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::{ChatResponse, TokenUsage};
+    use crate::providers::{ChatMessage, ChatResponse, TokenUsage};
 
     fn make_response(content: &str, tool_calls: Vec<ToolCall>) -> ChatResponse {
         ChatResponse {

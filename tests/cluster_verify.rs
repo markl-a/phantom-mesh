@@ -14,7 +14,7 @@ use std::sync::Arc;
 async fn v1_worker_registration_flow() {
     // Verify: workers register with hub, appear in registry with correct metadata
     let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
-    let hub = ClusterHub::new(registry.clone());
+    let _hub = ClusterHub::new(registry.clone());
 
     // Register a full worker (M1 Mac)
     registry.register_full(

@@ -4,7 +4,7 @@
 
 use clawtex_core::{
     ClusterHub, ClusterRegistry, ClusterMetrics, WorkerStats, ToolRouting,
-    PollTaskResponse, TaskResultPayload, ClusterNode,
+    PollTaskResponse, TaskResultPayload,
 };
 use serde_json::json;
 use std::sync::Arc;

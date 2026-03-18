@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -570,6 +570,7 @@ impl Default for SecurityAuditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::anyhow;
 
     // ── SecretRotator tests ──────────────────────────────────────────────
 

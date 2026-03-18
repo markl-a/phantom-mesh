@@ -270,7 +270,7 @@ impl ObservabilityEngine {
         // -- Per-worker utilization --
         out.push_str("# TYPE clawtex_obs_worker_dispatches gauge\n");
         let mut workers: Vec<_> = snap.worker_utilization.iter().collect();
-        workers.sort_by_key(|(k, _)| k.clone());
+        workers.sort_by_key(|(k, _)| (*k).clone());
         for (worker, count) in &workers {
             out.push_str(&format!(
                 "clawtex_obs_worker_dispatches{{worker=\"{}\"}} {}\n",
@@ -281,7 +281,7 @@ impl ObservabilityEngine {
         // -- Per-tool error rate --
         out.push_str("# TYPE clawtex_obs_tool_error_rate gauge\n");
         let mut tools: Vec<_> = snap.error_rate_by_tool.iter().collect();
-        tools.sort_by_key(|(k, _)| k.clone());
+        tools.sort_by_key(|(k, _)| (*k).clone());
         for (tool, rate) in &tools {
             out.push_str(&format!(
                 "clawtex_obs_tool_error_rate{{tool=\"{}\"}} {:.4}\n",

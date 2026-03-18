@@ -6,7 +6,6 @@ use clawtex_core::hands::{
     Hand, HandRegistry, HandRunner, PhaseOutput, HandCheckpoint,
     evaluate_condition,
 };
-use serde_json::json;
 use std::fs;
 use tempfile::TempDir;
 
@@ -435,7 +434,7 @@ fn evaluate_condition_unknown_type_returns_true() {
 
 #[test]
 fn hand_checkpoint_save_and_load() {
-    let tmp = tempfile::tempdir().unwrap();
+    let _tmp = tempfile::tempdir().unwrap();
     // We can't easily override the checkpoint path (~/.clawtex/checkpoints),
     // so just verify the struct serializes correctly
     let cp = HandCheckpoint {

@@ -9,7 +9,7 @@
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -354,6 +354,7 @@ pub fn multi_tool_script(steps: Vec<(&str, Value)>, final_text: &str) -> Vec<Moc
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[tokio::test]
     async fn test_mock_echo() {

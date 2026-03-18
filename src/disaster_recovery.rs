@@ -7,13 +7,12 @@
 //!
 //! DBs covered: core.db, costs.db, memory.db, knowledge.db, revenue.db, trajectories.db
 
-use std::collections::HashMap;
 use std::fs;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -461,7 +460,6 @@ fn sha256_file(path: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rusqlite::params;
     use tempfile::TempDir;
 
     /// Helper: create a fake SQLite DB with a table and some data.

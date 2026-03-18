@@ -9,14 +9,9 @@
 //!
 //! Run with: cargo test --test cluster_simulate
 
-use clawtex_core::*;
-use clawtex_core::cluster::{ClusterRegistry, ClusterNode};
+use clawtex_core::cluster::ClusterRegistry;
 use clawtex_core::cluster_hub::{ClusterHub, ToolRouting};
-use clawtex_core::hands::{Hand, HandRunner, HandRegistry, PhaseOutput};
-use clawtex_core::cost_tracker::CostTracker;
-use clawtex_core::revenue_tracker::{RevenueTracker, RevenueRecord, RevenueStatus};
-use serde_json::json;
-use std::collections::HashMap;
+use clawtex_core::hands::HandRegistry;
 use std::sync::Arc;
 
 /// Build the simulated 8-device cluster for all tests
@@ -133,7 +128,7 @@ async fn s01_route_a_freelancer_pipeline() {
 
 #[tokio::test]
 async fn s02_route_b_lead_outreach_chain() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let lead = hands.get("lead").expect("lead hand must exist");
@@ -190,7 +185,7 @@ async fn s02_route_b_lead_outreach_chain() {
 
 #[tokio::test]
 async fn s03_route_c_seo_blog_twitter() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let seo = hands.get("seo_content").expect("seo_content hand must exist");
@@ -248,7 +243,7 @@ async fn s03_route_c_seo_blog_twitter() {
 
 #[tokio::test]
 async fn s04_route_d_market_intelligence() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let mi = hands.get("market_intel").expect("market_intel hand must exist");
@@ -262,7 +257,7 @@ async fn s04_route_d_market_intelligence() {
     let plan = simulate_dispatch_plan(&hub, &tools);
 
     let network = plan.iter().filter(|(_, r)| *r == ToolRouting::AnyWorker).count();
-    let local = plan.iter().filter(|(_, r)| *r == ToolRouting::Local).count();
+    let _local = plan.iter().filter(|(_, r)| *r == ToolRouting::Local).count();
 
     for (tool, routing) in &plan {
         let target = match routing {
@@ -287,7 +282,7 @@ async fn s04_route_d_market_intelligence() {
 
 #[tokio::test]
 async fn s05_route_e_customer_service() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let cs = hands.get("customer_service").expect("customer_service hand must exist");
@@ -326,7 +321,7 @@ async fn s06_route_f_trading_analysis() {
     let (registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
-    let ta = hands.get("trading_analysis").expect("trading_analysis hand must exist");
+    let _ta = hands.get("trading_analysis").expect("trading_analysis hand must exist");
 
     println!("=== S6: Route F — Trading Analysis ===");
 
@@ -375,10 +370,10 @@ async fn s06_route_f_trading_analysis() {
 
 #[tokio::test]
 async fn s07_route_g_content_daily() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
-    let content = hands.get("content").expect("content hand must exist");
+    let _content = hands.get("content").expect("content hand must exist");
 
     println!("=== S7: Route G — Daily Content Pipeline ===");
 
@@ -412,7 +407,7 @@ async fn s07_route_g_content_daily() {
 
 #[tokio::test]
 async fn s08_route_h_saas_pipeline() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let spec = hands.get("product_spec");
@@ -526,7 +521,7 @@ async fn s09_route_i_auto_report() {
 
 #[tokio::test]
 async fn s10_route_j_cluster_self_optimize() {
-    let (registry, hub) = build_test_cluster().await;
+    let (_registry, hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     let health = hands.get("cluster_health").expect("cluster_health hand must exist");
@@ -601,7 +596,7 @@ async fn s10_route_j_cluster_self_optimize() {
 
 #[tokio::test]
 async fn s_summary_cluster_revenue_overview() {
-    let (registry, hub) = build_test_cluster().await;
+    let (registry, _hub) = build_test_cluster().await;
     let hands = load_real_hands();
 
     println!("\n{}", "=".repeat(60));

@@ -350,7 +350,7 @@ impl BlogPublisher {
     // ── Private platform-specific builders ──────────────────────────────────
 
     fn publish_wordpress(&self, req: &PublishRequest) -> anyhow::Result<PublishResult> {
-        let (method, url, _headers, body) = self.build_request(req);
+        let (_method, _url, _headers, _body) = self.build_request(req);
         // In production this calls reqwest; here we return a constructed result
         Ok(PublishResult {
             url: format!("{}/posts/new", self.api_url.trim_end_matches('/')),
@@ -364,7 +364,7 @@ impl BlogPublisher {
     }
 
     fn publish_ghost(&self, req: &PublishRequest) -> anyhow::Result<PublishResult> {
-        let (_method, url, _headers, _body) = self.build_request(req);
+        let (_method, _url, _headers, _body) = self.build_request(req);
         Ok(PublishResult {
             url: format!("{}/{}", self.api_url.trim_end_matches('/'), slug_from_title(&req.title)),
             id: format!("ghost-{}", uuid_v4_stub()),

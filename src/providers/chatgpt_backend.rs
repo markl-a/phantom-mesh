@@ -48,6 +48,7 @@ fn build_backend_messages(messages: &[ChatMessage]) -> (Vec<Value>, String) {
 }
 
 /// Parse a single SSE data line from the backend-api response.
+#[allow(dead_code)]
 fn parse_backend_sse_line(line: &str) -> (Option<String>, bool, Option<String>) {
     let line = line.trim();
 
@@ -297,6 +298,7 @@ impl ChatGptBackendProvider {
     }
 
     /// Parse a complete SSE response body (kept for future REST use).
+    #[allow(dead_code)]
     fn parse_full_sse_response(body: &str) -> Result<ChatResponse> {
         let mut final_content = String::new();
 
