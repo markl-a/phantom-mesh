@@ -78,6 +78,16 @@ pub mod revenue_automation;
 pub mod security_hardening;
 pub mod telegram_i18n;
 pub mod worker_installer;
+pub mod api_version;
+pub mod changelog;
+pub mod config_validator;
+pub mod graceful_shutdown;
+pub mod health_check;
+pub mod plugin_loader;
+pub mod rate_limiter_v2;
+pub mod retry;
+pub mod smoke_test;
+pub mod structured_log;
 
 // Re-export types from their canonical locations
 pub use providers::{
