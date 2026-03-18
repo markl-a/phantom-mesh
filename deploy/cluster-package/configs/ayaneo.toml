@@ -2,5 +2,5 @@
 name = "ayaneo"
 device_type = "full"
 port = 7880
-hub = "http://192.168.1.104:7878"
+hub = "http://10.0.1.1:7878"
 capabilities = ["tools", "llm", "npu"]

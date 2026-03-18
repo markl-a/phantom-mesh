@@ -54,7 +54,7 @@ jobs:
       postgres:
         image: pgvector/pgvector:pg16
         env:
-          POSTGRES_PASSWORD: testpassword
+          POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
           POSTGRES_DB: clawtex_test
         ports:
           - 5432:5432
@@ -79,7 +79,7 @@ jobs:
       - name: Run all tests (pg feature)
         run: cargo test --all-targets --features pg -- --test-threads=2
         env:
-          CLAWTEX_PG_URL: "postgresql://postgres:testpassword@localhost:5432/clawtex_test"
+          CLAWTEX_PG_URL: "postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/clawtex_test"
 
   # ── Security audit ───────────────────────────────────────────────────────
   audit:

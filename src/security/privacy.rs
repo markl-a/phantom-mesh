@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn test_ip_address_detected_as_sensitive() {
         let guard = default_guard();
-        let msgs = [msg("user", "Server is at 192.168.1.100")];
+        let msgs = [msg("user", "Server is at 10.0.1.2")];
         assert_eq!(guard.classify(&msgs), PrivacyTier::Sensitive);
     }
 

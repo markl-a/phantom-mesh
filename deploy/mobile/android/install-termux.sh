@@ -15,7 +15,7 @@
 set -e
 
 # ── 設定 ─────────────────────────────────────────────────
-HUB_IP="${CLAWTEX_HUB_IP:-192.168.1.104}"
+HUB_IP="${CLAWTEX_HUB_IP:-10.0.1.1}"
 HUB_PORT="${CLAWTEX_HUB_PORT:-7878}"
 WORKER_NAME="${CLAWTEX_WORKER_NAME:-android-$(hostname | tr '[:upper:]' '[:lower:]')}"
 WORKER_PORT="${CLAWTEX_WORKER_PORT:-7880}"

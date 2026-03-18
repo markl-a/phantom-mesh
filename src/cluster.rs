@@ -197,10 +197,10 @@ mod tests {
     #[tokio::test]
     async fn test_register_node() {
         let registry = ClusterRegistry::new(":memory:").await.unwrap();
-        registry.register("m1", "100.87.93.58", 7878).await.unwrap();
+        registry.register("m1", "10.0.2.1", 7878).await.unwrap();
         let nodes = registry.status().await;
         let m1 = nodes.iter().find(|n| n.name == "m1").unwrap();
-        assert_eq!(m1.host, "100.87.93.58");
+        assert_eq!(m1.host, "10.0.2.1");
         assert_eq!(m1.status, "online");
     }
 

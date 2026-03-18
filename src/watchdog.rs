@@ -177,12 +177,12 @@ impl WorkerWatchdog {
 
         wd.add_worker(RecoveryConfig::new(
             "acer",
-            r#"ssh user@192.168.1.115 "wmic process where \"name='python.exe'\" call terminate >nul 2>&1 & cd /d C:\Users\user\worker & C:\Python314\python.exe worker.py""#,
+            r#"ssh worker@10.0.1.3 "wmic process where \"name='python.exe'\" call terminate >nul 2>&1 & cd /d C:\Users\user\worker & C:\Python314\python.exe worker.py""#,
         ));
 
         wd.add_worker(RecoveryConfig::new(
             "m1-mac",
-            r#"ssh marklight@100.87.93.58 'pkill -f worker.py; cd ~/worker && nohup /opt/homebrew/bin/python3 worker.py &'"#,
+            r#"ssh worker@10.0.2.1 'pkill -f worker.py; cd ~/worker && nohup /opt/homebrew/bin/python3 worker.py &'"#,
         ));
 
         wd
@@ -570,12 +570,12 @@ mod tests {
         assert!(wd.configs.contains_key("m1-mac"));
 
         let acer = &wd.configs["acer"];
-        assert!(acer.recovery_command.contains("192.168.1.115"));
+        assert!(acer.recovery_command.contains("10.0.1.3"));
         assert!(acer.recovery_command.contains("python.exe"));
         assert!(acer.enabled);
 
         let m1 = &wd.configs["m1-mac"];
-        assert!(m1.recovery_command.contains("100.87.93.58"));
+        assert!(m1.recovery_command.contains("10.0.2.1"));
         assert!(m1.recovery_command.contains("worker.py"));
         assert!(m1.enabled);
 

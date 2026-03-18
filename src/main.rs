@@ -3301,7 +3301,7 @@ async fn main() -> anyhow::Result<()> {
     // Also add ayaneo
     watchdog.add_worker(RecoveryConfig::new(
         "ayaneo",
-        r#"ssh m4932@192.168.1.117 "wmic process where \"name='python.exe'\" call terminate >nul 2>&1 & cd /d C:\Users\m4932\worker & python worker.py""#,
+        r#"ssh worker@10.0.1.4 "wmic process where \"name='python.exe'\" call terminate >nul 2>&1 & cd /d /home/user/worker & python worker.py""#,
     ));
     let watchdog = Arc::new(tokio::sync::Mutex::new(watchdog));
     info!("WorkerWatchdog initialized with {} workers", 3);

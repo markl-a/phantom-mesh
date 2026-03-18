@@ -58,7 +58,7 @@ impl Tool for ShellTool {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute. Use absolute Windows paths (C:/Users/...) or ~/ which auto-expands. Example: sqlite3 C:/Users/m4932/.clawtex/costs.db \"SELECT * FROM cost_records;\""
+                    "description": "The shell command to execute. Use absolute Windows paths (C:/Users/...) or ~/ which auto-expands. Example: sqlite3 ~/.clawtex/costs.db \"SELECT * FROM cost_records;\""
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -249,6 +249,10 @@ mod tests {
         serde_json::from_str(&result.output).expect("output should be valid JSON")
     }
 
+    fn python_cmd() -> &'static str {
+        if cfg!(target_os = "windows") { "python" } else { "python3" }
+    }
+
     #[tokio::test]
     async fn test_execute_echo() {
         let tool = make_tool();
@@ -289,7 +293,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("exit42.py");
         std::fs::write(&script_path, "import sys\nsys.exit(42)\n").unwrap();
-        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let cmd = format!("{} {}", python_cmd(), script_path.to_string_lossy().replace('\\', "/"));
         let result = tool.execute(json!({"command": cmd})).await.unwrap();
         assert!(!result.success);
         let v = parse_output(&result);
@@ -304,7 +308,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("stderr_only.py");
         std::fs::write(&script_path, "import sys\nsys.stderr.write('err_only\\n')\n").unwrap();
-        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let cmd = format!("{} {}", python_cmd(), script_path.to_string_lossy().replace('\\', "/"));
         let result = tool.execute(json!({"command": cmd})).await.unwrap();
         let v = parse_output(&result);
         assert!(v["stderr"].as_str().unwrap().contains("err_only"), "stderr should contain 'err_only'");
@@ -319,7 +323,7 @@ mod tests {
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("both_streams.py");
         std::fs::write(&script_path, "import sys\nprint('out_msg')\nsys.stderr.write('err_msg\\n')\n").unwrap();
-        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let cmd = format!("{} {}", python_cmd(), script_path.to_string_lossy().replace('\\', "/"));
         let result = tool.execute(json!({"command": cmd})).await.unwrap();
         let v = parse_output(&result);
         assert!(v["stdout"].as_str().unwrap().contains("out_msg"), "stdout should contain 'out_msg'");

@@ -319,7 +319,7 @@ pub(crate) fn normalize_llm_path(path: &str, workspace: &std::path::Path) -> Str
     let _ws_suffix = if ws_str.ends_with('/') { &ws_str } else { &format!("{}/", ws_str) };
     // Check if path contains workspace path embedded after workspace join
     if p.replace('\\', "/").matches(&ws_str.replace('\\', "/")).count() > 1 {
-        // e.g., C:/Users/m4932/.clawtex/workspace/~/.clawtex/workspace/file.py
+        // e.g., ~/.clawtex/workspace/~/.clawtex/workspace/file.py
         // Keep only the last occurrence
         if let Some(last_idx) = p.replace('\\', "/").rfind(&ws_str.replace('\\', "/")) {
             p = p[last_idx..].to_string();

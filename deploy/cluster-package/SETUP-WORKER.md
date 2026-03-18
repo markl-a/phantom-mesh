@@ -57,7 +57,7 @@ nohup ./target/release/clawtex-core worker --hub http://<HUB_IP>:7878 --name <NA
 ```
 
 ## Hub 連線資訊
-- **Hub IP**: `192.168.1.104` (Z13 LAN)
+- **Hub IP**: `10.0.1.1` (Z13 LAN)
 - **Hub Port**: `7878`
 
 ## Device Configurations

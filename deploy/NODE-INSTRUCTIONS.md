@@ -6,7 +6,7 @@
 家裡 LAN (192.168.1.x)             辦公室 (Tailscale)
 ┌─────────────────────┐            ┌──────────────────┐
 │ Z13 Hub             │            │ M1 Mac (Worker)  │
-│  LAN: 192.168.1.104 │◄──100.x──►│  ├─ iPhone       │
+│  LAN: 10.0.1.1 │◄──100.x──►│  ├─ iPhone       │
 │  TS:  <Z13_TS_IP>   │ Tailscale  │  └─ iPad         │
 │                     │            └──────────────────┘
 │ Ayaneo (Worker)     │
@@ -16,7 +16,7 @@
 └─────────────────────┘
 ```
 
-**家裡設備** (Ayaneo, Aspire 5, Android x2) → 用 LAN IP `192.168.1.104:7878`
+**家裡設備** (Ayaneo, Aspire 5, Android x2) → 用 LAN IP `10.0.1.1:7878`
 **辦公室設備** (M1 Mac, iPhone, iPad) → 用 Tailscale IP `<Z13_TS_IP>:7878`
 
 Repo: `https://github.com/markl-a/Clawtex.git` branch `ralph/money-agent`
@@ -124,14 +124,14 @@ cd Clawtex/clawtex-core
 
 3. 啟動 Full Worker（背景執行）:
    用 PowerShell 或 bash:
-   ./target/release/clawtex-core.exe worker --hub http://192.168.1.104:7878 --name ayaneo --port 7879
+   ./target/release/clawtex-core.exe worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879
 
    或者背景執行:
-   Start-Process -NoNewWindow ./target/release/clawtex-core.exe -ArgumentList "worker --hub http://192.168.1.104:7878 --name ayaneo --port 7879"
+   Start-Process -NoNewWindow ./target/release/clawtex-core.exe -ArgumentList "worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879"
 
 4. 驗證:
    curl http://localhost:7879/health
-   curl http://192.168.1.104:7878/cluster/workers
+   curl http://10.0.1.1:7878/cluster/workers
 
 每步完成後回報結果。
 ```
@@ -154,24 +154,24 @@ cd Clawtex/clawtex-core
    cargo build --release
 
 3. 啟動 Full Worker（背景執行）:
-   nohup ./target/release/clawtex-core worker --hub http://192.168.1.104:7878 --name aspire5 --port 7879 > /tmp/clawtex-worker.log 2>&1 &
+   nohup ./target/release/clawtex-core worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879 > /tmp/clawtex-worker.log 2>&1 &
 
    如果是 Windows:
-   ./target/release/clawtex-core.exe worker --hub http://192.168.1.104:7878 --name aspire5 --port 7879
+   ./target/release/clawtex-core.exe worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879
 
 4. 驗證:
    curl http://localhost:7879/health
-   curl http://192.168.1.104:7878/cluster/workers
+   curl http://10.0.1.1:7878/cluster/workers
 
 5. 設定 Android 1 light worker:
    在 Android 上安裝 Termux，執行:
    pkg install python
    把 clawtex-worker.py 傳到 Android（用 adb push 或檔案分享）
-   python3 clawtex-worker.py --hub http://192.168.1.104:7878 --name android-1 --port 7880
+   python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-1 --port 7880
 
 6. 設定 Android 2 light worker:
    同樣方式:
-   python3 clawtex-worker.py --hub http://192.168.1.104:7878 --name android-2 --port 7880
+   python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-2 --port 7880
 
 每步完成後回報結果。
 ```
@@ -212,16 +212,16 @@ curl -X POST http://127.0.0.1:7878/hand/cluster_health/run \
 |------|------|------|----------|---------|
 | Z13 | Hub | 家裡 | — | `clawtex-core --host 0.0.0.0 --port 7878 daemon` |
 | M1 Mac | Full Worker | 辦公室 | `<Z13_TS_IP>:7878` | `clawtex-core worker --hub http://<Z13_TS_IP>:7878 --name m1-mac` |
-| Ayaneo | Full Worker | 家裡 | `192.168.1.104:7878` | `clawtex-core worker --hub http://192.168.1.104:7878 --name ayaneo` |
-| Aspire 5 | Full Worker | 家裡 | `192.168.1.104:7878` | `clawtex-core worker --hub http://192.168.1.104:7878 --name aspire5` |
-| Android 1 | Light Worker | 家裡 | `192.168.1.104:7878` | `python3 clawtex-worker.py --hub http://192.168.1.104:7878 --name android-1` |
-| Android 2 | Light Worker | 家裡 | `192.168.1.104:7878` | `python3 clawtex-worker.py --hub http://192.168.1.104:7878 --name android-2` |
+| Ayaneo | Full Worker | 家裡 | `10.0.1.1:7878` | `clawtex-core worker --hub http://10.0.1.1:7878 --name ayaneo` |
+| Aspire 5 | Full Worker | 家裡 | `10.0.1.1:7878` | `clawtex-core worker --hub http://10.0.1.1:7878 --name aspire5` |
+| Android 1 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-1` |
+| Android 2 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-2` |
 | iPhone | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name iphone` |
 | iPad | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name ipad` |
 
 ## 注意事項
 - `<Z13_TS_IP>` = Z13 安裝 Tailscale 後拿到的 100.x.x.x IP
-- 家裡設備用 LAN IP `192.168.1.104`，辦公室設備用 Tailscale IP
+- 家裡設備用 LAN IP `10.0.1.1`，辦公室設備用 Tailscale IP
 - Hub 綁定 `0.0.0.0` 所以 LAN 和 Tailscale 都能連入
 - Full Worker 需要 Rust 工具鏈（cargo）
 - Light Worker 只需要 Python 3（純 stdlib，無外部依賴）

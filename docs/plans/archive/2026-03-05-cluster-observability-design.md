@@ -1870,7 +1870,7 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=clawtex2026
+      - GF_SECURITY_ADMIN_PASSWORD=CHANGE_ME
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-piechart-panel
     depends_on:

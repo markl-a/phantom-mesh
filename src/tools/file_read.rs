@@ -52,7 +52,7 @@ impl Tool for FileReadTool {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "File path. Relative paths resolve from workspace. Absolute paths (C:/...) or ~/ paths also work. Examples: 'output/result.txt', 'C:/Users/m4932/.clawtex/workspace/report.md'"
+                    "description": "File path. Relative paths resolve from workspace. Absolute paths (C:/...) or ~/ paths also work. Examples: 'output/result.txt', '~/.clawtex/workspace/report.md'"
                 }
             },
             "required": ["path"]

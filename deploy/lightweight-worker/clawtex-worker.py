@@ -412,8 +412,8 @@ def main():
     global HUB_URL, HUB_API_KEY, NODE_NAME, NODE_PORT
 
     parser = argparse.ArgumentParser(description="Clawtex Lightweight Worker")
-    parser.add_argument("--hub", required=True, help="Hub URL (e.g., http://192.168.1.104:7878)")
-    parser.add_argument("--hub-key", default="clawtex-hub-2026", help="Hub API key (default: clawtex-hub-2026)")
+    parser.add_argument("--hub", required=True, help="Hub URL (e.g., http://10.0.1.1:7878)")
+    parser.add_argument("--hub-key", default="your-hub-token-here", help="Hub API key (default: your-hub-token-here)")
     parser.add_argument("--name", default=None, help="Worker name (default: auto-detect)")
     parser.add_argument("--port", type=int, default=7880, help="Port to listen on (default: 7880)")
     args = parser.parse_args()

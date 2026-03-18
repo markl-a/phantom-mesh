@@ -18,11 +18,11 @@ info:
 servers:
   - url: "http://localhost:7878"
     description: Local Hub (Z13, primary)
-  - url: "http://100.87.93.58:7879"
+  - url: "http://10.0.2.1:7879"
     description: M1 Mac Worker
-  - url: "http://100.107.205.98:7880"
+  - url: "http://10.0.2.2:7880"
     description: AYANEO Worker
-  - url: "http://192.168.1.115:7881"
+  - url: "http://10.0.1.1:7881"
     description: Acer Worker
 
 security:
@@ -510,7 +510,7 @@ paths:
                 device_type: { type: string, default: full, enum: [full, light, mobile] }
             example:
               name: acer
-              host: 192.168.1.115
+              host: 10.0.1.1
               port: 7881
               capabilities: [web_search, http_request]
               device_type: light

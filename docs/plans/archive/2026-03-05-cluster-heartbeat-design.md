@@ -1748,7 +1748,7 @@ role = "hub"                    # hub | worker | standby_hub
 
 [[cluster.nodes]]
 name = "m1-mac"
-host = "100.87.93.58"           # Tailscale IP
+host = "10.0.2.1"           # Tailscale IP
 ollama_port = 11434
 network_type = "tailscale"
 role = "worker"
@@ -1801,7 +1801,7 @@ role = "standby_hub"
 # ── SSH 恢復設定 ──
 [[cluster.recovery.ssh]]
 node = "m1-mac"
-host = "100.87.93.58"
+host = "10.0.2.1"
 port = 22
 user = "m4932"
 key_path = "~/.ssh/id_ed25519"

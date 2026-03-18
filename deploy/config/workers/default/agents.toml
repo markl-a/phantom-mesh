@@ -5,7 +5,7 @@
 host = "0.0.0.0"
 port = 7878
 # role = "worker"  # 未來支援
-# hub_url = "http://192.168.1.104:7878"
+# hub_url = "http://10.0.1.1:7878"
 
 [providers.ollama]
 type = "ollama"

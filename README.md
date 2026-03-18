@@ -1,24 +1,24 @@
 # Clawtex
 
-**Distributed AI Agent Daemon** -- 42 tools, 29 hands, 10 providers, 8-device cluster, self-evolution built in Rust.
+**Distributed AI Agent Daemon** -- 53 tools, 29 hands, 10 providers, 8-device cluster, self-evolution built in Rust.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](.github/workflows)
-[![Tests](https://img.shields.io/badge/tests-1594%20passing-brightgreen.svg)](tests/)
-[![LOC](https://img.shields.io/badge/LOC-65%2C530%2B-blue.svg)](src/)
+[![Tests](https://img.shields.io/badge/tests-2564%20passing-brightgreen.svg)](tests/)
+[![LOC](https://img.shields.io/badge/LOC-80%2C000%2B-blue.svg)](src/)
 
 ---
 
 ## What is Clawtex?
 
-Clawtex is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 10 LLM providers, executes 42 built-in tools, runs multi-phase workflow automations called **Hands**, and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
+Clawtex is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 10 LLM providers, executes 53 built-in tools, runs 29 multi-phase workflow automations called **Hands**, and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
 
 ---
 
 ## Features
 
-- **42 Tools** -- shell, file I/O, web search, HTTP, browser, vision, image/video/music generation, email send/receive, Twitter, YouTube upload, Stripe, Render deploy, SaaS scaffolding, TTS, PDF/DOCX/XLSX export, knowledge import, and more
+- **53 Tools** -- shell, file I/O, web search, HTTP, browser, vision, image/video/music generation, email send/receive, Twitter, YouTube upload, Stripe, Render deploy, SaaS scaffolding, TTS, PDF/DOCX/XLSX export, knowledge import, calendar, data analysis, screenshot, QR generate, RSS reader, archive extract, clipboard, system info, weather, calculator, notification center, and more
 - **29 Hands** -- pre-built multi-phase automation workflows: content, SEO, lead gen, freelancer, researcher, novel, music, game dev, comic, micro-SaaS, and more
 - **10 Providers** -- Anthropic, OpenAI, Gemini, Groq, Cerebras, Ollama, LM Studio, OpenRouter, Codex CLI, OpenCode CLI
 - **8-Device Cluster** -- distributed task dispatch across PCs, Macs, and mobile devices; inflight-aware load balancing
@@ -42,7 +42,7 @@ Clawtex is a production-grade autonomous agent daemon written in Rust. It receiv
               |                   |                   |
      +--------+-------+  +--------+-------+  +-------+--------+
      |  Tool Registry |  |  Hands Engine  |  |  LLM Router    |
-     |  (42 tools)    |  |  (29 workflows)|  |  (10 providers)|
+     |  (53 tools)    |  |  (29 workflows)|  |  (10 providers)|
      +--------+-------+  +--------+-------+  +-------+--------+
               |                   |                   |
      +--------+-------------------+-------------------+--------+
@@ -108,6 +108,19 @@ The daemon starts on port **7878**. Open Telegram, message your bot, and it will
 ```bash
 cargo test
 ```
+
+---
+
+## Supported Platforms
+
+| Platform | Architecture | Status |
+|----------|-------------|--------|
+| Windows 11 | x86_64 | Fully supported (primary development platform) |
+| macOS | ARM (Apple Silicon) | Fully supported |
+| macOS | Intel (x86_64) | Supported |
+| Linux | x86_64 / ARM64 | Supported |
+
+All platforms require Rust 1.78+ and a working C linker. Mobile workers (Android/iOS) use the React Native companion app and communicate with the hub via HTTP polling.
 
 ---
 

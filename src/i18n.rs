@@ -42,6 +42,51 @@ fn builtin_zh_tw() -> HashMap<String, String> {
     m
 }
 
+fn builtin_ja() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("welcome".into(), "Clawtex へようこそ！".into());
+    m.insert("error.not_found".into(), "リソースが見つかりません。".into());
+    m.insert("error.permission_denied".into(), "アクセスが拒否されました。".into());
+    m.insert("tool.executing".into(), "ツール実行中…".into());
+    m.insert("tool.complete".into(), "ツール実行完了。".into());
+    m.insert("hand.starting".into(), "ワークフロー開始中…".into());
+    m.insert("hand.phase_complete".into(), "フェーズ完了。".into());
+    m.insert("hand.complete".into(), "ワークフロー完了。".into());
+    m.insert("cluster.connected".into(), "クラスタに接続しました。".into());
+    m.insert("cluster.disconnected".into(), "クラスタから切断されました。".into());
+    m
+}
+
+fn builtin_zh_cn() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("welcome".into(), "欢迎使用 Clawtex！".into());
+    m.insert("error.not_found".into(), "找不到资源。".into());
+    m.insert("error.permission_denied".into(), "访问被拒绝。".into());
+    m.insert("tool.executing".into(), "工具执行中…".into());
+    m.insert("tool.complete".into(), "工具执行完成。".into());
+    m.insert("hand.starting".into(), "工作流程启动中…".into());
+    m.insert("hand.phase_complete".into(), "阶段完成。".into());
+    m.insert("hand.complete".into(), "工作流程完成。".into());
+    m.insert("cluster.connected".into(), "已连接至集群。".into());
+    m.insert("cluster.disconnected".into(), "已从集群断开。".into());
+    m
+}
+
+fn builtin_ko() -> HashMap<String, String> {
+    let mut m = HashMap::new();
+    m.insert("welcome".into(), "Clawtex에 오신 것을 환영합니다!".into());
+    m.insert("error.not_found".into(), "리소스를 찾을 수 없습니다.".into());
+    m.insert("error.permission_denied".into(), "접근이 거부되었습니다.".into());
+    m.insert("tool.executing".into(), "도구 실행 중…".into());
+    m.insert("tool.complete".into(), "도구 실행 완료.".into());
+    m.insert("hand.starting".into(), "워크플로우 시작 중…".into());
+    m.insert("hand.phase_complete".into(), "단계 완료.".into());
+    m.insert("hand.complete".into(), "워크플로우 완료.".into());
+    m.insert("cluster.connected".into(), "클러스터에 연결되었습니다.".into());
+    m.insert("cluster.disconnected".into(), "클러스터에서 연결이 끊어졌습니다.".into());
+    m
+}
+
 // ---------------------------------------------------------------------------
 // I18n struct
 // ---------------------------------------------------------------------------
@@ -68,6 +113,9 @@ impl I18n {
         let mut translations: HashMap<String, HashMap<String, String>> = HashMap::new();
         translations.insert("en".into(), builtin_en());
         translations.insert("zh-TW".into(), builtin_zh_tw());
+        translations.insert("ja".into(), builtin_ja());
+        translations.insert("zh-CN".into(), builtin_zh_cn());
+        translations.insert("ko".into(), builtin_ko());
 
         Self {
             translations,
@@ -122,6 +170,34 @@ impl I18n {
     /// Return the default locale tag.
     pub fn default_locale(&self) -> &str {
         &self.default_locale
+    }
+
+    /// Check whether a locale has been loaded.
+    pub fn has_locale(&self, locale: &str) -> bool {
+        self.translations.contains_key(locale)
+    }
+
+    /// Return a sorted list of all loaded locale tags.
+    pub fn available_locales(&self) -> Vec<String> {
+        let mut locales: Vec<String> = self.translations.keys().cloned().collect();
+        locales.sort();
+        locales
+    }
+
+    /// Translate `key` for a specific locale (without changing the current locale).
+    pub fn t_for_locale<'a>(&'a self, locale: &str, key: &'a str) -> &'a str {
+        if let Some(map) = self.translations.get(locale) {
+            if let Some(val) = map.get(key) {
+                return val.as_str();
+            }
+        }
+        // Fallback to default locale
+        if let Some(map) = self.translations.get(&self.default_locale) {
+            if let Some(val) = map.get(key) {
+                return val.as_str();
+            }
+        }
+        key
     }
 }
 
@@ -282,7 +358,7 @@ mod tests {
     #[test]
     fn test_unknown_locale_falls_back() {
         let mut i18n = I18n::new("en");
-        i18n.set_locale("ja"); // never loaded
+        i18n.set_locale("xx-YY"); // truly unknown locale
         // "welcome" exists in en (the default), so fallback kicks in.
         assert_eq!(i18n.t("welcome"), "Welcome to Clawtex!");
         // Completely unknown key still returns the key itself.

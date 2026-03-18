@@ -24,7 +24,7 @@ async fn build_test_cluster() -> (Arc<ClusterRegistry>, Arc<ClusterHub>) {
     let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
 
     // Full workers
-    registry.register_full("m1-mac", "100.87.93.58", 7879,
+    registry.register_full("m1-mac", "10.0.2.1", 7879,
         &["tools".into(), "llm".into()], "full").await.unwrap();
     registry.register_full("ayaneo", "100.0.0.20", 7879,
         &["tools".into()], "full").await.unwrap();

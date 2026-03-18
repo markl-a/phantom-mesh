@@ -25,7 +25,7 @@ The key is either set in `~/.clawtex/agents.toml`:
 hub_api_key = "your-key-here"
 ```
 
-Or auto-generated on daemon startup and printed to logs. The default configured key for this cluster is `clawtex-hub-2026`.
+Or auto-generated on daemon startup and printed to logs. The default configured key for this cluster is `your-hub-token-here`.
 
 ---
 
@@ -34,9 +34,9 @@ Or auto-generated on daemon startup and printed to logs. The default configured 
 | Node | URL | Role |
 |------|-----|------|
 | Z13 (Hub) | http://localhost:7878 | Primary hub + LLM |
-| M1 Mac | http://100.87.93.58:7879 | Full worker |
-| AYANEO | http://100.107.205.98:7880 | NPU worker |
-| Acer | http://192.168.1.115:7881 | Light worker |
+| M1 Mac | http://10.0.2.1:7879 | Full worker |
+| AYANEO | http://10.0.2.2:7880 | NPU worker |
+| Acer | http://10.0.1.1:7881 | Light worker |
 
 ---
 
@@ -54,14 +54,14 @@ curl http://localhost:7878/health
 Prometheus exposition format.
 
 ```bash
-curl -H "Authorization: Bearer clawtex-hub-2026" http://localhost:7878/metrics
+curl -H "Authorization: Bearer your-hub-token-here" http://localhost:7878/metrics
 ```
 
 ### GET /metrics/health
 JSON health summary with uptime, worker count, tool count.
 
 ```bash
-curl -H "Authorization: Bearer clawtex-hub-2026" http://localhost:7878/metrics/health
+curl -H "Authorization: Bearer your-hub-token-here" http://localhost:7878/metrics/health
 ```
 
 ### GET /dashboard?token=\<token\>
@@ -76,7 +76,7 @@ Route a prompt directly to an LLM provider (bypasses agent tool loop).
 
 ```bash
 curl -s -X POST http://localhost:7878/llm/route \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "What is Rust?", "provider": "auto"}'
 ```
@@ -88,7 +88,7 @@ Add a task to the queue.
 
 ```bash
 curl -s -X POST http://localhost:7878/task \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"title": "Summarize news", "prompt": "Summarize AI news from today"}'
 # {"task_id":"abc123","status":"pending"}
@@ -99,7 +99,7 @@ Execute a queued task.
 
 ```bash
 curl -s -X POST http://localhost:7878/task/abc123/run \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### GET /task/history
@@ -107,7 +107,7 @@ List last 20 completed tasks.
 
 ```bash
 curl -s http://localhost:7878/task/history \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### POST /agent/:name/run
@@ -115,7 +115,7 @@ Run a named agent with a prompt. Stateless (no conversation history).
 
 ```bash
 curl -s -X POST http://localhost:7878/agent/master/run \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Search for Rust async tutorials and summarize them"}'
 ```
@@ -134,7 +134,7 @@ Response:
 Server-Sent Events stream for real-time agent responses.
 
 ```bash
-curl -N "http://localhost:7878/stream/agent/master?prompt=Hello&Authorization=Bearer%20clawtex-hub-2026"
+curl -N "http://localhost:7878/stream/agent/master?prompt=Hello&Authorization=Bearer%20your-hub-token-here"
 # Alternatively use EventSource in browser
 ```
 
@@ -148,7 +148,7 @@ Hub-side reasoning for mobile/tablet workers. Rate limited to 10 calls/min per w
 
 ```bash
 curl -s -X POST http://localhost:7878/agent/think \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{
     "worker": "rog6",
@@ -171,7 +171,7 @@ List all loaded hands with metadata.
 
 ```bash
 curl -s http://localhost:7878/hands \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 Response:
@@ -189,7 +189,7 @@ Execute a hand workflow. Long-running (may take minutes).
 
 ```bash
 curl -s -X POST http://localhost:7878/hand/content/run \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Write 5 tweets about distributed AI systems"}'
 ```
@@ -205,7 +205,7 @@ List all 42+ registered tools.
 
 ```bash
 curl -s http://localhost:7878/tools \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### GET /workspace/files
@@ -213,7 +213,7 @@ List files in the agent workspace directory (`~/.clawtex/workspace/`).
 
 ```bash
 curl -s http://localhost:7878/workspace/files \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ---
@@ -225,7 +225,7 @@ All registered nodes including offline ones.
 
 ```bash
 curl -s http://localhost:7878/cluster/status \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### GET /cluster/workers
@@ -233,7 +233,7 @@ Only currently online workers.
 
 ```bash
 curl -s http://localhost:7878/cluster/workers \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### POST /cluster/register
@@ -241,11 +241,11 @@ Worker self-registration (called by worker daemon on startup).
 
 ```bash
 curl -s -X POST http://localhost:7878/cluster/register \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "acer",
-    "host": "192.168.1.115",
+    "host": "10.0.1.1",
     "port": 7881,
     "capabilities": ["web_search", "http_request"],
     "device_type": "light"
@@ -257,7 +257,7 @@ Workers send this every 30s to stay marked as online.
 
 ```bash
 curl -s -X POST http://localhost:7878/cluster/heartbeat \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"name": "acer", "cpu_load": 0.23}'
 ```
@@ -268,19 +268,19 @@ Dispatch a tool to the best available worker. Supports targeted dispatch.
 ```bash
 # Auto-route (load-balanced)
 curl -s -X POST http://localhost:7878/cluster/dispatch \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"tool": "web_search", "input": {"query": "AI news"}}'
 
 # Target specific worker
 curl -s -X POST http://localhost:7878/cluster/dispatch \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"tool": "shell", "input": {"command": "uname -a"}, "worker": "m1-mac"}'
 
 # Target by capability
 curl -s -X POST http://localhost:7878/cluster/dispatch \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"tool": "sensor_gps", "input": {}, "capability": "gps"}'
 ```
@@ -290,7 +290,7 @@ Mobile workers call this to get their next task (15s interval). Also serves as h
 
 ```bash
 curl -s "http://localhost:7878/cluster/poll?worker=rog6" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 # {"status":"idle"} or {"status":"task","task_id":"...","tool":"web_search","input":{...}}
 ```
 
@@ -299,7 +299,7 @@ Mobile worker submits completed task result.
 
 ```bash
 curl -s -X POST http://localhost:7878/cluster/result \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"task_id": "abc123", "success": true, "output": "...", "worker": "rog6"}'
 ```
@@ -315,7 +315,7 @@ Circuit breaker states for all providers + watchdog recovery events.
 
 ```bash
 curl -s http://localhost:7878/cluster/health \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### POST /cluster/onboard
@@ -332,12 +332,12 @@ Generate mobile app deep link for joining the cluster.
 
 ```bash
 curl -s -X POST http://localhost:7878/cluster/onboard/mobile \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{
     "worker_name": "my-phone",
-    "hub_url": "http://100.107.205.98:7878",
-    "auth_token": "clawtex-hub-2026",
+    "hub_url": "http://10.0.2.2:7878",
+    "auth_token": "your-hub-token-here",
     "capabilities": ["web_search", "sensor_gps"]
   }'
 ```
@@ -347,7 +347,7 @@ Run cross-device consistency tests (compare LLM outputs across workers).
 
 ```bash
 curl -s -X POST http://localhost:7878/cluster/consistency-test \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"predefined": true, "threshold": 0.85}'
 ```
@@ -379,7 +379,7 @@ Update node performance metrics (called by monitoring systems).
 ```bash
 # 7-day cost summary
 curl -s http://localhost:7878/costs \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Revenue
@@ -387,7 +387,7 @@ curl -s http://localhost:7878/costs \
 ```bash
 # 30-day revenue summary
 curl -s http://localhost:7878/revenue \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Reports
@@ -395,15 +395,15 @@ curl -s http://localhost:7878/revenue \
 ```bash
 # Daily ops report (JSON)
 curl -s http://localhost:7878/reports/daily \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Weekly ops report
 curl -s http://localhost:7878/reports/weekly \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Generate Telegram-formatted daily report
 curl -s -X POST http://localhost:7878/reports/send \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Service Tiers
@@ -411,17 +411,17 @@ curl -s -X POST http://localhost:7878/reports/send \
 ```bash
 # Get agent tier
 curl -s http://localhost:7878/tier/master \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Set agent tier
 curl -s -X PUT http://localhost:7878/tier/master \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"tier": "pro"}'
 
 # Get usage stats
 curl -s http://localhost:7878/tier/master/usage \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 Tiers: `lite`, `standard`, `pro`, `enterprise`
@@ -431,11 +431,11 @@ Tiers: `lite`, `standard`, `pro`, `enterprise`
 ```bash
 # Query audit log
 curl -s "http://localhost:7878/audit?agent=master&limit=50" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Filter by tool and risk level
 curl -s "http://localhost:7878/audit?tool=shell&risk_level=high" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Tenants (Multi-tenant)
@@ -443,21 +443,21 @@ curl -s "http://localhost:7878/audit?tool=shell&risk_level=high" \
 ```bash
 # Create tenant
 curl -s -X POST http://localhost:7878/tenants \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"name": "Acme Corp", "tier": "standard"}'
 
 # List tenants
 curl -s http://localhost:7878/tenants \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Validate API key
 curl -s "http://localhost:7878/tenants/validate?key=<tenant-api-key>" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Update tenant tier
 curl -s -X PUT http://localhost:7878/tenants/<id>/tier \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"tier": "pro"}'
 ```
@@ -467,17 +467,17 @@ curl -s -X PUT http://localhost:7878/tenants/<id>/tier \
 ```bash
 # Start stress test with named profile
 curl -s -X POST http://localhost:7878/test/stress \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"profile": "light"}'
 
 # Check status
 curl -s http://localhost:7878/test/stress/status \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # List available profiles
 curl -s http://localhost:7878/test/profiles \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 Profiles: `light` (low load), `medium`, `heavy`
@@ -487,7 +487,7 @@ Profiles: `light` (low load), `medium`, `heavy`
 ```bash
 # Submit error for diagnosis
 curl -s -X POST http://localhost:7878/diagnose \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{
     "error_message": "connection refused to ollama",
@@ -497,11 +497,11 @@ curl -s -X POST http://localhost:7878/diagnose \
 
 # Get recent diagnoses
 curl -s http://localhost:7878/diagnose/recent?limit=10 \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # List known issue patterns
 curl -s http://localhost:7878/diagnose/known-issues \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Observational Memory
@@ -509,7 +509,7 @@ curl -s http://localhost:7878/diagnose/known-issues \
 ```bash
 # Compress conversation into observation
 curl -s -X POST http://localhost:7878/memory/observe \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{
     "session_id": "chat_123",
@@ -521,11 +521,11 @@ curl -s -X POST http://localhost:7878/memory/observe \
 
 # Search observations
 curl -s "http://localhost:7878/memory/observations?query=rust+async&limit=5" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Get stats (tokens saved)
 curl -s http://localhost:7878/memory/observations/stats \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Customer Health
@@ -533,25 +533,25 @@ curl -s http://localhost:7878/memory/observations/stats \
 ```bash
 # List all customer health scores
 curl -s http://localhost:7878/customers/health \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Update scores for a customer
 curl -s -X PUT http://localhost:7878/customers/health/cust_001 \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"name": "ACME", "efficiency": 0.85, "quality": 0.90, "speed": 0.75, "satisfaction": 0.88}'
 
 # Get at-risk customers
 curl -s http://localhost:7878/customers/at-risk \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Get churn alerts
 curl -s http://localhost:7878/customers/churn-alerts \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Record activity (resets churn timer)
 curl -s -X POST http://localhost:7878/customers/cust_001/activity \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Order Workflow
@@ -559,21 +559,21 @@ curl -s -X POST http://localhost:7878/customers/cust_001/activity \
 ```bash
 # Create order
 curl -s -X POST http://localhost:7878/orders \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"customer_name": "ACME", "customer_email": "ops@acme.com", "service_tier": "pro", "amount_usd": 499}'
 
 # List orders (filter by status)
 curl -s "http://localhost:7878/orders?status=in_progress" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Pipeline summary
 curl -s http://localhost:7878/orders/pipeline \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Transition status
 curl -s -X PUT http://localhost:7878/orders/<id>/status \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -H "Content-Type: application/json" \
   -d '{"status": "completed"}'
 ```
@@ -585,15 +585,15 @@ Order statuses: `new` -> `in_progress` -> `review` -> `completed` (or `cancelled
 ```bash
 # Halt all agent operations
 curl -s -X POST http://localhost:7878/estop \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Resume normal operation
 curl -s -X DELETE http://localhost:7878/estop \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Check current state
 curl -s http://localhost:7878/estop \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ### Trajectories
@@ -601,15 +601,15 @@ curl -s http://localhost:7878/estop \
 ```bash
 # Query recent trajectories
 curl -s "http://localhost:7878/trajectories?days=7&limit=50" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Filter by hand
 curl -s "http://localhost:7878/trajectories?hand=seo_content" \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 
 # Quality stats per provider
 curl -s http://localhost:7878/trajectories/stats \
-  -H "Authorization: Bearer clawtex-hub-2026"
+  -H "Authorization: Bearer your-hub-token-here"
 ```
 
 ---

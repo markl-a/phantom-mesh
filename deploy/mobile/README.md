@@ -1,9 +1,9 @@
 # Clawtex Mobile Worker 部署指南
 
 ## Hub 資訊
-- **Hub IP**: `192.168.1.104` (Z13 LAN)
+- **Hub IP**: `10.0.1.1` (Z13 LAN)
 - **Hub Port**: `7878`
-- **Auth Key**: `clawtex-hub-2026`
+- **Auth Key**: `your-hub-token-here`
 
 ## Android (Termux)
 
@@ -20,7 +20,7 @@ bash ~/clawtex/deploy/mobile/android/install-termux.sh
 
 ### 自訂 Hub IP
 ```bash
-export CLAWTEX_HUB_IP=192.168.1.104
+export CLAWTEX_HUB_IP=10.0.1.1
 export CLAWTEX_WORKER_NAME=android-pixel
 bash ~/clawtex/deploy/mobile/android/install-termux.sh
 ```
@@ -47,7 +47,7 @@ bash ~/clawtex/deploy/mobile/ios/install-ish.sh
 2. 開啟 a-Shell，執行：
 ```bash
 curl -sL https://raw.githubusercontent.com/anthropomorphic-AI/clawtex-core/master/deploy/lightweight-worker/clawtex-worker.py -o clawtex-worker.py
-python3 clawtex-worker.py --hub http://192.168.1.104:7878 --name iphone --port 7882
+python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name iphone --port 7882
 ```
 
 ---
@@ -59,7 +59,7 @@ git clone https://github.com/anthropomorphic-AI/clawtex-core.git
 cd clawtex-core
 cargo build --release
 ./target/release/clawtex-core worker \
-  --hub http://192.168.1.104:7878 \
+  --hub http://10.0.1.1:7878 \
   --name m1-mac \
   --port 7879 \
   --device-type full
@@ -73,7 +73,7 @@ cargo build --release
 git clone https://github.com/anthropomorphic-AI/clawtex-core.git
 cd clawtex-core
 python3 deploy/lightweight-worker/clawtex-worker.py \
-  --hub http://192.168.1.104:7878 \
+  --hub http://10.0.1.1:7878 \
   --name acer \
   --port 7881
 ```
@@ -88,7 +88,7 @@ python3 deploy/lightweight-worker/clawtex-worker.py \
 curl http://localhost:<PORT>/health
 
 # Hub 看到所有 worker
-curl http://192.168.1.104:7878/cluster/workers
+curl http://10.0.1.1:7878/cluster/workers
 ```
 
 ## Port 分配

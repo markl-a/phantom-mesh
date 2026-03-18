@@ -67,6 +67,17 @@ pub mod config_watcher;
 pub mod i18n;
 pub mod web_dashboard;
 pub mod quota_manager;
+pub mod budget_downgrade;
+pub mod disaster_recovery;
+pub mod distributed_state;
+pub mod enterprise;
+pub mod hand_marketplace;
+pub mod observability;
+pub mod quality_pipeline;
+pub mod revenue_automation;
+pub mod security_hardening;
+pub mod telegram_i18n;
+pub mod worker_installer;
 
 // Re-export types from their canonical locations
 pub use providers::{

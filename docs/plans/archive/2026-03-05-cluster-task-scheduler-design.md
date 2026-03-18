@@ -1994,7 +1994,7 @@ available_providers = ["ollama", "lmstudio", "lemonade"]
 
 [[cluster_nodes]]
 name = "node-1"
-host = "100.87.93.58"
+host = "10.0.2.1"
 port = 7878
 weight = 60
 max_concurrent_tasks = 4

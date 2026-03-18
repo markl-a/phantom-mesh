@@ -26,7 +26,7 @@ Total: **29 hands** across 7 categories.
 
 ```bash
 curl -X POST http://localhost:7878/hand/content/run \
-  -H "Authorization: Bearer clawtex-hub-2026" \
+  -H "Authorization: Bearer your-hub-token-here" \
   -d '{"prompt": "Write 5 tweets about distributed AI systems in 2026"}'
 ```
 

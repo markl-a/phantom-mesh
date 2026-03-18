@@ -69,7 +69,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     log_ok "Windows x86_64 完成"
 
     # macOS aarch64 (遠端 M1)
-    M1_SSH="mark@100.87.93.58"
+    M1_SSH="worker@10.0.2.1"
     if ssh -o ConnectTimeout=5 "$M1_SSH" "true" 2>/dev/null; then
         log_info "編譯 macOS aarch64 (遠端 M1)..."
         rsync -az --delete \

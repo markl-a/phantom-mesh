@@ -20,7 +20,7 @@ async fn build_8_device_cluster() -> (Arc<ClusterRegistry>, Arc<ClusterHub>) {
     let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
 
     // 3 Full workers
-    registry.register_full("m1-mac", "100.87.93.58", 7879,
+    registry.register_full("m1-mac", "10.0.2.1", 7879,
         &["tools".into(), "llm".into(), "build".into()], "full").await.unwrap();
     registry.register_full("ayaneo", "100.0.0.20", 7879,
         &["tools".into(), "llm".into(), "build".into()], "full").await.unwrap();
@@ -134,7 +134,7 @@ async fn a3_staleness_detection_and_recovery() {
     assert!((node.cpu_load - 0.9).abs() < 0.01, "Heartbeat should update CPU load");
 
     // Re-register a node (simulates reconnection)
-    registry.register_full("m1-mac", "100.87.93.58", 7879,
+    registry.register_full("m1-mac", "10.0.2.1", 7879,
         &["tools".into(), "llm".into(), "build".into()], "full").await.unwrap();
     let node = registry.get_node("m1-mac").await.unwrap();
     assert_eq!(node.status, "online", "Re-registered node should be online");

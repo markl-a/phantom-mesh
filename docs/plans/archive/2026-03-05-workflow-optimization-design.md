@@ -37,9 +37,9 @@ clawtex-core 單機執行一個 Hand（如 freelancer）：
 | 機器 | IP | RAM | GPU | Ollama 狀態 |
 |------|-----|-----|-----|-------------|
 | **Z13 (Hub)** | localhost / 192.168.1.100 | 128GB (GPU 96GB + CPU 32GB) | Radeon 8060S + NPU | ✅ LM Studio port 1234 |
-| **M1 Mac** | 100.87.93.58 (Tailscale) | 16GB | Apple M1 | ✅ Ollama port 11434 |
-| **Ayaneo 2** | 192.168.1.117 (LAN) | 16GB | Radeon 680M 3GB | ✅ Ollama port 11434 |
-| **Acer Aspire** | 192.168.1.108 (LAN) | 24GB | MX350 2GB (CPU 為主) | ✅ Ollama port 11434 |
+| **M1 Mac** | 10.0.2.1 (Tailscale) | 16GB | Apple M1 | ✅ Ollama port 11434 |
+| **Ayaneo 2** | 10.0.1.4 (LAN) | 16GB | Radeon 680M 3GB | ✅ Ollama port 11434 |
+| **Acer Aspire** | 10.0.1.3 (LAN) | 24GB | MX350 2GB (CPU 為主) | ✅ Ollama port 11434 |
 
 ### 1.4 目前已有的免費資源
 
@@ -209,17 +209,17 @@ impl AliveCache {
 
 [providers.m1_ollama]
 type = "openai_compat"
-url = "http://100.87.93.58:11434"
+url = "http://10.0.2.1:11434"
 default_model = "qwen2.5:14b"
 
 [providers.ayaneo_ollama]
 type = "openai_compat"
-url = "http://192.168.1.117:11434"
+url = "http://10.0.1.4:11434"
 default_model = "qwen2.5-coder:7b"
 
 [providers.acer_ollama]
 type = "openai_compat"
-url = "http://192.168.1.108:11434"
+url = "http://10.0.1.3:11434"
 default_model = "qwen3:8b"
 ```
 
@@ -428,17 +428,17 @@ async fn run_phases_parallel(
 
 [providers.m1_ollama]
 type = "openai_compat"
-url = "http://100.87.93.58:11434"
+url = "http://10.0.2.1:11434"
 default_model = "qwen2.5:14b"
 
 [providers.ayaneo_ollama]
 type = "openai_compat"
-url = "http://192.168.1.117:11434"
+url = "http://10.0.1.4:11434"
 default_model = "qwen2.5-coder:7b"
 
 [providers.acer_ollama]
 type = "openai_compat"
-url = "http://192.168.1.108:11434"
+url = "http://10.0.1.3:11434"
 default_model = "qwen3:8b"
 
 # === 免費雲端 API ===

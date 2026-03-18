@@ -75,14 +75,14 @@ tags = ["hub", "large_model", "moe", "npu", "tool_calling", "coding"]
 [cluster]
 mode = "worker"
 node_name = "gpu1"
-hub_address = "100.87.93.1:50051"
+hub_address = "10.0.2.4:50051"
 tags = ["gpu", "cuda", "13b", "quality_writing"]
 
 # Ayaneo 的 agents.toml
 [cluster]
 mode = "worker"
 node_name = "ayaneo"
-hub_address = "100.87.93.1:50051"
+hub_address = "10.0.2.4:50051"
 tags = ["lightweight", "classify", "embed", "4b"]
 ```
 
@@ -1651,17 +1651,17 @@ default_model = "llama-3.3-70b-versatile"
 # 遠端 Worker providers (透過 Tailscale IP)
 [providers.m1]
 type = "ollama"
-url = "http://100.87.93.58:11434"
+url = "http://10.0.2.1:11434"
 default_model = "qwen3:8b"
 
 [providers.ayaneo]
 type = "ollama"
-url = "http://192.168.1.117:11434"
+url = "http://10.0.1.4:11434"
 default_model = "qwen3:4b"
 
 [providers.acer]
 type = "ollama"
-url = "http://192.168.1.108:11434"
+url = "http://10.0.1.3:11434"
 default_model = "qwen3:8b"
 
 # Mini PC 和 RTX 3060 的 IP 待部署後填入

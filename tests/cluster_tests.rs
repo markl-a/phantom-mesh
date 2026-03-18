@@ -118,7 +118,7 @@ async fn cluster_registry_local_node_is_online() {
 #[tokio::test]
 async fn cluster_registry_register_new_worker() {
     let registry = ClusterRegistry::new(":memory:").await.unwrap();
-    let result = registry.register("acer", "192.168.1.115", 7881).await;
+    let result = registry.register("acer", "10.0.1.3", 7881).await;
     assert!(result.is_ok(), "register must succeed: {:?}", result);
     let nodes = registry.status().await;
     assert!(nodes.iter().any(|n| n.name == "acer"));
@@ -142,8 +142,8 @@ async fn cluster_registry_multiple_workers_registered() {
     let registry = ClusterRegistry::new(":memory:").await.unwrap();
     for (name, host, port) in [
         ("z13", "127.0.0.1", 7878u16),
-        ("m1-mac", "100.87.93.58", 7879),
-        ("acer", "192.168.1.115", 7881),
+        ("m1-mac", "10.0.2.1", 7879),
+        ("acer", "10.0.1.3", 7881),
     ] {
         registry.register(name, host, port).await.unwrap();
     }

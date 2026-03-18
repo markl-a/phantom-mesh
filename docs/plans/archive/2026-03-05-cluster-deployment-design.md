@@ -28,10 +28,10 @@
 
 | 名稱 | 角色 | OS | 架構 | IP | 特殊能力 |
 |------|------|-----|------|-----|---------|
-| **Z13** | Hub (主控) | Windows 11 | x86_64 | 192.168.1.104 | NPU (50 TOPS), GPU 8060S, 64GB RAM |
-| **M1** | Worker | macOS | aarch64 | 100.87.93.58 (Tailscale) | Apple Silicon 推理 |
-| **Ayaneo** | Worker | Windows 11 | x86_64 | 192.168.1.117 | Edge GPU 推理 |
-| **Acer** | Worker + 儲存 | Windows/Linux | x86_64 | 192.168.1.108 | 備份推理 + 大硬碟 |
+| **Z13** | Hub (主控) | Windows 11 | x86_64 | 10.0.1.1 | NPU (50 TOPS), GPU 8060S, 64GB RAM |
+| **M1** | Worker | macOS | aarch64 | 10.0.2.1 (Tailscale) | Apple Silicon 推理 |
+| **Ayaneo** | Worker | Windows 11 | x86_64 | 10.0.1.4 | Edge GPU 推理 |
+| **Acer** | Worker + 儲存 | Windows/Linux | x86_64 | 10.0.1.3 | 備份推理 + 大硬碟 |
 | **機器5-8** | Worker | TBD | TBD | TBD | 未來擴展 |
 
 ### 1.2 角色定義
@@ -215,9 +215,9 @@ db_path = "~/.clawtex/core.db"
 [cluster]
 # Hub 知道所有 Worker 的位置
 workers = [
-    { name = "m1",     host = "100.87.93.58", port = 11434 },
-    { name = "ayaneo", host = "192.168.1.117", port = 11434 },
-    { name = "acer",   host = "192.168.1.108", port = 11434 },
+    { name = "m1",     host = "10.0.2.1", port = 11434 },
+    { name = "ayaneo", host = "10.0.1.4", port = 11434 },
+    { name = "acer",   host = "10.0.1.3", port = 11434 },
 ]
 
 # Hub 有完整的 provider 列表（包含遠端 Ollama）
@@ -228,17 +228,17 @@ default_model = "qwen3:8b"
 
 [providers.ollama-m1]
 type = "ollama"
-url = "http://100.87.93.58:11434"
+url = "http://10.0.2.1:11434"
 default_model = "llama3.1:8b"
 
 [providers.ollama-ayaneo]
 type = "ollama"
-url = "http://192.168.1.117:11434"
+url = "http://10.0.1.4:11434"
 default_model = "qwen2.5:7b"
 
 [providers.ollama-acer]
 type = "ollama"
-url = "http://192.168.1.108:11434"
+url = "http://10.0.1.3:11434"
 default_model = "llama3.1:8b"
 
 [providers.lmstudio]
@@ -275,7 +275,7 @@ serper_api_key = "enc2:..."
 host = "0.0.0.0"
 port = 7878
 role = "worker"              # 標識為 Worker
-hub_url = "http://192.168.1.104:7878"  # 向 Hub 註冊用
+hub_url = "http://10.0.1.1:7878"  # 向 Hub 註冊用
 
 [providers.ollama]
 type = "ollama"
@@ -323,8 +323,8 @@ ollama_models = ["qwen3:8b", "qwen3-coder:30b"]
 
 [[workers]]
 name = "m1"
-host = "100.87.93.58"
-ssh = "mark@100.87.93.58"
+host = "10.0.2.1"
+ssh = "mark@10.0.2.1"
 os = "macos"
 arch = "aarch64"
 ollama_models = ["llama3.1:8b", "qwen2.5:14b"]
@@ -333,8 +333,8 @@ ollama_port = 11434
 
 [[workers]]
 name = "ayaneo"
-host = "192.168.1.117"
-ssh = "user@192.168.1.117"
+host = "10.0.1.4"
+ssh = "user@10.0.1.4"
 os = "windows"
 arch = "x86_64"
 ollama_models = ["qwen2.5:7b"]
@@ -343,8 +343,8 @@ ollama_port = 11434
 
 [[workers]]
 name = "acer"
-host = "192.168.1.108"
-ssh = "user@192.168.1.108"
+host = "10.0.1.3"
+ssh = "user@10.0.1.3"
 os = "windows"
 arch = "x86_64"
 ollama_models = ["llama3.1:8b", "qwen2.5:13b"]
@@ -556,25 +556,25 @@ set -euo pipefail
 # 格式: NAME|SSH|OS|ARCH|DEPLOY_PATH|OLLAMA_PORT|ROLE
 NODES=(
     "z13||windows|x86_64|C:/clawtex|11434|hub"
-    "m1|mark@100.87.93.58|macos|aarch64|/opt/clawtex|11434|worker"
-    "ayaneo|user@192.168.1.117|windows|x86_64|C:/clawtex|11434|worker"
-    "acer|user@192.168.1.108|windows|x86_64|C:/clawtex|11434|worker"
+    "m1|mark@10.0.2.1|macos|aarch64|/opt/clawtex|11434|worker"
+    "ayaneo|user@10.0.1.4|windows|x86_64|C:/clawtex|11434|worker"
+    "acer|user@10.0.1.3|windows|x86_64|C:/clawtex|11434|worker"
 )
 
 # Ollama API endpoints (用於健康檢查)
 declare -A OLLAMA_URLS=(
     [z13]="http://localhost:11434"
-    [m1]="http://100.87.93.58:11434"
-    [ayaneo]="http://192.168.1.117:11434"
-    [acer]="http://192.168.1.108:11434"
+    [m1]="http://10.0.2.1:11434"
+    [ayaneo]="http://10.0.1.4:11434"
+    [acer]="http://10.0.1.3:11434"
 )
 
 # clawtex-core HTTP endpoints
 declare -A CORE_URLS=(
     [z13]="http://localhost:7878"
-    [m1]="http://100.87.93.58:7878"
-    [ayaneo]="http://192.168.1.117:7878"
-    [acer]="http://192.168.1.108:7878"
+    [m1]="http://10.0.2.1:7878"
+    [ayaneo]="http://10.0.1.4:7878"
+    [acer]="http://10.0.1.3:7878"
 )
 
 # ══════════════════════════════════════════════════════════════════
@@ -776,7 +776,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     log_ok "Windows x86_64 binary 完成 ($(du -h "${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe" | cut -f1))"
 
     # ── macOS aarch64 (遠端編譯) ─────────────────────────────────
-    M1_SSH="mark@100.87.93.58"
+    M1_SSH="mark@10.0.2.1"
     if ssh -o ConnectTimeout=5 "$M1_SSH" "true" 2>/dev/null; then
         log_info "編譯 macOS aarch64 (遠端 M1)..."
         # 同步源碼到 M1
@@ -1589,7 +1589,7 @@ log_ok "配置同步完成"
 #
 # 用法:
 #   ./setup-node.sh <ssh_target> <node_name> <os>
-#   例: ./setup-node.sh user@192.168.1.120 newnode linux
+#   例: ./setup-node.sh worker@10.0.168.1.120 newnode linux
 
 set -euo pipefail
 

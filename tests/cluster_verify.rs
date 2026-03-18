@@ -18,7 +18,7 @@ async fn v1_worker_registration_flow() {
 
     // Register a full worker (M1 Mac)
     registry.register_full(
-        "m1-mac", "100.87.93.58", 7879,
+        "m1-mac", "10.0.2.1", 7879,
         &["tools".into(), "llm".into()],
         "full",
     ).await.unwrap();
@@ -252,7 +252,7 @@ async fn v8_multi_device_cluster_topology() {
 
     let devices = vec![
         // Hub is "local" (auto-registered)
-        ("m1-mac", "100.87.93.58", 7879, vec!["tools", "llm"], "full"),
+        ("m1-mac", "10.0.2.1", 7879, vec!["tools", "llm"], "full"),
         ("ayaneo", "100.0.0.20", 7879, vec!["tools"], "full"),
         ("aspire5", "100.0.0.30", 7879, vec!["tools"], "full"),
         ("android-1", "100.0.0.40", 7880, vec!["web_search", "http_request", "email_send"], "light"),
@@ -307,12 +307,12 @@ role = "hub"
     // Worker config
     let worker_toml = r#"
 role = "worker"
-hub_url = "http://100.87.93.58:7878"
+hub_url = "http://10.0.2.1:7878"
 node_name = "m1-mac"
 "#;
     let config: ClusterConfig = toml::from_str(worker_toml).unwrap();
     assert_eq!(config.role, "worker");
-    assert_eq!(config.hub_url.unwrap(), "http://100.87.93.58:7878");
+    assert_eq!(config.hub_url.unwrap(), "http://10.0.2.1:7878");
     assert_eq!(config.node_name.unwrap(), "m1-mac");
 
     // Empty config defaults to hub

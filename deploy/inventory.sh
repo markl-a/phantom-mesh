@@ -13,25 +13,25 @@ set -euo pipefail
 
 NODES=(
     "z13||windows|x86_64|C:/clawtex|11434|hub"
-    "m1|mark@100.87.93.58|macos|aarch64|/opt/clawtex|11434|worker"
-    "ayaneo|user@192.168.1.117|windows|x86_64|C:/clawtex|11434|worker"
-    "acer|user@192.168.1.108|windows|x86_64|C:/clawtex|11434|worker"
+    "m1|worker@10.0.2.1|macos|aarch64|/opt/clawtex|11434|worker"
+    "ayaneo|worker@10.0.1.2|windows|x86_64|C:/clawtex|11434|worker"
+    "acer|worker@10.0.1.3|windows|x86_64|C:/clawtex|11434|worker"
 )
 
 # Ollama API endpoints
 declare -A OLLAMA_URLS=(
     [z13]="http://localhost:11434"
-    [m1]="http://100.87.93.58:11434"
-    [ayaneo]="http://192.168.1.117:11434"
-    [acer]="http://192.168.1.108:11434"
+    [m1]="http://10.0.2.1:11434"
+    [ayaneo]="http://10.0.1.2:11434"
+    [acer]="http://10.0.1.3:11434"
 )
 
 # clawtex-core HTTP endpoints
 declare -A CORE_URLS=(
     [z13]="http://localhost:7878"
-    [m1]="http://100.87.93.58:7878"
-    [ayaneo]="http://192.168.1.117:7878"
-    [acer]="http://192.168.1.108:7878"
+    [m1]="http://10.0.2.1:7878"
+    [ayaneo]="http://10.0.1.2:7878"
+    [acer]="http://10.0.1.3:7878"
 )
 
 # 每台節點的目標模型

@@ -1028,8 +1028,8 @@ mod tests {
     fn test_config_pc() -> OnboardConfig {
         OnboardConfig {
             worker_name: "test-worker".to_string(),
-            ssh_host: Some("192.168.1.100".to_string()),
-            ssh_user: Some("user".to_string()),
+            ssh_host: Some("10.0.1.2".to_string()),
+            ssh_user: Some("worker".to_string()),
             ssh_port: 22,
             worker_type: "pc".to_string(),
             hub_url: "http://100.0.0.1:7878".to_string(),
@@ -1083,11 +1083,11 @@ mod tests {
     fn test_onboard_config_full_deserialize() {
         let json_str = r#"{
             "worker_name": "acer",
-            "ssh_host": "192.168.1.115",
-            "ssh_user": "user",
+            "ssh_host": "10.0.1.3",
+            "ssh_user": "worker",
             "ssh_port": 22,
             "worker_type": "pc",
-            "hub_url": "http://100.87.93.58:7878",
+            "hub_url": "http://10.0.2.1:7878",
             "auth_token": "clawtex-hub-2026",
             "worker_port": 7881,
             "device_type": "light",
@@ -1098,8 +1098,8 @@ mod tests {
         }"#;
         let config: OnboardConfig = serde_json::from_str(json_str).unwrap();
         assert_eq!(config.worker_name, "acer");
-        assert_eq!(config.ssh_host.unwrap(), "192.168.1.115");
-        assert_eq!(config.ssh_user.unwrap(), "user");
+        assert_eq!(config.ssh_host.unwrap(), "10.0.1.3");
+        assert_eq!(config.ssh_user.unwrap(), "worker");
         assert_eq!(config.worker_port, 7881);
         assert_eq!(config.device_type.unwrap(), "light");
         assert_eq!(config.capabilities.unwrap().len(), 2);
@@ -1156,11 +1156,11 @@ mod tests {
 
     #[test]
     fn test_ssh_prefix_default_port() {
-        let prefix = WorkerOnboarder::ssh_prefix("user", "192.168.1.100", 22);
+        let prefix = WorkerOnboarder::ssh_prefix("worker", "10.0.1.2", 22);
         assert_eq!(prefix[0], "ssh");
         assert!(prefix.contains(&"BatchMode=yes".to_string()));
         assert!(!prefix.contains(&"-p".to_string()));
-        assert!(prefix.last().unwrap().contains("user@192.168.1.100"));
+        assert!(prefix.last().unwrap().contains("worker@10.0.1.2"));
     }
 
     #[test]
@@ -1174,12 +1174,12 @@ mod tests {
     #[test]
     fn test_scp_args() {
         let args = WorkerOnboarder::scp_args(
-            "user", "192.168.1.100", 22,
+            "worker", "10.0.1.2", 22,
             "/local/worker.py", "/home/user/clawtex/worker.py",
         );
         assert_eq!(args[0], "scp");
         assert!(args.contains(&"/local/worker.py".to_string()));
-        assert!(args.last().unwrap().contains("user@192.168.1.100:/home/user/clawtex/worker.py"));
+        assert!(args.last().unwrap().contains("worker@10.0.1.2:/home/user/clawtex/worker.py"));
     }
 
     #[test]
