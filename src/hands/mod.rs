@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 
 use crate::agent_runtime::AgentRuntime;
 use crate::approval::{ApprovalGate, ApprovalResult};
-use crate::evaluate::{self, EvalConfig, EvalResult};
+use crate::evaluate::{self, EvalConfig};
 use crate::guardrail::{self, GuardrailConfig, GuardrailResult};
 use crate::knowledge_capture::KnowledgeCapturer;
 use crate::llm_router::LlmRouter;
@@ -38,9 +38,10 @@ pub struct Hand {
     pub model: String,
     /// Phases of the workflow — executed sequentially
     pub phases: Vec<Phase>,
-    /// Which tools this hand can use
+    /// Which tools this hand can use. None = all tools (backwards compatible).
+    /// When set, only the listed tools are visible to the LLM during execution.
     #[serde(default)]
-    pub tools: Vec<String>,
+    pub tools: Option<Vec<String>>,
     /// Output format (markdown, csv, json)
     #[serde(default = "default_output_format")]
     pub output_format: String,
@@ -98,6 +99,10 @@ pub struct Phase {
     /// not searches. Dramatically speeds up research phases.
     #[serde(default)]
     pub parallel_queries: Vec<String>,
+    /// Per-phase tool filter. When set, overrides the hand-level `tools` list for
+    /// this phase only. None = use hand-level tools (or all tools if hand has None).
+    #[serde(default)]
+    pub tools: Option<Vec<String>>,
     /// Catch-all for unknown phase-level fields like tool_calls, tools, etc.
     /// Prevents parse errors when hand TOMLs include extra fields not in the struct.
     #[serde(flatten, default)]
@@ -328,7 +333,7 @@ impl HandRegistry {
                                         debug!("Hand '{}' has extra top-level fields (ignored): {:?}",
                                             hand.name, hand.extra.keys().collect::<Vec<_>>());
                                     }
-                                    for (i, phase) in hand.phases.iter().enumerate() {
+                                    for (_i, phase) in hand.phases.iter().enumerate() {
                                         if !phase.extra.is_empty() {
                                             debug!("Hand '{}' phase '{}' has extra fields (ignored): {:?}",
                                                 hand.name, phase.name,
@@ -493,9 +498,15 @@ impl HandRunner {
             .ok_or_else(|| anyhow::anyhow!("Agent 'master' not found"))?
             .clone();
 
-        // Override agent config with hand-level tools and provider
-        if !hand.tools.is_empty() {
-            agent_config.tools = Some(hand.tools.clone());
+        // Override agent config with effective tools for this phase:
+        // Phase-level tools take priority over hand-level tools.
+        // None at both levels = all tools (agent_config.tools stays as-is or None).
+        let effective_tools: Option<Vec<String>> = phase.tools
+            .as_ref()
+            .or(hand.tools.as_ref())
+            .cloned();
+        if let Some(ref tool_list) = effective_tools {
+            agent_config.tools = Some(tool_list.clone());
         }
         if hand.provider != "auto" && !hand.provider.is_empty() {
             agent_config.provider = Some(hand.provider.clone());
@@ -649,11 +660,13 @@ impl HandRunner {
             issues.push("Agent 'master' not found in config".to_string());
         }
 
-        // Check required tools are registered
-        let available_tools = tool_registry.names();
-        for tool_name in &hand.tools {
-            if !available_tools.contains(tool_name) {
-                issues.push(format!("Tool '{}' not found in registry", tool_name));
+        // Check required tools are registered (only if tools list is explicitly set)
+        if let Some(ref tool_list) = hand.tools {
+            let available_tools = tool_registry.names();
+            for tool_name in tool_list {
+                if !available_tools.contains(tool_name) {
+                    issues.push(format!("Tool '{}' not found in registry", tool_name));
+                }
             }
         }
 
@@ -696,7 +709,8 @@ impl HandRunner {
             if let Some(gate) = approval_gate {
                 let description = format!(
                     "Hand '{}' requires approval to proceed.\nPhases: {}\nTools: {:?}",
-                    hand.name, hand.phases.len(), hand.tools
+                    hand.name, hand.phases.len(),
+                    hand.tools.as_deref().unwrap_or(&[])
                 );
                 let (_id, result) = gate.request("hand_execution", &description).await;
                 match result {
@@ -946,6 +960,7 @@ mod tests {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: Vec::new(),
+                    tools: None,
                     extra: HashMap::new(),
                 },
                 Phase {
@@ -956,10 +971,11 @@ mod tests {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: Vec::new(),
+                    tools: None,
                     extra: HashMap::new(),
                 },
             ],
-            tools: vec!["web_search".to_string(), "file_write".to_string()],
+            tools: Some(vec!["web_search".to_string(), "file_write".to_string()]),
             output_format: "markdown".to_string(),
             schedule: None,
             settings: HashMap::new(),
@@ -1486,7 +1502,7 @@ docx_export = "report.docx"
 pdf_export = "report.pdf"
 "#;
         // This tests that the inline table form also works
-        let result = toml::from_str::<Hand>(toml_str);
+        let _result = toml::from_str::<Hand>(toml_str);
         // Note: [phases.tool_calls] syntax may conflict with [[phases]] array,
         // so we test the inline form instead
         let toml_inline = r#"
@@ -1619,5 +1635,229 @@ tool_calls = { xlsx_export = "data", docx_export = "report", pdf_export = "repor
         assert!(hand.phases[0].extra.contains_key("tool_calls"));
         // tool_calls as map
         assert!(hand.phases[3].extra.contains_key("tool_calls"));
+    }
+
+    // ── Per-hand tool filtering tests ─────────────────────────────────
+
+    #[test]
+    fn test_hand_tools_none_means_all_tools() {
+        // When hand.tools is None, all tools should be available (backwards compat)
+        let toml_str = r#"
+name = "no_tools_field"
+description = "Hand without tools field"
+[[phases]]
+name = "do"
+system_prompt = "Do something"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert!(hand.tools.is_none(), "Missing tools field should parse as None");
+    }
+
+    #[test]
+    fn test_hand_tools_some_list_parsed() {
+        // When hand.tools is a list, it should parse as Some(list)
+        let toml_str = r#"
+name = "filtered_hand"
+description = "Hand with explicit tool list"
+tools = ["web_search", "file_read", "http_request"]
+[[phases]]
+name = "research"
+system_prompt = "Research only"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        let tools = hand.tools.expect("tools should be Some");
+        assert_eq!(tools.len(), 3);
+        assert!(tools.contains(&"web_search".to_string()));
+        assert!(tools.contains(&"file_read".to_string()));
+        assert!(tools.contains(&"http_request".to_string()));
+        // tool not in list should not be present
+        assert!(!tools.contains(&"shell".to_string()));
+    }
+
+    #[test]
+    fn test_hand_tools_empty_list_is_some_empty() {
+        // An explicit empty list `tools = []` parses as Some([])
+        let toml_str = r#"
+name = "empty_tools"
+description = "Hand with empty tool list"
+tools = []
+[[phases]]
+name = "think"
+system_prompt = "Think without tools"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert!(hand.tools.is_some());
+        assert_eq!(hand.tools.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_phase_tools_none_fallback_to_hand_tools() {
+        // When phase.tools is None, the hand-level tools should be used
+        let toml_str = r#"
+name = "fallback_hand"
+description = "Phase inherits hand tools"
+tools = ["web_search", "file_read"]
+[[phases]]
+name = "research"
+system_prompt = "Research"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        let phase = &hand.phases[0];
+        assert!(phase.tools.is_none(), "Phase tools should be None (inherits from hand)");
+        // Effective tools = phase.tools.as_ref().or(hand.tools.as_ref())
+        let effective = phase.tools.as_ref().or(hand.tools.as_ref());
+        let effective_list = effective.expect("effective tools should be Some from hand");
+        assert_eq!(effective_list, &vec!["web_search".to_string(), "file_read".to_string()]);
+    }
+
+    #[test]
+    fn test_phase_tools_override_hand_tools() {
+        // When phase.tools is set, it overrides hand-level tools for that phase
+        let toml_str = r#"
+name = "override_hand"
+description = "Phase overrides hand tools"
+tools = ["web_search", "file_read", "shell"]
+[[phases]]
+name = "read_only"
+system_prompt = "Read-only phase"
+tools = ["file_read"]
+[[phases]]
+name = "full_access"
+system_prompt = "Full access phase"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+
+        // Phase 0: has its own tools list
+        let phase0 = &hand.phases[0];
+        assert!(phase0.tools.is_some());
+        let p0_tools = phase0.tools.as_ref().unwrap();
+        assert_eq!(p0_tools, &vec!["file_read".to_string()]);
+
+        // Effective tools for phase 0 = phase-level (overrides hand)
+        let eff0 = phase0.tools.as_ref().or(hand.tools.as_ref()).unwrap();
+        assert_eq!(eff0, &vec!["file_read".to_string()]);
+        assert!(!eff0.contains(&"shell".to_string()));
+
+        // Phase 1: no tools field, falls back to hand tools
+        let phase1 = &hand.phases[1];
+        assert!(phase1.tools.is_none());
+        let eff1 = phase1.tools.as_ref().or(hand.tools.as_ref()).unwrap();
+        assert!(eff1.contains(&"shell".to_string()));
+        assert!(eff1.contains(&"web_search".to_string()));
+    }
+
+    #[test]
+    fn test_both_hand_and_phase_tools_none_means_all() {
+        // When both hand.tools and phase.tools are None, effective tools is None (= all tools)
+        let toml_str = r#"
+name = "unrestricted"
+description = "No tool restrictions"
+[[phases]]
+name = "anything"
+system_prompt = "Do anything"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        let phase = &hand.phases[0];
+        let effective: Option<&Vec<String>> = phase.tools.as_ref().or(hand.tools.as_ref());
+        assert!(effective.is_none(), "No tools restriction means None (all tools available)");
+    }
+
+    #[test]
+    fn test_hand_tools_serialization_roundtrip() {
+        // Tools field should survive TOML serialization/deserialization roundtrip
+        let mut hand = sample_hand();
+        hand.tools = Some(vec!["web_search".to_string(), "file_read".to_string()]);
+
+        let toml_str = toml::to_string(&hand).unwrap();
+        assert!(toml_str.contains("web_search"), "Serialized TOML should contain tool names");
+
+        let parsed: Hand = toml::from_str(&toml_str).unwrap();
+        let parsed_tools = parsed.tools.expect("tools should deserialize as Some");
+        assert!(parsed_tools.contains(&"web_search".to_string()));
+        assert!(parsed_tools.contains(&"file_read".to_string()));
+        assert_eq!(parsed_tools.len(), 2);
+    }
+
+    #[test]
+    fn test_hand_tools_none_serialization_roundtrip() {
+        // Hand with tools=None should roundtrip correctly (no tools key emitted or parsed as None)
+        let mut hand = sample_hand();
+        hand.tools = None;
+
+        let toml_str = toml::to_string(&hand).unwrap();
+        let parsed: Hand = toml::from_str(&toml_str).unwrap();
+        // May serialize as empty list due to serde(default), either None or Some([]) is acceptable
+        // but the filtering logic treats both as "no restriction" (backwards compat)
+        let no_restriction = parsed.tools.as_ref().map_or(true, |t| t.is_empty());
+        assert!(no_restriction, "No tools or empty tools means no restriction");
+    }
+
+    #[test]
+    fn test_phase_tools_toml_parse() {
+        // Verify per-phase tools field parses correctly from TOML
+        let toml_str = r#"
+name = "phase_filtered"
+description = "Per-phase tool filtering"
+[[phases]]
+name = "search_only"
+system_prompt = "Search for data"
+tools = ["web_search", "http_request"]
+[[phases]]
+name = "write_only"
+system_prompt = "Write results"
+tools = ["file_write"]
+[[phases]]
+name = "unrestricted"
+system_prompt = "Final phase"
+"#;
+        let hand: Hand = toml::from_str(toml_str).unwrap();
+        assert_eq!(hand.phases.len(), 3);
+
+        // Phase 0: tools = ["web_search", "http_request"]
+        let p0 = hand.phases[0].tools.as_ref().expect("phase 0 should have tools");
+        assert_eq!(p0.len(), 2);
+        assert!(p0.contains(&"web_search".to_string()));
+        assert!(p0.contains(&"http_request".to_string()));
+
+        // Phase 1: tools = ["file_write"]
+        let p1 = hand.phases[1].tools.as_ref().expect("phase 1 should have tools");
+        assert_eq!(p1.len(), 1);
+        assert!(p1.contains(&"file_write".to_string()));
+
+        // Phase 2: no tools field → None
+        assert!(hand.phases[2].tools.is_none());
+    }
+
+    #[test]
+    fn test_effective_tools_priority_chain() {
+        // Verify priority chain: phase tools > hand tools > None (all tools)
+        let make_phase = |tools: Option<Vec<String>>| Phase {
+            name: "p".to_string(),
+            system_prompt: "s".to_string(),
+            max_rounds: 3,
+            condition: None,
+            target_worker: None,
+            target_capability: None,
+            parallel_queries: Vec::new(),
+            tools,
+            extra: HashMap::new(),
+        };
+
+        let hand_tools = Some(vec!["web_search".to_string()]);
+
+        // Case 1: phase has tools → use phase tools
+        let phase_with_tools = make_phase(Some(vec!["file_read".to_string()]));
+        let eff = phase_with_tools.tools.as_ref().or(hand_tools.as_ref());
+        assert_eq!(eff.unwrap(), &vec!["file_read".to_string()]);
+
+        // Case 2: phase has no tools, hand has tools → use hand tools
+        let phase_without_tools = make_phase(None);
+        let eff = phase_without_tools.tools.as_ref().or(hand_tools.as_ref());
+        assert_eq!(eff.unwrap(), &vec!["web_search".to_string()]);
+
+        // Case 3: both None → all tools
+        let hand_tools_none: Option<Vec<String>> = None;
+        let eff = phase_without_tools.tools.as_ref().or(hand_tools_none.as_ref());
+        assert!(eff.is_none());
     }
 }

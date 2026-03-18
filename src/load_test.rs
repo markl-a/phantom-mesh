@@ -268,6 +268,7 @@ fn generate_synthetic_prompt(hand: &Hand, variation_index: usize) -> String {
 
 // ── Internal Task Result ────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug)]
 struct TaskResult {
     hand_name: String,
@@ -1180,10 +1181,11 @@ mod tests {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: Vec::new(),
+                    tools: None,
                     extra: HashMap::new(),
                 },
             ],
-            tools: vec![],
+            tools: None,
             output_format: "markdown".to_string(),
             schedule: None,
             settings: HashMap::new(),

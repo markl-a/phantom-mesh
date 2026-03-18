@@ -8,6 +8,7 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 use super::{SecurityConfig, Tool, ToolResult};
+use crate::shell_filter::clean_shell_output;
 
 pub struct ShellTool {
     security: SecurityConfig,
@@ -81,7 +82,7 @@ impl Tool for ShellTool {
         if raw_command.is_empty() {
             return Ok(ToolResult {
                 success: false,
-                output: "Error: empty command".to_string(),
+                output: json!({"stdout": "", "stderr": "Error: empty command", "exit_code": 1}).to_string(),
             });
         }
 
@@ -94,11 +95,15 @@ impl Tool for ShellTool {
             warn!("Blocked command: {}", base);
             return Ok(ToolResult {
                 success: false,
-                output: format!(
-                    "Error: command '{}' is not in the allowed list. Allowed: {}",
-                    base,
-                    self.security.allowed_commands.join(", ")
-                ),
+                output: json!({
+                    "stdout": "",
+                    "stderr": format!(
+                        "Error: command '{}' is not in the allowed list. Allowed: {}",
+                        base,
+                        self.security.allowed_commands.join(", ")
+                    ),
+                    "exit_code": 1
+                }).to_string(),
             });
         }
 
@@ -118,7 +123,11 @@ impl Tool for ShellTool {
             } else {
                 return Ok(ToolResult {
                     success: false,
-                    output: format!("Error: working_dir '{}' is outside workspace and allowed paths", dir),
+                    output: json!({
+                        "stdout": "",
+                        "stderr": format!("Error: working_dir '{}' is outside workspace and allowed paths", dir),
+                        "exit_code": 1
+                    }).to_string(),
                 });
             }
         } else {
@@ -155,39 +164,41 @@ impl Tool for ShellTool {
                 warn!("Command timed out after {}s: {}", timeout_secs, truncate_str(command, 60));
                 return Ok(ToolResult {
                     success: false,
-                    output: format!("Error: command timed out after {} seconds", timeout_secs),
+                    output: json!({
+                        "stdout": "",
+                        "stderr": format!("Error: command timed out after {} seconds", timeout_secs),
+                        "exit_code": 124
+                    }).to_string(),
                 });
             }
         };
 
         match output {
             Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let stderr = String::from_utf8_lossy(&out.stderr);
-                let combined = if stderr.is_empty() {
-                    stdout.to_string()
-                } else if stdout.is_empty() {
-                    stderr.to_string()
-                } else {
-                    format!("{}\n--- stderr ---\n{}", stdout, stderr)
-                };
+                let stdout_raw = String::from_utf8_lossy(&out.stdout).to_string();
+                let stderr_raw = String::from_utf8_lossy(&out.stderr).to_string();
+                let exit_code = out.status.code().unwrap_or(-1);
 
-                // Truncate very long output (safe for multi-byte UTF-8)
-                let truncated = if combined.len() > 4000 {
-                    let end = floor_char_boundary(&combined, 4000);
-                    format!("{}...\n(truncated, {} bytes total)", &combined[..end], combined.len())
-                } else {
-                    combined
-                };
+                // Strip ANSI escape codes and apply head/tail truncation
+                let stdout_trunc = clean_shell_output(&stdout_raw);
+                let stderr_trunc = clean_shell_output(&stderr_raw);
 
                 Ok(ToolResult {
                     success: out.status.success(),
-                    output: truncated,
+                    output: json!({
+                        "stdout": stdout_trunc,
+                        "stderr": stderr_trunc,
+                        "exit_code": exit_code
+                    }).to_string(),
                 })
             }
             Err(e) => Ok(ToolResult {
                 success: false,
-                output: format!("Failed to execute command: {}", e),
+                output: json!({
+                    "stdout": "",
+                    "stderr": format!("Failed to execute command: {}", e),
+                    "exit_code": -1
+                }).to_string(),
             }),
         }
     }
@@ -199,18 +210,6 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
         Some((i, _)) => &s[..i],
         None => s,
     }
-}
-
-/// Find the largest valid char boundary <= byte index (safe for multi-byte UTF-8)
-fn floor_char_boundary(s: &str, byte_index: usize) -> usize {
-    if byte_index >= s.len() {
-        return s.len();
-    }
-    let mut i = byte_index;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
 }
 
 #[cfg(test)]
@@ -246,12 +245,18 @@ mod tests {
         assert!(!tool.is_command_allowed("powershell -c something"));
     }
 
+    fn parse_output(result: &ToolResult) -> serde_json::Value {
+        serde_json::from_str(&result.output).expect("output should be valid JSON")
+    }
+
     #[tokio::test]
     async fn test_execute_echo() {
         let tool = make_tool();
         let result = tool.execute(json!({"command": "echo hello"})).await.unwrap();
         assert!(result.success, "Shell failed: {}", result.output);
-        assert!(result.output.contains("hello"));
+        let v = parse_output(&result);
+        assert!(v["stdout"].as_str().unwrap().contains("hello"), "stdout should contain 'hello'");
+        assert_eq!(v["exit_code"].as_i64().unwrap(), 0);
     }
 
     #[tokio::test]
@@ -259,6 +264,66 @@ mod tests {
         let tool = make_tool();
         let result = tool.execute(json!({"command": "curl http://x"})).await.unwrap();
         assert!(!result.success);
-        assert!(result.output.contains("not in the allowed list"));
+        let v = parse_output(&result);
+        assert!(v["stderr"].as_str().unwrap().contains("not in the allowed list"));
+        assert_eq!(v["exit_code"].as_i64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_successful_command_exit_code_zero() {
+        let tool = make_tool();
+        let result = tool.execute(json!({"command": "echo structured_output"})).await.unwrap();
+        assert!(result.success);
+        let v = parse_output(&result);
+        assert!(v["stdout"].as_str().unwrap().contains("structured_output"));
+        assert_eq!(v["stderr"].as_str().unwrap(), "");
+        assert_eq!(v["exit_code"].as_i64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_failing_command_nonzero_exit_code() {
+        let tool = make_tool();
+        // Use a python script file to avoid shell quoting issues across platforms.
+        // Write a temp script, then execute it with python.
+        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let _ = std::fs::create_dir_all(&script_dir);
+        let script_path = script_dir.join("exit42.py");
+        std::fs::write(&script_path, "import sys\nsys.exit(42)\n").unwrap();
+        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let result = tool.execute(json!({"command": cmd})).await.unwrap();
+        assert!(!result.success);
+        let v = parse_output(&result);
+        assert_eq!(v["exit_code"].as_i64().unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_stderr_only_command() {
+        let tool = make_tool();
+        // Write a temp python script that writes only to stderr.
+        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let _ = std::fs::create_dir_all(&script_dir);
+        let script_path = script_dir.join("stderr_only.py");
+        std::fs::write(&script_path, "import sys\nsys.stderr.write('err_only\\n')\n").unwrap();
+        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let result = tool.execute(json!({"command": cmd})).await.unwrap();
+        let v = parse_output(&result);
+        assert!(v["stderr"].as_str().unwrap().contains("err_only"), "stderr should contain 'err_only'");
+        assert_eq!(v["stdout"].as_str().unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_both_stdout_and_stderr() {
+        let tool = make_tool();
+        // Write a temp python script that writes to both stdout and stderr.
+        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let _ = std::fs::create_dir_all(&script_dir);
+        let script_path = script_dir.join("both_streams.py");
+        std::fs::write(&script_path, "import sys\nprint('out_msg')\nsys.stderr.write('err_msg\\n')\n").unwrap();
+        let cmd = format!("python {}", script_path.to_string_lossy().replace('\\', "/"));
+        let result = tool.execute(json!({"command": cmd})).await.unwrap();
+        let v = parse_output(&result);
+        assert!(v["stdout"].as_str().unwrap().contains("out_msg"), "stdout should contain 'out_msg'");
+        assert!(v["stderr"].as_str().unwrap().contains("err_msg"), "stderr should contain 'err_msg'");
+        assert_eq!(v["exit_code"].as_i64().unwrap(), 0);
     }
 }

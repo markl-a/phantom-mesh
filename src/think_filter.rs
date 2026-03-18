@@ -19,6 +19,7 @@ static THINK_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// Regex for unclosed `<think>` at end of string (streaming edge case)
+#[allow(dead_code)]
 static THINK_OPEN_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?si)<think>[^<]*$").unwrap()
 });

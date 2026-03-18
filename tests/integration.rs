@@ -552,7 +552,7 @@ fn test_e2e_hand_context_preparation() {
         provider: "auto".to_string(),
         model: String::new(),
         phases: vec![],
-        tools: vec![],
+        tools: Some(vec![]),
         output_format: "markdown".to_string(),
         schedule: None,
         settings: {
@@ -1685,7 +1685,7 @@ fn test_e2e_all_10_hands_load() {
         let hand = registry.get(name).unwrap();
         assert!(!hand.description.is_empty(), "Hand '{}' has empty description", name);
         assert!(!hand.phases.is_empty(), "Hand '{}' has no phases", name);
-        assert!(!hand.tools.is_empty(),
+        assert!(!hand.tools.as_ref().map_or(true, |t| t.is_empty()),
             "Hand '{}' has empty tools list — TOML `tools` must be before `[settings]`", name);
 
         for phase in &hand.phases {
@@ -1696,21 +1696,21 @@ fn test_e2e_all_10_hands_load() {
 
     // Verify specific tool assignments
     let content = registry.get("content").unwrap();
-    assert!(content.tools.contains(&"twitter".to_string()),
+    assert!(content.tools.as_ref().map_or(false, |t| t.contains(&"twitter".to_string())),
         "Content hand must have twitter tool");
-    assert!(content.tools.contains(&"blog_publish".to_string()),
+    assert!(content.tools.as_ref().map_or(false, |t| t.contains(&"blog_publish".to_string())),
         "Content hand must have blog_publish tool");
 
     let seo = registry.get("seo_content").unwrap();
-    assert!(seo.tools.contains(&"twitter".to_string()),
+    assert!(seo.tools.as_ref().map_or(false, |t| t.contains(&"twitter".to_string())),
         "SEO content hand must have twitter tool");
-    assert!(seo.tools.contains(&"blog_publish".to_string()),
+    assert!(seo.tools.as_ref().map_or(false, |t| t.contains(&"blog_publish".to_string())),
         "SEO content hand must have blog_publish tool");
 
     let auto_report = registry.get("auto_report").unwrap();
-    assert!(auto_report.tools.contains(&"pdf_export".to_string()),
+    assert!(auto_report.tools.as_ref().map_or(false, |t| t.contains(&"pdf_export".to_string())),
         "Auto report hand must have pdf_export tool");
-    assert!(auto_report.tools.contains(&"email_send".to_string()),
+    assert!(auto_report.tools.as_ref().map_or(false, |t| t.contains(&"email_send".to_string())),
         "Auto report hand must have email_send tool");
 
     // Verify specific route coverage:
@@ -2939,8 +2939,8 @@ async fn test_e2e_hand_runner_with_real_hand() {
     assert!(publish_prompt.contains("blog_publish"), "Publish phase must reference blog_publish tool");
 
     // Verify tools include twitter and blog_publish
-    assert!(hand.tools.contains(&"twitter".to_string()), "Content hand must have twitter tool");
-    assert!(hand.tools.contains(&"blog_publish".to_string()), "Content hand must have blog_publish tool");
+    assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"twitter".to_string())), "Content hand must have twitter tool");
+    assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"blog_publish".to_string())), "Content hand must have blog_publish tool");
 
     let runtime = AgentRuntime::new("/nonexistent/path.toml").unwrap();
     let router = LlmRouter::new("/nonexistent/path.toml").unwrap();
@@ -3079,13 +3079,15 @@ fn test_e2e_all_hand_tools_exist_in_registry() {
     let mut total_tools_checked = 0;
 
     for hand in registry.list() {
-        for tool_name in &hand.tools {
-            let exists = available_tools.contains(tool_name)
-                || known_aliases.contains(&tool_name.as_str());
-            assert!(exists,
-                "Hand '{}' references tool '{}' which doesn't exist in ToolRegistry. Available: {:?}",
-                hand.name, tool_name, available_tools);
-            total_tools_checked += 1;
+        if let Some(tools) = &hand.tools {
+            for tool_name in tools {
+                let exists = available_tools.contains(tool_name)
+                    || known_aliases.contains(&tool_name.as_str());
+                assert!(exists,
+                    "Hand '{}' references tool '{}' which doesn't exist in ToolRegistry. Available: {:?}",
+                    hand.name, tool_name, available_tools);
+                total_tools_checked += 1;
+            }
         }
     }
 
@@ -3198,9 +3200,10 @@ async fn test_e2e_system_wiring_smoke_test() {
             target_worker: None,
             target_capability: None,
             parallel_queries: vec![],
+            tools: None,
             extra: std::collections::HashMap::new(),
         }],
-        tools: vec!["file_write".into()],
+        tools: Some(vec!["file_write".into()]),
         output_format: "markdown".into(),
         schedule: None,
         settings: std::collections::HashMap::from([

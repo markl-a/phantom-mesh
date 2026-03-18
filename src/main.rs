@@ -35,7 +35,7 @@ use clawtex_core::{
     LoadTester, StressTestConfig,
     ServiceTierManager, ServiceTier,
     AutoDiagnoser,
-    TenantManager, Tenant, extract_tenant_key,
+    TenantManager,
     OrderWorkflow,
     CustomerHealthManager, ChurnDetector,
     PreemptionManager, NodeScorer, NodeMetrics,
@@ -240,9 +240,13 @@ async fn auth_middleware(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    // /health and /dashboard are always public (dashboard has its own query-param auth)
+    // /health, /dashboard, /dashboard/v2 and /api/dashboard/* are always public
     let path = req.uri().path();
-    if path == "/health" || path == "/dashboard" {
+    if path == "/health"
+        || path == "/dashboard"
+        || path == "/dashboard/v2"
+        || path.starts_with("/api/dashboard/")
+    {
         return Ok(next.run(req).await);
     }
     // No key configured = auth disabled
@@ -3489,7 +3493,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/estop", post(estop_activate))
         .route("/estop", axum::routing::delete(estop_reset))
         .route("/estop", get(estop_status))
-        .with_state(state)
+        .with_state(state.clone())
         // Gateway streaming endpoints (separate state)
         .route("/stream/agent/:name", get(clawtex_core::gateway::sse_agent))
         .route("/ws/agent/:name", get(clawtex_core::gateway::ws_agent))
@@ -3498,6 +3502,17 @@ async fn main() -> anyhow::Result<()> {
         .route("/trajectories/stats", get(clawtex_core::gateway::get_trajectory_stats))
         .route("/cluster/health", get(clawtex_core::gateway::get_cluster_health))
         .with_state(gateway_state)
+        // Web dashboard — embedded single-page UI + JSON API
+        .merge(clawtex_core::dashboard_routes(clawtex_core::DashboardState {
+            tool_registry: state.tool_registry.clone(),
+            hands: state.hands.clone(),
+            conversations: state.conversations.clone(),
+            cluster: state.cluster.clone(),
+            cluster_hub: state.cluster_hub.clone(),
+            cost_tracker: state.cost_tracker.clone(),
+            agent_runtime: state.agent_runtime.clone(),
+            started_at: state.started_at,
+        }))
         // Hub Bearer token auth — exempts /health and /dashboard
         .layer(axum::middleware::from_fn_with_state(auth_state, auth_middleware));
 

@@ -18,7 +18,7 @@ use std::task::{Context, Poll};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
-use crate::agent_events::{AgentEvent, AgentEventBus};
+use crate::agent_events::AgentEvent;
 use crate::agent_runtime::AgentRuntime;
 use crate::circuit_breaker::ProviderCircuitBreaker;
 use crate::estop::EStop;

@@ -913,7 +913,7 @@ impl ClusterHub {
             agent_pool.retain(|t| t.created_at > agent_cutoff);
         }
 
-        let mut inflight = self.inflight_results.lock().await;
+        let inflight = self.inflight_results.lock().await;
         if !inflight.is_empty() {
             debug!("Inflight tasks: {}", inflight.len());
         }

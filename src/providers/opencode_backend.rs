@@ -12,7 +12,7 @@ use futures_util::Stream;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::traits::{
     ChatMessage, ChatResponse, Provider, ProviderCapabilities, StreamChunk, TokenUsage,

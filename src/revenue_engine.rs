@@ -388,7 +388,7 @@ impl RevenueEngine {
     }
 
     /// Count consecutive zero-revenue days for a specific route, looking back N days.
-    fn count_zero_revenue_days_for_route(&self, route: &str, lookback: u32) -> Result<u32> {
+    fn count_zero_revenue_days_for_route(&self, _route: &str, lookback: u32) -> Result<u32> {
         // Check each day going backwards from today
         let now = Utc::now();
         let mut consecutive = 0u32;

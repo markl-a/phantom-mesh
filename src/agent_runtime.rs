@@ -9,17 +9,18 @@ use tracing::{debug, info, warn};
 use crate::providers::{ChatMessage, StreamChunk};
 use crate::cluster_hub::ClusterHub;
 use crate::context::ContextOptimizer;
-use crate::cost_tracker::{CostTracker, CostRecord, BudgetBreaker, BudgetStatus, estimate_cost};
+use crate::cost_tracker::{CostTracker, CostRecord, BudgetBreaker, estimate_cost};
 use crate::injection_guard::InjectionGuard;
 use crate::service_tier::ServiceTierManager;
 use crate::dispatcher::{self, DispatchMode};
 use crate::llm_router::LlmRouter;
 use crate::loop_detection::{AdvancedLoopDetector, LoopDetectorConfig, LoopAction, LoopKind};
 use crate::memory::MemoryStore;
-use crate::response_cache::{ResponseCache, ResponseCacheConfig};
+use crate::response_cache::ResponseCache;
 use crate::agent_events::{AgentEventBus, AgentEvent};
 use crate::security::{AutonomyLevel, PrivacyGuard};
 use crate::tools::{ToolRegistry, ToolSpec};
+use crate::capability_broadcast::build_capability_prompt;
 use crate::trajectory::{TrajectoryLogger, TrajectoryEntry};
 use std::sync::Arc;
 
@@ -398,11 +399,20 @@ impl AgentRuntime {
             provider, model, all_providers.join(", ")
         );
 
+        // Build capability broadcast: compact list of available tools and hands.
+        // Injected at session start so the LLM knows what it can do.
+        let capability_section = {
+            let hands_list: Vec<String> = Vec::new();
+            let cap = build_capability_prompt(&tool_specs, &hands_list);
+            format!("\n\n[Session capabilities]\n{}", cap)
+        };
+
         let system_prompt = format!(
-            "{}\n\nCurrent time: {} ({}){}\n\
+            "{}{}\n\nCurrent time: {} ({}){}\n\
              You have conversation memory — you CAN and SHOULD recall what the user said in previous messages.\n\
              When searching the web, base your search query on the user's LATEST message, not on old topics.{}{}{}",
             instructions,
+            capability_section,
             now.format("%Y-%m-%d %H:%M:%S"),
             now.format("%A"),
             runtime_info,

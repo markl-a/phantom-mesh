@@ -135,8 +135,8 @@ fn hand_parses_phases_correctly() {
 #[test]
 fn hand_parses_tools_list() {
     let hand: Hand = toml::from_str(SIMPLE_HAND_TOML).unwrap();
-    assert!(hand.tools.contains(&"web_search".to_string()));
-    assert!(hand.tools.contains(&"file_write".to_string()));
+    assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"web_search".to_string())));
+    assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"file_write".to_string())));
 }
 
 #[test]

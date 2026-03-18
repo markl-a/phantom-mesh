@@ -3,7 +3,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::{Tool, ToolResult};
@@ -127,7 +126,7 @@ fn week_range(today: &str) -> Option<(String, String)> {
         total
     };
 
-    let from_days = |mut days: i32| -> (i32, u32, u32) {
+    let from_days = |days: i32| -> (i32, u32, u32) {
         // Inverse of to_days (approximate Gregorian)
         let mut y = (days * 400) / 146097;
         let mut remainder = days - to_days(y, 1, 1) + 1;

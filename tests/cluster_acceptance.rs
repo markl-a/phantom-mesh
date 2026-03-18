@@ -167,10 +167,11 @@ async fn a4_self_modify_approval_gate_approved() {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: vec![],
+                    tools: None,
                     extra: HashMap::new(),
             },
         ],
-        tools: vec!["file_read".to_string()],
+        tools: Some(vec!["file_read".to_string()]),
         output_format: "markdown".to_string(),
         schedule: None,
         settings: {
@@ -244,10 +245,11 @@ async fn a5_self_modify_approval_gate_denied() {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: vec![],
+                    tools: None,
                     extra: HashMap::new(),
             },
         ],
-        tools: vec!["shell".to_string()],
+        tools: Some(vec!["shell".to_string()]),
         output_format: "markdown".to_string(),
         schedule: None,
         settings: {
@@ -417,10 +419,11 @@ async fn a9_hand_without_approval_runs_normally() {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: vec![],
+                    tools: None,
                     extra: HashMap::new(),
             },
         ],
-        tools: vec![],
+        tools: Some(vec![]),
         output_format: "markdown".to_string(),
         schedule: None,
         settings: HashMap::new(),
@@ -473,10 +476,11 @@ async fn a10_approval_gate_timeout() {
                     target_worker: None,
                     target_capability: None,
                     parallel_queries: vec![],
+                    tools: None,
                     extra: HashMap::new(),
             },
         ],
-        tools: vec![],
+        tools: Some(vec![]),
         output_format: "markdown".to_string(),
         schedule: None,
         settings: {
@@ -516,9 +520,9 @@ async fn a11_self_optimize_hand_loads() {
 
     if let Some(hand) = registry.get("self_optimize") {
         assert_eq!(hand.category, "infrastructure");
-        assert!(hand.tools.contains(&"shell".to_string()), "self_optimize must have shell tool");
-        assert!(hand.tools.contains(&"file_read".to_string()), "self_optimize must have file_read tool");
-        assert!(hand.tools.contains(&"file_edit".to_string()), "self_optimize must have file_edit tool");
+        assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"shell".to_string())), "self_optimize must have shell tool");
+        assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"file_read".to_string())), "self_optimize must have file_read tool");
+        assert!(hand.tools.as_ref().map_or(false, |t| t.contains(&"file_edit".to_string())), "self_optimize must have file_edit tool");
         assert_eq!(hand.settings.get("require_approval").map(|s| s.as_str()), Some("true"),
             "self_optimize must require approval");
         assert_eq!(hand.phases.len(), 4, "self_optimize should have 4 phases");

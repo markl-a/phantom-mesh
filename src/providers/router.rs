@@ -31,7 +31,9 @@ struct AgentsToml {
 
 #[derive(Debug, Clone, Deserialize)]
 struct SmartRoutingConfig {
+    #[allow(dead_code)]
     pub classifier_provider: Option<String>,
+    #[allow(dead_code)]
     pub classifier_model: Option<String>,
     #[serde(default)]
     pub simple_providers: Vec<String>,

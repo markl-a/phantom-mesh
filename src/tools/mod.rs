@@ -69,6 +69,7 @@ use std::time::{Duration, Instant};
 use tracing::warn;
 
 use crate::audit_log::{AuditLogger, ActionType, Outcome, risk_level_for_tool};
+use crate::output_stash::OutputStash;
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 
@@ -315,7 +316,7 @@ pub(crate) fn normalize_llm_path(path: &str, workspace: &std::path::Path) -> Str
 
     // 3. Remove duplicate workspace prefix (workspace/~/.clawtex/workspace/X → workspace/X)
     let ws_str = workspace.to_string_lossy().replace('\\', "/");
-    let ws_suffix = if ws_str.ends_with('/') { &ws_str } else { &format!("{}/", ws_str) };
+    let _ws_suffix = if ws_str.ends_with('/') { &ws_str } else { &format!("{}/", ws_str) };
     // Check if path contains workspace path embedded after workspace join
     if p.replace('\\', "/").matches(&ws_str.replace('\\', "/")).count() > 1 {
         // e.g., C:/Users/m4932/.clawtex/workspace/~/.clawtex/workspace/file.py
@@ -594,14 +595,38 @@ impl ToolRegistry {
         }
 
         // 5. Scrub credentials from output
-        if self.scrub_enabled {
-            Ok(ToolResult {
-                success: result.success,
-                output: scrub_credentials(&result.output),
-            })
+        let mut final_output = if self.scrub_enabled {
+            scrub_credentials(&result.output)
         } else {
-            Ok(result)
+            result.output.clone()
+        };
+
+        // 6. Stash large outputs (> 32 000 chars ≈ 8 000 tokens) to disk
+        const STASH_THRESHOLD: usize = 32_000;
+        if final_output.len() > STASH_THRESHOLD {
+            let stash = OutputStash::new();
+            match stash.stash(&final_output) {
+                Ok(handle) => {
+                    warn!(
+                        "Tool '{}' produced {} chars — stashed to disk",
+                        tool_name,
+                        final_output.len()
+                    );
+                    final_output = handle;
+                }
+                Err(e) => {
+                    // Stash failure is non-fatal: truncate with a note instead
+                    warn!("OutputStash failed for '{}': {}", tool_name, e);
+                    final_output.truncate(STASH_THRESHOLD);
+                    final_output.push_str("\n[... output truncated — stash unavailable ...]");
+                }
+            }
         }
+
+        Ok(ToolResult {
+            success: result.success,
+            output: final_output,
+        })
     }
 
     /// Get rate limit stats for monitoring

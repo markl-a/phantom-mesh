@@ -60,6 +60,13 @@ pub mod node_scoring;
 pub mod customer_health;
 pub mod observational_memory;
 pub mod ops_report;
+pub mod output_stash;
+pub mod shell_filter;
+pub mod capability_broadcast;
+pub mod config_watcher;
+pub mod i18n;
+pub mod web_dashboard;
+pub mod quota_manager;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -144,3 +151,4 @@ pub use node_scoring::{NodeScorer, NodeScore, NodeMetrics, NodeGrade};
 pub use customer_health::{CustomerHealthManager, ChurnDetector, CustomerHealth, HealthGrade, ChurnAlert, ChurnRiskLevel, ChurnSummary};
 pub use observational_memory::{ObservationalMemory, Observation, ConversationMessage};
 pub use ops_report::{OpsReporter, OpsReport, ReportType, NodeHealth, NodeStatus, CostSection, TaskSection, PipelineSection};
+pub use web_dashboard::{DashboardState, dashboard_routes};
