@@ -25,6 +25,74 @@ pub enum ModelTier {
     Cheap,
 }
 
+/// Survival tier — overall system resource state.
+/// Maps from usage percentage to operational mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SurvivalTier {
+    /// Normal operation — all providers available
+    Normal,
+    /// Low compute budget — prefer medium/cheap providers
+    LowCompute,
+    /// Critical — local providers only
+    Critical,
+    /// Dead — halt all execution
+    Dead,
+}
+
+impl SurvivalTier {
+    /// Determine survival tier from usage percentage (0.0 - 1.0+).
+    /// Maps to existing L1/L2/L3 thresholds.
+    pub fn from_usage_pct(usage_pct: f64) -> Self {
+        if usage_pct >= 0.95 {
+            SurvivalTier::Dead
+        } else if usage_pct >= 0.90 {
+            SurvivalTier::Critical
+        } else if usage_pct >= 0.80 {
+            SurvivalTier::LowCompute
+        } else {
+            SurvivalTier::Normal
+        }
+    }
+
+    /// Determine survival tier with custom thresholds.
+    pub fn from_usage_pct_with_thresholds(usage_pct: f64, thresholds: &DowngradeThresholds) -> Self {
+        if usage_pct >= thresholds.l3_pct {
+            SurvivalTier::Dead
+        } else if usage_pct >= thresholds.l2_pct {
+            SurvivalTier::Critical
+        } else if usage_pct >= thresholds.l1_pct {
+            SurvivalTier::LowCompute
+        } else {
+            SurvivalTier::Normal
+        }
+    }
+
+    /// Which model tiers are allowed in this survival tier.
+    pub fn allowed_tiers(&self) -> Vec<ModelTier> {
+        match self {
+            SurvivalTier::Normal => vec![ModelTier::Expensive, ModelTier::Medium, ModelTier::Cheap],
+            SurvivalTier::LowCompute => vec![ModelTier::Medium, ModelTier::Cheap],
+            SurvivalTier::Critical => vec![ModelTier::Cheap],
+            SurvivalTier::Dead => vec![],
+        }
+    }
+
+    /// Whether execution should be halted in this tier.
+    pub fn should_halt(&self) -> bool {
+        matches!(self, SurvivalTier::Dead)
+    }
+
+    /// Human-readable label for this tier.
+    pub fn label(&self) -> &str {
+        match self {
+            SurvivalTier::Normal => "Normal",
+            SurvivalTier::LowCompute => "Low Compute",
+            SurvivalTier::Critical => "Critical",
+            SurvivalTier::Dead => "Dead",
+        }
+    }
+}
+
 /// Action to take based on budget usage level
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum DowngradeAction {
@@ -910,5 +978,86 @@ mod tests {
         assert_eq!(json, "\"Expensive\"");
         let back: ModelTier = serde_json::from_str(&json).unwrap();
         assert_eq!(back, ModelTier::Expensive);
+    }
+
+    // ── SurvivalTier tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_survival_tier_from_usage_normal() {
+        assert_eq!(SurvivalTier::from_usage_pct(0.0), SurvivalTier::Normal);
+        assert_eq!(SurvivalTier::from_usage_pct(0.5), SurvivalTier::Normal);
+        assert_eq!(SurvivalTier::from_usage_pct(0.79), SurvivalTier::Normal);
+    }
+
+    #[test]
+    fn test_survival_tier_from_usage_low_compute() {
+        assert_eq!(SurvivalTier::from_usage_pct(0.80), SurvivalTier::LowCompute);
+        assert_eq!(SurvivalTier::from_usage_pct(0.85), SurvivalTier::LowCompute);
+        assert_eq!(SurvivalTier::from_usage_pct(0.89), SurvivalTier::LowCompute);
+    }
+
+    #[test]
+    fn test_survival_tier_from_usage_critical() {
+        assert_eq!(SurvivalTier::from_usage_pct(0.90), SurvivalTier::Critical);
+        assert_eq!(SurvivalTier::from_usage_pct(0.94), SurvivalTier::Critical);
+    }
+
+    #[test]
+    fn test_survival_tier_from_usage_dead() {
+        assert_eq!(SurvivalTier::from_usage_pct(0.95), SurvivalTier::Dead);
+        assert_eq!(SurvivalTier::from_usage_pct(1.0), SurvivalTier::Dead);
+        assert_eq!(SurvivalTier::from_usage_pct(1.5), SurvivalTier::Dead);
+    }
+
+    #[test]
+    fn test_survival_tier_allowed_tiers() {
+        let normal = SurvivalTier::Normal.allowed_tiers();
+        assert_eq!(normal.len(), 3);
+        assert!(normal.contains(&ModelTier::Expensive));
+
+        let low = SurvivalTier::LowCompute.allowed_tiers();
+        assert_eq!(low.len(), 2);
+        assert!(!low.contains(&ModelTier::Expensive));
+
+        let critical = SurvivalTier::Critical.allowed_tiers();
+        assert_eq!(critical.len(), 1);
+        assert_eq!(critical[0], ModelTier::Cheap);
+
+        let dead = SurvivalTier::Dead.allowed_tiers();
+        assert!(dead.is_empty());
+    }
+
+    #[test]
+    fn test_survival_tier_should_halt() {
+        assert!(!SurvivalTier::Normal.should_halt());
+        assert!(!SurvivalTier::LowCompute.should_halt());
+        assert!(!SurvivalTier::Critical.should_halt());
+        assert!(SurvivalTier::Dead.should_halt());
+    }
+
+    #[test]
+    fn test_survival_tier_labels() {
+        assert_eq!(SurvivalTier::Normal.label(), "Normal");
+        assert_eq!(SurvivalTier::LowCompute.label(), "Low Compute");
+        assert_eq!(SurvivalTier::Critical.label(), "Critical");
+        assert_eq!(SurvivalTier::Dead.label(), "Dead");
+    }
+
+    #[test]
+    fn test_survival_tier_custom_thresholds() {
+        let thresholds = DowngradeThresholds::new(0.50, 0.70, 0.85).unwrap();
+        assert_eq!(SurvivalTier::from_usage_pct_with_thresholds(0.49, &thresholds), SurvivalTier::Normal);
+        assert_eq!(SurvivalTier::from_usage_pct_with_thresholds(0.50, &thresholds), SurvivalTier::LowCompute);
+        assert_eq!(SurvivalTier::from_usage_pct_with_thresholds(0.70, &thresholds), SurvivalTier::Critical);
+        assert_eq!(SurvivalTier::from_usage_pct_with_thresholds(0.85, &thresholds), SurvivalTier::Dead);
+    }
+
+    #[test]
+    fn test_survival_tier_serialization() {
+        let tier = SurvivalTier::Critical;
+        let json = serde_json::to_string(&tier).unwrap();
+        assert_eq!(json, "\"Critical\"");
+        let back: SurvivalTier = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, SurvivalTier::Critical);
     }
 }

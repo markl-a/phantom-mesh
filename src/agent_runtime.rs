@@ -19,6 +19,7 @@ use crate::memory::MemoryStore;
 use crate::response_cache::ResponseCache;
 use crate::agent_events::{AgentEventBus, AgentEvent};
 use crate::security::{AutonomyLevel, PrivacyGuard};
+use crate::policy_engine::{PolicyEngine, PolicyRequest, PolicyAction};
 use crate::tools::{ToolRegistry, ToolSpec};
 use crate::capability_broadcast::build_capability_prompt;
 use crate::trajectory::{TrajectoryLogger, TrajectoryEntry};
@@ -28,6 +29,86 @@ const MAX_TOOL_ROUNDS: usize = 10;
 const AGENT_TIMEOUT_SECS: u64 = 600;
 /// How often (in seconds) to send progress reports during long-running agent tasks
 const PROGRESS_INTERVAL_SECS: u64 = 60;
+/// Default idle threshold: how many consecutive idle rounds before force-exit
+const IDLE_THRESHOLD: usize = 3;
+
+/// Idle Detector — detects when an agent is stuck in a loop producing identical outputs.
+///
+/// Compares hash of (tool_calls, output) between rounds. If the hash is the same
+/// for `threshold` consecutive rounds, the agent is considered idle.
+#[derive(Debug)]
+pub struct IdleDetector {
+    /// Number of consecutive idle rounds before triggering
+    threshold: usize,
+    /// Hash of the previous round's output
+    last_hash: Option<u64>,
+    /// Current idle count
+    idle_count: usize,
+}
+
+impl IdleDetector {
+    /// Create a new IdleDetector with default threshold (3 rounds).
+    pub fn new() -> Self {
+        Self {
+            threshold: IDLE_THRESHOLD,
+            last_hash: None,
+            idle_count: 0,
+        }
+    }
+
+    /// Create with a custom threshold.
+    pub fn with_threshold(threshold: usize) -> Self {
+        Self {
+            threshold: threshold.max(1),
+            last_hash: None,
+            idle_count: 0,
+        }
+    }
+
+    /// Check a round's output. Returns true if idle threshold is reached.
+    /// `tool_calls` is the number of tool calls made this round.
+    /// `output` is the LLM's text output this round.
+    pub fn check_round(&mut self, tool_calls: usize, output: &str) -> bool {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        tool_calls.hash(&mut hasher);
+        output.hash(&mut hasher);
+        let current_hash = hasher.finish();
+
+        if self.last_hash == Some(current_hash) {
+            self.idle_count += 1;
+        } else {
+            self.idle_count = 0;
+        }
+        self.last_hash = Some(current_hash);
+
+        self.idle_count >= self.threshold
+    }
+
+    /// Get the current idle count.
+    pub fn idle_count(&self) -> usize {
+        self.idle_count
+    }
+
+    /// Reset the detector.
+    pub fn reset(&mut self) {
+        self.last_hash = None;
+        self.idle_count = 0;
+    }
+
+    /// Whether the detector has been triggered.
+    pub fn is_idle(&self) -> bool {
+        self.idle_count >= self.threshold
+    }
+}
+
+impl Default for IdleDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Agent configuration from agents.toml
 #[derive(Debug, Clone, Deserialize)]
@@ -115,6 +196,7 @@ pub struct AgentRuntime {
     budget_breaker: Option<Arc<BudgetBreaker>>,
     injection_guard: Option<Arc<InjectionGuard>>,
     service_tier: Option<Arc<ServiceTierManager>>,
+    policy_engine: Option<Arc<PolicyEngine>>,
 }
 
 impl AgentRuntime {
@@ -131,7 +213,7 @@ impl AgentRuntime {
             default_agents()
         };
 
-        Ok(Self { agents, cost_tracker: None, memory_store: None, cluster_hub: None, privacy_guard: None, response_cache: None, event_bus: None, trajectory_logger: None, budget_breaker: None, injection_guard: None, service_tier: None })
+        Ok(Self { agents, cost_tracker: None, memory_store: None, cluster_hub: None, privacy_guard: None, response_cache: None, event_bus: None, trajectory_logger: None, budget_breaker: None, injection_guard: None, service_tier: None, policy_engine: None })
     }
 
     /// Attach a cost tracker to automatically record costs for every agent run
@@ -207,6 +289,16 @@ impl AgentRuntime {
     /// Get service tier manager reference
     pub fn service_tier(&self) -> Option<&Arc<ServiceTierManager>> {
         self.service_tier.as_ref()
+    }
+
+    /// Attach a policy engine for pre-execution tool call evaluation
+    pub fn set_policy_engine(&mut self, engine: Arc<PolicyEngine>) {
+        self.policy_engine = Some(engine);
+    }
+
+    /// Get policy engine reference
+    pub fn policy_engine(&self) -> Option<&Arc<PolicyEngine>> {
+        self.policy_engine.as_ref()
     }
 
     /// Run a named agent with tool-call loop
@@ -475,6 +567,7 @@ impl AgentRuntime {
         let deadline = Instant::now() + std::time::Duration::from_secs(AGENT_TIMEOUT_SECS);
         let mut last_progress_report = Instant::now();
         let mut last_tool_names: Vec<String> = Vec::new();
+        let mut idle_detector = IdleDetector::new();
         for round in 0..effective_max_rounds {
             // ── Budget Breaker fast path: skip DB query if breaker already tripped ──
             if let Some(ref breaker) = self.budget_breaker {
@@ -756,6 +849,8 @@ impl AgentRuntime {
                     let cluster_hub_ref = &self.cluster_hub;
                     let target_worker_ref = &target_worker;
                     let service_tier_ref = &self.service_tier;
+                    let policy_engine_ref = &self.policy_engine;
+                    let event_bus_ref = &self.event_bus;
                     let agent_name_for_tier = agent_name.to_string();
                     let tool_futures: Vec<_> = tool_calls.iter().map(|tc| {
                         let tool_name = tc.function.name.clone();
@@ -764,8 +859,49 @@ impl AgentRuntime {
                         let hub_opt = cluster_hub_ref.clone();
                         let tw = target_worker_ref.clone();
                         let tier_opt = service_tier_ref.clone();
+                        let policy_opt = policy_engine_ref.clone();
+                        let bus_opt_for_policy = event_bus_ref.clone();
                         let agent_for_tier = agent_name_for_tier.clone();
                         async move {
+                            // ── Policy Engine: evaluate rules before execution ──
+                            if let Some(ref engine) = policy_opt {
+                                let request = PolicyRequest {
+                                    tool_name: tool_name.clone(),
+                                    agent_name: agent_for_tier.clone(),
+                                    args: tool_args.clone(),
+                                };
+                                let result = engine.evaluate(&request);
+                                match result.action {
+                                    PolicyAction::Deny { ref reason } => {
+                                        warn!(
+                                            "PolicyEngine denied tool '{}' for agent '{}': {} (rule: {:?})",
+                                            tool_name, agent_for_tier, reason, result.matched_rule
+                                        );
+                                        if let Some(ref bus) = bus_opt_for_policy {
+                                            bus.emit(AgentEvent::PolicyDenied {
+                                                agent_name: agent_for_tier.clone(),
+                                                tool_name: tool_name.clone(),
+                                                rule_name: result.matched_rule.unwrap_or_default(),
+                                                reason: reason.clone(),
+                                            });
+                                        }
+                                        return ChatMessage {
+                                            role: "tool".to_string(),
+                                            content: format!("Policy denied: {}", reason),
+                                            tool_calls: None,
+                                            tool_call_id: tool_id,
+                                        };
+                                    }
+                                    PolicyAction::Quarantine { ref reason } => {
+                                        warn!(
+                                            "PolicyEngine quarantined tool '{}' for agent '{}': {} (proceeding with flag)",
+                                            tool_name, agent_for_tier, reason
+                                        );
+                                    }
+                                    PolicyAction::Allow => {}
+                                }
+                            }
+
                             // ── Service Tier: check tool access before execution ──
                             if let Some(ref tier_mgr) = tier_opt {
                                 if let Err(denied) = tier_mgr.check_access(&agent_for_tier, &tool_name) {
@@ -969,6 +1105,41 @@ impl AgentRuntime {
                             });
                         }
                         LoopAction::Continue => {}
+                    }
+
+                    // ── Idle Detection: check if agent output is repeating ──
+                    {
+                        let combined_output: String = messages.iter().rev()
+                            .take(tool_calls.len())
+                            .filter(|m| m.role == "tool")
+                            .map(|m| m.content.as_str())
+                            .collect::<Vec<_>>()
+                            .join("|");
+                        if idle_detector.check_round(tool_calls.len(), &combined_output) {
+                            let elapsed = t0.elapsed().as_secs_f64();
+                            warn!(
+                                "Agent '{}' idle detected: {} consecutive identical rounds",
+                                agent_name, idle_detector.idle_count()
+                            );
+                            if let Some(ref bus) = self.event_bus {
+                                bus.emit(AgentEvent::IdleDetected {
+                                    agent_name: agent_name.to_string(),
+                                    idle_rounds: idle_detector.idle_count(),
+                                    round,
+                                });
+                            }
+                            self.record_run_cost(agent_name, &effective_provider, model, total_tokens, elapsed, Some("idle_detected"));
+                            return Ok(AgentResult {
+                                agent_name: agent_name.to_string(),
+                                output: format!(
+                                    "Agent stopped: idle detected ({} identical rounds). Last output may be stale.",
+                                    idle_detector.idle_count()
+                                ),
+                                tool_calls_made: total_tool_calls,
+                                elapsed_secs: elapsed,
+                                total_tokens,
+                            });
+                        }
                     }
 
                     // Record tool results for stale detection
@@ -1429,5 +1600,93 @@ mod tests {
         let master = runtime.get_config("master").unwrap();
         // Default budget is 0 (no limit)
         assert_eq!(master.daily_budget_usd, 0.0);
+    }
+
+    // ── IdleDetector tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_idle_detector_new() {
+        let detector = IdleDetector::new();
+        assert_eq!(detector.idle_count(), 0);
+        assert!(!detector.is_idle());
+    }
+
+    #[test]
+    fn test_idle_detector_different_outputs() {
+        let mut detector = IdleDetector::new();
+        assert!(!detector.check_round(1, "output A"));
+        assert!(!detector.check_round(2, "output B"));
+        assert!(!detector.check_round(0, "output C"));
+        assert_eq!(detector.idle_count(), 0);
+    }
+
+    #[test]
+    fn test_idle_detector_same_output_triggers() {
+        let mut detector = IdleDetector::new();
+        assert!(!detector.check_round(0, "same output")); // 1st time
+        assert!(!detector.check_round(0, "same output")); // idle_count = 1
+        assert!(!detector.check_round(0, "same output")); // idle_count = 2
+        assert!(detector.check_round(0, "same output"));  // idle_count = 3 = threshold
+        assert!(detector.is_idle());
+    }
+
+    #[test]
+    fn test_idle_detector_reset_on_different() {
+        let mut detector = IdleDetector::new();
+        assert!(!detector.check_round(0, "same"));
+        assert!(!detector.check_round(0, "same")); // idle_count = 1
+        assert!(!detector.check_round(0, "different")); // reset
+        assert_eq!(detector.idle_count(), 0);
+    }
+
+    #[test]
+    fn test_idle_detector_custom_threshold() {
+        let mut detector = IdleDetector::with_threshold(2);
+        assert!(!detector.check_round(0, "x"));
+        assert!(!detector.check_round(0, "x")); // idle_count = 1
+        assert!(detector.check_round(0, "x"));  // idle_count = 2 = threshold
+    }
+
+    #[test]
+    fn test_idle_detector_tool_calls_matter() {
+        let mut detector = IdleDetector::new();
+        // Same text but different tool call counts → different hash
+        assert!(!detector.check_round(0, "output"));
+        assert!(!detector.check_round(1, "output")); // different because tool_calls=1
+        assert_eq!(detector.idle_count(), 0);
+    }
+
+    #[test]
+    fn test_idle_detector_reset() {
+        let mut detector = IdleDetector::new();
+        detector.check_round(0, "x");
+        detector.check_round(0, "x");
+        assert_eq!(detector.idle_count(), 1);
+        detector.reset();
+        assert_eq!(detector.idle_count(), 0);
+        assert!(!detector.is_idle());
+    }
+
+    #[test]
+    fn test_idle_detector_threshold_minimum_one() {
+        let detector = IdleDetector::with_threshold(0);
+        // Threshold clamped to 1
+        assert_eq!(detector.threshold, 1);
+    }
+
+    #[test]
+    fn test_idle_detector_empty_output() {
+        let mut detector = IdleDetector::new();
+        assert!(!detector.check_round(0, ""));
+        assert!(!detector.check_round(0, ""));
+        assert!(!detector.check_round(0, ""));
+        assert!(detector.check_round(0, "")); // 3 idle rounds with empty output
+    }
+
+    #[test]
+    fn test_idle_detector_default_impl() {
+        let detector = IdleDetector::default();
+        assert_eq!(detector.idle_count(), 0);
+        assert_eq!(detector.threshold, IDLE_THRESHOLD);
     }
 }

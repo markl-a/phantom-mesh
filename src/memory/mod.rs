@@ -100,6 +100,107 @@ impl Default for MemoryConfig {
     }
 }
 
+// ── Memory Tier Hierarchy ──────────────────────────────────────────────────────
+
+/// Memory tier — categorizes memories by temporal and functional role.
+/// Inspired by cognitive science memory models (working, episodic, semantic, procedural).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryTier {
+    /// Short-term, task-specific context (cleared after session)
+    Working,
+    /// Event-based memories with timestamps (conversation snapshots)
+    Episodic,
+    /// Long-term factual knowledge (persistent)
+    Semantic,
+    /// How-to knowledge and procedures (tool usage patterns)
+    Procedural,
+    /// Relationship-based memories (entity connections)
+    Relational,
+}
+
+impl MemoryTier {
+    /// Classify content into an appropriate tier based on heuristics.
+    pub fn classify(key: &str, content: &str) -> Self {
+        let lower_key = key.to_lowercase();
+        let lower_content = content.to_lowercase();
+
+        // Procedural: how-to, steps, instructions, tool usage
+        if lower_key.contains("how_to")
+            || lower_key.contains("procedure")
+            || lower_key.contains("tool_usage")
+            || lower_content.contains("step 1")
+            || lower_content.contains("steps:")
+            || lower_content.contains("run the command")
+        {
+            return MemoryTier::Procedural;
+        }
+
+        // Relational: entity relationships, connections
+        if lower_key.contains("relationship")
+            || lower_key.contains("connection")
+            || lower_key.contains("related_to")
+            || lower_content.contains("is related to")
+            || lower_content.contains("depends on")
+            || lower_content.contains("connected to")
+        {
+            return MemoryTier::Relational;
+        }
+
+        // Episodic: events, conversations, timestamped data
+        if lower_key.contains("conversation")
+            || lower_key.contains("session")
+            || lower_key.contains("event")
+            || lower_content.contains("said:")
+            || lower_content.contains("happened at")
+            || lower_content.contains("during the session")
+        {
+            return MemoryTier::Episodic;
+        }
+
+        // Working: temporary, task-specific
+        if lower_key.contains("current_task")
+            || lower_key.contains("temp")
+            || lower_key.contains("scratch")
+            || lower_key.starts_with("wip_")
+        {
+            return MemoryTier::Working;
+        }
+
+        // Default: Semantic (long-term factual)
+        MemoryTier::Semantic
+    }
+
+    /// Decay factor for memory recall scoring (0.0 - 1.0).
+    /// Lower values decay faster (less relevant over time).
+    pub fn decay_factor(&self) -> f32 {
+        match self {
+            MemoryTier::Working => 0.3,      // Decays fastest
+            MemoryTier::Episodic => 0.6,     // Moderate decay
+            MemoryTier::Semantic => 0.95,    // Very slow decay
+            MemoryTier::Procedural => 0.9,   // Slow decay
+            MemoryTier::Relational => 0.85,  // Fairly persistent
+        }
+    }
+
+    /// Display name for the tier.
+    pub fn label(&self) -> &str {
+        match self {
+            MemoryTier::Working => "working",
+            MemoryTier::Episodic => "episodic",
+            MemoryTier::Semantic => "semantic",
+            MemoryTier::Procedural => "procedural",
+            MemoryTier::Relational => "relational",
+        }
+    }
+}
+
+impl std::fmt::Display for MemoryTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.label())
+    }
+}
+
 // ── Backend Trait ──────────────────────────────────────────────────────────────
 
 #[async_trait]
@@ -359,6 +460,79 @@ impl MemoryStore {
     pub fn backend_name(&self) -> &str {
         &self.config.backend
     }
+
+    /// Store a memory with automatic tier classification.
+    /// The tier is determined from the key and content heuristics.
+    pub async fn store_tiered(
+        &self,
+        key: &str,
+        content: &str,
+        category: MemoryCategory,
+        session_id: Option<&str>,
+    ) -> Result<(String, MemoryTier)> {
+        let tier = MemoryTier::classify(key, content);
+        let id = self.store(key, content, category, session_id).await?;
+        debug!("Stored tiered memory '{}' tier={}", key, tier);
+        Ok((id, tier))
+    }
+
+    /// Store a memory with an explicit tier.
+    pub async fn store_with_tier(
+        &self,
+        key: &str,
+        content: &str,
+        category: MemoryCategory,
+        tier: MemoryTier,
+        session_id: Option<&str>,
+    ) -> Result<String> {
+        // For now, tiers are metadata-only; the actual storage is identical
+        // to regular store(). Tier info is encoded in the key prefix.
+        let tiered_key = format!("[{}] {}", tier.label(), key);
+        let id = self.store(&tiered_key, content, category, session_id).await?;
+        debug!("Stored memory '{}' with explicit tier={}", key, tier);
+        Ok(id)
+    }
+
+    /// Recall memories with tier-aware scoring.
+    /// Applies decay_factor based on memory tier to adjust relevance scores.
+    pub async fn recall_tiered(
+        &self,
+        query: &str,
+        limit: usize,
+        session_id: Option<&str>,
+        preferred_tiers: Option<&[MemoryTier]>,
+    ) -> Result<Vec<MemoryEntry>> {
+        // Fetch more than needed, then apply tier-based re-ranking
+        let mut entries = self.recall(query, limit * 3, session_id).await?;
+
+        // Apply tier-based scoring adjustments
+        for entry in &mut entries {
+            let tier = MemoryTier::classify(&entry.key, &entry.content);
+            let decay = tier.decay_factor();
+
+            // Boost preferred tiers
+            let tier_boost = if let Some(preferred) = preferred_tiers {
+                if preferred.contains(&tier) {
+                    1.2 // 20% boost for preferred tiers
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+
+            entry.relevance_score *= decay * tier_boost;
+        }
+
+        // Re-sort by adjusted score
+        entries.sort_by(|a, b| {
+            b.relevance_score
+                .partial_cmp(&a.relevance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(entries.into_iter().take(limit).collect())
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -441,5 +615,93 @@ mod tests {
     #[test]
     fn test_format_context_empty() {
         assert_eq!(MemoryStore::format_context(&[]), "");
+    }
+
+    // ── MemoryTier tests ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_tier_classify_procedural() {
+        assert_eq!(MemoryTier::classify("how_to_deploy", "Run these steps"), MemoryTier::Procedural);
+        assert_eq!(MemoryTier::classify("deploy", "Step 1: install deps"), MemoryTier::Procedural);
+        assert_eq!(MemoryTier::classify("tool_usage_shell", "use shell to..."), MemoryTier::Procedural);
+    }
+
+    #[test]
+    fn test_tier_classify_relational() {
+        assert_eq!(MemoryTier::classify("relationship_user_project", "User is related to project X"), MemoryTier::Relational);
+        assert_eq!(MemoryTier::classify("deps", "Module A depends on Module B"), MemoryTier::Relational);
+    }
+
+    #[test]
+    fn test_tier_classify_episodic() {
+        assert_eq!(MemoryTier::classify("conversation_2024", "User said: hello"), MemoryTier::Episodic);
+        assert_eq!(MemoryTier::classify("session_123", "During the session..."), MemoryTier::Episodic);
+    }
+
+    #[test]
+    fn test_tier_classify_working() {
+        assert_eq!(MemoryTier::classify("current_task_debug", "Debugging X"), MemoryTier::Working);
+        assert_eq!(MemoryTier::classify("temp_analysis", "Temporary data"), MemoryTier::Working);
+        assert_eq!(MemoryTier::classify("wip_draft", "Draft content"), MemoryTier::Working);
+    }
+
+    #[test]
+    fn test_tier_classify_semantic_default() {
+        assert_eq!(MemoryTier::classify("user_name", "Alice"), MemoryTier::Semantic);
+        assert_eq!(MemoryTier::classify("api_key_location", "In .env file"), MemoryTier::Semantic);
+    }
+
+    #[test]
+    fn test_tier_decay_factors() {
+        // Working decays fastest, Semantic slowest
+        assert!(MemoryTier::Working.decay_factor() < MemoryTier::Episodic.decay_factor());
+        assert!(MemoryTier::Episodic.decay_factor() < MemoryTier::Relational.decay_factor());
+        assert!(MemoryTier::Relational.decay_factor() < MemoryTier::Procedural.decay_factor());
+        assert!(MemoryTier::Procedural.decay_factor() < MemoryTier::Semantic.decay_factor());
+    }
+
+    #[test]
+    fn test_tier_labels() {
+        assert_eq!(MemoryTier::Working.label(), "working");
+        assert_eq!(MemoryTier::Episodic.label(), "episodic");
+        assert_eq!(MemoryTier::Semantic.label(), "semantic");
+        assert_eq!(MemoryTier::Procedural.label(), "procedural");
+        assert_eq!(MemoryTier::Relational.label(), "relational");
+    }
+
+    #[test]
+    fn test_tier_display() {
+        assert_eq!(format!("{}", MemoryTier::Semantic), "semantic");
+        assert_eq!(format!("{}", MemoryTier::Working), "working");
+    }
+
+    #[test]
+    fn test_tier_serialization() {
+        let tier = MemoryTier::Procedural;
+        let json = serde_json::to_string(&tier).unwrap();
+        assert_eq!(json, "\"procedural\"");
+        let back: MemoryTier = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, MemoryTier::Procedural);
+    }
+
+    #[test]
+    fn test_all_tiers_have_valid_decay() {
+        for tier in &[
+            MemoryTier::Working,
+            MemoryTier::Episodic,
+            MemoryTier::Semantic,
+            MemoryTier::Procedural,
+            MemoryTier::Relational,
+        ] {
+            let decay = tier.decay_factor();
+            assert!(decay > 0.0 && decay <= 1.0, "Invalid decay for {:?}: {}", tier, decay);
+        }
+    }
+
+    #[test]
+    fn test_tier_classify_case_insensitive() {
+        // Key matching is lowercase
+        assert_eq!(MemoryTier::classify("HOW_TO_fix", "fix things"), MemoryTier::Procedural);
+        assert_eq!(MemoryTier::classify("CONVERSATION_log", "User said: hi"), MemoryTier::Episodic);
     }
 }

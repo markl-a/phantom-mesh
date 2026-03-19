@@ -768,6 +768,33 @@ impl ProviderRouter {
     pub fn codex_token_manager(&self) -> Option<&Arc<CodexTokenManager>> {
         self.codex_token_manager.as_ref()
     }
+
+    /// Set the survival tier based on budget usage.
+    /// Adjusts the budget_ratio internally to match the tier.
+    pub fn set_survival_tier(&self, tier: crate::budget_downgrade::SurvivalTier) {
+        let ratio = match tier {
+            crate::budget_downgrade::SurvivalTier::Normal => 0.0,
+            crate::budget_downgrade::SurvivalTier::LowCompute => 0.6,
+            crate::budget_downgrade::SurvivalTier::Critical => 0.85,
+            crate::budget_downgrade::SurvivalTier::Dead => 1.0,
+        };
+        self.set_budget_ratio(ratio);
+        info!("Survival tier set to {:?} (budget_ratio={:.2})", tier, ratio);
+    }
+
+    /// Get the current survival tier based on budget_ratio.
+    pub fn survival_tier(&self) -> crate::budget_downgrade::SurvivalTier {
+        let ratio = self.budget_ratio();
+        if ratio >= 0.95 {
+            crate::budget_downgrade::SurvivalTier::Dead
+        } else if ratio >= 0.80 {
+            crate::budget_downgrade::SurvivalTier::Critical
+        } else if ratio >= 0.50 {
+            crate::budget_downgrade::SurvivalTier::LowCompute
+        } else {
+            crate::budget_downgrade::SurvivalTier::Normal
+        }
+    }
 }
 
 #[cfg(test)]
@@ -988,5 +1015,57 @@ mod tests {
         let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
         assert!(router.codex_token_manager.is_none());
         assert!(router.codex_base_url.is_none());
+    }
+
+    // ── Survival Tier tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_survival_tier_default_normal() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        assert_eq!(
+            router.survival_tier(),
+            crate::budget_downgrade::SurvivalTier::Normal
+        );
+    }
+
+    #[test]
+    fn test_set_survival_tier_low_compute() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        router.set_survival_tier(crate::budget_downgrade::SurvivalTier::LowCompute);
+        assert_eq!(
+            router.survival_tier(),
+            crate::budget_downgrade::SurvivalTier::LowCompute
+        );
+    }
+
+    #[test]
+    fn test_set_survival_tier_critical() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        router.set_survival_tier(crate::budget_downgrade::SurvivalTier::Critical);
+        assert_eq!(
+            router.survival_tier(),
+            crate::budget_downgrade::SurvivalTier::Critical
+        );
+    }
+
+    #[test]
+    fn test_set_survival_tier_dead() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        router.set_survival_tier(crate::budget_downgrade::SurvivalTier::Dead);
+        assert_eq!(
+            router.survival_tier(),
+            crate::budget_downgrade::SurvivalTier::Dead
+        );
+    }
+
+    #[test]
+    fn test_set_survival_tier_normal_resets() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        router.set_survival_tier(crate::budget_downgrade::SurvivalTier::Critical);
+        router.set_survival_tier(crate::budget_downgrade::SurvivalTier::Normal);
+        assert_eq!(
+            router.survival_tier(),
+            crate::budget_downgrade::SurvivalTier::Normal
+        );
     }
 }

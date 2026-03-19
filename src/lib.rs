@@ -88,6 +88,7 @@ pub mod rate_limiter_v2;
 pub mod retry;
 pub mod smoke_test;
 pub mod structured_log;
+pub mod policy_engine;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -119,7 +120,7 @@ pub use tools::line_notify::LineConfig;
 pub use tools::whatsapp::WhatsAppConfig;
 pub use conversation::ConversationStore;
 pub use cron::{Scheduler, CronStore, CronJob, Schedule, JobAction, JobStatus};
-pub use memory::{MemoryStore, MemoryConfig, MemoryCategory, MemoryEntry};
+pub use memory::{MemoryStore, MemoryConfig, MemoryCategory, MemoryEntry, MemoryTier};
 pub use skills::{SkillRegistry, SkillDef, LoadedSkill, TrustLevel};
 pub use evaluate::{EvalConfig, EvalResult};
 pub use context::ContextOptimizer;
@@ -130,6 +131,8 @@ pub use estop::{EStop, EStopError, Heartbeat};
 pub use gateway::{GatewayState, AgentThinkRequest, AgentThinkResponse};
 pub use approval::{ApprovalGate, ApprovalConfig, ApprovalResult, ApprovalNotifier, ApprovalTier, ApprovalPolicy, TierPolicyConfig, tier_for_tool, is_emergency_operation};
 pub use hands::{Hand, HandRegistry, HandRunner, HandResult, PhaseOutput, PreflightResult};
+pub use hands::middleware::{PhaseMiddleware, MiddlewareChain, PhaseContext, PhasePostContext};
+pub use hands::message_queue::HandMessageQueue;
 pub use cost_tracker::{CostTracker, CostRecord, CostSummary, estimate_cost, BudgetBreaker, BudgetStatus};
 pub use revenue_tracker::{RevenueTracker, RevenueRecord, RevenueSummary, RevenueStatus};
 pub use dispatcher::{DispatchMode, parse_tool_calls, xml_tool_instructions, dispatch_mode_for_provider};
@@ -153,7 +156,7 @@ pub use watchdog::{WorkerWatchdog, RecoveryConfig, WatchdogEvent, WatchdogStatus
 pub use trajectory::{TrajectoryLogger, TrajectoryEntry, QualityStats, WorkerEfficiency};
 pub use circuit_breaker::{ProviderCircuitBreaker, BreakerConfig, CircuitStatus};
 pub use prompt_optimizer::{PromptOptimizer, OptimizationResult, OptimizationConfig};
-pub use injection_guard::{InjectionGuard, InjectionResult, Severity};
+pub use injection_guard::{InjectionGuard, InjectionResult, Severity, PatternCategory};
 pub use knowledge_capture::{KnowledgeCapturer, KnowledgeNode};
 pub use auto_diagnosis::{AutoDiagnoser, ErrorContext, DiagnosisReport, ErrorCategory, KnownIssue, SimilarDiagnosis};
 pub use load_test::{
@@ -173,3 +176,7 @@ pub use customer_health::{CustomerHealthManager, ChurnDetector, CustomerHealth, 
 pub use observational_memory::{ObservationalMemory, Observation, ConversationMessage};
 pub use ops_report::{OpsReporter, OpsReport, ReportType, NodeHealth, NodeStatus, CostSection, TaskSection, PipelineSection};
 pub use web_dashboard::{DashboardState, dashboard_routes};
+pub use budget_downgrade::SurvivalTier;
+pub use policy_engine::{PolicyEngine, PolicyRule, PolicyCondition, PolicyAction, PolicyRequest, PolicyResult};
+pub use tools::error_middleware::{ToolError, ToolErrorCategory, classify_tool_error};
+pub use agent_runtime::IdleDetector;

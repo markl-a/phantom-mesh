@@ -55,6 +55,7 @@ pub mod system_info;
 pub mod weather;
 pub mod calculator;
 pub mod notification_center;
+pub mod error_middleware;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -531,11 +532,15 @@ impl ToolRegistry {
         tracker.record();
     }
 
-    /// Execute a tool with rate limiting, credential scrubbing, and audit logging
+    /// Execute a tool with rate limiting, credential scrubbing, audit logging, and structured error classification.
     pub async fn execute_tool(&self, tool_name: &str, args: Value) -> Result<ToolResult> {
+        use crate::tools::error_middleware::{ToolError, classify_tool_error};
+
         // 1. Check rate limit
         if let Err(msg) = self.check_rate_limit(tool_name) {
-            warn!("Rate limited: {}", msg);
+            let tool_err = ToolError::rate_limited(tool_name, &msg);
+            warn!("ToolError [{}]: {} (retryable={}, retry_after={:?})",
+                tool_err.category, tool_err.message, tool_err.retryable, tool_err.retry_after_secs);
             return Ok(ToolResult {
                 success: false,
                 output: format!("Rate limit exceeded: {}", msg),
@@ -543,11 +548,18 @@ impl ToolRegistry {
         }
 
         // 2. Get tool and run preflight check
-        let tool = self.tools.get(tool_name)
-            .ok_or_else(|| anyhow::anyhow!("Unknown tool: {}", tool_name))?;
+        let tool = match self.tools.get(tool_name) {
+            Some(t) => t,
+            None => {
+                let tool_err = ToolError::not_found(tool_name);
+                warn!("ToolError [{}]: {}", tool_err.category, tool_err.message);
+                return Err(anyhow::anyhow!("Unknown tool: {}", tool_name));
+            }
+        };
 
         if let Err(e) = tool.preflight(&args) {
-            warn!("Preflight check failed for '{}': {}", tool_name, e);
+            let tool_err = ToolError::preflight_failed(tool_name, &e.to_string());
+            warn!("ToolError [{}]: {}", tool_err.category, tool_err.message);
             // Audit the preflight failure
             if let Some(ref audit) = self.audit_logger {
                 let action_type = action_type_for_tool(tool_name);
@@ -557,7 +569,7 @@ impl ToolRegistry {
                     action_type,
                     Some(tool_name),
                     target.as_deref(),
-                    Some(serde_json::json!({"error": e.to_string(), "preflight": true})),
+                    Some(serde_json::json!({"error": e.to_string(), "preflight": true, "category": tool_err.category.to_string()})),
                     Outcome::Failure,
                     None,
                     risk_level_for_tool(tool_name),
@@ -569,7 +581,15 @@ impl ToolRegistry {
             });
         }
 
-        let result = tool.execute(args.clone()).await?;
+        let result = match tool.execute(args.clone()).await {
+            Ok(r) => r,
+            Err(e) => {
+                let classified = classify_tool_error(tool_name, &e.to_string());
+                warn!("ToolError [{}]: {} (retryable={})",
+                    classified.category, classified.message, classified.retryable);
+                return Err(e);
+            }
+        };
 
         // 3. Record the action
         self.record_tool_call(tool_name);

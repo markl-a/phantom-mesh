@@ -71,6 +71,19 @@ pub enum AgentEvent {
         reason: String,
         elapsed_secs: f64,
     },
+    /// Agent idle detection triggered — same output repeated across rounds
+    IdleDetected {
+        agent_name: String,
+        idle_rounds: usize,
+        round: usize,
+    },
+    /// Policy engine denied a tool call
+    PolicyDenied {
+        agent_name: String,
+        tool_name: String,
+        rule_name: String,
+        reason: String,
+    },
 }
 
 /// Broadcast-based event bus for agent events.

@@ -2,6 +2,9 @@
 //! Each Hand is a specialized agent configuration loaded from TOML files.
 //! Based on OpenFang's HAND.toml pattern.
 
+pub mod middleware;
+pub mod message_queue;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -16,6 +19,8 @@ use crate::guardrail::{self, GuardrailConfig, GuardrailResult};
 use crate::knowledge_capture::KnowledgeCapturer;
 use crate::llm_router::LlmRouter;
 use crate::tools::ToolRegistry;
+use crate::hands::middleware::{MiddlewareChain, PhaseContext, PhasePostContext};
+use crate::hands::message_queue::HandMessageQueue;
 
 // re-export for parallel_queries JSON construction
 use serde_json;
@@ -499,6 +504,38 @@ impl HandRunner {
             )
         };
 
+        // ── Middleware Chain: pre-process the prompt before execution ──
+        let middleware_chain = MiddlewareChain::with_defaults();
+        let pre_ctx = PhaseContext {
+            hand_name: hand.name.clone(),
+            phase_name: phase.name.clone(),
+            phase_index,
+            prompt: prompt.clone(),
+            user_input: user_input.to_string(),
+            previous_outputs: previous_outputs.iter().map(|o| o.output.clone()).collect(),
+            metadata: std::collections::HashMap::new(),
+            halted: false,
+            halt_reason: None,
+        };
+        let pre_result = middleware_chain.run_pre(pre_ctx);
+        if pre_result.halted {
+            let reason = pre_result.halt_reason.unwrap_or_else(|| "Halted by middleware".to_string());
+            warn!("Hand '{}' phase '{}' halted by middleware: {}", hand.name, phase.name, reason);
+            let output = PhaseOutput {
+                phase_name: phase.name.clone(),
+                output: format!("Phase halted: {}", reason),
+                tool_calls: 0,
+                duration_secs: 0.0,
+                skipped: true,
+                guardrail_issues: vec![reason],
+                quality_score: None,
+                quality_retries: 0,
+            };
+            return Ok((output, context.to_string()));
+        }
+        // Use potentially modified prompt from middleware
+        let prompt = pre_result.prompt;
+
         // Use the phase's max_rounds setting to limit the agent's tool-call loop
         let phase_max_rounds = Some(phase.max_rounds as usize);
 
@@ -556,6 +593,27 @@ impl HandRunner {
                 let mut guardrail_issues = Vec::new();
                 let mut quality_score = None;
                 let mut quality_retries: u8 = 0;
+
+                // ── Middleware Chain: post-process the output ──
+                {
+                    let post_ctx = PhasePostContext {
+                        hand_name: hand.name.clone(),
+                        phase_name: phase.name.clone(),
+                        output: agent_output.clone(),
+                        tool_calls: total_tool_calls,
+                        issues: Vec::new(),
+                        metadata: std::collections::HashMap::new(),
+                    };
+                    let post_result = middleware_chain.run_post(post_ctx);
+                    agent_output = post_result.output;
+                    if !post_result.issues.is_empty() {
+                        debug!(
+                            "Hand '{}' phase '{}' middleware post-process flagged {} issue(s)",
+                            hand.name, phase.name, post_result.issues.len()
+                        );
+                        guardrail_issues.extend(post_result.issues);
+                    }
+                }
 
                 // ── L1 Guardrail: pure Rust format validation ──
                 if let Some(ref gc) = hand.guardrail {
@@ -713,6 +771,8 @@ impl HandRunner {
     /// injected as context for the next phase.
     /// If `approval_gate` is provided and the hand has `require_approval=true` in settings,
     /// approval will be requested before execution.
+    /// If `message_queue` is provided, queued messages are drained between phases
+    /// and injected into the next phase's context.
     pub async fn run(
         hand: &Hand,
         user_input: &str,
@@ -720,6 +780,19 @@ impl HandRunner {
         router: &LlmRouter,
         tool_registry: &ToolRegistry,
         approval_gate: Option<&Arc<ApprovalGate>>,
+    ) -> Result<HandResult> {
+        Self::run_with_queue(hand, user_input, runtime, router, tool_registry, approval_gate, None).await
+    }
+
+    /// Run with optional message queue for inter-phase message injection.
+    pub async fn run_with_queue(
+        hand: &Hand,
+        user_input: &str,
+        runtime: &AgentRuntime,
+        router: &LlmRouter,
+        tool_registry: &ToolRegistry,
+        approval_gate: Option<&Arc<ApprovalGate>>,
+        message_queue: Option<&HandMessageQueue>,
     ) -> Result<HandResult> {
         let start = std::time::Instant::now();
 
@@ -892,6 +965,20 @@ impl HandRunner {
                     Err(e) => {
                         debug!("Knowledge capture failed for {}/{}: {} (non-blocking)", hand.name, phase_name, e);
                     }
+                }
+            }
+
+            // ── Message Queue: drain queued messages between phases ──
+            if let Some(queue) = message_queue {
+                let chat_id = 0; // Default chat ID — in production, passed from Telegram handler
+                let queued = queue.drain(chat_id);
+                if !queued.is_empty() {
+                    let queued_text = HandMessageQueue::format_as_context(&queued);
+                    info!(
+                        "Hand '{}' phase {}: injecting {} queued message(s) into context",
+                        hand.name, i + 1, queued.len()
+                    );
+                    context = format!("{}\n\n{}", context, queued_text);
                 }
             }
         }
