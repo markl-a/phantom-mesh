@@ -96,6 +96,9 @@ pub mod stripe_webhook;
 pub mod task_taxonomy;
 pub mod telegram_menu;
 pub mod unit_economics;
+pub mod revenue_pipeline;
+pub mod roi_scheduler;
+pub mod provider_budget;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -196,3 +199,4 @@ pub use stripe_webhook::{StripeWebhook, WebhookAction, verify_signature};
 pub use task_taxonomy::{TaskCategory, TaskProfile, TaskTaxonomy};
 pub use telegram_menu::{InlineKeyboard, InlineButton, CallbackAction, parse_callback};
 pub use unit_economics::{UnitEconomics, CaseEconomics, EconomicsSummary};
+pub use revenue_pipeline::{RevenuePipeline, PipelineDef, PipelineStage, StageType, PipelineExecution, PipelineStatus, PipelineStats, default_pipelines};
