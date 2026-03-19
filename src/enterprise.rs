@@ -9,6 +9,7 @@ use chrono::Utc;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::{debug, info, warn};
@@ -313,7 +314,16 @@ impl UsageReporter {
 //  3. API Key Management
 // ════════════════════════════════════════════════════════════════════════════
 
+/// Prefix stored on hashed keys to distinguish from legacy plaintext entries.
+const HASH_PREFIX: &str = "sha256:";
+
 /// An API key with metadata.
+///
+/// The `key` field stores **either**:
+///   - A SHA-256 hash prefixed with `"sha256:"` (new keys), **or**
+///   - The raw plaintext key (legacy / pre-hash keys).
+///
+/// Callers receive the plaintext key exactly once from [`ApiKeyManager::create_key`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKey {
     pub key: String,
@@ -339,6 +349,47 @@ fn generate_enterprise_key(prefix: &str) -> String {
     format!("{}_{}", prefix, hex::encode(bytes))
 }
 
+/// Generate a random API key with the `clawtex_` prefix and 32 hex characters.
+///
+/// Format: `clawtex_<32 hex chars>` (16 random bytes = 128 bits of entropy).
+pub fn generate_key() -> String {
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = rng.gen();
+    format!("clawtex_{}", hex::encode(bytes))
+}
+
+/// Compute the SHA-256 hash of `key` and return it as a lowercase hex string
+/// **without** the `"sha256:"` prefix.
+pub fn hash_key(key: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    let result = hasher.finalize();
+    hex::encode(result)
+}
+
+/// Constant-time comparison of a provided plaintext key against a stored hash.
+///
+/// `stored_hash` may be:
+///   - Prefixed with `"sha256:"` (the hash is the remainder), or
+///   - A bare hex hash (64 hex chars).
+///
+/// Returns `true` if `hash_key(provided)` equals the stored hash.
+pub fn verify_key(provided: &str, stored_hash: &str) -> bool {
+    let expected = stored_hash.strip_prefix(HASH_PREFIX).unwrap_or(stored_hash);
+    let computed = hash_key(provided);
+
+    // Constant-time comparison to prevent timing attacks.
+    // Both strings are lowercase hex of SHA-256 (64 chars).
+    if computed.len() != expected.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (a, b) in computed.bytes().zip(expected.bytes()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
 /// Rate-limit state for a single key.
 struct KeyRateState {
     /// Remaining requests in the current window.
@@ -348,9 +399,18 @@ struct KeyRateState {
 }
 
 /// In-memory API key manager with per-key rate limiting.
+///
+/// New keys are stored as SHA-256 hashes (prefixed `"sha256:"`).
+/// Legacy plaintext keys are still accepted for backward compatibility:
+/// [`validate_key`](ApiKeyManager::validate_key) first tries a hash lookup,
+/// then falls back to a plaintext lookup so pre-existing keys continue to work.
 pub struct ApiKeyManager {
+    /// Map from **lookup key** to `ApiKey`.
+    ///
+    /// For hashed keys the lookup key is `"sha256:<hex>"`.
+    /// For legacy plaintext keys the lookup key is the raw key string.
     keys: Mutex<HashMap<String, ApiKey>>,
-    /// Per-key rate limiting: key -> state
+    /// Per-key rate limiting: lookup_key -> state
     rate_state: Mutex<HashMap<String, KeyRateState>>,
     /// Max requests per window
     rate_limit_per_window: u32,
@@ -371,6 +431,10 @@ impl ApiKeyManager {
     }
 
     /// Create a new API key.
+    ///
+    /// Returns an [`ApiKey`] whose `.key` field contains the **plaintext** key
+    /// (this is the only time the plaintext is available).  Internally, only
+    /// the SHA-256 hash is stored.
     pub fn create_key(
         &self,
         name: &str,
@@ -378,32 +442,65 @@ impl ApiKeyManager {
         expires_at: Option<i64>,
     ) -> ApiKey {
         let key_str = generate_enterprise_key("ent");
-        let api_key = ApiKey {
-            key: key_str.clone(),
+        let hashed = format!("{}{}", HASH_PREFIX, hash_key(&key_str));
+
+        let stored_key = ApiKey {
+            key: hashed.clone(),
             name: name.to_string(),
-            permissions,
+            permissions: permissions.clone(),
             created_at: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             expires_at,
             revoked: false,
         };
         info!("Created enterprise API key '{}' (name={})", &key_str[..12], name);
-        self.keys.lock().unwrap().insert(key_str.clone(), api_key.clone());
-        // Init rate limiter state
+        self.keys.lock().unwrap().insert(hashed.clone(), stored_key);
+
+        // Init rate limiter state (keyed by hash)
         self.rate_state.lock().unwrap().insert(
-            key_str,
+            hashed,
             KeyRateState {
                 remaining: self.rate_limit_per_window,
                 window_start: Utc::now().timestamp(),
             },
         );
-        api_key
+
+        // Return plaintext key to the caller (one-time reveal).
+        ApiKey {
+            key: key_str,
+            name: name.to_string(),
+            permissions,
+            created_at: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            expires_at,
+            revoked: false,
+        }
+    }
+
+    /// Resolve the internal lookup key for a caller-provided plaintext key.
+    ///
+    /// 1. Compute the SHA-256 hash and check if `"sha256:<hash>"` exists.
+    /// 2. Fall back to the raw `key` string (legacy plaintext entry).
+    /// 3. Return `None` if neither exists.
+    fn resolve_lookup_key(&self, key: &str, keys: &HashMap<String, ApiKey>) -> Option<String> {
+        // Try hashed lookup first
+        let hashed = format!("{}{}", HASH_PREFIX, hash_key(key));
+        if keys.contains_key(&hashed) {
+            return Some(hashed);
+        }
+        // Backward-compat: try plaintext lookup
+        if keys.contains_key(key) {
+            return Some(key.to_string());
+        }
+        None
     }
 
     /// Validate an API key. Returns `Some(ApiKeyInfo)` if valid, `None` otherwise.
     /// Also decrements the rate-limit counter.
+    ///
+    /// Supports both hashed (new) and plaintext (legacy) stored keys.
     pub fn validate_key(&self, key: &str) -> Option<ApiKeyInfo> {
         let keys = self.keys.lock().unwrap();
-        let api_key = keys.get(key)?;
+        let lookup = self.resolve_lookup_key(key, &keys)?;
+        let api_key = keys.get(&lookup)?;
 
         // Check revocation
         if api_key.revoked {
@@ -419,10 +516,10 @@ impl ApiKeyManager {
             }
         }
 
-        // Rate limiting
+        // Rate limiting (keyed by lookup key)
         let mut rate = self.rate_state.lock().unwrap();
         let now = Utc::now().timestamp();
-        let state = rate.entry(key.to_string()).or_insert(KeyRateState {
+        let state = rate.entry(lookup.clone()).or_insert(KeyRateState {
             remaining: self.rate_limit_per_window,
             window_start: now,
         });
@@ -448,9 +545,15 @@ impl ApiKeyManager {
     }
 
     /// Revoke an API key. Returns true if the key existed and was revoked.
+    ///
+    /// Accepts the **plaintext** key; resolves via hash or plaintext lookup.
     pub fn revoke_key(&self, key: &str) -> bool {
         let mut keys = self.keys.lock().unwrap();
-        if let Some(api_key) = keys.get_mut(key) {
+        let lookup = match self.resolve_lookup_key(key, &keys) {
+            Some(l) => l,
+            None => return false,
+        };
+        if let Some(api_key) = keys.get_mut(&lookup) {
             if api_key.revoked {
                 return false; // Already revoked
             }
@@ -463,21 +566,47 @@ impl ApiKeyManager {
     }
 
     /// List all keys (including revoked).
+    ///
+    /// Note: The `key` field in the returned entries contains the **hash**
+    /// (for new keys) or the plaintext (for legacy keys).
     pub fn list_keys(&self) -> Vec<ApiKey> {
         self.keys.lock().unwrap().values().cloned().collect()
     }
 
     /// Get the remaining rate-limit count for a key without consuming a request.
+    ///
+    /// Accepts a **plaintext** key; resolves the internal lookup key.
     pub fn rate_limit_remaining(&self, key: &str) -> Option<u32> {
+        let keys = self.keys.lock().unwrap();
+        let lookup = self.resolve_lookup_key(key, &keys)?;
+        drop(keys);
+
         let rate = self.rate_state.lock().unwrap();
         let now = Utc::now().timestamp();
-        rate.get(key).map(|s| {
+        rate.get(&lookup).map(|s| {
             if now - s.window_start >= self.rate_window_secs {
                 self.rate_limit_per_window // window would reset
             } else {
                 s.remaining
             }
         })
+    }
+
+    /// Insert a **legacy plaintext** key directly into the store.
+    ///
+    /// This is provided for migration/backward-compatibility scenarios where
+    /// pre-existing keys need to be loaded without re-hashing.
+    #[allow(dead_code)]
+    pub fn insert_legacy_plaintext_key(&self, api_key: ApiKey) {
+        let lookup = api_key.key.clone();
+        self.keys.lock().unwrap().insert(lookup.clone(), api_key);
+        self.rate_state.lock().unwrap().insert(
+            lookup,
+            KeyRateState {
+                remaining: self.rate_limit_per_window,
+                window_start: Utc::now().timestamp(),
+            },
+        );
     }
 }
 
@@ -863,11 +992,24 @@ mod tests {
     fn test_create_api_key() {
         let mgr = ApiKeyManager::new(100, 3600);
         let key = mgr.create_key("test-service", vec!["read".into(), "write".into()], None);
+        // Returned key is plaintext (starts with ent_)
         assert!(key.key.starts_with("ent_"));
         assert_eq!(key.name, "test-service");
         assert_eq!(key.permissions, vec!["read", "write"]);
         assert!(!key.revoked);
         assert!(key.expires_at.is_none());
+    }
+
+    #[test]
+    fn test_create_key_stores_hash_not_plaintext() {
+        let mgr = ApiKeyManager::new(100, 3600);
+        let key = mgr.create_key("hashed-svc", vec![], None);
+        let plaintext = key.key.clone();
+        // The stored entries must NOT contain the plaintext key
+        let stored = mgr.list_keys();
+        assert_eq!(stored.len(), 1);
+        assert_ne!(stored[0].key, plaintext);
+        assert!(stored[0].key.starts_with("sha256:"));
     }
 
     #[test]
@@ -955,6 +1097,106 @@ mod tests {
         assert_eq!(mgr.rate_limit_remaining(&key.key), Some(10));
         mgr.validate_key(&key.key);
         assert_eq!(mgr.rate_limit_remaining(&key.key), Some(9));
+    }
+
+    // ── API Key Security Tests (hash_key, verify_key, generate_key) ──────
+
+    #[test]
+    fn test_hash_key_deterministic() {
+        let h1 = hash_key("clawtex_abcdef1234567890abcdef12");
+        let h2 = hash_key("clawtex_abcdef1234567890abcdef12");
+        assert_eq!(h1, h2);
+        // SHA-256 produces 64 hex chars
+        assert_eq!(h1.len(), 64);
+    }
+
+    #[test]
+    fn test_hash_key_different_inputs() {
+        let h1 = hash_key("key_aaa");
+        let h2 = hash_key("key_bbb");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_verify_key_correct() {
+        let plaintext = "clawtex_test1234567890abcdef1234";
+        let stored = format!("sha256:{}", hash_key(plaintext));
+        assert!(verify_key(plaintext, &stored));
+    }
+
+    #[test]
+    fn test_verify_key_incorrect() {
+        let stored = format!("sha256:{}", hash_key("correct_key"));
+        assert!(!verify_key("wrong_key", &stored));
+    }
+
+    #[test]
+    fn test_verify_key_bare_hash() {
+        // verify_key should also work with a bare hex hash (no "sha256:" prefix)
+        let plaintext = "some_api_key_value";
+        let bare_hash = hash_key(plaintext);
+        assert!(verify_key(plaintext, &bare_hash));
+        assert!(!verify_key("different_key", &bare_hash));
+    }
+
+    #[test]
+    fn test_generate_key_format() {
+        let key = generate_key();
+        assert!(key.starts_with("clawtex_"), "key should start with clawtex_");
+        // "clawtex_" (8 chars) + 32 hex chars = 40 total
+        assert_eq!(key.len(), 40, "key should be 40 chars total");
+        // The hex part should be valid hex
+        let hex_part = &key[8..];
+        assert_eq!(hex_part.len(), 32);
+        assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_generate_key_uniqueness() {
+        let k1 = generate_key();
+        let k2 = generate_key();
+        assert_ne!(k1, k2, "generated keys should be unique");
+        assert!(k1.starts_with("clawtex_"));
+        assert!(k2.starts_with("clawtex_"));
+    }
+
+    #[test]
+    fn test_backward_compat_plaintext_key() {
+        // Simulate a legacy key stored as plaintext (pre-hash migration).
+        let mgr = ApiKeyManager::new(100, 3600);
+        let legacy_plaintext = "ent_legacy_plaintext_key_abcdef0123456789";
+        let legacy = ApiKey {
+            key: legacy_plaintext.to_string(),
+            name: "legacy-svc".to_string(),
+            permissions: vec!["read".into()],
+            created_at: "2025-01-01T00:00:00Z".to_string(),
+            expires_at: None,
+            revoked: false,
+        };
+        mgr.insert_legacy_plaintext_key(legacy);
+
+        // Validate with the plaintext key should still work
+        let info = mgr.validate_key(legacy_plaintext).unwrap();
+        assert_eq!(info.name, "legacy-svc");
+        assert_eq!(info.permissions, vec!["read"]);
+    }
+
+    #[test]
+    fn test_verify_key_constant_time_length_mismatch() {
+        // If stored hash has wrong length, verify_key should return false
+        // without panicking
+        assert!(!verify_key("some_key", "tooshort"));
+        assert!(!verify_key("some_key", ""));
+    }
+
+    #[test]
+    fn test_hash_key_known_vector() {
+        // SHA-256("") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        let empty_hash = hash_key("");
+        assert_eq!(
+            empty_hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
     }
 
     // ── Webhook System Tests ───────────────────────────────────────────────

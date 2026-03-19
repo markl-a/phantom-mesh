@@ -665,6 +665,196 @@ impl RateLimiterV2 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TenantRateLimiter
+// ---------------------------------------------------------------------------
+
+/// Per-tenant sliding-window rate limiter.
+///
+/// Each tenant (identified by a string key, typically from
+/// `multi_tenant::extract_tenant_key()`) gets an independent
+/// [`SlidingWindowCounter`] with a configurable per-window limit.
+///
+/// Inactive tenants (no requests for > `inactive_threshold`) are
+/// automatically cleaned up on every `check_tenant` / `cleanup` call to
+/// prevent unbounded memory growth.
+pub struct TenantRateLimiter {
+    /// Per-tenant sliding windows, keyed by tenant ID.
+    windows: Mutex<HashMap<String, SlidingWindowCounter>>,
+    /// Last-activity timestamp per tenant, for auto-cleanup.
+    last_active: Mutex<HashMap<String, Instant>>,
+    /// Duration of the sliding window (applied to each new tenant counter).
+    window_size: Duration,
+    /// Duration after which an inactive tenant's counters are evicted.
+    inactive_threshold: Duration,
+}
+
+impl std::fmt::Debug for TenantRateLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.windows.lock().map(|w| w.len()).unwrap_or(0);
+        f.debug_struct("TenantRateLimiter")
+            .field("tracked_tenants", &count)
+            .field("window_size", &self.window_size)
+            .field("inactive_threshold", &self.inactive_threshold)
+            .finish()
+    }
+}
+
+impl TenantRateLimiter {
+    /// Create a new per-tenant rate limiter.
+    ///
+    /// * `window_size` — the sliding-window duration for each tenant.
+    /// * `inactive_threshold` — tenants with no activity for longer than this
+    ///   are automatically cleaned up.  Pass `Duration::from_secs(3600)` for
+    ///   the default 1-hour threshold.
+    pub fn new(window_size: Duration, inactive_threshold: Duration) -> Self {
+        Self {
+            windows: Mutex::new(HashMap::new()),
+            last_active: Mutex::new(HashMap::new()),
+            window_size,
+            inactive_threshold,
+        }
+    }
+
+    /// Create with default values: 60-second window, 1-hour inactivity cleanup.
+    pub fn with_defaults() -> Self {
+        Self::new(Duration::from_secs(60), Duration::from_secs(3600))
+    }
+
+    /// Check whether `tenant_id` is within its rate limit of `limit` requests
+    /// per window.
+    ///
+    /// Does **not** record a request — call [`record_tenant`] after the
+    /// request is actually dispatched.
+    ///
+    /// Returns `Ok(())` if the tenant is within limits, or `Err(reason)` if
+    /// the tenant has exceeded the limit.
+    pub fn check_tenant(&self, tenant_id: &str, limit: u32) -> Result<(), String> {
+        self.check_tenant_at(tenant_id, limit, Instant::now())
+    }
+
+    /// Check with an explicit timestamp (for deterministic testing).
+    pub fn check_tenant_at(
+        &self,
+        tenant_id: &str,
+        limit: u32,
+        now: Instant,
+    ) -> Result<(), String> {
+        // Run lazy cleanup while we hold the lock.
+        self.cleanup_at(now);
+
+        let mut windows = self.windows.lock().unwrap();
+        let entry = windows
+            .entry(tenant_id.to_string())
+            .or_insert_with(|| SlidingWindowCounter::new(self.window_size, limit as usize));
+
+        // Update max_count in case the caller changed the limit dynamically.
+        entry.max_count = limit as usize;
+
+        let count = entry.count_at(now);
+        if count >= limit as usize {
+            warn!(
+                tenant = tenant_id,
+                count = count,
+                limit = limit,
+                "tenant rate limit exceeded"
+            );
+            Err(format!(
+                "tenant '{}' rate limit exceeded: {}/{} requests in window",
+                tenant_id, count, limit
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Record a request for `tenant_id`.
+    ///
+    /// This should be called **after** a successful `check_tenant` to actually
+    /// count the request in the sliding window.
+    pub fn record_tenant(&self, tenant_id: &str) {
+        self.record_tenant_at(tenant_id, Instant::now());
+    }
+
+    /// Record at an explicit timestamp (for deterministic testing).
+    pub fn record_tenant_at(&self, tenant_id: &str, now: Instant) {
+        {
+            let mut windows = self.windows.lock().unwrap();
+            let entry = windows
+                .entry(tenant_id.to_string())
+                .or_insert_with(|| {
+                    // Default to a very large limit; check_tenant should be
+                    // called first, which sets the real limit.
+                    SlidingWindowCounter::new(self.window_size, usize::MAX)
+                });
+            entry.timestamps.push_back(now);
+        }
+        {
+            let mut last = self.last_active.lock().unwrap();
+            last.insert(tenant_id.to_string(), now);
+        }
+        debug!(tenant = tenant_id, "recorded tenant request");
+    }
+
+    /// Return current request counts per tenant within their sliding windows.
+    pub fn tenant_stats(&self) -> HashMap<String, usize> {
+        self.tenant_stats_at(Instant::now())
+    }
+
+    /// Stats at an explicit timestamp (for deterministic testing).
+    pub fn tenant_stats_at(&self, now: Instant) -> HashMap<String, usize> {
+        let mut windows = self.windows.lock().unwrap();
+        windows
+            .iter_mut()
+            .map(|(id, sw)| (id.clone(), sw.count_at(now)))
+            .collect()
+    }
+
+    /// Evict counters for tenants that have been inactive longer than
+    /// `inactive_threshold`.
+    pub fn cleanup(&self) {
+        self.cleanup_at(Instant::now());
+    }
+
+    /// Cleanup at an explicit timestamp (for deterministic testing).
+    pub fn cleanup_at(&self, now: Instant) {
+        let mut last = self.last_active.lock().unwrap();
+        let stale: Vec<String> = last
+            .iter()
+            .filter_map(|(id, &ts)| {
+                // Use checked_duration_since to avoid panic on Windows if
+                // `now` is somehow before `ts`.
+                let elapsed = now.checked_duration_since(ts).unwrap_or(Duration::ZERO);
+                if elapsed > self.inactive_threshold {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if !stale.is_empty() {
+            let mut windows = self.windows.lock().unwrap();
+            for id in &stale {
+                windows.remove(id);
+                last.remove(id);
+                debug!(tenant = id.as_str(), "evicted inactive tenant rate-limit entry");
+            }
+        }
+    }
+
+    /// Number of tenants currently being tracked.
+    pub fn tracked_tenant_count(&self) -> usize {
+        self.windows.lock().unwrap().len()
+    }
+
+    /// Reset all tenant counters.
+    pub fn reset(&self) {
+        self.windows.lock().unwrap().clear();
+        self.last_active.lock().unwrap().clear();
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -1201,5 +1391,237 @@ mod tests {
         };
         let limiter = RateLimiterV2::new(config);
         assert!((limiter.config().global_rps - 42.0).abs() < f64::EPSILON);
+    }
+
+    // -- TenantRateLimiter tests ---------------------------------------------
+
+    #[test]
+    fn test_tenant_check_allows_within_limit() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        // Limit of 10, first request should pass.
+        assert!(trl.check_tenant_at("tenant_a", 10, now).is_ok());
+    }
+
+    #[test]
+    fn test_tenant_check_denies_at_limit() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        // Record 5 requests.
+        for _ in 0..5 {
+            trl.record_tenant_at("tenant_b", now);
+        }
+        // Limit of 5 — should be denied.
+        let result = trl.check_tenant_at("tenant_b", 5, now);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("tenant_b"));
+        assert!(err.contains("5/5"));
+    }
+
+    #[test]
+    fn test_tenant_check_allows_below_limit() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        // Record 3 requests.
+        for _ in 0..3 {
+            trl.record_tenant_at("tenant_c", now);
+        }
+        // Limit of 5 — 3 < 5, should pass.
+        assert!(trl.check_tenant_at("tenant_c", 5, now).is_ok());
+    }
+
+    #[test]
+    fn test_tenant_record_and_stats() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        trl.record_tenant_at("alpha", now);
+        trl.record_tenant_at("alpha", now);
+        trl.record_tenant_at("beta", now);
+
+        let stats = trl.tenant_stats_at(now);
+        assert_eq!(*stats.get("alpha").unwrap(), 2);
+        assert_eq!(*stats.get("beta").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_tenant_stats_empty() {
+        let trl = TenantRateLimiter::with_defaults();
+        let stats = trl.tenant_stats();
+        assert!(stats.is_empty());
+    }
+
+    #[test]
+    fn test_tenant_sliding_window_eviction() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(5), Duration::from_secs(3600));
+        let now = Instant::now();
+        // Record 3 requests at t=0.
+        for _ in 0..3 {
+            trl.record_tenant_at("gamma", now);
+        }
+        assert_eq!(*trl.tenant_stats_at(now).get("gamma").unwrap(), 3);
+
+        // After 6 seconds (window=5s), all 3 should be evicted.
+        let later = now + Duration::from_secs(6);
+        assert_eq!(*trl.tenant_stats_at(later).get("gamma").unwrap(), 0);
+
+        // And check should pass again.
+        assert!(trl.check_tenant_at("gamma", 3, later).is_ok());
+    }
+
+    #[test]
+    fn test_tenant_independent_limits() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        // Exhaust tenant_x's limit.
+        for _ in 0..5 {
+            trl.record_tenant_at("tenant_x", now);
+        }
+        assert!(trl.check_tenant_at("tenant_x", 5, now).is_err());
+
+        // tenant_y should be completely unaffected.
+        assert!(trl.check_tenant_at("tenant_y", 5, now).is_ok());
+    }
+
+    #[test]
+    fn test_tenant_auto_cleanup_inactive() {
+        let threshold = Duration::from_secs(10);
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), threshold);
+        let now = Instant::now();
+
+        trl.record_tenant_at("active_tenant", now);
+        trl.record_tenant_at("stale_tenant", now);
+        assert_eq!(trl.tracked_tenant_count(), 2);
+
+        // Advance time past the threshold for stale_tenant but refresh
+        // active_tenant.
+        let later = now + Duration::from_secs(11);
+        trl.record_tenant_at("active_tenant", later);
+
+        // Trigger cleanup.
+        trl.cleanup_at(later);
+
+        assert_eq!(trl.tracked_tenant_count(), 1);
+        let stats = trl.tenant_stats_at(later);
+        assert!(stats.contains_key("active_tenant"));
+        assert!(!stats.contains_key("stale_tenant"));
+    }
+
+    #[test]
+    fn test_tenant_cleanup_no_panic_when_empty() {
+        let trl = TenantRateLimiter::with_defaults();
+        // Should not panic on empty state.
+        trl.cleanup();
+        assert_eq!(trl.tracked_tenant_count(), 0);
+    }
+
+    #[test]
+    fn test_tenant_reset_clears_all() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        trl.record_tenant_at("t1", now);
+        trl.record_tenant_at("t2", now);
+        trl.record_tenant_at("t3", now);
+        assert_eq!(trl.tracked_tenant_count(), 3);
+
+        trl.reset();
+
+        assert_eq!(trl.tracked_tenant_count(), 0);
+        assert!(trl.tenant_stats_at(now).is_empty());
+    }
+
+    #[test]
+    fn test_tenant_check_then_record_flow() {
+        // Simulates the expected usage pattern: check first, record if allowed.
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+        let limit = 3u32;
+
+        for i in 0..3 {
+            assert!(
+                trl.check_tenant_at("flow_test", limit, now).is_ok(),
+                "request {} should be allowed",
+                i
+            );
+            trl.record_tenant_at("flow_test", now);
+        }
+
+        // 4th check should fail.
+        assert!(trl.check_tenant_at("flow_test", limit, now).is_err());
+    }
+
+    #[test]
+    fn test_tenant_dynamic_limit_change() {
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), Duration::from_secs(3600));
+        let now = Instant::now();
+
+        // Record 3 requests.
+        for _ in 0..3 {
+            trl.record_tenant_at("dyn", now);
+        }
+
+        // With limit=5, should be OK.
+        assert!(trl.check_tenant_at("dyn", 5, now).is_ok());
+
+        // With limit=3, should be denied (3 >= 3).
+        assert!(trl.check_tenant_at("dyn", 3, now).is_err());
+
+        // With limit=2, should also be denied.
+        assert!(trl.check_tenant_at("dyn", 2, now).is_err());
+    }
+
+    #[test]
+    fn test_tenant_cleanup_triggered_by_check() {
+        // cleanup is called internally by check_tenant_at.
+        let threshold = Duration::from_secs(5);
+        let trl = TenantRateLimiter::new(Duration::from_secs(60), threshold);
+        let now = Instant::now();
+
+        trl.record_tenant_at("old", now);
+        assert_eq!(trl.tracked_tenant_count(), 1);
+
+        // Advance past threshold and do a check for a different tenant —
+        // this should trigger cleanup of "old".
+        let later = now + Duration::from_secs(6);
+        let _ = trl.check_tenant_at("new", 10, later);
+
+        // "old" should have been evicted, "new" was created by check.
+        assert_eq!(trl.tracked_tenant_count(), 1);
+        let stats = trl.tenant_stats_at(later);
+        assert!(stats.contains_key("new"));
+        assert!(!stats.contains_key("old"));
+    }
+
+    #[test]
+    fn test_tenant_with_defaults_constructor() {
+        let trl = TenantRateLimiter::with_defaults();
+        assert_eq!(trl.window_size, Duration::from_secs(60));
+        assert_eq!(trl.inactive_threshold, Duration::from_secs(3600));
+        assert_eq!(trl.tracked_tenant_count(), 0);
+    }
+
+    #[test]
+    fn test_tenant_debug_format() {
+        let trl = TenantRateLimiter::with_defaults();
+        let debug_str = format!("{:?}", trl);
+        assert!(debug_str.contains("TenantRateLimiter"));
+        assert!(debug_str.contains("tracked_tenants"));
+    }
+
+    #[test]
+    fn test_tenant_recovery_after_window() {
+        // Tenant exceeds limit, then window passes, then requests succeed again.
+        let trl = TenantRateLimiter::new(Duration::from_secs(5), Duration::from_secs(3600));
+        let now = Instant::now();
+
+        // Exhaust limit.
+        for _ in 0..3 {
+            trl.record_tenant_at("recov", now);
+        }
+        assert!(trl.check_tenant_at("recov", 3, now).is_err());
+
+        // After window passes, old requests evicted.
+        let later = now + Duration::from_secs(6);
+        assert!(trl.check_tenant_at("recov", 3, later).is_ok());
     }
 }

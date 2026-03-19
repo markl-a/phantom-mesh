@@ -5,6 +5,7 @@ use anyhow::Result;
 use axum::{extract::State, http::StatusCode, response::Json, routing::{get, post}, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
@@ -41,6 +42,115 @@ struct ExecuteRequest {
 struct ExecuteResponse {
     success: bool,
     output: String,
+}
+
+/// Rich telemetry data collected from the worker node and sent alongside heartbeats.
+/// Provides the hub with resource utilisation, task load, and provider health information
+/// so it can make informed scheduling and routing decisions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerTelemetry {
+    /// CPU utilisation percentage (0.0–100.0).
+    pub cpu_pct: f32,
+    /// RAM utilisation percentage (0.0–100.0).
+    pub ram_pct: f32,
+    /// Free disk space on the primary filesystem, in gigabytes.
+    pub disk_free_gb: f32,
+    /// Number of tasks currently being executed by this worker.
+    pub active_tasks: usize,
+    /// Names of LLM models currently loaded (e.g. via Ollama).
+    pub loaded_models: Vec<String>,
+    /// Per-provider reachability status (true = healthy).
+    pub provider_status: HashMap<String, bool>,
+    /// Seconds since the worker process started.
+    pub uptime_secs: u64,
+}
+
+impl Default for WorkerTelemetry {
+    fn default() -> Self {
+        Self {
+            cpu_pct: 0.0,
+            ram_pct: 0.0,
+            disk_free_gb: 0.0,
+            active_tasks: 0,
+            loaded_models: Vec::new(),
+            provider_status: HashMap::new(),
+            uptime_secs: 0,
+        }
+    }
+}
+
+/// Process start time — used to derive uptime_secs in telemetry.
+static PROCESS_START: once_cell::sync::Lazy<std::time::Instant> =
+    once_cell::sync::Lazy::new(std::time::Instant::now);
+
+/// Collect a snapshot of system telemetry using the `sysinfo` crate.
+///
+/// CPU percentage is read from the background monitor cache (see [`start_cpu_monitor`]).
+/// RAM and disk are sampled on the spot via `sysinfo::System` / `sysinfo::Disks`.
+/// `active_tasks`, `loaded_models`, and `provider_status` are left at defaults
+/// because the worker does not yet track those values internally; callers or
+/// future patches should fill them in.
+pub fn collect_telemetry() -> WorkerTelemetry {
+    // Force-initialise the start time on first call.
+    let uptime = PROCESS_START.elapsed().as_secs();
+
+    // CPU — reuse the cached value from the background monitor thread.
+    let cpu_pct = {
+        let raw = CPU_LOAD_CACHE.load(std::sync::atomic::Ordering::Relaxed);
+        // Cache stores percentage * 100 (0-10000).  Convert to 0.0-100.0.
+        (raw as f32 / 100.0).clamp(0.0, 100.0)
+    };
+
+    // RAM — refresh memory counters (cheap, ~1 ms).
+    let ram_pct = {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+        let total = sys.total_memory(); // bytes
+        if total > 0 {
+            let used = sys.used_memory();
+            ((used as f64 / total as f64) * 100.0) as f32
+        } else {
+            0.0
+        }
+    };
+
+    // Disk — free space on the filesystem that contains the working directory.
+    let disk_free_gb = {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        disk_free_bytes_for(&cwd) as f32 / (1024.0 * 1024.0 * 1024.0)
+    };
+
+    WorkerTelemetry {
+        cpu_pct,
+        ram_pct,
+        disk_free_gb,
+        active_tasks: 0,
+        loaded_models: Vec::new(),
+        provider_status: HashMap::new(),
+        uptime_secs: uptime,
+    }
+}
+
+/// Return free bytes for the filesystem containing `path` (platform-independent).
+fn disk_free_bytes_for(path: &std::path::Path) -> u64 {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut best_match: Option<u64> = None;
+    let mut best_len = 0usize;
+
+    for disk in disks.list() {
+        let mount = disk.mount_point();
+        let mount_str = mount.to_string_lossy();
+        let canon_str = canonical.to_string_lossy();
+        // Case-insensitive prefix match (important on Windows).
+        if canon_str.to_lowercase().starts_with(&mount_str.to_lowercase())
+            && mount_str.len() >= best_len
+        {
+            best_len = mount_str.len();
+            best_match = Some(disk.available_space());
+        }
+    }
+    best_match.unwrap_or(0)
 }
 
 /// ClusterWorker — registers with hub, runs local HTTP server, executes tools
@@ -105,10 +215,12 @@ impl ClusterWorker {
             loop {
                 tokio::time::sleep(current_interval).await;
                 let cpu_load = get_cpu_load();
+                let telemetry = collect_telemetry();
                 let url = format!("{}/cluster/heartbeat", state.config.hub_url);
                 let payload = json!({
                     "name": state.config.node_name,
                     "cpu_load": cpu_load,
+                    "telemetry": telemetry,
                 });
 
                 match state.http_client.post(&url).json(&payload).send().await {
@@ -398,5 +510,145 @@ node_name = "m1"
         let json_str = r#"{"tool": "web_search", "input": {"query": "test"}}"#;
         let req: ExecuteRequest = serde_json::from_str(json_str).unwrap();
         assert_eq!(req.tool, "web_search");
+    }
+
+    // ── WorkerTelemetry tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_telemetry_struct_creation() {
+        let mut providers = HashMap::new();
+        providers.insert("ollama".to_string(), true);
+        providers.insert("gemini".to_string(), false);
+
+        let t = WorkerTelemetry {
+            cpu_pct: 42.5,
+            ram_pct: 65.3,
+            disk_free_gb: 128.7,
+            active_tasks: 3,
+            loaded_models: vec!["llama3".to_string(), "mistral".to_string()],
+            provider_status: providers,
+            uptime_secs: 86400,
+        };
+
+        assert_eq!(t.cpu_pct, 42.5);
+        assert_eq!(t.ram_pct, 65.3);
+        assert_eq!(t.disk_free_gb, 128.7);
+        assert_eq!(t.active_tasks, 3);
+        assert_eq!(t.loaded_models.len(), 2);
+        assert_eq!(t.provider_status.len(), 2);
+        assert!(t.provider_status["ollama"]);
+        assert!(!t.provider_status["gemini"]);
+        assert_eq!(t.uptime_secs, 86400);
+    }
+
+    #[test]
+    fn test_telemetry_default_values() {
+        let t = WorkerTelemetry::default();
+        assert_eq!(t.cpu_pct, 0.0);
+        assert_eq!(t.ram_pct, 0.0);
+        assert_eq!(t.disk_free_gb, 0.0);
+        assert_eq!(t.active_tasks, 0);
+        assert!(t.loaded_models.is_empty());
+        assert!(t.provider_status.is_empty());
+        assert_eq!(t.uptime_secs, 0);
+    }
+
+    #[test]
+    fn test_telemetry_serialization_roundtrip() {
+        let mut providers = HashMap::new();
+        providers.insert("ollama".to_string(), true);
+
+        let original = WorkerTelemetry {
+            cpu_pct: 55.5,
+            ram_pct: 70.2,
+            disk_free_gb: 250.0,
+            active_tasks: 1,
+            loaded_models: vec!["phi3".to_string()],
+            provider_status: providers,
+            uptime_secs: 3600,
+        };
+
+        let json_str = serde_json::to_string(&original).expect("serialize");
+        let restored: WorkerTelemetry = serde_json::from_str(&json_str).expect("deserialize");
+
+        assert_eq!(original.cpu_pct, restored.cpu_pct);
+        assert_eq!(original.ram_pct, restored.ram_pct);
+        assert_eq!(original.disk_free_gb, restored.disk_free_gb);
+        assert_eq!(original.active_tasks, restored.active_tasks);
+        assert_eq!(original.loaded_models, restored.loaded_models);
+        assert_eq!(original.provider_status, restored.provider_status);
+        assert_eq!(original.uptime_secs, restored.uptime_secs);
+    }
+
+    #[test]
+    fn test_telemetry_json_field_names() {
+        let t = WorkerTelemetry::default();
+        let v: Value = serde_json::to_value(&t).expect("to_value");
+        // Verify all expected keys are present in the serialised JSON.
+        assert!(v.get("cpu_pct").is_some());
+        assert!(v.get("ram_pct").is_some());
+        assert!(v.get("disk_free_gb").is_some());
+        assert!(v.get("active_tasks").is_some());
+        assert!(v.get("loaded_models").is_some());
+        assert!(v.get("provider_status").is_some());
+        assert!(v.get("uptime_secs").is_some());
+    }
+
+    #[test]
+    fn test_telemetry_cpu_pct_boundary_values() {
+        // Minimum
+        let t_min = WorkerTelemetry { cpu_pct: 0.0, ..Default::default() };
+        assert_eq!(t_min.cpu_pct, 0.0);
+
+        // Maximum
+        let t_max = WorkerTelemetry { cpu_pct: 100.0, ..Default::default() };
+        assert_eq!(t_max.cpu_pct, 100.0);
+
+        // Mid-range
+        let t_mid = WorkerTelemetry { cpu_pct: 50.0, ..Default::default() };
+        assert!((0.0..=100.0).contains(&t_mid.cpu_pct));
+    }
+
+    #[test]
+    fn test_telemetry_ram_pct_boundary_values() {
+        let t_zero = WorkerTelemetry { ram_pct: 0.0, ..Default::default() };
+        assert_eq!(t_zero.ram_pct, 0.0);
+
+        let t_full = WorkerTelemetry { ram_pct: 100.0, ..Default::default() };
+        assert_eq!(t_full.ram_pct, 100.0);
+
+        let t_mid = WorkerTelemetry { ram_pct: 73.8, ..Default::default() };
+        assert!((0.0..=100.0).contains(&t_mid.ram_pct));
+    }
+
+    #[test]
+    fn test_collect_telemetry_field_ranges() {
+        // collect_telemetry() reads real system state; verify returned values
+        // are within physically plausible ranges.
+        let t = collect_telemetry();
+        assert!(t.cpu_pct >= 0.0 && t.cpu_pct <= 100.0,
+            "cpu_pct out of range: {}", t.cpu_pct);
+        assert!(t.ram_pct >= 0.0 && t.ram_pct <= 100.0,
+            "ram_pct out of range: {}", t.ram_pct);
+        assert!(t.disk_free_gb >= 0.0,
+            "disk_free_gb should be non-negative: {}", t.disk_free_gb);
+        // uptime_secs should be at least 0 (process just started).
+        // It is u64 so cannot be negative, but sanity-check it is small-ish
+        // (< 1 year) to catch overflow bugs.
+        assert!(t.uptime_secs < 365 * 24 * 3600,
+            "uptime_secs suspiciously large: {}", t.uptime_secs);
+    }
+
+    #[test]
+    fn test_telemetry_default_serializes_to_known_json() {
+        let t = WorkerTelemetry::default();
+        let v: Value = serde_json::to_value(&t).unwrap();
+        assert_eq!(v["cpu_pct"], 0.0);
+        assert_eq!(v["ram_pct"], 0.0);
+        assert_eq!(v["disk_free_gb"], 0.0);
+        assert_eq!(v["active_tasks"], 0);
+        assert_eq!(v["loaded_models"], json!([]));
+        assert_eq!(v["provider_status"], json!({}));
+        assert_eq!(v["uptime_secs"], 0);
     }
 }

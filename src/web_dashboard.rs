@@ -271,6 +271,175 @@ pub async fn api_costs(
     Ok(Json(json!(records)))
 }
 
+// ── Revenue chart data ────────────────────────────────────────────────────────
+
+/// A single data point in the daily revenue/cost timeseries.
+#[derive(Debug, Clone, Serialize)]
+pub struct RevenueDataPoint {
+    pub date: String,
+    pub revenue_usd: f64,
+    pub cost_usd: f64,
+    pub margin_usd: f64,
+}
+
+/// Revenue and cost totals for a single income route (A-J).
+#[derive(Debug, Clone, Serialize)]
+pub struct RevenueByRoute {
+    pub route_name: String,
+    pub total_revenue: f64,
+    pub total_cost: f64,
+    pub execution_count: u32,
+}
+
+/// Full dashboard payload for the revenue chart endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct RevenueDashboardData {
+    pub daily_timeseries: Vec<RevenueDataPoint>,
+    pub by_route: Vec<RevenueByRoute>,
+    pub total_revenue_30d: f64,
+    pub total_cost_30d: f64,
+    pub avg_daily_revenue: f64,
+}
+
+/// Build the revenue dashboard data by querying both the revenue and cost
+/// SQLite databases for the last 30 days.
+///
+/// If either database is missing or empty, the corresponding values are
+/// zero-filled so the caller always gets a valid struct.
+pub fn build_revenue_dashboard(
+    revenue_db_path: &str,
+    cost_db_path: &str,
+) -> anyhow::Result<RevenueDashboardData> {
+    use std::collections::BTreeMap;
+
+    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let cutoff = (Utc::now() - chrono::Duration::days(30))
+        .format("%Y-%m-%d")
+        .to_string();
+
+    // ── Revenue per day ──────────────────────────────────────────────────
+    let mut revenue_by_day: BTreeMap<String, f64> = BTreeMap::new();
+    let mut route_revenue: BTreeMap<String, (f64, u32)> = BTreeMap::new();
+
+    if let Ok(conn) = rusqlite::Connection::open(revenue_db_path) {
+        // Daily revenue
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date_key, SUM(amount_usd), COUNT(*)
+             FROM revenue_records
+             WHERE date_key >= ?1 AND date_key <= ?2
+             GROUP BY date_key ORDER BY date_key",
+        ) {
+            let _ = stmt
+                .query_map(rusqlite::params![&cutoff, &today], |row| {
+                    let date: String = row.get(0)?;
+                    let total: f64 = row.get(1)?;
+                    Ok((date, total))
+                })
+                .map(|rows| {
+                    for r in rows.flatten() {
+                        revenue_by_day.insert(r.0, r.1);
+                    }
+                });
+        }
+
+        // Revenue grouped by route
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT route, SUM(amount_usd), COUNT(*)
+             FROM revenue_records
+             WHERE date_key >= ?1 AND date_key <= ?2
+             GROUP BY route ORDER BY SUM(amount_usd) DESC",
+        ) {
+            let _ = stmt
+                .query_map(rusqlite::params![&cutoff, &today], |row| {
+                    let route: String = row.get(0)?;
+                    let total: f64 = row.get(1)?;
+                    let count: u32 = row.get(2)?;
+                    Ok((route, total, count))
+                })
+                .map(|rows| {
+                    for r in rows.flatten() {
+                        route_revenue.insert(r.0, (r.1, r.2));
+                    }
+                });
+        }
+    }
+
+    // ── Cost per day ─────────────────────────────────────────────────────
+    let mut cost_by_day: BTreeMap<String, f64> = BTreeMap::new();
+    let mut total_cost_30d: f64 = 0.0;
+
+    if let Ok(conn) = rusqlite::Connection::open(cost_db_path) {
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT date_key, SUM(estimated_cost_usd)
+             FROM cost_records
+             WHERE date_key >= ?1 AND date_key <= ?2
+             GROUP BY date_key ORDER BY date_key",
+        ) {
+            let _ = stmt
+                .query_map(rusqlite::params![&cutoff, &today], |row| {
+                    let date: String = row.get(0)?;
+                    let cost: f64 = row.get(1)?;
+                    Ok((date, cost))
+                })
+                .map(|rows| {
+                    for r in rows.flatten() {
+                        total_cost_30d += r.1;
+                        cost_by_day.insert(r.0, r.1);
+                    }
+                });
+        }
+    }
+
+    // ── Merge into timeseries ────────────────────────────────────────────
+    let all_dates: std::collections::BTreeSet<String> = revenue_by_day
+        .keys()
+        .chain(cost_by_day.keys())
+        .cloned()
+        .collect();
+
+    let daily_timeseries: Vec<RevenueDataPoint> = all_dates
+        .iter()
+        .map(|date| {
+            let rev = revenue_by_day.get(date).copied().unwrap_or(0.0);
+            let cost = cost_by_day.get(date).copied().unwrap_or(0.0);
+            RevenueDataPoint {
+                date: date.clone(),
+                revenue_usd: rev,
+                cost_usd: cost,
+                margin_usd: rev - cost,
+            }
+        })
+        .collect();
+
+    // ── By-route breakdown ───────────────────────────────────────────────
+    let by_route: Vec<RevenueByRoute> = route_revenue
+        .into_iter()
+        .map(|(route_name, (total_revenue, execution_count))| RevenueByRoute {
+            route_name,
+            total_revenue,
+            total_cost: 0.0, // cost is not split by route in the DB
+            execution_count,
+        })
+        .collect();
+
+    // ── Aggregates ───────────────────────────────────────────────────────
+    let total_revenue_30d: f64 = revenue_by_day.values().sum();
+    let num_days = if all_dates.is_empty() {
+        1.0
+    } else {
+        all_dates.len() as f64
+    };
+    let avg_daily_revenue = total_revenue_30d / num_days;
+
+    Ok(RevenueDashboardData {
+        daily_timeseries,
+        by_route,
+        total_revenue_30d,
+        total_cost_30d,
+        avg_daily_revenue,
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -485,5 +654,247 @@ mod tests {
         // just confirm the constant HTML and the module compile correctly by
         // exercising the static parts.
         let _ = DASHBOARD_HTML.len();
+    }
+
+    // ── Revenue dashboard tests ──────────────────────────────────────────────
+
+    /// Helper: create a temp revenue DB and insert mock records.
+    fn setup_revenue_db(dir: &std::path::Path) -> String {
+        let db_path = dir.join("revenue.db").to_str().unwrap().to_string();
+        let tracker = crate::revenue_tracker::RevenueTracker::new(&db_path).unwrap();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let yesterday = (Utc::now() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
+
+        // Insert 4 revenue records across 2 days and 2 routes
+        let records = vec![
+            ("A:freelance_dev", 500.0, &today),
+            ("A:freelance_dev", 250.0, &yesterday),
+            ("C:content_monetization", 120.0, &today),
+            ("E:api_services", 80.0, &yesterday),
+        ];
+        for (route, amount, date) in records {
+            let ts = if *date == today {
+                Utc::now()
+            } else {
+                Utc::now() - chrono::Duration::days(1)
+            };
+            let rec = crate::revenue_tracker::RevenueRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                timestamp: ts,
+                route: route.to_string(),
+                source: "test_source".to_string(),
+                client_name: "TestClient".to_string(),
+                amount_usd: amount,
+                currency: "USD".to_string(),
+                status: crate::revenue_tracker::RevenueStatus::Confirmed,
+                notes: None,
+                invoice_id: None,
+            };
+            tracker.record(&rec).unwrap();
+        }
+        db_path
+    }
+
+    /// Helper: create a temp cost DB and insert mock records.
+    fn setup_cost_db(dir: &std::path::Path) -> String {
+        let db_path = dir.join("costs.db").to_str().unwrap().to_string();
+        let tracker = crate::cost_tracker::CostTracker::new(&db_path).unwrap();
+        let today = Utc::now();
+        let yesterday = Utc::now() - chrono::Duration::days(1);
+
+        let costs = vec![
+            ("agent1", "gemini", "gemini-pro", 1000u32, 500u32, 0.003, today),
+            ("agent2", "groq", "llama3", 2000, 1000, 0.0, today),
+            ("agent1", "gemini", "gemini-pro", 800, 400, 0.002, yesterday),
+        ];
+        for (agent, provider, model, t_in, t_out, cost, ts) in costs {
+            let rec = crate::cost_tracker::CostRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                timestamp: ts,
+                agent: agent.to_string(),
+                provider: provider.to_string(),
+                model: model.to_string(),
+                tokens_in: t_in,
+                tokens_out: t_out,
+                total_tokens: t_in + t_out,
+                estimated_cost_usd: cost,
+                duration_secs: 1.0,
+                context: None,
+            };
+            tracker.record(&rec).unwrap();
+        }
+        db_path
+    }
+
+    #[test]
+    fn test_revenue_dashboard_empty_dbs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = tmp.path().join("empty_rev.db").to_str().unwrap().to_string();
+        let cost_path = tmp.path().join("empty_cost.db").to_str().unwrap().to_string();
+        // Create the tables but insert nothing
+        let _ = crate::revenue_tracker::RevenueTracker::new(&rev_path).unwrap();
+        let _ = crate::cost_tracker::CostTracker::new(&cost_path).unwrap();
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        assert!(data.daily_timeseries.is_empty(), "no data => empty timeseries");
+        assert!(data.by_route.is_empty(), "no data => empty by_route");
+        assert_eq!(data.total_revenue_30d, 0.0);
+        assert_eq!(data.total_cost_30d, 0.0);
+        assert_eq!(data.avg_daily_revenue, 0.0);
+    }
+
+    #[test]
+    fn test_revenue_dashboard_missing_db_files() {
+        // Non-existent DB paths should not panic — return zero-filled struct
+        let data = build_revenue_dashboard("/tmp/no_such_revenue.db", "/tmp/no_such_cost.db").unwrap();
+        assert!(data.daily_timeseries.is_empty());
+        assert!(data.by_route.is_empty());
+        assert_eq!(data.total_revenue_30d, 0.0);
+        assert_eq!(data.total_cost_30d, 0.0);
+    }
+
+    #[test]
+    fn test_revenue_dashboard_with_mock_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+
+        // Total revenue: 500 + 250 + 120 + 80 = 950
+        assert!(
+            (data.total_revenue_30d - 950.0).abs() < 0.01,
+            "total revenue 30d should be 950.0, got {}",
+            data.total_revenue_30d
+        );
+
+        // Total cost: 0.003 + 0.0 + 0.002 = 0.005
+        assert!(
+            (data.total_cost_30d - 0.005).abs() < 0.001,
+            "total cost 30d should be ~0.005, got {}",
+            data.total_cost_30d
+        );
+
+        // 2 distinct days
+        assert_eq!(data.daily_timeseries.len(), 2, "should have 2 days of data");
+    }
+
+    #[test]
+    fn test_revenue_dashboard_timeseries_sorted_by_date() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        let dates: Vec<&str> = data.daily_timeseries.iter().map(|d| d.date.as_str()).collect();
+        let mut sorted = dates.clone();
+        sorted.sort();
+        assert_eq!(dates, sorted, "timeseries must be sorted ascending by date");
+    }
+
+    #[test]
+    fn test_revenue_dashboard_margin_calculation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        for point in &data.daily_timeseries {
+            let expected_margin = point.revenue_usd - point.cost_usd;
+            assert!(
+                (point.margin_usd - expected_margin).abs() < 0.0001,
+                "margin for {} should be revenue - cost: expected {}, got {}",
+                point.date,
+                expected_margin,
+                point.margin_usd
+            );
+        }
+    }
+
+    #[test]
+    fn test_revenue_dashboard_by_route_breakdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        // 3 distinct routes: A, C, E
+        assert_eq!(data.by_route.len(), 3, "should have 3 distinct routes");
+
+        let route_a = data.by_route.iter().find(|r| r.route_name == "A:freelance_dev");
+        assert!(route_a.is_some(), "route A must be present");
+        let route_a = route_a.unwrap();
+        assert!(
+            (route_a.total_revenue - 750.0).abs() < 0.01,
+            "route A total should be 750 (500+250), got {}",
+            route_a.total_revenue
+        );
+        assert_eq!(route_a.execution_count, 2, "route A should have 2 records");
+    }
+
+    #[test]
+    fn test_revenue_dashboard_avg_daily_revenue() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        // 950.0 total across 2 days -> avg = 475.0
+        assert!(
+            (data.avg_daily_revenue - 475.0).abs() < 0.01,
+            "avg daily revenue should be 475.0, got {}",
+            data.avg_daily_revenue
+        );
+    }
+
+    #[test]
+    fn test_revenue_dashboard_serializes_to_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        let cost_path = setup_cost_db(tmp.path());
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        let json_val = serde_json::to_value(&data).unwrap();
+
+        assert!(json_val.get("daily_timeseries").unwrap().is_array());
+        assert!(json_val.get("by_route").unwrap().is_array());
+        assert!(json_val.get("total_revenue_30d").unwrap().is_f64());
+        assert!(json_val.get("total_cost_30d").unwrap().is_f64());
+        assert!(json_val.get("avg_daily_revenue").unwrap().is_f64());
+
+        // Verify nested fields serialize correctly
+        let first_point = &json_val["daily_timeseries"][0];
+        assert!(first_point.get("date").is_some());
+        assert!(first_point.get("revenue_usd").is_some());
+        assert!(first_point.get("cost_usd").is_some());
+        assert!(first_point.get("margin_usd").is_some());
+
+        let first_route = &json_val["by_route"][0];
+        assert!(first_route.get("route_name").is_some());
+        assert!(first_route.get("total_revenue").is_some());
+        assert!(first_route.get("total_cost").is_some());
+        assert!(first_route.get("execution_count").is_some());
+    }
+
+    #[test]
+    fn test_revenue_dashboard_revenue_only_no_costs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let rev_path = setup_revenue_db(tmp.path());
+        // Cost DB exists but has no records
+        let cost_path = tmp.path().join("empty_cost.db").to_str().unwrap().to_string();
+        let _ = crate::cost_tracker::CostTracker::new(&cost_path).unwrap();
+
+        let data = build_revenue_dashboard(&rev_path, &cost_path).unwrap();
+        assert!(data.total_revenue_30d > 0.0, "should have revenue");
+        assert_eq!(data.total_cost_30d, 0.0, "no cost records => 0 cost");
+        // All margins should equal revenue (cost = 0)
+        for point in &data.daily_timeseries {
+            assert!(
+                (point.margin_usd - point.revenue_usd).abs() < 0.0001,
+                "with zero cost, margin should equal revenue"
+            );
+        }
     }
 }

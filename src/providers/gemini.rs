@@ -1,10 +1,15 @@
 //! Gemini provider — Google's free-tier vision + text API.
 //! Uses generativelanguage.googleapis.com REST API.
 //! Free tier: ~1000 req/day (Flash-Lite), supports vision (base64 images).
+//! Supports true SSE streaming via `streamGenerateContent?alt=sse`.
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde_json::{json, Value};
+use std::pin::Pin;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::debug;
 
 use super::traits::*;
@@ -336,6 +341,160 @@ impl Provider for GeminiProvider {
         })
     }
 
+    async fn stream_chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[Value],
+        model: &str,
+    ) -> Result<Pin<Box<dyn futures_util::Stream<Item = Result<StreamChunk>> + Send>>> {
+        let model = if model.is_empty() || model == "default" {
+            &self.default_model
+        } else {
+            model
+        };
+
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+            model, self.api_key
+        );
+
+        let (system_text, contents) = self.build_contents(messages);
+
+        let mut body = json!({
+            "contents": contents,
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 4096
+            }
+        });
+
+        if let Some(sys) = system_text {
+            body["systemInstruction"] = json!({
+                "parts": [{"text": sys}]
+            });
+        }
+
+        if let Some(tool_decls) = self.build_tools(tools) {
+            body["tools"] = tool_decls;
+            body["tool_config"] = json!({
+                "function_calling_config": {
+                    "mode": "AUTO"
+                }
+            });
+        }
+
+        debug!("Gemini stream_chat: model={}, messages={}", model, messages.len());
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+        let status = resp.status();
+
+        if !status.is_success() {
+            let err_body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "Gemini streaming API error ({}): {}",
+                status,
+                &err_body[..err_body.len().min(500)]
+            ));
+        }
+
+        let (tx, rx) = mpsc::channel::<Result<StreamChunk>>(64);
+        let byte_stream = resp.bytes_stream();
+
+        tokio::spawn(async move {
+            let mut stream = Box::pin(byte_stream);
+            let mut buffer = String::new();
+            let mut last_usage: Option<TokenUsage> = None;
+
+            while let Some(chunk) = stream.next().await {
+                match chunk {
+                    Ok(bytes) => {
+                        buffer.push_str(&String::from_utf8_lossy(&bytes));
+                        // Process complete SSE lines
+                        while let Some(pos) = buffer.find('\n') {
+                            let line = buffer[..pos].trim().to_string();
+                            buffer = buffer[pos + 1..].to_string();
+
+                            if line.is_empty() || line.starts_with(':') {
+                                continue;
+                            }
+
+                            if let Some(data) = line.strip_prefix("data: ") {
+                                match serde_json::from_str::<Value>(data) {
+                                    Ok(json) => {
+                                        // Parse text deltas from candidates[0].content.parts
+                                        if let Some(parts) = json
+                                            .pointer("/candidates/0/content/parts")
+                                            .and_then(|v| v.as_array())
+                                        {
+                                            for part in parts {
+                                                if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                                                    if !text.is_empty() {
+                                                        let _ = tx.send(Ok(StreamChunk::ContentDelta(text.to_string()))).await;
+                                                    }
+                                                }
+                                                // Handle streamed function calls
+                                                if let Some(fc) = part.get("functionCall") {
+                                                    let func_name = fc.get("name")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    if !func_name.is_empty() {
+                                                        let _ = tx.send(Ok(StreamChunk::ToolCallStart {
+                                                            id: func_name.clone(),
+                                                            name: func_name.clone(),
+                                                        })).await;
+                                                        // Gemini sends args as a complete object, not streamed deltas
+                                                        if let Some(args) = fc.get("args") {
+                                                            let args_str = serde_json::to_string(args).unwrap_or_default();
+                                                            let _ = tx.send(Ok(StreamChunk::ToolCallArgumentsDelta {
+                                                                id: func_name,
+                                                                delta: args_str,
+                                                            })).await;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Track usage metadata from each chunk (last one wins)
+                                        if let Some(usage_meta) = json.get("usageMetadata") {
+                                            let prompt_tokens = usage_meta
+                                                .get("promptTokenCount")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0) as u32;
+                                            let completion_tokens = usage_meta
+                                                .get("candidatesTokenCount")
+                                                .and_then(|v| v.as_u64())
+                                                .unwrap_or(0) as u32;
+                                            if prompt_tokens > 0 || completion_tokens > 0 {
+                                                last_usage = Some(TokenUsage {
+                                                    prompt_tokens,
+                                                    completion_tokens,
+                                                    total_tokens: prompt_tokens + completion_tokens,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        debug!("Gemini SSE parse error: {} (data: {})", e, &data[..data.len().min(100)]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.send(Err(anyhow!("Gemini stream read error: {}", e))).await;
+                        break;
+                    }
+                }
+            }
+            // Stream ended — send Done with accumulated usage
+            let _ = tx.send(Ok(StreamChunk::Done { usage: last_usage })).await;
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+
     async fn is_alive(&self) -> bool {
         // Quick check: list models endpoint
         let url = format!(
@@ -347,6 +506,67 @@ impl Provider for GeminiProvider {
             Err(_) => false,
         }
     }
+}
+
+/// Parse a single Gemini SSE JSON event into StreamChunks.
+/// Used by stream_chat and exposed for unit testing.
+fn parse_gemini_sse_event(json: &Value) -> (Vec<StreamChunk>, Option<TokenUsage>) {
+    let mut chunks = Vec::new();
+    let mut usage = None;
+
+    // Parse text deltas and function calls from candidates[0].content.parts
+    if let Some(parts) = json
+        .pointer("/candidates/0/content/parts")
+        .and_then(|v| v.as_array())
+    {
+        for part in parts {
+            if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+                if !text.is_empty() {
+                    chunks.push(StreamChunk::ContentDelta(text.to_string()));
+                }
+            }
+            if let Some(fc) = part.get("functionCall") {
+                let func_name = fc.get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if !func_name.is_empty() {
+                    chunks.push(StreamChunk::ToolCallStart {
+                        id: func_name.clone(),
+                        name: func_name.clone(),
+                    });
+                    if let Some(args) = fc.get("args") {
+                        let args_str = serde_json::to_string(args).unwrap_or_default();
+                        chunks.push(StreamChunk::ToolCallArgumentsDelta {
+                            id: func_name,
+                            delta: args_str,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Parse usage metadata
+    if let Some(usage_meta) = json.get("usageMetadata") {
+        let prompt_tokens = usage_meta
+            .get("promptTokenCount")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let completion_tokens = usage_meta
+            .get("candidatesTokenCount")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        if prompt_tokens > 0 || completion_tokens > 0 {
+            usage = Some(TokenUsage {
+                prompt_tokens,
+                completion_tokens,
+                total_tokens: prompt_tokens + completion_tokens,
+            });
+        }
+    }
+
+    (chunks, usage)
 }
 
 /// Merge consecutive same-role messages (Gemini requirement)
@@ -491,5 +711,186 @@ mod tests {
         assert!(caps.vision);
         assert!(caps.streaming);
         assert!(caps.native_tools);
+    }
+
+    // ── Streaming SSE parsing tests ──
+
+    #[test]
+    fn test_parse_gemini_sse_text_delta() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "Hello world"}],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, usage) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0], StreamChunk::ContentDelta(s) if s == "Hello world"));
+        assert!(usage.is_none());
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_empty_text() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": ""}],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, _) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 0, "Empty text should not produce a chunk");
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_multiple_text_parts() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "Hello "},
+                        {"text": "world"}
+                    ],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, _) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 2);
+        assert!(matches!(&chunks[0], StreamChunk::ContentDelta(s) if s == "Hello "));
+        assert!(matches!(&chunks[1], StreamChunk::ContentDelta(s) if s == "world"));
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_function_call() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "web_search",
+                            "args": {"query": "rust streaming"}
+                        }
+                    }],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, _) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 2);
+        assert!(matches!(&chunks[0], StreamChunk::ToolCallStart { ref id, ref name }
+            if id == "web_search" && name == "web_search"));
+        assert!(matches!(&chunks[1], StreamChunk::ToolCallArgumentsDelta { ref id, ref delta }
+            if id == "web_search" && delta.contains("rust streaming")));
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_function_call_no_args() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{
+                        "functionCall": {
+                            "name": "list_files"
+                        }
+                    }],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, _) = parse_gemini_sse_event(&event);
+        // Should produce ToolCallStart but no ToolCallArgumentsDelta (no args key)
+        assert_eq!(chunks.len(), 1);
+        assert!(matches!(&chunks[0], StreamChunk::ToolCallStart { ref name, .. } if name == "list_files"));
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_with_usage() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [{"text": "done"}],
+                    "role": "model"
+                }
+            }],
+            "usageMetadata": {
+                "promptTokenCount": 50,
+                "candidatesTokenCount": 120,
+                "totalTokenCount": 170
+            }
+        });
+        let (chunks, usage) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 1);
+        let u = usage.unwrap();
+        assert_eq!(u.prompt_tokens, 50);
+        assert_eq!(u.completion_tokens, 120);
+        assert_eq!(u.total_tokens, 170);
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_usage_only_no_content() {
+        let event = json!({
+            "usageMetadata": {
+                "promptTokenCount": 30,
+                "candidatesTokenCount": 0,
+                "totalTokenCount": 30
+            }
+        });
+        let (chunks, usage) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 0, "No candidates means no content chunks");
+        // completionTokens is 0, promptTokens is 30 so usage is present
+        let u = usage.unwrap();
+        assert_eq!(u.prompt_tokens, 30);
+        assert_eq!(u.completion_tokens, 0);
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_no_candidates() {
+        // Sometimes Gemini sends an event with no candidates at all (e.g., initial metadata)
+        let event = json!({
+            "modelVersion": "gemini-2.5-flash-lite"
+        });
+        let (chunks, usage) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 0);
+        assert!(usage.is_none());
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_mixed_text_and_function() {
+        let event = json!({
+            "candidates": [{
+                "content": {
+                    "parts": [
+                        {"text": "Let me search for that."},
+                        {"functionCall": {
+                            "name": "shell",
+                            "args": {"command": "ls -la"}
+                        }}
+                    ],
+                    "role": "model"
+                }
+            }]
+        });
+        let (chunks, _) = parse_gemini_sse_event(&event);
+        assert_eq!(chunks.len(), 3);
+        assert!(matches!(&chunks[0], StreamChunk::ContentDelta(s) if s == "Let me search for that."));
+        assert!(matches!(&chunks[1], StreamChunk::ToolCallStart { ref name, .. } if name == "shell"));
+        assert!(matches!(&chunks[2], StreamChunk::ToolCallArgumentsDelta { ref delta, .. } if delta.contains("ls -la")));
+    }
+
+    #[test]
+    fn test_parse_gemini_sse_zero_usage() {
+        let event = json!({
+            "usageMetadata": {
+                "promptTokenCount": 0,
+                "candidatesTokenCount": 0,
+                "totalTokenCount": 0
+            }
+        });
+        let (_, usage) = parse_gemini_sse_event(&event);
+        assert!(usage.is_none(), "All-zero usage should return None");
     }
 }

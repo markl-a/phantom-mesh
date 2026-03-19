@@ -89,6 +89,13 @@ pub mod retry;
 pub mod smoke_test;
 pub mod structured_log;
 pub mod policy_engine;
+pub mod concurrency_manager;
+pub mod deploy_manifest;
+pub mod financial_monitor;
+pub mod stripe_webhook;
+pub mod task_taxonomy;
+pub mod telegram_menu;
+pub mod unit_economics;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -180,3 +187,12 @@ pub use budget_downgrade::SurvivalTier;
 pub use policy_engine::{PolicyEngine, PolicyRule, PolicyCondition, PolicyAction, PolicyRequest, PolicyResult};
 pub use tools::error_middleware::{ToolError, ToolErrorCategory, classify_tool_error};
 pub use agent_runtime::IdleDetector;
+pub use hands::cache::{HandResultCache, CacheStats as HandCacheStats};
+pub use providers::pool::{HttpPool, PoolConfig};
+pub use concurrency_manager::{ConcurrencyManager, ConcurrencyPermit};
+pub use deploy_manifest::DeployManifest;
+pub use financial_monitor::{FinancialMonitor, FinancialAlert, FinancialSnapshot};
+pub use stripe_webhook::{StripeWebhook, WebhookAction, verify_signature};
+pub use task_taxonomy::{TaskCategory, TaskProfile, TaskTaxonomy};
+pub use telegram_menu::{InlineKeyboard, InlineButton, CallbackAction, parse_callback};
+pub use unit_economics::{UnitEconomics, CaseEconomics, EconomicsSummary};

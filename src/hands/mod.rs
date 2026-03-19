@@ -4,6 +4,7 @@
 
 pub mod middleware;
 pub mod message_queue;
+pub mod cache;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

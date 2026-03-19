@@ -100,6 +100,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 name = "core_benchmarks"
 harness = false
 
+[[bench]]
+name = "core_bench"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true

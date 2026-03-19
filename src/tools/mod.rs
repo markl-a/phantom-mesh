@@ -56,6 +56,11 @@ pub mod weather;
 pub mod calculator;
 pub mod notification_center;
 pub mod error_middleware;
+pub mod github;
+pub mod db_query;
+pub mod cron_manage;
+pub mod payment_tracker;
+pub mod input_sanitizer;
 
 use anyhow::Result;
 use async_trait::async_trait;

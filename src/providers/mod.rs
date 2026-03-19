@@ -15,6 +15,7 @@ pub mod opencode_backend;
 pub mod mock;
 pub mod key_pool;
 pub mod classifier;
+pub mod pool;
 
 pub use traits::*;
 pub use router::ProviderRouter;

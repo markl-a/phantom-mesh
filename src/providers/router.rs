@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+
+use crate::circuit_breaker::ProviderCircuitBreaker;
 
 use super::traits::*;
 use super::ollama::OllamaProvider;
@@ -43,6 +45,30 @@ struct SmartRoutingConfig {
     pub complex_providers: Vec<String>,
 }
 
+/// Point-in-time health snapshot for a single provider, returned by
+/// `ProviderRouter::health_summary()`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProviderHealthStatus {
+    /// Provider name (e.g. "ollama", "gemini").
+    pub provider_name: String,
+    /// Whether the provider passed circuit-breaker availability check.
+    /// Always `true` when no circuit breaker is attached.
+    pub is_available: bool,
+    /// Circuit breaker state: "closed", "open", "half_open", or "unknown"
+    /// when no circuit breaker is attached.
+    pub circuit_state: String,
+    /// Rotation status: "ok", "cooling_down", or "no_rotation" when no
+    /// rotation engine is attached.
+    pub rotation_status: String,
+    /// Total successful requests recorded by the rotation engine (0 if none).
+    pub request_count: u64,
+    /// Average latency placeholder in milliseconds.  The rotation engine
+    /// does not currently track latency, so this is always 0.0.
+    pub avg_latency_ms: f64,
+    /// Last recorded error from the circuit breaker, if any.
+    pub last_error: Option<String>,
+}
+
 /// Provider Router — manages multiple LLM providers with hint-based routing.
 /// Replacement for the monolithic LlmRouter.
 pub struct ProviderRouter {
@@ -53,6 +79,8 @@ pub struct ProviderRouter {
     auto_order: Vec<String>,
     /// Optional rotation engine for rate-limit-aware provider selection
     rotation: Option<Arc<ProviderRotation>>,
+    /// Optional circuit breaker for provider reliability tracking
+    circuit_breaker: Option<Arc<ProviderCircuitBreaker>>,
     /// Codex token manager (shared with CodexAwareProvider)
     codex_token_manager: Option<Arc<CodexTokenManager>>,
     /// Codex base URL for model listing / usage queries
@@ -396,6 +424,7 @@ impl ProviderRouter {
             routes,
             auto_order,
             rotation: None,
+            circuit_breaker: None,
             codex_token_manager,
             codex_base_url,
             classifier: None,  // Set via set_classifier() after construction
@@ -414,6 +443,78 @@ impl ProviderRouter {
     /// Get rotation engine reference (if attached).
     pub fn rotation(&self) -> Option<&Arc<ProviderRotation>> {
         self.rotation.as_ref()
+    }
+
+    /// Attach a circuit breaker for provider reliability tracking.
+    pub fn set_circuit_breaker(&mut self, cb: Arc<ProviderCircuitBreaker>) {
+        self.circuit_breaker = Some(cb);
+    }
+
+    /// Get circuit breaker reference (if attached).
+    pub fn circuit_breaker(&self) -> Option<&Arc<ProviderCircuitBreaker>> {
+        self.circuit_breaker.as_ref()
+    }
+
+    /// Build a health summary for every registered provider.
+    ///
+    /// Collects circuit-breaker state, rotation cooldown status, and request
+    /// counts from the attached engines.  Fields that depend on an engine
+    /// that has not been attached receive safe default values.
+    pub fn health_summary(&self) -> Vec<ProviderHealthStatus> {
+        let cb_status = self.circuit_breaker.as_ref().map(|cb| cb.status());
+        let rot_status: Option<Vec<super::rotation::ProviderRotationStatus>> =
+            self.rotation.as_ref().map(|r| r.status());
+
+        let mut results: Vec<ProviderHealthStatus> = self.providers.keys().map(|name| {
+            // --- circuit breaker ---
+            let (is_available, circuit_state, last_error) = match &cb_status {
+                Some(map) => {
+                    if let Some(cs) = map.get(name) {
+                        let available = cs.state != "open";
+                        let err = if cs.failure_count > 0 {
+                            Some(format!("{} consecutive failures", cs.failure_count))
+                        } else {
+                            None
+                        };
+                        (available, cs.state.clone(), err)
+                    } else {
+                        // Provider exists but has never been tracked by CB
+                        (true, "closed".to_string(), None)
+                    }
+                }
+                None => (true, "unknown".to_string(), None),
+            };
+
+            // --- rotation ---
+            let (rotation_status, request_count) = match &rot_status {
+                Some(vec) => {
+                    if let Some(rs) = vec.iter().find(|s| s.provider == *name) {
+                        let status = if rs.cooling_down {
+                            "cooling_down".to_string()
+                        } else {
+                            "ok".to_string()
+                        };
+                        (status, rs.success_count)
+                    } else {
+                        ("ok".to_string(), 0)
+                    }
+                }
+                None => ("no_rotation".to_string(), 0),
+            };
+
+            ProviderHealthStatus {
+                provider_name: name.clone(),
+                is_available,
+                circuit_state,
+                rotation_status,
+                request_count,
+                avg_latency_ms: 0.0,
+                last_error,
+            }
+        }).collect();
+
+        results.sort_by(|a, b| a.provider_name.cmp(&b.provider_name));
+        results
     }
 
     /// Attach a request classifier for smart tiered routing.
@@ -1067,5 +1168,252 @@ mod tests {
             router.survival_tier(),
             crate::budget_downgrade::SurvivalTier::Normal
         );
+    }
+
+    // ── Provider Health Summary tests ───────────────────────────────────
+
+    #[test]
+    fn test_health_summary_empty_router() {
+        // A router with no providers registered should return an empty vec.
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        // Remove all providers to simulate empty state
+        router.providers.clear();
+        let summary = router.health_summary();
+        assert!(summary.is_empty());
+    }
+
+    #[test]
+    fn test_health_summary_default_providers_no_engines() {
+        // Default router has ollama, lmstudio, lemonade — no CB or rotation
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let summary = router.health_summary();
+
+        assert_eq!(summary.len(), 3);
+
+        // Should be sorted alphabetically
+        assert_eq!(summary[0].provider_name, "lemonade");
+        assert_eq!(summary[1].provider_name, "lmstudio");
+        assert_eq!(summary[2].provider_name, "ollama");
+
+        // Without circuit breaker, all are available with "unknown" state
+        for s in &summary {
+            assert!(s.is_available);
+            assert_eq!(s.circuit_state, "unknown");
+            assert_eq!(s.rotation_status, "no_rotation");
+            assert_eq!(s.request_count, 0);
+            assert_eq!(s.avg_latency_ms, 0.0);
+            assert!(s.last_error.is_none());
+        }
+    }
+
+    #[test]
+    fn test_health_summary_with_circuit_breaker_all_healthy() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let cb = Arc::new(crate::circuit_breaker::ProviderCircuitBreaker::new(
+            crate::circuit_breaker::BreakerConfig::default(),
+        ));
+        // Record some successes to populate CB state
+        cb.record_success("ollama");
+        cb.record_success("lmstudio");
+        router.set_circuit_breaker(cb);
+
+        let summary = router.health_summary();
+
+        // ollama and lmstudio have CB entries → closed
+        let ollama = summary.iter().find(|s| s.provider_name == "ollama").unwrap();
+        assert!(ollama.is_available);
+        assert_eq!(ollama.circuit_state, "closed");
+        assert!(ollama.last_error.is_none());
+
+        let lmstudio = summary.iter().find(|s| s.provider_name == "lmstudio").unwrap();
+        assert!(lmstudio.is_available);
+        assert_eq!(lmstudio.circuit_state, "closed");
+
+        // lemonade has no CB entry → still defaults to available/closed
+        let lemonade = summary.iter().find(|s| s.provider_name == "lemonade").unwrap();
+        assert!(lemonade.is_available);
+        assert_eq!(lemonade.circuit_state, "closed");
+    }
+
+    #[test]
+    fn test_health_summary_with_circuit_breaker_tripped() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let cb = Arc::new(crate::circuit_breaker::ProviderCircuitBreaker::new(
+            crate::circuit_breaker::BreakerConfig {
+                failure_threshold: 2,
+                open_duration_secs: 60,
+                half_open_success_needed: 2,
+            },
+        ));
+        // Trip ollama by recording enough failures
+        cb.record_failure("ollama");
+        cb.record_failure("ollama");  // threshold=2 → opens
+        cb.record_success("lmstudio");
+        router.set_circuit_breaker(cb);
+
+        let summary = router.health_summary();
+
+        let ollama = summary.iter().find(|s| s.provider_name == "ollama").unwrap();
+        assert!(!ollama.is_available);
+        assert_eq!(ollama.circuit_state, "open");
+        assert!(ollama.last_error.is_some());
+        assert!(ollama.last_error.as_ref().unwrap().contains("2 consecutive failures"));
+
+        let lmstudio = summary.iter().find(|s| s.provider_name == "lmstudio").unwrap();
+        assert!(lmstudio.is_available);
+        assert_eq!(lmstudio.circuit_state, "closed");
+    }
+
+    #[test]
+    fn test_health_summary_with_rotation_cooling_down() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let rotation = Arc::new(crate::providers::rotation::ProviderRotation::new(
+            crate::providers::rotation::RotationConfig {
+                base_cooldown_secs: 60,  // long cooldown for test
+                max_cooldown_secs: 120,
+                backoff_multiplier: 2.0,
+                priority_order: Vec::new(),
+            },
+        ));
+        rotation.record_success("ollama");
+        rotation.record_success("ollama");
+        rotation.record_success("ollama");
+        rotation.record_rate_limit("lmstudio");
+        router.set_rotation(rotation);
+
+        let summary = router.health_summary();
+
+        let ollama = summary.iter().find(|s| s.provider_name == "ollama").unwrap();
+        assert_eq!(ollama.rotation_status, "ok");
+        assert_eq!(ollama.request_count, 3);
+
+        let lmstudio = summary.iter().find(|s| s.provider_name == "lmstudio").unwrap();
+        assert_eq!(lmstudio.rotation_status, "cooling_down");
+        assert_eq!(lmstudio.request_count, 0);  // only successes are counted
+
+        // lemonade not in rotation at all → defaults to "ok" / 0
+        let lemonade = summary.iter().find(|s| s.provider_name == "lemonade").unwrap();
+        assert_eq!(lemonade.rotation_status, "ok");
+        assert_eq!(lemonade.request_count, 0);
+    }
+
+    #[test]
+    fn test_health_summary_mixed_healthy_unhealthy() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+
+        // Circuit breaker: trip ollama
+        let cb = Arc::new(crate::circuit_breaker::ProviderCircuitBreaker::new(
+            crate::circuit_breaker::BreakerConfig {
+                failure_threshold: 2,
+                open_duration_secs: 60,
+                half_open_success_needed: 2,
+            },
+        ));
+        cb.record_failure("ollama");
+        cb.record_failure("ollama");
+        cb.record_success("lmstudio");
+        router.set_circuit_breaker(cb);
+
+        // Rotation: cool down lmstudio
+        let rotation = Arc::new(crate::providers::rotation::ProviderRotation::new(
+            crate::providers::rotation::RotationConfig {
+                base_cooldown_secs: 60,
+                max_cooldown_secs: 120,
+                backoff_multiplier: 2.0,
+                priority_order: Vec::new(),
+            },
+        ));
+        rotation.record_rate_limit("lmstudio");
+        rotation.record_success("lemonade");
+        router.set_rotation(rotation);
+
+        let summary = router.health_summary();
+        assert_eq!(summary.len(), 3);
+
+        // ollama: CB open, rotation ok (not tracked)
+        let ollama = summary.iter().find(|s| s.provider_name == "ollama").unwrap();
+        assert!(!ollama.is_available);
+        assert_eq!(ollama.circuit_state, "open");
+        assert_eq!(ollama.rotation_status, "ok");
+
+        // lmstudio: CB closed, rotation cooling_down
+        let lmstudio = summary.iter().find(|s| s.provider_name == "lmstudio").unwrap();
+        assert!(lmstudio.is_available);
+        assert_eq!(lmstudio.circuit_state, "closed");
+        assert_eq!(lmstudio.rotation_status, "cooling_down");
+
+        // lemonade: CB closed (untracked), rotation ok
+        let lemonade = summary.iter().find(|s| s.provider_name == "lemonade").unwrap();
+        assert!(lemonade.is_available);
+        assert_eq!(lemonade.circuit_state, "closed");
+        assert_eq!(lemonade.rotation_status, "ok");
+        assert_eq!(lemonade.request_count, 1);
+    }
+
+    #[test]
+    fn test_health_summary_single_provider() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        // Remove all but ollama
+        router.providers.retain(|k, _| k == "ollama");
+        assert_eq!(router.providers.len(), 1);
+
+        let summary = router.health_summary();
+        assert_eq!(summary.len(), 1);
+        assert_eq!(summary[0].provider_name, "ollama");
+        assert!(summary[0].is_available);
+    }
+
+    #[test]
+    fn test_health_summary_serializes_to_json() {
+        let router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let summary = router.health_summary();
+
+        // Ensure the struct is Serialize-able (this would fail to compile if not)
+        let json = serde_json::to_value(&summary).unwrap();
+        let arr = json.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+
+        // Verify JSON field names
+        let first = &arr[0];
+        assert!(first.get("provider_name").is_some());
+        assert!(first.get("is_available").is_some());
+        assert!(first.get("circuit_state").is_some());
+        assert!(first.get("rotation_status").is_some());
+        assert!(first.get("request_count").is_some());
+        assert!(first.get("avg_latency_ms").is_some());
+        assert!(first.get("last_error").is_some());
+    }
+
+    #[test]
+    fn test_health_summary_circuit_breaker_accessor() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        assert!(router.circuit_breaker().is_none());
+
+        let cb = Arc::new(crate::circuit_breaker::ProviderCircuitBreaker::default());
+        router.set_circuit_breaker(cb);
+        assert!(router.circuit_breaker().is_some());
+    }
+
+    #[test]
+    fn test_health_summary_failure_count_in_last_error() {
+        let mut router = ProviderRouter::new("/nonexistent/path.toml").unwrap();
+        let cb = Arc::new(crate::circuit_breaker::ProviderCircuitBreaker::new(
+            crate::circuit_breaker::BreakerConfig {
+                failure_threshold: 5,
+                open_duration_secs: 60,
+                half_open_success_needed: 2,
+            },
+        ));
+        // Record 2 failures (below threshold — still closed)
+        cb.record_failure("ollama");
+        cb.record_failure("ollama");
+        router.set_circuit_breaker(cb);
+
+        let summary = router.health_summary();
+        let ollama = summary.iter().find(|s| s.provider_name == "ollama").unwrap();
+        assert!(ollama.is_available); // still closed (threshold=5)
+        assert_eq!(ollama.circuit_state, "closed");
+        assert!(ollama.last_error.is_some());
+        assert!(ollama.last_error.as_ref().unwrap().contains("2 consecutive failures"));
     }
 }
