@@ -3201,6 +3201,8 @@ async fn test_e2e_system_wiring_smoke_test() {
             target_capability: None,
             parallel_queries: vec![],
             tools: None,
+            provider: None,
+            model: None,
             extra: std::collections::HashMap::new(),
         }],
         tools: Some(vec!["file_write".into()]),

@@ -103,6 +103,14 @@ pub struct Phase {
     /// this phase only. None = use hand-level tools (or all tools if hand has None).
     #[serde(default)]
     pub tools: Option<Vec<String>>,
+    /// Per-phase provider override. When set, overrides the hand-level provider
+    /// for this phase only. None = use hand-level provider.
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Per-phase model override. When set, overrides the hand-level model
+    /// for this phase only. None = use hand-level model.
+    #[serde(default)]
+    pub model: Option<String>,
     /// Catch-all for unknown phase-level fields like tool_calls, tools, etc.
     /// Prevents parse errors when hand TOMLs include extra fields not in the struct.
     #[serde(flatten, default)]
@@ -508,10 +516,21 @@ impl HandRunner {
         if let Some(ref tool_list) = effective_tools {
             agent_config.tools = Some(tool_list.clone());
         }
-        if hand.provider != "auto" && !hand.provider.is_empty() {
+        // Phase-level provider/model take priority over hand-level
+        if let Some(ref phase_provider) = phase.provider {
+            agent_config.provider = Some(phase_provider.clone());
+        } else if hand.provider == "auto" || hand.provider.is_empty() {
+            // "auto" means let the router decide — clear any inherited provider
+            agent_config.provider = None;
+        } else {
             agent_config.provider = Some(hand.provider.clone());
         }
-        if !hand.model.is_empty() {
+        if let Some(ref phase_model) = phase.model {
+            agent_config.model = Some(phase_model.clone());
+        } else if hand.model.is_empty() {
+            // Empty model = let the provider/router decide
+            agent_config.model = None;
+        } else {
             agent_config.model = Some(hand.model.clone());
         }
 
@@ -961,6 +980,8 @@ mod tests {
                     target_capability: None,
                     parallel_queries: Vec::new(),
                     tools: None,
+                    provider: None,
+                    model: None,
                     extra: HashMap::new(),
                 },
                 Phase {
@@ -972,6 +993,8 @@ mod tests {
                     target_capability: None,
                     parallel_queries: Vec::new(),
                     tools: None,
+                    provider: None,
+                    model: None,
                     extra: HashMap::new(),
                 },
             ],
@@ -1840,6 +1863,8 @@ system_prompt = "Final phase"
             target_capability: None,
             parallel_queries: Vec::new(),
             tools,
+            provider: None,
+            model: None,
             extra: HashMap::new(),
         };
 

@@ -114,23 +114,14 @@ pub fn default_tier_config(tier: ServiceTier) -> TierConfig {
         ServiceTier::Lite => TierConfig {
             tier,
             limits: TierLimits {
-                max_tasks_per_day: 100,
-                allowed_tools: AllowedSet::List(vec![
-                    "web_search".to_string(),
-                    "http_request".to_string(),
-                    "file_read".to_string(),
-                    "memory_store".to_string(),
-                    "memory_recall".to_string(),
-                    "memory_forget".to_string(),
-                ]),
-                allowed_models: AllowedSet::List(vec![
-                    "llama3.2:1b".to_string(),
-                    "qwen3:8b".to_string(),
-                    "gemma2:2b".to_string(),
-                ]),
-                max_storage_bytes: 1_073_741_824, // 1 GB
+                max_tasks_per_day: 10_000,
+                // Self-hosted single-user: allow all tools on Lite tier
+                // (original restriction was for multi-tenant SaaS use)
+                allowed_tools: AllowedSet::All,
+                allowed_models: AllowedSet::All,
+                max_storage_bytes: 10_737_418_240, // 10 GB
                 priority_boost: 0,
-                max_concurrent_agents: 1,
+                max_concurrent_agents: 10,
             },
         },
         ServiceTier::Pro => TierConfig {
@@ -461,12 +452,10 @@ mod tests {
     fn test_lite_tool_access() {
         let db = temp_db();
         let mgr = ServiceTierManager::new(&db).unwrap();
-        // Lite tier: web_search allowed
+        // Lite tier: all tools allowed (self-hosted single-user mode)
         assert!(mgr.check_access("agent", "web_search").is_ok());
-        // Lite tier: shell NOT allowed
-        assert!(mgr.check_access("agent", "shell").is_err());
-        // Lite tier: scaffold_saas NOT allowed
-        assert!(mgr.check_access("agent", "scaffold_saas").is_err());
+        assert!(mgr.check_access("agent", "shell").is_ok());
+        assert!(mgr.check_access("agent", "scaffold_saas").is_ok());
         let _ = std::fs::remove_file(&db);
     }
 
@@ -501,15 +490,15 @@ mod tests {
     fn test_rate_limit_lite() {
         let db = temp_db();
         let mgr = ServiceTierManager::new(&db).unwrap();
-        // Record 100 tasks (Lite limit)
-        for _ in 0..100 {
+        // Record 10_000 tasks (Lite limit)
+        for _ in 0..10_000 {
             mgr.record_task("agent").unwrap();
         }
-        // 101st should be denied
+        // 10_001st should be denied
         let result = mgr.check_rate_limit("agent");
         assert!(result.is_err());
         let denied = result.unwrap_err();
-        assert!(denied.reason.contains("100"));
+        assert!(denied.reason.contains("10000"));
         let _ = std::fs::remove_file(&db);
     }
 
@@ -558,10 +547,10 @@ mod tests {
     fn test_model_access() {
         let db = temp_db();
         let mgr = ServiceTierManager::new(&db).unwrap();
-        // Lite: standard models only
+        // Lite: all models allowed (self-hosted single-user mode)
         assert!(mgr.check_model_access("agent", "qwen3:8b").is_ok());
-        assert!(mgr.check_model_access("agent", "gpt-4o").is_err());
-        // Pro: premium models
+        assert!(mgr.check_model_access("agent", "gpt-4o").is_ok());
+        // Pro: all models
         mgr.set_tier("agent", ServiceTier::Pro).unwrap();
         assert!(mgr.check_model_access("agent", "gpt-4o").is_ok());
         // Team: all models
@@ -632,10 +621,10 @@ mod tests {
     #[test]
     fn test_default_tier_configs() {
         let lite = default_tier_config(ServiceTier::Lite);
-        assert_eq!(lite.limits.max_tasks_per_day, 100);
-        assert_eq!(lite.limits.max_storage_bytes, 1_073_741_824);
+        assert_eq!(lite.limits.max_tasks_per_day, 10_000);
+        assert_eq!(lite.limits.max_storage_bytes, 10_737_418_240);
         assert_eq!(lite.limits.priority_boost, 0);
-        assert_eq!(lite.limits.max_concurrent_agents, 1);
+        assert_eq!(lite.limits.max_concurrent_agents, 10);
 
         let pro = default_tier_config(ServiceTier::Pro);
         assert_eq!(pro.limits.max_tasks_per_day, 500);

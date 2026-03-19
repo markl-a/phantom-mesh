@@ -1182,6 +1182,8 @@ mod tests {
                     target_capability: None,
                     parallel_queries: Vec::new(),
                     tools: None,
+                    provider: None,
+                    model: None,
                     extra: HashMap::new(),
                 },
             ],
