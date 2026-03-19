@@ -76,6 +76,7 @@ use tracing::warn;
 
 use crate::audit_log::{AuditLogger, ActionType, Outcome, risk_level_for_tool};
 use crate::output_stash::OutputStash;
+use crate::tools::input_sanitizer::sanitize_tool_args;
 
 // ── Rate Limiting ─────────────────────────────────────────────────────────────
 
@@ -552,6 +553,18 @@ impl ToolRegistry {
             });
         }
 
+        // 1b. Sanitize tool arguments (path traversal, shell injection, SQL injection)
+        let args = match sanitize_tool_args(tool_name, &args) {
+            Ok(sanitized) => sanitized,
+            Err(reason) => {
+                warn!("Input sanitizer blocked tool '{}': {}", tool_name, reason);
+                return Ok(ToolResult {
+                    success: false,
+                    output: format!("Input validation failed: {}", reason),
+                });
+            }
+        };
+
         // 2. Get tool and run preflight check
         let tool = match self.tools.get(tool_name) {
             Some(t) => t,
@@ -904,5 +917,56 @@ mod tests {
         let tool = super::shell::ShellTool::new(SecurityConfig::default());
         let args = serde_json::json!({"command": "npm list"});
         assert!(tool.preflight(&args).is_ok());
+    }
+
+    // ── Input Sanitizer Integration Tests ──────────────────────────────────
+
+    #[tokio::test]
+    async fn test_sanitizer_clean_args_pass_through() {
+        let registry = ToolRegistry::new(SecurityConfig {
+            workspace_only: false,
+            ..SecurityConfig::default()
+        });
+        // Use a tool with args that are completely clean — calculator is side-effect-free
+        let result = registry.execute_tool("calculator", serde_json::json!({"expression": "2 + 2"})).await.unwrap();
+        // Clean args should reach the tool (success depends on the tool itself, not the sanitizer)
+        // The key assertion: the sanitizer did NOT block the call
+        assert!(result.success || result.output.contains("calculator") || !result.output.contains("Input validation failed"));
+        assert!(!result.output.contains("Input validation failed"));
+    }
+
+    #[tokio::test]
+    async fn test_sanitizer_blocks_path_traversal_in_file_read() {
+        let registry = ToolRegistry::new(SecurityConfig::default());
+        let result = registry.execute_tool(
+            "file_read",
+            serde_json::json!({"path": "../../../etc/passwd"}),
+        ).await.unwrap();
+        assert!(!result.success);
+        assert!(result.output.contains("Input validation failed"));
+        assert!(result.output.contains("path traversal"));
+    }
+
+    #[tokio::test]
+    async fn test_sanitizer_blocks_shell_injection() {
+        let registry = ToolRegistry::new(SecurityConfig::default());
+        let result = registry.execute_tool(
+            "shell",
+            serde_json::json!({"command": "echo hello; rm -rf /"}),
+        ).await.unwrap();
+        assert!(!result.success);
+        assert!(result.output.contains("Input validation failed"));
+        assert!(result.output.contains("dangerous pattern"));
+    }
+
+    #[tokio::test]
+    async fn test_sanitizer_blocks_sql_injection_in_data_analysis() {
+        let registry = ToolRegistry::new(SecurityConfig::default());
+        let result = registry.execute_tool(
+            "data_analysis",
+            serde_json::json!({"query": "SELECT 1; DROP TABLE users"}),
+        ).await.unwrap();
+        assert!(!result.success);
+        assert!(result.output.contains("Input validation failed"));
     }
 }

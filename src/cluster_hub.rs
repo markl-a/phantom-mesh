@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
 use crate::cluster::{ClusterNode, ClusterRegistry};
+use crate::concurrency_manager::{ConcurrencyManager, ConcurrencyPermit};
+use crate::task_taxonomy::TaskTaxonomy;
 
 /// TTL for idempotency keys (5 minutes)
 const IDEMPOTENCY_TTL_SECS: u64 = 300;
@@ -199,6 +201,10 @@ pub struct ClusterHub {
     shared_agent_pool: Mutex<VecDeque<PendingAgentTask>>,
     /// Idempotency log: key → timestamp (for dedup within TTL)
     dispatch_log: Mutex<HashMap<String, Instant>>,
+    /// Optional task taxonomy for category-aware routing
+    taxonomy: Option<Arc<TaskTaxonomy>>,
+    /// Optional concurrency manager for per-node admission control
+    concurrency: Option<Arc<ConcurrencyManager>>,
 }
 
 impl ClusterHub {
@@ -219,7 +225,19 @@ impl ClusterHub {
             pending_agent_tasks: Mutex::new(HashMap::new()),
             shared_agent_pool: Mutex::new(VecDeque::new()),
             dispatch_log: Mutex::new(HashMap::new()),
+            taxonomy: None,
+            concurrency: None,
         }
+    }
+
+    /// Set the task taxonomy for category-aware dispatch routing.
+    pub fn set_taxonomy(&mut self, taxonomy: Arc<TaskTaxonomy>) {
+        self.taxonomy = Some(taxonomy);
+    }
+
+    /// Set the concurrency manager for per-node admission control.
+    pub fn set_concurrency(&mut self, concurrency: Arc<ConcurrencyManager>) {
+        self.concurrency = Some(concurrency);
     }
 
     /// Check idempotency key — returns error if duplicate within TTL
@@ -290,89 +308,169 @@ impl ClusterHub {
         }
     }
 
+    /// Reorder workers by taxonomy preference: preferred first, then fallback,
+    /// then any remaining candidates (preserving load-based ordering within each group).
+    fn reorder_by_taxonomy(
+        candidates: &[ClusterNode],
+        preferred: &[String],
+        fallback: &[String],
+    ) -> Vec<ClusterNode> {
+        let mut preferred_workers: Vec<ClusterNode> = Vec::new();
+        let mut fallback_workers: Vec<ClusterNode> = Vec::new();
+        let mut rest: Vec<ClusterNode> = Vec::new();
+
+        for w in candidates {
+            if preferred.iter().any(|p| p == &w.name) {
+                preferred_workers.push(w.clone());
+            } else if fallback.iter().any(|f| f == &w.name) {
+                fallback_workers.push(w.clone());
+            } else {
+                rest.push(w.clone());
+            }
+        }
+
+        // Preserve the preferred_nodes ordering: iterate preferred names in order
+        let mut ordered_preferred: Vec<ClusterNode> = Vec::new();
+        for pname in preferred {
+            if let Some(w) = preferred_workers.iter().find(|w| &w.name == pname) {
+                ordered_preferred.push(w.clone());
+            }
+        }
+
+        let mut ordered_fallback: Vec<ClusterNode> = Vec::new();
+        for fname in fallback {
+            if let Some(w) = fallback_workers.iter().find(|w| &w.name == fname) {
+                ordered_fallback.push(w.clone());
+            }
+        }
+
+        let mut result = ordered_preferred;
+        result.extend(ordered_fallback);
+        result.extend(rest);
+        result
+    }
+
+    /// Try to acquire a concurrency permit for a worker. Returns the permit if
+    /// successful, or None if the node is at capacity / unknown.
+    fn try_concurrency_permit(&self, worker_name: &str) -> Option<ConcurrencyPermit> {
+        if let Some(ref mgr) = self.concurrency {
+            match mgr.try_acquire(worker_name) {
+                Ok(permit) => Some(permit),
+                Err(reason) => {
+                    debug!(worker = worker_name, reason = %reason, "concurrency permit denied");
+                    None
+                }
+            }
+        } else {
+            // No concurrency manager — always allowed (backward compat).
+            None
+        }
+    }
+
     /// Dispatch a tool call to the best available worker.
     /// For mobile workers (polling mode), enqueues the task and waits for the result.
     /// For push workers, sends an HTTP POST directly.
+    ///
+    /// When a `TaskTaxonomy` is set, workers are prioritized by the taxonomy
+    /// profile's `preferred_nodes` / `fallback_nodes`.
+    ///
+    /// When a `ConcurrencyManager` is set, each candidate worker must have an
+    /// available concurrency slot before dispatch. The RAII permit is held for
+    /// the duration of the dispatch and auto-released on completion.
     pub async fn dispatch_tool(&self, tool_name: &str, input: Value) -> Result<Value> {
+        self.dispatch_tool_ext(tool_name, input, None).await
+    }
+
+    /// Extended dispatch that accepts an optional hand_name for taxonomy classification.
+    pub async fn dispatch_tool_ext(&self, tool_name: &str, input: Value, hand_name: Option<&str>) -> Result<Value> {
         let routing = self.tool_routing(tool_name);
-        let worker = match routing {
-            ToolRouting::Local => return Err(anyhow!("Tool '{}' is local-only", tool_name)),
-            ToolRouting::MobileOnly => {
-                // Only mobile workers can handle sensor/local_llm/js_exec tools
-                let workers = self.registry.online_workers().await;
-                let mobile_workers: Vec<_> = workers.into_iter()
-                    .filter(|w| w.device_type == "mobile")
-                    .collect();
-                if mobile_workers.is_empty() {
-                    let msg = format!("No mobile workers available for tool '{}'", tool_name);
-                    self.metrics.record_failure("none", &msg).await;
-                    return Err(anyhow!(msg));
-                }
-                // Pick by effective load (cpu + inflight penalty)
-                let mut best = mobile_workers[0].clone();
-                let mut best_load = self.effective_load(&best).await;
-                for w in &mobile_workers[1..] {
-                    let eff = self.effective_load(w).await;
-                    if eff < best_load {
-                        best = w.clone();
-                        best_load = eff;
-                    }
-                }
-                best
-            }
-            ToolRouting::AnyWorker => {
-                // Any online worker (including light and mobile workers)
-                let workers = self.registry.online_workers().await;
-                if workers.is_empty() {
-                    let msg = format!("No online workers available for tool '{}'", tool_name);
-                    self.metrics.record_failure("none", &msg).await;
-                    return Err(anyhow!(msg));
-                }
-                // Pick by effective load (cpu + inflight penalty)
-                let mut best = workers[0].clone();
-                let mut best_load = self.effective_load(&best).await;
-                for w in &workers[1..] {
-                    let eff = self.effective_load(w).await;
-                    if eff < best_load {
-                        best = w.clone();
-                        best_load = eff;
-                    }
-                }
-                best
-            }
-            ToolRouting::FullWorkerOnly => {
-                // Only full workers — use effective load for selection
-                let workers = self.registry.online_workers().await;
-                let full_workers: Vec<_> = workers.into_iter()
-                    .filter(|n| n.capabilities.iter().any(|c| c == "tools"))
-                    .collect();
-                if full_workers.is_empty() {
-                    let msg = format!("No full workers available for tool '{}'", tool_name);
-                    self.metrics.record_failure("none", &msg).await;
-                    return Err(anyhow!(msg));
-                }
-                let mut best = full_workers[0].clone();
-                let mut best_load = self.effective_load(&best).await;
-                for w in &full_workers[1..] {
-                    let eff = self.effective_load(w).await;
-                    if eff < best_load {
-                        best = w.clone();
-                        best_load = eff;
-                    }
-                }
-                best
-            }
+        if routing == ToolRouting::Local {
+            return Err(anyhow!("Tool '{}' is local-only", tool_name));
+        }
+
+        // Gather candidate workers based on routing type.
+        let workers = self.registry.online_workers().await;
+        let candidates: Vec<ClusterNode> = match routing {
+            ToolRouting::Local => unreachable!(),
+            ToolRouting::MobileOnly => workers.into_iter().filter(|w| w.device_type == "mobile").collect(),
+            ToolRouting::AnyWorker => workers,
+            ToolRouting::FullWorkerOnly => workers.into_iter().filter(|n| n.capabilities.iter().any(|c| c == "tools")).collect(),
         };
 
-        // Mobile workers use polling mode — enqueue task and wait for result
-        self.inc_inflight(&worker.name).await;
-        let result = if worker.device_type == "mobile" {
-            self.dispatch_to_mobile(&worker, tool_name, input, default_priority(), None).await
+        if candidates.is_empty() {
+            let msg = match routing {
+                ToolRouting::MobileOnly => format!("No mobile workers available for tool '{}'", tool_name),
+                _ => format!("No online workers available for tool '{}'", tool_name),
+            };
+            self.metrics.record_failure("none", &msg).await;
+            return Err(anyhow!(msg));
+        }
+
+        // Reorder candidates by taxonomy if available.
+        let ordered = if let Some(ref tax) = self.taxonomy {
+            let (_cat, profile) = tax.classify_and_profile(tool_name, hand_name);
+            debug!(
+                tool = tool_name,
+                hand = ?hand_name,
+                category = %_cat,
+                preferred = ?profile.preferred_nodes,
+                fallback = ?profile.fallback_nodes,
+                "taxonomy classification for dispatch"
+            );
+            Self::reorder_by_taxonomy(&candidates, &profile.preferred_nodes, &profile.fallback_nodes)
         } else {
-            self.execute_on_worker(&worker, tool_name, input).await
+            // No taxonomy — sort by effective load (backward compat).
+            let sorted = candidates.clone();
+            // Simple insertion sort by effective load is fine for small node counts.
+            let mut loads: Vec<(usize, f32)> = Vec::with_capacity(sorted.len());
+            for (i, w) in sorted.iter().enumerate() {
+                loads.push((i, self.effective_load(w).await));
+            }
+            loads.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let reordered: Vec<ClusterNode> = loads.iter().map(|(i, _)| sorted[*i].clone()).collect();
+            reordered
         };
-        self.dec_inflight(&worker.name).await;
-        result
+
+        // Try each candidate in order, checking concurrency limits.
+        if self.concurrency.is_some() {
+            // With concurrency manager: walk candidates, acquire permit, dispatch.
+            for worker in &ordered {
+                if let Some(permit) = self.try_concurrency_permit(&worker.name) {
+                    debug!(worker = %worker.name, "concurrency permit acquired, dispatching");
+                    self.inc_inflight(&worker.name).await;
+                    let result = if worker.device_type == "mobile" {
+                        self.dispatch_to_mobile(worker, tool_name, input.clone(), default_priority(), None).await
+                    } else {
+                        self.execute_on_worker(worker, tool_name, input.clone()).await
+                    };
+                    self.dec_inflight(&worker.name).await;
+                    // Permit is dropped here (RAII release).
+                    drop(permit);
+                    return result;
+                }
+                // This worker is at capacity, try next.
+                debug!(worker = %worker.name, "skipping (at capacity), trying next");
+            }
+            // All workers at capacity.
+            let msg = format!(
+                "All workers at concurrency capacity for tool '{}' ({} candidates checked)",
+                tool_name,
+                ordered.len()
+            );
+            self.metrics.record_failure("none", &msg).await;
+            return Err(anyhow!(msg));
+        } else {
+            // No concurrency manager — use first candidate (best by taxonomy or load).
+            let worker = &ordered[0];
+            self.inc_inflight(&worker.name).await;
+            let result = if worker.device_type == "mobile" {
+                self.dispatch_to_mobile(worker, tool_name, input, default_priority(), None).await
+            } else {
+                self.execute_on_worker(worker, tool_name, input).await
+            };
+            self.dec_inflight(&worker.name).await;
+            return result;
+        }
     }
 
     /// Dispatch a tool with explicit priority (0=highest, 255=lowest).
@@ -1524,5 +1622,261 @@ mod tests {
         let json_str = r#"{"task_id":"t-1","tool":"test","input":{}}"#;
         let resp: PollTaskResponse = serde_json::from_str(json_str).unwrap();
         assert_eq!(resp.priority, 100); // default
+    }
+
+    // ── TaskTaxonomy + ConcurrencyManager Integration Tests ──────────
+
+    #[test]
+    fn test_reorder_by_taxonomy_preferred_first() {
+        // Build mock ClusterNodes
+        let make_node = |name: &str| ClusterNode {
+            name: name.to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 7878,
+            status: "online".to_string(),
+            models: vec![],
+            last_seen: String::new(),
+            capabilities: vec!["tools".into()],
+            device_type: "full".to_string(),
+            cpu_load: 0.1,
+        };
+
+        let candidates = vec![
+            make_node("Acer"),
+            make_node("Z13"),
+            make_node("M1Mac"),
+            make_node("AYANEO"),
+        ];
+
+        let preferred = vec!["Z13".to_string()];
+        let fallback = vec!["M1Mac".to_string(), "AYANEO".to_string()];
+
+        let ordered = ClusterHub::reorder_by_taxonomy(&candidates, &preferred, &fallback);
+
+        assert_eq!(ordered.len(), 4);
+        assert_eq!(ordered[0].name, "Z13", "preferred node should be first");
+        assert_eq!(ordered[1].name, "M1Mac", "first fallback node should be second");
+        assert_eq!(ordered[2].name, "AYANEO", "second fallback node should be third");
+        assert_eq!(ordered[3].name, "Acer", "remaining node should be last");
+    }
+
+    #[test]
+    fn test_reorder_by_taxonomy_preferred_unavailable_uses_fallback() {
+        let make_node = |name: &str| ClusterNode {
+            name: name.to_string(),
+            host: "0.0.0.0".to_string(),
+            port: 7878,
+            status: "online".to_string(),
+            models: vec![],
+            last_seen: String::new(),
+            capabilities: vec!["tools".into()],
+            device_type: "full".to_string(),
+            cpu_load: 0.1,
+        };
+
+        // Z13 (preferred) is NOT in the candidate list — it is offline.
+        let candidates = vec![
+            make_node("Acer"),
+            make_node("AYANEO"),
+        ];
+
+        let preferred = vec!["Z13".to_string()];
+        let fallback = vec!["AYANEO".to_string(), "Acer".to_string()];
+
+        let ordered = ClusterHub::reorder_by_taxonomy(&candidates, &preferred, &fallback);
+
+        assert_eq!(ordered.len(), 2);
+        // Z13 is absent, so fallback nodes come first in their declared order.
+        assert_eq!(ordered[0].name, "AYANEO", "first fallback should lead when preferred absent");
+        assert_eq!(ordered[1].name, "Acer", "second fallback follows");
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_uses_taxonomy_preferred_nodes() {
+        // Register two workers: Z13 (preferred for Code) and Acer
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("Z13", "127.0.0.1", 7878, &["tools".into()], "full").await.unwrap();
+        registry.register_full("Acer", "127.0.0.2", 7881, &["tools".into()], "full").await.unwrap();
+
+        let mut hub = ClusterHub::new(registry);
+        hub.set_taxonomy(Arc::new(TaskTaxonomy::new()));
+
+        // "shell" is a Code tool → taxonomy prefers Z13.
+        // dispatch_tool will try to HTTP POST to Z13 which won't be reachable,
+        // but we can verify the attempt goes to Z13 by checking the error message.
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        assert!(result.is_err());
+        // The error should mention Z13 (the preferred node for Code tasks).
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Z13"),
+            "Expected dispatch attempt to Z13 (preferred for Code), got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_taxonomy_fallback_when_preferred_unavailable() {
+        // Only register Acer — Z13 (preferred for Code) is NOT registered/online.
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("Acer", "127.0.0.2", 7881, &["tools".into()], "full").await.unwrap();
+
+        let mut hub = ClusterHub::new(registry);
+        hub.set_taxonomy(Arc::new(TaskTaxonomy::new()));
+
+        // "shell" is Code → preferred=Z13 (absent), fallback=M1Mac,AYANEO,Acer
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        assert!(result.is_err());
+        // Should attempt Acer since it's the only online worker (and in fallback list).
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Acer"),
+            "Expected fallback dispatch to Acer, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_blocks_overloaded_node() {
+        use crate::concurrency_manager::ConcurrencyManager;
+
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("Z13", "127.0.0.1", 7878, &["tools".into()], "full").await.unwrap();
+
+        // Create concurrency manager with limit=1 for Z13.
+        let mut limits = HashMap::new();
+        limits.insert("Z13".to_string(), 1);
+        let concurrency = Arc::new(ConcurrencyManager::new(limits));
+
+        // Pre-acquire the only slot so dispatch finds Z13 at capacity.
+        let _permit = concurrency.try_acquire("Z13").unwrap();
+
+        let mut hub = ClusterHub::new(registry);
+        hub.set_concurrency(concurrency);
+
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("concurrency capacity") || err_msg.contains("at capacity"),
+            "Expected concurrency capacity error, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dispatch_succeeds_after_permit_released() {
+        use crate::concurrency_manager::ConcurrencyManager;
+
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("Z13", "127.0.0.1", 7878, &["tools".into()], "full").await.unwrap();
+
+        let mut limits = HashMap::new();
+        limits.insert("Z13".to_string(), 1);
+        let concurrency = Arc::new(ConcurrencyManager::new(limits));
+
+        // Acquire and then release the permit.
+        {
+            let _permit = concurrency.try_acquire("Z13").unwrap();
+            // permit drops here — slot is freed.
+        }
+
+        let mut hub = ClusterHub::new(registry);
+        hub.set_concurrency(concurrency);
+
+        // Now dispatch should acquire the permit and attempt to reach Z13.
+        // It will fail with a network error (not a concurrency error), proving
+        // that the concurrency gate was passed.
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // The error should be a network/HTTP error, NOT a concurrency capacity error.
+        assert!(
+            !err_msg.contains("concurrency capacity"),
+            "Should NOT be a concurrency error after permit released, got: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("unreachable") || err_msg.contains("Z13"),
+            "Expected network dispatch error to Z13, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrency_skips_to_next_worker() {
+        use crate::concurrency_manager::ConcurrencyManager;
+
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("Z13", "127.0.0.1", 7878, &["tools".into()], "full").await.unwrap();
+        registry.register_full("Acer", "127.0.0.2", 7881, &["tools".into()], "full").await.unwrap();
+
+        let mut limits = HashMap::new();
+        limits.insert("Z13".to_string(), 1);
+        limits.insert("Acer".to_string(), 2);
+        let concurrency = Arc::new(ConcurrencyManager::new(limits));
+
+        // Saturate Z13 so it is at capacity.
+        let _z13_permit = concurrency.try_acquire("Z13").unwrap();
+
+        let mut hub = ClusterHub::new(registry);
+        hub.set_taxonomy(Arc::new(TaskTaxonomy::new()));
+        hub.set_concurrency(concurrency);
+
+        // "shell" is Code → taxonomy prefers Z13. But Z13 is at capacity, so
+        // dispatch should skip to the next available worker (Acer, in fallback).
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        // Should attempt Acer (not Z13) and get a network error.
+        assert!(
+            err_msg.contains("Acer"),
+            "Expected dispatch to skip Z13 and try Acer, got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_backward_compat_no_taxonomy_no_concurrency() {
+        // When neither taxonomy nor concurrency is set, dispatch_tool should
+        // behave exactly as before (select by load, no admission control).
+        let registry = Arc::new(ClusterRegistry::new(":memory:").await.unwrap());
+        registry.register_full("W1", "127.0.0.1", 9001, &["tools".into()], "full").await.unwrap();
+
+        let hub = ClusterHub::new(registry);
+        // No set_taxonomy / set_concurrency — both default to None.
+
+        let result = hub.dispatch_tool("shell", json!({"cmd": "echo hi"})).await;
+        // Should fail with network error (worker not actually running), not with
+        // a taxonomy or concurrency error.
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("unreachable") || err_msg.contains("W1"),
+            "Expected plain network dispatch error, got: {}",
+            err_msg
+        );
+        assert!(
+            !err_msg.contains("taxonomy") && !err_msg.contains("concurrency"),
+            "Should not mention taxonomy/concurrency when not configured, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_set_taxonomy_and_concurrency() {
+        let registry = Arc::new(futures_util::FutureExt::now_or_never(
+            ClusterRegistry::new(":memory:")
+        ).unwrap().unwrap());
+        let mut hub = ClusterHub::new(registry);
+
+        assert!(hub.taxonomy.is_none());
+        assert!(hub.concurrency.is_none());
+
+        hub.set_taxonomy(Arc::new(TaskTaxonomy::new()));
+        hub.set_concurrency(Arc::new(ConcurrencyManager::with_defaults()));
+
+        assert!(hub.taxonomy.is_some());
+        assert!(hub.concurrency.is_some());
     }
 }

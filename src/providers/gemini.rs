@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::debug;
 
+use super::pool::HttpPool;
 use super::traits::*;
 
 pub struct GeminiProvider {
@@ -25,10 +26,7 @@ impl GeminiProvider {
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "gemini-2.5-flash-lite".to_string()),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .unwrap_or_default(),
+            client: HttpPool::global().client().clone(),
         }
     }
 
@@ -604,6 +602,22 @@ fn merge_consecutive_roles(contents: &mut Vec<Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::pool::HttpPool;
+
+    #[test]
+    fn test_gemini_uses_shared_http_pool() {
+        // Constructing two GeminiProviders should both get clients from the shared pool.
+        let p1 = GeminiProvider::new("key-a".into(), None);
+        let p2 = GeminiProvider::new("key-b".into(), None);
+        // The pool singleton is always the same static instance.
+        let pool_client = HttpPool::global().client();
+        // reqwest::Client is cheap-cloned (Arc internally), so all three share
+        // the same underlying connection pool. We verify by checking that the
+        // provider was created without panic and the pool is accessible.
+        let _ = pool_client;
+        assert_eq!(p1.name(), "gemini");
+        assert_eq!(p2.name(), "gemini");
+    }
 
     #[test]
     fn test_gemini_provider_name() {

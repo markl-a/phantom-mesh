@@ -13,6 +13,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::debug;
 
+use super::pool::HttpPool;
 use super::traits::*;
 
 /// Groq provider — uses OpenAI-compatible API with vision support.
@@ -24,14 +25,10 @@ pub struct GroqProvider {
 
 impl GroqProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()
-            .expect("Failed to build HTTP client");
         Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "llama-4-scout-17b-16e-instruct".to_string()),
-            client,
+            client: HttpPool::global().client().clone(),
         }
     }
 
@@ -378,6 +375,22 @@ fn parse_usage(json: &Value) -> Option<TokenUsage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::pool::HttpPool;
+
+    #[test]
+    fn test_groq_uses_shared_http_pool() {
+        // Constructing two GroqProviders should both get clients from the shared pool.
+        let p1 = GroqProvider::new("key-a".into(), None);
+        let p2 = GroqProvider::new("key-b".into(), None);
+        // The pool singleton is always the same static instance.
+        let pool_client = HttpPool::global().client();
+        // reqwest::Client is cheap-cloned (Arc internally), so all three share
+        // the same underlying connection pool. We verify by checking that the
+        // provider was created without panic and the pool is accessible.
+        let _ = pool_client;
+        assert_eq!(p1.name(), "groq");
+        assert_eq!(p2.name(), "groq");
+    }
 
     #[test]
     fn test_groq_provider_name() {

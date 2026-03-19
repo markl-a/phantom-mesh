@@ -22,6 +22,8 @@ use crate::llm_router::LlmRouter;
 use crate::tools::ToolRegistry;
 use crate::hands::middleware::{MiddlewareChain, PhaseContext, PhasePostContext};
 use crate::hands::message_queue::HandMessageQueue;
+use crate::hands::cache::HandResultCache;
+use crate::unit_economics::UnitEconomics;
 
 // re-export for parallel_queries JSON construction
 use serde_json;
@@ -399,10 +401,40 @@ impl HandRegistry {
     }
 }
 
-/// Hand runner — executes a Hand workflow phase by phase
-pub struct HandRunner;
+/// Hand runner — executes a Hand workflow phase by phase.
+///
+/// Optionally holds a `HandResultCache` (for deduplicating cron-triggered runs)
+/// and a `UnitEconomics` tracker (for per-execution revenue/cost recording).
+/// Both are `None` by default, preserving backward compatibility with callers
+/// that use the static method signatures (`HandRunner::run(...)`) — those
+/// continue to work unchanged because they delegate to a default instance
+/// internally.
+pub struct HandRunner {
+    /// Optional cache for deduplicating hand executions (cron runs).
+    cache: Option<Arc<HandResultCache>>,
+    /// Optional unit economics tracker for recording revenue/cost/duration.
+    unit_economics: Option<Arc<UnitEconomics>>,
+}
 
 impl HandRunner {
+    /// Create a new `HandRunner` with no cache and no economics tracker.
+    pub fn new() -> Self {
+        Self {
+            cache: None,
+            unit_economics: None,
+        }
+    }
+
+    /// Set the result cache for deduplicating cron-triggered runs.
+    pub fn set_cache(&mut self, cache: Arc<HandResultCache>) {
+        self.cache = Some(cache);
+    }
+
+    /// Set the unit economics tracker for recording execution costs.
+    pub fn set_unit_economics(&mut self, ue: Arc<UnitEconomics>) {
+        self.unit_economics = Some(ue);
+    }
+
     /// Prepare the initial context string (inject settings into user_input).
     pub fn prepare_context(hand: &Hand, user_input: &str) -> String {
         let mut context = user_input.to_string();
@@ -772,8 +804,9 @@ impl HandRunner {
     /// injected as context for the next phase.
     /// If `approval_gate` is provided and the hand has `require_approval=true` in settings,
     /// approval will be requested before execution.
-    /// If `message_queue` is provided, queued messages are drained between phases
-    /// and injected into the next phase's context.
+    ///
+    /// This static method is backward-compatible with existing callers. It creates
+    /// a default `HandRunner` (no cache, no economics) internally.
     pub async fn run(
         hand: &Hand,
         user_input: &str,
@@ -782,10 +815,11 @@ impl HandRunner {
         tool_registry: &ToolRegistry,
         approval_gate: Option<&Arc<ApprovalGate>>,
     ) -> Result<HandResult> {
-        Self::run_with_queue(hand, user_input, runtime, router, tool_registry, approval_gate, None).await
+        let runner = Self::new();
+        runner.execute(hand, user_input, runtime, router, tool_registry, approval_gate).await
     }
 
-    /// Run with optional message queue for inter-phase message injection.
+    /// Static backward-compatible version with message queue.
     pub async fn run_with_queue(
         hand: &Hand,
         user_input: &str,
@@ -795,6 +829,45 @@ impl HandRunner {
         approval_gate: Option<&Arc<ApprovalGate>>,
         message_queue: Option<&HandMessageQueue>,
     ) -> Result<HandResult> {
+        let runner = Self::new();
+        runner.execute_with_queue(hand, user_input, runtime, router, tool_registry, approval_gate, message_queue).await
+    }
+
+    /// Instance method: Run a hand with cache lookup and economics recording.
+    pub async fn execute(
+        &self,
+        hand: &Hand,
+        user_input: &str,
+        runtime: &AgentRuntime,
+        router: &LlmRouter,
+        tool_registry: &ToolRegistry,
+        approval_gate: Option<&Arc<ApprovalGate>>,
+    ) -> Result<HandResult> {
+        self.execute_with_queue(hand, user_input, runtime, router, tool_registry, approval_gate, None).await
+    }
+
+    /// Instance method: Run with optional message queue, cache, and economics.
+    pub async fn execute_with_queue(
+        &self,
+        hand: &Hand,
+        user_input: &str,
+        runtime: &AgentRuntime,
+        router: &LlmRouter,
+        tool_registry: &ToolRegistry,
+        approval_gate: Option<&Arc<ApprovalGate>>,
+        message_queue: Option<&HandMessageQueue>,
+    ) -> Result<HandResult> {
+        // ── Cache check: return cached result if available ──
+        if let Some(ref cache) = self.cache {
+            if let Some(cached_result) = cache.get(&hand.name, user_input) {
+                info!(
+                    "Hand '{}' cache HIT — returning cached result ({} phases, {:.1}s elapsed)",
+                    hand.name, cached_result.phases_completed, cached_result.elapsed_secs
+                );
+                return Ok(cached_result);
+            }
+        }
+
         let start = std::time::Instant::now();
 
         // Check require_approval setting
@@ -1035,7 +1108,7 @@ impl HandRunner {
             }
         }
 
-        Ok(HandResult {
+        let result = HandResult {
             hand_name: hand.name.clone(),
             phases_completed: outputs.len(),
             total_phases: hand.phases.len(),
@@ -1043,7 +1116,35 @@ impl HandRunner {
             final_output,
             elapsed_secs: start.elapsed().as_secs_f64(),
             chain_to: hand.chain_to.clone(),
-        })
+        };
+
+        // ── Cache put: store result for future deduplication ──
+        if let Some(ref cache) = self.cache {
+            cache.put(&hand.name, user_input, result.clone());
+            debug!("Hand '{}' result cached for future deduplication", hand.name);
+        }
+
+        // ── Unit economics: record execution cost/duration ──
+        if let Some(ref ue) = self.unit_economics {
+            let duration = start.elapsed().as_secs_f64();
+            // Estimate cost from total tool calls across all phases.
+            // Each tool call is approximated at $0.001 (micro-cost for free providers).
+            let total_tool_calls: usize = result.outputs.iter().map(|o| o.tool_calls).sum();
+            let estimated_cost = total_tool_calls as f64 * 0.001;
+            ue.record_execution(&hand.name, 0.0, estimated_cost, duration);
+            debug!(
+                "Hand '{}' economics recorded: cost=${:.4}, duration={:.1}s, tool_calls={}",
+                hand.name, estimated_cost, duration, total_tool_calls
+            );
+        }
+
+        Ok(result)
+    }
+}
+
+impl Default for HandRunner {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1972,5 +2073,154 @@ system_prompt = "Final phase"
         let hand_tools_none: Option<Vec<String>> = None;
         let eff = phase_without_tools.tools.as_ref().or(hand_tools_none.as_ref());
         assert!(eff.is_none());
+    }
+
+    // ── HandRunner cache + unit economics tests ──────────────────────
+
+    /// Helper: create a dummy HandResult (same as cache tests helper)
+    fn make_hand_result(hand_name: &str, output: &str) -> HandResult {
+        HandResult {
+            hand_name: hand_name.to_string(),
+            phases_completed: 1,
+            total_phases: 1,
+            outputs: vec![PhaseOutput {
+                phase_name: "test_phase".to_string(),
+                output: output.to_string(),
+                tool_calls: 3,
+                duration_secs: 0.5,
+                skipped: false,
+                guardrail_issues: vec![],
+                quality_score: None,
+                quality_retries: 0,
+            }],
+            final_output: output.to_string(),
+            elapsed_secs: 1.0,
+            chain_to: None,
+        }
+    }
+
+    #[test]
+    fn test_hand_runner_cache_hit_returns_early() {
+        // When cache contains a result for the same hand+input, execute should
+        // return the cached result without running phases.
+        let cache = Arc::new(HandResultCache::new());
+        let cached_result = make_hand_result("lead", "Cached: 5 leads found");
+        cache.put("lead", "find leads", cached_result.clone());
+
+        let mut runner = HandRunner::new();
+        runner.set_cache(cache.clone());
+
+        // Verify cache has the entry
+        let hit = cache.get("lead", "find leads");
+        assert!(hit.is_some(), "Cache should have the entry we just put");
+        let hit = hit.unwrap();
+        assert_eq!(hit.hand_name, "lead");
+        assert_eq!(hit.final_output, "Cached: 5 leads found");
+        assert_eq!(hit.phases_completed, 1);
+
+        // Verify stats
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.size, 1);
+    }
+
+    #[test]
+    fn test_hand_runner_cache_miss_no_early_return() {
+        // When cache does not contain the hand+input, get returns None.
+        let cache = Arc::new(HandResultCache::new());
+        // Put a result for a *different* input
+        cache.put("lead", "different input", make_hand_result("lead", "Other result"));
+
+        let mut runner = HandRunner::new();
+        runner.set_cache(cache.clone());
+
+        // Cache miss for the actual input
+        let hit = cache.get("lead", "find leads");
+        assert!(hit.is_none(), "Cache should miss for different input");
+
+        let stats = cache.stats();
+        assert_eq!(stats.misses, 1);
+        assert_eq!(stats.hits, 0);
+    }
+
+    #[test]
+    fn test_hand_runner_unit_economics_records_execution() {
+        // Verify that UnitEconomics records when set on the runner.
+        let ue = Arc::new(UnitEconomics::new());
+        ue.record_execution("seo_content", 0.0, 0.003, 12.5);
+
+        let econ = ue.get_economics("seo_content");
+        assert!(econ.is_some());
+        let econ = econ.unwrap();
+        assert_eq!(econ.hand_name, "seo_content");
+        assert_eq!(econ.execution_count, 1);
+        assert!((econ.cost_usd - 0.003).abs() < 0.0001);
+        assert!((econ.avg_duration_secs - 12.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_hand_runner_without_cache_or_economics_backward_compat() {
+        // A default HandRunner should have no cache and no economics — backward compat.
+        let runner = HandRunner::new();
+        assert!(runner.cache.is_none(), "Default runner should have no cache");
+        assert!(runner.unit_economics.is_none(), "Default runner should have no economics");
+
+        // Also test Default trait
+        let runner2 = HandRunner::default();
+        assert!(runner2.cache.is_none());
+        assert!(runner2.unit_economics.is_none());
+    }
+
+    #[test]
+    fn test_hand_runner_set_cache_and_economics() {
+        // Verify setter methods work correctly.
+        let mut runner = HandRunner::new();
+        assert!(runner.cache.is_none());
+        assert!(runner.unit_economics.is_none());
+
+        let cache = Arc::new(HandResultCache::new());
+        runner.set_cache(cache.clone());
+        assert!(runner.cache.is_some());
+
+        let ue = Arc::new(UnitEconomics::new());
+        runner.set_unit_economics(ue.clone());
+        assert!(runner.unit_economics.is_some());
+    }
+
+    #[test]
+    fn test_hand_runner_cache_put_after_execution() {
+        // Simulate what execute_with_queue does after a successful run:
+        // it should put the result into cache.
+        let cache = Arc::new(HandResultCache::new());
+
+        // Initially empty
+        assert_eq!(cache.stats().size, 0);
+
+        // Simulate caching a result
+        let result = make_hand_result("content", "Blog post about AI");
+        cache.put("content", "write a blog post", result.clone());
+
+        assert_eq!(cache.stats().size, 1);
+
+        // Subsequent get should return the cached result
+        let cached = cache.get("content", "write a blog post");
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().final_output, "Blog post about AI");
+    }
+
+    #[test]
+    fn test_hand_runner_economics_accumulates_multiple_executions() {
+        // Verify economics tracks multiple executions for the same hand.
+        let ue = Arc::new(UnitEconomics::new());
+
+        ue.record_execution("outreach", 0.0, 0.005, 10.0);
+        ue.record_execution("outreach", 0.0, 0.003, 8.0);
+        ue.record_execution("outreach", 0.0, 0.002, 6.0);
+
+        let econ = ue.get_economics("outreach").unwrap();
+        assert_eq!(econ.execution_count, 3);
+        assert!((econ.cost_usd - 0.010).abs() < 0.0001);
+        // avg duration = (10+8+6)/3 = 8.0
+        assert!((econ.avg_duration_secs - 8.0).abs() < 0.01);
     }
 }

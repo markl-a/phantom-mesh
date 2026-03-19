@@ -41,6 +41,10 @@ use clawtex_core::{
     PreemptionManager, NodeScorer, NodeMetrics,
     ObservationalMemory,
     OpsReporter,
+    FinancialMonitor, FinancialSnapshot,
+    UnitEconomics,
+    DeployManifest,
+    StripeWebhook, WebhookAction,
 };
 
 // ── CLI Args ───────────────────────────────────────────────────────────────────
@@ -230,6 +234,8 @@ struct AppState {
     observational_memory: Option<Arc<ObservationalMemory>>,
     preemption_manager: Option<Arc<PreemptionManager>>,
     node_scorer: Option<Arc<NodeScorer>>,
+    financial_monitor: Option<Arc<FinancialMonitor>>,
+    unit_economics: Option<Arc<UnitEconomics>>,
     started_at: Instant,
 }
 
@@ -240,12 +246,13 @@ async fn auth_middleware(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
-    // /health, /dashboard, /dashboard/v2 and /api/dashboard/* are always public
+    // /health, /dashboard, /dashboard/v2, /api/dashboard/*, /api/stripe/webhook are always public
     let path = req.uri().path();
     if path == "/health"
         || path == "/dashboard"
         || path == "/dashboard/v2"
         || path.starts_with("/api/dashboard/")
+        || path == "/api/stripe/webhook"
     {
         return Ok(next.run(req).await);
     }
@@ -3127,6 +3134,8 @@ async fn main() -> anyhow::Result<()> {
         observational_memory,
         preemption_manager,
         node_scorer,
+        financial_monitor: Some(Arc::new(FinancialMonitor::default())),
+        unit_economics: Some(Arc::new(UnitEconomics::new())),
         started_at: Instant::now(),
     };
     {
@@ -3403,6 +3412,150 @@ async fn main() -> anyhow::Result<()> {
         Ok(Json(json!({ "status": "ok", "customer_id": id })))
     }
 
+    // ── Revenue Dashboard API ─────────────────────────────────────────────────
+    async fn api_revenue_dashboard() -> Result<Json<Value>, StatusCode> {
+        let home = dirs::home_dir().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let revenue_db = home.join(".clawtex").join("revenue.db");
+        let cost_db = home.join(".clawtex").join("costs.db");
+        let revenue_path = revenue_db.to_str().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+        let cost_path = cost_db.to_str().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        match clawtex_core::web_dashboard::build_revenue_dashboard(revenue_path, cost_path) {
+            Ok(data) => {
+                let json_val = serde_json::to_value(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                Ok(Json(json_val))
+            }
+            Err(e) => {
+                error!("Revenue dashboard build failed: {}", e);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
+            }
+        }
+    }
+
+    // ── Deploy Manifest API ───────────────────────────────────────────────────
+    async fn api_deploy_manifest(State(state): State<AppState>) -> Json<Value> {
+        let manifest = DeployManifest::generate()
+            .with_hands(state.hands.list().iter().map(|h| h.name.clone()).collect())
+            .with_tools(state.tool_registry.names())
+            .with_providers(state.llm_router.provider_names());
+
+        match serde_json::from_str::<Value>(&manifest.to_json()) {
+            Ok(val) => Json(val),
+            Err(_) => Json(json!({"error": "Failed to serialize deploy manifest"})),
+        }
+    }
+
+    // ── Provider Health API ───────────────────────────────────────────────────
+    async fn api_providers_health(State(state): State<AppState>) -> Json<Value> {
+        let summary = state.llm_router.inner().health_summary();
+        match serde_json::to_value(&summary) {
+            Ok(val) => Json(val),
+            Err(_) => Json(json!([])),
+        }
+    }
+
+    // ── Stripe Webhook API ────────────────────────────────────────────────────
+    async fn api_stripe_webhook(
+        State(state): State<AppState>,
+        headers: axum::http::HeaderMap,
+        body: axum::body::Bytes,
+    ) -> Result<Json<Value>, StatusCode> {
+        let signature = headers
+            .get("Stripe-Signature")
+            .and_then(|v| v.to_str().ok())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+
+        let payload = std::str::from_utf8(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        // Use webhook secret from env or default empty (will fail verification gracefully)
+        let webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default();
+        if webhook_secret.is_empty() {
+            warn!("STRIPE_WEBHOOK_SECRET not set, rejecting webhook");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        let webhook = StripeWebhook::new(&webhook_secret);
+        let action = webhook.process(payload, signature);
+
+        match action {
+            WebhookAction::RecordRevenue { amount_usd, client, description } => {
+                info!("Stripe webhook: recording ${:.2} from {} — {}", amount_usd, client, description);
+                // Record revenue if tracker is available
+                if let Some(ref tracker) = state.revenue_tracker {
+                    let record = clawtex_core::revenue_tracker::RevenueRecord {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        timestamp: chrono::Utc::now(),
+                        route: "stripe".to_string(),
+                        source: "stripe_webhook".to_string(),
+                        client_name: client.clone(),
+                        amount_usd,
+                        currency: "USD".to_string(),
+                        status: clawtex_core::revenue_tracker::RevenueStatus::Confirmed,
+                        notes: Some(description.clone()),
+                        invoice_id: None,
+                    };
+                    if let Err(e) = tracker.record(&record) {
+                        error!("Failed to record Stripe revenue: {}", e);
+                    }
+                }
+                Ok(Json(json!({
+                    "status": "recorded",
+                    "amount_usd": amount_usd,
+                    "client": client,
+                    "description": description
+                })))
+            }
+            WebhookAction::Ignore => {
+                Ok(Json(json!({ "status": "ignored" })))
+            }
+            WebhookAction::Error(msg) => {
+                warn!("Stripe webhook error: {}", msg);
+                Ok(Json(json!({ "status": "error", "message": msg })))
+            }
+        }
+    }
+
+    // ── Financial Status API ──────────────────────────────────────────────────
+    async fn api_financial_status(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        let monitor = state.financial_monitor.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+
+        // Build a snapshot from available data (defaults/zeros for unavailable fields)
+        let snapshot = FinancialSnapshot {
+            daily_spend: 0.0,
+            daily_limit: 10.0,
+            api_cost: 0.0,
+            revenue: 0.0,
+            previous_revenue: 0.0,
+            project_cost: 0.0,
+            cash_balance: 0.0,
+            monthly_burn: 0.0,
+            current_period_cost: 0.0,
+            average_cost: 0.0,
+            budget_used: 0.0,
+            budget_total: 100.0,
+        };
+
+        let alerts = monitor.evaluate_all(&snapshot);
+        match serde_json::to_value(&alerts) {
+            Ok(val) => Ok(Json(json!({
+                "alerts": val,
+                "alert_count": alerts.len(),
+                "has_critical": FinancialMonitor::has_critical_alerts(&alerts)
+            }))),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+
+    // ── Economics Summary API ─────────────────────────────────────────────────
+    async fn api_economics_summary(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        let economics = state.unit_economics.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        let summary = economics.summary();
+        match serde_json::to_value(&summary) {
+            Ok(val) => Ok(Json(val)),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+
     let host = args.host;
     let port = args.port;
 
@@ -3441,6 +3594,13 @@ async fn main() -> anyhow::Result<()> {
         .route("/workspace/files", get(workspace_files))
         .route("/costs", get(costs_summary))
         .route("/revenue", get(revenue_summary))
+        // Revenue, deploy, provider health, Stripe, financial, economics API endpoints
+        .route("/api/revenue/dashboard", get(api_revenue_dashboard))
+        .route("/api/deploy/manifest", get(api_deploy_manifest))
+        .route("/api/providers/health", get(api_providers_health))
+        .route("/api/stripe/webhook", post(api_stripe_webhook))
+        .route("/api/financial/status", get(api_financial_status))
+        .route("/api/economics/summary", get(api_economics_summary))
         // Operations report endpoints
         .route("/reports/daily", get(report_daily))
         .route("/reports/weekly", get(report_weekly))

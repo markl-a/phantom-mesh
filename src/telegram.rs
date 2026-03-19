@@ -20,6 +20,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::channel::{Channel, ChannelMessage};
 use crate::providers::StreamChunk;
+use crate::telegram_menu::{
+    self, CallbackAction, InlineKeyboard,
+};
 
 const TELEGRAM_API: &str = "https://api.telegram.org";
 const MAX_MESSAGE_LEN: usize = 4096;
@@ -38,6 +41,26 @@ struct TelegramResponse<T> {
 struct Update {
     update_id: i64,
     message: Option<Message>,
+    callback_query: Option<CallbackQuery>,
+}
+
+/// Telegram CallbackQuery object (from inline keyboard button press)
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct CallbackQuery {
+    id: String,
+    from: User,
+    message: Option<CallbackMessage>,
+    data: Option<String>,
+}
+
+/// Simplified message inside a callback query (different from top-level Message:
+/// Telegram only guarantees `message_id` and `chat`; `text` and `from` may be absent).
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct CallbackMessage {
+    message_id: i64,
+    chat: Chat,
 }
 
 /// Telegram Message object (simplified)
@@ -319,6 +342,157 @@ impl TelegramChannel {
 
         chunks
     }
+
+    // -----------------------------------------------------------------------
+    // Inline keyboard support
+    // -----------------------------------------------------------------------
+
+    /// Send a message with an inline keyboard attached.
+    ///
+    /// The `keyboard.to_json()` produces the `reply_markup` value:
+    /// `{"inline_keyboard": [[{"text": "...", "callback_data": "..."}]]}`.
+    pub async fn send_message_with_keyboard(
+        &self,
+        chat_id: &str,
+        text: &str,
+        keyboard: &InlineKeyboard,
+    ) -> Result<i64> {
+        let body = json!({
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": keyboard.to_json(),
+            "disable_web_page_preview": true,
+        });
+
+        let resp = self
+            .client
+            .post(&self.api_url("sendMessage"))
+            .json(&body)
+            .send()
+            .await?;
+
+        let json_resp: Value = resp.json().await?;
+        json_resp
+            .get("result")
+            .and_then(|r| r.get("message_id"))
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| anyhow!("Failed to get message_id from sendMessage response"))
+    }
+
+    /// Build the JSON body for `send_message_with_keyboard` (useful for testing).
+    pub fn build_keyboard_message_body(
+        chat_id: &str,
+        text: &str,
+        keyboard: &InlineKeyboard,
+    ) -> Value {
+        json!({
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": keyboard.to_json(),
+            "disable_web_page_preview": true,
+        })
+    }
+
+    /// Answer a callback query to dismiss the loading spinner on the client.
+    ///
+    /// Telegram requires calling `answerCallbackQuery` within ~30s of a button press
+    /// or the button shows a spinning indicator indefinitely.
+    pub async fn answer_callback_query(&self, callback_query_id: &str) -> Result<()> {
+        let body = json!({
+            "callback_query_id": callback_query_id,
+        });
+
+        let _resp = self
+            .client
+            .post(&self.api_url("answerCallbackQuery"))
+            .json(&body)
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Parse a callback query from a raw Telegram update JSON and return the
+    /// typed `CallbackAction` along with context (chat_id, callback_query_id).
+    ///
+    /// Returns `None` if the update does not contain a callback query or the
+    /// user is not allowed.
+    pub fn handle_callback_query(
+        &self,
+        update_json: &Value,
+    ) -> Option<(CallbackAction, String, String)> {
+        let cq = update_json.get("callback_query")?;
+        let callback_query_id = cq.get("id")?.as_str()?.to_string();
+        let data = cq.get("data")?.as_str()?;
+
+        // Extract chat_id from callback_query.message.chat.id
+        let chat_id = cq
+            .get("message")
+            .and_then(|m| m.get("chat"))
+            .and_then(|c| c.get("id"))
+            .and_then(|id| id.as_i64())
+            .map(|id| id.to_string())
+            .unwrap_or_default();
+
+        // Check user authorization
+        let user_id = cq
+            .get("from")
+            .and_then(|f| f.get("id"))
+            .and_then(|id| id.as_i64())
+            .unwrap_or(0);
+        let username = cq
+            .get("from")
+            .and_then(|f| f.get("username"))
+            .and_then(|u| u.as_str());
+
+        if !self.is_user_allowed(user_id, username) {
+            warn!(
+                "Denied callback query from user {} (@{})",
+                user_id,
+                username.unwrap_or("unknown")
+            );
+            return None;
+        }
+
+        let action = telegram_menu::parse_callback(data);
+        Some((action, chat_id, callback_query_id))
+    }
+
+    /// Process a slash command and return the appropriate keyboard + text
+    /// to send back to the user.
+    ///
+    /// Returns `Some((text, keyboard))` for recognized commands, or `None`
+    /// if the text is not a known command.
+    pub fn process_command(
+        &self,
+        text: &str,
+        hand_names: &[&str],
+    ) -> Option<(String, Option<InlineKeyboard>)> {
+        let cmd = text.trim();
+        if cmd == "/hands" || cmd == "/menu" {
+            let kb = telegram_menu::hand_selector(hand_names);
+            let label = if hand_names.is_empty() {
+                "No hands available.".to_string()
+            } else {
+                format!("Select a hand to run ({} available):", hand_names.len())
+            };
+            Some((label, Some(kb)))
+        } else if cmd == "/status" {
+            let kb = telegram_menu::status_dashboard();
+            Some(("Status Dashboard:".to_string(), Some(kb)))
+        } else if cmd == "/help" {
+            let help = "\
+Available commands:\n\
+/hands or /menu — Show available hands\n\
+/status — Show status dashboard\n\
+/help — Show this help message\n\
+\n\
+You can also type any message to chat with the AI agent.";
+            Some((help.to_string(), None))
+        } else {
+            None
+        }
+    }
 }
 
 #[async_trait]
@@ -393,7 +567,7 @@ impl Channel for TelegramChannel {
             let offset = *self.offset.read().await;
 
             let url = format!(
-                "{}?offset={}&timeout={}&allowed_updates=[\"message\"]",
+                "{}?offset={}&timeout={}&allowed_updates=[\"message\",\"callback_query\"]",
                 self.api_url("getUpdates"),
                 offset,
                 POLL_TIMEOUT
@@ -436,7 +610,82 @@ impl Channel for TelegramChannel {
                         }
                     }
 
-                    // Process message
+                    // --- Handle callback queries from inline keyboard ---
+                    if let Some(cq) = update.callback_query {
+                        let user_id = cq.from.id;
+                        let username = cq.from.username.as_deref();
+
+                        if !self.is_user_allowed(user_id, username) {
+                            warn!(
+                                "Denied callback query from user {} (@{})",
+                                user_id,
+                                username.unwrap_or("unknown")
+                            );
+                            continue;
+                        }
+
+                        // Answer the callback query to dismiss the spinner
+                        if let Err(e) = self.answer_callback_query(&cq.id).await {
+                            warn!("Failed to answer callback query: {}", e);
+                        }
+
+                        if let Some(data) = cq.data {
+                            let action = telegram_menu::parse_callback(&data);
+                            let chat_id = cq
+                                .message
+                                .as_ref()
+                                .map(|m| m.chat.id.to_string())
+                                .unwrap_or_default();
+
+                            // Convert callback action into a synthetic ChannelMessage
+                            // so the caller can process it uniformly.
+                            let synthetic_text = match &action {
+                                CallbackAction::RunHand(name) => format!("/run {}", name),
+                                CallbackAction::ShowStatus(panel) => {
+                                    format!("/status {}", panel)
+                                }
+                                CallbackAction::Confirm => "/confirm".to_string(),
+                                CallbackAction::Cancel => "/cancel".to_string(),
+                                CallbackAction::SelectProvider(name) => {
+                                    format!("/provider {}", name)
+                                }
+                                CallbackAction::Unknown(raw) => raw.clone(),
+                            };
+
+                            debug!(
+                                "Callback from @{}: {} -> {:?}",
+                                username.unwrap_or("unknown"),
+                                data,
+                                action,
+                            );
+
+                            let channel_msg = ChannelMessage {
+                                sender: cq
+                                    .from
+                                    .username
+                                    .clone()
+                                    .unwrap_or_else(|| cq.from.first_name.clone()),
+                                sender_id: cq.from.id.to_string(),
+                                text: synthetic_text,
+                                chat_id,
+                                timestamp: 0, // callback queries don't carry a date
+                                channel: "telegram".to_string(),
+                                reply_to: None,
+                                message_id: cq
+                                    .message
+                                    .as_ref()
+                                    .map(|m| m.message_id.to_string()),
+                            };
+
+                            if tx.send(channel_msg).await.is_err() {
+                                error!("Message channel closed, stopping listener");
+                                return Err(anyhow!("Message channel closed"));
+                            }
+                        }
+                        continue;
+                    }
+
+                    // --- Handle regular messages ---
                     let msg = match update.message {
                         Some(m) => m,
                         None => continue,
@@ -557,5 +806,223 @@ mod tests {
             allowed_users: vec![],
         });
         assert!(!ch.is_user_allowed(12345, Some("anyone")));
+    }
+
+    // -----------------------------------------------------------------------
+    // Inline keyboard integration tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_send_message_with_keyboard_builds_correct_json_body() {
+        use crate::telegram_menu::hand_selector;
+
+        let kb = hand_selector(&["seo_content", "outreach", "lead"]);
+        let body = TelegramChannel::build_keyboard_message_body("12345", "Pick a hand:", &kb);
+
+        // Verify top-level fields
+        assert_eq!(body["chat_id"], "12345");
+        assert_eq!(body["text"], "Pick a hand:");
+        assert_eq!(body["disable_web_page_preview"], true);
+
+        // Verify reply_markup contains inline_keyboard
+        let reply_markup = &body["reply_markup"];
+        let rows = reply_markup["inline_keyboard"].as_array().unwrap();
+        assert_eq!(rows.len(), 1); // 3 items = 1 row of 3
+        assert_eq!(rows[0].as_array().unwrap().len(), 3);
+        assert_eq!(rows[0][0]["text"], "seo_content");
+        assert_eq!(rows[0][0]["callback_data"], "hand:seo_content");
+        assert_eq!(rows[0][2]["callback_data"], "hand:lead");
+    }
+
+    #[test]
+    fn test_handle_callback_query_parses_run_hand() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec!["*".to_string()],
+        });
+
+        let update = json!({
+            "callback_query": {
+                "id": "abc123",
+                "from": {
+                    "id": 42,
+                    "first_name": "Mark",
+                    "username": "markl"
+                },
+                "message": {
+                    "message_id": 100,
+                    "chat": { "id": 9999, "type": "private" }
+                },
+                "data": "hand:seo_content"
+            }
+        });
+
+        let result = ch.handle_callback_query(&update);
+        assert!(result.is_some());
+        let (action, chat_id, cq_id) = result.unwrap();
+        assert_eq!(action, CallbackAction::RunHand("seo_content".to_string()));
+        assert_eq!(chat_id, "9999");
+        assert_eq!(cq_id, "abc123");
+    }
+
+    #[test]
+    fn test_handle_callback_query_denied_user() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec!["12345".to_string()],
+        });
+
+        let update = json!({
+            "callback_query": {
+                "id": "xyz",
+                "from": {
+                    "id": 99999,
+                    "first_name": "Evil",
+                    "username": "hacker"
+                },
+                "message": {
+                    "message_id": 1,
+                    "chat": { "id": 1, "type": "private" }
+                },
+                "data": "hand:outreach"
+            }
+        });
+
+        let result = ch.handle_callback_query(&update);
+        assert!(result.is_none(), "Denied user should get None from handle_callback_query");
+    }
+
+    #[test]
+    fn test_process_command_hands_returns_keyboard() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec!["*".to_string()],
+        });
+
+        let hand_names = &["seo_content", "outreach", "lead", "report"];
+        let result = ch.process_command("/hands", hand_names);
+        assert!(result.is_some());
+        let (text, kb) = result.unwrap();
+        assert!(text.contains("4 available"));
+        let kb = kb.expect("Should have a keyboard");
+        // 4 hands -> 2 rows (3 + 1)
+        assert_eq!(kb.rows.len(), 2);
+        assert_eq!(kb.rows[0].len(), 3);
+        assert_eq!(kb.rows[1].len(), 1);
+    }
+
+    #[test]
+    fn test_process_command_menu_alias() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec![],
+        });
+
+        let result = ch.process_command("/menu", &["seo"]);
+        assert!(result.is_some());
+        let (text, kb) = result.unwrap();
+        assert!(text.contains("1 available"));
+        assert!(kb.is_some());
+    }
+
+    #[test]
+    fn test_process_command_status_returns_dashboard() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec![],
+        });
+
+        let result = ch.process_command("/status", &[]);
+        assert!(result.is_some());
+        let (text, kb) = result.unwrap();
+        assert_eq!(text, "Status Dashboard:");
+        let kb = kb.expect("Should have status keyboard");
+        assert_eq!(kb.rows.len(), 1);
+        assert_eq!(kb.rows[0].len(), 4);
+        assert_eq!(kb.rows[0][0].callback_data, "status:cost");
+    }
+
+    #[test]
+    fn test_process_command_help_returns_text_only() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec![],
+        });
+
+        let result = ch.process_command("/help", &[]);
+        assert!(result.is_some());
+        let (text, kb) = result.unwrap();
+        assert!(text.contains("/hands"));
+        assert!(text.contains("/status"));
+        assert!(kb.is_none(), "/help should not include a keyboard");
+    }
+
+    #[test]
+    fn test_process_command_unknown_returns_none() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec![],
+        });
+
+        let result = ch.process_command("hello world", &[]);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_callback_query_no_callback_returns_none() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec!["*".to_string()],
+        });
+
+        // An update with only a message, no callback_query
+        let update = json!({
+            "message": {
+                "message_id": 1,
+                "chat": { "id": 1, "type": "private" },
+                "text": "hello"
+            }
+        });
+
+        assert!(ch.handle_callback_query(&update).is_none());
+    }
+
+    #[test]
+    fn test_handle_callback_query_parses_status() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec!["*".to_string()],
+        });
+
+        let update = json!({
+            "callback_query": {
+                "id": "cq_status",
+                "from": { "id": 1, "first_name": "Test" },
+                "message": {
+                    "message_id": 50,
+                    "chat": { "id": 777, "type": "private" }
+                },
+                "data": "status:cluster"
+            }
+        });
+
+        let (action, chat_id, _) = ch.handle_callback_query(&update).unwrap();
+        assert_eq!(action, CallbackAction::ShowStatus("cluster".to_string()));
+        assert_eq!(chat_id, "777");
+    }
+
+    #[test]
+    fn test_process_command_hands_empty_list() {
+        let ch = TelegramChannel::new(TelegramConfig {
+            bot_token: "test".to_string(),
+            allowed_users: vec![],
+        });
+
+        let result = ch.process_command("/hands", &[]);
+        assert!(result.is_some());
+        let (text, kb) = result.unwrap();
+        assert!(text.contains("No hands available"));
+        let kb = kb.expect("Should still have a keyboard (empty)");
+        assert!(kb.rows.is_empty());
     }
 }

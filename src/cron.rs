@@ -6,8 +6,13 @@ use anyhow::Result;
 use chrono::{DateTime, Utc, Duration as ChronoDuration, Timelike, Datelike};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
+
+use crate::cost_tracker::CostTracker;
+use crate::financial_monitor::{AlertLevel, FinancialAlert, FinancialMonitor, FinancialSnapshot};
+use crate::revenue_tracker::RevenueTracker;
 
 // ── Schedule Types ────────────────────────────────────────────────────────────
 
@@ -282,15 +287,122 @@ impl CronStore {
     }
 }
 
+// ── Financial Health Check ─────────────────────────────────────────────────
+
+/// Default daily spending limit (USD) used when no config is available.
+const DEFAULT_DAILY_LIMIT: f64 = 10.0;
+
+/// Default interval between financial health checks (seconds). 1 hour.
+pub const DEFAULT_FINANCIAL_CHECK_INTERVAL_SECS: u64 = 3600;
+
+/// Run a periodic financial health check using data from cost_tracker and
+/// optionally revenue_tracker. Builds a `FinancialSnapshot`, evaluates all
+/// 7 indicators, logs each alert at the appropriate tracing level, and returns
+/// the alert vector.
+pub fn run_financial_check(
+    cost_tracker: &CostTracker,
+    revenue_tracker: Option<&RevenueTracker>,
+) -> Vec<FinancialAlert> {
+    // --- Gather daily spend from cost tracker ---
+    let daily_spend = match cost_tracker.today_total() {
+        Ok(summary) => summary.total_cost_usd,
+        Err(e) => {
+            warn!("Financial check: failed to read today's cost: {}", e);
+            0.0
+        }
+    };
+
+    // --- Gather revenue (today) from revenue tracker if available ---
+    let revenue = match revenue_tracker {
+        Some(rt) => match rt.today_total() {
+            Ok(summary) => summary.total_usd,
+            Err(e) => {
+                warn!("Financial check: failed to read today's revenue: {}", e);
+                0.0
+            }
+        },
+        None => 0.0,
+    };
+
+    // Build snapshot with available data; fields we cannot determine use
+    // safe defaults that will not trigger false positives.
+    let snapshot = FinancialSnapshot {
+        daily_spend,
+        daily_limit: DEFAULT_DAILY_LIMIT,
+        api_cost: daily_spend,           // approximate: daily API cost ~ daily spend
+        revenue,
+        previous_revenue: 0.0,           // no historical comparison available here
+        project_cost: daily_spend,
+        cash_balance: 0.0,               // unknown — will not fire (monthly_burn=0)
+        monthly_burn: 0.0,               // unknown — skip runway check
+        current_period_cost: daily_spend,
+        average_cost: 0.0,               // unknown — skip spike check
+        budget_used: daily_spend,
+        budget_total: DEFAULT_DAILY_LIMIT,
+    };
+
+    let monitor = FinancialMonitor::default();
+    let alerts = monitor.evaluate_all(&snapshot);
+
+    // Log each alert at the appropriate tracing level
+    for alert in &alerts {
+        match alert.level {
+            AlertLevel::Emergency | AlertLevel::Critical => {
+                error!(
+                    indicator = %alert.indicator_name,
+                    level = %alert.level,
+                    value = alert.current_value,
+                    threshold = alert.threshold,
+                    "[Financial] {}",
+                    alert.message
+                );
+            }
+            AlertLevel::Warn => {
+                warn!(
+                    indicator = %alert.indicator_name,
+                    level = %alert.level,
+                    value = alert.current_value,
+                    threshold = alert.threshold,
+                    "[Financial] {}",
+                    alert.message
+                );
+            }
+            AlertLevel::Info => {
+                info!(
+                    indicator = %alert.indicator_name,
+                    level = %alert.level,
+                    "[Financial] {}",
+                    alert.message
+                );
+            }
+        }
+    }
+
+    if alerts.is_empty() {
+        debug!("Financial health check passed — no alerts (daily_spend=${:.4})", daily_spend);
+    } else {
+        info!(
+            "Financial health check: {} alert(s) raised (daily_spend=${:.4})",
+            alerts.len(),
+            daily_spend
+        );
+    }
+
+    alerts
+}
+
 // ── Scheduler (background runner) ────────────────────────────────────────────
 
 /// Callback type for executing job actions
 pub type JobExecutor = Arc<dyn Fn(JobAction) -> tokio::task::JoinHandle<String> + Send + Sync>;
 
-/// The scheduler runs in the background, checking for due jobs every 30 seconds
+/// The scheduler runs in the background, checking for due jobs every 30 seconds.
+/// Optionally runs a periodic financial health check alongside cron jobs.
 pub struct Scheduler {
     store: Arc<CronStore>,
     jobs: RwLock<Vec<CronJob>>,
+    /// Interval in seconds between financial health checks. 0 = disabled.
+    pub financial_check_interval_secs: u64,
 }
 
 impl Scheduler {
@@ -300,6 +412,7 @@ impl Scheduler {
         Ok(Self {
             store,
             jobs: RwLock::new(jobs),
+            financial_check_interval_secs: DEFAULT_FINANCIAL_CHECK_INTERVAL_SECS,
         })
     }
 
@@ -372,14 +485,47 @@ impl Scheduler {
         self.jobs.read().await.clone()
     }
 
-    /// Main scheduler loop — call this in a tokio::spawn
+    /// Main scheduler loop — call this in a tokio::spawn.
+    /// This is the backward-compatible version without financial checks.
     pub async fn run(&self, executor: JobExecutor) {
+        self.run_with_financial_check(executor, None, None).await;
+    }
+
+    /// Main scheduler loop with optional periodic financial health checks.
+    /// If `cost_tracker` is None, financial checks are skipped.
+    pub async fn run_with_financial_check(
+        &self,
+        executor: JobExecutor,
+        cost_tracker: Option<Arc<CostTracker>>,
+        revenue_tracker: Option<Arc<RevenueTracker>>,
+    ) {
         info!("Scheduler started");
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut last_financial_check = Instant::now();
+        // Run the first financial check soon after startup (after first tick)
+        let financial_enabled = self.financial_check_interval_secs > 0 && cost_tracker.is_some();
+        if financial_enabled {
+            info!(
+                "Financial health check enabled (interval={}s)",
+                self.financial_check_interval_secs
+            );
+        }
 
         loop {
             interval.tick().await;
             let now = Utc::now();
+
+            // ── Financial health check ──────────────────────────────────
+            if financial_enabled {
+                let elapsed = last_financial_check.elapsed().as_secs();
+                if elapsed >= self.financial_check_interval_secs {
+                    if let Some(ref ct) = cost_tracker {
+                        let rt_ref = revenue_tracker.as_deref();
+                        run_financial_check(ct, rt_ref);
+                    }
+                    last_financial_check = Instant::now();
+                }
+            }
 
             // Collect due jobs
             let due_jobs: Vec<CronJob> = {
@@ -691,6 +837,178 @@ mod tests {
                 serde_json::to_string(&parsed).unwrap(),
                 json
             );
+        }
+    }
+
+    // ── Financial health check tests ──────────────────────────────────────────
+
+    /// Helper: create a temporary CostTracker backed by an in-memory-style temp DB.
+    fn temp_cost_tracker(name: &str) -> (CostTracker, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join("clawtex_test_cron_fin");
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join(format!("{}.db", name));
+        let _ = std::fs::remove_file(&db_path);
+        let tracker = CostTracker::new(db_path.to_str().unwrap()).unwrap();
+        (tracker, db_path)
+    }
+
+    #[test]
+    fn test_financial_check_healthy_no_alerts() {
+        // With zero spend (empty DB) and default $10 limit, no alerts should fire
+        // for daily_spend or budget_utilization (both 0%).
+        // api_revenue_ratio: api_cost=0 → skip. project_margin: revenue=0,cost=0 → skip.
+        // cash_runway: burn=0 → skip. cost_spike: avg=0 → skip. revenue_decline: prev=0 → skip.
+        let (tracker, db_path) = temp_cost_tracker("fin_healthy");
+        let alerts = run_financial_check(&tracker, None);
+        assert!(
+            alerts.is_empty(),
+            "Expected no alerts for empty tracker, got {} alert(s): {:?}",
+            alerts.len(),
+            alerts.iter().map(|a| &a.message).collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_financial_check_high_spend_triggers_alerts() {
+        // Record high spending that exceeds the default $10 daily limit
+        let (tracker, db_path) = temp_cost_tracker("fin_high_spend");
+        let record = crate::cost_tracker::CostRecord {
+            id: "fin-test-1".to_string(),
+            timestamp: Utc::now(),
+            agent: "master".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-opus".to_string(),
+            tokens_in: 50_000,
+            tokens_out: 50_000,
+            total_tokens: 100_000,
+            estimated_cost_usd: 12.0, // $12 > $10 limit → Emergency
+            duration_secs: 5.0,
+            context: None,
+        };
+        tracker.record(&record).unwrap();
+
+        let alerts = run_financial_check(&tracker, None);
+        // Should have at least a daily_spend alert (Emergency: exceeded limit)
+        // and a budget_utilization alert (Emergency: exceeded budget)
+        assert!(
+            !alerts.is_empty(),
+            "Expected alerts for $12 spend on $10 limit, got none"
+        );
+
+        // Check that we have an Emergency-level daily_spend alert
+        let daily_alert = alerts.iter().find(|a| a.indicator_name == "daily_spend");
+        assert!(daily_alert.is_some(), "Expected a daily_spend alert");
+        assert_eq!(
+            daily_alert.unwrap().level,
+            AlertLevel::Emergency,
+            "daily_spend with $12/$10 should be Emergency"
+        );
+
+        // Check that we have an Emergency-level budget_utilization alert
+        let budget_alert = alerts.iter().find(|a| a.indicator_name == "budget_utilization");
+        assert!(budget_alert.is_some(), "Expected a budget_utilization alert");
+        assert_eq!(
+            budget_alert.unwrap().level,
+            AlertLevel::Emergency,
+            "budget $12/$10 should be Emergency"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_financial_check_warn_level_spend() {
+        // Record spending at 85% of limit ($8.50 / $10) → Warn level
+        let (tracker, db_path) = temp_cost_tracker("fin_warn_spend");
+        let record = crate::cost_tracker::CostRecord {
+            id: "fin-test-2".to_string(),
+            timestamp: Utc::now(),
+            agent: "master".to_string(),
+            provider: "anthropic".to_string(),
+            model: "claude-sonnet".to_string(),
+            tokens_in: 10_000,
+            tokens_out: 10_000,
+            total_tokens: 20_000,
+            estimated_cost_usd: 8.5, // 85% of $10 → Warn
+            duration_secs: 2.0,
+            context: None,
+        };
+        tracker.record(&record).unwrap();
+
+        let alerts = run_financial_check(&tracker, None);
+        assert!(!alerts.is_empty(), "Expected alerts for $8.50 on $10 limit");
+
+        let daily_alert = alerts.iter().find(|a| a.indicator_name == "daily_spend");
+        assert!(daily_alert.is_some(), "Expected a daily_spend alert");
+        assert_eq!(
+            daily_alert.unwrap().level,
+            AlertLevel::Warn,
+            "daily_spend $8.50/$10 (85%) should be Warn"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_financial_check_alert_levels_are_correct() {
+        // Verify the logging dispatch logic by checking returned alert levels
+        // at different spend amounts against the default $10 limit.
+        let test_cases: Vec<(f64, Option<AlertLevel>)> = vec![
+            (5.0, None),                              // 50% → no alert
+            (8.0, Some(AlertLevel::Warn)),             // 80% → Warn
+            (9.6, Some(AlertLevel::Critical)),         // 96% → Critical
+            (11.0, Some(AlertLevel::Emergency)),       // 110% → Emergency
+        ];
+
+        for (spend, expected_level) in test_cases {
+            let db_name = format!("fin_levels_{}", (spend * 10.0) as u32);
+            let (tracker, db_path) = temp_cost_tracker(&db_name);
+
+            if spend > 0.0 {
+                let record = crate::cost_tracker::CostRecord {
+                    id: format!("fin-level-{}", (spend * 10.0) as u32),
+                    timestamp: Utc::now(),
+                    agent: "master".to_string(),
+                    provider: "anthropic".to_string(),
+                    model: "claude-sonnet".to_string(),
+                    tokens_in: 1000,
+                    tokens_out: 1000,
+                    total_tokens: 2000,
+                    estimated_cost_usd: spend,
+                    duration_secs: 1.0,
+                    context: None,
+                };
+                tracker.record(&record).unwrap();
+            }
+
+            let alerts = run_financial_check(&tracker, None);
+            let daily_alert = alerts.iter().find(|a| a.indicator_name == "daily_spend");
+
+            match expected_level {
+                None => {
+                    assert!(
+                        daily_alert.is_none(),
+                        "Expected no daily_spend alert for ${:.1}, but got one",
+                        spend
+                    );
+                }
+                Some(ref level) => {
+                    assert!(
+                        daily_alert.is_some(),
+                        "Expected daily_spend alert for ${:.1}, but got none",
+                        spend
+                    );
+                    assert_eq!(
+                        &daily_alert.unwrap().level,
+                        level,
+                        "Wrong alert level for ${:.1} spend",
+                        spend
+                    );
+                }
+            }
+
+            let _ = std::fs::remove_file(&db_path);
         }
     }
 }
