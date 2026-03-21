@@ -331,6 +331,30 @@ impl TrajectoryLogger {
         Ok(stats)
     }
 
+    /// List distinct hand names that have trajectory data.
+    pub fn list_hand_names(&self) -> Result<Vec<String>> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock poisoned: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT hand_name FROM trajectories WHERE hand_name IS NOT NULL ORDER BY hand_name",
+        )?;
+        let names: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(names)
+    }
+
+    /// Count trajectory entries for a specific hand.
+    pub fn count_for_hand(&self, hand_name: &str) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("lock poisoned: {}", e))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM trajectories WHERE hand_name = ?1",
+            params![hand_name],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     /// Delete trajectory entries older than `days` days.
     pub fn cleanup_old(&self, days: u32) -> Result<usize> {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64))
@@ -388,6 +412,58 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrajectoryEntry> {
         created_at: row.get(20)?,
         date_key: row.get(21)?,
     })
+}
+
+// ---------------------------------------------------------------------------
+// PluginModule adapter
+// ---------------------------------------------------------------------------
+
+use crate::app_context::AppContext;
+use crate::health_check::HealthStatus;
+use crate::plugin_bus::PluginModule;
+use async_trait::async_trait;
+
+/// Wraps TrajectoryLogger as a PluginModule.
+///
+/// On init, opens the SQLite database and registers `Arc<TrajectoryLogger>`
+/// in AppContext for other modules (FeedbackLoop, Governor, etc.).
+pub struct TrajectoryPlugin {
+    db_path: String,
+    logger: std::sync::RwLock<Option<Arc<TrajectoryLogger>>>,
+}
+
+impl TrajectoryPlugin {
+    pub fn new(db_path: &str) -> Self {
+        Self {
+            db_path: db_path.to_string(),
+            logger: std::sync::RwLock::new(None),
+        }
+    }
+}
+
+#[async_trait]
+impl PluginModule for TrajectoryPlugin {
+    fn id(&self) -> &str { "trajectory-logger" }
+    fn version(&self) -> &str { env!("CARGO_PKG_VERSION") }
+    fn capabilities(&self) -> Vec<String> {
+        vec!["trajectory-logging".into(), "quality-analysis".into()]
+    }
+    async fn init(&self, ctx: &AppContext) -> anyhow::Result<()> {
+        let logger = Arc::new(TrajectoryLogger::new(&self.db_path)?);
+        ctx.register(logger.clone());
+        *self.logger.write().expect("lock poisoned") = Some(logger);
+        Ok(())
+    }
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        *self.logger.write().expect("lock poisoned") = None;
+        Ok(())
+    }
+    fn health(&self) -> HealthStatus {
+        match self.logger.read().expect("lock poisoned").as_ref() {
+            Some(_) => HealthStatus::Healthy,
+            None => HealthStatus::Unhealthy,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -724,5 +800,29 @@ mod tests {
         assert_eq!(by_phase[0].phase_name.as_deref(), Some("research"));
 
         let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[tokio::test]
+    async fn test_trajectory_plugin_lifecycle() {
+        use crate::app_context::AppContext;
+        use crate::plugin_bus::PluginModule;
+
+        let dir = std::env::temp_dir().join(format!("traj-plugin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("traj.db");
+
+        let plugin = TrajectoryPlugin::new(db_path.to_str().unwrap());
+        let ctx = AppContext::new();
+
+        assert_eq!(plugin.id(), "trajectory-logger");
+        assert_eq!(plugin.health(), HealthStatus::Unhealthy); // Not initialized yet
+
+        plugin.init(&ctx).await.unwrap();
+        let logger = ctx.get::<TrajectoryLogger>().unwrap();
+        assert_eq!(logger.count_for_hand("nonexistent").unwrap(), 0);
+        assert_eq!(plugin.health(), HealthStatus::Healthy);
+
+        plugin.shutdown().await.unwrap();
+        assert_eq!(plugin.health(), HealthStatus::Unhealthy);
     }
 }
