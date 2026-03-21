@@ -1130,6 +1130,60 @@ pub fn deep_health_check(
 }
 
 // ---------------------------------------------------------------------------
+// PluginModule adapter
+// ---------------------------------------------------------------------------
+
+use crate::app_context::AppContext;
+use crate::plugin_bus::PluginModule;
+use async_trait::async_trait;
+use std::sync::Arc;
+
+/// Wraps the health check system as a PluginModule.
+///
+/// On init, registers itself in AppContext so other modules can query
+/// system health via `ctx.get::<HealthCheckPlugin>()`.
+pub struct HealthCheckPlugin;
+
+impl HealthCheckPlugin {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Run all built-in checks and return aggregated SystemHealth.
+    pub fn check_all(&self, db_dir: &str, workspace_dir: &str) -> SystemHealth {
+        let start = Instant::now();
+        let components = vec![
+            check_database(db_dir),
+            check_disk_space(workspace_dir),
+            check_memory_usage(2 * 1024 * 1024 * 1024), // 2 GB threshold
+        ];
+        let status = components
+            .iter()
+            .fold(HealthStatus::Healthy, |worst, c| worst.worse(c.status));
+        SystemHealth {
+            status,
+            components,
+            uptime_secs: start.elapsed().as_secs(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            checked_at: Utc::now(),
+        }
+    }
+}
+
+#[async_trait]
+impl PluginModule for HealthCheckPlugin {
+    fn id(&self) -> &str { "health-check" }
+    fn version(&self) -> &str { env!("CARGO_PKG_VERSION") }
+    fn capabilities(&self) -> Vec<String> { vec!["health-monitoring".into()] }
+    async fn init(&self, ctx: &AppContext) -> anyhow::Result<()> {
+        ctx.register(Arc::new(HealthCheckPlugin::new()));
+        Ok(())
+    }
+    async fn shutdown(&self) -> anyhow::Result<()> { Ok(()) }
+    fn health(&self) -> HealthStatus { HealthStatus::Healthy }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -2019,5 +2073,22 @@ mod tests {
 
         // Overall should be at least Degraded
         assert_ne!(report.overall_status, SubsystemStatus::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_health_check_plugin_lifecycle() {
+        use crate::app_context::AppContext;
+        use crate::plugin_bus::PluginModule;
+
+        let plugin = HealthCheckPlugin::new();
+        let ctx = AppContext::new();
+
+        assert_eq!(plugin.id(), "health-check");
+        assert_eq!(plugin.health(), HealthStatus::Healthy);
+
+        plugin.init(&ctx).await.unwrap();
+        assert!(ctx.get::<HealthCheckPlugin>().is_some());
+
+        plugin.shutdown().await.unwrap();
     }
 }
