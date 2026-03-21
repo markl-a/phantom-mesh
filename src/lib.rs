@@ -84,6 +84,7 @@ pub mod config_validator;
 pub mod graceful_shutdown;
 pub mod health_check;
 pub mod plugin_loader;
+pub mod app_context;
 pub mod rate_limiter_v2;
 pub mod retry;
 pub mod smoke_test;
@@ -99,6 +100,13 @@ pub mod unit_economics;
 pub mod revenue_pipeline;
 pub mod roi_scheduler;
 pub mod provider_budget;
+pub mod provider_pricing;
+pub mod optimizer_store;
+pub mod power_economics;
+pub mod governor;
+pub mod roi_gate;
+pub mod pipeline;
+pub mod feedback_loop;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -113,7 +121,7 @@ pub use task_queue::{TaskQueue, TaskPriority};
 pub use agent_runtime::AgentRuntime;
 pub use cluster::{ClusterRegistry, ClusterNode};
 pub use cluster_hub::{ClusterHub, ClusterMetrics, WorkerStats, ToolRouting, PollTaskResponse, TaskResultPayload, AgentTask};
-pub use cluster_worker::{ClusterWorker, ClusterConfig, WorkerConfig};
+pub use cluster_worker::{ClusterWorker, ClusterConfig, WorkerConfig, resolve_cluster_secret};
 pub use channel::{Channel, ChannelMessage, ChannelType, ChannelRegistry};
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use tools::{ToolRegistry, SecurityConfig, RateLimitConfig, ActionTracker, scrub_credentials};
@@ -200,3 +208,6 @@ pub use task_taxonomy::{TaskCategory, TaskProfile, TaskTaxonomy};
 pub use telegram_menu::{InlineKeyboard, InlineButton, CallbackAction, parse_callback};
 pub use unit_economics::{UnitEconomics, CaseEconomics, EconomicsSummary};
 pub use revenue_pipeline::{RevenuePipeline, PipelineDef, PipelineStage, StageType, PipelineExecution, PipelineStatus, PipelineStats, default_pipelines};
+pub use provider_pricing::{ProviderPricingStore, ProviderPriceRule, ProviderPriceEstimate};
+pub use optimizer_store::{OptimizerStore, PolicyType, PolicyStatus, PolicyVersion, OptimizationRun};
+pub use power_economics::{PowerEconomics, NodePowerProfile, HourlyNodeCost, PowerCostEstimate, ProfitabilityAssessment};
