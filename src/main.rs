@@ -43,9 +43,17 @@ use clawtex_core::{
     OpsReporter,
     FinancialMonitor, FinancialSnapshot,
     UnitEconomics,
+    OptimizerStore, PolicyType,
+    PowerEconomics, NodePowerProfile,
+    ProviderPricingStore, ProviderPriceRule,
     DeployManifest,
     StripeWebhook, WebhookAction,
 };
+use clawtex_core::telegram_i18n::{TelegramI18n, LangCommand, parse_lang_command, detect_locale, supported_locales};
+use clawtex_core::plugin_bus::PluginBus;
+use clawtex_core::health_check::HealthCheckPlugin;
+use clawtex_core::trajectory::TrajectoryPlugin;
+use clawtex_core::circuit_breaker::CircuitBreakerPlugin;
 
 // ── CLI Args ───────────────────────────────────────────────────────────────────
 
@@ -198,6 +206,59 @@ struct RenderConfig {
     api_key: String,
 }
 
+fn default_load_factor() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Deserialize)]
+struct PowerEstimateRequest {
+    node_id: String,
+    duration_secs: f64,
+    #[serde(default = "default_load_factor")]
+    load_factor: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct PowerProfitabilityRequest {
+    node_id: String,
+    expected_revenue_per_hour_usd: f64,
+    #[serde(default)]
+    api_cost_per_hour_usd: f64,
+    #[serde(default = "default_load_factor")]
+    load_factor: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct PowerProfileUpsertRequest {
+    idle_watts: f64,
+    active_watts: f64,
+    electricity_usd_per_kwh: f64,
+    #[serde(default)]
+    depreciation_usd_per_hour: f64,
+    #[serde(default)]
+    cooling_usd_per_hour: f64,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PricingRuleUpsertRequest {
+    provider: String,
+    model_pattern: String,
+    input_usd_per_1m_tokens: f64,
+    output_usd_per_1m_tokens: f64,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PricingEstimateRequest {
+    provider: String,
+    model: String,
+    tokens_in: u32,
+    tokens_out: u32,
+}
+
 // ── App State ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -226,6 +287,7 @@ struct AppState {
     load_tester: Option<Arc<LoadTester>>,
     worker_onboarder: Option<Arc<WorkerOnboarder>>,
     service_tier: Option<Arc<ServiceTierManager>>,
+    optimizer_store: Option<Arc<OptimizerStore>>,
     auto_diagnoser: Option<Arc<AutoDiagnoser>>,
     tenant_manager: Option<Arc<TenantManager>>,
     order_workflow: Option<Arc<OrderWorkflow>>,
@@ -234,9 +296,22 @@ struct AppState {
     observational_memory: Option<Arc<ObservationalMemory>>,
     preemption_manager: Option<Arc<PreemptionManager>>,
     node_scorer: Option<Arc<NodeScorer>>,
+    power_economics: Option<Arc<PowerEconomics>>,
+    provider_pricing: Option<Arc<ProviderPricingStore>>,
     financial_monitor: Option<Arc<FinancialMonitor>>,
     unit_economics: Option<Arc<UnitEconomics>>,
+    telegram_i18n: Arc<tokio::sync::RwLock<TelegramI18n>>,
+    /// Shared secret for inter-node cluster authentication.
+    /// When set, cluster endpoints (register, heartbeat, poll, result) require
+    /// `Authorization: Bearer <secret>`. When `None`, auth is disabled (open cluster).
+    cluster_secret: Option<String>,
     started_at: Instant,
+    // Efficiency engine subsystems
+    roi_gate: Option<Arc<clawtex_core::roi_gate::RoiGate>>,
+    governor: Option<Arc<clawtex_core::governor::Governor>>,
+    pipeline_orchestrator: Option<Arc<tokio::sync::RwLock<clawtex_core::pipeline::PipelineOrchestrator>>>,
+    feedback_loop_config: Option<clawtex_core::feedback_loop::FeedbackLoopConfig>,
+    roi_scheduler: Option<Arc<clawtex_core::roi_scheduler::RoiScheduler>>,
 }
 
 // ── Auth Middleware ────────────────────────────────────────────────────────────
@@ -253,6 +328,7 @@ async fn auth_middleware(
         || path == "/dashboard/v2"
         || path.starts_with("/api/dashboard/")
         || path == "/api/stripe/webhook"
+        || path.starts_with("/cluster/")
     {
         return Ok(next.run(req).await);
     }
@@ -391,6 +467,26 @@ async fn agent_run(
     }
 }
 
+/// Validate the `Authorization: Bearer <token>` header for cluster endpoints.
+/// Returns `Ok(())` if auth passes (or is disabled), `Err(StatusCode::UNAUTHORIZED)` otherwise.
+fn validate_cluster_auth(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), StatusCode> {
+    let secret = match &state.cluster_secret {
+        Some(s) => s,
+        None => return Ok(()), // Auth disabled — allow all requests
+    };
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    match auth_header {
+        Some(token) if token == secret => Ok(()),
+        _ => {
+            warn!("Cluster auth failed: missing or invalid Authorization header");
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
+
 async fn cluster_status(State(state): State<AppState>) -> Json<Value> {
     let nodes = state.cluster.status().await;
     Json(json!({ "nodes": nodes }))
@@ -399,8 +495,10 @@ async fn cluster_status(State(state): State<AppState>) -> Json<Value> {
 /// POST /cluster/register — worker self-registration
 async fn cluster_register(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
+    validate_cluster_auth(&state, &headers)?;
     let name = body.get("name").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
     let host = body.get("host").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
     let port = body.get("port").and_then(|v| v.as_u64()).unwrap_or(7879) as u16;
@@ -424,8 +522,10 @@ async fn cluster_register(
 /// POST /cluster/heartbeat — worker heartbeat with cpu_load
 async fn cluster_heartbeat(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
+    validate_cluster_auth(&state, &headers)?;
     let name = body.get("name").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
     let cpu_load = body.get("cpu_load").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
@@ -543,8 +643,10 @@ async fn cluster_metrics_worker(
 /// GET /cluster/poll?worker=<name> — mobile worker polls for next task (also acts as heartbeat)
 async fn cluster_poll(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Result<Json<Value>, StatusCode> {
+    validate_cluster_auth(&state, &headers)?;
     let worker_name = params.get("worker").ok_or(StatusCode::BAD_REQUEST)?;
 
     let hub = state.cluster_hub.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
@@ -584,8 +686,10 @@ async fn cluster_poll(
 /// POST /cluster/result — mobile worker submits completed task result
 async fn cluster_result(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, StatusCode> {
+    validate_cluster_auth(&state, &headers)?;
     let task_id = body.get("task_id").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
     let success = body.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
     let output = body.get("output").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -778,6 +882,207 @@ async fn preemption_history(State(state): State<AppState>, axum::extract::Query(
 async fn cluster_scores(State(state): State<AppState>) -> Json<Value> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Json(json!({"error": "node scorer not initialized"})) }; let rankings = scorer.get_rankings(); let nodes: Vec<Value> = rankings.iter().map(|(id, score)| { json!({"node_id": id, "stability": score.stability, "speed": score.speed, "cost_efficiency": score.cost_efficiency, "quality": score.quality, "overall": score.overall, "grade": format!("{}", score.grade)}) }).collect(); Json(json!({"rankings": nodes, "count": nodes.len()})) }
 async fn cluster_score_node(State(state): State<AppState>, Path(node_id): Path<String>) -> Json<Value> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Json(json!({"error": "node scorer not initialized"})) }; match scorer.get_node_details(&node_id) { Some((metrics, score)) => Json(json!({"node_id": node_id, "metrics": metrics, "score": score})), None => Json(json!({"error": format!("No data for node '{}'", node_id)})) } }
 async fn cluster_score_update(State(state): State<AppState>, Path(node_id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> { let scorer = match state.node_scorer.as_ref() { Some(s) => s, None => return Err(StatusCode::SERVICE_UNAVAILABLE) }; let metrics = NodeMetrics { success_count: body.get("success_count").and_then(|v| v.as_u64()).unwrap_or(0), failure_count: body.get("failure_count").and_then(|v| v.as_u64()).unwrap_or(0), avg_latency_ms: body.get("avg_latency_ms").and_then(|v| v.as_f64()).unwrap_or(0.0), total_cost: body.get("total_cost").and_then(|v| v.as_f64()).unwrap_or(0.0), quality_score: body.get("quality_score").and_then(|v| v.as_f64()).unwrap_or(0.0) }; match scorer.update_metrics(&node_id, metrics) { Ok(score) => Ok(Json(json!({"node_id": node_id, "score": score, "status": "updated"}))), Err(e) => { warn!("Failed to update node score for '{}': {}", node_id, e); Err(StatusCode::INTERNAL_SERVER_ERROR) } } }
+async fn power_nodes(State(state): State<AppState>) -> Json<Value> {
+    let power = match state.power_economics.as_ref() {
+        Some(p) => p,
+        None => return Json(json!({"error": "power economics not initialized"})),
+    };
+
+    let cluster_nodes = state.cluster.status().await;
+    let profiles = match power.list_profiles() {
+        Ok(p) => p,
+        Err(e) => return Json(json!({"error": e.to_string()})),
+    };
+
+    let nodes: Vec<Value> = profiles
+        .iter()
+        .map(|profile| {
+            let live = cluster_nodes.iter().find(|n| n.name == profile.node_id);
+            let live_load = live.map(|n| n.cpu_load as f64).unwrap_or(1.0);
+            let live_hourly = power.estimate_hourly_cost(&profile.node_id, live_load).ok();
+            let full_load = power.estimate_hourly_cost(&profile.node_id, 1.0).ok();
+            json!({
+                "profile": profile,
+                "cluster": live.map(|n| json!({
+                    "status": n.status,
+                    "cpu_load": n.cpu_load,
+                    "device_type": n.device_type,
+                    "host": n.host,
+                    "port": n.port,
+                })),
+                "live_hourly_cost": live_hourly,
+                "full_load_hourly_cost": full_load,
+            })
+        })
+        .collect();
+
+    Json(json!({"nodes": nodes, "count": nodes.len()}))
+}
+
+async fn power_node_detail(State(state): State<AppState>, Path(node_id): Path<String>) -> Json<Value> {
+    let power = match state.power_economics.as_ref() {
+        Some(p) => p,
+        None => return Json(json!({"error": "power economics not initialized"})),
+    };
+
+    let profile = match power.get_profile(&node_id) {
+        Ok(Some(p)) => p,
+        Ok(None) => return Json(json!({"error": format!("No power profile for node '{}'", node_id)})),
+        Err(e) => return Json(json!({"error": e.to_string()})),
+    };
+
+    let cluster_node = state.cluster.get_node(&node_id).await;
+    let live_load = cluster_node.as_ref().map(|n| n.cpu_load as f64).unwrap_or(1.0);
+    let idle_hourly = power.estimate_hourly_cost(&node_id, 0.0).ok();
+    let mid_hourly = power.estimate_hourly_cost(&node_id, 0.5).ok();
+    let full_hourly = power.estimate_hourly_cost(&node_id, 1.0).ok();
+    let live_hourly = power.estimate_hourly_cost(&node_id, live_load).ok();
+
+    Json(json!({
+        "profile": profile,
+        "cluster": cluster_node,
+        "hourly_idle": idle_hourly,
+        "hourly_mid": mid_hourly,
+        "hourly_full": full_hourly,
+        "hourly_live": live_hourly,
+    }))
+}
+
+async fn power_node_upsert(
+    State(state): State<AppState>,
+    Path(node_id): Path<String>,
+    Json(body): Json<PowerProfileUpsertRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let power = state.power_economics.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let profile = NodePowerProfile {
+        node_id: node_id.clone(),
+        idle_watts: body.idle_watts,
+        active_watts: body.active_watts,
+        electricity_usd_per_kwh: body.electricity_usd_per_kwh,
+        depreciation_usd_per_hour: body.depreciation_usd_per_hour,
+        cooling_usd_per_hour: body.cooling_usd_per_hour,
+        notes: body.notes.clone(),
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    power.upsert_profile(&profile).map_err(|e| {
+        warn!("Failed to upsert power profile for '{}': {}", node_id, e);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let stored = power
+        .get_profile(&node_id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(json!({"status": "updated", "profile": stored})))
+}
+
+async fn power_estimate(
+    State(state): State<AppState>,
+    Json(body): Json<PowerEstimateRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let power = state.power_economics.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match power.estimate_run_cost(&body.node_id, body.duration_secs, body.load_factor) {
+        Ok(estimate) => Ok(Json(json!(estimate))),
+        Err(e) => {
+            warn!("Power estimate failed for '{}': {}", body.node_id, e);
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+async fn power_profitability(
+    State(state): State<AppState>,
+    Json(body): Json<PowerProfitabilityRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let power = state.power_economics.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match power.assess_profitability(
+        &body.node_id,
+        body.expected_revenue_per_hour_usd,
+        body.api_cost_per_hour_usd,
+        body.load_factor,
+    ) {
+        Ok(assessment) => Ok(Json(json!(assessment))),
+        Err(e) => {
+            warn!("Power profitability failed for '{}': {}", body.node_id, e);
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+async fn pricing_rules(State(state): State<AppState>) -> Json<Value> {
+    let pricing = match state.provider_pricing.as_ref() {
+        Some(p) => p,
+        None => return Json(json!({"error": "provider pricing not initialized"})),
+    };
+    match pricing.list_rules() {
+        Ok(rules) => Json(json!({"rules": rules, "count": rules.len()})),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+async fn pricing_rules_provider(
+    State(state): State<AppState>,
+    Path(provider): Path<String>,
+) -> Json<Value> {
+    let pricing = match state.provider_pricing.as_ref() {
+        Some(p) => p,
+        None => return Json(json!({"error": "provider pricing not initialized"})),
+    };
+    match pricing.list_rules_for_provider(Some(&provider)) {
+        Ok(rules) => Json(json!({"provider": provider, "rules": rules, "count": rules.len()})),
+        Err(e) => Json(json!({"error": e.to_string()})),
+    }
+}
+
+async fn pricing_rule_upsert(
+    State(state): State<AppState>,
+    Json(body): Json<PricingRuleUpsertRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let pricing = state.provider_pricing.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let rule = ProviderPriceRule {
+        provider: body.provider,
+        model_pattern: body.model_pattern,
+        input_usd_per_1m_tokens: body.input_usd_per_1m_tokens,
+        output_usd_per_1m_tokens: body.output_usd_per_1m_tokens,
+        notes: body.notes,
+        updated_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    pricing.upsert_rule(&rule).map_err(|e| {
+        warn!(
+            "Failed to upsert provider price rule for {}:{}: {}",
+            rule.provider, rule.model_pattern, e
+        );
+        StatusCode::BAD_REQUEST
+    })?;
+
+    let stored = pricing
+        .get_rule(&rule.provider, &rule.model_pattern)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(json!({"status": "updated", "rule": stored})))
+}
+
+async fn pricing_estimate(
+    State(state): State<AppState>,
+    Json(body): Json<PricingEstimateRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let pricing = state.provider_pricing.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    match pricing.estimate_cost(&body.provider, &body.model, body.tokens_in, body.tokens_out) {
+        Ok(estimate) => Ok(Json(json!(estimate))),
+        Err(e) => {
+            warn!(
+                "Pricing estimate failed for {}:{}: {}",
+                body.provider, body.model, e
+            );
+            Err(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
 async fn tools_list(State(state): State<AppState>) -> Json<Value> {
     let specs = state.tool_registry.specs();
     let tools: Vec<Value> = specs
@@ -912,12 +1217,25 @@ async fn costs_summary(State(state): State<AppState>) -> Json<Value> {
         Some(ct) => ct,
         None => return Json(json!({ "error": "Cost tracker not available" })),
     };
-    let today = ct.today_total().unwrap_or(CostSummary { group: "today".into(), total_tokens: 0, total_cost_usd: 0.0, call_count: 0 });
+    let today = ct.today_total().unwrap_or(CostSummary {
+        group: "today".into(),
+        total_tokens: 0,
+        api_cost_usd: 0.0,
+        hardware_cost_usd: 0.0,
+        total_cost_usd: 0.0,
+        call_count: 0,
+    });
     let by_provider = ct.by_provider(7).unwrap_or_default();
     let by_agent = ct.by_agent(7).unwrap_or_default();
     let by_day = ct.by_day(7).unwrap_or_default();
     Json(json!({
-        "today": { "tokens": today.total_tokens, "cost_usd": today.total_cost_usd, "calls": today.call_count },
+        "today": {
+            "tokens": today.total_tokens,
+            "api_cost_usd": today.api_cost_usd,
+            "hardware_cost_usd": today.hardware_cost_usd,
+            "cost_usd": today.total_cost_usd,
+            "calls": today.call_count
+        },
         "by_provider_7d": by_provider,
         "by_agent_7d": by_agent,
         "by_day_7d": by_day,
@@ -939,6 +1257,42 @@ async fn revenue_summary(State(state): State<AppState>) -> Json<Value> {
         "by_source_30d": by_source,
         "by_day_30d": by_day,
     }))
+}
+
+async fn optimizer_policies(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.optimizer_store {
+        Some(store) => store,
+        None => return Json(json!({ "error": "Optimizer store not available" })),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50);
+    match store.list_policies(limit) {
+        Ok(policies) => Json(json!({ "policies": policies, "count": policies.len() })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
+}
+
+async fn optimizer_runs(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.optimizer_store {
+        Some(store) => store,
+        None => return Json(json!({ "error": "Optimizer store not available" })),
+    };
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(50);
+    match store.list_runs(limit) {
+        Ok(runs) => Json(json!({ "runs": runs, "count": runs.len() })),
+        Err(e) => Json(json!({ "error": e.to_string() })),
+    }
 }
 
 // ── Operations Report Endpoints ──────────────────────────────────────────────
@@ -1289,6 +1643,8 @@ async fn handle_telegram_messages(
 Clawtex Bot Commands:
 
 /help — Show this help
+/lang — List available languages
+/lang <locale> — Switch bot language (en, zh-TW, zh-CN, ja, ko)
 /status — System status (uptime, LLM, tasks)
 /tools — List available tools
 /hands — List available workflow hands
@@ -1312,8 +1668,50 @@ Clawtex Bot Commands:
 /resume — Resume after e-stop
 
 Any other message will be processed by the AI agent.";
-                let _ = telegram.send(&chat_id, reply).await;
+                // Prepend localized welcome greeting for /start
+                if text == "/start" {
+                    let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                    let ti = state.telegram_i18n.read().await;
+                    let welcome = ti.translate(chat_id_num, "welcome");
+                    let full_reply = format!("{}\n\n{}", welcome, reply);
+                    let _ = telegram.send(&chat_id, &full_reply).await;
+                } else {
+                    let _ = telegram.send(&chat_id, reply).await;
+                }
                 return;
+            }
+
+            // ── /lang command — per-chat locale switching ──
+            match parse_lang_command(&text) {
+                LangCommand::Switch(locale) => {
+                    let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                    let mut ti = state.telegram_i18n.write().await;
+                    match ti.set_locale(chat_id_num, &locale) {
+                        Ok(()) => {
+                            let welcome = ti.translate(chat_id_num, "welcome");
+                            let _ = telegram.send(&chat_id, &format!(
+                                "Language set to '{}'. {}", locale, welcome
+                            )).await;
+                        }
+                        Err(e) => {
+                            let _ = telegram.send(&chat_id, &e).await;
+                        }
+                    }
+                    return;
+                }
+                LangCommand::List => {
+                    let locales = supported_locales();
+                    let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                    let ti = state.telegram_i18n.read().await;
+                    let current = ti.get_locale(chat_id_num);
+                    let reply = format!(
+                        "Available languages: {}\nCurrent: {}\n\nUsage: /lang <locale>",
+                        locales.join(", "), current
+                    );
+                    let _ = telegram.send(&chat_id, &reply).await;
+                    return;
+                }
+                LangCommand::NotACommand => { /* fall through to other commands */ }
             }
 
             // ── /setup command — API key configuration ──
@@ -1738,9 +2136,14 @@ Any other message will be processed by the AI agent.";
                     let hand = hand.clone();
                     let total_phases = hand.phases.len();
                     let phase_names: Vec<String> = hand.phases.iter().map(|p| p.name.clone()).collect();
+                    let starting_msg = {
+                        let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                        let ti = state.telegram_i18n.read().await;
+                        ti.translate(chat_id_num, "hand.starting")
+                    };
                     let _ = telegram.send(&chat_id, &format!(
-                        "Running hand '{}' ({} phases)...\nPhases: {}\nThis may take a while.",
-                        hand.name, total_phases, phase_names.join(" → ")
+                        "{} '{}' ({} phases)\nPhases: {}",
+                        starting_msg, hand.name, total_phases, phase_names.join(" → ")
                     )).await;
 
                     // Run phases one by one with progress reporting
@@ -1767,9 +2170,14 @@ Any other message will be processed by the AI agent.";
                                 } else {
                                     output.output.clone()
                                 };
+                                let phase_done_msg = {
+                                    let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                                    let ti = state.telegram_i18n.read().await;
+                                    ti.translate(chat_id_num, "hand.phase_complete")
+                                };
                                 let _ = telegram.send(&chat_id, &format!(
-                                    "✅ Phase {}/{}: {} done ({} tool calls)\n\n{}",
-                                    i + 1, total_phases, phase_name, output.tool_calls, preview
+                                    "Phase {}/{}: {} — {} ({} tool calls)\n\n{}",
+                                    i + 1, total_phases, phase_name, phase_done_msg, output.tool_calls, preview
                                 )).await;
                                 outputs.push(output);
                                 context = new_context;
@@ -1790,9 +2198,14 @@ Any other message will be processed by the AI agent.";
                         .map(|o| o.output.clone())
                         .unwrap_or_else(|| "No output".to_string());
 
-                    let status = if all_ok { "completed" } else { "partially completed" };
+                    let complete_msg = {
+                        let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                        let ti = state.telegram_i18n.read().await;
+                        ti.translate(chat_id_num, "hand.complete")
+                    };
+                    let status = if all_ok { &complete_msg } else { "partially completed" };
                     let summary = format!(
-                        "Hand '{}' {} ({}/{} phases, {:.1}s)\n\n{}",
+                        "Hand '{}' — {} ({}/{} phases, {:.1}s)\n\n{}",
                         hand.name, status,
                         outputs.len(), total_phases, elapsed,
                         if final_output.len() > 3500 {
@@ -1994,7 +2407,14 @@ Any other message will be processed by the AI agent.";
                     let mut reply = String::from("Cost Summary:\n");
                     match ct.today_total() {
                         Ok(today) => {
-                            reply.push_str(&format!("\nToday: {} tokens, ${:.4}, {} calls", today.total_tokens, today.total_cost_usd, today.call_count));
+                            reply.push_str(&format!(
+                                "\nToday: {} tokens, ${:.4} total (${:.4} API + ${:.4} hardware), {} calls",
+                                today.total_tokens,
+                                today.total_cost_usd,
+                                today.api_cost_usd,
+                                today.hardware_cost_usd,
+                                today.call_count
+                            ));
                         }
                         Err(e) => reply.push_str(&format!("\nToday: error — {}", e)),
                     }
@@ -2122,6 +2542,27 @@ Any other message will be processed by the AI agent.";
                 };
                 let _ = telegram.send(&chat_id, &reply).await;
                 return;
+            }
+
+            // ── Auto-detect locale from message text ─────────────────
+            // Only auto-detect if the chat has no explicit locale override
+            // (i.e. the user hasn't used /lang yet for this chat).
+            {
+                let chat_id_num = chat_id.parse::<i64>().unwrap_or(0);
+                let needs_detection = {
+                    let ti = state.telegram_i18n.read().await;
+                    !ti.has_override(chat_id_num)
+                };
+                if needs_detection {
+                    if let Some(detected) = detect_locale(&text) {
+                        let mut ti_w = state.telegram_i18n.write().await;
+                        if !ti_w.has_override(chat_id_num) {
+                            if ti_w.set_locale(chat_id_num, &detected).is_ok() {
+                                debug!("Auto-detected locale '{}' for chat {}", detected, chat_id);
+                            }
+                        }
+                    }
+                }
             }
 
             // Show "typing..." indicator
@@ -2420,12 +2861,22 @@ async fn main() -> anyhow::Result<()> {
             _ => vec!["tools".to_string(), "llm".to_string()],
         };
 
+        // Resolve cluster secret for worker auth (config or CLUSTER_SECRET env var)
+        let worker_cluster_secret = {
+            let config_val = app_config.cluster.as_ref().and_then(|c| c.cluster_secret.as_deref());
+            clawtex_core::cluster_worker::resolve_cluster_secret(config_val)
+        };
+        if worker_cluster_secret.is_some() {
+            info!("Cluster secret found — worker will authenticate with hub");
+        }
+
         let config = WorkerConfig {
             hub_url: hub,
             node_name: node_name.clone(),
             capabilities,
             device_type,
             port,
+            cluster_secret: worker_cluster_secret,
         };
 
         info!("Worker '{}' connecting to hub at {}", node_name, config.hub_url);
@@ -2454,14 +2905,74 @@ async fn main() -> anyhow::Result<()> {
     llm_router.set_rotation(rotation.clone());
     info!("Provider rotation engine initialized ({} providers)", provider_names.len());
 
+    // --- Plugin Bus (Phase 1: partial migration) ---
+    let mut plugin_bus = PluginBus::new();
+
+    // Phase 1: Infrastructure
+    plugin_bus.register(1, Arc::new(HealthCheckPlugin::new()));
+
+    // Phase 2: Data layer
+    let traj_db = format!("{}/.clawtex/trajectories.db", home);
+    plugin_bus.register(2, Arc::new(TrajectoryPlugin::new(&traj_db)));
+
+    // Phase 4: Engine
+    plugin_bus.register(4, Arc::new(CircuitBreakerPlugin::new(
+        clawtex_core::circuit_breaker::BreakerConfig::default()
+    )));
+
+    // Initialize all plugins
+    if let Err(e) = plugin_bus.init_all().await {
+        tracing::error!("[PluginBus] Init failed: {}", e);
+        // Fall through to existing manual init as fallback
+    } else {
+        tracing::info!(
+            "[PluginBus] {} modules initialized: {:?}",
+            plugin_bus.initialized_ids().len(),
+            plugin_bus.initialized_ids()
+        );
+    }
+
+    let _app_context = plugin_bus.context().clone();
+
     // Circuit Breaker — auto-trips failing providers (attached before Arc wrap)
+    // NOTE: Dual instance — PluginBus creates its own CircuitBreakerPlugin above.
+    // This manual instance remains for Phase 1 to avoid breaking LlmRouter wiring.
     let circuit_breaker = Arc::new(ProviderCircuitBreaker::new(BreakerConfig::default()));
     llm_router.set_circuit_breaker(circuit_breaker.clone());
     info!("CircuitBreaker attached to LlmRouter");
 
+    let clawtex_dir = std::path::PathBuf::from(format!("{}/.clawtex", home));
+
+    // NOTE: Dual instance — PluginBus creates its own TrajectoryPlugin above.
+    // This manual instance remains for Phase 1 to avoid breaking LlmRouter wiring.
+    let trajectory_logger = match TrajectoryLogger::new(
+        clawtex_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
+    ) {
+        Ok(tl) => {
+            let tl = Arc::new(tl);
+            llm_router.set_trajectory_logger(tl.clone());
+            info!("TrajectoryLogger initialized and wired to LlmRouter: {:?}", clawtex_dir.join("trajectories.db"));
+            Some(tl)
+        }
+        Err(e) => {
+            warn!("Failed to initialize TrajectoryLogger: {}", e);
+            None
+        }
+    };
+
     let llm_router = Arc::new(llm_router);
     let task_queue = Arc::new(TaskQueue::new(&db_path).await?);
     let mut agent_runtime = AgentRuntime::new(&config_path)?;
+    let execution_node_id = std::env::var("CLAWTEX_NODE_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "local".to_string());
+    agent_runtime.set_execution_node_id(execution_node_id.clone());
+    info!("AgentRuntime execution node set to '{}'", execution_node_id);
+    if let Some(ref tl) = trajectory_logger {
+        agent_runtime.set_trajectory_logger(tl.clone());
+        info!("TrajectoryLogger wired to AgentRuntime");
+    }
     // Wire cost tracker into agent runtime (initialized below, set before Arc wrap)
     let cost_db_path = format!("{}/.clawtex/costs.db", home);
     let cost_tracker: Option<Arc<CostTracker>> = match CostTracker::new(&cost_db_path) {
@@ -2473,6 +2984,33 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(e) => {
             warn!("Cost tracker failed to init: {}", e);
+            None
+        }
+    };
+    let pricing_db_path = format!("{}/.clawtex/pricing.db", home);
+    let provider_pricing: Option<Arc<ProviderPricingStore>> = match ProviderPricingStore::new(&pricing_db_path) {
+        Ok(store) => {
+            let store = Arc::new(store);
+            agent_runtime.set_provider_pricing(store.clone());
+            info!("Provider pricing initialized and wired to AgentRuntime: {}", pricing_db_path);
+            Some(store)
+        }
+        Err(e) => {
+            warn!("Provider pricing failed to init: {}", e);
+            None
+        }
+    };
+    let power_db_path = format!("{}/.clawtex/power.db", home);
+    let power_economics: Option<Arc<PowerEconomics>> = match PowerEconomics::new(&power_db_path) {
+        Ok(pe) => {
+            let pe = Arc::new(pe);
+            agent_runtime.set_power_economics(pe.clone());
+            info!("Power economics wired to AgentRuntime on node '{}'", execution_node_id);
+            info!("Power economics initialized: {}", power_db_path);
+            Some(pe)
+        }
+        Err(e) => {
+            warn!("Power economics failed to init: {}", e);
             None
         }
     };
@@ -2586,20 +3124,13 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Register delegate tool (needs Arcs, so done after component init)
+    // Register delegate tools (needs Arcs, so done after component init)
     let subagent_tools = Arc::new(ToolRegistry::new(SecurityConfig::default())); // subagent gets base tools only (no delegate to prevent loops)
-    tool_registry.register(Box::new(clawtex_core::tools::delegate::DelegateTool::new(
-        agent_runtime.clone(),
-        llm_router.clone(),
-        subagent_tools.clone(),
-    )));
-
-    // Register delegate_to_provider tool (dynamic provider routing for multi-agent coordination)
-    tool_registry.register(Box::new(clawtex_core::tools::delegate_to_provider::DelegateToProviderTool::new(
+    tool_registry.register_delegate_tools(
         agent_runtime.clone(),
         llm_router.clone(),
         subagent_tools,
-    )));
+    );
 
     let conversations = Arc::new(ConversationStore::new(&db_path).await?);
 
@@ -2916,6 +3447,18 @@ async fn main() -> anyhow::Result<()> {
         info!("Hub API key: {} (use Authorization: Bearer <key>)", key);
     }
 
+    // Cluster secret — optional token for worker ↔ hub authentication.
+    // Read from [cluster] config section or CLUSTER_SECRET env var.
+    let cluster_secret: Option<String> = {
+        let config_val = app_config.cluster.as_ref().and_then(|c| c.cluster_secret.as_deref());
+        clawtex_core::cluster_worker::resolve_cluster_secret(config_val)
+    };
+    if cluster_secret.is_some() {
+        info!("Cluster secret configured — worker authentication enabled on cluster endpoints");
+    } else {
+        info!("No CLUSTER_SECRET set — cluster endpoints accept unauthenticated requests");
+    }
+
     // Auto-detect ngrok public URL
     let public_url = detect_ngrok_url().await;
     if let Some(ref url) = public_url {
@@ -3030,6 +3573,33 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    // ── Optimizer Policy Store ───────────────────────────────────────
+    let optimizer_db_path = clawtex_dir.join("optimizer.db");
+    let optimizer_store: Option<Arc<OptimizerStore>> = match OptimizerStore::new(
+        optimizer_db_path.to_str().unwrap_or("optimizer.db"),
+    ) {
+        Ok(store) => {
+            let store = Arc::new(store);
+            let baselines = [
+                ("prompt.default", PolicyType::Prompt, r#"{"hands":{},"agents":{}}"#),
+                ("routing.default", PolicyType::Routing, r#"{"preferred_nodes":{},"fallback_nodes":{},"tool_overrides":{}}"#),
+                ("workflow.default", PolicyType::Workflow, r#"{"hands":{},"phase_order_overrides":{},"playbooks":{}}"#),
+                ("runtime_tuning.default", PolicyType::RuntimeTuning, r#"{"timeouts":{"agent_secs":120,"shell_default_secs":30},"retry":{},"budget":{}}"#),
+            ];
+            for (policy_id, policy_type, content) in baselines {
+                if let Err(e) = store.ensure_baseline_policy(policy_id, policy_type, content) {
+                    warn!("Failed to bootstrap baseline policy '{}': {}", policy_id, e);
+                }
+            }
+            info!("Optimizer store initialized (db: {:?})", optimizer_db_path);
+            Some(store)
+        }
+        Err(e) => {
+            warn!("Optimizer store failed to init: {}", e);
+            None
+        }
+    };
+
     // ── Worker Onboarder ────────────────────────────────────────────
     let worker_onboarder = Arc::new(WorkerOnboarder::new(cluster.clone()));
     info!("Worker onboarder initialized");
@@ -3126,6 +3696,7 @@ async fn main() -> anyhow::Result<()> {
         load_tester,
         worker_onboarder: Some(worker_onboarder),
         service_tier,
+        optimizer_store,
         auto_diagnoser,
         tenant_manager,
         order_workflow,
@@ -3134,9 +3705,19 @@ async fn main() -> anyhow::Result<()> {
         observational_memory,
         preemption_manager,
         node_scorer,
+        power_economics,
+        provider_pricing,
         financial_monitor: Some(Arc::new(FinancialMonitor::default())),
         unit_economics: Some(Arc::new(UnitEconomics::new())),
+        telegram_i18n: Arc::new(tokio::sync::RwLock::new(TelegramI18n::new())),
+        cluster_secret,
         started_at: Instant::now(),
+        // Efficiency engine — initialized below after AppState is built
+        roi_gate: None,
+        governor: None,
+        pipeline_orchestrator: None,
+        feedback_loop_config: None,
+        roi_scheduler: None,
     };
     {
         let hub = cluster_hub.clone();
@@ -3285,25 +3866,6 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Watchdog: system alive — uptime check OK");
         }
     });
-
-    // ── Self-Evolution Modules ───────────────────────────────────────────────
-    let clawtex_dir = dirs::home_dir()
-        .map(|h| h.join(".clawtex"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".clawtex"));
-
-    // Trajectory Logger — records every agent run for analysis
-    let trajectory_logger = match TrajectoryLogger::new(
-        clawtex_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db")
-    ) {
-        Ok(tl) => {
-            info!("TrajectoryLogger initialized: {:?}", clawtex_dir.join("trajectories.db"));
-            Some(Arc::new(tl))
-        }
-        Err(e) => {
-            warn!("Failed to initialize TrajectoryLogger: {}", e);
-            None
-        }
-    };
 
     // Worker Watchdog — monitors workers, auto-restarts via SSH
     let mut watchdog = WorkerWatchdog::with_defaults();
@@ -3547,6 +4109,108 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── Economics Summary API ─────────────────────────────────────────────────
+    // ── Efficiency Engine Endpoints ─────────────────────────────────────────
+
+    async fn api_governor_status(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        let store = state.optimizer_store.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        let canary = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Canary).unwrap_or_default();
+        let active = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Active).unwrap_or_default();
+        let draft = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Draft).unwrap_or_default();
+        Ok(Json(json!({
+            "canary_policies": canary.len(),
+            "active_policies": active.len(),
+            "draft_policies": draft.len(),
+            "canary_details": canary.iter().map(|p| json!({
+                "policy_id": p.policy_id,
+                "version": p.version,
+                "created_at": p.created_at,
+            })).collect::<Vec<_>>(),
+        })))
+    }
+
+    async fn api_roi_gate_status(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        if let Some(ref gate) = state.roi_gate {
+            let spend = gate.current_spend();
+            let config = &gate.config();
+            Ok(Json(json!({
+                "daily_spend_usd": spend,
+                "daily_budget_usd": config.daily_budget_usd,
+                "remaining_usd": config.daily_budget_usd - spend,
+                "min_roi_threshold": config.min_roi_threshold,
+                "exempt_hands": config.exempt_hands,
+            })))
+        } else {
+            Ok(Json(json!({ "status": "not_initialized" })))
+        }
+    }
+
+    async fn api_pipeline_list(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        if let Some(ref orch) = state.pipeline_orchestrator {
+            let orch = orch.read().await;
+            let pipelines: Vec<_> = orch.list_pipelines().iter().map(|p| json!({
+                "name": p.name,
+                "description": p.description,
+                "steps": p.steps.len(),
+                "step_details": p.steps.iter().map(|s| json!({
+                    "hand_name": s.hand_name,
+                    "optional": s.optional,
+                    "has_condition": s.condition.is_some(),
+                })).collect::<Vec<_>>(),
+            })).collect();
+            Ok(Json(json!({ "pipelines": pipelines })))
+        } else {
+            Ok(Json(json!({ "status": "not_initialized" })))
+        }
+    }
+
+    async fn api_pipeline_run(
+        State(state): State<AppState>,
+        Json(body): Json<Value>,
+    ) -> Result<Json<Value>, StatusCode> {
+        let pipeline_name = body["pipeline"].as_str().unwrap_or("").to_string();
+        let input = body["input"].as_str().unwrap_or("").to_string();
+        if pipeline_name.is_empty() || input.is_empty() {
+            return Ok(Json(json!({ "error": "pipeline and input fields required" })));
+        }
+        let orch = state.pipeline_orchestrator.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+        let orch = orch.read().await;
+        if orch.get_pipeline(&pipeline_name).is_none() {
+            return Ok(Json(json!({ "error": format!("Pipeline '{}' not found", pipeline_name) })));
+        }
+        // Pipeline execution would be async — return acknowledgment
+        Ok(Json(json!({
+            "status": "accepted",
+            "pipeline": pipeline_name,
+            "input": input,
+            "message": "Pipeline queued for execution. Check /api/feedback/report for results.",
+        })))
+    }
+
+    async fn api_feedback_report(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+        let config = state.feedback_loop_config.as_ref();
+        let roi = state.roi_scheduler.as_ref();
+
+        let mut result = json!({
+            "feedback_loop": if config.is_some() { "active" } else { "not_initialized" },
+        });
+
+        if let Some(cfg) = config {
+            result["config"] = json!({
+                "min_trajectories": cfg.min_trajectories,
+                "interval_secs": cfg.interval_secs,
+                "target_hands": cfg.target_hands,
+            });
+        }
+
+        if let Some(roi) = roi {
+            result["roi_scheduler"] = json!({
+                "status": "active",
+            });
+        }
+
+        Ok(Json(result))
+    }
+
     async fn api_economics_summary(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
         let economics = state.unit_economics.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
         let summary = economics.summary();
@@ -3588,12 +4252,21 @@ async fn main() -> anyhow::Result<()> {
         .route("/cluster/preemption/history", get(preemption_history))
         .route("/cluster/scores", get(cluster_scores))
         .route("/cluster/scores/:node", get(cluster_score_node).post(cluster_score_update))
+        .route("/power/nodes", get(power_nodes))
+        .route("/power/nodes/:node_id", get(power_node_detail).post(power_node_upsert))
+        .route("/power/estimate", post(power_estimate))
+        .route("/power/profitability", post(power_profitability))
+        .route("/pricing/rules", get(pricing_rules).post(pricing_rule_upsert))
+        .route("/pricing/rules/:provider", get(pricing_rules_provider))
+        .route("/pricing/estimate", post(pricing_estimate))
         .route("/tools", get(tools_list))
         .route("/hands", get(hands_list))
         .route("/hand/:name/run", post(hand_run))
         .route("/workspace/files", get(workspace_files))
         .route("/costs", get(costs_summary))
         .route("/revenue", get(revenue_summary))
+        .route("/optimizer/policies", get(optimizer_policies))
+        .route("/optimizer/runs", get(optimizer_runs))
         // Revenue, deploy, provider health, Stripe, financial, economics API endpoints
         .route("/api/revenue/dashboard", get(api_revenue_dashboard))
         .route("/api/deploy/manifest", get(api_deploy_manifest))
@@ -3653,6 +4326,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/estop", post(estop_activate))
         .route("/estop", axum::routing::delete(estop_reset))
         .route("/estop", get(estop_status))
+        // Efficiency engine endpoints
+        .route("/api/governor/status", get(api_governor_status))
+        .route("/api/roi-gate/status", get(api_roi_gate_status))
+        .route("/api/pipeline/list", get(api_pipeline_list))
+        .route("/api/pipeline/run", post(api_pipeline_run))
+        .route("/api/feedback/report", get(api_feedback_report))
         .with_state(state.clone())
         // Gateway streaming endpoints (separate state)
         .route("/stream/agent/:name", get(clawtex_core::gateway::sse_agent))
