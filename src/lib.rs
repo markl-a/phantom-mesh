@@ -85,6 +85,7 @@ pub mod graceful_shutdown;
 pub mod health_check;
 pub mod plugin_loader;
 pub mod app_context;
+pub mod plugin_bus;
 pub mod rate_limiter_v2;
 pub mod retry;
 pub mod smoke_test;
