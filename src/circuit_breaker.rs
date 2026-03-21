@@ -302,6 +302,57 @@ impl Default for ProviderCircuitBreaker {
 }
 
 // ---------------------------------------------------------------------------
+// PluginModule adapter
+// ---------------------------------------------------------------------------
+
+use crate::app_context::AppContext;
+use crate::health_check::HealthStatus;
+use crate::plugin_bus::PluginModule;
+use async_trait::async_trait;
+use std::sync::Arc;
+
+/// Wraps ProviderCircuitBreaker as a PluginModule.
+///
+/// On init, creates the circuit breaker and registers `Arc<ProviderCircuitBreaker>`
+/// in AppContext for ProviderRouter and other consumers.
+pub struct CircuitBreakerPlugin {
+    config: BreakerConfig,
+    breaker: std::sync::RwLock<Option<Arc<ProviderCircuitBreaker>>>,
+}
+
+impl CircuitBreakerPlugin {
+    pub fn new(config: BreakerConfig) -> Self {
+        Self {
+            config,
+            breaker: std::sync::RwLock::new(None),
+        }
+    }
+}
+
+#[async_trait]
+impl PluginModule for CircuitBreakerPlugin {
+    fn id(&self) -> &str { "circuit-breaker" }
+    fn version(&self) -> &str { env!("CARGO_PKG_VERSION") }
+    fn capabilities(&self) -> Vec<String> { vec!["provider-reliability".into()] }
+    async fn init(&self, ctx: &AppContext) -> anyhow::Result<()> {
+        let breaker = Arc::new(ProviderCircuitBreaker::new(self.config.clone()));
+        ctx.register(breaker.clone());
+        *self.breaker.write().expect("lock poisoned") = Some(breaker);
+        Ok(())
+    }
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        *self.breaker.write().expect("lock poisoned") = None;
+        Ok(())
+    }
+    fn health(&self) -> HealthStatus {
+        match self.breaker.read().expect("lock poisoned").as_ref() {
+            Some(_) => HealthStatus::Healthy,
+            None => HealthStatus::Unhealthy,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -517,5 +568,27 @@ mod tests {
             // Just verify it doesn't panic and is reasonable.
             assert!(cs.time_in_state_secs < 10);
         }
+    }
+
+    #[tokio::test]
+    async fn test_circuit_breaker_plugin_lifecycle() {
+        use crate::app_context::AppContext;
+        use crate::health_check::HealthStatus;
+        use crate::plugin_bus::PluginModule;
+
+        let plugin = CircuitBreakerPlugin::new(BreakerConfig::default());
+        let ctx = AppContext::new();
+
+        assert_eq!(plugin.id(), "circuit-breaker");
+        assert_eq!(plugin.health(), HealthStatus::Unhealthy); // Not initialized yet
+
+        plugin.init(&ctx).await.unwrap();
+
+        let breaker = ctx.get::<ProviderCircuitBreaker>().unwrap();
+        assert!(breaker.is_available("test-provider"));
+        assert_eq!(plugin.health(), HealthStatus::Healthy);
+
+        plugin.shutdown().await.unwrap();
+        assert_eq!(plugin.health(), HealthStatus::Unhealthy);
     }
 }
