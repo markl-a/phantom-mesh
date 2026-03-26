@@ -1,2 +1,124 @@
 //! Test harnesses — CoreHarness, ApiHarness, SystemHarness.
-//! Implementation added in Tasks 9-11.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use clawtex_core::providers::mock::MockProvider;
+use clawtex_core::providers::ProviderRouter;
+use clawtex_core::{AgentRuntime, AgentResult, LlmRouter, ToolRegistry};
+use clawtex_core::tools::SecurityConfig;
+
+use super::fixtures;
+
+/// In-process test harness — no HTTP server.
+/// Tests agent runtime + tool execution + MockProvider.
+pub struct CoreHarness {
+    pub agent_runtime: Arc<AgentRuntime>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub llm_router: Arc<LlmRouter>,
+    provider: MockProvider,
+    pub _temp_dir: tempfile::TempDir,
+}
+
+impl CoreHarness {
+    pub fn builder() -> CoreHarnessBuilder {
+        CoreHarnessBuilder {
+            provider: None,
+        }
+    }
+
+    /// Run the master agent with a prompt.
+    pub async fn run_agent(&self, prompt: &str) -> anyhow::Result<AgentResult> {
+        self.agent_runtime.run(
+            "master",
+            prompt,
+            &[],
+            &self.llm_router,
+            &self.tool_registry,
+            None,
+        ).await
+    }
+
+    /// Run the master agent with conversation history.
+    pub async fn run_agent_with_history(
+        &self,
+        prompt: &str,
+        history: &[clawtex_core::ChatMessage],
+    ) -> anyhow::Result<AgentResult> {
+        self.agent_runtime.run(
+            "master",
+            prompt,
+            history,
+            &self.llm_router,
+            &self.tool_registry,
+            None,
+        ).await
+    }
+
+    /// Get the number of LLM calls made.
+    pub fn provider_call_count(&self) -> usize {
+        self.provider.call_count()
+    }
+
+    /// Get a specific LLM call record.
+    pub fn provider_call(&self, index: usize) -> Option<clawtex_core::providers::mock::MockCallRecord> {
+        self.provider.get_call(index)
+    }
+
+    /// Path to the temporary workspace.
+    pub fn workspace_path(&self) -> PathBuf {
+        self._temp_dir.path().join("workspace")
+    }
+}
+
+pub struct CoreHarnessBuilder {
+    provider: Option<MockProvider>,
+}
+
+impl CoreHarnessBuilder {
+    pub fn provider(mut self, provider: MockProvider) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
+    pub async fn build(self) -> CoreHarness {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let workspace = temp_dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+
+        // Write test agents.toml
+        let config_path = fixtures::write_test_agents_toml(temp_dir.path());
+
+        // Create MockProvider — Clone shares call tracking via Arc<Mutex>
+        let mock = self.provider.unwrap_or_else(|| MockProvider::fixed("default test response"));
+        let tracking_ref = mock.clone(); // shares call_log via Arc
+
+        // Build LlmRouter with the mock
+        let mut pr = ProviderRouter::empty();
+        pr.register_provider("mock", Box::new(mock));
+        let llm_router = Arc::new(LlmRouter::from_router(pr));
+
+        // Create ToolRegistry with workspace pointing to temp dir
+        let security = SecurityConfig {
+            workspace_dir: workspace.to_string_lossy().to_string(),
+            workspace_only: false,
+            allowed_commands: vec![],
+            ..Default::default()
+        };
+        let tool_registry = Arc::new(ToolRegistry::new(security));
+
+        // Create AgentRuntime from test config
+        let agent_runtime = Arc::new(
+            AgentRuntime::new(config_path.to_str().unwrap())
+                .expect("Failed to create AgentRuntime from test config")
+        );
+
+        CoreHarness {
+            agent_runtime,
+            tool_registry,
+            llm_router,
+            provider: tracking_ref,
+            _temp_dir: temp_dir,
+        }
+    }
+}
