@@ -33,6 +33,22 @@ impl LlmRouter {
         Ok(Self { inner, circuit_breaker: None, trajectory_logger: None })
     }
 
+    /// Create LlmRouter from a pre-built ProviderRouter.
+    /// Used by test harnesses for programmatic setup without a TOML config file.
+    pub fn from_router(router: ProviderRouter) -> Self {
+        Self {
+            inner: router,
+            circuit_breaker: None,
+            trajectory_logger: None,
+        }
+    }
+
+    /// Mutable access to the inner ProviderRouter.
+    /// Allows registering providers after construction.
+    pub fn inner_mut(&mut self) -> &mut ProviderRouter {
+        &mut self.inner
+    }
+
     /// Attach a circuit breaker to the router.
     pub fn set_circuit_breaker(&mut self, cb: Arc<ProviderCircuitBreaker>) {
         self.circuit_breaker = Some(cb);
@@ -273,6 +289,8 @@ impl LlmRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::ProviderRouter;
+    use crate::providers::mock::MockProvider;
 
     #[test]
     fn test_default_providers_loaded() {
@@ -293,5 +311,38 @@ mod tests {
     fn test_unknown_provider_not_found() {
         let router = LlmRouter::new("/nonexistent/path.toml").unwrap();
         assert!(!router.has_provider("nonexistent"));
+    }
+
+    #[test]
+    fn test_from_router_creates_llm_router() {
+        let mut pr = ProviderRouter::empty();
+        pr.register_provider("mock", Box::new(MockProvider::fixed("ok")));
+        let router = LlmRouter::from_router(pr);
+        assert!(router.has_provider("mock"));
+    }
+
+    #[test]
+    fn test_inner_mut_allows_provider_registration() {
+        let pr = ProviderRouter::empty();
+        let mut router = LlmRouter::from_router(pr);
+        router.inner_mut().register_provider("mock", Box::new(MockProvider::echo()));
+        assert!(router.has_provider("mock"));
+    }
+
+    #[tokio::test]
+    async fn test_from_router_chat_works() {
+        let mut pr = ProviderRouter::empty();
+        pr.register_provider("mock", Box::new(MockProvider::fixed("e2e response")));
+        let router = LlmRouter::from_router(pr);
+
+        let messages = vec![ChatMessage {
+            role: "user".into(),
+            content: "test".into(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        let result = router.chat_with_tools(&messages, &[], "mock").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().message.content, "e2e response");
     }
 }
