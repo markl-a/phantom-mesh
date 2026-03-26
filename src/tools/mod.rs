@@ -62,6 +62,7 @@ pub mod cron_manage;
 pub mod payment_tracker;
 pub mod input_sanitizer;
 pub mod code_evolution;
+pub mod shell_session;
 
 use anyhow::Result;
 use async_trait::async_trait;
