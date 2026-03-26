@@ -324,6 +324,8 @@ struct AppState {
     route_manager: Option<Arc<clawtex_core::networking::RouteManager>>,
     goals_store: Option<Arc<clawtex_core::goals::GoalsStore>>,
     user_profile: Arc<RwLock<UserProfile>>,
+    /// Event trigger manager — shared with cron tick loop and Telegram /alerts handler.
+    trigger_manager: Option<Arc<std::sync::Mutex<clawtex_core::event_triggers::EventTriggerManager>>>,
     /// Background networking task handles (for shutdown cleanup).
     #[allow(dead_code)]
     networking_tasks: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
@@ -3803,6 +3805,48 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(RwLock::new(profile))
     };
 
+    // ── Bootstrap event triggers ─────────────────────────────────────
+    let trigger_manager: Option<Arc<std::sync::Mutex<clawtex_core::event_triggers::EventTriggerManager>>> = {
+        use clawtex_core::event_triggers::EventTriggerManager;
+        match rusqlite::Connection::open(&db_path) {
+            Ok(conn) => {
+                if let Err(e) = EventTriggerManager::create_table(&conn) {
+                    warn!("Failed to create event_triggers table: {}", e);
+                    None
+                } else {
+                    // Bootstrap defaults if table is empty
+                    let trigger_count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM event_triggers", [], |r| r.get(0)
+                    ).unwrap_or(0);
+                    if trigger_count == 0 {
+                        let profile = user_profile.read().unwrap_or_else(|p| p.into_inner());
+                        if let Err(e) = EventTriggerManager::bootstrap_defaults(&conn, &profile) {
+                            warn!("Failed to bootstrap event trigger defaults: {}", e);
+                        } else {
+                            info!("Bootstrapped 5 default event triggers");
+                        }
+                    }
+                    match EventTriggerManager::load_triggers(&conn) {
+                        Ok(triggers) => {
+                            info!("Loaded {} event trigger(s) from DB", triggers.len());
+                            Some(Arc::new(std::sync::Mutex::new(
+                                EventTriggerManager::new(triggers, user_profile.clone())
+                            )))
+                        }
+                        Err(e) => {
+                            warn!("Failed to load event triggers: {}", e);
+                            None
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to open DB for event triggers: {}", e);
+                None
+            }
+        }
+    };
+
     // Register default cron jobs if no jobs exist yet
     {
         let existing = scheduler.list_jobs().await;
@@ -4103,6 +4147,7 @@ async fn main() -> anyhow::Result<()> {
         route_manager: None,
         goals_store,
         user_profile,
+        trigger_manager,
         networking_tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
     };
 
@@ -4228,6 +4273,8 @@ async fn main() -> anyhow::Result<()> {
         let executor_state = state.clone();
         let tg_for_cron = shared_telegram.clone();
         let chat_id_for_cron = shared_last_chat_id.clone();
+        let trigger_manager_for_cron = state.trigger_manager.clone();
+        let db_path_for_cron = db_path.clone();
         tokio::spawn(async move {
             let executor: clawtex_core::cron::JobExecutor = Arc::new(move |action| {
                 let s = executor_state.clone();
@@ -4363,9 +4410,9 @@ async fn main() -> anyhow::Result<()> {
                     }
                 })
             });
-            scheduler.run(executor).await;
+            scheduler.run_with_triggers(executor, trigger_manager_for_cron, db_path_for_cron, None, None).await;
         });
-        info!("Cron scheduler started");
+        info!("Cron scheduler started (event triggers enabled)");
     }
 
     // Periodic cleanup of stale conversations (every 30 min)

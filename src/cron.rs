@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::cost_tracker::CostTracker;
+use crate::event_triggers::EventTriggerManager;
 use crate::financial_monitor::{AlertLevel, FinancialAlert, FinancialMonitor, FinancialSnapshot};
 use crate::revenue_tracker::RevenueTracker;
 
@@ -50,6 +51,33 @@ pub enum JobStatus {
     Paused,
     Completed,
     Failed,
+}
+
+impl JobStatus {
+    /// Convert to a plain string suitable for SQL storage (no JSON quotes).
+    pub fn as_sql_str(&self) -> &'static str {
+        match self {
+            JobStatus::Active => "active",
+            JobStatus::Paused => "paused",
+            JobStatus::Completed => "completed",
+            JobStatus::Failed => "failed",
+        }
+    }
+
+    /// Parse from a plain SQL string. Falls back to Active for unrecognized values.
+    pub fn from_sql_str(s: &str) -> Self {
+        match s {
+            "active" => JobStatus::Active,
+            "paused" => JobStatus::Paused,
+            "completed" => JobStatus::Completed,
+            "failed" => JobStatus::Failed,
+            // Backwards compat: handle old JSON-serialized values like "\"active\""
+            s if s.starts_with('"') && s.ends_with('"') => {
+                Self::from_sql_str(&s[1..s.len()-1])
+            }
+            _ => JobStatus::Active,
+        }
+    }
 }
 
 /// A scheduled job
@@ -182,7 +210,7 @@ impl CronStore {
                 job.name,
                 serde_json::to_string(&job.schedule)?,
                 serde_json::to_string(&job.action)?,
-                serde_json::to_string(&job.status)?,
+                job.status.as_sql_str(),
                 job.next_run.map(|t| t.to_rfc3339()),
                 job.last_run.map(|t| t.to_rfc3339()),
                 job.last_result,
@@ -198,7 +226,7 @@ impl CronStore {
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
             "SELECT id, name, schedule_json, action_json, status, next_run, last_run, last_result, run_count, max_runs, created_at
-             FROM cron_jobs WHERE status = '\"active\"'"
+             FROM cron_jobs WHERE status = 'active'"
         )?;
 
         let jobs = stmt.query_map([], |row| {
@@ -214,7 +242,7 @@ impl CronStore {
                 name: row.get(1)?,
                 schedule: serde_json::from_str(&schedule_str).unwrap_or(Schedule::Every { interval_secs: 3600 }),
                 action: serde_json::from_str(&action_str).unwrap_or(JobAction::Shell { command: "echo error".to_string() }),
-                status: serde_json::from_str(&status_str).unwrap_or(JobStatus::Active),
+                status: JobStatus::from_sql_str(&status_str),
                 next_run: next_run_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
                 last_run: last_run_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
                 last_result: row.get(7)?,
@@ -238,7 +266,7 @@ impl CronStore {
                 Utc::now().to_rfc3339(),
                 result,
                 next_run.map(|t| t.to_rfc3339()),
-                serde_json::to_string(&new_status)?,
+                new_status.as_sql_str(),
                 job_id,
             ],
         )?;
@@ -271,7 +299,7 @@ impl CronStore {
                 name: row.get(1)?,
                 schedule: serde_json::from_str(&schedule_str).unwrap_or(Schedule::Every { interval_secs: 3600 }),
                 action: serde_json::from_str(&action_str).unwrap_or(JobAction::Shell { command: "echo error".to_string() }),
-                status: serde_json::from_str(&status_str).unwrap_or(JobStatus::Active),
+                status: JobStatus::from_sql_str(&status_str),
                 next_run: next_run_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
                 last_run: last_run_str.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|d| d.with_timezone(&Utc))),
                 last_result: row.get(7)?,
@@ -489,6 +517,122 @@ impl Scheduler {
     /// This is the backward-compatible version without financial checks.
     pub async fn run(&self, executor: JobExecutor) {
         self.run_with_financial_check(executor, None, None).await;
+    }
+
+    /// Main scheduler loop with optional event trigger evaluation.
+    /// Evaluates event triggers every tick alongside regular cron jobs.
+    /// If `trigger_manager` is None, trigger evaluation is skipped.
+    pub async fn run_with_triggers(
+        &self,
+        executor: JobExecutor,
+        trigger_manager: Option<Arc<std::sync::Mutex<EventTriggerManager>>>,
+        db_path: String,
+        cost_tracker: Option<Arc<CostTracker>>,
+        revenue_tracker: Option<Arc<RevenueTracker>>,
+    ) {
+        info!("Scheduler started (with event trigger support)");
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut last_financial_check = Instant::now();
+        let financial_enabled = self.financial_check_interval_secs > 0 && cost_tracker.is_some();
+        if financial_enabled {
+            info!(
+                "Financial health check enabled (interval={}s)",
+                self.financial_check_interval_secs
+            );
+        }
+
+        loop {
+            interval.tick().await;
+            let now = Utc::now();
+
+            // ── Financial health check ──────────────────────────────────
+            if financial_enabled {
+                let elapsed = last_financial_check.elapsed().as_secs();
+                if elapsed >= self.financial_check_interval_secs {
+                    if let Some(ref ct) = cost_tracker {
+                        let rt_ref = revenue_tracker.as_deref();
+                        run_financial_check(ct, rt_ref);
+                    }
+                    last_financial_check = Instant::now();
+                }
+            }
+
+            // ── Event trigger evaluation ────────────────────────────────
+            if let Some(ref tm) = trigger_manager {
+                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                    let mut mgr = tm.lock().unwrap_or_else(|p| p.into_inner());
+                    for trigger in &mut mgr.triggers {
+                        if !trigger.should_evaluate() || !trigger.should_fire() {
+                            continue;
+                        }
+                        trigger.last_evaluated = Some(Instant::now());
+                        if let Ok(true) = trigger.condition.evaluate(&conn) {
+                            trigger.last_fired = Some(Utc::now());
+                            // Log trigger firing — actual action execution added in Task 13
+                            tracing::info!(trigger_id = %trigger.id, "Event trigger fired");
+                        }
+                    }
+                }
+            }
+
+            // Collect due jobs
+            let due_jobs: Vec<CronJob> = {
+                let jobs = self.jobs.read().await;
+                jobs.iter()
+                    .filter(|j| {
+                        j.status == JobStatus::Active
+                            && j.next_run.map(|nr| nr <= now).unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect()
+            };
+
+            for job in due_jobs {
+                debug!("Executing cron job '{}' (id={})", job.name, job.id);
+
+                let action = job.action.clone();
+                let handle = executor(action);
+
+                let result = match handle.await {
+                    Ok(output) => output,
+                    Err(e) => format!("Job execution error: {}", e),
+                };
+
+                let next_run = compute_next_run(&job.schedule, &now);
+                let new_run_count = job.run_count + 1;
+
+                let new_status = if matches!(job.schedule, Schedule::At { .. }) {
+                    JobStatus::Completed
+                } else if job.max_runs.map(|m| new_run_count >= m).unwrap_or(false) {
+                    JobStatus::Completed
+                } else if next_run.is_none() {
+                    JobStatus::Completed
+                } else {
+                    JobStatus::Active
+                };
+
+                if let Err(e) = self.store.update_after_run(&job.id, &result, next_run, new_status) {
+                    error!("Failed to update cron job '{}': {}", job.id, e);
+                }
+
+                let mut jobs = self.jobs.write().await;
+                if let Some(j) = jobs.iter_mut().find(|j| j.id == job.id) {
+                    j.last_run = Some(now);
+                    j.last_result = Some(result.clone());
+                    j.next_run = next_run;
+                    j.run_count = new_run_count;
+                    j.status = new_status;
+                }
+
+                info!("Cron job '{}' completed (status={:?}, next={:?})", job.name, new_status, next_run);
+            }
+
+            // Clean up completed jobs from in-memory list
+            {
+                let mut jobs = self.jobs.write().await;
+                jobs.retain(|j| j.status == JobStatus::Active || j.status == JobStatus::Paused);
+            }
+        }
     }
 
     /// Main scheduler loop with optional periodic financial health checks.
@@ -882,6 +1026,9 @@ mod tests {
             tokens_in: 50_000,
             tokens_out: 50_000,
             total_tokens: 100_000,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: 12.0,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: 12.0, // $12 > $10 limit → Emergency
             duration_secs: 5.0,
             context: None,
@@ -930,6 +1077,9 @@ mod tests {
             tokens_in: 10_000,
             tokens_out: 10_000,
             total_tokens: 20_000,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: 8.5,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: 8.5, // 85% of $10 → Warn
             duration_secs: 2.0,
             context: None,
@@ -975,6 +1125,9 @@ mod tests {
                     tokens_in: 1000,
                     tokens_out: 1000,
                     total_tokens: 2000,
+                    node_id: Some("local".to_string()),
+                    api_estimated_cost_usd: spend,
+                    hardware_estimated_cost_usd: 0.0,
                     estimated_cost_usd: spend,
                     duration_secs: 1.0,
                     context: None,
