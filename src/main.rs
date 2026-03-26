@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -50,6 +50,7 @@ use clawtex_core::{
     StripeWebhook, WebhookAction,
 };
 use clawtex_core::telegram_i18n::{TelegramI18n, LangCommand, parse_lang_command, detect_locale, supported_locales};
+use clawtex_core::user_profile::UserProfile;
 use clawtex_core::plugin_bus::PluginBus;
 use clawtex_core::health_check::HealthCheckPlugin;
 use clawtex_core::trajectory::TrajectoryPlugin;
@@ -87,7 +88,15 @@ struct Args {
 #[derive(Subcommand, Debug)]
 enum Command {
     /// Start the daemon (default if no subcommand given)
-    Daemon,
+    Daemon {
+        /// Vault password (insecure: visible in process listing, use --vault-password-stdin)
+        #[arg(long)]
+        vault_password: Option<String>,
+
+        /// Read vault password from stdin instead of CLI argument
+        #[arg(long)]
+        vault_password_stdin: bool,
+    },
     /// Run a single prompt and exit
     Run {
         /// The prompt to execute
@@ -312,6 +321,12 @@ struct AppState {
     pipeline_orchestrator: Option<Arc<tokio::sync::RwLock<clawtex_core::pipeline::PipelineOrchestrator>>>,
     feedback_loop_config: Option<clawtex_core::feedback_loop::FeedbackLoopConfig>,
     roi_scheduler: Option<Arc<clawtex_core::roi_scheduler::RoiScheduler>>,
+    route_manager: Option<Arc<clawtex_core::networking::RouteManager>>,
+    goals_store: Option<Arc<clawtex_core::goals::GoalsStore>>,
+    user_profile: Arc<RwLock<UserProfile>>,
+    /// Background networking task handles (for shutdown cleanup).
+    #[allow(dead_code)]
+    networking_tasks: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 // ── Auth Middleware ────────────────────────────────────────────────────────────
@@ -448,10 +463,33 @@ async fn agent_run(
         .and_then(|v| v.as_str())
         .ok_or(StatusCode::BAD_REQUEST)?;
 
+    // Inject user profile context
+    let profile_ctx = {
+        let profile = state.user_profile.read().unwrap_or_else(|p| p.into_inner());
+        profile.system_prompt_context()
+    };
+
+    // Inject goals context for the master agent
+    let goals_ctx = if agent_name == "master" {
+        state.goals_store.as_ref()
+            .and_then(|gs| clawtex_core::goals_push::goals_context(gs).ok())
+            .filter(|s| !s.is_empty())
+    } else {
+        None
+    };
+
+    // Combine profile + goals context
+    let mut extra = profile_ctx;
+    if let Some(goals) = &goals_ctx {
+        extra.push_str("\n\n");
+        extra.push_str(goals);
+    }
+    let extra_ref = if extra.is_empty() { None } else { Some(extra.as_str()) };
+
     // HTTP API calls don't have conversation history (stateless)
     match state
         .agent_runtime
-        .run(&agent_name, prompt, &[], &state.llm_router, &state.tool_registry, None)
+        .run(&agent_name, prompt, &[], &state.llm_router, &state.tool_registry, extra_ref)
         .await
     {
         Ok(result) => Ok(Json(json!({
@@ -1631,6 +1669,122 @@ async fn handle_telegram_messages(
                 return;
             }
 
+            // ── Goals inline keyboard callbacks ──────────────────────
+            if let Some(mood_str) = text.strip_prefix("/goals_mood ") {
+                if let Ok(mood) = mood_str.trim().parse::<i32>() {
+                    if let Some(ref gs) = state.goals_store {
+                        // Record check-in for all active goals
+                        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+                        let goals = gs.list_goals(Some(clawtex_core::goals::GoalStatus::Active)).unwrap_or_default();
+                        let mood_emojis = ["", "\u{1f622}", "\u{1f614}", "\u{1f610}", "\u{1f60a}", "\u{1f929}"];
+                        let mood_labels = ["", "糟糕", "不太好", "普通", "不錯", "超棒"];
+                        for g in &goals {
+                            let ci = clawtex_core::goals::CheckIn {
+                                id: format!("ci-{}-{}", g.id, today),
+                                goal_id: g.id.clone(),
+                                date: today.clone(),
+                                mood,
+                                note: None,
+                                ai_feedback: None,
+                            };
+                            let _ = gs.add_check_in(&ci);
+                        }
+                        let emoji = mood_emojis.get(mood as usize).unwrap_or(&"");
+                        let label = mood_labels.get(mood as usize).unwrap_or(&"");
+                        let reply = format!(
+                            "{} 已記錄今日心情：{} ({})\n\n為 {} 個目標記錄了 check-in。晚安！",
+                            emoji, label, mood, goals.len()
+                        );
+                        let _ = telegram.send(&chat_id, &reply).await;
+                    } else {
+                        let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                    }
+                }
+                return;
+            }
+
+            if let Some(task_id) = text.strip_prefix("/goals_task ") {
+                let task_id = task_id.trim();
+                if let Some(ref gs) = state.goals_store {
+                    match gs.complete_recurring_task(task_id) {
+                        Ok(Some(streak)) => {
+                            let streak_msg = if streak > 1 {
+                                format!(" \u{1f525} 連續 {} 天！", streak)
+                            } else {
+                                String::new()
+                            };
+                            let _ = telegram.send(&chat_id, &format!(
+                                "\u{2705} 任務完成！{}",
+                                streak_msg
+                            )).await;
+                        }
+                        Ok(None) => {
+                            let _ = telegram.send(&chat_id, "找不到這個任務").await;
+                        }
+                        Err(e) => {
+                            let _ = telegram.send(&chat_id, &format!("完成任務失敗：{}", e)).await;
+                        }
+                    }
+                } else {
+                    let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                }
+                return;
+            }
+
+            // ── Mood number reply (1-5) — quick check-in shortcut ──────
+            if text.len() == 1 {
+                if let Ok(mood) = text.parse::<i32>() {
+                    if (1..=5).contains(&mood) {
+                        // Check if there's a recent evening check-in push (within last hour)
+                        // Simple heuristic: if any active goals exist, treat bare 1-5 as mood
+                        if let Some(ref gs) = state.goals_store {
+                            let goals = gs.list_goals(Some(clawtex_core::goals::GoalStatus::Active)).unwrap_or_default();
+                            if !goals.is_empty() {
+                                let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+                                let mood_emojis = ["", "\u{1f622}", "\u{1f614}", "\u{1f610}", "\u{1f60a}", "\u{1f929}"];
+                                for g in &goals {
+                                    let ci = clawtex_core::goals::CheckIn {
+                                        id: format!("ci-{}-{}", g.id, today),
+                                        goal_id: g.id.clone(),
+                                        date: today.clone(),
+                                        mood,
+                                        note: None,
+                                        ai_feedback: None,
+                                    };
+                                    let _ = gs.add_check_in(&ci);
+                                }
+                                let emoji = mood_emojis.get(mood as usize).unwrap_or(&"");
+                                let _ = telegram.send(&chat_id, &format!(
+                                    "{} 已記錄心情 {}/5，晚安！",
+                                    emoji, mood
+                                )).await;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if text == "/goals" {
+                if let Some(ref gs) = state.goals_store {
+                    let ctx = clawtex_core::goals_push::goals_context(gs).unwrap_or_default();
+                    if ctx.is_empty() {
+                        let _ = telegram.send(&chat_id, "目前沒有進行中的目標。\n\n告訴我你的目標，我會幫你建立追蹤計畫！").await;
+                    } else {
+                        // Also include today's task status
+                        let briefing = clawtex_core::goals_push::morning_briefing(gs).unwrap_or_default();
+                        if briefing.is_empty() {
+                            let _ = telegram.send(&chat_id, &ctx).await;
+                        } else {
+                            let _ = telegram.send(&chat_id, &briefing).await;
+                        }
+                    }
+                } else {
+                    let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                }
+                return;
+            }
+
             if text == "/history" {
                 let count = state.conversations.message_count(&chat_id).await;
                 let reply = format!("Current conversation: {} messages ({} turns)", count, count / 2);
@@ -1645,6 +1799,7 @@ Clawtex Bot Commands:
 /help — Show this help
 /lang — List available languages
 /lang <locale> — Switch bot language (en, zh-TW, zh-CN, ja, ko)
+/goals — View active goals and today's tasks
 /status — System status (uptime, LLM, tasks)
 /tools — List available tools
 /hands — List available workflow hands
@@ -2598,8 +2753,26 @@ Any other message will be processed by the AI agent.";
             let selected_skills = state.skill_registry.select_for_prompt(&text, "master", 6000);
             let skills_ctx = SkillRegistry::format_context(&selected_skills);
 
+            // ── User profile context ─────────────────────────────────
+            let profile_ctx = {
+                let profile = state.user_profile.read().unwrap_or_else(|p| p.into_inner());
+                profile.system_prompt_context()
+            };
+
+            // ── Goals context injection ──────────────────────────────
+            let goals_ctx = if let Some(ref gs) = state.goals_store {
+                clawtex_core::goals_push::goals_context(gs).unwrap_or_default()
+            } else {
+                String::new()
+            };
+
             // Combine extra context
-            let extra_context = format!("{}{}", memory_ctx, skills_ctx);
+            let extra_context = [profile_ctx.as_str(), memory_ctx.as_str(), skills_ctx.as_str(), goals_ctx.as_str()]
+                .iter()
+                .filter(|s| !s.is_empty())
+                .copied()
+                .collect::<Vec<&str>>()
+                .join("\n\n");
             let extra = if extra_context.is_empty() { None } else { Some(extra_context.as_str()) };
 
             // ── Agent run (with progress reporting) ────────────────────
@@ -2823,6 +2996,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Handle early-exit subcommands ──
+    let _vault_pw: Option<String>;
     match args.command {
         Some(Command::EncryptSecret { value }) => {
             let secret_dir = format!(
@@ -2883,7 +3057,22 @@ async fn main() -> anyhow::Result<()> {
         let worker = ClusterWorker::new(config, tool_registry);
         return worker.start_server().await;
         }
-        _ => {} // Daemon, Run, Interactive, Config, Status — handled below
+        Some(Command::Daemon { vault_password, vault_password_stdin }) => {
+            _vault_pw = if vault_password_stdin {
+                use std::io::BufRead;
+                let stdin = std::io::stdin();
+                let mut line = String::new();
+                stdin.lock().read_line(&mut line)
+                    .map_err(|e| anyhow::anyhow!("Failed to read vault password from stdin: {}", e))?;
+                Some(line.trim().to_string())
+            } else {
+                vault_password
+            };
+        }
+        _ => {
+            // None (default to daemon) or other subcommands — no vault password fields available
+            _vault_pw = None;
+        }
     }
 
     // Init security config (from TOML or defaults)
@@ -2909,56 +3098,74 @@ async fn main() -> anyhow::Result<()> {
     let mut plugin_bus = PluginBus::new();
 
     // Phase 1: Infrastructure
-    plugin_bus.register(1, Arc::new(HealthCheckPlugin::new()));
+    plugin_bus.register(1, Arc::new(HealthCheckPlugin::new()))?;
 
     // Phase 2: Data layer
     let traj_db = format!("{}/.clawtex/trajectories.db", home);
-    plugin_bus.register(2, Arc::new(TrajectoryPlugin::new(&traj_db)));
+    plugin_bus.register(2, Arc::new(TrajectoryPlugin::new(&traj_db)))?;
 
     // Phase 4: Engine
     plugin_bus.register(4, Arc::new(CircuitBreakerPlugin::new(
         clawtex_core::circuit_breaker::BreakerConfig::default()
-    )));
+    )))?;
 
-    // Initialize all plugins
+    let clawtex_dir = std::path::PathBuf::from(format!("{}/.clawtex", home));
+
+    // Initialize all plugins — retrieve services from AppContext on success,
+    // fall back to manual construction on failure.
+    let (circuit_breaker, trajectory_logger): (Arc<ProviderCircuitBreaker>, Option<Arc<TrajectoryLogger>>);
+
     if let Err(e) = plugin_bus.init_all().await {
-        tracing::error!("[PluginBus] Init failed: {}", e);
-        // Fall through to existing manual init as fallback
+        tracing::error!("[PluginBus] Init failed: {} — falling back to manual construction", e);
+
+        // Fallback: construct services manually
+        circuit_breaker = Arc::new(ProviderCircuitBreaker::new(BreakerConfig::default()));
+        llm_router.set_circuit_breaker(circuit_breaker.clone());
+        info!("CircuitBreaker (fallback) attached to LlmRouter");
+
+        trajectory_logger = match TrajectoryLogger::new(
+            clawtex_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
+        ) {
+            Ok(tl) => {
+                let tl = Arc::new(tl);
+                llm_router.set_trajectory_logger(tl.clone());
+                info!("TrajectoryLogger (fallback) initialized and wired to LlmRouter");
+                Some(tl)
+            }
+            Err(e) => {
+                warn!("Failed to initialize TrajectoryLogger (fallback): {}", e);
+                None
+            }
+        };
     } else {
         tracing::info!(
             "[PluginBus] {} modules initialized: {:?}",
             plugin_bus.initialized_ids().len(),
             plugin_bus.initialized_ids()
         );
-    }
 
-    let _app_context = plugin_bus.context().clone();
+        // 從 AppContext 取得 PluginBus 管理的服務，避免重複建立實例
+        let app_context = plugin_bus.context().clone();
 
-    // Circuit Breaker — auto-trips failing providers (attached before Arc wrap)
-    // NOTE: Dual instance — PluginBus creates its own CircuitBreakerPlugin above.
-    // This manual instance remains for Phase 1 to avoid breaking LlmRouter wiring.
-    let circuit_breaker = Arc::new(ProviderCircuitBreaker::new(BreakerConfig::default()));
-    llm_router.set_circuit_breaker(circuit_breaker.clone());
-    info!("CircuitBreaker attached to LlmRouter");
+        circuit_breaker = app_context.get::<ProviderCircuitBreaker>()
+            .unwrap_or_else(|| {
+                warn!("CircuitBreaker not found in AppContext, creating fallback");
+                Arc::new(ProviderCircuitBreaker::new(BreakerConfig::default()))
+            });
+        llm_router.set_circuit_breaker(circuit_breaker.clone());
+        info!("CircuitBreaker from PluginBus wired to LlmRouter");
 
-    let clawtex_dir = std::path::PathBuf::from(format!("{}/.clawtex", home));
-
-    // NOTE: Dual instance — PluginBus creates its own TrajectoryPlugin above.
-    // This manual instance remains for Phase 1 to avoid breaking LlmRouter wiring.
-    let trajectory_logger = match TrajectoryLogger::new(
-        clawtex_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
-    ) {
-        Ok(tl) => {
-            let tl = Arc::new(tl);
+        trajectory_logger = app_context.get::<TrajectoryLogger>();
+        if let Some(ref tl) = trajectory_logger {
             llm_router.set_trajectory_logger(tl.clone());
-            info!("TrajectoryLogger initialized and wired to LlmRouter: {:?}", clawtex_dir.join("trajectories.db"));
-            Some(tl)
-        }
-        Err(e) => {
-            warn!("Failed to initialize TrajectoryLogger: {}", e);
-            None
+            info!("TrajectoryLogger from PluginBus wired to LlmRouter");
+        } else {
+            warn!("TrajectoryLogger not found in AppContext");
         }
     };
+
+    // Wrap plugin_bus 以便在 graceful shutdown 時使用
+    let plugin_bus = Arc::new(tokio::sync::Mutex::new(plugin_bus));
 
     let llm_router = Arc::new(llm_router);
     let task_queue = Arc::new(TaskQueue::new(&db_path).await?);
@@ -3023,6 +3230,18 @@ async fn main() -> anyhow::Result<()> {
         }
         Err(e) => {
             warn!("Revenue tracker failed to init: {}", e);
+            None
+        }
+    };
+    // Goals store
+    let goals_db_path = format!("{}/.clawtex/goals.db", home);
+    let goals_store: Option<Arc<clawtex_core::goals::GoalsStore>> = match clawtex_core::goals::GoalsStore::new(&goals_db_path) {
+        Ok(gs) => {
+            info!("Goals store initialized: {}", goals_db_path);
+            Some(Arc::new(gs))
+        }
+        Err(e) => {
+            warn!("Goals store failed to init: {}", e);
             None
         }
     };
@@ -3469,6 +3688,20 @@ async fn main() -> anyhow::Result<()> {
     let cron_store = Arc::new(CronStore::new(&db_path)?);
     let scheduler = Arc::new(Scheduler::new(cron_store)?);
 
+    // ── Load or create user profile ──────────────────────────────────
+    let user_profile = {
+        let profile_conn = rusqlite::Connection::open(&db_path)?;
+        UserProfile::create_table(&profile_conn)?;
+        let profile = UserProfile::load(&profile_conn)?
+            .unwrap_or_else(|| {
+                let default = UserProfile::default();
+                let _ = default.save(&profile_conn);
+                default
+            });
+        info!("User profile loaded: {} ({})", profile.display_name, profile.timezone);
+        Arc::new(RwLock::new(profile))
+    };
+
     // Register default cron jobs if no jobs exist yet
     {
         let existing = scheduler.list_jobs().await;
@@ -3549,6 +3782,54 @@ async fn main() -> anyhow::Result<()> {
             info!("Default cron jobs registered: freelancer (daily 9AM), leads (Mon 10AM), seo_content (Tue/Thu 11AM), content (daily 8AM), cluster_health (every 4h), self_optimize (Sun 3AM)");
         } else {
             info!("{} existing cron jobs loaded", existing.len());
+        }
+
+        // Register goals push jobs (idempotent — skip if already exist)
+        let existing_names: std::collections::HashSet<String> = scheduler.list_jobs().await.iter().map(|j| j.name.clone()).collect();
+        if !existing_names.contains("goals-morning-briefing") {
+            if let Err(e) = scheduler.add_job(
+                "goals-morning-briefing",
+                Schedule::Cron { expr: "0 8 * * *".to_string() },
+                JobAction::Notify {
+                    chat_id: "auto".to_string(),
+                    message: "__GOALS_MORNING__".to_string(),
+                },
+                None,
+            ).await {
+                warn!("Failed to register goals morning briefing: {}", e);
+            } else {
+                info!("Registered goals-morning-briefing cron (daily 8AM)");
+            }
+        }
+        if !existing_names.contains("goals-evening-checkin") {
+            if let Err(e) = scheduler.add_job(
+                "goals-evening-checkin",
+                Schedule::Cron { expr: "0 21 * * *".to_string() },
+                JobAction::Notify {
+                    chat_id: "auto".to_string(),
+                    message: "__GOALS_EVENING__".to_string(),
+                },
+                None,
+            ).await {
+                warn!("Failed to register goals evening check-in: {}", e);
+            } else {
+                info!("Registered goals-evening-checkin cron (daily 9PM)");
+            }
+        }
+        if !existing_names.contains("goals-weekly-report") {
+            if let Err(e) = scheduler.add_job(
+                "goals-weekly-report",
+                Schedule::Cron { expr: "0 20 * * 0".to_string() },
+                JobAction::Notify {
+                    chat_id: "auto".to_string(),
+                    message: "__GOALS_WEEKLY__".to_string(),
+                },
+                None,
+            ).await {
+                warn!("Failed to register goals weekly report: {}", e);
+            } else {
+                info!("Registered goals-weekly-report cron (Sunday 8PM)");
+            }
         }
     }
 
@@ -3671,7 +3952,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let state = AppState {
+    let mut state = AppState {
         llm_router,
         task_queue,
         agent_runtime,
@@ -3718,11 +3999,75 @@ async fn main() -> anyhow::Result<()> {
         pipeline_orchestrator: None,
         feedback_loop_config: None,
         roi_scheduler: None,
+        route_manager: None,
+        goals_store,
+        user_profile,
+        networking_tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
     };
+
+    // ── Networking: mDNS Discovery + Route Manager ─────────────────
+    {
+        use clawtex_core::networking::mdns::MdnsDiscovery;
+        use clawtex_core::networking::iroh_transport::IrohTransport;
+        use clawtex_core::networking::{RouteManager, ServiceDiscovery};
+
+        let node_name = std::env::var("CLAWTEX_NODE_NAME")
+            .unwrap_or_else(|_| "clawtex-hub".to_string());
+        let mdns = Arc::new(MdnsDiscovery::new(node_name.clone(), args.port, vec!["hub".into()]));
+        match ServiceDiscovery::start(mdns.as_ref()).await {
+            Ok(()) => info!("mDNS discovery started for '{}' on port {}", node_name, args.port),
+            Err(e) => warn!("mDNS discovery failed to start: {} (networking degraded)", e),
+        }
+
+        // Layer 2: Iroh/QUIC transport (stub — ready for real iroh crate when available)
+        let iroh = Arc::new(IrohTransport::new());
+        info!("Iroh transport registered (stub mode — QUIC mesh not yet active)");
+
+        let mut rm = RouteManager::default_ttl();
+        rm.add_discovery(mdns.clone());
+        rm.add_transport(iroh);
+
+        // Sync discovered nodes to ClusterRegistry periodically
+        let rm = Arc::new(rm);
+        let rm_clone = Arc::clone(&rm);
+        let cluster_for_mdns = state.cluster.clone();
+        let sync_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+            loop {
+                interval.tick().await;
+                let routes = rm_clone.all_routes().await;
+                for route in &routes {
+                    // Auto-register discovered nodes into ClusterRegistry
+                    // Use url::Url parser for correct IPv6/scheme handling
+                    if let Ok(parsed) = url::Url::parse(&route.url) {
+                        let host = parsed.host_str().unwrap_or("127.0.0.1").to_string();
+                        let port = parsed.port().unwrap_or(7878);
+                        if let Err(e) = cluster_for_mdns.register(&route.node_name, &host, port).await {
+                            tracing::debug!("Auto-register {} failed: {}", route.node_name, e);
+                        }
+                    }
+                }
+            }
+        });
+
+        let refresh_handle = rm.spawn_refresh_loop(std::time::Duration::from_secs(30));
+        {
+            let mut tasks = state.networking_tasks.lock().await;
+            tasks.push(sync_handle);
+            tasks.push(refresh_handle);
+        }
+        state.route_manager = Some(rm);
+    }
     {
         let hub = cluster_hub.clone();
         tokio::spawn(async move { hub.staleness_loop().await });
     }
+
+    // Shared Telegram refs — used by both Telegram handler and cron executor
+    let shared_telegram: Arc<tokio::sync::RwLock<Option<Arc<TelegramChannel>>>> =
+        Arc::new(tokio::sync::RwLock::new(None));
+    let shared_last_chat_id: Arc<tokio::sync::RwLock<Option<String>>> =
+        Arc::new(tokio::sync::RwLock::new(None));
 
     // Start Telegram channel if configured
     if let Some(tg_config) = app_config.telegram {
@@ -3730,6 +4075,7 @@ async fn main() -> anyhow::Result<()> {
             warn!("Telegram bot_token not set, skipping Telegram");
         } else {
             let telegram = Arc::new(TelegramChannel::new(tg_config));
+            *shared_telegram.write().await = Some(telegram.clone());
             let (tx, rx) = mpsc::channel::<ChannelMessage>(100);
 
             let tg_listen = telegram.clone();
@@ -3741,7 +4087,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Wire up approval gate notifier — sends approval requests to Telegram.
             // Uses a shared last_chat_id that gets updated from incoming messages.
-            let last_chat_id: Arc<tokio::sync::RwLock<Option<String>>> = Arc::new(tokio::sync::RwLock::new(None));
+            let last_chat_id = shared_last_chat_id.clone();
             {
                 let tg_for_approval = telegram.clone();
                 let last_id = last_chat_id.clone();
@@ -3779,9 +4125,13 @@ async fn main() -> anyhow::Result<()> {
     {
         let scheduler = scheduler.clone();
         let executor_state = state.clone();
+        let tg_for_cron = shared_telegram.clone();
+        let chat_id_for_cron = shared_last_chat_id.clone();
         tokio::spawn(async move {
             let executor: clawtex_core::cron::JobExecutor = Arc::new(move |action| {
                 let s = executor_state.clone();
+                let tg_ref = tg_for_cron.clone();
+                let chat_ref = chat_id_for_cron.clone();
                 tokio::spawn(async move {
                     match action {
                         clawtex_core::JobAction::Shell { command } => {
@@ -3798,9 +4148,85 @@ async fn main() -> anyhow::Result<()> {
                             }
                         }
                         clawtex_core::JobAction::Notify { chat_id, message } => {
-                            // TODO: send via Telegram when channel ref is available
-                            info!("Cron notify [{}]: {}", chat_id, message);
-                            format!("Notified: {}", message)
+                            // Handle goals push magic messages
+                            let is_goals_push = message == "__GOALS_MORNING__" || message == "__GOALS_EVENING__" || message == "__GOALS_WEEKLY__";
+                            let goals_keyboard: Option<clawtex_core::telegram_menu::InlineKeyboard> = if is_goals_push {
+                                if message == "__GOALS_EVENING__" {
+                                    Some(clawtex_core::telegram_menu::goals_mood_selector())
+                                } else if message == "__GOALS_MORNING__" {
+                                    // Build task buttons for incomplete tasks
+                                    if let Some(ref gs) = s.goals_store {
+                                        if let Ok(tasks) = gs.get_today_tasks() {
+                                            let pending: Vec<(&str, &str)> = tasks.iter()
+                                                .filter(|t| !t.completed_today)
+                                                .map(|t| (t.task.id.as_str(), t.task.title.as_str()))
+                                                .collect();
+                                            if !pending.is_empty() {
+                                                Some(clawtex_core::telegram_menu::goals_task_buttons(&pending))
+                                            } else { None }
+                                        } else { None }
+                                    } else { None }
+                                } else { None }
+                            } else { None };
+
+                            let actual_message = if is_goals_push {
+                                if let Some(ref gs) = s.goals_store {
+                                    let result = if message == "__GOALS_MORNING__" {
+                                        clawtex_core::goals_push::morning_briefing(gs)
+                                    } else if message == "__GOALS_WEEKLY__" {
+                                        clawtex_core::goals_push::weekly_report(gs)
+                                    } else {
+                                        clawtex_core::goals_push::evening_checkin(gs)
+                                    };
+                                    match result {
+                                        Ok(msg) if msg.is_empty() => {
+                                            return "Goals push skipped: no active goals".to_string();
+                                        }
+                                        Ok(msg) => msg,
+                                        Err(e) => {
+                                            warn!("Goals push generation error: {}", e);
+                                            return format!("Goals push error: {}", e);
+                                        }
+                                    }
+                                } else {
+                                    return "Goals push skipped: no goals store".to_string();
+                                }
+                            } else {
+                                message
+                            };
+
+                            // Send via Telegram if available
+                            let tg_guard = tg_ref.read().await;
+                            if let Some(ref tg) = *tg_guard {
+                                let target = if chat_id.is_empty() || chat_id == "auto" {
+                                    chat_ref.read().await.clone()
+                                } else {
+                                    Some(chat_id.clone())
+                                };
+                                if let Some(cid) = target {
+                                    let send_result = if let Some(ref kb) = goals_keyboard {
+                                        tg.send_message_with_keyboard(&cid, &actual_message, kb).await.map(|_| ())
+                                    } else {
+                                        tg.send(&cid, &actual_message).await
+                                    };
+                                    match send_result {
+                                        Ok(()) => {
+                                            info!("Cron notify sent to Telegram [{}]", cid);
+                                            format!("Notified via Telegram: {}", &actual_message[..actual_message.len().min(80)])
+                                        }
+                                        Err(e) => {
+                                            warn!("Cron notify Telegram error: {}", e);
+                                            format!("Telegram send failed: {}", e)
+                                        }
+                                    }
+                                } else {
+                                    info!("Cron notify (no chat_id): {}", &actual_message[..actual_message.len().min(80)]);
+                                    format!("Notified (no Telegram chat): {}", &actual_message[..actual_message.len().min(80)])
+                                }
+                            } else {
+                                info!("Cron notify (no Telegram): {}", &actual_message[..actual_message.len().min(80)]);
+                                format!("Notified (Telegram disabled): {}", &actual_message[..actual_message.len().min(80)])
+                            }
                         }
                         clawtex_core::JobAction::Hand { hand_name, input } => {
                             if let Some(hand) = s.hands.get(&hand_name) {
@@ -4332,6 +4758,25 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/pipeline/list", get(api_pipeline_list))
         .route("/api/pipeline/run", post(api_pipeline_run))
         .route("/api/feedback/report", get(api_feedback_report))
+        // ── Networking API ──────────────────────────────────────────
+        .route("/networking/discovered", get(networking_discovered))
+        .route("/networking/routes", get(networking_routes))
+        .route("/networking/status", get(networking_status))
+        // ── Goals API ──────────────────────────────────────────────
+        .route("/goals", get(goals_list).post(goals_create))
+        .route("/goals/today", get(goals_today))
+        .route("/goals/summary", get(goals_active_summary))
+        .route("/goals/push/preview", get(goals_push_preview))
+        .route("/goals/:id", get(goals_get).put(goals_update).delete(goals_delete))
+        .route("/goals/:id/progress", get(goals_progress))
+        .route("/goals/:id/milestones", get(goals_milestones_list).post(goals_milestone_add))
+        .route("/goals/:id/milestones/:ms_id/toggle", post(goals_milestone_toggle))
+        .route("/goals/:id/recurring", get(goals_recurring_list).post(goals_recurring_add))
+        .route("/goals/:id/recurring/:task_id/complete", post(goals_recurring_complete))
+        .route("/goals/weekly-summary", get(goals_weekly_summary))
+        .route("/goals/mood", get(goals_global_mood))
+        .route("/goals/:id/checkins", get(goals_checkins_list).post(goals_checkin_add))
+        .route("/goals/:id/mood-trend", get(goals_mood_trend))
         .with_state(state.clone())
         // Gateway streaming endpoints (separate state)
         .route("/stream/agent/:name", get(clawtex_core::gateway::sse_agent))
@@ -4359,10 +4804,16 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&addr).await?;
     info!("Listening on http://{}", addr);
 
+    let plugin_bus_shutdown = plugin_bus.clone();
+
     axum::serve(listener, app)
-        .with_graceful_shutdown(async {
+        .with_graceful_shutdown(async move {
             let _ = tokio::signal::ctrl_c().await;
             info!("Received Ctrl+C, shutting down gracefully...");
+            let mut bus = plugin_bus_shutdown.lock().await;
+            if let Err(e) = bus.shutdown_all().await {
+                tracing::error!("[PluginBus] Shutdown errors: {}", e);
+            }
         })
         .await?;
     info!("Daemon stopped.");
@@ -4736,6 +5187,423 @@ fn extract_quoted_or_rest(input: &str) -> String {
         }
     }
     input.trim_matches('"').to_string()
+}
+
+// ── Networking API Handlers ────────────────────────────────────────────────
+
+async fn networking_discovered(State(state): State<AppState>) -> Json<Value> {
+    if let Some(ref rm) = state.route_manager {
+        let routes = rm.all_routes().await;
+        let nodes: Vec<Value> = routes
+            .iter()
+            .map(|r| {
+                json!({
+                    "name": r.node_name,
+                    "url": r.url,
+                    "layer": r.layer,
+                    "latency_ms": r.latency_ms,
+                    "cached": r.cached,
+                })
+            })
+            .collect();
+        Json(json!({ "nodes": nodes }))
+    } else {
+        Json(json!({ "nodes": [] }))
+    }
+}
+
+async fn networking_routes(State(state): State<AppState>) -> Json<Value> {
+    if let Some(ref rm) = state.route_manager {
+        let routes = rm.all_routes().await;
+        Json(json!({ "routes": routes }))
+    } else {
+        Json(json!({ "routes": [] }))
+    }
+}
+
+async fn networking_status(State(state): State<AppState>) -> Json<Value> {
+    if let Some(ref rm) = state.route_manager {
+        let routes = rm.all_routes().await;
+        let layer_counts: HashMap<String, usize> = routes.iter().fold(HashMap::new(), |mut acc, r| {
+            // Use serde lowercase name for stable API contract
+            let key = serde_json::to_value(&r.layer)
+                .ok()
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| format!("{}", r.layer));
+            *acc.entry(key).or_insert(0) += 1;
+            acc
+        });
+        Json(json!({
+            "enabled": true,
+            "discovery_backends": rm.discovery_count(),
+            "transport_backends": rm.transport_count(),
+            "known_routes": routes.len(),
+            "layers": layer_counts,
+        }))
+    } else {
+        Json(json!({
+            "enabled": false,
+            "discovery_backends": 0,
+            "transport_backends": 0,
+            "known_routes": 0,
+            "layers": {},
+        }))
+    }
+}
+
+// ── Goals API Handlers ─────────────────────────────────────────────────────
+
+async fn goals_list(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let status_filter = params.get("status").and_then(|s| {
+        Some(clawtex_core::goals::GoalStatus::from_str(s))
+    });
+    match store.list_goals(status_filter) {
+        Ok(goals) => Json(json!({ "goals": goals })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_create(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, StatusCode> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Ok(Json(json!({ "error": "Goals store not available" }))),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let goal = clawtex_core::goals::Goal {
+        id: id.clone(),
+        title: body["title"].as_str().unwrap_or("").to_string(),
+        category: body["category"].as_str().unwrap_or("").to_string(),
+        description: body["description"].as_str().map(|s| s.to_string()),
+        target_date: body["target_date"].as_str().map(|s| s.to_string()),
+        status: clawtex_core::goals::GoalStatus::Active,
+        context: body["context"].as_str().map(|s| s.to_string()),
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    match store.create_goal(&goal) {
+        Ok(()) => Ok(Json(json!({ "id": id, "goal": goal }))),
+        Err(e) => Ok(Json(json!({ "error": format!("{}", e) }))),
+    }
+}
+
+async fn goals_get(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.get_goal(&id) {
+        Ok(Some(goal)) => Json(json!({ "goal": goal })),
+        Ok(None) => Json(json!({ "error": "Goal not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_update(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let status = body["status"].as_str().map(|s| clawtex_core::goals::GoalStatus::from_str(s));
+    match store.update_goal(
+        &id,
+        body["title"].as_str(),
+        status,
+        body["description"].as_str(),
+        body["context"].as_str(),
+    ) {
+        Ok(true) => Json(json!({ "updated": true })),
+        Ok(false) => Json(json!({ "error": "Goal not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_delete(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.delete_goal(&id) {
+        Ok(true) => Json(json!({ "deleted": true })),
+        Ok(false) => Json(json!({ "error": "Goal not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_progress(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.get_goal_progress(&id) {
+        Ok(Some(p)) => Json(json!({ "progress": p })),
+        Ok(None) => Json(json!({ "error": "Goal not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_today(State(state): State<AppState>) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.get_today_tasks() {
+        Ok(tasks) => Json(json!({ "tasks": tasks })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_active_summary(State(state): State<AppState>) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.active_goals_summary() {
+        Ok(summaries) => Json(json!({ "summaries": summaries })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_milestones_list(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.list_milestones(&id) {
+        Ok(ms) => Json(json!({ "milestones": ms })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_milestone_add(
+    State(state): State<AppState>,
+    axum::extract::Path(goal_id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let ms = clawtex_core::goals::Milestone {
+        id: id.clone(),
+        goal_id,
+        title: body["title"].as_str().unwrap_or("").to_string(),
+        due_date: body["due_date"].as_str().map(|s| s.to_string()),
+        status: "pending".to_string(),
+        sort_order: body["sort_order"].as_i64().unwrap_or(0) as i32,
+        completed_at: None,
+    };
+    match store.add_milestone(&ms) {
+        Ok(()) => Json(json!({ "id": id, "milestone": ms })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_milestone_toggle(
+    State(state): State<AppState>,
+    axum::extract::Path((_goal_id, ms_id)): axum::extract::Path<(String, String)>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.toggle_milestone(&ms_id) {
+        Ok(Some(ms)) => Json(json!({ "milestone": ms })),
+        Ok(None) => Json(json!({ "error": "Milestone not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_recurring_list(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.list_recurring_tasks(&id) {
+        Ok(tasks) => Json(json!({ "tasks": tasks })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_recurring_add(
+    State(state): State<AppState>,
+    axum::extract::Path(goal_id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let task = clawtex_core::goals::RecurringTask {
+        id: id.clone(),
+        goal_id,
+        title: body["title"].as_str().unwrap_or("").to_string(),
+        cron_expr: body["cron_expr"].as_str().unwrap_or("0 9 * * *").to_string(),
+        last_completed: None,
+        streak_count: 0,
+        enabled: true,
+    };
+    match store.add_recurring_task(&task) {
+        Ok(()) => Json(json!({ "id": id, "task": task })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_recurring_complete(
+    State(state): State<AppState>,
+    axum::extract::Path((_goal_id, task_id)): axum::extract::Path<(String, String)>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.complete_recurring_task(&task_id) {
+        Ok(Some(streak)) => Json(json!({ "completed": true, "streak": streak })),
+        Ok(None) => Json(json!({ "error": "Task not found" })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_checkin_add(
+    State(state): State<AppState>,
+    axum::extract::Path(goal_id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let id = uuid::Uuid::new_v4().to_string();
+    let ci = clawtex_core::goals::CheckIn {
+        id: id.clone(),
+        goal_id,
+        date: body["date"].as_str().unwrap_or(&chrono::Utc::now().format("%Y-%m-%d").to_string()).to_string(),
+        mood: body["mood"].as_i64().unwrap_or(3) as i32,
+        note: body["note"].as_str().map(|s| s.to_string()),
+        ai_feedback: body["ai_feedback"].as_str().map(|s| s.to_string()),
+    };
+    match store.add_check_in(&ci) {
+        Ok(()) => Json(json!({ "id": id, "check_in": ci })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_push_preview(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let kind = params.get("type").map(|s| s.as_str()).unwrap_or("morning");
+    let result = match kind {
+        "evening" => clawtex_core::goals_push::evening_checkin(store),
+        "weekly" => clawtex_core::goals_push::weekly_report(store),
+        _ => clawtex_core::goals_push::morning_briefing(store),
+    };
+    match result {
+        Ok(msg) if msg.is_empty() => Json(json!({ "message": null, "reason": "no active goals" })),
+        Ok(msg) => Json(json!({ "type": kind, "message": msg })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_checkins_list(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let limit = params.get("limit").and_then(|l| l.parse().ok()).unwrap_or(20);
+    match store.list_check_ins(&id, limit) {
+        Ok(cis) => Json(json!({ "check_ins": cis })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_mood_trend(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let days = params.get("days").and_then(|d| d.parse().ok()).unwrap_or(30);
+    match store.mood_trend(&id, days) {
+        Ok(trend) => {
+            let points: Vec<Value> = trend.iter().map(|(d, m)| json!({ "date": d, "mood": m })).collect();
+            Json(json!({ "trend": points }))
+        }
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_weekly_summary(
+    State(state): State<AppState>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    match store.weekly_summary() {
+        Ok(ws) => Json(json!({ "summary": ws })),
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
+}
+
+async fn goals_global_mood(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> Json<Value> {
+    let store = match &state.goals_store {
+        Some(s) => s,
+        None => return Json(json!({ "error": "Goals store not available" })),
+    };
+    let days = params.get("days").and_then(|d| d.parse().ok()).unwrap_or(30);
+    match store.global_mood_trend(days) {
+        Ok(trend) => {
+            let points: Vec<Value> = trend.iter().map(|(d, m)| json!({ "date": d, "avg_mood": m })).collect();
+            Json(json!({ "trend": points }))
+        }
+        Err(e) => Json(json!({ "error": format!("{}", e) })),
+    }
 }
 
 /// Detect ngrok public URL by querying its local API
