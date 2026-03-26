@@ -113,6 +113,7 @@ pub mod evolution;
 pub mod goals;
 pub mod goals_push;
 pub mod user_profile;
+pub mod event_triggers;
 
 // Re-export types from their canonical locations
 pub use providers::{
