@@ -204,7 +204,7 @@ pub fn tools_to_anthropic_json(tools: &[Value]) -> Vec<Value> {
 /// Convert ChatMessage array to Anthropic Messages API format.
 /// Returns (system_prompt, messages_array).
 /// Extracts system messages, merges consecutive same-role messages.
-pub fn messages_to_anthropic_json(messages: &[ChatMessage]) -> (Option<String>, Vec<Value>) {
+pub fn messages_to_anthropic_json(messages: &[ChatMessage]) -> (Option<Value>, Vec<Value>) {
     let mut system_parts: Vec<String> = Vec::new();
     let mut result: Vec<Value> = Vec::new();
 
@@ -284,7 +284,12 @@ pub fn messages_to_anthropic_json(messages: &[ChatMessage]) -> (Option<String>, 
     let system = if system_parts.is_empty() {
         None
     } else {
-        Some(system_parts.join("\n"))
+        let text = system_parts.join("\n");
+        Some(json!([{
+            "type": "text",
+            "text": text,
+            "cache_control": { "type": "ephemeral" }
+        }]))
     };
 
     (system, result)
@@ -385,7 +390,11 @@ mod tests {
             ChatMessage { role: "user".into(), content: "hello".into(), tool_calls: None, tool_call_id: None },
         ];
         let (sys, msgs_out) = messages_to_anthropic_json(&msgs);
-        assert_eq!(sys.unwrap(), "You are helpful");
+        let sys = sys.unwrap();
+        let blocks = sys.as_array().unwrap();
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "You are helpful");
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
         assert_eq!(msgs_out.len(), 1);
         assert_eq!(msgs_out[0]["role"], "user");
     }

@@ -42,6 +42,43 @@ impl AnthropicProvider {
     }
 }
 
+/// Apply Anthropic prompt caching hints to the request body.
+/// Adds cache_control: { "type": "ephemeral" } to:
+/// 1. System prompt (already done in content block construction)
+/// 2. Last tool definition
+/// 3. Last 2 user messages
+fn apply_cache_hints(body: &mut Value) {
+    // Tools: add cache_control to last tool definition
+    if let Some(tools) = body.get_mut("tools").and_then(|t| t.as_array_mut()) {
+        if let Some(last) = tools.last_mut() {
+            last["cache_control"] = json!({ "type": "ephemeral" });
+        }
+    }
+
+    // Last 2 user messages: wrap string content into content block with cache_control
+    if let Some(msgs) = body.get_mut("messages").and_then(|m| m.as_array_mut()) {
+        let user_indices: Vec<usize> = msgs.iter().enumerate()
+            .filter(|(_, m)| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+            .map(|(i, _)| i)
+            .collect();
+
+        for &idx in user_indices.iter().rev().take(2) {
+            let msg = &mut msgs[idx];
+            if let Some(text) = msg.get("content").and_then(|c| c.as_str()).map(String::from) {
+                msg["content"] = json!([{
+                    "type": "text",
+                    "text": text,
+                    "cache_control": { "type": "ephemeral" }
+                }]);
+            } else if let Some(blocks) = msg.get_mut("content").and_then(|c| c.as_array_mut()) {
+                if let Some(last_block) = blocks.last_mut() {
+                    last_block["cache_control"] = json!({ "type": "ephemeral" });
+                }
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl Provider for AnthropicProvider {
     fn name(&self) -> &str {
@@ -78,12 +115,14 @@ impl Provider for AnthropicProvider {
         });
 
         if let Some(sys) = &system_prompt {
-            body["system"] = json!(sys);
+            body["system"] = sys.clone();
         }
 
         if !tools.is_empty() {
             body["tools"] = json!(tools_to_anthropic_json(tools));
         }
+
+        apply_cache_hints(&mut body);
 
         debug!("Anthropic chat: model={}, {} messages, {} tools", model, messages.len(), tools.len());
 
@@ -172,12 +211,14 @@ impl Provider for AnthropicProvider {
         });
 
         if let Some(sys) = &system_prompt {
-            body["system"] = json!(sys);
+            body["system"] = sys.clone();
         }
 
         if !tools.is_empty() {
             body["tools"] = json!(tools_to_anthropic_json(tools));
         }
+
+        apply_cache_hints(&mut body);
 
         debug!("Anthropic stream_chat: model={}, {} messages", model, messages.len());
 
@@ -318,6 +359,7 @@ impl Provider for AnthropicProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn test_anthropic_provider_name() {
@@ -360,5 +402,97 @@ mod tests {
     #[test]
     fn test_anthropic_version_constant() {
         assert_eq!(ANTHROPIC_VERSION, "2023-06-01");
+    }
+
+    #[test]
+    fn test_apply_cache_hints_last_tool() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": [],
+            "tools": [
+                {"name": "shell", "input_schema": {}},
+                {"name": "file_read", "input_schema": {}}
+            ]
+        });
+        apply_cache_hints(&mut body);
+        let tools = body["tools"].as_array().unwrap();
+        assert!(tools.last().unwrap().get("cache_control").is_some());
+        assert!(tools.first().unwrap().get("cache_control").is_none());
+    }
+
+    #[test]
+    fn test_apply_cache_hints_empty_tools() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": [],
+            "tools": []
+        });
+        apply_cache_hints(&mut body);
+        assert!(body["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_apply_cache_hints_no_tools_key() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": []
+        });
+        apply_cache_hints(&mut body);
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
+    fn test_apply_cache_hints_user_messages() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+                {"role": "user", "content": "what time?"},
+                {"role": "assistant", "content": "3pm"},
+                {"role": "user", "content": "thanks"}
+            ]
+        });
+        apply_cache_hints(&mut body);
+        let msgs = body["messages"].as_array().unwrap();
+        // Last user message (index 4) — should be wrapped in content block with cache_control
+        assert!(msgs[4]["content"].is_array());
+        assert!(msgs[4]["content"][0].get("cache_control").is_some());
+        // Second-to-last user message (index 2) — also wrapped
+        assert!(msgs[2]["content"].is_array());
+        assert!(msgs[2]["content"][0].get("cache_control").is_some());
+        // First user message (index 0) — NOT wrapped
+        assert!(msgs[0]["content"].is_string());
+    }
+
+    #[test]
+    fn test_apply_cache_hints_single_user_message() {
+        let mut body = json!({
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": "hello"}]
+        });
+        apply_cache_hints(&mut body);
+        let msgs = body["messages"].as_array().unwrap();
+        assert!(msgs[0]["content"].is_array());
+        assert!(msgs[0]["content"][0].get("cache_control").is_some());
+    }
+
+    #[test]
+    fn test_system_prompt_becomes_content_block_with_cache() {
+        use crate::providers::traits::messages_to_anthropic_json;
+        let messages = vec![crate::providers::traits::ChatMessage {
+            role: "system".to_string(),
+            content: "You are Alfred, a butler.".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        let (system, _msgs) = messages_to_anthropic_json(&messages);
+        let sys = system.unwrap();
+        assert!(sys.is_array());
+        let blocks = sys.as_array().unwrap();
+        assert_eq!(blocks[0]["type"], "text");
+        assert_eq!(blocks[0]["text"], "You are Alfred, a butler.");
+        assert!(blocks[0].get("cache_control").is_some());
+        assert_eq!(blocks[0]["cache_control"]["type"], "ephemeral");
     }
 }
