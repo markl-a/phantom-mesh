@@ -16,6 +16,7 @@ use super::openai::OpenAiProvider;
 use super::gemini::GeminiProvider;
 use super::groq::GroqProvider;
 use super::reliable::classify_error;
+use super::reliable::rate_limit_backoff;
 use super::reliable::ErrorClass;
 use super::rotation::ProviderRotation;
 use super::codex::{CodexAwareProvider, CodexTokenManager, CodexUsageSnapshot, ModelInfo};
@@ -746,61 +747,94 @@ impl ProviderRouter {
             (p, model_override.clone().unwrap_or_default())
         };
 
-        match provider_ref.chat(messages, tools, &model).await {
-            Ok(resp) => {
-                if let Some(ref rotation) = self.rotation {
-                    rotation.record_success(provider_ref.name());
-                }
-                Ok(resp)
-            }
-            Err(e) => {
-                // Check if this is a rate-limit error and try rotation
-                if let Some(ref rotation) = self.rotation {
-                    let error_class = classify_error(&e);
-                    if error_class == ErrorClass::RateLimited {
-                        rotation.record_rate_limit(provider_ref.name());
+        // Rate-limit retry loop with exponential backoff.
+        // On a 429, retry the same provider up to 4 times (1s → 2s → 4s → 8s)
+        // honouring Retry-After if present, then fall back to other providers.
+        const MAX_RATE_LIMIT_RETRIES: u32 = 4;
+        let mut last_err: Option<anyhow::Error> = None;
 
-                        // Try ALL available providers in order (not just one)
-                        let candidates: Vec<String> = self.auto_order.clone();
-                        let mut last_err = e;
-                        for candidate_name in &candidates {
-                            if candidate_name == provider_ref.name() { continue; }
-                            if rotation.is_cooling_down(candidate_name) { continue; }
-                            if let Some(fallback) = self.providers.get(candidate_name) {
-                                let fb_model = fallback.default_model().to_string();
-                                info!(
-                                    "Rotation: '{}' rate-limited, trying '{}'",
-                                    provider_ref.name(), candidate_name
-                                );
-                                match fallback.chat(messages, tools, &fb_model).await {
-                                    Ok(resp) => {
-                                        rotation.record_success(candidate_name);
-                                        return Ok(resp);
-                                    }
-                                    Err(e2) => {
-                                        let e2_class = classify_error(&e2);
-                                        if e2_class == ErrorClass::RateLimited {
-                                            rotation.record_rate_limit(candidate_name);
-                                        }
-                                        warn!(
-                                            "Rotation: fallback '{}' also failed ({:?}): {}",
-                                            candidate_name, e2_class, e2
-                                        );
-                                        last_err = e2;
-                                        continue; // Try next provider
-                                    }
-                                }
-                            }
-                        }
-                        return Err(last_err);
+        for attempt in 0..=MAX_RATE_LIMIT_RETRIES {
+            if attempt > 0 {
+                // Backoff before retrying — only reached for rate-limit errors
+                let prev_err = last_err.as_ref().expect("last_err set before retry");
+                let delay = rate_limit_backoff(attempt - 1, prev_err);
+                warn!(
+                    "Rate-limited on '{}', backing off {:?} (attempt {}/{})",
+                    provider_ref.name(), delay, attempt, MAX_RATE_LIMIT_RETRIES
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            match provider_ref.chat(messages, tools, &model).await {
+                Ok(resp) => {
+                    if let Some(ref rotation) = self.rotation {
+                        rotation.record_success(provider_ref.name());
+                    }
+                    return Ok(resp);
+                }
+                Err(e) => {
+                    let error_class = classify_error(&e);
+
+                    if error_class != ErrorClass::RateLimited {
+                        // Non-rate-limit error: return immediately (no retry)
+                        return Err(e);
+                    }
+
+                    // Rate-limit error: record it and decide whether to retry
+                    if let Some(ref rotation) = self.rotation {
+                        rotation.record_rate_limit(provider_ref.name());
+                    }
+
+                    last_err = Some(e);
+
+                    if attempt == MAX_RATE_LIMIT_RETRIES {
+                        // Exhausted retries on this provider — fall through
+                        // to alternative providers below.
+                        break;
                     }
                 }
-                Err(e)
             }
         }
+
+        // All retries on the primary provider exhausted — try fallback providers.
+        if let Some(ref rotation) = self.rotation {
+            let candidates: Vec<String> = self.auto_order.clone();
+            for candidate_name in &candidates {
+                if candidate_name == provider_ref.name() { continue; }
+                if rotation.is_cooling_down(candidate_name) { continue; }
+                if let Some(fallback) = self.providers.get(candidate_name) {
+                    let fb_model = fallback.default_model().to_string();
+                    info!(
+                        "Rotation: '{}' rate-limited after {} retries, trying '{}'",
+                        provider_ref.name(), MAX_RATE_LIMIT_RETRIES, candidate_name
+                    );
+                    match fallback.chat(messages, tools, &fb_model).await {
+                        Ok(resp) => {
+                            rotation.record_success(candidate_name);
+                            return Ok(resp);
+                        }
+                        Err(e2) => {
+                            let e2_class = classify_error(&e2);
+                            if e2_class == ErrorClass::RateLimited {
+                                rotation.record_rate_limit(candidate_name);
+                            }
+                            warn!(
+                                "Rotation: fallback '{}' also failed ({:?}): {}",
+                                candidate_name, e2_class, e2
+                            );
+                            last_err = Some(e2);
+                            continue; // Try next provider
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow!("All providers exhausted after rate-limit retries")))
     }
 
     /// Streaming chat — returns a stream of chunks.
+    /// On rate-limit errors, records to rotation and retries with next available provider.
     pub async fn stream_chat(
         &self,
         messages: &[ChatMessage],
@@ -812,15 +846,97 @@ impl ProviderRouter {
         let (provider_ref, model) = if resolved == "auto" {
             let p = self.find_alive_provider().await
                 .ok_or_else(|| anyhow!("No LLM provider available"))?;
-            (p, model_override.unwrap_or_default())
+            (p, model_override.clone().unwrap_or_default())
         } else {
             let p = self.providers.get(&resolved)
                 .ok_or_else(|| anyhow!("Unknown provider: {}", resolved))?
                 .as_ref();
-            (p, model_override.unwrap_or_default())
+            (p, model_override.clone().unwrap_or_default())
         };
 
-        provider_ref.stream_chat(messages, tools, &model).await
+        // Rate-limit retry loop with exponential backoff (mirrors chat_with_tools).
+        // On a 429, retry the same provider up to 4 times (1s -> 2s -> 4s -> 8s)
+        // honouring Retry-After if present, then fall back to other providers.
+        const MAX_RATE_LIMIT_RETRIES: u32 = 4;
+        let mut last_err: Option<anyhow::Error> = None;
+
+        for attempt in 0..=MAX_RATE_LIMIT_RETRIES {
+            if attempt > 0 {
+                let prev_err = last_err.as_ref().expect("last_err set before retry");
+                let delay = rate_limit_backoff(attempt - 1, prev_err);
+                warn!(
+                    "Rate-limited on '{}' (stream), backing off {:?} (attempt {}/{})",
+                    provider_ref.name(), delay, attempt, MAX_RATE_LIMIT_RETRIES
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            match provider_ref.stream_chat(messages, tools, &model).await {
+                Ok(stream) => {
+                    if let Some(ref rotation) = self.rotation {
+                        rotation.record_success(provider_ref.name());
+                    }
+                    return Ok(stream);
+                }
+                Err(e) => {
+                    let error_class = classify_error(&e);
+
+                    if error_class != ErrorClass::RateLimited {
+                        // Non-rate-limit error: return immediately (no retry)
+                        return Err(e);
+                    }
+
+                    // Rate-limit error: record it and decide whether to retry
+                    if let Some(ref rotation) = self.rotation {
+                        rotation.record_rate_limit(provider_ref.name());
+                    }
+
+                    last_err = Some(e);
+
+                    if attempt == MAX_RATE_LIMIT_RETRIES {
+                        // Exhausted retries on this provider — fall through
+                        // to alternative providers below.
+                        break;
+                    }
+                }
+            }
+        }
+
+        // All retries on the primary provider exhausted — try fallback providers.
+        if let Some(ref rotation) = self.rotation {
+            let candidates: Vec<String> = self.auto_order.clone();
+            for candidate_name in &candidates {
+                if candidate_name == provider_ref.name() { continue; }
+                if rotation.is_cooling_down(candidate_name) { continue; }
+                if let Some(fallback) = self.providers.get(candidate_name) {
+                    let fb_model = fallback.default_model().to_string();
+                    info!(
+                        "Rotation (stream): '{}' rate-limited after {} retries, trying '{}'",
+                        provider_ref.name(), MAX_RATE_LIMIT_RETRIES, candidate_name
+                    );
+                    match fallback.stream_chat(messages, tools, &fb_model).await {
+                        Ok(stream) => {
+                            rotation.record_success(candidate_name);
+                            return Ok(stream);
+                        }
+                        Err(e2) => {
+                            let e2_class = classify_error(&e2);
+                            if e2_class == ErrorClass::RateLimited {
+                                rotation.record_rate_limit(candidate_name);
+                            }
+                            warn!(
+                                "Rotation (stream): fallback '{}' also failed ({:?}): {}",
+                                candidate_name, e2_class, e2
+                            );
+                            last_err = Some(e2);
+                            continue; // Try next provider
+                        }
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow!("All providers exhausted after rate-limit retries (stream)")))
     }
 
     /// Check if a named provider is alive
@@ -895,6 +1011,32 @@ impl ProviderRouter {
         } else {
             crate::budget_downgrade::SurvivalTier::Normal
         }
+    }
+
+    /// Create an empty router with no providers, routes, or config.
+    /// Used by test harnesses for programmatic provider injection.
+    pub fn empty() -> Self {
+        Self {
+            providers: HashMap::new(),
+            routes: HashMap::new(),
+            auto_order: Vec::new(),
+            rotation: None,
+            circuit_breaker: None,
+            codex_token_manager: None,
+            codex_base_url: None,
+            classifier: None,
+            simple_providers: Vec::new(),
+            medium_providers: Vec::new(),
+            complex_providers: Vec::new(),
+            budget_ratio: std::sync::atomic::AtomicU32::new(0),
+        }
+    }
+
+    /// Register a provider programmatically.
+    /// Used by test harnesses and plugin system for dynamic provider injection.
+    pub fn register_provider(&mut self, name: &str, provider: Box<dyn Provider>) {
+        self.auto_order.push(name.to_string());
+        self.providers.insert(name.to_string(), provider);
     }
 }
 
@@ -1415,5 +1557,34 @@ mod tests {
         assert_eq!(ollama.circuit_state, "closed");
         assert!(ollama.last_error.is_some());
         assert!(ollama.last_error.as_ref().unwrap().contains("2 consecutive failures"));
+    }
+
+    // ── Empty router + register_provider tests ──────────────────────────
+
+    #[test]
+    fn test_empty_router_has_no_providers() {
+        let router = ProviderRouter::empty();
+        assert!(router.provider_names().is_empty());
+    }
+
+    #[test]
+    fn test_register_provider() {
+        use crate::providers::mock::MockProvider;
+
+        let mut router = ProviderRouter::empty();
+        router.register_provider("mock", Box::new(MockProvider::fixed("hello")));
+        assert!(router.has_provider("mock"));
+        assert_eq!(router.provider_names(), vec!["mock"]);
+    }
+
+    #[tokio::test]
+    async fn test_registered_provider_is_routable() {
+        use crate::providers::mock::MockProvider;
+
+        let mut router = ProviderRouter::empty();
+        router.register_provider("mock", Box::new(MockProvider::fixed("test response")));
+        let result = router.route("hello", "mock").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "test response");
     }
 }
