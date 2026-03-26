@@ -1,6 +1,6 @@
 [package]
 name = "clawtex-core"
-version = "0.1.0"
+version = "0.5.0"
 edition = "2021"
 description = "Clawtex LLM Cluster Core — lightweight Rust daemon for LLM routing, task queue, and agent coordination"
 license = "MIT OR Apache-2.0"
@@ -18,6 +18,7 @@ path = "src/lib.rs"
 [features]
 default = []
 pg = ["dep:tokio-postgres", "dep:pgvector"]
+bedrock = ["dep:aws-sdk-bedrockruntime", "dep:aws-config"]
 
 [dependencies]
 # Crypto
@@ -60,6 +61,7 @@ anyhow = "1"
 thiserror = "1"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 clap = { version = "4", features = ["derive"] }
 urlencoding = "2"
 
@@ -76,8 +78,15 @@ url = "2"
 # Home directory resolution (for Codex OAuth)
 dirs = "5"
 
+# Binary lookup (for credential scanner)
+which = "7"
+
 # System info (CPU load for cluster worker)
 sysinfo = "0.32"
+
+# mDNS service discovery (Layer 1 networking)
+mdns-sd = "0.11"
+flume = "0.11"
 
 # CSV parsing (for csv_parse tool)
 csv = "1"
@@ -87,9 +96,25 @@ chacha20poly1305 = "0.10"
 hex = "0.4"
 rand = "0.8"
 
+# KeyVault (B.4) — Argon2id KDF + AES-256-GCM per-key encryption
+argon2 = "0.5"
+aes-gcm = "0.10"
+
+# Cluster Key Sync (B.4) — X25519 Diffie-Hellman key exchange
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+
+# Security hardening (B.4 review fixes)
+zeroize = { version = "1", features = ["zeroize_derive"] }
+subtle = "2"
+hkdf = "0.12"
+
 # PostgreSQL + pgvector (optional — for semantic memory pgvector backend)
 tokio-postgres = { version = "0.7", optional = true }
 pgvector = { version = "0.4", features = ["postgres"], optional = true }
+
+# AWS Bedrock (optional — behind `bedrock` feature flag)
+aws-sdk-bedrockruntime = { version = "1", optional = true }
+aws-config = { version = "1", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

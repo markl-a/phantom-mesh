@@ -108,6 +108,11 @@ pub mod governor;
 pub mod roi_gate;
 pub mod pipeline;
 pub mod feedback_loop;
+pub mod networking;
+pub mod evolution;
+pub mod goals;
+pub mod goals_push;
+pub mod user_profile;
 
 // Re-export types from their canonical locations
 pub use providers::{
@@ -206,7 +211,7 @@ pub use deploy_manifest::DeployManifest;
 pub use financial_monitor::{FinancialMonitor, FinancialAlert, FinancialSnapshot};
 pub use stripe_webhook::{StripeWebhook, WebhookAction, verify_signature};
 pub use task_taxonomy::{TaskCategory, TaskProfile, TaskTaxonomy};
-pub use telegram_menu::{InlineKeyboard, InlineButton, CallbackAction, parse_callback};
+pub use telegram_menu::{InlineKeyboard, InlineButton, CallbackAction, parse_callback, goals_mood_selector, goals_task_buttons};
 pub use unit_economics::{UnitEconomics, CaseEconomics, EconomicsSummary};
 pub use revenue_pipeline::{RevenuePipeline, PipelineDef, PipelineStage, StageType, PipelineExecution, PipelineStatus, PipelineStats, default_pipelines};
 pub use provider_pricing::{ProviderPricingStore, ProviderPriceRule, ProviderPriceEstimate};
