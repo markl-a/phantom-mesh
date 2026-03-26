@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use super::traits::*;
 
@@ -56,11 +56,23 @@ pub struct MockProvider {
     mode: MockMode,
     model: String,
     /// 腳本模式的當前索引
-    script_index: AtomicUsize,
+    script_index: Arc<AtomicUsize>,
     /// 記錄所有收到的請求（用於斷言）
-    pub call_log: Mutex<Vec<MockCallRecord>>,
+    pub call_log: Arc<Mutex<Vec<MockCallRecord>>>,
     /// 人為延遲（模擬推理時間）
     pub latency_ms: u64,
+}
+
+impl Clone for MockProvider {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode.clone(),
+            model: self.model.clone(),
+            script_index: self.script_index.clone(),
+            call_log: self.call_log.clone(), // shares the same Arc
+            latency_ms: self.latency_ms,
+        }
+    }
 }
 
 /// 記錄一次 chat 呼叫的參數
@@ -77,8 +89,8 @@ impl MockProvider {
         Self {
             mode: MockMode::Echo,
             model: "mock-echo".to_string(),
-            script_index: AtomicUsize::new(0),
-            call_log: Mutex::new(Vec::new()),
+            script_index: Arc::new(AtomicUsize::new(0)),
+            call_log: Arc::new(Mutex::new(Vec::new())),
             latency_ms: 0,
         }
     }
@@ -88,8 +100,8 @@ impl MockProvider {
         Self {
             mode: MockMode::Fixed(response.into()),
             model: "mock-fixed".to_string(),
-            script_index: AtomicUsize::new(0),
-            call_log: Mutex::new(Vec::new()),
+            script_index: Arc::new(AtomicUsize::new(0)),
+            call_log: Arc::new(Mutex::new(Vec::new())),
             latency_ms: 0,
         }
     }
@@ -99,8 +111,8 @@ impl MockProvider {
         Self {
             mode: MockMode::Scripted(responses),
             model: "mock-scripted".to_string(),
-            script_index: AtomicUsize::new(0),
-            call_log: Mutex::new(Vec::new()),
+            script_index: Arc::new(AtomicUsize::new(0)),
+            call_log: Arc::new(Mutex::new(Vec::new())),
             latency_ms: 0,
         }
     }
@@ -110,8 +122,8 @@ impl MockProvider {
         Self {
             mode: MockMode::Error(msg.into()),
             model: "mock-error".to_string(),
-            script_index: AtomicUsize::new(0),
-            call_log: Mutex::new(Vec::new()),
+            script_index: Arc::new(AtomicUsize::new(0)),
+            call_log: Arc::new(Mutex::new(Vec::new())),
             latency_ms: 0,
         }
     }
@@ -542,5 +554,18 @@ mod tests {
         let usage = resp.usage.unwrap();
         assert!(usage.prompt_tokens > 0 || usage.completion_tokens > 0);
         assert!(usage.total_tokens > 0);
+    }
+
+    #[test]
+    fn test_cloned_mock_shares_call_log() {
+        let mock1 = MockProvider::fixed("hello");
+        let mock2 = mock1.clone();
+        // Both should share the same call_log
+        mock1.call_log.lock().unwrap().push(MockCallRecord {
+            messages: vec![],
+            tools: vec![],
+            model: "test".to_string(),
+        });
+        assert_eq!(mock2.call_count(), 1);
     }
 }
