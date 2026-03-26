@@ -430,7 +430,10 @@ impl ToolRegistry {
         // Shared file snapshots for TOCTOU protection between file_read and file_edit
         let file_snapshots: file_read::FileSnapshots = Arc::new(Mutex::new(HashMap::new()));
 
-        tools.insert("shell".to_string(), Box::new(shell::ShellTool::new(security.clone())));
+        let session_manager = Arc::new(shell_session::ShellSessionManager::new(
+            std::path::PathBuf::from(&security.workspace_dir)
+        ));
+        tools.insert("shell".to_string(), Box::new(shell::ShellTool::new_with_sessions(security.clone(), session_manager)));
         tools.insert("file_read".to_string(), Box::new(file_read::FileReadTool::new_with_snapshots(security.clone(), file_snapshots.clone())));
         let workspace_dir = security.workspace_dir.clone();
         let rate_limit = security.rate_limit.clone();
