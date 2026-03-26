@@ -61,6 +61,7 @@ pub mod db_query;
 pub mod cron_manage;
 pub mod payment_tracker;
 pub mod input_sanitizer;
+pub mod code_evolution;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -425,8 +426,11 @@ impl ToolRegistry {
         let ws = security.workspace_path();
         let _ = std::fs::create_dir_all(&ws);
 
+        // Shared file snapshots for TOCTOU protection between file_read and file_edit
+        let file_snapshots: file_read::FileSnapshots = Arc::new(Mutex::new(HashMap::new()));
+
         tools.insert("shell".to_string(), Box::new(shell::ShellTool::new(security.clone())));
-        tools.insert("file_read".to_string(), Box::new(file_read::FileReadTool::new(security.clone())));
+        tools.insert("file_read".to_string(), Box::new(file_read::FileReadTool::new_with_snapshots(security.clone(), file_snapshots.clone())));
         let workspace_dir = security.workspace_dir.clone();
         let rate_limit = security.rate_limit.clone();
         let allowed_paths = security.allowed_paths.clone();
@@ -440,7 +444,7 @@ impl ToolRegistry {
             allowed_paths: allowed_paths,
             ..SecurityConfig::default()
         };
-        tools.insert("file_edit".to_string(), Box::new(file_edit::FileEditTool::new(sec_for_tools.clone())));
+        tools.insert("file_edit".to_string(), Box::new(file_edit::FileEditTool::new_with_snapshots(sec_for_tools.clone(), file_snapshots.clone())));
         tools.insert("http_request".to_string(), Box::new(http_request::HttpRequestTool::new(vec![])));
         tools.insert("glob_search".to_string(), Box::new(glob_search::GlobSearchTool::new(sec_for_tools.clone())));
         tools.insert("content_search".to_string(), Box::new(content_search::ContentSearchTool::new(sec_for_tools)));
@@ -460,6 +464,25 @@ impl ToolRegistry {
         tools.insert("weather".to_string(), Box::new(weather::WeatherTool::new()));
         tools.insert("calculator".to_string(), Box::new(calculator::CalculatorTool::new()));
         tools.insert("notification_center".to_string(), Box::new(notification_center::NotificationCenterTool::new()));
+        tools.insert("code_evolution".to_string(), Box::new(code_evolution::CodeEvolutionTool::new(workspace_dir.clone())));
+
+        // Delegate tools — register with default (empty) dependencies so they appear in
+        // names()/specs() even before register_delegate_tools() is called with the real
+        // AgentRuntime/LlmRouter. The main.rs daemon path overwrites these entries with
+        // fully-wired instances via register_delegate_tools().
+        let default_runtime = Arc::new(crate::agent_runtime::AgentRuntime::new("").unwrap());
+        let default_router = Arc::new(crate::llm_router::LlmRouter::new("").unwrap());
+        let default_sub_registry = Arc::new(Self::_bare_registry(&workspace_dir, &rate_limit));
+        tools.insert("delegate".to_string(), Box::new(delegate::DelegateTool::new(
+            default_runtime.clone(),
+            default_router.clone(),
+            default_sub_registry.clone(),
+        )));
+        tools.insert("delegate_to_provider".to_string(), Box::new(delegate_to_provider::DelegateToProviderTool::new(
+            default_runtime,
+            default_router,
+            default_sub_registry,
+        )));
 
         Self {
             tools,
@@ -467,6 +490,21 @@ impl ToolRegistry {
             global_tracker: ActionTracker::default(),
             tool_trackers: Mutex::new(HashMap::new()),
             rate_limit,
+            scrub_enabled: true,
+            audit_logger: None,
+        }
+    }
+
+    /// Create a minimal, empty registry (no tools) for use as a sub-agent registry
+    /// placeholder. Avoids infinite recursion when constructing delegate tools inside
+    /// new_with_search.
+    fn _bare_registry(workspace_dir: &str, rate_limit: &RateLimitConfig) -> Self {
+        Self {
+            tools: HashMap::new(),
+            workspace_dir: workspace_dir.to_string(),
+            global_tracker: ActionTracker::default(),
+            tool_trackers: Mutex::new(HashMap::new()),
+            rate_limit: rate_limit.clone(),
             scrub_enabled: true,
             audit_logger: None,
         }
@@ -499,6 +537,31 @@ impl ToolRegistry {
     pub fn register(&mut self, tool: Box<dyn Tool>) {
         let name = tool.name().to_string();
         self.tools.insert(name, tool);
+    }
+
+    /// Register the delegate tools that require Arcs created after initial registry construction.
+    ///
+    /// This must be called after the AgentRuntime, LlmRouter, and a sub-agent ToolRegistry
+    /// have been created, since the delegate tools hold Arc references to all three.
+    ///
+    /// `subagent_registry` should be a base-tools-only registry (no delegate tool) to prevent
+    /// infinite delegation loops.
+    pub fn register_delegate_tools(
+        &mut self,
+        agent_runtime: Arc<crate::agent_runtime::AgentRuntime>,
+        llm_router: Arc<crate::llm_router::LlmRouter>,
+        subagent_registry: Arc<ToolRegistry>,
+    ) {
+        self.register(Box::new(delegate::DelegateTool::new(
+            agent_runtime.clone(),
+            llm_router.clone(),
+            subagent_registry.clone(),
+        )));
+        self.register(Box::new(delegate_to_provider::DelegateToProviderTool::new(
+            agent_runtime,
+            llm_router,
+            subagent_registry,
+        )));
     }
 
     /// Check if a tool call is within rate limits

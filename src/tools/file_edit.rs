@@ -3,15 +3,23 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use super::{Tool, ToolResult, SecurityConfig};
+use super::file_read::FileSnapshots;
 
 /// File edit tool — precise string replacement within a file
 pub struct FileEditTool {
     security: SecurityConfig,
+    #[allow(dead_code)]
+    snapshots: Option<FileSnapshots>,
 }
 
 impl FileEditTool {
     pub fn new(security: SecurityConfig) -> Self {
-        Self { security }
+        Self { security, snapshots: None }
+    }
+
+    /// Create with shared FileSnapshots for TOCTOU validation (used by Task 7)
+    pub fn new_with_snapshots(security: SecurityConfig, snapshots: FileSnapshots) -> Self {
+        Self { security, snapshots: Some(snapshots) }
     }
 
     fn validate_path(&self, path: &str) -> Result<std::path::PathBuf> {

@@ -4,17 +4,37 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime};
 use tracing::info;
 
 use super::{SecurityConfig, Tool, ToolResult};
 
+/// Snapshot of a file's state at the time it was read
+#[derive(Debug, Clone)]
+pub struct FileSnapshot {
+    pub mtime: SystemTime,
+    pub size: u64,
+    pub read_at: Instant,
+}
+
+/// Shared snapshot map for TOCTOU protection between file_read and file_edit
+pub type FileSnapshots = Arc<Mutex<HashMap<PathBuf, FileSnapshot>>>;
+
 pub struct FileReadTool {
     security: SecurityConfig,
+    snapshots: Option<FileSnapshots>,
 }
 
 impl FileReadTool {
     pub fn new(security: SecurityConfig) -> Self {
-        Self { security }
+        Self { security, snapshots: None }
+    }
+
+    pub fn new_with_snapshots(security: SecurityConfig, snapshots: FileSnapshots) -> Self {
+        Self { security, snapshots: Some(snapshots) }
     }
 }
 
@@ -121,6 +141,20 @@ impl Tool for FileReadTool {
                     content
                 };
 
+                // Record file snapshot for TOCTOU protection
+                if let Some(ref snapshots) = self.snapshots {
+                    if let Ok(meta) = std::fs::metadata(&canonical) {
+                        if let Ok(mtime) = meta.modified() {
+                            let snap = FileSnapshot {
+                                mtime,
+                                size: meta.len(),
+                                read_at: Instant::now(),
+                            };
+                            snapshots.lock().unwrap().insert(canonical.clone(), snap);
+                        }
+                    }
+                }
+
                 Ok(ToolResult {
                     success: true,
                     output: truncated,
@@ -179,5 +213,38 @@ mod tests {
         let (tool, _dir) = make_tool("empty");
         let result = tool.execute(json!({"path": ""})).await.unwrap();
         assert!(!result.success);
+    }
+
+    #[test]
+    fn test_file_snapshot_records_on_read() {
+        use std::sync::{Arc, Mutex};
+        use std::collections::HashMap;
+
+        let dir = std::env::temp_dir().join("clawtex_test_fr_snap");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+
+        let snapshots: FileSnapshots = Arc::new(Mutex::new(HashMap::new()));
+        let security = SecurityConfig {
+            workspace_dir: dir.to_string_lossy().to_string(),
+            workspace_only: true,
+            allowed_commands: vec![],
+            ..Default::default()
+        };
+        let tool = FileReadTool::new_with_snapshots(security, snapshots.clone());
+
+        std::fs::write(dir.join("snap_test.txt"), "content").unwrap();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(tool.execute(json!({"path": "snap_test.txt"}))).unwrap();
+        assert!(result.success);
+
+        let snaps = snapshots.lock().unwrap();
+        assert_eq!(snaps.len(), 1);
+        // Verify the snapshot has correct size
+        let snap = snaps.values().next().unwrap();
+        assert_eq!(snap.size, 7); // "content" = 7 bytes
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
