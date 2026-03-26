@@ -69,6 +69,11 @@ impl CoreHarness {
     pub fn workspace_path(&self) -> PathBuf {
         self._temp_dir.path().join("workspace")
     }
+
+    /// Execute a tool directly by name with the given JSON args.
+    pub async fn run_tool(&self, name: &str, args: serde_json::Value) -> anyhow::Result<clawtex_core::tools::ToolResult> {
+        self.tool_registry.execute_tool(name, args).await
+    }
 }
 
 pub struct CoreHarnessBuilder {
@@ -102,7 +107,18 @@ impl CoreHarnessBuilder {
         let security = SecurityConfig {
             workspace_dir: workspace.to_string_lossy().to_string(),
             workspace_only: false,
-            allowed_commands: vec![],
+            allowed_commands: vec![
+                "echo".to_string(),
+                "pwd".to_string(),
+                "cd".to_string(),
+                "ls".to_string(),
+                "dir".to_string(),
+                "cat".to_string(),
+                "set".to_string(),
+                "export".to_string(),
+                "env".to_string(),
+                "printenv".to_string(),
+            ],
             ..Default::default()
         };
         let tool_registry = Arc::new(ToolRegistry::new(security));
