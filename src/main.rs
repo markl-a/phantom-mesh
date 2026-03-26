@@ -17,7 +17,7 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use clawtex_core::{
-    AiCodeConfig, AgentRuntime, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
+    AiCodeConfig, AgentRuntime, AppState, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
     ClusterHub, ClusterWorker, ClusterConfig, WorkerConfig, TaskResultPayload,
     ComputerUseConfig, ConversationStore, CostTracker, CostSummary, CronStore,
     EmailConfig, ImapConfig, EStop, EvalConfig, GatewayState, HandRegistry, HandRunner, JobAction, LlmRouter,
@@ -268,68 +268,7 @@ struct PricingEstimateRequest {
     tokens_out: u32,
 }
 
-// ── App State ──────────────────────────────────────────────────────────────────
-
-#[derive(Clone)]
-struct AppState {
-    llm_router: Arc<LlmRouter>,
-    task_queue: Arc<TaskQueue>,
-    agent_runtime: Arc<AgentRuntime>,
-    cluster: Arc<ClusterRegistry>,
-    tool_registry: Arc<ToolRegistry>,
-    conversations: Arc<ConversationStore>,
-    memory_store: Option<Arc<MemoryStore>>,
-    skill_registry: Arc<SkillRegistry>,
-    eval_config: EvalConfig,
-    estop: Arc<EStop>,
-    hands: Arc<HandRegistry>,
-    approval_gate: Arc<ApprovalGate>,
-    scheduler: Option<Arc<Scheduler>>,
-    cost_tracker: Option<Arc<CostTracker>>,
-    revenue_tracker: Option<Arc<RevenueTracker>>,
-    cluster_hub: Option<Arc<ClusterHub>>,
-    hub_api_key: Option<String>,
-    dashboard_token: String,
-    public_url: Option<String>,
-    metrics_registry: Arc<clawtex_core::MetricsRegistry>,
-    audit_logger: Option<Arc<AuditLogger>>,
-    load_tester: Option<Arc<LoadTester>>,
-    worker_onboarder: Option<Arc<WorkerOnboarder>>,
-    service_tier: Option<Arc<ServiceTierManager>>,
-    optimizer_store: Option<Arc<OptimizerStore>>,
-    auto_diagnoser: Option<Arc<AutoDiagnoser>>,
-    tenant_manager: Option<Arc<TenantManager>>,
-    order_workflow: Option<Arc<OrderWorkflow>>,
-    customer_health: Option<Arc<CustomerHealthManager>>,
-    churn_detector: Option<Arc<ChurnDetector>>,
-    observational_memory: Option<Arc<ObservationalMemory>>,
-    preemption_manager: Option<Arc<PreemptionManager>>,
-    node_scorer: Option<Arc<NodeScorer>>,
-    power_economics: Option<Arc<PowerEconomics>>,
-    provider_pricing: Option<Arc<ProviderPricingStore>>,
-    financial_monitor: Option<Arc<FinancialMonitor>>,
-    unit_economics: Option<Arc<UnitEconomics>>,
-    telegram_i18n: Arc<tokio::sync::RwLock<TelegramI18n>>,
-    /// Shared secret for inter-node cluster authentication.
-    /// When set, cluster endpoints (register, heartbeat, poll, result) require
-    /// `Authorization: Bearer <secret>`. When `None`, auth is disabled (open cluster).
-    cluster_secret: Option<String>,
-    started_at: Instant,
-    // Efficiency engine subsystems
-    roi_gate: Option<Arc<clawtex_core::roi_gate::RoiGate>>,
-    governor: Option<Arc<clawtex_core::governor::Governor>>,
-    pipeline_orchestrator: Option<Arc<tokio::sync::RwLock<clawtex_core::pipeline::PipelineOrchestrator>>>,
-    feedback_loop_config: Option<clawtex_core::feedback_loop::FeedbackLoopConfig>,
-    roi_scheduler: Option<Arc<clawtex_core::roi_scheduler::RoiScheduler>>,
-    route_manager: Option<Arc<clawtex_core::networking::RouteManager>>,
-    goals_store: Option<Arc<clawtex_core::goals::GoalsStore>>,
-    user_profile: Arc<RwLock<UserProfile>>,
-    /// Event trigger manager — shared with cron tick loop and Telegram /alerts handler.
-    trigger_manager: Option<Arc<std::sync::Mutex<clawtex_core::event_triggers::EventTriggerManager>>>,
-    /// Background networking task handles (for shutdown cleanup).
-    #[allow(dead_code)]
-    networking_tasks: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
-}
+// ── App State (defined in clawtex_core::app_state) ───────────────────────────
 
 // ── Auth Middleware ────────────────────────────────────────────────────────────
 

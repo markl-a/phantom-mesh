@@ -321,6 +321,12 @@ pub struct HandRegistry {
     hands: HashMap<String, Hand>,
 }
 
+impl Default for HandRegistry {
+    fn default() -> Self {
+        Self { hands: HashMap::new() }
+    }
+}
+
 impl HandRegistry {
     /// Load hands from a directory of TOML files.
     /// Expects structure: hands_dir/<hand_name>/hand.toml

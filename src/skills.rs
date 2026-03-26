@@ -80,6 +80,11 @@ pub struct SkillRegistry {
 }
 
 impl SkillRegistry {
+    /// Create an empty skill registry (useful for tests).
+    pub fn new() -> Self {
+        Self { skills: Vec::new() }
+    }
+
     /// Load skills from one or more directories.
     /// Each directory is scanned for subdirectories containing SKILL.toml.
     /// The trust_level parameter applies to all skills in the directory.
