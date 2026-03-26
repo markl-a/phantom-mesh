@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
-use clawtex_core::app_context::AppContext;
-use clawtex_core::circuit_breaker::{BreakerConfig, CircuitBreakerPlugin, ProviderCircuitBreaker};
-use clawtex_core::health_check::{HealthCheckPlugin, HealthStatus};
-use clawtex_core::plugin_bus::{PluginBus, PluginModule};
-use clawtex_core::trajectory::{TrajectoryLogger, TrajectoryPlugin};
+use phantom_mesh::app_context::AppContext;
+use phantom_mesh::circuit_breaker::{BreakerConfig, CircuitBreakerPlugin, ProviderCircuitBreaker};
+use phantom_mesh::health_check::{HealthCheckPlugin, HealthStatus};
+use phantom_mesh::plugin_bus::{PluginBus, PluginModule};
+use phantom_mesh::trajectory::{TrajectoryLogger, TrajectoryPlugin};
 
 #[tokio::test]
 async fn test_full_plugin_bus_lifecycle() {
@@ -70,7 +70,7 @@ async fn test_plugin_bus_event_stream() {
 
     let event = rx.recv().await.unwrap();
     match event {
-        clawtex_core::app_context::PluginEvent::ModuleInitialized { module_id } => {
+        phantom_mesh::app_context::PluginEvent::ModuleInitialized { module_id } => {
             assert_eq!(module_id, "health-check");
         }
         _ => panic!("expected ModuleInitialized event"),

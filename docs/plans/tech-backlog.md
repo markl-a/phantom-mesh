@@ -1,15 +1,15 @@
-# 技術 Backlog（Clawtex-Core 可實作項目）
+# 技術 Backlog（Phantom-Mesh 可實作項目）
 
 > 來源：R001-R100 研究文件 + OpenClaws 總計畫技術底座選型 + Master Plan
 > 最後更新：2026-03-14（已與現有 code 比對，標記實際狀態）
-> 目的：從研究文件中萃取出**可直接應用於 clawtex-core (Rust daemon)** 的技術模式與實作建議
+> 目的：從研究文件中萃取出**可直接應用於 phantom-mesh (Rust daemon)** 的技術模式與實作建議
 
 ---
 
 ## 使用說明
 
 - 每項標記 **優先級**（🔴 High / 🟡 Medium / 🟢 Low）
-- 每項標記 **目標模組**（clawtex-core 中對應的 `src/` 路徑）
+- 每項標記 **目標模組**（phantom-mesh 中對應的 `src/` 路徑）
 - 已實作的功能不再列出（如 L1 guardrail、cost_tracker 記錄、基本 cluster dispatch）
 - 可作為開發 backlog 直接取用
 
@@ -387,7 +387,7 @@
 | 項目 | 內容 |
 |------|------|
 | 描述 | 每日 08:00 + 每週一 09:00 自動產生摘要送 Telegram：節點狀態、任務統計、API 成本（日 + MTD vs 預算）、營收、活躍專案、待處理 leads、告警狀態 |
-| 模組 | 新 Hand `~/.clawtex/hands/ops_report/hand.toml`，利用現有 cron |
+| 模組 | 新 Hand `~/.phantom-mesh/hands/ops_report/hand.toml`，利用現有 cron |
 | 來源 | R081-R090 |
 
 ### 7.5 🟡 Real-Time Metrics API 即時指標 API

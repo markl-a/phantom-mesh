@@ -65,7 +65,7 @@ def record(name, passed, detail=''):
 
 # ═══════════════════════════════════════════════════════════════
 print('\n' + '='*60)
-print('  CLAWTEX STAGE 2 — FINAL FEATURE TEST')
+print('  PHANTOM_MESH STAGE 2 — FINAL FEATURE TEST')
 print('='*60)
 screenshot('00_start')
 # ═══════════════════════════════════════════════════════════════

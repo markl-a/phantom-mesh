@@ -1,4 +1,4 @@
-# Clawtex 持續營利自動化引擎 (Continuous Revenue Automation Engine)
+# Phantom Mesh 持續營利自動化引擎 (Continuous Revenue Automation Engine)
 
 > 設計日期: 2026-03-05
 > 模組: `src/revenue_engine.rs`
@@ -524,7 +524,7 @@ Phase 3 - 建議:
 ### 7.2 /dashboard 輸出格式
 
 ```
-===== CLAWTEX DASHBOARD =====
+===== PHANTOM_MESH DASHBOARD =====
 2026-03-05 22:00 (TWD)
 
 --- 今日 ---
@@ -1209,7 +1209,7 @@ impl RevenueEngine {
         };
 
         let mut text = format!(
-            "===== CLAWTEX DASHBOARD =====\n\
+            "===== PHANTOM_MESH DASHBOARD =====\n\
              {}\n\n\
              --- 今日 ---\n\
              營收: ${:.2} ({} 筆)\n\
@@ -1340,7 +1340,7 @@ impl RevenueEngine {
 ### 8.2 self_optimize Hand 定義
 
 ```toml
-# ~/.clawtex/hands/self_optimize/hand.toml
+# ~/.phantom-mesh/hands/self_optimize/hand.toml
 
 name = "self_optimize"
 description = "每日自我優化: 分析營收/成本數據, 調整排程策略"
@@ -1363,7 +1363,7 @@ cost_alert_threshold = "0.8"
 [[phases]]
 name = "collect_data"
 system_prompt = """
-你是 Clawtex 營收優化分析師。
+你是 Phantom Mesh 營收優化分析師。
 任務: 收集並整理今日的營收和成本數據。
 
 步驟:
@@ -1424,7 +1424,7 @@ Provider 調整:
 ```
 
 使用 memory_store 存儲策略到 key="optimization_strategy_YYYY-MM-DD"
-使用 file_write 保存到 ~/.clawtex/workspace/optimization_report.md
+使用 file_write 保存到 ~/.phantom-mesh/workspace/optimization_report.md
 """
 max_rounds = 5
 
@@ -1451,7 +1451,7 @@ max_rounds = 3
 ### 8.3 growth_review Hand 定義
 
 ```toml
-# ~/.clawtex/hands/growth_review/hand.toml
+# ~/.phantom-mesh/hands/growth_review/hand.toml
 
 name = "growth_review"
 description = "季度增長回顧: 90天數據分析 + 策略建議"
@@ -1519,12 +1519,12 @@ max_rounds = 5
 name = "report_generation"
 system_prompt = """
 生成正式季度報告:
-1. 使用 file_write 寫入 ~/.clawtex/workspace/quarterly_review_YYYY_Q*.md
+1. 使用 file_write 寫入 ~/.phantom-mesh/workspace/quarterly_review_YYYY_Q*.md
 2. 使用 pdf_export 生成 PDF 版本
 3. 使用 memory_store 存儲 key="quarterly_review_YYYY_Q*"
 
 報告格式:
-# Clawtex 季度營運報告 (YYYY Q*)
+# Phantom Mesh 季度營運報告 (YYYY Q*)
 ## 執行摘要
 ## 營收概覽
 ## 路線分析
@@ -1722,7 +1722,7 @@ E2E 測試:
 ## 附錄 A: 配置項
 
 ```toml
-# ~/.clawtex/agents.toml 新增區段
+# ~/.phantom-mesh/agents.toml 新增區段
 
 [revenue_engine]
 # 預設每日 API 預算 (USD)

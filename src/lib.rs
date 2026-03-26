@@ -1,4 +1,4 @@
-// clawtex-core — LLM Cluster Core Library
+// phantom-mesh — LLM Cluster Core Library
 pub mod providers;
 pub mod context;
 pub mod hooks;
@@ -179,7 +179,7 @@ pub use revenue_engine::{
     Alert, AlertLevel, TrendDirection, ScheduleEntry,
     route_hands, default_schedule_entries, default_cron_schedules,
 };
-pub use error_codes::{ErrorCode, ClawtexError, error_class_to_code};
+pub use error_codes::{ErrorCode, PhantomMeshError, error_class_to_code};
 pub use watchdog::{WorkerWatchdog, RecoveryConfig, WatchdogEvent, WatchdogStatus};
 pub use trajectory::{TrajectoryLogger, TrajectoryEntry, QualityStats, WorkerEfficiency};
 pub use circuit_breaker::{ProviderCircuitBreaker, BreakerConfig, CircuitStatus};

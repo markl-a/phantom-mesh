@@ -1,8 +1,8 @@
 openapi: "3.0.3"
 info:
-  title: Clawtex Core API
+  title: Phantom Mesh API
   description: |
-    Clawtex Core is a Rust daemon providing LLM routing, multi-agent orchestration, distributed
+    Phantom Mesh is a Rust daemon providing LLM routing, multi-agent orchestration, distributed
     cluster management, hands workflow automation, and full observability. Default port: 7878.
 
     **Authentication**: All endpoints (except /health and /dashboard) require a Bearer token:
@@ -40,7 +40,7 @@ components:
       properties:
         status: { type: string, example: ok }
         version: { type: string, example: 0.1.0 }
-        service: { type: string, example: clawtex-core }
+        service: { type: string, example: phantom-mesh }
 
     LlmRouteRequest:
       type: object
@@ -175,9 +175,9 @@ paths:
           content:
             text/plain:
               example: |
-                clawtex_uptime_seconds 3600
-                clawtex_workers_online 4
-                clawtex_tools_registered 42
+                phantom_mesh_uptime_seconds 3600
+                phantom_mesh_workers_online 4
+                phantom_mesh_tools_registered 42
 
   /metrics/health:
     get:
@@ -447,7 +447,7 @@ paths:
 
   /workspace/files:
     get:
-      summary: List files in agent workspace directory (~/.clawtex/workspace/)
+      summary: List files in agent workspace directory (~/.phantom-mesh/workspace/)
       operationId: listWorkspaceFiles
       tags: [Tools]
       responses:

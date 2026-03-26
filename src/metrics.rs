@@ -231,17 +231,17 @@ impl MetricsRegistry {
         })
     }
 
-    /// Register standard Clawtex metrics
+    /// Register standard Phantom Mesh metrics
     pub fn register_defaults(&self) {
         // Histograms
-        self.register_histogram("clawtex_dispatch_duration_ms");
-        self.register_histogram("clawtex_tool_duration_ms");
-        self.register_histogram("clawtex_llm_duration_ms");
+        self.register_histogram("phantom_mesh_dispatch_duration_ms");
+        self.register_histogram("phantom_mesh_tool_duration_ms");
+        self.register_histogram("phantom_mesh_llm_duration_ms");
         // Default counters/gauges are created on first use
     }
 }
 
-/// Helper to create a pre-configured MetricsRegistry with standard Clawtex metrics
+/// Helper to create a pre-configured MetricsRegistry with standard Phantom Mesh metrics
 pub fn default_metrics() -> MetricsRegistry {
     let m = MetricsRegistry::new();
     m.register_defaults();
@@ -384,17 +384,17 @@ mod tests {
         let m = MetricsRegistry::new();
         m.register_defaults();
         // Should be able to observe without panic
-        m.observe("clawtex_dispatch_duration_ms", 50.0);
-        m.observe("clawtex_tool_duration_ms", 25.0);
-        m.observe("clawtex_llm_duration_ms", 150.0);
-        assert_eq!(m.histogram_count("clawtex_dispatch_duration_ms"), 1);
+        m.observe("phantom_mesh_dispatch_duration_ms", 50.0);
+        m.observe("phantom_mesh_tool_duration_ms", 25.0);
+        m.observe("phantom_mesh_llm_duration_ms", 150.0);
+        assert_eq!(m.histogram_count("phantom_mesh_dispatch_duration_ms"), 1);
     }
 
     #[test]
     fn test_default_metrics_fn() {
         let m = default_metrics();
-        m.observe("clawtex_dispatch_duration_ms", 10.0);
-        assert_eq!(m.histogram_count("clawtex_dispatch_duration_ms"), 1);
+        m.observe("phantom_mesh_dispatch_duration_ms", 10.0);
+        assert_eq!(m.histogram_count("phantom_mesh_dispatch_duration_ms"), 1);
     }
 
     #[test]

@@ -101,12 +101,12 @@ screenshot('07_basic_response')
 
 # ── Test 8: Tool usage - file_read ────────────────────────────
 test_header('Tool usage: file_read')
-send_telegram('Read the file ~/.clawtex/agents.toml and show the first 5 lines', wait_secs=20)
+send_telegram('Read the file ~/.phantom-mesh/agents.toml and show the first 5 lines', wait_secs=20)
 screenshot('08_file_read')
 
 # ── Test 9: Tool usage - shell ────────────────────────────────
 test_header('Tool usage: shell command')
-send_telegram('Run: echo "clawtex stage 2 test OK"', wait_secs=15)
+send_telegram('Run: echo "phantom-mesh stage 2 test OK"', wait_secs=15)
 screenshot('09_shell')
 
 # ── Test 10: /history ─────────────────────────────────────────

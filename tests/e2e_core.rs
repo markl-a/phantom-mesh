@@ -4,7 +4,7 @@
 mod common;
 
 use common::harness::CoreHarness;
-use clawtex_core::providers::mock::{MockProvider, MockResponse, MockToolCall};
+use phantom_mesh::providers::mock::{MockProvider, MockResponse, MockToolCall};
 use serde_json::json;
 
 #[test]

@@ -1,4 +1,4 @@
-//! Unit Economics — per-case economics tracking for Clawtex hands.
+//! Unit Economics — per-case economics tracking for Phantom Mesh hands.
 //!
 //! Records revenue, cost, and duration for each hand execution and provides
 //! aggregated economics: margin analysis, break-even estimation, and summaries.

@@ -1,4 +1,4 @@
-# Clawtex Cluster Revenue Execution Plan 2026
+# Phantom Mesh Cluster Revenue Execution Plan 2026
 > 目標：年利潤 NT$3,000,000（~USD $100K）
 > 架構：**分散式 AI Agent 集群**，多硬體 + 多服務協同
 > 起始日：2026-03-13
@@ -9,7 +9,7 @@
 ## 零、集群架構總覽 — 這不是單機，是分散式系統
 
 ### 核心理念
-Clawtex 是一個**分散式 agent 集群**，不是一個跑在筆電上的 daemon。集群的價值在於：
+Phantom Mesh 是一個**分散式 agent 集群**，不是一個跑在筆電上的 daemon。集群的價值在於：
 - **並行能力**：4+ 節點同時執行不同收入任務 → 吞吐量 3-5x
 - **專業化分工**：每個節點根據硬體特性承擔最適合的角色
 - **容錯能力**：任一節點離線，任務自動漂移到其他節點
@@ -105,14 +105,14 @@ Clawtex 是一個**分散式 agent 集群**，不是一個跑在筆電上的 dae
 3. **你賣的是結果**：客戶不在乎你用什麼技術，他們要報告、文章、自動化流程、解決方案
 4. **品質 > 數量**：一篇精心編輯的文章勝過 100 篇 AI 垃圾文
 
-### Clawtex **集群**的實際優勢（vs 單機）
+### Phantom Mesh **集群**的實際優勢（vs 單機）
 - **並行吞吐**：4 節點同時跑不同 hand → 同時處理 4+ 收入任務
 - **本地推理成本近零**：Qwen3 30B @ 72 tok/s (Z13) + Apple Silicon (M1) + NPU (AYANEO) → 邊際成本極低
 - **24/7 自動化**：cron + hands + 集群容錯 → 任一節點掛掉其他照跑
 - **多 provider fallback + 集群 fallback**：provider 掛 → 換 provider；節點掛 → 換節點
 - **SoT 跨節點加速**：一篇 10 節文章，Z13 寫大綱，M1+AYANEO+Z13 各展開 3-4 節 → 3x 速度
 
-### Clawtex 集群的實際弱點（必須誠實面對）
+### Phantom Mesh 集群的實際弱點（必須誠實面對）
 - **輸出品質不穩定**：沒有 quality gate，30% 的輸出是垃圾
 - **Memory 太原始**：key-value SQLite 無法追蹤複雜客戶關係
 - **沒有人類反饋迴路**：agent 不知道什麼做得好什麼做得爛
@@ -211,7 +211,7 @@ Acer:   web_search 關鍵字數據 + 競品分析
 ```
 
 #### 路線 F：Open Source → Agent Pack Sales
-**集群驗證**：clawtex-core 本身就是集群系統，開源後的賣點就是「多節點並行 agent 系統」
+**集群驗證**：phantom-mesh 本身就是集群系統，開源後的賣點就是「多節點並行 agent 系統」
 
 ---
 
@@ -265,7 +265,7 @@ Acer:   web_search 關鍵字數據 + 競品分析
 ### Day 1: Z13 Hub 穩定化（3/13）
 ```bash
 # 確認 Hub daemon 穩定
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 cargo run -- daemon
 # 驗證: /cluster 回傳 local node online
 ```
@@ -273,16 +273,16 @@ cargo run -- daemon
 ### Day 2: M1 Worker 部署（3/14）
 ```bash
 # 在 M1 上:
-# 1. 安裝 Rust + 編譯 clawtex-core
+# 1. 安裝 Rust + 編譯 phantom-mesh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-git clone <repo> && cd clawtex-core
+git clone <repo> && cd phantom-mesh
 cargo build --release
 
 # 2. 確認 Tailscale 連線
 tailscale ping <Z13-tailscale-ip>
 
 # 3. 啟動 worker
-./target/release/clawtex-core worker \
+./target/release/phantom-mesh worker \
   --hub http://<Z13-tailscale-ip>:7878 \
   --name m1 \
   --port 7879
@@ -347,7 +347,7 @@ python3 lightweight_worker.py \
 - [ ] P2: Observational Memory MVP（40h）
 - [ ] P2: Hand 跨節點調度 基礎（16h）
 - [ ] P2: 集群健康儀表板 (/cluster Telegram)（8h）
-- [ ] clawtex-core 準備開源
+- [ ] phantom-mesh 準備開源
 
 **收入任務**：
 - [ ] Upwork 累積 3-5 個評價，開始接 $300+ 案子
@@ -434,11 +434,11 @@ node_affinity = "hub"   # Z13: LLM-as-Judge
 
 ### 5. OpenFang → 14-crate Workspace 模式
 OpenFang 用 14 個 crate 組成的 workspace，每個 crate 可獨立編譯。
-**集群啟發**：clawtex-core 可以拆成 `clawtex-hub` + `clawtex-worker` + `clawtex-common`，worker binary 更小，部署更快。
+**集群啟發**：phantom-mesh 可以拆成 `phantom-mesh-hub` + `phantom-mesh-worker` + `phantom-mesh-common`，worker binary 更小，部署更快。
 
 ### 6. Goose → Recipe 系統 = 可販售的 Hand
 Goose 的 Recipe YAML + 1700+ MCP server 生態 = 社區驅動的 workflow marketplace。
-**集群啟發**：clawtex 的 Hands 可以包裝成 marketplace 商品。每個 Hand = 一個可販售的自動化解決方案。集群版的 Hand 更有價值（跨節點並行 = 更快交付）。
+**集群啟發**：phantom-mesh 的 Hands 可以包裝成 marketplace 商品。每個 Hand = 一個可販售的自動化解決方案。集群版的 Hand 更有價值（跨節點並行 = 更快交付）。
 
 ### 7. Mastra → Observational Memory 降低成本
 3-40x token 壓縮 = 長任務成本降低 = 利潤率提升。
@@ -498,7 +498,7 @@ Goose 的 Recipe YAML + 1700+ MCP server 生態 = 社區驅動的 workflow marke
 ## 八、開源策略 → GitHub 影響力 → 間接收入
 
 ### 開源賣點：「分散式 AI Agent 集群」
-clawtex-core 的最大差異化：**不是又一個 agent framework，而是一個可部署的分散式集群**。
+phantom-mesh 的最大差異化：**不是又一個 agent framework，而是一個可部署的分散式集群**。
 
 ```
 README pitch:
@@ -508,7 +508,7 @@ README pitch:
 ```
 
 ### Phase 1：準備開源（Month 2）
-1. 拆分 `clawtex-hub` + `clawtex-worker` crates
+1. 拆分 `phantom-mesh-hub` + `phantom-mesh-worker` crates
 2. 寫 README（英文 + 繁體中文）— 重點突出集群架構
 3. 建立 examples/：`single-node.toml`, `two-node-cluster.toml`, `full-cluster.toml`
 4. Docker Compose for worker deployment
@@ -522,7 +522,7 @@ README pitch:
 
 ### Phase 3：生態系統 + 商業化（Month 5+）
 1. Hand marketplace（免費 + 付費）
-2. clawtex.dev 官網
+2. phantom-mesh.dev 官網
 3. Managed hosting（Route G）— 幫客戶部署集群
 4. Enterprise support tiers
 5. GitHub Sponsors / Open Collective
@@ -531,7 +531,7 @@ README pitch:
 - Stars：Month 3 目標 500，Month 6 目標 2000
 - Contributors：Month 6 目標 10
 - Discord members：Month 6 目標 200
-- **最重要**：有人在自己的硬體上部署了 clawtex cluster
+- **最重要**：有人在自己的硬體上部署了 phantom-mesh cluster
 
 ---
 
@@ -564,7 +564,7 @@ README pitch:
 - [ ] 實作 StreamingThinkFilter（2h）
 - [ ] 實作 Quality Gate / LLM-as-Judge 在 self_evolve Hand（4h）
 - [ ] Subprocess env stripping for chatgpt_backend（1h）
-- [ ] **M1 Worker 部署**：編譯 clawtex-core + Tailscale 連線 + 註冊 hub
+- [ ] **M1 Worker 部署**：編譯 phantom-mesh + Tailscale 連線 + 註冊 hub
 - [ ] 修復 get_cpu_load() 回傳真實值（1h）
 
 ### Day 3-4（3/15-16）：AYANEO + Acer + 驗證

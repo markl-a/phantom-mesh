@@ -72,7 +72,7 @@ impl Tool for FileReadTool {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "File path. Relative paths resolve from workspace. Absolute paths (C:/...) or ~/ paths also work. Examples: 'output/result.txt', '~/.clawtex/workspace/report.md'"
+                    "description": "File path. Relative paths resolve from workspace. Absolute paths (C:/...) or ~/ paths also work. Examples: 'output/result.txt', '~/.phantom-mesh/workspace/report.md'"
                 }
             },
             "required": ["path"]
@@ -174,7 +174,7 @@ mod tests {
     use std::fs;
 
     fn make_tool(suffix: &str) -> (FileReadTool, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("clawtex_test_fr_{}", suffix));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_test_fr_{}", suffix));
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
         let security = SecurityConfig {
@@ -220,7 +220,7 @@ mod tests {
         use std::sync::{Arc, Mutex};
         use std::collections::HashMap;
 
-        let dir = std::env::temp_dir().join("clawtex_test_fr_snap");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_fr_snap");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 

@@ -2,7 +2,7 @@
 //! worker registration, task dispatch, priority queue, and batch dispatch.
 //! All tests use public APIs only.
 
-use clawtex_core::{
+use phantom_mesh::{
     ClusterHub, ClusterRegistry, ClusterMetrics, WorkerStats, ToolRouting,
     PollTaskResponse, TaskResultPayload,
 };

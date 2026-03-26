@@ -4,7 +4,7 @@
 
 set -e
 
-echo "=== Clawtex Light Worker Setup ==="
+echo "=== Phantom Mesh Light Worker Setup ==="
 
 # Check Python
 if ! command -v python3 &> /dev/null; then
@@ -26,4 +26,4 @@ fi
 echo "Dependencies OK (stdlib only)"
 echo ""
 echo "Start with:"
-echo "  python3 clawtex-worker.py --hub http://<HUB_IP>:7878 --name <NAME> --port 7880"
+echo "  python3 phantom-mesh-worker.py --hub http://<HUB_IP>:7878 --name <NAME> --port 7880"

@@ -1,20 +1,20 @@
 //! Tool integration tests — 50+ tests covering data, communication,
 //! content, file, and web tools without requiring external services.
 
-use clawtex_core::tools::csv_parse::CsvParseTool;
-use clawtex_core::tools::json_transform::JsonTransformTool;
-use clawtex_core::tools::summarize::SummarizeTool;
-use clawtex_core::tools::slack::{SlackTool, SlackConfig};
-use clawtex_core::tools::discord::{DiscordTool, DiscordConfig};
-use clawtex_core::tools::line_notify::{LineTool, LineConfig};
-use clawtex_core::tools::whatsapp::{WhatsAppTool, WhatsAppConfig};
-use clawtex_core::tools::image_generate::{ImageGenerateTool, ImageGenerateConfig};
-use clawtex_core::tools::file_read::FileReadTool;
-use clawtex_core::tools::file_write::FileWriteTool;
-use clawtex_core::tools::file_edit::FileEditTool;
-use clawtex_core::tools::http_request::HttpRequestTool;
-use clawtex_core::tools::web_search::{WebSearchTool, SearchConfig};
-use clawtex_core::tools::{Tool, SecurityConfig};
+use phantom_mesh::tools::csv_parse::CsvParseTool;
+use phantom_mesh::tools::json_transform::JsonTransformTool;
+use phantom_mesh::tools::summarize::SummarizeTool;
+use phantom_mesh::tools::slack::{SlackTool, SlackConfig};
+use phantom_mesh::tools::discord::{DiscordTool, DiscordConfig};
+use phantom_mesh::tools::line_notify::{LineTool, LineConfig};
+use phantom_mesh::tools::whatsapp::{WhatsAppTool, WhatsAppConfig};
+use phantom_mesh::tools::image_generate::{ImageGenerateTool, ImageGenerateConfig};
+use phantom_mesh::tools::file_read::FileReadTool;
+use phantom_mesh::tools::file_write::FileWriteTool;
+use phantom_mesh::tools::file_edit::FileEditTool;
+use phantom_mesh::tools::http_request::HttpRequestTool;
+use phantom_mesh::tools::web_search::{WebSearchTool, SearchConfig};
+use phantom_mesh::tools::{Tool, SecurityConfig};
 use serde_json::json;
 use std::fs;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ use std::collections::HashMap;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn make_workspace(suffix: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("clawtex_tt_{}", suffix));
+    let dir = std::env::temp_dir().join(format!("phantom_mesh_tt_{}", suffix));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -623,10 +623,10 @@ async fn file_read_existing_file() {
     let dir = make_workspace("fr_1");
     let security = make_security(&dir);
     let t = FileReadTool::new(security);
-    fs::write(dir.join("hello.txt"), "hello clawtex").unwrap();
+    fs::write(dir.join("hello.txt"), "hello phantom_mesh").unwrap();
     let r = t.execute(json!({"path": "hello.txt"})).await.unwrap();
     assert!(r.success, "read failed: {}", r.output);
-    assert!(r.output.contains("hello clawtex"));
+    assert!(r.output.contains("hello phantom_mesh"));
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -762,11 +762,11 @@ async fn file_edit_replaces_text_in_file() {
     let r = t.execute(json!({
         "path": path.to_string_lossy(),
         "old_text": "world",
-        "new_text": "clawtex"
+        "new_text": "phantom_mesh"
     })).await.unwrap();
     assert!(r.success, "edit failed: {}", r.output);
     let updated = fs::read_to_string(&path).unwrap();
-    assert_eq!(updated, "hello clawtex");
+    assert_eq!(updated, "hello phantom_mesh");
     let _ = fs::remove_dir_all(&dir);
 }
 

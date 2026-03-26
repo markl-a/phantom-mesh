@@ -23,7 +23,7 @@ impl VideoComposeTool {
         } else {
             let workspace = dirs::home_dir()
                 .unwrap_or_default()
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("workspace");
             let _ = std::fs::create_dir_all(&workspace);
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -307,7 +307,7 @@ impl Tool for VideoComposeTool {
                 },
                 "output_path": {
                     "type": "string",
-                    "description": "Output video file path. Defaults to ~/.clawtex/workspace/video_{timestamp}.mp4"
+                    "description": "Output video file path. Defaults to ~/.phantom-mesh/workspace/video_{timestamp}.mp4"
                 },
                 "duration_per_image": {
                     "type": "number",
@@ -536,7 +536,7 @@ mod tests {
     fn test_output_path_default() {
         let path = VideoComposeTool::build_output_path(None);
         let path_str = path.to_string_lossy().to_string();
-        assert!(path_str.contains(".clawtex"), "Path should contain .clawtex: {}", path_str);
+        assert!(path_str.contains(".phantom-mesh"), "Path should contain .phantom-mesh: {}", path_str);
         assert!(path_str.contains("workspace"), "Path should contain workspace: {}", path_str);
         assert!(path_str.contains("video_"), "Path should contain video_ prefix: {}", path_str);
         assert!(path_str.ends_with(".mp4"), "Path should end with .mp4: {}", path_str);

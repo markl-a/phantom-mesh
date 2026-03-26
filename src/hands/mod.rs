@@ -183,10 +183,10 @@ pub struct HandCheckpoint {
 }
 
 impl HandCheckpoint {
-    /// Save checkpoint to ~/.clawtex/checkpoints/{hand_name}_{run_id}.json
+    /// Save checkpoint to ~/.phantom-mesh/checkpoints/{hand_name}_{run_id}.json
     pub fn save(&self) -> Result<()> {
         let dir = dirs::home_dir()
-            .map(|h| h.join(".clawtex").join("checkpoints"))
+            .map(|h| h.join(".phantom-mesh").join("checkpoints"))
             .unwrap_or_else(|| std::path::PathBuf::from("checkpoints"));
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{}_{}.json", self.hand_name, self.run_id));
@@ -199,7 +199,7 @@ impl HandCheckpoint {
     /// Load the most recent checkpoint for a hand (if any).
     pub fn load_latest(hand_name: &str) -> Option<Self> {
         let dir = dirs::home_dir()
-            .map(|h| h.join(".clawtex").join("checkpoints"))
+            .map(|h| h.join(".phantom-mesh").join("checkpoints"))
             .unwrap_or_else(|| std::path::PathBuf::from("checkpoints"));
         if !dir.exists() {
             return None;
@@ -225,7 +225,7 @@ impl HandCheckpoint {
     /// Delete checkpoint file after successful completion.
     pub fn delete(&self) {
         let dir = dirs::home_dir()
-            .map(|h| h.join(".clawtex").join("checkpoints"))
+            .map(|h| h.join(".phantom-mesh").join("checkpoints"))
             .unwrap_or_else(|| std::path::PathBuf::from("checkpoints"));
         let path = dir.join(format!("{}_{}.json", self.hand_name, self.run_id));
         let _ = std::fs::remove_file(&path);
@@ -981,7 +981,7 @@ impl HandRunner {
         let knowledge_capturer = {
             let kb_path = dirs::home_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("knowledge.db");
             KnowledgeCapturer::new(kb_path.to_str().unwrap_or("knowledge.db")).ok()
         };
@@ -1100,7 +1100,7 @@ impl HandRunner {
             let filename = format!("{}_{}.{}", hand.name, now.format("%Y%m%d_%H%M%S"), ext);
             let workspace = dirs::home_dir()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".clawtex").join("workspace");
+                .join(".phantom-mesh").join("workspace");
             let save_path = workspace.join(&filename);
             if let Err(e) = std::fs::create_dir_all(&workspace) {
                 warn!("Auto-save: failed to create workspace dir: {}", e);
@@ -1507,7 +1507,7 @@ system_prompt = "Do it"
     #[test]
     fn test_checkpoint_save_and_load() {
         let dir = tempfile::tempdir().unwrap();
-        let cp_dir = dir.path().join(".clawtex").join("checkpoints");
+        let cp_dir = dir.path().join(".phantom-mesh").join("checkpoints");
         std::fs::create_dir_all(&cp_dir).unwrap();
 
         let cp = HandCheckpoint {

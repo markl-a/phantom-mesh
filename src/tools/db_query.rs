@@ -9,7 +9,7 @@ use tracing::info;
 
 use super::{Tool, ToolResult};
 
-/// Allowed database names and their default paths under ~/.clawtex/
+/// Allowed database names and their default paths under ~/.phantom-mesh/
 const ALLOWED_DBS: &[(&str, &str)] = &[
     ("costs", "costs.db"),
     ("revenue", "revenue.db"),
@@ -27,7 +27,7 @@ impl DbQueryTool {
         Self
     }
 
-    /// Resolve ~db name~ to an absolute path under ~/.clawtex/.
+    /// Resolve ~db name~ to an absolute path under ~/.phantom-mesh/.
     fn resolve_db_path(db: &str) -> Result<String> {
         let entry = ALLOWED_DBS.iter().find(|(name, _)| *name == db);
         match entry {
@@ -35,7 +35,7 @@ impl DbQueryTool {
                 let home = std::env::var("USERPROFILE")
                     .or_else(|_| std::env::var("HOME"))
                     .unwrap_or_else(|_| ".".to_string());
-                Ok(format!("{}/.clawtex/{}", home, filename))
+                Ok(format!("{}/.phantom-mesh/{}", home, filename))
             }
             None => {
                 let names: Vec<&str> = ALLOWED_DBS.iter().map(|(n, _)| *n).collect();
@@ -553,7 +553,7 @@ mod tests {
 
     /// Helper: create a temp DB with cost_records and revenue_records tables.
     fn create_test_db(suffix: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("clawtex_test_dbq_{}", suffix));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_test_dbq_{}", suffix));
         let _ = fs::create_dir_all(&dir);
         let db_path = dir.join("test.db");
         let path_str = db_path.to_string_lossy().to_string();
@@ -611,7 +611,7 @@ mod tests {
     }
 
     fn cleanup_test_db(suffix: &str) {
-        let dir = std::env::temp_dir().join(format!("clawtex_test_dbq_{}", suffix));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_test_dbq_{}", suffix));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -680,7 +680,7 @@ mod tests {
     fn test_resolve_db_path_known() {
         let path = DbQueryTool::resolve_db_path("costs").unwrap();
         assert!(path.contains("costs.db"));
-        assert!(path.contains(".clawtex"));
+        assert!(path.contains(".phantom-mesh"));
     }
 
     #[test]
@@ -919,7 +919,7 @@ mod tests {
     fn test_aggregate_unknown_metric() {
         let db_path = create_test_db("agg_unknown");
         // We call run_aggregate directly — it returns ToolResult with success=false
-        // But run_aggregate uses resolve_db_path which points to ~/.clawtex/,
+        // But run_aggregate uses resolve_db_path which points to ~/.phantom-mesh/,
         // so we test the error path via the metric name:
         let result = DbQueryTool::run_aggregate("costs", "nonexistent").unwrap();
         assert!(!result.success);

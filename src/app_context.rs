@@ -26,6 +26,8 @@ pub enum PluginEvent {
     ModuleShutdown { module_id: String },
     /// A module failed during initialization.
     ModuleFailed { module_id: String, error: String },
+    /// A module failed during shutdown.
+    ModuleShutdownFailed { module_id: String, error: String },
     /// A module's health status changed.
     HealthChanged {
         module_id: String,
@@ -100,6 +102,23 @@ impl AppContext {
             .read()
             .expect("AppContext lock poisoned")
             .len()
+    }
+
+    /// Remove a previously registered service.
+    pub fn deregister<T: Send + Sync + 'static>(&self) -> bool {
+        self.services
+            .write()
+            .expect("AppContext lock poisoned")
+            .remove(&TypeId::of::<T>())
+            .is_some()
+    }
+
+    /// Remove all registered services.
+    pub fn clear(&self) {
+        self.services
+            .write()
+            .expect("AppContext lock poisoned")
+            .clear();
     }
 }
 
@@ -189,5 +208,54 @@ mod tests {
             module_id: "x".to_string(),
         });
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_deregister_existing_service() {
+        let ctx = AppContext::new();
+        ctx.register(Arc::new(42u32));
+        assert_eq!(ctx.service_count(), 1);
+        assert!(ctx.deregister::<u32>(), "deregister should return true for existing service");
+        assert_eq!(ctx.service_count(), 0);
+        assert!(ctx.get::<u32>().is_none(), "get should return None after deregister");
+    }
+
+    #[test]
+    fn test_deregister_nonexistent_service() {
+        let ctx = AppContext::new();
+        assert!(!ctx.deregister::<u32>(), "deregister should return false for non-existent service");
+    }
+
+    #[test]
+    fn test_deregister_does_not_affect_other_types() {
+        let ctx = AppContext::new();
+        ctx.register(Arc::new(42u32));
+        ctx.register(Arc::new("hello".to_string()));
+        assert_eq!(ctx.service_count(), 2);
+        ctx.deregister::<u32>();
+        assert_eq!(ctx.service_count(), 1);
+        assert!(ctx.get::<u32>().is_none());
+        assert_eq!(*ctx.get::<String>().unwrap(), "hello");
+    }
+
+    #[test]
+    fn test_clear_removes_all_services() {
+        let ctx = AppContext::new();
+        ctx.register(Arc::new(42u32));
+        ctx.register(Arc::new("hello".to_string()));
+        ctx.register(Arc::new(3.14f64));
+        assert_eq!(ctx.service_count(), 3);
+        ctx.clear();
+        assert_eq!(ctx.service_count(), 0);
+        assert!(ctx.get::<u32>().is_none());
+        assert!(ctx.get::<String>().is_none());
+        assert!(ctx.get::<f64>().is_none());
+    }
+
+    #[test]
+    fn test_clear_on_empty_context() {
+        let ctx = AppContext::new();
+        ctx.clear(); // should not panic
+        assert_eq!(ctx.service_count(), 0);
     }
 }

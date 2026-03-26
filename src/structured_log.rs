@@ -3,6 +3,9 @@
 //! helpers for tool, provider, hand, and cluster events.
 
 use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use chrono::{DateTime, Utc};
@@ -445,23 +448,186 @@ impl std::fmt::Debug for LogBuffer {
 }
 
 // ---------------------------------------------------------------------------
+// LogFileWriter -- JSONL file output with daily + size rotation
+// ---------------------------------------------------------------------------
+
+/// Default log directory relative to the working directory.
+const DEFAULT_LOG_DIR: &str = "data/logs";
+
+/// Manages writing log entries as JSONL to rotating files.
+///
+/// Rotation rules:
+/// - **Daily**: when the UTC date changes a new file `phantom_mesh-{date}.jsonl` is opened.
+/// - **Size**: when the current file exceeds `max_bytes` a new segment
+///   `phantom_mesh-{date}-{n}.jsonl` is opened (n increments from 1).
+///
+/// The writer uses `BufWriter` for efficient I/O.
+struct LogFileWriter {
+    /// Directory where log files are stored.
+    dir: PathBuf,
+    /// Maximum file size in bytes before size-based rotation.
+    max_bytes: u64,
+    /// The date string (YYYY-MM-DD) of the currently open file.
+    current_date: String,
+    /// Sequence number for size-based rotation within a single day (0 = first file).
+    seq: u32,
+    /// Bytes written to the current file so far.
+    bytes_written: u64,
+    /// Buffered writer for the current file.
+    writer: BufWriter<File>,
+}
+
+impl LogFileWriter {
+    /// Build the file name for a given date and sequence number.
+    fn file_name(date: &str, seq: u32) -> String {
+        if seq == 0 {
+            format!("phantom_mesh-{}.jsonl", date)
+        } else {
+            format!("phantom_mesh-{}-{}.jsonl", date, seq)
+        }
+    }
+
+    /// Open (or create) a log file and return a `BufWriter` wrapping it.
+    fn open_file(dir: &Path, date: &str, seq: u32) -> std::io::Result<(BufWriter<File>, u64)> {
+        fs::create_dir_all(dir)?;
+        let path = dir.join(Self::file_name(date, seq));
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        let existing_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        Ok((BufWriter::new(file), existing_len))
+    }
+
+    /// Create a new `LogFileWriter`, opening (or creating) today's log file.
+    fn new(dir: PathBuf, max_bytes: u64) -> std::io::Result<Self> {
+        let date = Utc::now().format("%Y-%m-%d").to_string();
+        let seq = 0u32;
+        let (writer, existing_len) = Self::open_file(&dir, &date, seq)?;
+        Ok(Self {
+            dir,
+            max_bytes,
+            current_date: date,
+            seq,
+            bytes_written: existing_len,
+            writer,
+        })
+    }
+
+    /// Rotate to a new file — either because the date changed or the size limit
+    /// was reached.  Returns `Ok(())` on success.
+    fn rotate(&mut self, new_date: &str) -> std::io::Result<()> {
+        // Flush the old writer before switching files.
+        self.writer.flush()?;
+
+        if new_date != self.current_date {
+            // Daily rotation — reset sequence.
+            self.current_date = new_date.to_string();
+            self.seq = 0;
+        } else {
+            // Size rotation — increment sequence within the same day.
+            self.seq += 1;
+        }
+
+        let (writer, existing_len) = Self::open_file(&self.dir, &self.current_date, self.seq)?;
+        self.writer = writer;
+        self.bytes_written = existing_len;
+        Ok(())
+    }
+
+    /// Append a single `LogEntry` as a JSONL line.  Handles rotation transparently.
+    fn append(&mut self, entry: &LogEntry) -> std::io::Result<()> {
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+
+        // Daily rotation check.
+        if today != self.current_date {
+            self.rotate(&today)?;
+        }
+
+        let line = entry.to_json();
+        let line_bytes = line.len() as u64 + 1; // +1 for newline
+
+        // Size rotation check (before writing so the *next* entry goes to a new file).
+        if self.bytes_written > 0 && self.bytes_written + line_bytes > self.max_bytes {
+            self.rotate(&today)?;
+        }
+
+        self.writer.write_all(line.as_bytes())?;
+        self.writer.write_all(b"\n")?;
+        self.writer.flush()?;
+        self.bytes_written += line_bytes;
+
+        Ok(())
+    }
+
+    /// Return the full path of the current log file.
+    #[allow(dead_code)]
+    fn current_path(&self) -> PathBuf {
+        self.dir.join(Self::file_name(&self.current_date, self.seq))
+    }
+}
+
+impl std::fmt::Debug for LogFileWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LogFileWriter")
+            .field("dir", &self.dir)
+            .field("current_date", &self.current_date)
+            .field("seq", &self.seq)
+            .field("bytes_written", &self.bytes_written)
+            .field("max_bytes", &self.max_bytes)
+            .finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StructuredLogger -- the main logger with buffer
 // ---------------------------------------------------------------------------
 
 /// The main structured logger that writes formatted output and maintains
 /// an in-memory ring buffer of recent entries.
+///
+/// When the output is `LogOutput::File` or `LogOutput::Both`, log entries are
+/// also appended as JSONL to rotating files under `data/logs/`.
 pub struct StructuredLogger {
     config: LogConfig,
     buffer: Arc<LogBuffer>,
+    /// Optional file writer — present when output targets a file.
+    file_writer: Option<Mutex<LogFileWriter>>,
 }
 
 impl StructuredLogger {
     /// Create a new StructuredLogger with the given configuration.
+    ///
+    /// When the output mode includes a file path (`LogOutput::File` or
+    /// `LogOutput::Both`), a `LogFileWriter` is created that writes JSONL to
+    /// `<path>/phantom_mesh-{date}.jsonl` with daily and size-based rotation.  If
+    /// no explicit path is provided in the variant, `data/logs` is used.
     pub fn new(config: LogConfig) -> Self {
         let buffer_cap = config.buffer_capacity;
+        let max_bytes = config.max_file_size_mb * 1024 * 1024;
+
+        let file_writer = match &config.output {
+            LogOutput::File(dir) | LogOutput::Both(dir) => {
+                let log_dir = if dir.is_empty() {
+                    PathBuf::from(DEFAULT_LOG_DIR)
+                } else {
+                    PathBuf::from(dir)
+                };
+                match LogFileWriter::new(log_dir, max_bytes) {
+                    Ok(w) => Some(Mutex::new(w)),
+                    Err(e) => {
+                        eprintln!("[structured_log] failed to open log file: {}", e);
+                        None
+                    }
+                }
+            }
+            LogOutput::Stdout => None,
+        };
+
         Self {
             config,
             buffer: Arc::new(LogBuffer::new(buffer_cap)),
+            file_writer,
         }
     }
 
@@ -481,11 +647,26 @@ impl StructuredLogger {
     }
 
     /// Record a log entry if it passes the level filter.
+    ///
+    /// The entry is pushed into the in-memory ring buffer **and**, when a file
+    /// writer is configured, appended as a JSONL line to the current log file
+    /// (with automatic daily/size rotation).
     pub fn log(&self, entry: LogEntry) {
         // Level filter: only record if entry level >= configured minimum
         if (entry.level as u8) < (self.config.level_filter as u8) {
             return;
         }
+
+        // Write to file if a writer is configured.
+        if let Some(ref fw) = self.file_writer {
+            if let Ok(mut writer) = fw.lock() {
+                if let Err(e) = writer.append(&entry) {
+                    eprintln!("[structured_log] file write error: {}", e);
+                }
+            }
+        }
+
+        // Always push into the in-memory ring buffer.
         self.buffer.push(entry);
     }
 
@@ -510,6 +691,9 @@ impl std::fmt::Debug for StructuredLogger {
         f.debug_struct("StructuredLogger")
             .field("config", &self.config)
             .field("buffer", &self.buffer)
+            .field("file_writer", &self.file_writer.as_ref().map(|fw| {
+                fw.lock().ok().map(|w| format!("{:?}", *w))
+            }))
             .finish()
     }
 }
@@ -1208,5 +1392,157 @@ mod tests {
         // Read via the shared arc
         assert_eq!(buffer.len(), 1);
         assert_eq!(buffer.all()[0].message, "msg");
+    }
+
+    // -- LogFileWriter --
+
+    #[test]
+    fn test_file_writer_creates_directory_and_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+        let writer = LogFileWriter::new(log_dir.clone(), 50 * 1024 * 1024).unwrap();
+        assert!(log_dir.exists());
+        assert!(writer.current_path().exists());
+        let expected_name = format!(
+            "phantom_mesh-{}.jsonl",
+            Utc::now().format("%Y-%m-%d")
+        );
+        assert_eq!(writer.current_path().file_name().unwrap().to_str().unwrap(), expected_name);
+    }
+
+    #[test]
+    fn test_file_writer_appends_jsonl() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+        let mut writer = LogFileWriter::new(log_dir.clone(), 50 * 1024 * 1024).unwrap();
+
+        let entry1 = LogEntry::new(LogLevel::Info, "test", "first");
+        let entry2 = LogEntry::new(LogLevel::Warn, "test", "second");
+        writer.append(&entry1).unwrap();
+        writer.append(&entry2).unwrap();
+
+        let content = std::fs::read_to_string(writer.current_path()).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+        assert_eq!(lines.len(), 2);
+
+        // Each line must be valid JSON
+        let parsed: LogEntry = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(parsed.message, "first");
+        let parsed2: LogEntry = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(parsed2.message, "second");
+    }
+
+    #[test]
+    fn test_file_writer_size_rotation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+        // Set a tiny max size so rotation is triggered quickly.
+        let mut writer = LogFileWriter::new(log_dir.clone(), 100).unwrap();
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+
+        // Write entries until we exceed 100 bytes
+        for i in 0..10 {
+            let entry = LogEntry::new(LogLevel::Info, "test", &format!("message-{}", i));
+            writer.append(&entry).unwrap();
+        }
+
+        // After rotation, the sequence number should have advanced
+        assert!(writer.seq > 0, "seq should have advanced due to size rotation");
+
+        // The first file and at least one rotated file should exist
+        let first_file = log_dir.join(format!("phantom_mesh-{}.jsonl", today));
+        let rotated_file = log_dir.join(format!("phantom_mesh-{}-1.jsonl", today));
+        assert!(first_file.exists(), "original file should exist");
+        assert!(rotated_file.exists(), "rotated file should exist");
+    }
+
+    #[test]
+    fn test_file_writer_daily_rotation_resets_seq() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+        let mut writer = LogFileWriter::new(log_dir.clone(), 50 * 1024 * 1024).unwrap();
+
+        // Artificially bump the sequence to simulate a prior size rotation.
+        writer.seq = 3;
+
+        // Simulate a date change by manually calling rotate with a new date.
+        writer.rotate("2099-01-01").unwrap();
+
+        assert_eq!(writer.current_date, "2099-01-01");
+        assert_eq!(writer.seq, 0);
+        assert_eq!(
+            writer.current_path().file_name().unwrap().to_str().unwrap(),
+            "phantom_mesh-2099-01-01.jsonl"
+        );
+    }
+
+    #[test]
+    fn test_logger_with_file_output_writes_and_buffers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+
+        let config = LogConfig {
+            output: LogOutput::File(log_dir.to_str().unwrap().to_string()),
+            level_filter: LogLevel::Trace,
+            ..LogConfig::default()
+        };
+        let logger = StructuredLogger::new(config);
+
+        logger.log(LogEntry::new(LogLevel::Info, "test", "file-and-buffer"));
+
+        // Ring buffer should have the entry
+        assert_eq!(logger.buffer().len(), 1);
+        assert_eq!(logger.buffer().all()[0].message, "file-and-buffer");
+
+        // File should also have the entry
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let file_path = log_dir.join(format!("phantom_mesh-{}.jsonl", today));
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content.lines().count(), 1);
+        let parsed: LogEntry = serde_json::from_str(content.lines().next().unwrap()).unwrap();
+        assert_eq!(parsed.message, "file-and-buffer");
+    }
+
+    #[test]
+    fn test_logger_with_both_output() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log_dir = tmp.path().join("logs");
+
+        let config = LogConfig {
+            output: LogOutput::Both(log_dir.to_str().unwrap().to_string()),
+            level_filter: LogLevel::Trace,
+            ..LogConfig::default()
+        };
+        let logger = StructuredLogger::new(config);
+
+        logger.log(LogEntry::new(LogLevel::Info, "test", "both-output"));
+
+        // Ring buffer
+        assert_eq!(logger.buffer().len(), 1);
+
+        // File
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let file_path = log_dir.join(format!("phantom_mesh-{}.jsonl", today));
+        assert!(file_path.exists());
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content.lines().count(), 1);
+    }
+
+    #[test]
+    fn test_logger_stdout_only_no_file() {
+        // With Stdout output, no file writer should be created.
+        let config = LogConfig {
+            output: LogOutput::Stdout,
+            ..LogConfig::default()
+        };
+        let logger = StructuredLogger::new(config);
+        assert!(logger.file_writer.is_none());
+    }
+
+    #[test]
+    fn test_file_writer_file_name_generation() {
+        assert_eq!(LogFileWriter::file_name("2026-03-19", 0), "phantom_mesh-2026-03-19.jsonl");
+        assert_eq!(LogFileWriter::file_name("2026-03-19", 1), "phantom_mesh-2026-03-19-1.jsonl");
+        assert_eq!(LogFileWriter::file_name("2026-03-19", 42), "phantom_mesh-2026-03-19-42.jsonl");
     }
 }

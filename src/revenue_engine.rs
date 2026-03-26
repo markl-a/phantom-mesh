@@ -801,7 +801,7 @@ impl RevenueEngine {
         };
 
         let mut text = format!(
-            "===== CLAWTEX DASHBOARD =====\n\
+            "===== PHANTOM_MESH DASHBOARD =====\n\
              {}\n\n\
              --- Today ---\n\
              Revenue: ${:.2} ({} txns)\n\
@@ -1046,7 +1046,7 @@ mod tests {
     use crate::cost_tracker::CostRecord;
 
     fn temp_db(prefix: &str, suffix: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_engine");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_engine");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}_{}.db", prefix, suffix));
         let _ = std::fs::remove_file(&db_path);
@@ -1078,6 +1078,9 @@ mod tests {
             tokens_in: 500,
             tokens_out: 500,
             total_tokens: 1000,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: cost,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: cost,
             duration_secs: 1.0,
             context: None,
@@ -1339,7 +1342,7 @@ mod tests {
         let engine = RevenueEngine::new(Arc::clone(&rev), Arc::clone(&cost));
         let text = engine.format_dashboard_telegram().await.unwrap();
 
-        assert!(text.contains("CLAWTEX DASHBOARD"));
+        assert!(text.contains("PHANTOM_MESH DASHBOARD"));
         assert!(text.contains("$120.00"));
         assert!(text.contains("Route Rankings"));
         assert!(text.contains("Schedule"));

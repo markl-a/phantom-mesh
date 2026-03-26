@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy/deploy.sh — 一鍵部署 clawtex-core 到所有節點
+# deploy/deploy.sh — 一鍵部署 phantom-mesh 到所有節點
 #
 # 用法:
 #   ./deploy.sh              # 部署到所有節點
@@ -19,8 +19,8 @@ BUILD_ONLY=false
 SKIP_BUILD=false
 WORKERS_ONLY=false
 TARGET_NODE=""
-CLAWTEX_SRC="${CLAWTEX_SRC:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-BUILD_DIR="${CLAWTEX_SRC}/target"
+PHANTOM_MESH_SRC="${PHANTOM_MESH_SRC:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+BUILD_DIR="${PHANTOM_MESH_SRC}/target"
 RELEASE_DIR="${SCRIPT_DIR}/releases"
 
 while [[ $# -gt 0 ]]; do
@@ -43,14 +43,14 @@ done
 
 # ── 版本 ──────────────────────────────────────────────────────────
 
-cd "$CLAWTEX_SRC"
+cd "$PHANTOM_MESH_SRC"
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "nogit")
 BUILD_TIME=$(date +%Y%m%d-%H%M%S)
 VERSION="${GIT_HASH}-${BUILD_TIME}"
 
-log_info "Clawtex 部署開始"
+log_info "Phantom Mesh 部署開始"
 log_info "版本: ${VERSION}"
-log_info "源碼: ${CLAWTEX_SRC}"
+log_info "源碼: ${PHANTOM_MESH_SRC}"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════
@@ -65,7 +65,7 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     # Windows x86_64 (本地)
     log_info "編譯 Windows x86_64 (本地)..."
     cargo build --release 2>&1 | tail -3
-    cp "${BUILD_DIR}/release/clawtex-core.exe" "${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe"
+    cp "${BUILD_DIR}/release/phantom-mesh.exe" "${RELEASE_DIR}/${VERSION}/phantom-mesh-windows-x86_64.exe"
     log_ok "Windows x86_64 完成"
 
     # macOS aarch64 (遠端 M1)
@@ -74,10 +74,10 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
         log_info "編譯 macOS aarch64 (遠端 M1)..."
         rsync -az --delete \
             --exclude target --exclude .git \
-            "${CLAWTEX_SRC}/" "${M1_SSH}:/tmp/clawtex-build/"
-        ssh "$M1_SSH" "cd /tmp/clawtex-build && cargo build --release 2>&1 | tail -3"
-        scp "${M1_SSH}:/tmp/clawtex-build/target/release/clawtex-core" \
-            "${RELEASE_DIR}/${VERSION}/clawtex-core-macos-aarch64"
+            "${PHANTOM_MESH_SRC}/" "${M1_SSH}:/tmp/phantom-mesh-build/"
+        ssh "$M1_SSH" "cd /tmp/phantom-mesh-build && cargo build --release 2>&1 | tail -3"
+        scp "${M1_SSH}:/tmp/phantom-mesh-build/target/release/phantom-mesh" \
+            "${RELEASE_DIR}/${VERSION}/phantom-mesh-macos-aarch64"
         log_ok "macOS aarch64 完成"
     else
         log_warn "M1 不可達，跳過 macOS 編譯"
@@ -87,8 +87,8 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     if command -v cross &>/dev/null; then
         log_info "編譯 Linux x86_64 (cross)..."
         cross build --release --target x86_64-unknown-linux-gnu 2>&1 | tail -3
-        cp "${BUILD_DIR}/x86_64-unknown-linux-gnu/release/clawtex-core" \
-            "${RELEASE_DIR}/${VERSION}/clawtex-core-linux-x86_64"
+        cp "${BUILD_DIR}/x86_64-unknown-linux-gnu/release/phantom-mesh" \
+            "${RELEASE_DIR}/${VERSION}/phantom-mesh-linux-x86_64"
         log_ok "Linux x86_64 完成"
     else
         log_warn "cross 未安裝，跳過 Linux 編譯"
@@ -127,9 +127,9 @@ deploy_node() {
     binary_name=$(get_binary_name "$os")
 
     case "${os}-${arch}" in
-        windows-x86_64)  binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe" ;;
-        macos-aarch64)   binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-macos-aarch64" ;;
-        linux-x86_64)    binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-linux-x86_64" ;;
+        windows-x86_64)  binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-windows-x86_64.exe" ;;
+        macos-aarch64)   binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-macos-aarch64" ;;
+        linux-x86_64)    binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-linux-x86_64" ;;
         *)               log_error "[$name] 不支援: ${os}-${arch}"; return 1 ;;
     esac
 
@@ -161,9 +161,9 @@ deploy_node() {
     # 停止
     log_info "[$name] 停止舊服務..."
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null || true" 2>/dev/null || true
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null || true" 2>/dev/null || true
     fi
     sleep 2
 
@@ -181,9 +181,9 @@ deploy_node() {
     if [[ "$os" == "windows" ]]; then
         run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/${binary_name} --host 0.0.0.0 --config config/agents.toml daemon" &
     elif [[ "$os" == "macos" ]]; then
-        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &"
+        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &"
     else
-        run_remote "$ssh_target" "if systemctl is-active clawtex-core &>/dev/null; then sudo systemctl restart clawtex-core; else cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &; fi"
+        run_remote "$ssh_target" "if systemctl is-active phantom-mesh &>/dev/null; then sudo systemctl restart phantom-mesh; else cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &; fi"
     fi
 
     # 等待
@@ -260,10 +260,10 @@ echo "失敗:    ${DEPLOY_FAIL} 台"
 [[ ${#FAILED_NODES[@]} -gt 0 ]] && echo "失敗節點: ${FAILED_NODES[*]}"
 
 if [[ $DEPLOY_FAIL -eq 0 ]]; then
-    notify_telegram "Clawtex 部署完成 v${VERSION} (${DEPLOY_SUCCESS} 台)"
+    notify_telegram "Phantom Mesh 部署完成 v${VERSION} (${DEPLOY_SUCCESS} 台)"
     log_ok "部署完成"
 else
-    notify_telegram "Clawtex 部署失敗! v${VERSION} (${DEPLOY_FAIL} 台: ${FAILED_NODES[*]})"
+    notify_telegram "Phantom Mesh 部署失敗! v${VERSION} (${DEPLOY_FAIL} 台: ${FAILED_NODES[*]})"
     log_error "部署有失敗"
     exit 1
 fi

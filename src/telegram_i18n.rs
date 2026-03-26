@@ -84,6 +84,11 @@ impl TelegramI18n {
     pub fn active_overrides(&self) -> usize {
         self.locales.len()
     }
+
+    /// Check whether a specific chat has an explicit locale override.
+    pub fn has_override(&self, chat_id: i64) -> bool {
+        self.locales.contains_key(&chat_id)
+    }
 }
 
 impl Default for TelegramI18n {

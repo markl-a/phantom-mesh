@@ -52,9 +52,9 @@ for node in "${NODES[@]}"; do
     # 重啟服務
     log_info "[$name] 重啟..."
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null; cd '${deploy_path}' && start /b bin/clawtex-core.exe --host 0.0.0.0 --config config/agents.toml daemon" 2>/dev/null &
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null; cd '${deploy_path}' && start /b bin/phantom-mesh.exe --host 0.0.0.0 --config config/agents.toml daemon" 2>/dev/null &
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null; sleep 2; cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &"
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null; sleep 2; cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &"
     fi
 
     log_ok "[$name] 完成"

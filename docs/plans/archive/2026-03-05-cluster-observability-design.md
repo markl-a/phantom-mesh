@@ -1,4 +1,4 @@
-# Clawtex 8 機 AI 集群 — 監控與可觀測性系統設計
+# Phantom Mesh 8 機 AI 集群 — 監控與可觀測性系統設計
 
 **日期**: 2026-03-05
 **狀態**: 設計完成
@@ -26,7 +26,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    Hub (Z13 或 Server)                       │
 │                                                             │
-│  clawtex-core daemon                                        │
+│  phantom-mesh daemon                                        │
 │  ├── MetricsRegistry (in-memory, lock-free atomics)        │
 │  ├── NodeCollector (pull /health from workers, 30s)        │
 │  ├── AlertEngine (evaluate rules, 60s)                     │
@@ -100,78 +100,78 @@
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_node_cpu_percent` | gauge | `node` | CPU 使用率 |
-| `clawtex_node_gpu_percent` | gauge | `node` | GPU 使用率 |
-| `clawtex_node_gpu_vram_used_bytes` | gauge | `node` | GPU VRAM 已用 |
-| `clawtex_node_gpu_vram_total_bytes` | gauge | `node` | GPU VRAM 總量 |
-| `clawtex_node_ram_used_bytes` | gauge | `node` | RAM 已用 |
-| `clawtex_node_ram_total_bytes` | gauge | `node` | RAM 總量 |
-| `clawtex_node_cpu_temp_celsius` | gauge | `node` | CPU 溫度 |
-| `clawtex_node_gpu_temp_celsius` | gauge | `node` | GPU 溫度 |
-| `clawtex_node_disk_used_bytes` | gauge | `node` | 磁碟已用 |
-| `clawtex_node_disk_total_bytes` | gauge | `node` | 磁碟總量 |
-| `clawtex_node_npu_percent` | gauge | `node` | NPU 使用率 |
-| `clawtex_node_uptime_seconds` | gauge | `node` | 節點 uptime |
-| `clawtex_node_status` | gauge | `node` | 1=online, 0=offline |
+| `phantom-mesh_node_cpu_percent` | gauge | `node` | CPU 使用率 |
+| `phantom-mesh_node_gpu_percent` | gauge | `node` | GPU 使用率 |
+| `phantom-mesh_node_gpu_vram_used_bytes` | gauge | `node` | GPU VRAM 已用 |
+| `phantom-mesh_node_gpu_vram_total_bytes` | gauge | `node` | GPU VRAM 總量 |
+| `phantom-mesh_node_ram_used_bytes` | gauge | `node` | RAM 已用 |
+| `phantom-mesh_node_ram_total_bytes` | gauge | `node` | RAM 總量 |
+| `phantom-mesh_node_cpu_temp_celsius` | gauge | `node` | CPU 溫度 |
+| `phantom-mesh_node_gpu_temp_celsius` | gauge | `node` | GPU 溫度 |
+| `phantom-mesh_node_disk_used_bytes` | gauge | `node` | 磁碟已用 |
+| `phantom-mesh_node_disk_total_bytes` | gauge | `node` | 磁碟總量 |
+| `phantom-mesh_node_npu_percent` | gauge | `node` | NPU 使用率 |
+| `phantom-mesh_node_uptime_seconds` | gauge | `node` | 節點 uptime |
+| `phantom-mesh_node_status` | gauge | `node` | 1=online, 0=offline |
 
 ### 2.2 模型層級指標 (per-model)
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_model_loaded` | gauge | `node`, `model` | 1=loaded, 0=unloaded |
-| `clawtex_model_requests_total` | counter | `node`, `model` | 模型請求總數 |
-| `clawtex_model_tokens_per_second` | gauge | `node`, `model` | 即時 tok/s |
-| `clawtex_model_queue_depth` | gauge | `node`, `model` | 等待佇列深度 |
-| `clawtex_model_latency_ms` | histogram | `node`, `model` | 請求延遲分佈 |
-| `clawtex_model_errors_total` | counter | `node`, `model` | 模型錯誤數 |
+| `phantom-mesh_model_loaded` | gauge | `node`, `model` | 1=loaded, 0=unloaded |
+| `phantom-mesh_model_requests_total` | counter | `node`, `model` | 模型請求總數 |
+| `phantom-mesh_model_tokens_per_second` | gauge | `node`, `model` | 即時 tok/s |
+| `phantom-mesh_model_queue_depth` | gauge | `node`, `model` | 等待佇列深度 |
+| `phantom-mesh_model_latency_ms` | histogram | `node`, `model` | 請求延遲分佈 |
+| `phantom-mesh_model_errors_total` | counter | `node`, `model` | 模型錯誤數 |
 
 ### 2.3 Hand 執行指標 (per-hand)
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_hand_executions_total` | counter | `hand`, `status` | 執行次數 (success/fail) |
-| `clawtex_hand_duration_seconds` | histogram | `hand` | 執行耗時 |
-| `clawtex_hand_phase_duration_seconds` | histogram | `hand`, `phase` | 各階段耗時 |
-| `clawtex_hand_quality_score` | gauge | `hand` | 最近品質分 (0-100) |
-| `clawtex_hand_active` | gauge | `hand` | 當前執行中數量 |
-| `clawtex_hand_chain_completions_total` | counter | `hand`, `chained_to` | 鏈式完成數 |
+| `phantom-mesh_hand_executions_total` | counter | `hand`, `status` | 執行次數 (success/fail) |
+| `phantom-mesh_hand_duration_seconds` | histogram | `hand` | 執行耗時 |
+| `phantom-mesh_hand_phase_duration_seconds` | histogram | `hand`, `phase` | 各階段耗時 |
+| `phantom-mesh_hand_quality_score` | gauge | `hand` | 最近品質分 (0-100) |
+| `phantom-mesh_hand_active` | gauge | `hand` | 當前執行中數量 |
+| `phantom-mesh_hand_chain_completions_total` | counter | `hand`, `chained_to` | 鏈式完成數 |
 
 ### 2.4 Provider 指標 (per-provider)
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_provider_requests_total` | counter | `provider`, `model`, `status` | 請求數 |
-| `clawtex_provider_latency_ms` | histogram | `provider`, `model` | 延遲分佈 |
-| `clawtex_provider_errors_total` | counter | `provider`, `model`, `error_type` | 錯誤數 (按類型) |
-| `clawtex_provider_tokens_in_total` | counter | `provider`, `model` | 輸入 token 數 |
-| `clawtex_provider_tokens_out_total` | counter | `provider`, `model` | 輸出 token 數 |
-| `clawtex_provider_cost_usd_total` | counter | `provider`, `model` | 累計花費 USD |
-| `clawtex_provider_circuit_open` | gauge | `provider` | 斷路器狀態 (1=open) |
-| `clawtex_provider_quota_remaining` | gauge | `provider` | 配額剩餘 (如 Groq RPM) |
+| `phantom-mesh_provider_requests_total` | counter | `provider`, `model`, `status` | 請求數 |
+| `phantom-mesh_provider_latency_ms` | histogram | `provider`, `model` | 延遲分佈 |
+| `phantom-mesh_provider_errors_total` | counter | `provider`, `model`, `error_type` | 錯誤數 (按類型) |
+| `phantom-mesh_provider_tokens_in_total` | counter | `provider`, `model` | 輸入 token 數 |
+| `phantom-mesh_provider_tokens_out_total` | counter | `provider`, `model` | 輸出 token 數 |
+| `phantom-mesh_provider_cost_usd_total` | counter | `provider`, `model` | 累計花費 USD |
+| `phantom-mesh_provider_circuit_open` | gauge | `provider` | 斷路器狀態 (1=open) |
+| `phantom-mesh_provider_quota_remaining` | gauge | `provider` | 配額剩餘 (如 Groq RPM) |
 
 ### 2.5 營收指標
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_revenue_daily_usd` | gauge | | 今日營收 |
-| `clawtex_revenue_total_usd` | counter | `route`, `source` | 累計營收 |
-| `clawtex_cost_daily_usd` | gauge | | 今日成本 |
-| `clawtex_profit_margin_percent` | gauge | | 利潤率 |
-| `clawtex_revenue_pending_usd` | gauge | | 待確認營收 |
+| `phantom-mesh_revenue_daily_usd` | gauge | | 今日營收 |
+| `phantom-mesh_revenue_total_usd` | counter | `route`, `source` | 累計營收 |
+| `phantom-mesh_cost_daily_usd` | gauge | | 今日成本 |
+| `phantom-mesh_profit_margin_percent` | gauge | | 利潤率 |
+| `phantom-mesh_revenue_pending_usd` | gauge | | 待確認營收 |
 
 ### 2.6 集群整體指標
 
 | Metric Name | Type | Labels | 說明 |
 |---|---|---|---|
-| `clawtex_cluster_nodes_total` | gauge | `status` | 節點數 (online/offline) |
-| `clawtex_cluster_throughput_tok_s` | gauge | | 集群總吞吐 |
-| `clawtex_cluster_active_requests` | gauge | | 全集群活躍請求 |
-| `clawtex_cluster_total_vram_gb` | gauge | | 全集群 VRAM 總量 |
-| `clawtex_cluster_used_vram_gb` | gauge | | 全集群 VRAM 已用 |
-| `clawtex_sot_parallel_degree` | gauge | | SoT 當前並行度 |
-| `clawtex_sot_executions_total` | counter | `status` | SoT 執行數 |
-| `clawtex_sot_speedup_ratio` | gauge | | SoT 最近加速倍率 |
-| `clawtex_estop_active` | gauge | | E-Stop 狀態 |
+| `phantom-mesh_cluster_nodes_total` | gauge | `status` | 節點數 (online/offline) |
+| `phantom-mesh_cluster_throughput_tok_s` | gauge | | 集群總吞吐 |
+| `phantom-mesh_cluster_active_requests` | gauge | | 全集群活躍請求 |
+| `phantom-mesh_cluster_total_vram_gb` | gauge | | 全集群 VRAM 總量 |
+| `phantom-mesh_cluster_used_vram_gb` | gauge | | 全集群 VRAM 已用 |
+| `phantom-mesh_sot_parallel_degree` | gauge | | SoT 當前並行度 |
+| `phantom-mesh_sot_executions_total` | counter | `status` | SoT 執行數 |
+| `phantom-mesh_sot_speedup_ratio` | gauge | | SoT 最近加速倍率 |
+| `phantom-mesh_estop_active` | gauge | | E-Stop 狀態 |
 
 ---
 
@@ -205,7 +205,7 @@
 ### 方案 C 架構圖
 
 ```
-clawtex-core (Hub)
+phantom-mesh (Hub)
 ├── MetricsRegistry           ← 已有，需擴展 label 支援
 │   ├── counters (AtomicU64)
 │   ├── gauges (AtomicU64)
@@ -231,7 +231,7 @@ clawtex-core (Hub)
 ### 4.1 `/status` — 集群狀態概覽
 
 ```
-📊 Clawtex Cluster Status
+📊 Phantom Mesh Cluster Status
 ━━━━━━━━━━━━━━━━━━━━━━
 ⏱ Uptime: 3d 14h 22m
 🔧 E-Stop: INACTIVE
@@ -492,7 +492,7 @@ CREATE INDEX IF NOT EXISTS idx_alert_severity ON alert_history(severity);
 {
   "timestamp": "2026-03-05T14:30:00.123Z",
   "level": "INFO",
-  "target": "clawtex_core::agent_runtime",
+  "target": "phantom_mesh::agent_runtime",
   "span": {
     "agent": "master",
     "request_id": "req-abc123"
@@ -522,13 +522,13 @@ CREATE INDEX IF NOT EXISTS idx_alert_severity ON alert_history(severity);
 **環境變數控制**:
 ```bash
 # Production (預設)
-RUST_LOG=clawtex_core=info,tower_http=warn
+RUST_LOG=phantom_mesh=info,tower_http=warn
 
 # Debug 模式
-RUST_LOG=clawtex_core=debug,tower_http=info
+RUST_LOG=phantom_mesh=debug,tower_http=info
 
 # 單模組 trace
-RUST_LOG=clawtex_core::providers=trace,clawtex_core=info
+RUST_LOG=phantom_mesh::providers=trace,phantom_mesh=info
 ```
 
 ### 6.3 日誌 Rotation
@@ -539,10 +539,10 @@ RUST_LOG=clawtex_core::providers=trace,clawtex_core=info
 // 日誌 rotation 設定
 let file_appender = tracing_appender::rolling::Builder::new()
     .rotation(tracing_appender::rolling::Rotation::DAILY)
-    .filename_prefix("clawtex")
+    .filename_prefix("phantom-mesh")
     .filename_suffix("log")
     .max_log_files(30)  // 保留 30 天
-    .build("~/.clawtex/logs/")
+    .build("~/.phantom-mesh/logs/")
     .expect("Failed to create log file appender");
 ```
 
@@ -602,7 +602,7 @@ CREATE INDEX IF NOT EXISTS idx_logs_level ON cluster_logs(level);
 ### 7.1 擴展現有 MetricsRegistry
 
 現有 `src/metrics.rs` 需要加入 **label 支援**。目前 counter/gauge/histogram 都是純字串 key。
-為了支援 Prometheus label (e.g. `clawtex_node_cpu_percent{node="z13"}`)，需要修改：
+為了支援 Prometheus label (e.g. `phantom-mesh_node_cpu_percent{node="z13"}`)，需要修改：
 
 ```rust
 /// Label-aware metric key: "metric_name{label1=val1,label2=val2}"
@@ -747,36 +747,36 @@ impl NodeCollector {
 
         // Update cluster-level metrics
         self.metrics.gauge_set_labeled(
-            "clawtex_cluster_nodes_total", &[("status", "online")], online_count);
+            "phantom-mesh_cluster_nodes_total", &[("status", "online")], online_count);
         self.metrics.gauge_set_labeled(
-            "clawtex_cluster_nodes_total", &[("status", "offline")], offline_count);
+            "phantom-mesh_cluster_nodes_total", &[("status", "offline")], offline_count);
         self.metrics.gauge_set(
-            "clawtex_cluster_throughput_tok_s", (total_tok_s * 100.0) as u64); // x100 for precision
-        self.metrics.gauge_set("clawtex_cluster_active_requests", total_active);
-        self.metrics.gauge_set("clawtex_cluster_used_vram_gb", total_vram_used / 1024);
-        self.metrics.gauge_set("clawtex_cluster_total_vram_gb", total_vram_total / 1024);
+            "phantom-mesh_cluster_throughput_tok_s", (total_tok_s * 100.0) as u64); // x100 for precision
+        self.metrics.gauge_set("phantom-mesh_cluster_active_requests", total_active);
+        self.metrics.gauge_set("phantom-mesh_cluster_used_vram_gb", total_vram_used / 1024);
+        self.metrics.gauge_set("phantom-mesh_cluster_total_vram_gb", total_vram_total / 1024);
     }
 
     fn update_node_metrics(&self, node: &str, health: &serde_json::Value) {
         let labels = &[("node", node)];
-        self.metrics.gauge_set_labeled("clawtex_node_status", labels, 1);
+        self.metrics.gauge_set_labeled("phantom-mesh_node_status", labels, 1);
 
         if let Some(sys) = health.get("system") {
             if let Some(v) = sys.get("cpu_percent").and_then(|v| v.as_f64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_node_cpu_percent", labels, (v * 100.0) as u64); // x100
+                    "phantom-mesh_node_cpu_percent", labels, (v * 100.0) as u64); // x100
             }
             if let Some(v) = sys.get("gpu_percent").and_then(|v| v.as_f64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_node_gpu_percent", labels, (v * 100.0) as u64);
+                    "phantom-mesh_node_gpu_percent", labels, (v * 100.0) as u64);
             }
             if let Some(v) = sys.get("cpu_temp_c").and_then(|v| v.as_f64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_node_cpu_temp_celsius", labels, (v * 10.0) as u64); // x10
+                    "phantom-mesh_node_cpu_temp_celsius", labels, (v * 10.0) as u64); // x10
             }
             if let Some(v) = sys.get("gpu_temp_c").and_then(|v| v.as_f64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_node_gpu_temp_celsius", labels, (v * 10.0) as u64);
+                    "phantom-mesh_node_gpu_temp_celsius", labels, (v * 10.0) as u64);
             }
             // ... ram, disk, npu similar
         }
@@ -784,18 +784,18 @@ impl NodeCollector {
         if let Some(inf) = health.get("inference") {
             if let Some(v) = inf.get("avg_tok_s").and_then(|v| v.as_f64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_model_tokens_per_second", labels, (v * 100.0) as u64);
+                    "phantom-mesh_model_tokens_per_second", labels, (v * 100.0) as u64);
             }
             if let Some(v) = inf.get("queue_depth").and_then(|v| v.as_u64()) {
                 self.metrics.gauge_set_labeled(
-                    "clawtex_model_queue_depth", labels, v);
+                    "phantom-mesh_model_queue_depth", labels, v);
             }
         }
     }
 
     fn mark_node_offline(&self, node: &str) {
         self.metrics.gauge_set_labeled(
-            "clawtex_node_status", &[("node", node)], 0);
+            "phantom-mesh_node_status", &[("node", node)], 0);
     }
 }
 ```
@@ -866,11 +866,11 @@ impl AlertEngine {
     fn check_condition(&self, condition: &AlertCondition) -> bool {
         match condition {
             AlertCondition::AllNodesOffline => {
-                let online = self.metrics.gauge("clawtex_cluster_nodes_total{status=\"online\"}");
+                let online = self.metrics.gauge("phantom-mesh_cluster_nodes_total{status=\"online\"}");
                 online == 0
             }
             AlertCondition::NodeOffline { node, .. } => {
-                let key = format!("clawtex_node_status{{node=\"{}\"}}", node);
+                let key = format!("phantom-mesh_node_status{{node=\"{}\"}}", node);
                 self.metrics.gauge(&key) == 0
             }
             AlertCondition::MetricAbove { metric, threshold } => {
@@ -900,7 +900,7 @@ impl AlertEngine {
                 name: "disk_high_any".into(),
                 severity: AlertSeverity::Warning,
                 condition: AlertCondition::MetricAbove {
-                    metric: "clawtex_node_disk_percent_max".into(),
+                    metric: "phantom-mesh_node_disk_percent_max".into(),
                     threshold: 90.0,
                 },
                 cooldown_secs: 1800,
@@ -985,10 +985,10 @@ impl MetricsRollup {
 
         // Snapshot key gauges
         let key_metrics = [
-            "clawtex_cluster_nodes_total{status=\"online\"}",
-            "clawtex_cluster_throughput_tok_s",
-            "clawtex_cluster_active_requests",
-            "clawtex_cluster_used_vram_gb",
+            "phantom-mesh_cluster_nodes_total{status=\"online\"}",
+            "phantom-mesh_cluster_throughput_tok_s",
+            "phantom-mesh_cluster_active_requests",
+            "phantom-mesh_cluster_used_vram_gb",
         ];
 
         for metric in &key_metrics {
@@ -1203,11 +1203,11 @@ pub fn format_cluster_status(
     let mut msg = String::new();
 
     // Header
-    msg.push_str("📊 <b>Clawtex Cluster Status</b>\n");
+    msg.push_str("📊 <b>Phantom Mesh Cluster Status</b>\n");
     msg.push_str("━━━━━━━━━━━━━━━━━━━━━━\n");
 
     // Uptime & E-Stop
-    let uptime = metrics.gauge("clawtex_hub_uptime_seconds");
+    let uptime = metrics.gauge("phantom-mesh_hub_uptime_seconds");
     msg.push_str(&format!("⏱ Uptime: {}\n", format_duration(uptime)));
 
     // Nodes
@@ -1232,8 +1232,8 @@ pub fn format_cluster_status(
     }
 
     // Throughput
-    let throughput = metrics.gauge("clawtex_cluster_throughput_tok_s") as f64 / 100.0;
-    let active = metrics.gauge("clawtex_cluster_active_requests");
+    let throughput = metrics.gauge("phantom-mesh_cluster_throughput_tok_s") as f64 / 100.0;
+    let active = metrics.gauge("phantom-mesh_cluster_active_requests");
     msg.push_str(&format!("\n⚡ Throughput: {:.0} tok/s\n", throughput));
     msg.push_str(&format!("📋 Active requests: {}\n", active));
 
@@ -1259,9 +1259,9 @@ pub fn format_hourly_heartbeat(
     let online = nodes.iter().filter(|n| n.online).count();
     let total = nodes.len();
     let hour = chrono::Utc::now().format("%H:%M");
-    let throughput = metrics.gauge("clawtex_cluster_throughput_tok_s") as f64 / 100.0;
-    let errors = metrics.counter("clawtex_provider_errors_total");
-    let requests = metrics.counter("clawtex_provider_requests_total");
+    let throughput = metrics.gauge("phantom-mesh_cluster_throughput_tok_s") as f64 / 100.0;
+    let errors = metrics.counter("phantom-mesh_provider_errors_total");
+    let requests = metrics.counter("phantom-mesh_provider_requests_total");
 
     let rev = revenue_tracker.today_total().map(|r| r.total_usd).unwrap_or(0.0);
     let cost = cost_tracker.today_total().map(|c| c.total_cost_usd).unwrap_or(0.0);
@@ -1270,7 +1270,7 @@ pub fn format_hourly_heartbeat(
         "💓 Heartbeat [{}]\nNodes: {}/{} 🟢  |  Reqs: {}  |  Errs: {}\nThroughput: {:.0} tok/s  |  Queue: {}\nRevenue: ${:.2}  |  Cost: ${:.4}",
         hour, online, total, requests, errors,
         throughput,
-        metrics.gauge("clawtex_cluster_active_requests"),
+        metrics.gauge("phantom-mesh_cluster_active_requests"),
         rev, cost,
     )
 }
@@ -1311,7 +1311,7 @@ hostname = "0.3"     # 取得 hostname
 
 ## 8. Grafana Dashboard JSON
 
-以下是可直接匯入 Grafana 的 Dashboard JSON（假設 Prometheus 已設定 `job: clawtex`）：
+以下是可直接匯入 Grafana 的 Dashboard JSON（假設 Prometheus 已設定 `job: phantom-mesh`）：
 
 ### 8.1 Prometheus 設定 (`prometheus.yml`)
 
@@ -1321,7 +1321,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'clawtex'
+  - job_name: 'phantom-mesh'
     static_configs:
       - targets: ['localhost:7878']
     metrics_path: '/metrics'
@@ -1334,7 +1334,7 @@ scrape_configs:
 ```json
 {
   "annotations": { "list": [] },
-  "description": "Clawtex 8-Node AI Cluster Monitoring",
+  "description": "Phantom Mesh 8-Node AI Cluster Monitoring",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -1355,7 +1355,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_cluster_nodes_total{status=\"online\"}",
+          "expr": "phantom-mesh_cluster_nodes_total{status=\"online\"}",
           "legendFormat": "Online",
           "refId": "A"
         }
@@ -1388,7 +1388,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_cluster_throughput_tok_s / 100",
+          "expr": "phantom-mesh_cluster_throughput_tok_s / 100",
           "legendFormat": "Total Throughput",
           "refId": "A"
         }
@@ -1413,7 +1413,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_cluster_active_requests",
+          "expr": "phantom-mesh_cluster_active_requests",
           "legendFormat": "Active",
           "refId": "A"
         }
@@ -1438,7 +1438,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_estop_active",
+          "expr": "phantom-mesh_estop_active",
           "legendFormat": "E-Stop",
           "refId": "A"
         }
@@ -1465,7 +1465,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_node_cpu_percent / 100",
+          "expr": "phantom-mesh_node_cpu_percent / 100",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
@@ -1489,7 +1489,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_node_gpu_percent / 100",
+          "expr": "phantom-mesh_node_gpu_percent / 100",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
@@ -1513,7 +1513,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_node_gpu_temp_celsius / 10",
+          "expr": "phantom-mesh_node_gpu_temp_celsius / 10",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
@@ -1544,7 +1544,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_node_gpu_vram_used_bytes / 1073741824",
+          "expr": "phantom-mesh_node_gpu_vram_used_bytes / 1073741824",
           "legendFormat": "{{node}} used",
           "refId": "A"
         }
@@ -1570,7 +1570,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_node_ram_used_bytes / 1073741824",
+          "expr": "phantom-mesh_node_ram_used_bytes / 1073741824",
           "legendFormat": "{{node}}",
           "refId": "A"
         }
@@ -1592,12 +1592,12 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, rate(clawtex_provider_latency_ms_bucket[5m]))",
+          "expr": "histogram_quantile(0.5, rate(phantom-mesh_provider_latency_ms_bucket[5m]))",
           "legendFormat": "p50 {{provider}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(clawtex_provider_latency_ms_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(phantom-mesh_provider_latency_ms_bucket[5m]))",
           "legendFormat": "p95 {{provider}}",
           "refId": "B"
         }
@@ -1616,7 +1616,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "rate(clawtex_provider_errors_total[5m]) / rate(clawtex_provider_requests_total[5m]) * 100",
+          "expr": "rate(phantom-mesh_provider_errors_total[5m]) / rate(phantom-mesh_provider_requests_total[5m]) * 100",
           "legendFormat": "{{provider}} err%",
           "refId": "A"
         }
@@ -1652,12 +1652,12 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_revenue_daily_usd",
+          "expr": "phantom-mesh_revenue_daily_usd",
           "legendFormat": "Revenue",
           "refId": "A"
         },
         {
-          "expr": "clawtex_cost_daily_usd",
+          "expr": "phantom-mesh_cost_daily_usd",
           "legendFormat": "Cost",
           "refId": "B"
         }
@@ -1679,7 +1679,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_profit_margin_percent",
+          "expr": "phantom-mesh_profit_margin_percent",
           "legendFormat": "Margin",
           "refId": "A"
         }
@@ -1707,7 +1707,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_revenue_total_usd",
+          "expr": "phantom-mesh_revenue_total_usd",
           "legendFormat": "{{route}}",
           "refId": "A"
         }
@@ -1726,12 +1726,12 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, rate(clawtex_hand_duration_seconds_bucket[1h]))",
+          "expr": "histogram_quantile(0.5, rate(phantom-mesh_hand_duration_seconds_bucket[1h]))",
           "legendFormat": "p50 {{hand}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(clawtex_hand_duration_seconds_bucket[1h]))",
+          "expr": "histogram_quantile(0.95, rate(phantom-mesh_hand_duration_seconds_bucket[1h]))",
           "legendFormat": "p95 {{hand}}",
           "refId": "B"
         }
@@ -1747,7 +1747,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum by (hand)(increase(clawtex_hand_executions_total{status=\"success\"}[24h])) / sum by (hand)(increase(clawtex_hand_executions_total[24h])) * 100",
+          "expr": "sum by (hand)(increase(phantom-mesh_hand_executions_total{status=\"success\"}[24h])) / sum by (hand)(increase(phantom-mesh_hand_executions_total[24h])) * 100",
           "legendFormat": "{{hand}}",
           "refId": "A"
         }
@@ -1780,7 +1780,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_sot_parallel_degree",
+          "expr": "phantom-mesh_sot_parallel_degree",
           "legendFormat": "Parallel",
           "refId": "A"
         }
@@ -1793,7 +1793,7 @@ scrape_configs:
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "clawtex_sot_speedup_ratio",
+          "expr": "phantom-mesh_sot_speedup_ratio",
           "legendFormat": "Speedup",
           "refId": "A"
         }
@@ -1816,7 +1816,7 @@ scrape_configs:
     }
   ],
   "schemaVersion": 39,
-  "tags": ["clawtex", "ai-cluster", "llm"],
+  "tags": ["phantom-mesh", "ai-cluster", "llm"],
   "templating": {
     "list": [
       {
@@ -1829,8 +1829,8 @@ scrape_configs:
   "time": { "from": "now-3h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Clawtex AI Cluster",
-  "uid": "clawtex-cluster-v1",
+  "title": "Phantom Mesh AI Cluster",
+  "uid": "phantom-mesh-cluster-v1",
   "version": 1
 }
 ```
@@ -1839,14 +1839,14 @@ scrape_configs:
 
 ```yaml
 # docker-compose.monitoring.yml
-# 放在 clawtex-core/ 目錄，需要時 docker compose -f docker-compose.monitoring.yml up -d
+# 放在 phantom-mesh/ 目錄，需要時 docker compose -f docker-compose.monitoring.yml up -d
 
 version: '3.8'
 
 services:
   prometheus:
     image: prom/prometheus:v2.51.0
-    container_name: clawtex-prometheus
+    container_name: phantom-mesh-prometheus
     restart: unless-stopped
     ports:
       - "9090:9090"
@@ -1861,7 +1861,7 @@ services:
 
   grafana:
     image: grafana/grafana:10.4.0
-    container_name: clawtex-grafana
+    container_name: phantom-mesh-grafana
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -1934,7 +1934,7 @@ volumes:
 ### 檔案結構 (新增)
 
 ```
-clawtex-core/
+phantom-mesh/
 ├── src/
 │   ├── metrics.rs              ← 修改：加入 label 支援 + render_v2
 │   ├── monitoring/
@@ -1953,7 +1953,7 @@ clawtex-core/
 │       │   └── datasources/
 │       │       └── prometheus.yml
 │       └── dashboards/
-│           └── clawtex-cluster.json
+│           └── phantom-mesh-cluster.json
 └── worker/                      ← 新增 (可選獨立 crate)
     └── src/
         └── health.rs           ← Worker /health endpoint

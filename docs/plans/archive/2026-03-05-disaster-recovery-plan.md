@@ -1,4 +1,4 @@
-# Clawtex AI 集群 — 災難恢復與業務連續性手冊
+# Phantom Mesh AI 集群 — 災難恢復與業務連續性手冊
 
 > 日期: 2026-03-05
 > 範圍: 8 機集群 (1 Hub Z13 + 7 Worker)，24/7 營利系統
@@ -28,31 +28,31 @@
 
 | 資料 | 位置 | 大小 | 重要度 | 可重建？ |
 |------|------|------|--------|----------|
-| `core.db` (記憶、任務、集群) | `~/.clawtex/core.db` | ~80KB + WAL ~652KB | **極高** | 否 — 含語義記憶、任務歷史 |
-| `costs.db` (成本追蹤) | `~/.clawtex/costs.db` | ~72KB | 高 | 否 — 營運報表資料 |
-| `revenue.db` (營收追蹤) | `~/.clawtex/revenue.db` | ~32KB | **極高** | 否 — 財務資料 |
-| `memory.db` (語義記憶) | `~/.clawtex/memory.db` | ~40KB | **極高** | 否 — AI 累積知識 |
-| `agents.toml` (全局配置) | `~/.clawtex/agents.toml` | ~8KB | **極高** | 是 — Git 版本控制 |
-| `hands/*.toml` (13 個工作流) | `~/.clawtex/hands/` | ~50KB 合計 | 高 | 是 — Git 版本控制 |
-| `.secret_key` (加密金鑰) | `~/.clawtex/.secret_key` | 64B | **極高** | 否 — 遺失無法解密已加密秘密 |
-| `workspace/` (輸出檔案) | `~/.clawtex/workspace/` | 變動 | 中 | 部分 — 可重新生成 |
-| `twitter_session/` (瀏覽器狀態) | `~/.clawtex/twitter_session/` | 變動 | 低 | 是 — 重新登入 |
-| 其他 `.db` 檔案 (62 個) | `~/.clawtex/*.db` | ~62MB 合計 | 中 | 部分 — 舊系統遺留 |
-| clawtex-core 二進制 | `target/release/clawtex-core` | ~20MB | 高 | 是 — 重新編譯 |
+| `core.db` (記憶、任務、集群) | `~/.phantom-mesh/core.db` | ~80KB + WAL ~652KB | **極高** | 否 — 含語義記憶、任務歷史 |
+| `costs.db` (成本追蹤) | `~/.phantom-mesh/costs.db` | ~72KB | 高 | 否 — 營運報表資料 |
+| `revenue.db` (營收追蹤) | `~/.phantom-mesh/revenue.db` | ~32KB | **極高** | 否 — 財務資料 |
+| `memory.db` (語義記憶) | `~/.phantom-mesh/memory.db` | ~40KB | **極高** | 否 — AI 累積知識 |
+| `agents.toml` (全局配置) | `~/.phantom-mesh/agents.toml` | ~8KB | **極高** | 是 — Git 版本控制 |
+| `hands/*.toml` (13 個工作流) | `~/.phantom-mesh/hands/` | ~50KB 合計 | 高 | 是 — Git 版本控制 |
+| `.secret_key` (加密金鑰) | `~/.phantom-mesh/.secret_key` | 64B | **極高** | 否 — 遺失無法解密已加密秘密 |
+| `workspace/` (輸出檔案) | `~/.phantom-mesh/workspace/` | 變動 | 中 | 部分 — 可重新生成 |
+| `twitter_session/` (瀏覽器狀態) | `~/.phantom-mesh/twitter_session/` | 變動 | 低 | 是 — 重新登入 |
+| 其他 `.db` 檔案 (62 個) | `~/.phantom-mesh/*.db` | ~62MB 合計 | 中 | 部分 — 舊系統遺留 |
+| phantom-mesh 二進制 | `target/release/phantom-mesh` | ~20MB | 高 | 是 — 重新編譯 |
 | 模型檔案 (Ollama/LMStudio) | 各機本地 | 數 GB | 低 | 是 — 重新下載 |
 
 ### 1.2 節點清單
 
 | # | 名稱 | 硬體 | 角色 | 網路 | 關鍵服務 |
 |---|------|------|------|------|---------|
-| 1 | z13 | ASUS ROG Flow Z13 (Ryzen AI MAX+ 395, 64GB) | **Hub** + Worker | localhost | clawtex-core, Telegram Bot, HTTP API, LM Studio, NPU |
+| 1 | z13 | ASUS ROG Flow Z13 (Ryzen AI MAX+ 395, 64GB) | **Hub** + Worker | localhost | phantom-mesh, Telegram Bot, HTTP API, LM Studio, NPU |
 | 2 | acer | Acer (7TB HDD) | Worker + **備份存儲** | LAN | Ollama |
 | 3 | ayaneo | Ayaneo | Worker | LAN | Ollama |
 | 4 | m1-mac | M1 Mac | Worker | Tailscale VPN | Ollama (Apple Silicon) |
 | 5 | gpu-cloud-1 | 雲端 GPU | Worker | VPN/公網 | Ollama |
 | 6 | gpu-cloud-2 | 雲端 GPU | Worker | VPN/公網 | Ollama |
 | 7 | npu-node | NPU 專用 | Worker | LAN | Lemonade NPU |
-| 8 | backup-hub | Standby Hub | **備援 Hub** | LAN/VPN | clawtex-core (standby) |
+| 8 | backup-hub | Standby Hub | **備援 Hub** | LAN/VPN | phantom-mesh (standby) |
 
 ### 1.3 外部服務依賴
 
@@ -95,7 +95,7 @@
    │   └─ 救援成功 → 換新 SSD → 還原資料 → 重啟服務
    │
    └─ 不可修復 → 啟動備援 Hub 流程 (見第 4 節)
-       ├─ 在 Acer (或 backup-hub) 上啟動 clawtex-core
+       ├─ 在 Acer (或 backup-hub) 上啟動 phantom-mesh
        ├─ 從 Acer 7TB 還原最近備份
        ├─ 更新 Telegram Bot Webhook (如需)
        └─ 驗證所有 Hand 和 Cron 正常運行
@@ -123,15 +123,15 @@
 ```
 1. 確認 Z13 徹底無法啟動 (非 SSD 問題)
    ├─ 拆下 SSD → 用 USB 外接盒讀取
-   │   ├─ 可讀 → 複製全部 ~/.clawtex/ 到 Acer
+   │   ├─ 可讀 → 複製全部 ~/.phantom-mesh/ 到 Acer
    │   └─ 不可讀 → 使用 Acer 上的最近備份
    │
 2. 啟動備援 Hub (Acer)
-   ├─ cd ~/clawtex-standby/
-   ├─ 複製備份的 ~/.clawtex/ 資料到 Acer 的 ~/.clawtex/
+   ├─ cd ~/phantom-mesh-standby/
+   ├─ 複製備份的 ~/.phantom-mesh/ 資料到 Acer 的 ~/.phantom-mesh/
    ├─ 確認 agents.toml 中 host/port 正確
    ├─ 修改 providers.lmstudio.url 指向 Acer 本地或其他 Worker
-   ├─ ./clawtex-core daemon
+   ├─ ./phantom-mesh daemon
    └─ 驗證 Telegram bot 回應
 
 3. Worker 節點更新
@@ -173,11 +173,11 @@
 1. 突然斷電 → 所有設備關機
 2. 來電後:
    ├─ Z13 開機 (需手動或 BIOS 自動開機)
-   ├─ 檢查 SQLite 完整性: sqlite3 ~/.clawtex/core.db "PRAGMA integrity_check;"
-   │   ├─ OK → 正常啟動 clawtex-core
+   ├─ 檢查 SQLite 完整性: sqlite3 ~/.phantom-mesh/core.db "PRAGMA integrity_check;"
+   │   ├─ OK → 正常啟動 phantom-mesh
    │   └─ 損壞 → 見場景 I (SQLite 損壞)
    ├─ 啟動 LM Studio / Ollama
-   └─ 啟動 clawtex-core daemon
+   └─ 啟動 phantom-mesh daemon
 ```
 
 **預防措施**:
@@ -329,13 +329,13 @@ LAN 中斷 (路由器故障):
 2. 立即隔離 (黃金 15 分鐘)
    ├─ 斷開 Z13 網路 (拔網線或 Wi-Fi off)
    ├─ E-Stop 啟動: curl -X POST http://localhost:7878/estop
-   ├─ 殺掉所有 clawtex-core 進程: taskkill /F /IM clawtex-core.exe
+   ├─ 殺掉所有 phantom-mesh 進程: taskkill /F /IM phantom-mesh.exe
    ├─ 殺掉可疑進程
    └─ 通知所有 Worker 斷線
 
 3. 證據保全
    ├─ 記錄當前時間
-   ├─ 匯出系統日誌: cp ~/.clawtex/logs/ ~/incident/
+   ├─ 匯出系統日誌: cp ~/.phantom-mesh/logs/ ~/incident/
    ├─ 匯出網路連線: netstat -an > ~/incident/netstat.txt
    ├─ 匯出進程清單: tasklist > ~/incident/processes.txt
    └─ 保留 core.db 快照
@@ -351,7 +351,7 @@ LAN 中斷 (路由器故障):
 5. 系統重建
    ├─ 掃描所有機器 (Windows Defender / ClamAV)
    ├─ 檢查: 是否有後門、rootkit
-   ├─ 重新編譯 clawtex-core (確認源碼未被竄改)
+   ├─ 重新編譯 phantom-mesh (確認源碼未被竄改)
    │   └─ git log 確認無異常 commit
    ├─ 從已知良好備份還原 DB
    └─ 逐一重啟 Worker → Hub
@@ -385,7 +385,7 @@ Telegram Bot Token:
 ├─ 步驟:
 │   ├─ 打開 @BotFather → /revoke → 選擇你的 bot → 獲得新 token
 │   ├─ 更新 agents.toml [telegram] bot_token
-│   ├─ 重啟 clawtex-core
+│   ├─ 重啟 phantom-mesh
 │   └─ 驗證 bot 正常回應
 ├─ RTO: 5 分鐘
 
@@ -394,7 +394,7 @@ Gemini API Key:
 ├─ 步驟:
 │   ├─ https://console.cloud.google.com/apis/credentials → 刪除舊 key → 建新 key
 │   ├─ 更新 agents.toml [providers.gemini] api_key
-│   └─ 重啟 clawtex-core
+│   └─ 重啟 phantom-mesh
 ├─ RTO: 5 分鐘
 
 Search API Keys (Serper/Tavily/Brave/Exa):
@@ -402,7 +402,7 @@ Search API Keys (Serper/Tavily/Brave/Exa):
 ├─ 步驟:
 │   ├─ 到各平台 dashboard rotate key
 │   ├─ 更新 agents.toml [search] 相關欄位
-│   └─ 重啟 clawtex-core
+│   └─ 重啟 phantom-mesh
 ├─ RTO: 10 分鐘
 
 Gmail App Password:
@@ -411,7 +411,7 @@ Gmail App Password:
 │   ├─ https://myaccount.google.com/apppasswords → 撤銷舊密碼
 │   ├─ 重新生成 app password
 │   ├─ 更新 agents.toml [email] password
-│   └─ 重啟 clawtex-core
+│   └─ 重啟 phantom-mesh
 ├─ RTO: 5 分鐘
 
 Twitter OAuth:
@@ -420,7 +420,7 @@ Twitter OAuth:
 │   ├─ https://developer.twitter.com/en/portal → 重新生成 Consumer Key + Access Token
 │   ├─ 更新 agents.toml [twitter] 全部 4 個欄位
 │   ├─ 重新執行瀏覽器登入: twitter(action="login")
-│   └─ 重啟 clawtex-core
+│   └─ 重啟 phantom-mesh
 ├─ RTO: 10 分鐘
 
 Stripe Secret Key:
@@ -429,15 +429,15 @@ Stripe Secret Key:
 │   ├─ https://dashboard.stripe.com/apikeys → Roll key
 │   ├─ 更新 agents.toml [stripe] secret_key
 │   ├─ 更新所有已部署的 SaaS 服務中的 STRIPE_SECRET_KEY 環境變數
-│   └─ 重啟 clawtex-core
+│   └─ 重啟 phantom-mesh
 ├─ RTO: 15 分鐘
 
 .secret_key 洩漏:
 ├─ 影響: 所有 enc2: 加密的秘密可被解密
 ├─ 步驟:
-│   ├─ 刪除 ~/.clawtex/.secret_key
-│   ├─ 重啟 clawtex-core (自動生成新 key)
-│   ├─ 重新加密所有秘密: clawtex-core encrypt-secret
+│   ├─ 刪除 ~/.phantom-mesh/.secret_key
+│   ├─ 重啟 phantom-mesh (自動生成新 key)
+│   ├─ 重新加密所有秘密: phantom-mesh encrypt-secret
 │   └─ 同時 rotate 所有被加密的原始 key
 ├─ RTO: 30 分鐘
 ```
@@ -458,12 +458,12 @@ Stripe Secret Key:
 
 ```
 1. 診斷
-   $ sqlite3 ~/.clawtex/core.db "PRAGMA integrity_check;"
+   $ sqlite3 ~/.phantom-mesh/core.db "PRAGMA integrity_check;"
    ├─ "ok" → 資料庫完好，問題在其他地方
    └─ 錯誤訊息 → 確認損壞
 
 2. 嘗試修復 (輕度損壞)
-   $ sqlite3 ~/.clawtex/core.db ".recover" | sqlite3 ~/.clawtex/core_recovered.db
+   $ sqlite3 ~/.phantom-mesh/core.db ".recover" | sqlite3 ~/.phantom-mesh/core_recovered.db
    ├─ 成功 → 驗證 recovered DB
    │   $ sqlite3 core_recovered.db "PRAGMA integrity_check;"
    │   $ sqlite3 core_recovered.db "SELECT COUNT(*) FROM memories;"
@@ -474,22 +474,22 @@ Stripe Secret Key:
 
 3. 從備份還原
    ├─ 找到最近的備份:
-   │   $ ls -lt /mnt/acer/clawtex-backup/daily/core.db.* | head -5
+   │   $ ls -lt /mnt/acer/phantom-mesh-backup/daily/core.db.* | head -5
    │
-   ├─ 停止 clawtex-core
-   │   $ taskkill /F /IM clawtex-core.exe
+   ├─ 停止 phantom-mesh
+   │   $ taskkill /F /IM phantom-mesh.exe
    │
    ├─ 備份損壞的 DB (留存證據):
-   │   $ mv ~/.clawtex/core.db ~/.clawtex/core.db.corrupted.$(date +%Y%m%d%H%M)
+   │   $ mv ~/.phantom-mesh/core.db ~/.phantom-mesh/core.db.corrupted.$(date +%Y%m%d%H%M)
    │
    ├─ 還原:
-   │   $ cp /mnt/acer/clawtex-backup/daily/core.db.latest ~/.clawtex/core.db
+   │   $ cp /mnt/acer/phantom-mesh-backup/daily/core.db.latest ~/.phantom-mesh/core.db
    │
-   └─ 重啟 clawtex-core
+   └─ 重啟 phantom-mesh
 
 4. WAL 相關問題
    ├─ 如果 core.db-wal 損壞但 core.db 完好:
-   │   $ sqlite3 ~/.clawtex/core.db "PRAGMA wal_checkpoint(TRUNCATE);"
+   │   $ sqlite3 ~/.phantom-mesh/core.db "PRAGMA wal_checkpoint(TRUNCATE);"
    │   ├─ 成功 → WAL 已合併到主 DB
    │   └─ 失敗 → 刪除 core.db-wal 和 core.db-shm → 損失 WAL 中未 checkpoint 的資料
    │
@@ -547,7 +547,7 @@ Stripe Secret Key:
 
 ```
 Acer 7TB (\\acer\backup 或 /mnt/acer):
-├── clawtex-backup/
+├── phantom-mesh-backup/
 │   ├── hourly/
 │   │   ├── core.db.2026-03-05T10       (每小時輪替, 保留 48 個)
 │   │   ├── memory.db.2026-03-05T10
@@ -567,8 +567,8 @@ Acer 7TB (\\acer\backup 或 /mnt/acer):
 │   └── weekly/
 │       ├── 2026-W10.tar.gz.gpg         (GPG 加密)
 │       └── ... (保留 4 週)
-└── clawtex-standby/
-    └── clawtex-core                     (預編譯的 binary)
+└── phantom-mesh-standby/
+    └── phantom-mesh                     (預編譯的 binary)
 ```
 
 ---
@@ -611,25 +611,25 @@ Acer 7TB (\\acer\backup 或 /mnt/acer):
 # 1. 安裝 Rust 工具鏈
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# 2. Clone 並編譯 clawtex-core
+# 2. Clone 並編譯 phantom-mesh
 cd ~/
-git clone <clawtex-core-repo> clawtex-standby
-cd clawtex-standby
+git clone <phantom-mesh-repo> phantom-mesh-standby
+cd phantom-mesh-standby
 cargo build --release
-# binary 位於: ~/clawtex-standby/target/release/clawtex-core
+# binary 位於: ~/phantom-mesh-standby/target/release/phantom-mesh
 
-# 3. 建立 ~/.clawtex/ 目錄結構
-mkdir -p ~/.clawtex/hands ~/.clawtex/workspace ~/.clawtex/logs
+# 3. 建立 ~/.phantom-mesh/ 目錄結構
+mkdir -p ~/.phantom-mesh/hands ~/.phantom-mesh/workspace ~/.phantom-mesh/logs
 
 # 4. 複製 agents.toml (需修改 providers 指向)
-cp /mnt/z13-backup/agents.toml ~/.clawtex/agents.toml
+cp /mnt/z13-backup/agents.toml ~/.phantom-mesh/agents.toml
 
 # 5. 複製 hands
-cp -r /mnt/z13-backup/hands/* ~/.clawtex/hands/
+cp -r /mnt/z13-backup/hands/* ~/.phantom-mesh/hands/
 
 # 6. 複製 .secret_key
-cp /mnt/z13-backup/.secret_key ~/.clawtex/.secret_key
-chmod 600 ~/.clawtex/.secret_key
+cp /mnt/z13-backup/.secret_key ~/.phantom-mesh/.secret_key
+chmod 600 ~/.phantom-mesh/.secret_key
 
 # 7. 安裝 Ollama (如果 Acer 要跑本地推理)
 curl -fsSL https://ollama.com/install.sh | sh
@@ -637,7 +637,7 @@ ollama pull llama3.2:1b
 ollama pull qwen2.5-coder:7b
 
 # 8. 測試啟動 (dry run)
-~/clawtex-standby/target/release/clawtex-core status
+~/phantom-mesh-standby/target/release/phantom-mesh status
 ```
 
 **agents.toml 備援版差異**:
@@ -681,15 +681,15 @@ model = "qwen2.5-coder:7b"
 
 步驟:
 1. Z13 執行 WAL checkpoint:
-   sqlite3 ~/.clawtex/core.db "PRAGMA wal_checkpoint(PASSIVE);"
+   sqlite3 ~/.phantom-mesh/core.db "PRAGMA wal_checkpoint(PASSIVE);"
 
 2. rsync 到 Acer (確保一致性):
    rsync -az --checksum \
-     ~/.clawtex/core.db \
-     ~/.clawtex/memory.db \
-     ~/.clawtex/costs.db \
-     ~/.clawtex/revenue.db \
-     acer:/home/user/clawtex-backup/hourly/
+     ~/.phantom-mesh/core.db \
+     ~/.phantom-mesh/memory.db \
+     ~/.phantom-mesh/costs.db \
+     ~/.phantom-mesh/revenue.db \
+     acer:/home/user/phantom-mesh-backup/hourly/
 
 注意事項:
 - 使用 PASSIVE checkpoint (不阻塞寫入)
@@ -709,31 +709,31 @@ model = "qwen2.5-coder:7b"
    → 確認 Z13 離線
 
 2. 在 Acer 上還原最新備份
-   $ cd ~/clawtex-backup/hourly/
+   $ cd ~/phantom-mesh-backup/hourly/
    $ ls -lt    # 找最新的備份
-   $ cp core.db.latest ~/.clawtex/core.db
-   $ cp memory.db.latest ~/.clawtex/memory.db
-   $ cp costs.db.latest ~/.clawtex/costs.db
-   $ cp revenue.db.latest ~/.clawtex/revenue.db
+   $ cp core.db.latest ~/.phantom-mesh/core.db
+   $ cp memory.db.latest ~/.phantom-mesh/memory.db
+   $ cp costs.db.latest ~/.phantom-mesh/costs.db
+   $ cp revenue.db.latest ~/.phantom-mesh/revenue.db
 
 3. 驗證 DB 完整性
-   $ sqlite3 ~/.clawtex/core.db "PRAGMA integrity_check;"
+   $ sqlite3 ~/.phantom-mesh/core.db "PRAGMA integrity_check;"
    # 應該顯示 "ok"
 
-4. 啟動 clawtex-core
-   $ ~/clawtex-standby/target/release/clawtex-core daemon &
+4. 啟動 phantom-mesh
+   $ ~/phantom-mesh-standby/target/release/phantom-mesh daemon &
 
 5. 驗證 Telegram bot
    - 發送測試訊息
    - bot 應該回應 (Telegram bot token 不變, webhook 不需改)
 
    注意: Telegram Bot API 使用 long polling, 不需要 webhook。
-   只要新的 clawtex-core 啟動並開始 polling, 就能接收訊息。
+   只要新的 phantom-mesh 啟動並開始 polling, 就能接收訊息。
    如果使用 webhook 模式, 需要更新 webhook URL 到 Acer 的公網 IP。
 
 6. 通知 Workers 更新 Hub 地址 (如果 Worker 主動連 Hub):
    - 更新各 Worker 的配置
-   - 或: 使用 DNS 名稱 (如 hub.clawtex.local) → 修改 DNS 指向 Acer
+   - 或: 使用 DNS 名稱 (如 hub.phantom-mesh.local) → 修改 DNS 指向 Acer
 
 7. 驗證完整功能
    $ curl http://localhost:7878/cluster/status
@@ -746,14 +746,14 @@ model = "qwen2.5-coder:7b"
 ```
 1. Z13 修復完畢, 確認硬體正常
 
-2. 停止 Acer 上的 clawtex-core
-   $ kill $(pgrep clawtex-core)
+2. 停止 Acer 上的 phantom-mesh
+   $ kill $(pgrep phantom-mesh)
 
 3. 從 Acer 同步最新資料回 Z13
-   $ rsync -az ~/.clawtex/*.db z13:~/.clawtex/
+   $ rsync -az ~/.phantom-mesh/*.db z13:~/.phantom-mesh/
 
-4. 在 Z13 重啟 clawtex-core
-   $ clawtex-core daemon &
+4. 在 Z13 重啟 phantom-mesh
+   $ phantom-mesh daemon &
 
 5. 驗證 Z13 Hub 正常
    $ curl http://localhost:7878/status
@@ -832,7 +832,7 @@ model = "qwen2.5-coder:7b"
 ├─ 設定:
 │   ├─ 電池模式 → 執行自訂腳本
 │   ├─ 電池低於 20% → 執行安全關機
-│   └─ 自訂腳本路徑: C:\clawtex\ups_shutdown.bat
+│   └─ 自訂腳本路徑: C:\phantom-mesh\ups_shutdown.bat
 └─ 自動處理
 
 方案 2: 自訂腳本 (如果 PowerPanel 不可用)
@@ -864,7 +864,7 @@ model = "qwen2.5-coder:7b"
      □ Render API key       → dashboard.render.com/settings
      □ .secret_key          → 刪除 + 重啟 (自動重新生成)
 □ 4. 更新 agents.toml
-□ 5. 重啟 clawtex-core
+□ 5. 重啟 phantom-mesh
 □ 6. 驗證所有功能正常
 □ 7. 檢查帳單/用量是否有異常
 □ 8. 記錄事件報告
@@ -950,15 +950,15 @@ model = "qwen2.5-coder:7b"
 
 ```bash
 #!/bin/bash
-# clawtex_hourly_backup.sh
-# 放置: C:/clawtex/scripts/clawtex_hourly_backup.sh
+# phantom-mesh_hourly_backup.sh
+# 放置: C:/phantom-mesh/scripts/phantom-mesh_hourly_backup.sh
 # 排程: Windows Task Scheduler 每小時執行一次
 
 set -euo pipefail
 
 # === 配置 ===
-CLAWTEX_DIR="$HOME/.clawtex"
-BACKUP_BASE="/mnt/acer/clawtex-backup"  # 根據實際 Acer 掛載路徑修改
+PHANTOM_MESH_DIR="$HOME/.phantom-mesh"
+BACKUP_BASE="/mnt/acer/phantom-mesh-backup"  # 根據實際 Acer 掛載路徑修改
 HOURLY_DIR="$BACKUP_BASE/hourly"
 TIMESTAMP=$(date +%Y-%m-%dT%H)
 MAX_HOURLY=48  # 保留 48 小時
@@ -972,7 +972,7 @@ mkdir -p "$HOURLY_DIR"
 # === Step 1: WAL Checkpoint ===
 echo "[$(date)] Starting WAL checkpoint..."
 for db in "${CRITICAL_DBS[@]}"; do
-    DB_PATH="$CLAWTEX_DIR/$db"
+    DB_PATH="$PHANTOM_MESH_DIR/$db"
     if [ -f "$DB_PATH" ]; then
         sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(PASSIVE);" 2>/dev/null || true
         echo "  Checkpointed: $db"
@@ -982,7 +982,7 @@ done
 # === Step 2: 複製 DB 到備份 ===
 echo "[$(date)] Copying databases..."
 for db in "${CRITICAL_DBS[@]}"; do
-    DB_PATH="$CLAWTEX_DIR/$db"
+    DB_PATH="$PHANTOM_MESH_DIR/$db"
     if [ -f "$DB_PATH" ]; then
         cp "$DB_PATH" "$HOURLY_DIR/${db}.${TIMESTAMP}"
         echo "  Copied: $db → ${db}.${TIMESTAMP}"
@@ -1030,21 +1030,21 @@ echo "[$(date)] Hourly backup complete."
 
 ```bash
 #!/bin/bash
-# clawtex_daily_backup.sh
+# phantom-mesh_daily_backup.sh
 # 排程: 每日 03:00
 
 set -euo pipefail
 
-CLAWTEX_DIR="$HOME/.clawtex"
-BACKUP_BASE="/mnt/acer/clawtex-backup"
+PHANTOM_MESH_DIR="$HOME/.phantom-mesh"
+BACKUP_BASE="/mnt/acer/phantom-mesh-backup"
 DAILY_DIR="$BACKUP_BASE/daily/$(date +%Y-%m-%d)"
 MAX_DAILY=30  # 保留 30 天
 
 # Telegram 通知函數
 notify_telegram() {
     local msg="$1"
-    local BOT_TOKEN=$(grep bot_token "$CLAWTEX_DIR/agents.toml" | head -1 | cut -d'"' -f2)
-    local CHAT_ID=$(grep allowed_users "$CLAWTEX_DIR/agents.toml" | head -1 | cut -d'"' -f2)
+    local BOT_TOKEN=$(grep bot_token "$PHANTOM_MESH_DIR/agents.toml" | head -1 | cut -d'"' -f2)
+    local CHAT_ID=$(grep allowed_users "$PHANTOM_MESH_DIR/agents.toml" | head -1 | cut -d'"' -f2)
     # 注意: 需要用 chat_id 而非 username, 這裡僅為示意
     # 實際實作需要取得自己的 chat_id
     curl -s "https://api.telegram.org/bot${BOT_TOKEN}/sendMessage" \
@@ -1056,7 +1056,7 @@ mkdir -p "$DAILY_DIR"
 
 # === Step 1: 完整 WAL Checkpoint (TRUNCATE — 會短暫鎖定) ===
 echo "[$(date)] Full WAL checkpoint..."
-for db in "$CLAWTEX_DIR"/*.db; do
+for db in "$PHANTOM_MESH_DIR"/*.db; do
     if [ -f "$db" ]; then
         sqlite3 "$db" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
     fi
@@ -1064,29 +1064,29 @@ done
 
 # === Step 2: 複製所有 DB ===
 echo "[$(date)] Copying all databases..."
-cp "$CLAWTEX_DIR"/*.db "$DAILY_DIR/" 2>/dev/null || true
+cp "$PHANTOM_MESH_DIR"/*.db "$DAILY_DIR/" 2>/dev/null || true
 
 # === Step 3: 複製配置 ===
 echo "[$(date)] Copying configuration..."
-cp "$CLAWTEX_DIR/agents.toml" "$DAILY_DIR/"
-cp -r "$CLAWTEX_DIR/hands" "$DAILY_DIR/"
+cp "$PHANTOM_MESH_DIR/agents.toml" "$DAILY_DIR/"
+cp -r "$PHANTOM_MESH_DIR/hands" "$DAILY_DIR/"
 
 # === Step 4: 加密備份 .secret_key ===
-if [ -f "$CLAWTEX_DIR/.secret_key" ]; then
+if [ -f "$PHANTOM_MESH_DIR/.secret_key" ]; then
     # 使用 GPG 對稱加密 (需要預設密碼或 gpg-agent)
     # 或簡單 openssl 加密
     openssl enc -aes-256-cbc -salt -pbkdf2 \
-        -in "$CLAWTEX_DIR/.secret_key" \
+        -in "$PHANTOM_MESH_DIR/.secret_key" \
         -out "$DAILY_DIR/.secret_key.enc" \
-        -pass file:"$HOME/.clawtex_backup_passphrase" 2>/dev/null || \
-    cp "$CLAWTEX_DIR/.secret_key" "$DAILY_DIR/.secret_key"
+        -pass file:"$HOME/.phantom-mesh_backup_passphrase" 2>/dev/null || \
+    cp "$PHANTOM_MESH_DIR/.secret_key" "$DAILY_DIR/.secret_key"
     echo "  .secret_key backed up (encrypted)"
 fi
 
 # === Step 5: 歸檔 workspace ===
 echo "[$(date)] Archiving workspace..."
-if [ -d "$CLAWTEX_DIR/workspace" ]; then
-    tar czf "$DAILY_DIR/workspace.tar.gz" -C "$CLAWTEX_DIR" workspace/ 2>/dev/null || true
+if [ -d "$PHANTOM_MESH_DIR/workspace" ]; then
+    tar czf "$DAILY_DIR/workspace.tar.gz" -C "$PHANTOM_MESH_DIR" workspace/ 2>/dev/null || true
 fi
 
 # === Step 6: 清理過期備份 ===
@@ -1113,10 +1113,10 @@ for db in core.db memory.db revenue.db costs.db; do
 done
 
 # === Step 8: 同步備援 Hub 的 binary ===
-BINARY="$HOME/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core/target/release/clawtex-core"
+BINARY="$HOME/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh/target/release/phantom-mesh"
 if [ -f "$BINARY" ]; then
-    cp "$BINARY" "$BACKUP_BASE/clawtex-standby/clawtex-core"
-    echo "  Synced clawtex-core binary to standby"
+    cp "$BINARY" "$BACKUP_BASE/phantom-mesh-standby/phantom-mesh"
+    echo "  Synced phantom-mesh binary to standby"
 fi
 
 # === 完成通知 ===
@@ -1135,7 +1135,7 @@ fi
 ```batch
 @echo off
 REM ups_shutdown.bat — UPS 電池低時自動執行
-REM 放置: C:\clawtex\scripts\ups_shutdown.bat
+REM 放置: C:\phantom-mesh\scripts\ups_shutdown.bat
 
 echo [%date% %time%] UPS battery low — initiating graceful shutdown...
 
@@ -1146,13 +1146,13 @@ REM Step 2: 等待 agent 停止 (5 秒)
 timeout /t 5 /nobreak > nul
 
 REM Step 3: WAL Checkpoint
-sqlite3 "%USERPROFILE%\.clawtex\core.db" "PRAGMA wal_checkpoint(TRUNCATE);"
-sqlite3 "%USERPROFILE%\.clawtex\memory.db" "PRAGMA wal_checkpoint(TRUNCATE);"
-sqlite3 "%USERPROFILE%\.clawtex\revenue.db" "PRAGMA wal_checkpoint(TRUNCATE);"
-sqlite3 "%USERPROFILE%\.clawtex\costs.db" "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 "%USERPROFILE%\.phantom-mesh\core.db" "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 "%USERPROFILE%\.phantom-mesh\memory.db" "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 "%USERPROFILE%\.phantom-mesh\revenue.db" "PRAGMA wal_checkpoint(TRUNCATE);"
+sqlite3 "%USERPROFILE%\.phantom-mesh\costs.db" "PRAGMA wal_checkpoint(TRUNCATE);"
 
-REM Step 4: 停止 clawtex-core
-taskkill /F /IM clawtex-core.exe > nul 2>&1
+REM Step 4: 停止 phantom-mesh
+taskkill /F /IM phantom-mesh.exe > nul 2>&1
 
 REM Step 5: 安全關機
 echo [%date% %time%] Shutting down...
@@ -1175,18 +1175,18 @@ curl -s -X POST http://localhost:7878/estop 2>/dev/null || true
 sleep 5
 
 # WAL Checkpoint
-CLAWTEX_DIR="$HOME/.clawtex"
+PHANTOM_MESH_DIR="$HOME/.phantom-mesh"
 for db in core.db memory.db revenue.db costs.db; do
-    sqlite3 "$CLAWTEX_DIR/$db" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
+    sqlite3 "$PHANTOM_MESH_DIR/$db" "PRAGMA wal_checkpoint(TRUNCATE);" 2>/dev/null || true
 done
 
 # 緊急備份到本地
-EMERGENCY_DIR="$CLAWTEX_DIR/emergency_backup_$(date +%Y%m%d%H%M)"
+EMERGENCY_DIR="$PHANTOM_MESH_DIR/emergency_backup_$(date +%Y%m%d%H%M)"
 mkdir -p "$EMERGENCY_DIR"
-cp "$CLAWTEX_DIR"/core.db "$CLAWTEX_DIR"/memory.db "$CLAWTEX_DIR"/revenue.db "$CLAWTEX_DIR"/costs.db "$EMERGENCY_DIR/" 2>/dev/null || true
+cp "$PHANTOM_MESH_DIR"/core.db "$PHANTOM_MESH_DIR"/memory.db "$PHANTOM_MESH_DIR"/revenue.db "$PHANTOM_MESH_DIR"/costs.db "$EMERGENCY_DIR/" 2>/dev/null || true
 
 # 停止服務
-pkill -TERM clawtex-core 2>/dev/null || true
+pkill -TERM phantom-mesh 2>/dev/null || true
 
 # 安全關機
 sudo shutdown -h now "UPS battery critical"
@@ -1196,20 +1196,20 @@ sudo shutdown -h now "UPS battery critical"
 
 ```bash
 #!/bin/bash
-# clawtex_health_check.sh
+# phantom-mesh_health_check.sh
 # 排程: 每 5 分鐘 (Windows Task Scheduler 或 cron)
 
-CLAWTEX_DIR="$HOME/.clawtex"
+PHANTOM_MESH_DIR="$HOME/.phantom-mesh"
 STATUS_OK=true
 
-# Check 1: clawtex-core 進程存活
-if ! pgrep -f clawtex-core > /dev/null 2>&1; then
-    echo "CRITICAL: clawtex-core is not running!"
+# Check 1: phantom-mesh 進程存活
+if ! pgrep -f phantom-mesh > /dev/null 2>&1; then
+    echo "CRITICAL: phantom-mesh is not running!"
     STATUS_OK=false
     # 自動重啟
-    cd "$HOME/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core"
-    ./target/release/clawtex-core daemon &
-    echo "  Auto-restarted clawtex-core"
+    cd "$HOME/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh"
+    ./target/release/phantom-mesh daemon &
+    echo "  Auto-restarted phantom-mesh"
 fi
 
 # Check 2: HTTP API 可回應
@@ -1222,7 +1222,7 @@ fi
 # Check 3: DB 完整性 (每小時只跑一次, 每 5 分鐘太頻繁)
 MINUTE=$(date +%M)
 if [ "$MINUTE" = "00" ]; then
-    INTEGRITY=$(sqlite3 "$CLAWTEX_DIR/core.db" "PRAGMA quick_check;" 2>/dev/null || echo "FAILED")
+    INTEGRITY=$(sqlite3 "$PHANTOM_MESH_DIR/core.db" "PRAGMA quick_check;" 2>/dev/null || echo "FAILED")
     if [ "$INTEGRITY" != "ok" ]; then
         echo "CRITICAL: core.db integrity check failed!"
         STATUS_OK=false
@@ -1230,7 +1230,7 @@ if [ "$MINUTE" = "00" ]; then
 fi
 
 # Check 4: 磁碟空間
-DISK_USAGE=$(df -h "$CLAWTEX_DIR" | tail -1 | awk '{print $5}' | tr -d '%')
+DISK_USAGE=$(df -h "$PHANTOM_MESH_DIR" | tail -1 | awk '{print $5}' | tr -d '%')
 if [ "$DISK_USAGE" -gt 90 ]; then
     echo "WARNING: Disk usage at ${DISK_USAGE}%!"
     STATUS_OK=false
@@ -1259,24 +1259,24 @@ fi
 
 # 每小時備份 (xx:05)
 $hourlyAction = New-ScheduledTaskAction -Execute "bash.exe" `
-    -Argument "-c '/c/clawtex/scripts/clawtex_hourly_backup.sh'"
+    -Argument "-c '/c/phantom-mesh/scripts/phantom-mesh_hourly_backup.sh'"
 $hourlyTrigger = New-ScheduledTaskTrigger -Once -At "00:05" -RepetitionInterval (New-TimeSpan -Hours 1)
-Register-ScheduledTask -TaskName "Clawtex-HourlyBackup" -Action $hourlyAction -Trigger $hourlyTrigger `
-    -Description "Clawtex hourly WAL checkpoint and DB backup" -RunLevel Highest
+Register-ScheduledTask -TaskName "Phantom Mesh-HourlyBackup" -Action $hourlyAction -Trigger $hourlyTrigger `
+    -Description "Phantom Mesh hourly WAL checkpoint and DB backup" -RunLevel Highest
 
 # 每日完整備份 (03:00)
 $dailyAction = New-ScheduledTaskAction -Execute "bash.exe" `
-    -Argument "-c '/c/clawtex/scripts/clawtex_daily_backup.sh'"
+    -Argument "-c '/c/phantom-mesh/scripts/phantom-mesh_daily_backup.sh'"
 $dailyTrigger = New-ScheduledTaskTrigger -Daily -At "03:00"
-Register-ScheduledTask -TaskName "Clawtex-DailyBackup" -Action $dailyAction -Trigger $dailyTrigger `
-    -Description "Clawtex daily full backup to Acer" -RunLevel Highest
+Register-ScheduledTask -TaskName "Phantom Mesh-DailyBackup" -Action $dailyAction -Trigger $dailyTrigger `
+    -Description "Phantom Mesh daily full backup to Acer" -RunLevel Highest
 
 # 每 5 分鐘健康檢查
 $healthAction = New-ScheduledTaskAction -Execute "bash.exe" `
-    -Argument "-c '/c/clawtex/scripts/clawtex_health_check.sh'"
+    -Argument "-c '/c/phantom-mesh/scripts/phantom-mesh_health_check.sh'"
 $healthTrigger = New-ScheduledTaskTrigger -Once -At "00:00" -RepetitionInterval (New-TimeSpan -Minutes 5)
-Register-ScheduledTask -TaskName "Clawtex-HealthCheck" -Action $healthAction -Trigger $healthTrigger `
-    -Description "Clawtex health monitoring" -RunLevel Highest
+Register-ScheduledTask -TaskName "Phantom Mesh-HealthCheck" -Action $healthAction -Trigger $healthTrigger `
+    -Description "Phantom Mesh health monitoring" -RunLevel Highest
 ```
 
 ---
@@ -1290,13 +1290,13 @@ Register-ScheduledTask -TaskName "Clawtex-HealthCheck" -Action $healthAction -Tr
 │
 ├── Telegram bot 無回應?
 │   ├── 網路正常? (能上網?)
-│   │   ├── 是 → clawtex-core 掛了
-│   │   │   ├── 檢查進程: tasklist | grep clawtex
-│   │   │   ├── 進程存在 → 看日誌 ~/.clawtex/logs/
+│   │   ├── 是 → phantom-mesh 掛了
+│   │   │   ├── 檢查進程: tasklist | grep phantom-mesh
+│   │   │   ├── 進程存在 → 看日誌 ~/.phantom-mesh/logs/
 │   │   │   │   ├── E-Stop 啟動了 → /resume
 │   │   │   │   ├─ OOM → 重啟 + 減少 worker 數
 │   │   │   │   └── 其他錯誤 → 重啟
-│   │   │   └── 進程不存在 → 重啟 clawtex-core daemon
+│   │   │   └── 進程不存在 → 重啟 phantom-mesh daemon
 │   │   │       └── 啟動失敗?
 │   │   │           ├── DB 鎖定 → rm core.db-shm core.db-wal (小心!)
 │   │   │           ├── Port 占用 → netstat -an | grep 7878
@@ -1379,7 +1379,7 @@ Register-ScheduledTask -TaskName "Clawtex-HealthCheck" -Action $healthAction -Tr
 | 演練項目 | 頻率 | 持續時間 | 步驟 |
 |---------|------|---------|------|
 | 備份恢復測試 | 每月 1 次 | 30 分鐘 | 從備份還原 DB 到臨時目錄, 驗證完整性 |
-| Hub 故障切換 | 每季 1 次 | 1 小時 | 停止 Z13 clawtex-core, 啟動 Acer 備援, 驗證功能 |
+| Hub 故障切換 | 每季 1 次 | 1 小時 | 停止 Z13 phantom-mesh, 啟動 Acer 備援, 驗證功能 |
 | UPS 斷電測試 | 每季 1 次 | 15 分鐘 | 拔電源, 驗證 UPS 接管, 驗證自動關機腳本 |
 | API Key Rotate | 每 90 天 | 30 分鐘 | Rotate 所有非加密的 API key |
 | 安全掃描 | 每月 1 次 | 30 分鐘 | Windows Defender 全碟掃描, 檢查開放 port |
@@ -1388,11 +1388,11 @@ Register-ScheduledTask -TaskName "Clawtex-HealthCheck" -Action $healthAction -Tr
 
 ```bash
 # 在臨時目錄測試恢復
-RESTORE_TEST="/tmp/clawtex-restore-test-$(date +%Y%m%d)"
+RESTORE_TEST="/tmp/phantom-mesh-restore-test-$(date +%Y%m%d)"
 mkdir -p "$RESTORE_TEST"
 
 # 複製最近備份
-cp /mnt/acer/clawtex-backup/daily/$(date +%Y-%m-%d)/core.db "$RESTORE_TEST/"
+cp /mnt/acer/phantom-mesh-backup/daily/$(date +%Y-%m-%d)/core.db "$RESTORE_TEST/"
 
 # 驗證
 sqlite3 "$RESTORE_TEST/core.db" "PRAGMA integrity_check;"
@@ -1400,7 +1400,7 @@ sqlite3 "$RESTORE_TEST/core.db" "SELECT COUNT(*) FROM memories;"
 sqlite3 "$RESTORE_TEST/core.db" "SELECT COUNT(*) FROM cluster_nodes;"
 
 # 記錄結果
-echo "$(date): Restore test PASSED — $(sqlite3 "$RESTORE_TEST/core.db" "SELECT COUNT(*) FROM memories;") memories recovered" >> /mnt/acer/clawtex-backup/restore_test.log
+echo "$(date): Restore test PASSED — $(sqlite3 "$RESTORE_TEST/core.db" "SELECT COUNT(*) FROM memories;") memories recovered" >> /mnt/acer/phantom-mesh-backup/restore_test.log
 
 # 清理
 rm -rf "$RESTORE_TEST"
@@ -1425,11 +1425,11 @@ rm -rf "$RESTORE_TEST"
 
 ```
 優先通知管道:
-1. Telegram (主要) — clawtex-core 自動發送告警
+1. Telegram (主要) — phantom-mesh 自動發送告警
 2. Email (備用) — 如果 Telegram 不可用, 用 email tool 發送
 3. 手機推播 — Telegram 手機 app 通知
 
-自動告警規則 (建議加入 clawtex-core):
+自動告警規則 (建議加入 phantom-mesh):
 - Worker 離線 → Telegram 通知
 - DB integrity check 失敗 → Telegram + Email
 - 成本超過每日上限 → Telegram 通知
@@ -1444,7 +1444,7 @@ rm -rf "$RESTORE_TEST"
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
-║              CLAWTEX 災難恢復快速參考卡                          ║
+║              PHANTOM_MESH 災難恢復快速參考卡                          ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║                                                                  ║
 ║  緊急停止:                                                       ║
@@ -1452,33 +1452,33 @@ rm -rf "$RESTORE_TEST"
 ║    HTTP:     curl -X POST http://localhost:7878/estop             ║
 ║    恢復:     /resume 或 curl -X DELETE http://localhost:7878/estop║
 ║                                                                  ║
-║  重啟 clawtex-core:                                              ║
-║    cd ~/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core      ║
-║    ./target/release/clawtex-core daemon                          ║
+║  重啟 phantom-mesh:                                              ║
+║    cd ~/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh      ║
+║    ./target/release/phantom-mesh daemon                          ║
 ║                                                                  ║
 ║  DB 完整性檢查:                                                   ║
-║    sqlite3 ~/.clawtex/core.db "PRAGMA integrity_check;"          ║
+║    sqlite3 ~/.phantom-mesh/core.db "PRAGMA integrity_check;"          ║
 ║                                                                  ║
 ║  手動 WAL Checkpoint:                                            ║
-║    sqlite3 ~/.clawtex/core.db "PRAGMA wal_checkpoint(TRUNCATE);" ║
+║    sqlite3 ~/.phantom-mesh/core.db "PRAGMA wal_checkpoint(TRUNCATE);" ║
 ║                                                                  ║
 ║  手動備份到 Acer:                                                 ║
-║    rsync -az ~/.clawtex/*.db acer:/backup/clawtex/               ║
+║    rsync -az ~/.phantom-mesh/*.db acer:/backup/phantom-mesh/               ║
 ║                                                                  ║
 ║  啟動備援 Hub (Acer):                                            ║
-║    1. cp /backup/hourly/*.db.latest ~/.clawtex/                  ║
-║    2. ~/clawtex-standby/target/release/clawtex-core daemon       ║
+║    1. cp /backup/hourly/*.db.latest ~/.phantom-mesh/                  ║
+║    2. ~/phantom-mesh-standby/target/release/phantom-mesh daemon       ║
 ║                                                                  ║
 ║  API Key Rotate:                                                  ║
 ║    1. /estop                                                     ║
 ║    2. 到各平台 dashboard 重新生成                                  ║
-║    3. 更新 ~/.clawtex/agents.toml                                ║
-║    4. 重啟 clawtex-core                                          ║
+║    3. 更新 ~/.phantom-mesh/agents.toml                                ║
+║    4. 重啟 phantom-mesh                                          ║
 ║                                                                  ║
 ║  備份路徑:                                                        ║
-║    每小時: /mnt/acer/clawtex-backup/hourly/                      ║
-║    每日:   /mnt/acer/clawtex-backup/daily/{YYYY-MM-DD}/          ║
-║    每週:   /mnt/acer/clawtex-backup/weekly/                      ║
+║    每小時: /mnt/acer/phantom-mesh-backup/hourly/                      ║
+║    每日:   /mnt/acer/phantom-mesh-backup/daily/{YYYY-MM-DD}/          ║
+║    每週:   /mnt/acer/phantom-mesh-backup/weekly/                      ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 ```

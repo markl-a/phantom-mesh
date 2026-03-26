@@ -1,10 +1,10 @@
-# Clawtex 自我進化管線設計文件
+# Phantom Mesh 自我進化管線設計文件
 
 ## 日期：2026-03-05
 
 ## 目標
 
-讓 clawtex AI agent 集群具備**受控的自我改進能力**：自動監控效能 → 診斷瓶頸 → 建議改進 → 人工審批 → 自動套用 → 自動驗證。所有自我修改必須經過 Telegram 人工審批，且可隨時 rollback。
+讓 phantom-mesh AI agent 集群具備**受控的自我改進能力**：自動監控效能 → 診斷瓶頸 → 建議改進 → 人工審批 → 自動套用 → 自動驗證。所有自我修改必須經過 Telegram 人工審批，且可隨時 rollback。
 
 ---
 
@@ -818,7 +818,7 @@ CapabilityGap (priority >= High, occurrence >= 3)
 │   - 需要加入的 Cargo.toml 依賴              │
 │                                              │
 │ 生成後存入：                                  │
-│   ~/.clawtex/evolution/generated_tools/      │
+│   ~/.phantom-mesh/evolution/generated_tools/      │
 │     {tool_name}/                             │
 │       code.rs                                │
 │       tests.rs                               │
@@ -859,7 +859,7 @@ impl ToolGenerator {
     /// 使用 Claude Code 生成新 tool 的 Rust 程式碼
     pub async fn generate(&self, gap: &CapabilityGap) -> Result<GeneratedTool> {
         let prompt = format!(
-            r#"為 clawtex-core AI agent 系統生成一個新的 Rust tool。
+            r#"為 phantom-mesh AI agent 系統生成一個新的 Rust tool。
 
 ## 需求
 名稱: {}
@@ -1410,7 +1410,7 @@ max_rounds = {}
 │                      安全護欄規則                               │
 │                                                                 │
 │  1. 所有自我修改都必須經過 Telegram 人工審批                    │
-│  2. 修改前自動備份到 ~/.clawtex/evolution/backups/             │
+│  2. 修改前自動備份到 ~/.phantom-mesh/evolution/backups/             │
 │  3. 自動 rollback 如果新版效能更差（超過 regression_threshold） │
 │  4. 禁區：不能修改以下檔案                                     │
 │     - src/security/*                                           │
@@ -1805,9 +1805,9 @@ src/evolution/
 
 ```rust
 // 在 main() 中，現有組件初始化之後：
-let metrics_store = Arc::new(MetricsStore::new(&format!("{}/.clawtex/evolution/metrics.db", home))?);
+let metrics_store = Arc::new(MetricsStore::new(&format!("{}/.phantom-mesh/evolution/metrics.db", home))?);
 let quality_evaluator = QualityEvaluator::new("gemini", "gemini-2.5-flash-lite");
-let safeguard = Arc::new(SafeGuard::new(&format!("{}/.clawtex", home))?);
+let safeguard = Arc::new(SafeGuard::new(&format!("{}/.phantom-mesh", home))?);
 
 let prompt_optimizer = Arc::new(PromptOptimizer::new(
     metrics_store.clone(),

@@ -169,7 +169,7 @@ impl OpsReporter {
             ReportType::Weekly => "\u{1F4C8}", // chart_increasing
         };
         lines.push(format!(
-            "{} *Clawtex {} Operations Report*",
+            "{} *Phantom Mesh {} Operations Report*",
             type_emoji,
             report.report_type
         ));
@@ -717,7 +717,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_daily_with_cost_tracker() {
-        let dir = std::env::temp_dir().join("clawtex_test_ops_cost");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ops_cost");
         let _ = std::fs::create_dir_all(&dir);
         let db = dir.join("ops_cost.db");
         let _ = std::fs::remove_file(&db);
@@ -732,6 +732,9 @@ mod tests {
             tokens_in: 500,
             tokens_out: 500,
             total_tokens: 1000,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: 0.05,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: 0.05,
             duration_secs: 1.0,
             context: None,
@@ -780,7 +783,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_daily_budget_alert() {
-        let dir = std::env::temp_dir().join("clawtex_test_ops_budget_alert");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ops_budget_alert");
         let _ = std::fs::create_dir_all(&dir);
         let db = dir.join("ops_cost_alert.db");
         let _ = std::fs::remove_file(&db);
@@ -795,6 +798,9 @@ mod tests {
             tokens_in: 10000,
             tokens_out: 10000,
             total_tokens: 20000,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: 4.8,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: 4.8,
             duration_secs: 5.0,
             context: None,

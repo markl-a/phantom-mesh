@@ -197,7 +197,7 @@ tools = ["shell"]
 
     #[test]
     fn test_parse_nonexistent_file_returns_error() {
-        let path = PathBuf::from("/tmp/clawtex-nonexistent-config-99999.toml");
+        let path = PathBuf::from("/tmp/phantom_mesh-nonexistent-config-99999.toml");
         let result = ConfigWatcher::parse_config(&path);
         assert!(result.is_err());
     }
@@ -213,7 +213,7 @@ tools = ["shell"]
 
     #[test]
     fn test_mtime_none_for_missing_file() {
-        let path = PathBuf::from("/tmp/clawtex-no-such-file-77777.toml");
+        let path = PathBuf::from("/tmp/phantom_mesh-no-such-file-77777.toml");
         assert!(ConfigWatcher::read_mtime(&path).is_none());
     }
 

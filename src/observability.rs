@@ -1,5 +1,5 @@
 //! Enhanced Observability Engine — comprehensive metrics collection, alert rules,
-//! Prometheus export, and dashboard summaries for the Clawtex cluster.
+//! Prometheus export, and dashboard summaries for the Phantom Mesh cluster.
 //!
 //! Builds on top of the lightweight `metrics.rs` module with domain-specific
 //! tracking for dispatches, LLM calls, hand executions, and worker utilization.
@@ -233,58 +233,58 @@ impl ObservabilityEngine {
         let mut out = String::new();
 
         // -- Counters --
-        out.push_str("# TYPE clawtex_obs_dispatch_total counter\n");
-        out.push_str(&format!("clawtex_obs_dispatch_total {}\n", snap.dispatch_count));
+        out.push_str("# TYPE phantom_mesh_obs_dispatch_total counter\n");
+        out.push_str(&format!("phantom_mesh_obs_dispatch_total {}\n", snap.dispatch_count));
 
-        out.push_str("# TYPE clawtex_obs_llm_call_total counter\n");
-        out.push_str(&format!("clawtex_obs_llm_call_total {}\n", snap.llm_call_count));
+        out.push_str("# TYPE phantom_mesh_obs_llm_call_total counter\n");
+        out.push_str(&format!("phantom_mesh_obs_llm_call_total {}\n", snap.llm_call_count));
 
-        out.push_str("# TYPE clawtex_obs_hand_total counter\n");
-        out.push_str(&format!("clawtex_obs_hand_total {}\n", snap.hand_count));
+        out.push_str("# TYPE phantom_mesh_obs_hand_total counter\n");
+        out.push_str(&format!("phantom_mesh_obs_hand_total {}\n", snap.hand_count));
 
         // -- Gauges --
-        out.push_str("# TYPE clawtex_obs_avg_dispatch_latency_ms gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_avg_dispatch_latency_ms gauge\n");
         out.push_str(&format!(
-            "clawtex_obs_avg_dispatch_latency_ms {:.2}\n",
+            "phantom_mesh_obs_avg_dispatch_latency_ms {:.2}\n",
             snap.avg_dispatch_latency_ms
         ));
 
-        out.push_str("# TYPE clawtex_obs_tool_success_rate gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_tool_success_rate gauge\n");
         out.push_str(&format!(
-            "clawtex_obs_tool_success_rate {:.4}\n",
+            "phantom_mesh_obs_tool_success_rate {:.4}\n",
             snap.tool_success_rate
         ));
 
-        out.push_str("# TYPE clawtex_obs_hand_completion_rate gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_hand_completion_rate gauge\n");
         out.push_str(&format!(
-            "clawtex_obs_hand_completion_rate {:.4}\n",
+            "phantom_mesh_obs_hand_completion_rate {:.4}\n",
             snap.hand_completion_rate
         ));
 
-        out.push_str("# TYPE clawtex_obs_llm_tokens_per_minute gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_llm_tokens_per_minute gauge\n");
         out.push_str(&format!(
-            "clawtex_obs_llm_tokens_per_minute {:.2}\n",
+            "phantom_mesh_obs_llm_tokens_per_minute {:.2}\n",
             snap.llm_tokens_per_minute
         ));
 
         // -- Per-worker utilization --
-        out.push_str("# TYPE clawtex_obs_worker_dispatches gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_worker_dispatches gauge\n");
         let mut workers: Vec<_> = snap.worker_utilization.iter().collect();
         workers.sort_by_key(|(k, _)| (*k).clone());
         for (worker, count) in &workers {
             out.push_str(&format!(
-                "clawtex_obs_worker_dispatches{{worker=\"{}\"}} {}\n",
+                "phantom_mesh_obs_worker_dispatches{{worker=\"{}\"}} {}\n",
                 worker, count
             ));
         }
 
         // -- Per-tool error rate --
-        out.push_str("# TYPE clawtex_obs_tool_error_rate gauge\n");
+        out.push_str("# TYPE phantom_mesh_obs_tool_error_rate gauge\n");
         let mut tools: Vec<_> = snap.error_rate_by_tool.iter().collect();
         tools.sort_by_key(|(k, _)| (*k).clone());
         for (tool, rate) in &tools {
             out.push_str(&format!(
-                "clawtex_obs_tool_error_rate{{tool=\"{}\"}} {:.4}\n",
+                "phantom_mesh_obs_tool_error_rate{{tool=\"{}\"}} {:.4}\n",
                 tool, rate
             ));
         }
@@ -292,43 +292,43 @@ impl ObservabilityEngine {
         // -- Dispatch latency histogram --
         let dispatches = self.dispatches.read().unwrap();
         let buckets = [10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0];
-        out.push_str("# TYPE clawtex_obs_dispatch_latency_ms histogram\n");
+        out.push_str("# TYPE phantom_mesh_obs_dispatch_latency_ms histogram\n");
         for bucket in &buckets {
             let count = dispatches.iter().filter(|d| (d.latency_ms as f64) <= *bucket).count();
             out.push_str(&format!(
-                "clawtex_obs_dispatch_latency_ms_bucket{{le=\"{}\"}} {}\n",
+                "phantom_mesh_obs_dispatch_latency_ms_bucket{{le=\"{}\"}} {}\n",
                 bucket, count
             ));
         }
         out.push_str(&format!(
-            "clawtex_obs_dispatch_latency_ms_bucket{{le=\"+Inf\"}} {}\n",
+            "phantom_mesh_obs_dispatch_latency_ms_bucket{{le=\"+Inf\"}} {}\n",
             dispatches.len()
         ));
         let sum_ms: u64 = dispatches.iter().map(|d| d.latency_ms).sum();
-        out.push_str(&format!("clawtex_obs_dispatch_latency_ms_sum {}\n", sum_ms));
+        out.push_str(&format!("phantom_mesh_obs_dispatch_latency_ms_sum {}\n", sum_ms));
         out.push_str(&format!(
-            "clawtex_obs_dispatch_latency_ms_count {}\n",
+            "phantom_mesh_obs_dispatch_latency_ms_count {}\n",
             dispatches.len()
         ));
 
         // -- LLM latency histogram --
         let llm_calls = self.llm_calls.read().unwrap();
-        out.push_str("# TYPE clawtex_obs_llm_latency_ms histogram\n");
+        out.push_str("# TYPE phantom_mesh_obs_llm_latency_ms histogram\n");
         for bucket in &buckets {
             let count = llm_calls.iter().filter(|c| (c.latency_ms as f64) <= *bucket).count();
             out.push_str(&format!(
-                "clawtex_obs_llm_latency_ms_bucket{{le=\"{}\"}} {}\n",
+                "phantom_mesh_obs_llm_latency_ms_bucket{{le=\"{}\"}} {}\n",
                 bucket, count
             ));
         }
         out.push_str(&format!(
-            "clawtex_obs_llm_latency_ms_bucket{{le=\"+Inf\"}} {}\n",
+            "phantom_mesh_obs_llm_latency_ms_bucket{{le=\"+Inf\"}} {}\n",
             llm_calls.len()
         ));
         let llm_sum: u64 = llm_calls.iter().map(|c| c.latency_ms).sum();
-        out.push_str(&format!("clawtex_obs_llm_latency_ms_sum {}\n", llm_sum));
+        out.push_str(&format!("phantom_mesh_obs_llm_latency_ms_sum {}\n", llm_sum));
         out.push_str(&format!(
-            "clawtex_obs_llm_latency_ms_count {}\n",
+            "phantom_mesh_obs_llm_latency_ms_count {}\n",
             llm_calls.len()
         ));
 
@@ -821,7 +821,7 @@ mod tests {
         let engine = ObservabilityEngine::new();
         engine.record_dispatch("w1", "shell", 50, true);
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_dispatch_total 1"));
+        assert!(prom.contains("phantom_mesh_obs_dispatch_total 1"));
     }
 
     #[test]
@@ -830,8 +830,8 @@ mod tests {
         engine.record_dispatch("w1", "t1", 100, true);
         engine.record_dispatch("w1", "t2", 200, false);
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_tool_success_rate"));
-        assert!(prom.contains("clawtex_obs_avg_dispatch_latency_ms"));
+        assert!(prom.contains("phantom_mesh_obs_tool_success_rate"));
+        assert!(prom.contains("phantom_mesh_obs_avg_dispatch_latency_ms"));
     }
 
     #[test]
@@ -840,9 +840,9 @@ mod tests {
         engine.record_dispatch("w1", "t1", 15, true);
         engine.record_dispatch("w1", "t2", 5000, true);
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_dispatch_latency_ms_bucket"));
-        assert!(prom.contains("clawtex_obs_dispatch_latency_ms_count 2"));
-        assert!(prom.contains("clawtex_obs_dispatch_latency_ms_sum 5015"));
+        assert!(prom.contains("phantom_mesh_obs_dispatch_latency_ms_bucket"));
+        assert!(prom.contains("phantom_mesh_obs_dispatch_latency_ms_count 2"));
+        assert!(prom.contains("phantom_mesh_obs_dispatch_latency_ms_sum 5015"));
     }
 
     #[test]
@@ -860,17 +860,17 @@ mod tests {
         let engine = ObservabilityEngine::new();
         engine.record_llm_call("gemini", "2.5pro", 1000, 500);
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_llm_latency_ms_bucket"));
-        assert!(prom.contains("clawtex_obs_llm_latency_ms_count 1"));
-        assert!(prom.contains("clawtex_obs_llm_latency_ms_sum 500"));
+        assert!(prom.contains("phantom_mesh_obs_llm_latency_ms_bucket"));
+        assert!(prom.contains("phantom_mesh_obs_llm_latency_ms_count 1"));
+        assert!(prom.contains("phantom_mesh_obs_llm_latency_ms_sum 500"));
     }
 
     #[test]
     fn test_prometheus_empty() {
         let engine = ObservabilityEngine::new();
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_dispatch_total 0"));
-        assert!(prom.contains("clawtex_obs_llm_call_total 0"));
+        assert!(prom.contains("phantom_mesh_obs_dispatch_total 0"));
+        assert!(prom.contains("phantom_mesh_obs_llm_call_total 0"));
     }
 
     #[test]
@@ -879,7 +879,7 @@ mod tests {
         engine.record_dispatch("w1", "shell", 10, false);
         engine.record_dispatch("w1", "shell", 20, false);
         let prom = engine.to_prometheus_text();
-        assert!(prom.contains("clawtex_obs_tool_error_rate{tool=\"shell\"}"));
+        assert!(prom.contains("phantom_mesh_obs_tool_error_rate{tool=\"shell\"}"));
     }
 
     // -- Dashboard summary --

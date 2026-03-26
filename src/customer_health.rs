@@ -4,7 +4,7 @@
 //! 1. **CustomerHealthManager** — weighted health scoring per customer (efficiency, quality, speed, satisfaction)
 //! 2. **ChurnDetector** — signal-based churn risk detection with alert lifecycle management
 //!
-//! Both backed by SQLite (~/.clawtex/customer_health.db).
+//! Both backed by SQLite (~/.phantom-mesh/customer_health.db).
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -696,7 +696,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_customer_health");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_customer_health");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);

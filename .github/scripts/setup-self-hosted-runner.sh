@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Clawtex-Core Self-Hosted Runner 安裝腳本
+# Phantom Mesh-Core Self-Hosted Runner 安裝腳本
 # 在 Z13 (或其他 Windows 機器) 上安裝 GitHub Actions Self-Hosted Runner
 #
 # 用法：bash setup-self-hosted-runner.sh <GITHUB_TOKEN> <RUNNER_NAME>
@@ -10,7 +10,7 @@ set -euo pipefail
 
 GITHUB_TOKEN="${1:?Usage: $0 <GITHUB_TOKEN> <RUNNER_NAME>}"
 RUNNER_NAME="${2:-$(hostname)}"
-REPO="markl-a/Clawtex"
+REPO="markl-a/Phantom Mesh"
 RUNNER_DIR="$HOME/actions-runner"
 
 echo "=== Setting up GitHub Actions Self-Hosted Runner ==="

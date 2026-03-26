@@ -1,4 +1,4 @@
-//! API versioning and deprecation system for Clawtex.
+//! API versioning and deprecation system for Phantom Mesh.
 //! Supports semver-style version negotiation, endpoint registration with deprecation
 //! tracking, and version extraction from HTTP headers and URL paths.
 
@@ -8,7 +8,7 @@ use std::fmt;
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-/// Current API version of the Clawtex daemon.
+/// Current API version of the Phantom Mesh daemon.
 pub const CURRENT_API_VERSION: ApiVersion = ApiVersion { major: 1, minor: 2, patch: 0 };
 
 /// Minimum API version that the daemon will still serve.

@@ -1,7 +1,7 @@
 {
-  "project": "clawtex-money-agent",
+  "project": "phantom-mesh-money-agent",
   "branchName": "ralph/money-agent",
-  "description": "Add browser use, vision, and money-making capabilities to clawtex-core agent",
+  "description": "Add browser use, vision, and money-making capabilities to phantom-mesh agent",
   "userStories": [
     {
       "id": "US-001",
@@ -11,7 +11,7 @@
         "src/tools/browser.rs exists with BrowserTool implementing Tool trait",
         "Tool supports actions: navigate, snapshot, click, type, screenshot, get_text",
         "Uses Python playwright subprocess (spawns a helper script)",
-        "Helper script created at ~/.clawtex/browser_helper.py",
+        "Helper script created at ~/.phantom-mesh/browser_helper.py",
         "Tool registered in ToolRegistry",
         "cargo test passes (lib tests)",
         "At least 3 unit tests for BrowserTool"
@@ -78,7 +78,7 @@
       "description": "As a user, I want a Hands system so that the agent can run structured multi-step workflows for specific money-making tasks",
       "acceptanceCriteria": [
         "src/hands/mod.rs exists with Hand struct and HandRunner",
-        "Hand definition loaded from TOML files (~/.clawtex/hands/<name>/hand.toml)",
+        "Hand definition loaded from TOML files (~/.phantom-mesh/hands/<name>/hand.toml)",
         "Each Hand has: name, description, phases (list of system prompts), tools, schedule, output_format",
         "HandRunner executes phases sequentially, each phase is one agent call",
         "Phase outputs chain as context to next phase",
@@ -95,7 +95,7 @@
       "title": "Lead Generation Hand",
       "description": "As a user, I want a lead generation hand so that the agent can autonomously find potential clients/leads from the web",
       "acceptanceCriteria": [
-        "~/.clawtex/hands/lead/hand.toml created with 4 phases: ICP definition, web research, lead scoring, report generation",
+        "~/.phantom-mesh/hands/lead/hand.toml created with 4 phases: ICP definition, web research, lead scoring, report generation",
         "Uses tools: web_search, browser, file_write, memory_store",
         "Outputs structured lead report (CSV + summary) to workspace",
         "Configurable: industry, location, company size, keywords",
@@ -111,7 +111,7 @@
       "title": "Web Research Hand",
       "description": "As a user, I want a deep research hand so that the agent can produce comprehensive research reports on any topic",
       "acceptanceCriteria": [
-        "~/.clawtex/hands/researcher/hand.toml created with 5 phases: question decomposition, multi-source research, cross-referencing, synthesis, report generation",
+        "~/.phantom-mesh/hands/researcher/hand.toml created with 5 phases: question decomposition, multi-source research, cross-referencing, synthesis, report generation",
         "Uses tools: web_search, browser, file_write, memory_store",
         "Outputs structured research report (Markdown) with source citations",
         "Configurable: depth (quick/standard/deep), format (brief/detailed/academic)",
@@ -127,7 +127,7 @@
       "title": "Content Creator Hand",
       "description": "As a user, I want a content creation hand so that the agent can generate social media posts, articles, and marketing content",
       "acceptanceCriteria": [
-        "~/.clawtex/hands/content/hand.toml created with 3 phases: topic research, content generation, quality review",
+        "~/.phantom-mesh/hands/content/hand.toml created with 3 phases: topic research, content generation, quality review",
         "Supports content types: tweet, thread, article, email_copy",
         "Style presets: professional, casual, witty, educational",
         "Outputs content with approval queue (file in workspace for review)",
@@ -179,7 +179,7 @@
       "acceptanceCriteria": [
         "Browser tool registered when playwright is available",
         "Vision tool registered when Gemini/Groq API key configured",
-        "Hands loaded from ~/.clawtex/hands/ on startup",
+        "Hands loaded from ~/.phantom-mesh/hands/ on startup",
         "Telegram commands: /hands, /hand <name>, approval Yes/No handling",
         "Email tool registered when SMTP configured",
         "Gemini and Groq providers added to router when configured",

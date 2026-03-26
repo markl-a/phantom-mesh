@@ -1,7 +1,7 @@
-# Clawtex 自主營利代理人系統 — 完整戰略與執行手冊
+# Phantom Mesh 自主營利代理人系統 — 完整戰略與執行手冊
 
 > 文件建立日期: 2026-03-03
-> 整合來源: Clawtex 現有 Hands 分析 + AI 收入引擎架構報告 + OpenClaw 營利深度研究
+> 整合來源: Phantom Mesh 現有 Hands 分析 + AI 收入引擎架構報告 + OpenClaw 營利深度研究
 > 版本: 1.0
 
 ---
@@ -19,12 +19,12 @@
   - [2.4 24/7 部署架構 (VPS vs 本地)](#24-247-部署架構)
   - [2.5 系統韌性與自動恢復](#25-系統韌性與自動恢復)
   - [2.6 網路安全與零信任架構](#26-網路安全與零信任架構)
-- [第三部分：軟體架構 — Clawtex-Core](#第三部分軟體架構--clawtex-core)
+- [第三部分：軟體架構 — Phantom-Mesh](#第三部分軟體架構--phantom-mesh)
   - [3.1 系統架構圖](#31-系統架構圖)
   - [3.2 Hands 工作流引擎](#32-hands-工作流引擎)
   - [3.3 工具清單 (15 工具)](#33-工具清單)
   - [3.4 Approval Gate 人機協作](#34-approval-gate-人機協作)
-  - [3.5 框架比較 (Clawtex vs 市場方案)](#35-框架比較)
+  - [3.5 框架比較 (Phantom Mesh vs 市場方案)](#35-框架比較)
 - [第四部分：10 大賺錢路線 — 完整執行方案](#第四部分10-大賺錢路線--完整執行方案)
   - [路線 A: AI 增強接案 (最快回本)](#路線-a-ai-增強接案-最快回本)
   - [路線 B: B2B 冷郵件銷售](#路線-b-b2b-冷郵件銷售)
@@ -75,7 +75,7 @@
 
 > **AI 代理人是生產力倍增器，不是印鈔機。它們放大已經合理的商業模式中的現有技能和系統。**
 
-把 Clawtex 想成一個「會自己接工具、會跑流程、住在 Telegram 裡的數位員工」。它支援多通訊平台入口、Gateway 控制平面、技能（skills/hands）機制、瀏覽器控制與節點分工。
+把 Phantom Mesh 想成一個「會自己接工具、會跑流程、住在 Telegram 裡的數位員工」。它支援多通訊平台入口、Gateway 控制平面、技能（skills/hands）機制、瀏覽器控制與節點分工。
 
 賺錢方式的核心公式：
 
@@ -197,7 +197,7 @@ Z13 平板形態限制了持續散熱能力。24/7 跑 100W+ 會導致持續風�
 
 **推薦方案**：混合架構
 - **本地 Z13**: 跑 LLM 推理 (llama.cpp)、敏感資料處理
-- **VPS**: 跑 clawtex-core daemon、Gateway、定時任務 (確保永不掉線)
+- **VPS**: 跑 phantom-mesh daemon、Gateway、定時任務 (確保永不掉線)
 - **連接**: Tailscale VPN 加密隧道
 
 ## 2.5 系統韌性與自動恢復
@@ -205,10 +205,10 @@ Z13 平板形態限制了持續散熱能力。24/7 跑 100W+ 會導致持續風�
 ```toml
 # systemd 服務配置範例 (Linux VPS)
 [Service]
-ExecStart=/usr/bin/clawtex-core daemon
+ExecStart=/usr/bin/phantom-mesh daemon
 Restart=always
 RestartSec=10
-Environment=CLAWTEX_CONFIG=/home/user/.clawtex/agents.toml
+Environment=PHANTOM_MESH_CONFIG=/home/user/.phantom-mesh/agents.toml
 ```
 
 ### 監視哨 (Watchdog) 機制
@@ -235,14 +235,14 @@ Environment=CLAWTEX_CONFIG=/home/user/.clawtex/agents.toml
 
 ---
 
-# 第三部分：軟體架構 — Clawtex-Core
+# 第三部分：軟體架構 — Phantom-Mesh
 
 ## 3.1 系統架構圖
 
 ```
 使用者 (Telegram Desktop / 手機 / HTTP API)
     ↓
-clawtex-core daemon (Rust, localhost:7878)
+phantom-mesh daemon (Rust, localhost:7878)
     ├── Telegram Handler → /hand, /approve, /deny, /estop, /resume
     ├── HTTP API Gateway
     │     ├── GET  /hands              (列出所有 Hands)
@@ -252,7 +252,7 @@ clawtex-core daemon (Rust, localhost:7878)
     │     ├── POST/DELETE/GET /estop   (緊急停止)
     │     ├── SSE  /stream/agent/:name (即時串流)
     │     └── WS   /ws/agent/:name     (WebSocket)
-    ├── Hand Registry → ~/.clawtex/hands/<name>/hand.toml
+    ├── Hand Registry → ~/.phantom-mesh/hands/<name>/hand.toml
     ├── Hand Runner → 逐 Phase 執行，上下文串聯
     ├── Tool Registry (15 工具)
     │     ├── web_search (Serper/Tavily)
@@ -278,7 +278,7 @@ clawtex-core daemon (Rust, localhost:7878)
     │     └── E-Stop (AtomicBool 緊急停止)
     └── Storage
           ├── SQLite memory.db (記憶/歷史/狀態)
-          └── Workspace ~/.clawtex/workspace/ (輸出檔)
+          └── Workspace ~/.phantom-mesh/workspace/ (輸出檔)
 ```
 
 ## 3.2 Hands 工作流引擎
@@ -299,7 +299,7 @@ Phase 3: [system_prompt + Phase2輸出 + 原始輸入] → Agent 輸出
 
 - `Hand` 結構: name, description, category, phases[], tools[], settings{}, output_format
 - `Phase` 結構: name, system_prompt, max_rounds (預設 5)
-- `HandRegistry`: 從 `~/.clawtex/hands/<name>/hand.toml` 載入
+- `HandRegistry`: 從 `~/.phantom-mesh/hands/<name>/hand.toml` 載入
 - `HandRunner`: 逐 Phase 執行，支援 Phase 級 max_rounds 限制
 - 每個 Phase 有 Telegram 進度回報 (⏳/✅/❌)
 
@@ -346,13 +346,13 @@ Agent 呼叫敏感工具 (email_send / http POST)
 
 | 框架 | 定位 | 最適用場景 | 特色 |
 |------|------|-----------|------|
-| **Clawtex** (我們的) | Rust 本地 agent | 全場景 | 15 工具, Hands 引擎, 多 LLM |
+| **Phantom Mesh** (我們的) | Rust 本地 agent | 全場景 | 15 工具, Hands 引擎, 多 LLM |
 | OpenClaw | 開源自主 agent (163K stars) | 個人助理 | 多平台入口, Skills, Heartbeat |
 | LangGraph | 有狀態工作流 | 生產級、需容錯 | Durable execution, checkpoint |
 | CrewAI | 多 agent 協作 | 內容產線 | 角色分工, 100K+ 開發者 |
 | n8n | 視覺化工作流 | 系統整合 | 400+ 整合, AI agent nodes |
 
-**Clawtex 的差異化**: Rust 寫的 = 效能好、記憶體安全；原生 Telegram 整合；多 LLM 路由；Hands TOML 定義 (不需要改程式碼就能加新流程)。
+**Phantom Mesh 的差異化**: Rust 寫的 = 效能好、記憶體安全；原生 Telegram 整合；多 LLM 路由；Hands TOML 定義 (不需要改程式碼就能加新流程)。
 
 ---
 
@@ -372,11 +372,11 @@ Agent 呼叫敏感工具 (email_send / http POST)
 
 ### 運作模式
 ```
-Clawtex Freelancer Hand → 找工作+寫提案 (自動化)
+Phantom Mesh Freelancer Hand → 找工作+寫提案 (自動化)
     ↓
 你: 審核提案品質 → 提交申請 (人工，平台禁止自動投遞)
     ↓
-接到案子 → Clawtex 協助產出交付物
+接到案子 → Phantom Mesh 協助產出交付物
     ↓
 你: 品質把關 → 交付給客戶
 ```
@@ -552,7 +552,7 @@ AdSense + 聯盟行銷佣金 → 被動收入
 
 ## 路線 F: 付費技能 / Agent Pack (可規模化)
 
-> 賣「垂直產業 Agent 包」— 這是 Clawtex 最自然的商業模式
+> 賣「垂直產業 Agent 包」— 這是 Phantom Mesh 最自然的商業模式
 
 ### 產品形式
 1. **付費 Skills (單一技能)**
@@ -571,7 +571,7 @@ AdSense + 聯盟行銷佣金 → 被動收入
    - 一次性買斷 + 年維護費
    - 訂閱 (含更新/新模板/新工具整合)
 
-### Clawtex 的天然優勢
+### Phantom Mesh 的天然優勢
 - Hands TOML 定義 = 配置即代碼，不需重新編譯
 - 新增產業包只需要寫新的 TOML 檔案
 - 客戶可以自己修改參數
@@ -645,7 +645,7 @@ AdSense + 聯盟行銷佣金 → 被動收入
 ### 技術堆疊
 - FastAPI + React + Supabase + Stripe
 - Langfuse (MIT-licensed) 作為基礎
-- 用 Clawtex 的 ProviderRouter 經驗作為差異化
+- 用 Phantom Mesh 的 ProviderRouter 經驗作為差異化
 
 ### 收入預測 (Micro-SaaS 模式)
 - **70% 的 Micro-SaaS 停留在 $1,000/月以下**
@@ -831,7 +831,7 @@ Phase 3: quality_review (3 rds) → file_write → content_output.md, content_qu
 **支援路線**: C1 (B2B 自動化訂閱)
 
 ```toml
-# ~/.clawtex/hands/auto_report/hand.toml (設計稿)
+# ~/.phantom-mesh/hands/auto_report/hand.toml (設計稿)
 [hand]
 name = "auto_report"
 description = "定時數據拉取 + 摘要生成 + 異常告警"
@@ -1041,23 +1041,23 @@ Lead + Outreach (找客戶)
 ### 1. Prompt Caching (提示詞快取)
 - 長系統指令/知識庫啟用快取
 - **降低 ~90% 輸入成本，減少 75% 延遲**
-- Clawtex 的 Hands system_prompt 是完美的快取候選
+- Phantom Mesh 的 Hands system_prompt 是完美的快取候選
 
 ### 2. Model Routing (模型路由)
 - 簡單任務 → 本地 Qwen 3 (免費)
 - 中等任務 → Claude Haiku ($1/$5 per M tokens)
 - 複雜任務 → Claude Sonnet ($3/$15 per M tokens)
-- **Clawtex 已有 ProviderRouter，需要加入智慧分類邏輯**
+- **Phantom Mesh 已有 ProviderRouter，需要加入智慧分類邏輯**
 
 ### 3. Dynamic Turn Limits (動態輪次限制)
 - 不用硬性上限，根據任務成功機率動態退出
 - 研究顯示可**節省 24% 成本**
-- Clawtex 已有 phase-level max_rounds，可以更精細
+- Phantom Mesh 已有 phase-level max_rounds，可以更精細
 
 ### 4. Semantic Caching (語義快取)
 - 本地 Redis/SQLite 存常見問答
 - 重複性高的詢問直接讀取，完全跳過 LLM
-- Clawtex 的 memory_store/recall 已有基礎
+- Phantom Mesh 的 memory_store/recall 已有基礎
 
 ## 8.3 不同規模的月度成本預估
 
@@ -1077,7 +1077,7 @@ Lead + Outreach (找客戶)
 ## 為什麼重要？
 依賴網頁操作的營利模式（自動化搜尋、社交互動、電商監控）必須避開平台反機器人偵測。
 
-## Clawtex 瀏覽器工具現狀
+## Phantom Mesh 瀏覽器工具現狀
 - 基於 Playwright (CDP 協議) 直接控制 Chromium
 - 支援: navigate, snapshot, click, type, screenshot, get_text, close
 - 可見性樹快照 (accessibility tree) = 不需要截圖也能理解頁面
@@ -1122,7 +1122,7 @@ Lead + Outreach (找客戶)
 3. **行為審計**: 靜態+動態分析
 4. **預算硬上限**: API 提供商端設每日支出上限
 5. **最小權限**: 非 root 用戶、隔離環境、金鑰輪替
-6. **Clawtex 已有**: ChaCha20 加密, Credential Scrubbing, E-Stop
+6. **Phantom Mesh 已有**: ChaCha20 加密, Credential Scrubbing, E-Stop
 
 ## 10.2 台灣法律與稅務
 
@@ -1200,7 +1200,7 @@ Lead + Outreach (找客戶)
 **預期收入**: $500-1,200/月
 
 - [ ] 基於口碑提高接案費率
-- [ ] CrewAI/Clawtex 自動化內容產線
+- [ ] CrewAI/Phantom Mesh 自動化內容產線
 - [ ] SEO 文章開始產生複利效應
 - [ ] 如果做 SaaS，早期用戶提供回饋
 - [ ] 開始探索 B2B 訂閱 (路線 C)
@@ -1341,7 +1341,7 @@ Lead + Outreach (找客戶)
 
 ## E. 傳統自動化 vs AI Agent 比較
 
-| 維度 | 傳統工具 (RPA/Scripts) | Clawtex Agent |
+| 維度 | 傳統工具 (RPA/Scripts) | Phantom Mesh Agent |
 |------|---------------------|--------------|
 | 環境適應性 | 固定選擇器，改版即壞 | 語義理解，動態適應 |
 | 決策能力 | If-Then 邏輯 | 自主推理 |
@@ -1360,8 +1360,8 @@ Lead + Outreach (找客戶)
 | 電腦控制計畫 | Memory: `computer-browser-use-plan.md` | OmniParser V2 |
 | 參考專案分析 | Memory: `reference-projects.md` | 14 個外部專案 |
 | ZeroClaw 架構 | Memory: `zeroclaw-analysis.md` | ZeroClaw 分析 |
-| 主配置檔 | `~/.clawtex/agents.toml` | 運行時配置 |
-| Hand 定義 | `~/.clawtex/hands/*/hand.toml` | 工作流定義 |
+| 主配置檔 | `~/.phantom-mesh/agents.toml` | 運行時配置 |
+| Hand 定義 | `~/.phantom-mesh/hands/*/hand.toml` | 工作流定義 |
 
 ---
 

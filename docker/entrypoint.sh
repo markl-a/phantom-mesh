@@ -1,5 +1,5 @@
 #!/bin/bash
-# Clawtex Sandbox Entrypoint
+# Phantom Mesh Sandbox Entrypoint
 # Starts Xvfb + Mutter + Tint2 + x11vnc + noVNC
 
 set -e
@@ -8,7 +8,7 @@ WIDTH=${WIDTH:-1024}
 HEIGHT=${HEIGHT:-768}
 DEPTH=${DEPTH:-24}
 
-echo "Starting Clawtex Sandbox: ${WIDTH}x${HEIGHT}x${DEPTH}"
+echo "Starting Phantom Mesh Sandbox: ${WIDTH}x${HEIGHT}x${DEPTH}"
 
 # Start virtual display
 Xvfb :1 -screen 0 ${WIDTH}x${HEIGHT}x${DEPTH} -ac +extension GLX +render -noreset &

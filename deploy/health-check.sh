@@ -64,7 +64,7 @@ except: print('?')
         fi
     fi
 
-    # clawtex-core
+    # phantom-mesh
     if [[ -n "$core_url" ]]; then
         local health_json
         health_json=$(curl -sf --max-time 5 "${core_url}/health" 2>/dev/null) || true
@@ -104,7 +104,7 @@ run_check() {
     if [[ "$JSON_OUTPUT" != "true" ]]; then
         echo ""
         echo "================================================"
-        echo " Clawtex 集群健康檢查 - $(date '+%Y-%m-%d %H:%M:%S')"
+        echo " Phantom Mesh 集群健康檢查 - $(date '+%Y-%m-%d %H:%M:%S')"
         echo "================================================"
         echo ""
     fi

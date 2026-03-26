@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug to help us improve Clawtex
+about: Report a bug to help us improve Phantom Mesh
 title: "[Bug] "
 labels: bug
 assignees: ''
@@ -28,9 +28,9 @@ What actually happened. Include error messages, logs, or stack traces if availab
 
 - **OS**: (e.g., Windows 11, macOS 14, Ubuntu 24.04)
 - **Rust version**: (output of `rustc --version`)
-- **Clawtex version/commit**: (output of `git rev-parse --short HEAD`)
+- **Phantom Mesh version/commit**: (output of `git rev-parse --short HEAD`)
 - **Provider(s) in use**: (e.g., ollama, gemini, groq)
-- **Relevant config**: (sanitized excerpt from `~/.clawtex/agents.toml`, if applicable)
+- **Relevant config**: (sanitized excerpt from `~/.phantom-mesh/agents.toml`, if applicable)
 
 ## Logs
 

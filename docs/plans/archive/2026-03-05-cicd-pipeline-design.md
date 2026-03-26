@@ -1,4 +1,4 @@
-# Clawtex-Core CI/CD 管線設計文件
+# Phantom-Mesh CI/CD 管線設計文件
 
 > 日期：2026-03-05
 > 狀態：設計完成，待實施
@@ -299,12 +299,12 @@ bash .github/scripts/setup-self-hosted-runner.sh <YOUR_GITHUB_PAT> z13-runner
 **SSH Key 設定：**
 ```bash
 # 在 Z13 上生成部署用 SSH key
-ssh-keygen -t ed25519 -C "clawtex-deploy" -f ~/.ssh/clawtex_deploy
+ssh-keygen -t ed25519 -C "phantom-mesh-deploy" -f ~/.ssh/phantom-mesh_deploy
 
 # 把公鑰加到各 worker 的 authorized_keys
-ssh-copy-id -i ~/.ssh/clawtex_deploy.pub user@acer.local
-ssh-copy-id -i ~/.ssh/clawtex_deploy.pub user@ayaneo.local
-ssh-copy-id -i ~/.ssh/clawtex_deploy.pub user@nuc.local
+ssh-copy-id -i ~/.ssh/phantom-mesh_deploy.pub user@acer.local
+ssh-copy-id -i ~/.ssh/phantom-mesh_deploy.pub user@ayaneo.local
+ssh-copy-id -i ~/.ssh/phantom-mesh_deploy.pub user@nuc.local
 
 # 把私鑰加到 GitHub Secrets → SSH_PRIVATE_KEY
 ```
@@ -370,12 +370,12 @@ async fn test_telegram_send_message() {
 
 ### 5.3 Mock External Tools
 
-**策略：** Tool 執行在 `ToolRegistry::execute()` 中。CI 環境設定 `CLAWTEX_CI=1`，工具行為變更：
+**策略：** Tool 執行在 `ToolRegistry::execute()` 中。CI 環境設定 `PHANTOM_MESH_CI=1`，工具行為變更：
 
 ```rust
 // 在 tool 實作中檢查 CI 環境
 fn should_mock() -> bool {
-    std::env::var("CLAWTEX_CI").is_ok()
+    std::env::var("PHANTOM_MESH_CI").is_ok()
 }
 
 // shell tool: CI 中拒絕危險指令
@@ -439,7 +439,7 @@ CI Pass (main/release)
 ```bash
 # 自動 rollback（deploy.yml 已包含）
 if ! curl -sf http://localhost:7878/status; then
-    docker compose rollback clawtex-core
+    docker compose rollback phantom-mesh
     # 或者手動：
     # docker compose up -d --force-recreate --image <previous-sha>
 fi
@@ -600,14 +600,14 @@ Secrets:
 
 Variables:
 ├── RUST_LOG              = "info"
-└── DOCKER_REGISTRY       = "ghcr.io/markl-a/clawtex"
+└── DOCKER_REGISTRY       = "ghcr.io/markl-a/phantom-mesh"
 ```
 
 ### 9.2 本地開發 Secrets
 
-使用 clawtex-core 自帶的加密機制（ChaCha20-Poly1305）：
+使用 phantom-mesh 自帶的加密機制（ChaCha20-Poly1305）：
 ```bash
-clawtex-core encrypt-secret "my-api-key-value"
+phantom-mesh encrypt-secret "my-api-key-value"
 # 輸出: enc2:abcdef1234...
 # 貼到 agents.toml 中
 ```
@@ -616,7 +616,7 @@ clawtex-core encrypt-secret "my-api-key-value"
 
 ```yaml
 env:
-  CLAWTEX_CI: "1"           # 標記 CI 環境，tool mock 啟用
+  PHANTOM_MESH_CI: "1"           # 標記 CI 環境，tool mock 啟用
   RUST_BACKTRACE: 1          # 錯誤追蹤
   CARGO_TERM_COLOR: always   # 彩色輸出
   RUSTFLAGS: "-D warnings"   # 警告即錯誤
@@ -686,9 +686,9 @@ cargo audit
 
 # 3. 推送到 GitHub
 git init
-git remote add origin https://github.com/markl-a/Clawtex.git
+git remote add origin https://github.com/markl-a/Phantom Mesh.git
 git add .
-git commit -m "initial: clawtex-core with CI/CD pipeline"
+git commit -m "initial: phantom-mesh with CI/CD pipeline"
 git push -u origin main
 ```
 

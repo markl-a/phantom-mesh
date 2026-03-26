@@ -1,4 +1,4 @@
-# Clawtex 8-Machine AI Cluster Security Architecture
+# Phantom Mesh 8-Machine AI Cluster Security Architecture
 
 Date: 2026-03-05
 Author: Security Architecture Review
@@ -8,7 +8,7 @@ Status: Design Complete / Pending Implementation
 
 ## 1. Executive Summary
 
-本文件為 Clawtex 8 機 AI 集群設計完整的安全架構。基於對現有程式碼的全面審計（`src/security/`、`src/tools/shell.rs`、`src/gateway.rs`、`src/telegram.rs`、`src/main.rs`），識別出以下關鍵風險區域並提出具體防護措施。
+本文件為 Phantom Mesh 8 機 AI 集群設計完整的安全架構。基於對現有程式碼的全面審計（`src/security/`、`src/tools/shell.rs`、`src/gateway.rs`、`src/telegram.rs`、`src/main.rs`），識別出以下關鍵風險區域並提出具體防護措施。
 
 **當前安全狀態評估：中等風險**
 - 已有：ChaCha20-Poly1305 加密、Shell 命令白名單、Telegram 用戶白名單、Credential Scrubbing、E-Stop、Autonomy Levels、RBAC 框架（未接線）
@@ -22,14 +22,14 @@ Status: Design Complete / Pending Implementation
 
 | 資產 | 位置 | 敏感度 | 說明 |
 |------|------|--------|------|
-| API Keys | `~/.clawtex/agents.toml` | 極高 | Telegram, Gemini, Twitter OAuth, Gmail SMTP, Stripe, Render |
-| 加密金鑰 | `~/.clawtex/.secret_key` | 極高 | ChaCha20-Poly1305 主金鑰 |
+| API Keys | `~/.phantom-mesh/agents.toml` | 極高 | Telegram, Gemini, Twitter OAuth, Gmail SMTP, Stripe, Render |
+| 加密金鑰 | `~/.phantom-mesh/.secret_key` | 極高 | ChaCha20-Poly1305 主金鑰 |
 | SSH 私鑰 | `~/.ssh/id_ed25519` | 極高 | 集群間認證 |
 | 客戶資料 | SQLite DB (`core.db`) | 高 | Email 地址、Freelancing 聯絡人、CRM 資料 |
 | 對話紀錄 | SQLite DB | 中 | 用戶與 Agent 的對話歷史 |
 | 記憶資料 | `memory.db` | 中 | 語意記憶（可能含客戶資料） |
 | 模型權重 | `/var/lib/ollama/models/` | 中 | 本地 LLM 模型 |
-| 程式碼 | `clawtex-core/` | 中 | 業務邏輯、工具實作 |
+| 程式碼 | `phantom-mesh/` | 中 | 業務邏輯、工具實作 |
 
 ### 2.2 威脅來源
 
@@ -55,7 +55,7 @@ Status: Design Complete / Pending Implementation
                   [Bot Token]        <-- 洩漏 = 完全控制
                        |
             +----------+----------+
-            |    clawtex-core     |
+            |    phantom-mesh     |
             |    (Hub Machine)    |
             +----------+----------+
             |          |          |
@@ -151,7 +151,7 @@ server {
     ssl_certificate_key /etc/nginx/certs/ollama.key;
 
     # API Key 驗證
-    set $expected_key "CLAWTEX_OLLAMA_KEY_CHANGE_ME";
+    set $expected_key "PHANTOM_MESH_OLLAMA_KEY_CHANGE_ME";
 
     location / {
         # 檢查 API Key
@@ -180,7 +180,7 @@ server {
 Environment="OLLAMA_HOST=127.0.0.1:11434"
 ```
 
-**Clawtex Provider 端修改**
+**Phantom Mesh Provider 端修改**
 
 ```rust
 // src/providers/ollama.rs — 新增 API Key header
@@ -216,7 +216,7 @@ agents.toml (Hub):
   [email]
   smtp_password = "app-password-here"   # 明文！
 
-~/.clawtex/.secret_key:
+~/.phantom-mesh/.secret_key:
   <hex-encoded 256-bit key>             # 檔案權限: 0600 (Unix) / ACL (Windows)
 ```
 
@@ -234,7 +234,7 @@ agents.toml (Hub):
 | Render API Key | Yes | No | Hub `agents.toml` (enc2:) |
 | Ollama API Key | Yes | Yes (各自) | Hub: `agents.toml` (enc2:); Worker: Nginx config |
 | SSH Private Key | Yes | No | `~/.ssh/id_ed25519` (0600) |
-| ChaCha20 Master Key | Yes | No | `~/.clawtex/.secret_key` (0600) |
+| ChaCha20 Master Key | Yes | No | `~/.phantom-mesh/.secret_key` (0600) |
 
 **關鍵原則：Worker 機器不存放任何 API Key（除了自身的 Ollama proxy key）。所有外部 API 呼叫由 Hub 發起。**
 
@@ -244,7 +244,7 @@ agents.toml (Hub):
 
 ```bash
 # 使用 CLI 加密所有 secret
-clawtex-core encrypt-secret "7654321:AAH..."
+phantom-mesh encrypt-secret "7654321:AAH..."
 # Output: enc2:a4b7c9d2e1f0...
 
 # agents.toml 改為：
@@ -271,7 +271,7 @@ fn warn_plaintext_secrets(config: &toml::Value) {
                         if let toml::Value::String(s) = val {
                             if !s.starts_with("enc2:") && !s.is_empty() {
                                 warnings.push(format!(
-                                    "SECURITY WARNING: {} contains plaintext secret. Use `clawtex-core encrypt-secret` to encrypt it.",
+                                    "SECURITY WARNING: {} contains plaintext secret. Use `phantom-mesh encrypt-secret` to encrypt it.",
                                     p
                                 ));
                             }
@@ -334,13 +334,13 @@ action = { type = "agent", agent = "master", prompt = "Check if any API keys nee
 | 來源 | 目的 | 協議 | 加密 | 狀態 |
 |------|------|------|------|------|
 | User | Telegram API | HTTPS | TLS 1.3 | OK |
-| Telegram API | clawtex-core | HTTPS (long-poll) | TLS 1.3 | OK |
-| clawtex-core | Ollama (local) | HTTP | 無 | 可接受 (loopback) |
-| clawtex-core | Ollama (Worker) | HTTP over Tailscale | WireGuard | OK (Tailscale) |
-| clawtex-core | External APIs | HTTPS | TLS 1.3 | OK |
-| clawtex-core | HTTP Client | HTTP | 無 | **高風險** |
+| Telegram API | phantom-mesh | HTTPS (long-poll) | TLS 1.3 | OK |
+| phantom-mesh | Ollama (local) | HTTP | 無 | 可接受 (loopback) |
+| phantom-mesh | Ollama (Worker) | HTTP over Tailscale | WireGuard | OK (Tailscale) |
+| phantom-mesh | External APIs | HTTPS | TLS 1.3 | OK |
+| phantom-mesh | HTTP Client | HTTP | 無 | **高風險** |
 | SSH | Workers | SSH | Ed25519 | OK |
-| Browser | clawtex-core | HTTP/WS | 無 | **需修復** |
+| Browser | phantom-mesh | HTTP/WS | 無 | **需修復** |
 
 ### 5.2 LAN 內 Ollama 通訊
 
@@ -351,7 +351,7 @@ action = { type = "agent", agent = "master", prompt = "Check if any API keys nee
 ```bash
 # 生成 CA
 openssl req -x509 -newkey rsa:4096 -days 365 -nodes \
-  -keyout ca.key -out ca.crt -subj "/CN=Clawtex CA"
+  -keyout ca.key -out ca.crt -subj "/CN=Phantom Mesh CA"
 
 # 為每台機器生成證書
 for host in hub worker1 worker2 ...; do
@@ -377,14 +377,14 @@ OLLAMA_HOST=0.0.0.0:11434  # 只在 Tailscale 網路上暴露
 
 ### 5.4 HTTP API 加密
 
-clawtex-core 的 HTTP API (port 7878) 目前無 TLS。需要：
+phantom-mesh 的 HTTP API (port 7878) 目前無 TLS。需要：
 
 ```nginx
 # Hub 上的 Nginx (如果需要外部存取)
 server {
     listen 443 ssl;
-    ssl_certificate /etc/letsencrypt/live/clawtex.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/clawtex.example.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/phantom-mesh.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/phantom-mesh.example.com/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:7878;
@@ -890,7 +890,7 @@ PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
 MaxAuthTries 3
 LoginGraceTime 30
-AllowUsers clawtex
+AllowUsers phantom-mesh
 
 # 只允許 Tailscale IP 連入
 ListenAddress 100.x.y.z  # Tailscale IP only
@@ -912,16 +912,16 @@ ssh-keygen -t ed25519 -f "$NEW_KEY" -N ""
 
 # 部署到所有 Worker (需要舊 key 仍有效)
 for worker in worker1 worker2 worker3 worker4 worker5 worker6 worker7; do
-    ssh-copy-id -i "$NEW_KEY.pub" clawtex@$worker
+    ssh-copy-id -i "$NEW_KEY.pub" phantom-mesh@$worker
 done
 
 # 驗證新 key 可用
 for worker in worker1 worker2 worker3 worker4 worker5 worker6 worker7; do
-    ssh -i "$NEW_KEY" clawtex@$worker "echo OK" || echo "FAILED: $worker"
+    ssh -i "$NEW_KEY" phantom-mesh@$worker "echo OK" || echo "FAILED: $worker"
 done
 
 # 移除舊 key (手動確認後執行)
-echo "Run: ssh clawtex@<worker> 'sed -i.bak \"/<old-key-fingerprint>/d\" ~/.ssh/authorized_keys'"
+echo "Run: ssh phantom-mesh@<worker> 'sed -i.bak \"/<old-key-fingerprint>/d\" ~/.ssh/authorized_keys'"
 ```
 
 ---
@@ -1138,7 +1138,7 @@ Recent Security Events:
               +─────────────+─────────────+
               |        Hub Machine         |
               |                            |
-              |  clawtex-core (port 7878)  |
+              |  phantom-mesh (port 7878)  |
               |  ┌────────────────────┐    |
               |  │ Auth Middleware     │    |  Bearer Token
               |  │ RBAC Check         │    |  Role-based
@@ -1244,7 +1244,7 @@ admins = []
 operators = []
 
 [security]
-workspace_dir = "~/.clawtex/workspace"
+workspace_dir = "~/.phantom-mesh/workspace"
 workspace_only = true
 allowed_commands = ["ls", "cat", "echo", "git", "python", "node", "npm", "cargo", "rustc", "find", "grep", "wc", "sort", "head", "tail"]
 scrub_credentials = true
@@ -1274,6 +1274,6 @@ api_key = "enc2:xxx"
 
 [audit]
 enabled = true
-db_path = "~/.clawtex/audit.db"
+db_path = "~/.phantom-mesh/audit.db"
 retention_days = 365
 ```

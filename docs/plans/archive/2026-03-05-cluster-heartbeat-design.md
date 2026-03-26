@@ -1,4 +1,4 @@
-# Clawtex 8-Machine Cluster: Heartbeat Monitoring與容錯機制設計
+# Phantom Mesh 8-Machine Cluster: Heartbeat Monitoring與容錯機制設計
 
 > 日期: 2026-03-05
 > 狀態: 設計完成，待實作
@@ -866,7 +866,7 @@ pub enum RecoveryResult {
 ### 9.2 每日狀態報告
 
 ```
-📊 Clawtex Cluster Daily Report (2026-03-05)
+📊 Phantom Mesh Cluster Daily Report (2026-03-05)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Nodes: 7/8 online (87.5%)
@@ -1719,7 +1719,7 @@ impl ProviderRouter {
 ### 11.1 agents.toml 新增 [cluster] 區段
 
 ```toml
-# ~/.clawtex/agents.toml
+# ~/.phantom-mesh/agents.toml
 
 # ── 現有設定 (不變) ──
 [providers.ollama]
@@ -2122,4 +2122,4 @@ async fn test_alert_dedup() {
 
 ---
 
-*本文件由 Clawtex 分散式系統可靠性工程設計，版本 1.0*
+*本文件由 Phantom Mesh 分散式系統可靠性工程設計，版本 1.0*

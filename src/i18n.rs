@@ -1,4 +1,4 @@
-// i18n.rs — Internationalization framework for Clawtex
+// i18n.rs — Internationalization framework for Phantom Mesh
 //
 // Provides a global `I18n` instance with locale-aware translation lookup,
 // fallback to the default locale, and a `t!` macro for ergonomic access.
@@ -14,7 +14,7 @@ use once_cell::sync::Lazy;
 
 fn builtin_en() -> HashMap<String, String> {
     let mut m = HashMap::new();
-    m.insert("welcome".into(), "Welcome to Clawtex!".into());
+    m.insert("welcome".into(), "Welcome to Phantom Mesh!".into());
     m.insert("error.not_found".into(), "Resource not found.".into());
     m.insert("error.permission_denied".into(), "Permission denied.".into());
     m.insert("tool.executing".into(), "Executing tool…".into());
@@ -29,7 +29,7 @@ fn builtin_en() -> HashMap<String, String> {
 
 fn builtin_zh_tw() -> HashMap<String, String> {
     let mut m = HashMap::new();
-    m.insert("welcome".into(), "歡迎使用 Clawtex！".into());
+    m.insert("welcome".into(), "歡迎使用 Phantom Mesh！".into());
     m.insert("error.not_found".into(), "找不到資源。".into());
     m.insert("error.permission_denied".into(), "存取遭拒。".into());
     m.insert("tool.executing".into(), "工具執行中…".into());
@@ -44,7 +44,7 @@ fn builtin_zh_tw() -> HashMap<String, String> {
 
 fn builtin_ja() -> HashMap<String, String> {
     let mut m = HashMap::new();
-    m.insert("welcome".into(), "Clawtex へようこそ！".into());
+    m.insert("welcome".into(), "Phantom Mesh へようこそ！".into());
     m.insert("error.not_found".into(), "リソースが見つかりません。".into());
     m.insert("error.permission_denied".into(), "アクセスが拒否されました。".into());
     m.insert("tool.executing".into(), "ツール実行中…".into());
@@ -59,7 +59,7 @@ fn builtin_ja() -> HashMap<String, String> {
 
 fn builtin_zh_cn() -> HashMap<String, String> {
     let mut m = HashMap::new();
-    m.insert("welcome".into(), "欢迎使用 Clawtex！".into());
+    m.insert("welcome".into(), "欢迎使用 Phantom Mesh！".into());
     m.insert("error.not_found".into(), "找不到资源。".into());
     m.insert("error.permission_denied".into(), "访问被拒绝。".into());
     m.insert("tool.executing".into(), "工具执行中…".into());
@@ -74,7 +74,7 @@ fn builtin_zh_cn() -> HashMap<String, String> {
 
 fn builtin_ko() -> HashMap<String, String> {
     let mut m = HashMap::new();
-    m.insert("welcome".into(), "Clawtex에 오신 것을 환영합니다!".into());
+    m.insert("welcome".into(), "Phantom Mesh에 오신 것을 환영합니다!".into());
     m.insert("error.not_found".into(), "리소스를 찾을 수 없습니다.".into());
     m.insert("error.permission_denied".into(), "접근이 거부되었습니다.".into());
     m.insert("tool.executing".into(), "도구 실행 중…".into());
@@ -217,7 +217,7 @@ pub static I18N: Lazy<Mutex<I18n>> = Lazy::new(|| Mutex::new(I18n::new("en")));
 ///
 /// # Examples
 /// ```
-/// use clawtex_core::t;
+/// use phantom_mesh::t;
 /// let msg: String = t!("welcome");
 /// assert!(!msg.is_empty());
 /// ```
@@ -242,7 +242,7 @@ mod tests {
 
     fn make_fr() -> HashMap<String, String> {
         let mut m = HashMap::new();
-        m.insert("welcome".into(), "Bienvenue dans Clawtex !".into());
+        m.insert("welcome".into(), "Bienvenue dans Phantom Mesh !".into());
         m.insert("error.not_found".into(), "Ressource introuvable.".into());
         m
     }
@@ -257,7 +257,7 @@ mod tests {
         i18n.load_locale("fr", make_fr());
 
         i18n.set_locale("fr");
-        assert_eq!(i18n.t("welcome"), "Bienvenue dans Clawtex !");
+        assert_eq!(i18n.t("welcome"), "Bienvenue dans Phantom Mesh !");
         assert_eq!(i18n.t("error.not_found"), "Ressource introuvable.");
     }
 
@@ -296,12 +296,12 @@ mod tests {
 
         // Default locale is "en".
         assert_eq!(i18n.current_locale(), "en");
-        assert_eq!(i18n.t("welcome"), "Welcome to Clawtex!");
+        assert_eq!(i18n.t("welcome"), "Welcome to Phantom Mesh!");
 
         // Switch to zh-TW (built-in).
         i18n.set_locale("zh-TW");
         assert_eq!(i18n.current_locale(), "zh-TW");
-        assert_eq!(i18n.t("welcome"), "歡迎使用 Clawtex！");
+        assert_eq!(i18n.t("welcome"), "歡迎使用 Phantom Mesh！");
     }
 
     // -----------------------------------------------------------------------
@@ -360,7 +360,7 @@ mod tests {
         let mut i18n = I18n::new("en");
         i18n.set_locale("xx-YY"); // truly unknown locale
         // "welcome" exists in en (the default), so fallback kicks in.
-        assert_eq!(i18n.t("welcome"), "Welcome to Clawtex!");
+        assert_eq!(i18n.t("welcome"), "Welcome to Phantom Mesh!");
         // Completely unknown key still returns the key itself.
         assert_eq!(i18n.t("no.such.key"), "no.such.key");
     }

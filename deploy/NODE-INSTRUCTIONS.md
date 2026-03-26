@@ -1,4 +1,4 @@
-# Clawtex 集群部署指令 — 每台設備一步步執行
+# Phantom Mesh 集群部署指令 — 每台設備一步步執行
 
 ## 網路架構
 
@@ -19,7 +19,7 @@
 **家裡設備** (Ayaneo, Aspire 5, Android x2) → 用 LAN IP `10.0.1.1:7878`
 **辦公室設備** (M1 Mac, iPhone, iPad) → 用 Tailscale IP `<Z13_TS_IP>:7878`
 
-Repo: `https://github.com/markl-a/Clawtex.git` branch `ralph/money-agent`
+Repo: `https://github.com/markl-a/Phantom Mesh.git` branch `ralph/money-agent`
 
 ---
 
@@ -60,8 +60,8 @@ Hub 已在 Z13 上運行，綁定 `0.0.0.0:7878`（接受 LAN + Tailscale 連線
 
 如果需要重新啟動：
 ```bash
-cd Clawtex/clawtex-core
-./target/release/clawtex-core.exe --host 0.0.0.0 --port 7878 daemon
+cd Phantom Mesh/phantom-mesh
+./target/release/phantom-mesh.exe --host 0.0.0.0 --port 7878 daemon
 ```
 
 ---
@@ -71,7 +71,7 @@ cd Clawtex/clawtex-core
 在 M1 Mac 上開 Claude Code，貼以下指令：
 
 ```
-幫我設定 Clawtex cluster worker。這台機器在辦公室，透過 Tailscale 連回家裡的 Hub。步驟：
+幫我設定 Phantom Mesh cluster worker。這台機器在辦公室，透過 Tailscale 連回家裡的 Hub。步驟：
 
 1. 確認 Tailscale 已連線：
    tailscale status
@@ -79,28 +79,28 @@ cd Clawtex/clawtex-core
    （如果 ping 不通，先確認 Tailscale 登入狀態）
 
 2. Clone repo（如果還沒有的話）:
-   git clone https://github.com/markl-a/Clawtex.git
-   cd Clawtex/clawtex-core
+   git clone https://github.com/markl-a/Phantom Mesh.git
+   cd Phantom Mesh/phantom-mesh
    git checkout ralph/money-agent
 
 3. Build release:
    cargo build --release
 
 4. 啟動 Full Worker（背景執行）:
-   nohup ./target/release/clawtex-core worker --hub http://<Z13_TS_IP>:7878 --name m1-mac --port 7879 > /tmp/clawtex-worker.log 2>&1 &
+   nohup ./target/release/phantom-mesh worker --hub http://<Z13_TS_IP>:7878 --name m1-mac --port 7879 > /tmp/phantom-mesh-worker.log 2>&1 &
 
 5. 驗證:
    curl http://localhost:7879/health
    curl http://<Z13_TS_IP>:7878/cluster/workers
 
 6. 設定 iPhone light worker:
-   把 Clawtex/clawtex-core/deploy/cluster-package/light-worker/clawtex-worker.py 傳到 iPhone
+   把 Phantom Mesh/phantom-mesh/deploy/cluster-package/light-worker/phantom-mesh-worker.py 傳到 iPhone
    在 iPhone 上用 iSH 或 a-Shell 執行:
-   python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name iphone --port 7880
+   python3 phantom-mesh-worker.py --hub http://<Z13_TS_IP>:7878 --name iphone --port 7880
 
 7. 設定 iPad light worker:
-   同樣把 clawtex-worker.py 傳到 iPad
-   python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name ipad --port 7880
+   同樣把 phantom-mesh-worker.py 傳到 iPad
+   python3 phantom-mesh-worker.py --hub http://<Z13_TS_IP>:7878 --name ipad --port 7880
 
 每步完成後回報結果。
 ```
@@ -112,11 +112,11 @@ cd Clawtex/clawtex-core
 在 Ayaneo 上開 Claude Code，貼以下指令：
 
 ```
-幫我設定 Clawtex cluster worker。步驟：
+幫我設定 Phantom Mesh cluster worker。步驟：
 
 1. Clone repo（如果還沒有的話）:
-   git clone https://github.com/markl-a/Clawtex.git
-   cd Clawtex/clawtex-core
+   git clone https://github.com/markl-a/Phantom Mesh.git
+   cd Phantom Mesh/phantom-mesh
    git checkout ralph/money-agent
 
 2. Build release:
@@ -124,10 +124,10 @@ cd Clawtex/clawtex-core
 
 3. 啟動 Full Worker（背景執行）:
    用 PowerShell 或 bash:
-   ./target/release/clawtex-core.exe worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879
+   ./target/release/phantom-mesh.exe worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879
 
    或者背景執行:
-   Start-Process -NoNewWindow ./target/release/clawtex-core.exe -ArgumentList "worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879"
+   Start-Process -NoNewWindow ./target/release/phantom-mesh.exe -ArgumentList "worker --hub http://10.0.1.1:7878 --name ayaneo --port 7879"
 
 4. 驗證:
    curl http://localhost:7879/health
@@ -143,21 +143,21 @@ cd Clawtex/clawtex-core
 在 Aspire 5 上開 Claude Code，貼以下指令：
 
 ```
-幫我設定 Clawtex cluster worker。步驟：
+幫我設定 Phantom Mesh cluster worker。步驟：
 
 1. Clone repo（如果還沒有的話）:
-   git clone https://github.com/markl-a/Clawtex.git
-   cd Clawtex/clawtex-core
+   git clone https://github.com/markl-a/Phantom Mesh.git
+   cd Phantom Mesh/phantom-mesh
    git checkout ralph/money-agent
 
 2. Build release:
    cargo build --release
 
 3. 啟動 Full Worker（背景執行）:
-   nohup ./target/release/clawtex-core worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879 > /tmp/clawtex-worker.log 2>&1 &
+   nohup ./target/release/phantom-mesh worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879 > /tmp/phantom-mesh-worker.log 2>&1 &
 
    如果是 Windows:
-   ./target/release/clawtex-core.exe worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879
+   ./target/release/phantom-mesh.exe worker --hub http://10.0.1.1:7878 --name aspire5 --port 7879
 
 4. 驗證:
    curl http://localhost:7879/health
@@ -166,12 +166,12 @@ cd Clawtex/clawtex-core
 5. 設定 Android 1 light worker:
    在 Android 上安裝 Termux，執行:
    pkg install python
-   把 clawtex-worker.py 傳到 Android（用 adb push 或檔案分享）
-   python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-1 --port 7880
+   把 phantom-mesh-worker.py 傳到 Android（用 adb push 或檔案分享）
+   python3 phantom-mesh-worker.py --hub http://10.0.1.1:7878 --name android-1 --port 7880
 
 6. 設定 Android 2 light worker:
    同樣方式:
-   python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-2 --port 7880
+   python3 phantom-mesh-worker.py --hub http://10.0.1.1:7878 --name android-2 --port 7880
 
 每步完成後回報結果。
 ```
@@ -210,14 +210,14 @@ curl -X POST http://127.0.0.1:7878/hand/cluster_health/run \
 
 | 設備 | 角色 | 位置 | Hub 地址 | 啟動指令 |
 |------|------|------|----------|---------|
-| Z13 | Hub | 家裡 | — | `clawtex-core --host 0.0.0.0 --port 7878 daemon` |
-| M1 Mac | Full Worker | 辦公室 | `<Z13_TS_IP>:7878` | `clawtex-core worker --hub http://<Z13_TS_IP>:7878 --name m1-mac` |
-| Ayaneo | Full Worker | 家裡 | `10.0.1.1:7878` | `clawtex-core worker --hub http://10.0.1.1:7878 --name ayaneo` |
-| Aspire 5 | Full Worker | 家裡 | `10.0.1.1:7878` | `clawtex-core worker --hub http://10.0.1.1:7878 --name aspire5` |
-| Android 1 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-1` |
-| Android 2 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name android-2` |
-| iPhone | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name iphone` |
-| iPad | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 clawtex-worker.py --hub http://<Z13_TS_IP>:7878 --name ipad` |
+| Z13 | Hub | 家裡 | — | `phantom-mesh --host 0.0.0.0 --port 7878 daemon` |
+| M1 Mac | Full Worker | 辦公室 | `<Z13_TS_IP>:7878` | `phantom-mesh worker --hub http://<Z13_TS_IP>:7878 --name m1-mac` |
+| Ayaneo | Full Worker | 家裡 | `10.0.1.1:7878` | `phantom-mesh worker --hub http://10.0.1.1:7878 --name ayaneo` |
+| Aspire 5 | Full Worker | 家裡 | `10.0.1.1:7878` | `phantom-mesh worker --hub http://10.0.1.1:7878 --name aspire5` |
+| Android 1 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 phantom-mesh-worker.py --hub http://10.0.1.1:7878 --name android-1` |
+| Android 2 | Light Worker | 家裡 | `10.0.1.1:7878` | `python3 phantom-mesh-worker.py --hub http://10.0.1.1:7878 --name android-2` |
+| iPhone | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 phantom-mesh-worker.py --hub http://<Z13_TS_IP>:7878 --name iphone` |
+| iPad | Light Worker | 辦公室 | `<Z13_TS_IP>:7878` | `python3 phantom-mesh-worker.py --hub http://<Z13_TS_IP>:7878 --name ipad` |
 
 ## 注意事項
 - `<Z13_TS_IP>` = Z13 安裝 Tailscale 後拿到的 100.x.x.x IP

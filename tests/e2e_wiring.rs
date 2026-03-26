@@ -1,15 +1,15 @@
-//! End-to-end wiring tests — verify that all major clawtex-core subsystems
+//! End-to-end wiring tests — verify that all major phantom-mesh subsystems
 //! are properly wired and work together. Each test is independent and
 //! self-contained. No external services required.
 
 use std::collections::HashMap;
 
-use clawtex_core::*;
-use clawtex_core::hands::{HandRegistry, PhaseOutput, evaluate_condition};
-use clawtex_core::task_taxonomy::classify;
+use phantom_mesh::*;
+use phantom_mesh::hands::{HandRegistry, PhaseOutput, evaluate_condition};
+use phantom_mesh::task_taxonomy::classify;
 // financial_monitor has its own AlertLevel (with Warn variant),
 // distinct from revenue_engine::AlertLevel (with Warning variant).
-use clawtex_core::financial_monitor::AlertLevel as FinAlertLevel;
+use phantom_mesh::financial_monitor::AlertLevel as FinAlertLevel;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -103,14 +103,14 @@ async fn test_01_agent_roundtrip_with_mock_provider() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Test 2: All hands load and validate (from ~/.clawtex/hands/)
+// Test 2: All hands load and validate (from ~/.phantom-mesh/hands/)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn test_02_all_hands_load_and_validate() {
     let hands_dir = dirs::home_dir()
         .expect("HOME must exist")
-        .join(".clawtex")
+        .join(".phantom-mesh")
         .join("hands");
 
     if !hands_dir.exists() {
@@ -123,7 +123,7 @@ fn test_02_all_hands_load_and_validate() {
     }
 
     let registry = HandRegistry::load(hands_dir.to_str().unwrap())
-        .expect("HandRegistry should load from ~/.clawtex/hands/");
+        .expect("HandRegistry should load from ~/.phantom-mesh/hands/");
 
     let all_names = registry.names();
     println!("Loaded {} hands: {:?}", all_names.len(), all_names);
@@ -823,7 +823,7 @@ fn test_13_deploy_manifest_generates_valid_json() {
 #[test]
 fn test_14_stripe_webhook_signature_verification() {
     let secret = "whsec_e2e_test_secret_key_12345";
-    let payload = r#"{"id":"evt_e2e_1","type":"invoice.paid","data":{"object":{"amount_paid":5000,"customer_email":"test@clawtex.io"}},"created":1700000000}"#;
+    let payload = r#"{"id":"evt_e2e_1","type":"invoice.paid","data":{"object":{"amount_paid":5000,"customer_email":"test@phantom_mesh.io"}},"created":1700000000}"#;
     let timestamp = 1700000000u64;
 
     // Compute the expected HMAC-SHA256 signature

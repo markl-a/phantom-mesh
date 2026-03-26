@@ -552,7 +552,7 @@ mod tests {
                     "amount_paid": 4900,
                     "customer": "cus_ABC123",
                     "metadata": {
-                        "product": "Clawtex API"
+                        "product": "Phantom Mesh API"
                     }
                 }
             }),
@@ -567,7 +567,7 @@ mod tests {
             } => {
                 assert!((amount_usd - 49.0).abs() < 0.001);
                 assert_eq!(client, "cus_ABC123");
-                assert_eq!(description, "Payment for Clawtex API");
+                assert_eq!(description, "Payment for Phantom Mesh API");
             }
             other => panic!("Expected RecordRevenue, got {:?}", other),
         }

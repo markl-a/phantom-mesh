@@ -1,4 +1,4 @@
-# Clawtex 賺錢方案 — 完整執行流程分析
+# Phantom Mesh 賺錢方案 — 完整執行流程分析
 
 > 文件建立日期: 2026-03-03
 > 最後更新: 2026-03-03
@@ -29,9 +29,9 @@
 ```
 使用者 (Telegram)
     ↓ 發送指令: /hand outreach "web design for restaurants"
-clawtex-core daemon (Rust, port 7878)
+phantom-mesh daemon (Rust, port 7878)
     ├── Telegram Handler → 解析指令
-    ├── Hand Registry → 載入 ~/.clawtex/hands/<name>/hand.toml
+    ├── Hand Registry → 載入 ~/.phantom-mesh/hands/<name>/hand.toml
     ├── Hand Runner → 逐 Phase 執行
     │     ├── Phase 1 → Agent + Tools → 輸出
     │     ├── Phase 2 → Agent + Tools + Phase1輸出 → 輸出
@@ -51,7 +51,7 @@ clawtex-core daemon (Rust, port 7878)
     │     ├── Ollama (本地備援)
     │     ├── Gemini API (雲端, 視覺)
     │     └── Groq API (雲端, 視覺備援)
-    └── 輸出 → ~/.clawtex/workspace/
+    └── 輸出 → ~/.phantom-mesh/workspace/
 ```
 
 **核心流程**: 每個 Hand 是一個 TOML 定義的多階段工作流，Phase 之間用上下文串聯。
@@ -641,7 +641,7 @@ Content (在 LinkedIn 分享作品)
 └────────────────────┬───────────────────────────────┘
                      ↓ Telegram Bot API
 ┌────────────────────────────────────────────────────┐
-│           clawtex-core daemon (Rust)                │
+│           phantom-mesh daemon (Rust)                │
 │           localhost:7878                             │
 ├────────────────────────────────────────────────────┤
 │  Telegram Handler  │  HTTP API (Gateway)            │
@@ -663,7 +663,7 @@ Content (在 LinkedIn 分享作品)
 │  │qwen3-coder│ │llama3.2 │ │vision  │ │vision   │ │
 │  └──────────┘ └──────────┘ └────────┘ └─────────┘ │
 ├────────────────────────────────────────────────────┤
-│  SQLite (memory.db)  │  Workspace (~/.clawtex/ws/)  │
+│  SQLite (memory.db)  │  Workspace (~/.phantom-mesh/ws/)  │
 │  記憶/歷史/狀態       │  CSV, MD, JSON 輸出檔        │
 └────────────────────────────────────────────────────┘
 

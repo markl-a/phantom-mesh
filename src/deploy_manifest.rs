@@ -81,11 +81,11 @@ fn default_hash_hex(data: &str) -> String {
     format!("{:016x}", hasher.finish())
 }
 
-/// Read `~/.clawtex/agents.toml` and return its content, or an empty string
+/// Read `~/.phantom-mesh/agents.toml` and return its content, or an empty string
 /// if the file is missing or unreadable.
 fn read_agents_toml() -> String {
     let path = dirs::home_dir()
-        .map(|h| h.join(".clawtex").join("agents.toml"));
+        .map(|h| h.join(".phantom-mesh").join("agents.toml"));
 
     match path {
         Some(p) => std::fs::read_to_string(p).unwrap_or_default(),
@@ -499,8 +499,8 @@ mod tests {
 
     #[test]
     fn test_sha256_of_deterministic() {
-        let h1 = sha256_of(b"hello clawtex");
-        let h2 = sha256_of(b"hello clawtex");
+        let h1 = sha256_of(b"hello phantom_mesh");
+        let h2 = sha256_of(b"hello phantom_mesh");
         assert_eq!(h1, h2);
         assert_ne!(h1, sha256_of(b"different"));
     }

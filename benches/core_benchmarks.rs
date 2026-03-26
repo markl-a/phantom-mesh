@@ -1,11 +1,11 @@
-//! Clawtex-Core 效能基準測試
+//! Phantom Mesh 效能基準測試
 //!
 //! 用 criterion 測量關鍵路徑的效能，確保沒有回歸。
 //! 執行：cargo bench
 //! 報告：target/criterion/report/index.html
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use clawtex_core::*;
+use phantom_mesh::*;
 use serde_json::json;
 
 // ── Context Optimizer 基準 ──────────────────────────────────────────────────

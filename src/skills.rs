@@ -1,6 +1,6 @@
 // Skills system — loadable skill packs that extend agent capabilities
 //
-// Skill files: TOML format in ~/.clawtex/skills/<name>/SKILL.toml
+// Skill files: TOML format in ~/.phantom-mesh/skills/<name>/SKILL.toml
 // Trust levels: Trusted (user-placed) vs Installed (from registry, read-only)
 //
 // Skills inject additional instructions + tool requirements into agent runs.

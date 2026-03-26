@@ -273,8 +273,8 @@ mod tests {
     async fn test_pgvector_basic() {
         use super::*;
 
-        let conn_str = std::env::var("CLAWTEX_PG_URL")
-            .unwrap_or_else(|_| "host=localhost user=postgres dbname=clawtex_test".to_string());
+        let conn_str = std::env::var("PHANTOM_MESH_PG_URL")
+            .unwrap_or_else(|_| "host=localhost user=postgres dbname=phantom_mesh_test".to_string());
 
         let backend = PgVectorMemory::new(&conn_str, 768).await.unwrap();
 
@@ -302,8 +302,8 @@ mod tests {
     async fn test_pgvector_keyword_search() {
         use super::*;
 
-        let conn_str = std::env::var("CLAWTEX_PG_URL")
-            .unwrap_or_else(|_| "host=localhost user=postgres dbname=clawtex_test".to_string());
+        let conn_str = std::env::var("PHANTOM_MESH_PG_URL")
+            .unwrap_or_else(|_| "host=localhost user=postgres dbname=phantom_mesh_test".to_string());
 
         let backend = PgVectorMemory::new(&conn_str, 768).await.unwrap();
         let _ = backend.client.execute("DELETE FROM memories", &[]).await;
@@ -343,8 +343,8 @@ mod tests {
     async fn test_pgvector_vector_search() {
         use super::*;
 
-        let conn_str = std::env::var("CLAWTEX_PG_URL")
-            .unwrap_or_else(|_| "host=localhost user=postgres dbname=clawtex_test".to_string());
+        let conn_str = std::env::var("PHANTOM_MESH_PG_URL")
+            .unwrap_or_else(|_| "host=localhost user=postgres dbname=phantom_mesh_test".to_string());
 
         let backend = PgVectorMemory::new(&conn_str, 3).await.unwrap();
         let _ = backend.client.execute("DELETE FROM memories", &[]).await;

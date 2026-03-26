@@ -21,8 +21,8 @@ impl BrowserTool {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        let helper_path = PathBuf::from(&home).join(".clawtex").join("browser_helper.py");
-        let screenshot_dir = PathBuf::from(&home).join(".clawtex").join("screenshots");
+        let helper_path = PathBuf::from(&home).join(".phantom-mesh").join("browser_helper.py");
+        let screenshot_dir = PathBuf::from(&home).join(".phantom-mesh").join("screenshots");
         let _ = std::fs::create_dir_all(&screenshot_dir);
 
         // Ensure helper script exists
@@ -97,7 +97,7 @@ impl Tool for BrowserTool {
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Screenshot filename (for 'screenshot' action, saved to ~/.clawtex/screenshots/)"
+                    "description": "Screenshot filename (for 'screenshot' action, saved to ~/.phantom-mesh/screenshots/)"
                 }
             },
             "required": ["action"]
@@ -157,7 +157,7 @@ impl Tool for BrowserTool {
 /// Communicates via command-line args and stdout.
 const BROWSER_HELPER_PY: &str = r#"#!/usr/bin/env python3
 """
-Clawtex Browser Helper — Playwright-based browser automation.
+Phantom Mesh Browser Helper — Playwright-based browser automation.
 Usage: python browser_helper.py <action> <json_args>
 
 Actions: navigate, snapshot, click, type, screenshot, get_text, close
@@ -168,7 +168,7 @@ import os
 
 def get_state_file():
     home = os.environ.get('USERPROFILE', os.environ.get('HOME', '.'))
-    return os.path.join(home, '.clawtex', 'browser_state.json')
+    return os.path.join(home, '.phantom-mesh', 'browser_state.json')
 
 def load_state():
     sf = get_state_file()

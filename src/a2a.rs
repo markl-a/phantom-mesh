@@ -73,10 +73,10 @@ pub struct CreateTaskRequest {
 }
 
 impl AgentCard {
-    /// Build the default Clawtex agent card
-    pub fn clawtex_default(base_url: &str) -> Self {
+    /// Build the default Phantom Mesh agent card
+    pub fn phantom_mesh_default(base_url: &str) -> Self {
         Self {
-            name: "Clawtex".to_string(),
+            name: "Phantom Mesh".to_string(),
             description: "Autonomous AI agent daemon with tool execution, multi-provider LLM routing, and workflow automation.".to_string(),
             url: base_url.to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -145,8 +145,8 @@ mod tests {
 
     #[test]
     fn test_agent_card_default() {
-        let card = AgentCard::clawtex_default("http://localhost:7878");
-        assert_eq!(card.name, "Clawtex");
+        let card = AgentCard::phantom_mesh_default("http://localhost:7878");
+        assert_eq!(card.name, "Phantom Mesh");
         assert!(card.capabilities.streaming);
         assert_eq!(card.skills.len(), 3);
         assert_eq!(card.url, "http://localhost:7878");
@@ -154,11 +154,11 @@ mod tests {
 
     #[test]
     fn test_agent_card_serde() {
-        let card = AgentCard::clawtex_default("http://localhost:7878");
+        let card = AgentCard::phantom_mesh_default("http://localhost:7878");
         let json = serde_json::to_string_pretty(&card).unwrap();
-        assert!(json.contains("Clawtex"));
+        assert!(json.contains("Phantom Mesh"));
         let parsed: AgentCard = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.name, "Clawtex");
+        assert_eq!(parsed.name, "Phantom Mesh");
     }
 
     #[test]

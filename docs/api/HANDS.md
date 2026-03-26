@@ -1,6 +1,6 @@
-# Clawtex Hands Reference
+# Phantom Mesh Hands Reference
 
-Hands are multi-phase agentic workflows defined as TOML files under `~/.clawtex/hands/<name>/hand.toml`.
+Hands are multi-phase agentic workflows defined as TOML files under `~/.phantom-mesh/hands/<name>/hand.toml`.
 Each hand runs a sequence of phases; the output of each phase is passed as context to the next.
 
 Use `GET /hands` for the live list, or `POST /hand/<name>/run` with `{"prompt": "..."}` to execute.
@@ -256,7 +256,7 @@ curl -X POST http://localhost:7878/hand/novel/run \
 
 ```bash
 curl -X POST http://localhost:7878/hand/design/run \
-  -d '{"prompt": "Design a modern logo for a distributed AI cluster platform called Clawtex"}'
+  -d '{"prompt": "Design a modern logo for a distributed AI cluster platform called Phantom Mesh"}'
 ```
 
 ---
@@ -436,7 +436,7 @@ curl -X POST http://localhost:7878/hand/prompt_evolve/run \
 ---
 
 ### build_mobile
-**Description**: Build Clawtex Worker mobile app — Android on Acer, iOS on M1 Mac. Tests cluster targeted dispatch.
+**Description**: Build Phantom Mesh Worker mobile app — Android on Acer, iOS on M1 Mac. Tests cluster targeted dispatch.
 **Provider**: auto
 **Category**: devops
 **Phases**: 3
@@ -444,7 +444,7 @@ curl -X POST http://localhost:7878/hand/prompt_evolve/run \
 
 ```bash
 curl -X POST http://localhost:7878/hand/build_mobile/run \
-  -d '{"prompt": "Build Android APK and iOS IPA for clawtex worker app"}'
+  -d '{"prompt": "Build Android APK and iOS IPA for phantom-mesh worker app"}'
 ```
 
 ---

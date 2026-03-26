@@ -335,12 +335,12 @@ impl ProviderRouter {
 
             // Decrypt enc2: secrets in config before parsing
             let content = {
-                let clawtex_dir = config_path
+                let phantom_mesh_dir = config_path
                     .rsplit_once('/')
                     .or_else(|| config_path.rsplit_once('\\'))
                     .map(|(dir, _)| dir.to_string())
                     .unwrap_or_else(|| ".".to_string());
-                match crate::SecretManager::new(&clawtex_dir) {
+                match crate::SecretManager::new(&phantom_mesh_dir) {
                     Ok(sm) => {
                         let mut s = content;
                         while let Some(start) = s.find("enc2:") {

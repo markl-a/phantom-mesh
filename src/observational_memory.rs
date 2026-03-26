@@ -1,7 +1,7 @@
 //! Observational Memory — Mastra-style conversation compression into compact observations.
 //!
 //! Compresses multi-message conversations into structured observations for 3-40x token savings.
-//! Uses regex-based extraction (no LLM calls). Persists to SQLite (~/.clawtex/observations.db).
+//! Uses regex-based extraction (no LLM calls). Persists to SQLite (~/.phantom-mesh/observations.db).
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -471,7 +471,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_obs_memory");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_obs_memory");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);

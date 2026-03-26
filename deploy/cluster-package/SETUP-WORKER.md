@@ -1,7 +1,7 @@
-# Clawtex Worker Setup Guide (for Claude Code)
+# Phantom Mesh Worker Setup Guide (for Claude Code)
 
 ## Your Task
-Set up and start a Clawtex Worker on this machine, connecting to the Hub.
+Set up and start a Phantom Mesh Worker on this machine, connecting to the Hub.
 
 ## Prerequisites
 - **Full Worker** (macOS/Windows/Linux with Rust): Needs `cargo` installed
@@ -17,14 +17,14 @@ The Hub runs on the Z13 machine. Replace `<HUB_IP>` below with the Hub's IP addr
 
 ### 3a. Full Worker Setup (macOS/Windows/Linux)
 ```bash
-# Clone or copy the clawtex-core source
-cd clawtex-core
+# Clone or copy the phantom-mesh source
+cd phantom-mesh
 
 # Build
 cargo build --release
 
 # Start worker
-./target/release/clawtex-core worker \
+./target/release/phantom-mesh worker \
   --hub http://<HUB_IP>:7878 \
   --name <DEVICE_NAME> \
   --port <PORT>
@@ -32,8 +32,8 @@ cargo build --release
 
 ### 3b. Light Worker Setup (Android/iOS/any Python)
 ```bash
-# Copy clawtex-worker.py from light-worker/ directory
-python3 clawtex-worker.py \
+# Copy phantom-mesh-worker.py from light-worker/ directory
+python3 phantom-mesh-worker.py \
   --hub http://<HUB_IP>:7878 \
   --name <DEVICE_NAME> \
   --port <PORT>
@@ -51,7 +51,7 @@ curl http://<HUB_IP>:7878/cluster/workers
 ### 5. Run as Background Service (Optional)
 ```bash
 # Linux/macOS: use nohup
-nohup ./target/release/clawtex-core worker --hub http://<HUB_IP>:7878 --name <NAME> --port <PORT> > /tmp/clawtex-worker.log 2>&1 &
+nohup ./target/release/phantom-mesh worker --hub http://<HUB_IP>:7878 --name <NAME> --port <PORT> > /tmp/phantom-mesh-worker.log 2>&1 &
 
 # Or use screen/tmux for persistent sessions
 ```

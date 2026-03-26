@@ -57,7 +57,7 @@ impl TwitterTool {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        let helper_path = PathBuf::from(&home).join(".clawtex").join("twitter_helper.py");
+        let helper_path = PathBuf::from(&home).join(".phantom-mesh").join("twitter_helper.py");
 
         // Deploy helper script
         if let Err(e) = std::fs::write(&helper_path, TWITTER_HELPER_PY) {
@@ -252,7 +252,7 @@ impl Tool for TwitterTool {
 /// Supports OAuth 1.0a API posting and Playwright browser posting.
 const TWITTER_HELPER_PY: &str = r#"#!/usr/bin/env python3
 """
-Clawtex Twitter Helper — post tweets via API (OAuth 1.0a) or Playwright browser.
+Phantom Mesh Twitter Helper — post tweets via API (OAuth 1.0a) or Playwright browser.
 Usage: python twitter_helper.py <action> <json_args>
 Actions: post, login
 """
@@ -331,7 +331,7 @@ def post_tweet_browser(text, config):
                 'error': 'playwright not installed. Run: pip install playwright && playwright install chromium'}
 
     home = os.environ.get('USERPROFILE', os.environ.get('HOME', '.'))
-    user_data = os.path.join(home, '.clawtex', 'twitter_session')
+    user_data = os.path.join(home, '.phantom-mesh', 'twitter_session')
     os.makedirs(user_data, exist_ok=True)
 
     # Check if session exists (has cookies)
@@ -457,7 +457,7 @@ def login_browser(config):
                 'error': 'playwright not installed. Run: pip install playwright && playwright install chromium'}
 
     home = os.environ.get('USERPROFILE', os.environ.get('HOME', '.'))
-    user_data = os.path.join(home, '.clawtex', 'twitter_session')
+    user_data = os.path.join(home, '.phantom-mesh', 'twitter_session')
     os.makedirs(user_data, exist_ok=True)
 
     with sync_playwright() as p:

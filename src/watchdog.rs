@@ -171,7 +171,7 @@ impl WorkerWatchdog {
         self.configs.insert(config.worker_name.clone(), config);
     }
 
-    /// Create a watchdog pre-configured with the known Clawtex cluster workers.
+    /// Create a watchdog pre-configured with the known Phantom Mesh cluster workers.
     pub fn with_defaults() -> Self {
         let mut wd = Self::new();
 

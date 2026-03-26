@@ -206,7 +206,7 @@ mod tests {
         });
         let result = tool.execute(json!({
             "pattern": "test",
-            "path": "/tmp/clawtex_nonexistent_dir_12345"
+            "path": "/tmp/phantom_mesh_nonexistent_dir_12345"
         })).await.unwrap();
         assert!(!result.success);
     }

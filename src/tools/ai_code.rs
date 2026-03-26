@@ -391,7 +391,7 @@ mod tests {
     }
 
     fn make_security() -> SecurityConfig {
-        let dir = std::env::temp_dir().join("clawtex_test_aicode");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_aicode");
         let _ = std::fs::create_dir_all(&dir);
         SecurityConfig {
             workspace_dir: dir.to_string_lossy().to_string(),

@@ -185,7 +185,7 @@ impl McpBridge {
             Some(json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": {},
-                "clientInfo": {"name": "clawtex", "version": env!("CARGO_PKG_VERSION")},
+                "clientInfo": {"name": "phantom_mesh", "version": env!("CARGO_PKG_VERSION")},
             })),
         ).await?;
 
@@ -325,7 +325,7 @@ impl McpBridge {
     }
 }
 
-/// Proxy tool that wraps an MCP tool as a clawtex Tool
+/// Proxy tool that wraps an MCP tool as a phantom_mesh Tool
 pub struct McpToolProxy {
     server_name: String,
     tool_def: McpToolDef,

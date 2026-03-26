@@ -1,18 +1,18 @@
 [package]
-name = "clawtex-core"
+name = "phantom-mesh"
 version = "0.5.0"
 edition = "2021"
-description = "Clawtex LLM Cluster Core — lightweight Rust daemon for LLM routing, task queue, and agent coordination"
+description = "Phantom Mesh LLM Cluster Core — lightweight Rust daemon for LLM routing, task queue, and agent coordination"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/markl-a/Clawtex"
-default-run = "clawtex-core"
+repository = "https://github.com/markl-a/Phantom Mesh"
+default-run = "phantom-mesh"
 
 [[bin]]
-name = "clawtex-core"
+name = "phantom-mesh"
 path = "src/main.rs"
 
 [lib]
-name = "clawtex_core"
+name = "phantom_mesh"
 path = "src/lib.rs"
 
 [features]

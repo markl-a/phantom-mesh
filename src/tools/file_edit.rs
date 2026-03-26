@@ -177,7 +177,7 @@ mod tests {
     use std::time::Instant;
 
     fn make_tool_with_snapshots(suffix: &str) -> (FileEditTool, std::path::PathBuf, FileSnapshots) {
-        let dir = std::env::temp_dir().join(format!("clawtex_test_fe_{}", suffix));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_test_fe_{}", suffix));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let snapshots: FileSnapshots = Arc::new(Mutex::new(HashMap::new()));
@@ -312,7 +312,7 @@ mod tests {
     async fn test_file_edit_nonexistent() {
         let tool = FileEditTool::new(SecurityConfig { workspace_only: false, ..Default::default() });
         let result = tool.execute(json!({
-            "path": "/tmp/clawtex_nonexistent_test_file.txt",
+            "path": "/tmp/phantom_mesh_nonexistent_test_file.txt",
             "old_text": "a",
             "new_text": "b"
         })).await.unwrap();

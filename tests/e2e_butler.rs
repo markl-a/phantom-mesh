@@ -4,10 +4,10 @@
 mod common;
 
 use common::harness::CoreHarness;
-use clawtex_core::providers::mock::MockProvider;
-use clawtex_core::event_triggers::{EventTriggerManager, EventTrigger, TriggerCondition};
-use clawtex_core::cron::JobAction;
-use clawtex_core::user_profile::UserProfile;
+use phantom_mesh::providers::mock::MockProvider;
+use phantom_mesh::event_triggers::{EventTriggerManager, EventTrigger, TriggerCondition};
+use phantom_mesh::cron::JobAction;
+use phantom_mesh::user_profile::UserProfile;
 use serde_json::json;
 use std::sync::{Arc, RwLock};
 
@@ -46,16 +46,16 @@ async fn profile_persona_routing() {
 /// `messages_to_anthropic_json` adds cache_control to the system block.
 #[tokio::test]
 async fn cache_hints_applied() {
-    use clawtex_core::providers::traits::messages_to_anthropic_json;
+    use phantom_mesh::providers::traits::messages_to_anthropic_json;
 
     let messages = vec![
-        clawtex_core::ChatMessage {
+        phantom_mesh::ChatMessage {
             role: "system".into(),
             content: "You are a helpful assistant.".into(),
             tool_calls: None,
             tool_call_id: None,
         },
-        clawtex_core::ChatMessage {
+        phantom_mesh::ChatMessage {
             role: "user".into(),
             content: "Hello".into(),
             tool_calls: None,
@@ -223,7 +223,7 @@ async fn shell_session_persists_env() {
 
     // Echo a known string and verify it appears in structured output.
     let result = harness.run_tool("shell", json!({
-        "command": "echo CLAWTEX_TEST_OUTPUT"
+        "command": "echo PHANTOM_MESH_TEST_OUTPUT"
     })).await.unwrap();
 
     assert!(result.success, "Shell echo should succeed: {}", result.output);
@@ -256,14 +256,14 @@ async fn shell_markers_hidden() {
         result.output
     );
 
-    // Internal CLAWTEX state markers must not be visible to the caller
+    // Internal PHANTOM_MESH state markers must not be visible to the caller
     assert!(
-        !result.output.contains("CLAWTEX_CWD"),
-        "State marker CLAWTEX_CWD should be hidden"
+        !result.output.contains("PHANTOM_MESH_CWD"),
+        "State marker PHANTOM_MESH_CWD should be hidden"
     );
     assert!(
-        !result.output.contains("CLAWTEX_ENV_START"),
-        "State marker CLAWTEX_ENV_START should be hidden"
+        !result.output.contains("PHANTOM_MESH_ENV_START"),
+        "State marker PHANTOM_MESH_ENV_START should be hidden"
     );
 }
 

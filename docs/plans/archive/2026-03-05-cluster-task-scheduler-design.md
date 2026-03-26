@@ -1,4 +1,4 @@
-# Clawtex 8-Node Cluster Task Scheduler 設計文件
+# Phantom Mesh 8-Node Cluster Task Scheduler 設計文件
 
 > 日期：2026-03-05
 > 作者：分散式系統架構師
@@ -1237,7 +1237,7 @@ impl TaskScheduler {
 
 ### 7.2 節點 API 端點
 
-每個 clawtex-core 節點（包括 Z13）都暴露以下 HTTP API：
+每個 phantom-mesh 節點（包括 Z13）都暴露以下 HTTP API：
 
 ```
 # ── 健康檢查 ──────────────────────────
@@ -1941,28 +1941,28 @@ async fn test_sot_parallel_across_nodes() {
 
 ```
 # 佇列
-clawtex_scheduler_queue_size{priority}         gauge
-clawtex_scheduler_dlq_size                     gauge
-clawtex_scheduler_tasks_submitted_total        counter
-clawtex_scheduler_tasks_completed_total        counter
-clawtex_scheduler_tasks_failed_total           counter
-clawtex_scheduler_tasks_timed_out_total        counter
-clawtex_scheduler_tasks_dead_lettered_total    counter
-clawtex_scheduler_tasks_preempted_total        counter
+phantom-mesh_scheduler_queue_size{priority}         gauge
+phantom-mesh_scheduler_dlq_size                     gauge
+phantom-mesh_scheduler_tasks_submitted_total        counter
+phantom-mesh_scheduler_tasks_completed_total        counter
+phantom-mesh_scheduler_tasks_failed_total           counter
+phantom-mesh_scheduler_tasks_timed_out_total        counter
+phantom-mesh_scheduler_tasks_dead_lettered_total    counter
+phantom-mesh_scheduler_tasks_preempted_total        counter
 
 # 延遲
-clawtex_scheduler_task_duration_ms             histogram
-clawtex_scheduler_queue_wait_ms                histogram
-clawtex_scheduler_assignment_score             histogram
+phantom-mesh_scheduler_task_duration_ms             histogram
+phantom-mesh_scheduler_queue_wait_ms                histogram
+phantom-mesh_scheduler_assignment_score             histogram
 
 # 節點
-clawtex_scheduler_node_running_tasks{node_id}  gauge
-clawtex_scheduler_node_status{node_id}         gauge (1=online, 0=offline)
-clawtex_scheduler_node_latency_ms{node_id}     gauge
+phantom-mesh_scheduler_node_running_tasks{node_id}  gauge
+phantom-mesh_scheduler_node_status{node_id}         gauge (1=online, 0=offline)
+phantom-mesh_scheduler_node_latency_ms{node_id}     gauge
 
 # 背壓
-clawtex_scheduler_backpressure_rejects_total{level}  counter
-clawtex_scheduler_no_suitable_node_total             counter
+phantom-mesh_scheduler_backpressure_rejects_total{level}  counter
+phantom-mesh_scheduler_no_suitable_node_total             counter
 ```
 
 ## 附錄 C：配置範例 (agents.toml)

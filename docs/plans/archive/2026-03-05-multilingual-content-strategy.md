@@ -1,8 +1,8 @@
-# Clawtex 多語言內容營利策略
+# Phantom Mesh 多語言內容營利策略
 
 > 日期：2026-03-05
 > 作者：AI 策略分析
-> 目標：利用 clawtex 的多語言 LLM 能力，最大化內容營收
+> 目標：利用 phantom-mesh 的多語言 LLM 能力，最大化內容營收
 
 ---
 
@@ -277,7 +277,7 @@
 
 ```
 Phase 0: 英文原創
-    ↓ (clawtex seo_content hand)
+    ↓ (phantom-mesh seo_content hand)
     英文文章 + SEO 優化
     ↓
 Phase 1: AI 翻譯 + 本地化
@@ -332,7 +332,7 @@ Phase 3: 多平台發布
 
 ### 4.1 Hand TOML 規格
 
-見 `~/.clawtex/hands/multilingual_content/hand.toml`（隨本文一起建立）
+見 `~/.phantom-mesh/hands/multilingual_content/hand.toml`（隨本文一起建立）
 
 ### 4.2 執行流程
 
@@ -578,7 +578,7 @@ export async function generateMetadata({ params }) {
 
 ## 十、結論
 
-多語言內容策略是 clawtex 的核心競爭優勢。利用 Qwen 的中日韓能力 + Claude/Gemini 的翻譯品質，每篇英文原創可以用極低邊際成本擴展到 4 個語言市場。
+多語言內容策略是 phantom-mesh 的核心競爭優勢。利用 Qwen 的中日韓能力 + Claude/Gemini 的翻譯品質，每篇英文原創可以用極低邊際成本擴展到 4 個語言市場。
 
 **關鍵成功因素：**
 1. 英文內容品質是基礎 — 垃圾翻譯成 4 語言還是垃圾

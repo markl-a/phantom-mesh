@@ -9,9 +9,9 @@
 //!
 //! ```ignore
 //! // In main.rs, add a subcommand:
-//! // clawtex-core smoke-test
+//! // phantom-mesh smoke-test
 //! //
-//! // let report = clawtex_core::smoke_test::SmokeTestSuite::default_suite()
+//! // let report = phantom_mesh::smoke_test::SmokeTestSuite::default_suite()
 //! //     .run_all().await;
 //! // println!("{}", report.to_text());
 //! // std::process::exit(if report.failed == 0 { 0 } else { 1 });
@@ -130,7 +130,7 @@ impl SmokeTestReport {
     /// Render the report as a human-readable text block.
     pub fn to_text(&self) -> String {
         let mut lines = Vec::new();
-        lines.push("=== Clawtex Smoke Test Report ===".to_string());
+        lines.push("=== Phantom Mesh Smoke Test Report ===".to_string());
         lines.push(String::new());
 
         for detail in &self.details {
@@ -251,7 +251,7 @@ impl SmokeTestSuite {
         ));
         suite.add(SmokeTest::new(
             "workspace_writable",
-            "~/.clawtex/workspace/ is writable",
+            "~/.phantom-mesh/workspace/ is writable",
             test_workspace_writable,
         ));
         suite.add(SmokeTest::new(
@@ -315,23 +315,23 @@ impl SmokeTestSuite {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: resolve ~/.clawtex directory
+// Helper: resolve ~/.phantom-mesh directory
 // ---------------------------------------------------------------------------
 
-fn clawtex_home() -> PathBuf {
+fn phantom_mesh_home() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".clawtex")
+    PathBuf::from(home).join(".phantom-mesh")
 }
 
 // ---------------------------------------------------------------------------
 // Built-in smoke tests
 // ---------------------------------------------------------------------------
 
-/// Test that `~/.clawtex/agents.toml` exists and is valid TOML.
+/// Test that `~/.phantom-mesh/agents.toml` exists and is valid TOML.
 async fn test_config_loadable() -> SmokeTestResult {
-    let config_path = clawtex_home().join("agents.toml");
+    let config_path = phantom_mesh_home().join("agents.toml");
     if !config_path.exists() {
         return SmokeTestResult::Skipped(format!(
             "agents.toml not found at {}",
@@ -349,7 +349,7 @@ async fn test_config_loadable() -> SmokeTestResult {
 
 /// Test that the workspace directory is writable.
 async fn test_workspace_writable() -> SmokeTestResult {
-    let ws = clawtex_home().join("workspace");
+    let ws = phantom_mesh_home().join("workspace");
     if let Err(e) = std::fs::create_dir_all(&ws) {
         return SmokeTestResult::Failed(format!("Cannot create workspace dir: {}", e));
     }
@@ -365,7 +365,7 @@ async fn test_workspace_writable() -> SmokeTestResult {
 
 /// Test that SQLite databases can be opened/created.
 async fn test_database_accessible() -> SmokeTestResult {
-    let tmp = std::env::temp_dir().join("clawtex_smoke_test.db");
+    let tmp = std::env::temp_dir().join("phantom_mesh_smoke_test.db");
     let tmp_str = tmp.to_string_lossy().to_string();
     match rusqlite::Connection::open(&tmp_str) {
         Ok(conn) => {
@@ -391,7 +391,7 @@ async fn test_tools_registered() -> SmokeTestResult {
 
     let security = SecurityConfig {
         workspace_dir: std::env::temp_dir()
-            .join("clawtex_smoke_ws")
+            .join("phantom_mesh_smoke_ws")
             .to_string_lossy()
             .to_string(),
         workspace_only: true,
@@ -405,7 +405,7 @@ async fn test_tools_registered() -> SmokeTestResult {
         ToolRegistry::new(security)
     }));
 
-    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("clawtex_smoke_ws"));
+    let _ = std::fs::remove_dir_all(std::env::temp_dir().join("phantom_mesh_smoke_ws"));
 
     match result {
         Ok(registry) => {
@@ -420,11 +420,11 @@ async fn test_tools_registered() -> SmokeTestResult {
     }
 }
 
-/// Test that hand.toml files in `~/.clawtex/hands/` parse correctly.
+/// Test that hand.toml files in `~/.phantom-mesh/hands/` parse correctly.
 async fn test_hands_loadable() -> SmokeTestResult {
     use crate::hands::HandRegistry;
 
-    let hands_dir = clawtex_home().join("hands");
+    let hands_dir = phantom_mesh_home().join("hands");
     let hands_str = hands_dir.to_string_lossy().to_string();
 
     if !hands_dir.exists() {
@@ -446,7 +446,7 @@ async fn test_hands_loadable() -> SmokeTestResult {
 
 /// Test that at least one provider is configured in agents.toml.
 async fn test_providers_configured() -> SmokeTestResult {
-    let config_path = clawtex_home().join("agents.toml");
+    let config_path = phantom_mesh_home().join("agents.toml");
     if !config_path.exists() {
         return SmokeTestResult::Skipped("agents.toml not found".to_string());
     }
@@ -515,7 +515,7 @@ async fn test_encryption_roundtrip() -> SmokeTestResult {
 async fn test_memory_store_recall() -> SmokeTestResult {
     use crate::memory::{MemoryConfig, MemoryStore, MemoryCategory};
 
-    let tmp = std::env::temp_dir().join("clawtex_smoke_memory.db");
+    let tmp = std::env::temp_dir().join("phantom_mesh_smoke_memory.db");
     let tmp_str = tmp.to_string_lossy().to_string();
 
     let config = MemoryConfig {
@@ -634,7 +634,7 @@ async fn test_http_server_binds() -> SmokeTestResult {
 async fn test_cluster_registry_works() -> SmokeTestResult {
     use crate::cluster::ClusterRegistry;
 
-    let tmp = std::env::temp_dir().join("clawtex_smoke_cluster.db");
+    let tmp = std::env::temp_dir().join("phantom_mesh_smoke_cluster.db");
     let tmp_str = tmp.to_string_lossy().to_string();
 
     match ClusterRegistry::new(&tmp_str).await {
@@ -669,7 +669,7 @@ async fn test_cost_tracker_works() -> SmokeTestResult {
     use crate::cost_tracker::{CostRecord, CostTracker};
     use chrono::Utc;
 
-    let tmp = std::env::temp_dir().join("clawtex_smoke_costs.db");
+    let tmp = std::env::temp_dir().join("phantom_mesh_smoke_costs.db");
     let tmp_str = tmp.to_string_lossy().to_string();
 
     let tracker = match CostTracker::new(&tmp_str) {
@@ -689,6 +689,9 @@ async fn test_cost_tracker_works() -> SmokeTestResult {
         tokens_in: 100,
         tokens_out: 50,
         total_tokens: 150,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.001,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.001,
         duration_secs: 1.5,
         context: Some("smoke_test".to_string()),
@@ -902,7 +905,7 @@ mod tests {
             }],
         };
         let text = report.to_text();
-        assert!(text.contains("Clawtex Smoke Test Report"));
+        assert!(text.contains("Phantom Mesh Smoke Test Report"));
         assert!(text.contains("[PASS]"));
         assert!(text.contains("Passed: 1"));
     }

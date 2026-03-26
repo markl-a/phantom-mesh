@@ -1,10 +1,10 @@
-//! Load Testing Framework — stress testing and endurance testing for Clawtex hands.
+//! Load Testing Framework — stress testing and endurance testing for Phantom Mesh hands.
 //!
 //! Provides `LoadTester` with two primary modes:
 //! - `run_stress_test`: High-concurrency burst test with ramp-up
 //! - `run_endurance_test`: Sustained steady-load test over hours
 //!
-//! Results are persisted to SQLite (`~/.clawtex/load_tests.db`) for historical comparison.
+//! Results are persisted to SQLite (`~/.phantom-mesh/load_tests.db`) for historical comparison.
 //! Includes predefined profiles: smoke, normal, heavy.
 
 use anyhow::{anyhow, Result};
@@ -565,7 +565,7 @@ impl HandExecutor for RealHandExecutor {
 
 // ── LoadTester ──────────────────────────────────────────────────────────────
 
-/// Load testing engine for Clawtex hand workflows
+/// Load testing engine for Phantom Mesh hand workflows
 pub struct LoadTester {
     executor: Arc<dyn HandExecutor>,
     hands: Arc<HandRegistry>,

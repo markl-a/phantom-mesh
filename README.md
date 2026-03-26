@@ -1,27 +1,27 @@
-# Clawtex
+# Phantom Mesh
 
-**Distributed AI Agent Daemon** -- 53 tools, 29 hands, 10 providers, 8-device cluster, self-evolution built in Rust.
+**Distributed AI Agent Daemon** -- 53 tools, 48 hands, 11 providers, 4-node cluster + mobile workers, self-evolution -- built in Rust.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen.svg)](.github/workflows)
-[![Tests](https://img.shields.io/badge/tests-2564%20passing-brightgreen.svg)](tests/)
-[![LOC](https://img.shields.io/badge/LOC-80%2C000%2B-blue.svg)](src/)
+[![Tests](https://img.shields.io/badge/tests-3914%20passing-brightgreen.svg)](tests/)
+[![LOC](https://img.shields.io/badge/LOC-142%2C000%2B-blue.svg)](src/)
 
 ---
 
-## What is Clawtex?
+## What is Phantom Mesh?
 
-Clawtex is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 10 LLM providers, executes 53 built-in tools, runs 29 multi-phase workflow automations called **Hands**, and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
+Phantom Mesh is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 10 LLM providers, executes 53 built-in tools, runs 29 multi-phase workflow automations called **Hands**, and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
 
 ---
 
 ## Features
 
 - **53 Tools** -- shell, file I/O, web search, HTTP, browser, vision, image/video/music generation, email send/receive, Twitter, YouTube upload, Stripe, Render deploy, SaaS scaffolding, TTS, PDF/DOCX/XLSX export, knowledge import, calendar, data analysis, screenshot, QR generate, RSS reader, archive extract, clipboard, system info, weather, calculator, notification center, and more
-- **29 Hands** -- pre-built multi-phase automation workflows: content, SEO, lead gen, freelancer, researcher, novel, music, game dev, comic, micro-SaaS, and more
-- **10 Providers** -- Anthropic, OpenAI, Gemini, Groq, Cerebras, Ollama, LM Studio, OpenRouter, Codex CLI, OpenCode CLI
-- **8-Device Cluster** -- distributed task dispatch across PCs, Macs, and mobile devices; inflight-aware load balancing
+- **48 Hands** -- pre-built multi-phase automation workflows: content, SEO, lead gen, freelancer, researcher, novel, music, game dev, comic, micro-SaaS, trading analysis, customer service, and more
+- **11 Providers** -- Ollama, LM Studio, NPU, Gemini, OpenRouter, Groq, Cerebras, Mistral, Codex CLI, ChatGPT, OpenCode CLI
+- **4-Node Cluster + Mobile** -- distributed task dispatch across PCs, Macs, and mobile workers; inflight-aware load balancing
 - **Self-Evolution** -- nightly DSPy-style prompt optimization, trajectory logging, circuit breaker, watchdog SSH auto-recovery
 - **Security** -- ChaCha20-Poly1305 encrypted secrets, injection guard (8 regex patterns), L1 guardrail + L2 LLM-as-Judge, audit log
 - **Observability** -- Prometheus metrics endpoint, structured error codes (E1xx-E5xx), auto-diagnosis, cost/revenue tracking
@@ -34,7 +34,7 @@ Clawtex is a production-grade autonomous agent daemon written in Rust. It receiv
 
 ```
                          +------------------+
-  Telegram / HTTP -----> |   clawtex-core   |
+  Telegram / HTTP -----> |   phantom-mesh   |
                          |   (Rust daemon)  |
                          +--------+---------+
                                   |
@@ -54,7 +54,7 @@ Clawtex is a production-grade autonomous agent daemon written in Rust. It receiv
       (Hub+LLM) (Worker)  (Worker)   (NPU Worker)
 ```
 
-**Data stores** (all SQLite, stored in `~/.clawtex/`):
+**Data stores** (all SQLite, stored in `~/.phantom-mesh/`):
 
 | Store      | File             | Contents                               |
 |------------|------------------|----------------------------------------|
@@ -78,8 +78,8 @@ Clawtex is a production-grade autonomous agent daemon written in Rust. It receiv
 ### Install
 
 ```bash
-git clone https://github.com/clawtex/clawtex-core
-cd clawtex-core
+git clone https://github.com/phantom-mesh/phantom-mesh
+cd phantom-mesh
 cp .env.example .env
 # Edit .env and fill in TELEGRAM_BOT_TOKEN and at least one LLM API key
 ```
@@ -89,16 +89,16 @@ cp .env.example .env
 Copy the example config:
 
 ```bash
-mkdir -p ~/.clawtex
-cp config/agents.example.toml ~/.clawtex/agents.toml
-# Edit ~/.clawtex/agents.toml to set your master agent and providers
+mkdir -p ~/.phantom-mesh
+cp config/agents.example.toml ~/.phantom-mesh/agents.toml
+# Edit ~/.phantom-mesh/agents.toml to set your master agent and providers
 ```
 
 ### Build and Run
 
 ```bash
 cargo build --release
-./target/release/clawtex-core --host 0.0.0.0 daemon
+./target/release/phantom-mesh --host 0.0.0.0 daemon
 ```
 
 The daemon starts on port **7878**. Open Telegram, message your bot, and it will respond.
@@ -176,7 +176,7 @@ All platforms require Rust 1.78+ and a working C linker. Mobile workers (Android
 
 ## Hands (Workflow Automations)
 
-Hands are multi-phase TOML-defined workflows stored in `~/.clawtex/hands/<name>/hand.toml`.
+Hands are multi-phase TOML-defined workflows stored in `~/.phantom-mesh/hands/<name>/hand.toml`.
 
 | Name | Phases | Description |
 |------|--------|-------------|
@@ -245,14 +245,14 @@ curl -X POST http://localhost:7878/hand/content/run \
 
 ## Cluster Setup
 
-Clawtex supports distributing work across multiple machines. Any device that can run the Rust binary (or the lightweight Python worker) can join the cluster.
+Phantom Mesh supports distributing work across multiple machines. Any device that can run the Rust binary (or the lightweight Python worker) can join the cluster.
 
 ### Add a PC Worker
 
 ```bash
 # On the worker machine -- build and start in worker mode
 cargo build --release
-./target/release/clawtex-core worker --hub http://<hub-ip>:7878 --name my-worker
+./target/release/phantom-mesh worker --hub http://<hub-ip>:7878 --name my-worker
 
 # Register with the hub (if auto-registration fails)
 curl -X POST http://<hub-ip>:7878/cluster/register \
@@ -264,7 +264,7 @@ curl -X POST http://<hub-ip>:7878/cluster/register \
 
 Mobile devices use a polling model (no inbound HTTP server needed):
 
-1. Install the Clawtex Worker app (React Native / Expo)
+1. Install the Phantom Mesh Worker app (React Native / Expo)
 2. Set Hub URL and worker name in the app settings
 3. The app polls `GET /cluster/poll?worker=<name>` every 15 seconds
 
@@ -280,11 +280,11 @@ python3 deploy/worker.py --hub http://<hub-ip>:7878 --name my-light-worker
 
 ## Configuration Reference
 
-`~/.clawtex/agents.toml` controls agents, providers, and routing.
+`~/.phantom-mesh/agents.toml` controls agents, providers, and routing.
 
 ```toml
 [master]
-name = "clawtex"
+name = "phantom-mesh"
 provider = "gemini"
 model = "gemini-2.0-flash"
 

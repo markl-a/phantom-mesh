@@ -422,7 +422,7 @@ impl Tool for RssReaderTool {
 async fn fetch_feed(url: &str) -> Result<String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("clawtex-core/0.1 RSS Reader")
+        .user_agent("phantom-mesh/0.1 RSS Reader")
         .build()?;
 
     let resp = client.get(url).send().await?;

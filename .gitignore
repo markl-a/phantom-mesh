@@ -4,6 +4,7 @@
 
 # ── Rust build artifacts ────────────────────────────────────────────────────
 /target/
+/target*/
 **/*.rs.bk
 Cargo.lock.bak
 
@@ -19,6 +20,7 @@ secrets/
 .secrets/
 
 # ── Clawtex runtime data (never commit user data) ──────────────────────────
+/workspace/
 .clawtex/
 ~/.clawtex/
 core.db

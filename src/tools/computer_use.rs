@@ -342,7 +342,7 @@ impl ComputerUseTool {
     fn sandbox_container_name(&self) -> String {
         self.config.docker.as_ref()
             .map(|d| d.container_name.clone())
-            .unwrap_or_else(|| "clawtex-sandbox".to_string())
+            .unwrap_or_else(|| "phantom-mesh-sandbox".to_string())
     }
 
     /// Call local vision model via Ollama /api/chat endpoint

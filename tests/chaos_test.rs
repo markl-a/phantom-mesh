@@ -1,4 +1,4 @@
-//! Chaos / Fault-Injection Tests for Clawtex-Core
+//! Chaos / Fault-Injection Tests for Phantom Mesh
 //!
 //! These tests verify that the system degrades gracefully under adverse conditions:
 //! provider timeouts, tool failures, concurrent hand runs, budget exhaustion,
@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use clawtex_core::{
+use phantom_mesh::{
     // Providers & mock
     ChatMessage, ChatResponse, MockProvider, Provider, TokenUsage,
     // Circuit breaker
@@ -144,7 +144,7 @@ async fn test_provider_timeout_recovery() {
 
 #[tokio::test]
 async fn test_tool_failure_graceful() {
-    use clawtex_core::providers::mock::{MockResponse, MockToolCall};
+    use phantom_mesh::providers::mock::{MockResponse, MockToolCall};
     use serde_json::json;
 
     // Script: round 1 = tool call (will fail), round 2 = text answer.
@@ -669,7 +669,7 @@ fn test_policy_engine_deny() {
 
 #[test]
 fn test_rate_limiter_burst() {
-    use clawtex_core::rate_limiter_v2::TokenBucket;
+    use phantom_mesh::rate_limiter_v2::TokenBucket;
 
     let start = Instant::now();
 
@@ -716,7 +716,7 @@ fn test_rate_limiter_burst() {
     );
 
     // Sliding window counter test.
-    use clawtex_core::rate_limiter_v2::SlidingWindowCounter;
+    use phantom_mesh::rate_limiter_v2::SlidingWindowCounter;
 
     let mut counter = SlidingWindowCounter::new(Duration::from_secs(10), 5);
 

@@ -254,7 +254,7 @@ impl Tool for ShellTool {
             "properties": {
                 "command": {
                     "type": "string",
-                    "description": "The shell command to execute. Use absolute Windows paths (C:/Users/...) or ~/ which auto-expands. Example: sqlite3 ~/.clawtex/costs.db \"SELECT * FROM cost_records;\""
+                    "description": "The shell command to execute. Use absolute Windows paths (C:/Users/...) or ~/ which auto-expands. Example: sqlite3 ~/.phantom-mesh/costs.db \"SELECT * FROM cost_records;\""
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -469,7 +469,7 @@ mod tests {
     use super::*;
 
     fn make_tool() -> ShellTool {
-        let dir = std::env::temp_dir().join("clawtex_test_shell");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_shell");
         let _ = std::fs::create_dir_all(&dir);
         let security = SecurityConfig {
             workspace_dir: dir.to_string_lossy().to_string(),
@@ -541,7 +541,7 @@ mod tests {
         let tool = make_tool();
         // Use a python script file to avoid shell quoting issues across platforms.
         // Write a temp script, then execute it with python.
-        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let script_dir = std::env::temp_dir().join("phantom_mesh_test_shell");
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("exit42.py");
         std::fs::write(&script_path, "import sys\nsys.exit(42)\n").unwrap();
@@ -556,7 +556,7 @@ mod tests {
     async fn test_stderr_only_command() {
         let tool = make_tool();
         // Write a temp python script that writes only to stderr.
-        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let script_dir = std::env::temp_dir().join("phantom_mesh_test_shell");
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("stderr_only.py");
         std::fs::write(&script_path, "import sys\nsys.stderr.write('err_only\\n')\n").unwrap();
@@ -571,7 +571,7 @@ mod tests {
     async fn test_both_stdout_and_stderr() {
         let tool = make_tool();
         // Write a temp python script that writes to both stdout and stderr.
-        let script_dir = std::env::temp_dir().join("clawtex_test_shell");
+        let script_dir = std::env::temp_dir().join("phantom_mesh_test_shell");
         let _ = std::fs::create_dir_all(&script_dir);
         let script_path = script_dir.join("both_streams.py");
         std::fs::write(&script_path, "import sys\nprint('out_msg')\nsys.stderr.write('err_msg\\n')\n").unwrap();
@@ -887,7 +887,7 @@ mod tests {
         let result = tool.execute(json!({"command": "echo hello"})).await.unwrap();
         assert!(result.success);
         // No state capture markers should appear in output
-        assert!(!result.output.contains("CLAWTEX_CWD"));
+        assert!(!result.output.contains("PHANTOM_MESH_CWD"));
     }
 
     #[tokio::test]
@@ -895,7 +895,7 @@ mod tests {
         use crate::tools::shell_session::ShellSessionManager;
         use std::sync::Arc;
 
-        let dir = std::env::temp_dir().join("clawtex_test_shell_e2e");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_shell_e2e");
         let _ = std::fs::create_dir_all(&dir);
 
         let mgr = Arc::new(ShellSessionManager::new(dir.clone()));
@@ -912,8 +912,8 @@ mod tests {
             "session_id": "test_vis"
         })).await.unwrap();
         assert!(result.success, "command should succeed: {}", result.output);
-        assert!(!result.output.contains("CLAWTEX_CWD"), "CWD marker should not appear in output");
-        assert!(!result.output.contains("CLAWTEX_ENV"), "ENV marker should not appear in output");
+        assert!(!result.output.contains("PHANTOM_MESH_CWD"), "CWD marker should not appear in output");
+        assert!(!result.output.contains("PHANTOM_MESH_ENV"), "ENV marker should not appear in output");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

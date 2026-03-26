@@ -36,6 +36,75 @@ pub fn classify_error(err: &anyhow::Error) -> ErrorClass {
     }
 }
 
+/// Parse a `Retry-After` value (in seconds) from an error message.
+///
+/// LLM provider APIs often return a `Retry-After` header or embed a wait time
+/// in the error body (e.g. "retry after 5s", "retry-after: 30", "Please retry
+/// after 10 seconds").  This function scans the error string for such hints and
+/// returns the value as a `Duration`, or `None` if nothing is found.
+pub fn parse_retry_after(err: &anyhow::Error) -> Option<Duration> {
+    let msg = err.to_string().to_lowercase();
+
+    // Pattern 1: "retry-after: <N>" or "retry-after:<N>" (HTTP header echoed in body)
+    if let Some(idx) = msg.find("retry-after") {
+        let rest = &msg[idx + "retry-after".len()..];
+        // Skip optional colon, spaces
+        let rest = rest.trim_start_matches(|c: char| c == ':' || c == ' ');
+        if let Some(secs) = parse_leading_u64(rest) {
+            if secs > 0 && secs <= 300 {
+                return Some(Duration::from_secs(secs));
+            }
+        }
+    }
+
+    // Pattern 2: "retry after <N>" or "retry in <N>"
+    for prefix in &["retry after ", "retry in "] {
+        if let Some(idx) = msg.find(prefix) {
+            let rest = &msg[idx + prefix.len()..];
+            if let Some(secs) = parse_leading_u64(rest) {
+                if secs > 0 && secs <= 300 {
+                    return Some(Duration::from_secs(secs));
+                }
+            }
+        }
+    }
+
+    // Pattern 3: "try again in <N>s" or "try again in <N> seconds"
+    if let Some(idx) = msg.find("try again in ") {
+        let rest = &msg[idx + "try again in ".len()..];
+        if let Some(secs) = parse_leading_u64(rest) {
+            if secs > 0 && secs <= 300 {
+                return Some(Duration::from_secs(secs));
+            }
+        }
+    }
+
+    None
+}
+
+/// Extract a leading integer from the beginning of a string slice.
+fn parse_leading_u64(s: &str) -> Option<u64> {
+    let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u64>().ok()
+    }
+}
+
+/// Compute the backoff delay for a rate-limit retry.
+///
+/// If the error contains a parseable `Retry-After` value, that is used.
+/// Otherwise, exponential backoff is applied: 1s, 2s, 4s, 8s for attempts
+/// 0, 1, 2, 3 respectively.
+pub fn rate_limit_backoff(attempt: u32, err: &anyhow::Error) -> Duration {
+    if let Some(server_delay) = parse_retry_after(err) {
+        return server_delay;
+    }
+    // Exponential backoff: 1s * 2^attempt  →  1s, 2s, 4s, 8s
+    Duration::from_secs(1u64 << attempt.min(3))
+}
+
 /// Circuit breaker state
 #[derive(Debug)]
 struct CircuitBreaker {
@@ -119,7 +188,7 @@ impl ReliableProvider {
         Self {
             chain,
             breakers,
-            max_retries: 2,
+            max_retries: 4,
             base_backoff: Duration::from_millis(500),
         }
     }
@@ -188,12 +257,19 @@ impl ReliableProvider {
                             }
                             ErrorClass::RateLimited => {
                                 breaker.record_failure();
-                                last_error = e;
                                 if attempt == self.max_retries {
+                                    last_error = e;
                                     break; // Try next provider
                                 }
-                                // Extra backoff for rate limits
-                                tokio::time::sleep(Duration::from_secs(2)).await;
+                                // Exponential backoff: 1s, 2s, 4s, 8s
+                                // Honours Retry-After header if present in the error
+                                let delay = rate_limit_backoff(attempt, &e);
+                                warn!(
+                                    "Rate-limited on '{}', backing off {:?} (attempt {}/{})",
+                                    provider.name(), delay, attempt + 1, self.max_retries
+                                );
+                                last_error = e;
+                                tokio::time::sleep(delay).await;
                             }
                             ErrorClass::Transient => {
                                 breaker.record_failure();
@@ -359,5 +435,87 @@ mod tests {
         let chain: Vec<Box<dyn Provider>> = vec![];
         let rp = ReliableProvider::new(chain);
         assert_eq!(rp.default_model(), "unknown");
+    }
+
+    #[test]
+    fn test_reliable_provider_max_retries_is_4() {
+        let chain: Vec<Box<dyn Provider>> = vec![];
+        let rp = ReliableProvider::new(chain);
+        assert_eq!(rp.max_retries, 4);
+    }
+
+    // ── parse_retry_after tests ───────────────────────────────────────
+
+    #[test]
+    fn test_parse_retry_after_header_style() {
+        let err = anyhow!("HTTP 429: retry-after: 30");
+        assert_eq!(parse_retry_after(&err), Some(Duration::from_secs(30)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_no_space() {
+        let err = anyhow!("HTTP 429: retry-after:5");
+        assert_eq!(parse_retry_after(&err), Some(Duration::from_secs(5)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_natural_language() {
+        let err = anyhow!("Rate limited. Please retry after 10 seconds.");
+        assert_eq!(parse_retry_after(&err), Some(Duration::from_secs(10)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_try_again_in() {
+        let err = anyhow!("Too many requests. Try again in 60 seconds.");
+        assert_eq!(parse_retry_after(&err), Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_retry_in() {
+        let err = anyhow!("Rate limit exceeded, retry in 15 seconds");
+        assert_eq!(parse_retry_after(&err), Some(Duration::from_secs(15)));
+    }
+
+    #[test]
+    fn test_parse_retry_after_none_when_absent() {
+        let err = anyhow!("HTTP 429 Too Many Requests");
+        assert_eq!(parse_retry_after(&err), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_capped_at_300() {
+        let err = anyhow!("retry-after: 999");
+        assert_eq!(parse_retry_after(&err), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_zero_ignored() {
+        let err = anyhow!("retry-after: 0");
+        assert_eq!(parse_retry_after(&err), None);
+    }
+
+    // ── rate_limit_backoff tests ──────────────────────────────────────
+
+    #[test]
+    fn test_rate_limit_backoff_exponential() {
+        let err = anyhow!("HTTP 429 Too Many Requests");
+        assert_eq!(rate_limit_backoff(0, &err), Duration::from_secs(1));
+        assert_eq!(rate_limit_backoff(1, &err), Duration::from_secs(2));
+        assert_eq!(rate_limit_backoff(2, &err), Duration::from_secs(4));
+        assert_eq!(rate_limit_backoff(3, &err), Duration::from_secs(8));
+    }
+
+    #[test]
+    fn test_rate_limit_backoff_honours_retry_after() {
+        let err = anyhow!("HTTP 429: retry-after: 42");
+        assert_eq!(rate_limit_backoff(0, &err), Duration::from_secs(42));
+        assert_eq!(rate_limit_backoff(3, &err), Duration::from_secs(42));
+    }
+
+    #[test]
+    fn test_rate_limit_backoff_clamped_at_8s() {
+        // Attempt 10 should still cap at 8s (2^3)
+        let err = anyhow!("HTTP 429 Too Many Requests");
+        assert_eq!(rate_limit_backoff(10, &err), Duration::from_secs(8));
     }
 }

@@ -4,7 +4,7 @@
 //! Lead -> Demo -> Quote -> Contract -> Delivery -> Acceptance -> Renewal
 //! with Cancelled and OnHold side-states.
 //!
-//! Backed by SQLite (~/.clawtex/orders.db).
+//! Backed by SQLite (~/.phantom-mesh/orders.db).
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};

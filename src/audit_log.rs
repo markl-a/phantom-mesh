@@ -1,5 +1,5 @@
 //! Audit Log — records all significant actions for security auditing and compliance.
-//! SQLite-backed, persisted to ~/.clawtex/audit.db.
+//! SQLite-backed, persisted to ~/.phantom-mesh/audit.db.
 
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
@@ -626,7 +626,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_audit");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_audit");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);

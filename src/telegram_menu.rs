@@ -109,6 +109,10 @@ pub enum CallbackAction {
     Cancel,
     /// Select a provider by name.
     SelectProvider(String),
+    /// Goals: record mood check-in (1-5).
+    GoalsMood(i32),
+    /// Goals: mark a recurring task as completed.
+    GoalsTaskDone(String),
     /// Unrecognized callback data.
     Unknown(String),
 }
@@ -121,6 +125,8 @@ pub enum CallbackAction {
 /// - `confirm`           -> `Confirm`
 /// - `cancel`            -> `Cancel`
 /// - `provider:<name>`   -> `SelectProvider(name)`
+/// - `goals_mood:<1-5>`  -> `GoalsMood(n)`
+/// - `goals_task:<id>`   -> `GoalsTaskDone(id)`
 /// - anything else       -> `Unknown(raw)`
 pub fn parse_callback(data: &str) -> CallbackAction {
     if let Some(name) = data.strip_prefix("hand:") {
@@ -133,6 +139,13 @@ pub fn parse_callback(data: &str) -> CallbackAction {
         CallbackAction::Cancel
     } else if let Some(name) = data.strip_prefix("provider:") {
         CallbackAction::SelectProvider(name.to_string())
+    } else if let Some(mood_str) = data.strip_prefix("goals_mood:") {
+        mood_str.parse::<i32>().ok()
+            .filter(|m| (1..=5).contains(m))
+            .map(CallbackAction::GoalsMood)
+            .unwrap_or(CallbackAction::Unknown(data.to_string()))
+    } else if let Some(task_id) = data.strip_prefix("goals_task:") {
+        CallbackAction::GoalsTaskDone(task_id.to_string())
     } else {
         CallbackAction::Unknown(data.to_string())
     }
@@ -192,6 +205,39 @@ pub fn provider_selector(providers: &[&str]) -> InlineKeyboard {
     let rows: Vec<Vec<InlineButton>> = providers
         .iter()
         .map(|name| vec![InlineButton::new(*name, format!("provider:{}", name))])
+        .collect();
+    InlineKeyboard::from_rows(rows)
+}
+
+// ---------------------------------------------------------------------------
+// Goals menus
+// ---------------------------------------------------------------------------
+
+/// Build a mood check-in keyboard (1-5 with emojis).
+pub fn goals_mood_selector() -> InlineKeyboard {
+    let row = vec![
+        InlineButton::new("\u{1f622} 1", "goals_mood:1"),
+        InlineButton::new("\u{1f614} 2", "goals_mood:2"),
+        InlineButton::new("\u{1f610} 3", "goals_mood:3"),
+        InlineButton::new("\u{1f60a} 4", "goals_mood:4"),
+        InlineButton::new("\u{1f929} 5", "goals_mood:5"),
+    ];
+    InlineKeyboard::from_rows(vec![row])
+}
+
+/// Build a task completion keyboard for today's tasks.
+/// Each button marks a task as done.
+/// `tasks` is a slice of `(task_id, task_title)`.
+pub fn goals_task_buttons(tasks: &[(&str, &str)]) -> InlineKeyboard {
+    let rows: Vec<Vec<InlineButton>> = tasks.iter()
+        .map(|(id, title)| {
+            let label = if title.len() > 28 {
+                format!("\u{25cb} {}...", &title[..title.char_indices().nth(25).map(|(i,_)|i).unwrap_or(title.len())])
+            } else {
+                format!("\u{25cb} {}", title)
+            };
+            vec![InlineButton::new(label, format!("goals_task:{}", id))]
+        })
         .collect();
     InlineKeyboard::from_rows(rows)
 }
@@ -407,5 +453,48 @@ mod tests {
             parse_callback(cb),
             CallbackAction::SelectProvider("mistral".to_string())
         );
+    }
+
+    // Goals callback tests
+
+    #[test]
+    fn test_parse_goals_mood() {
+        assert_eq!(parse_callback("goals_mood:1"), CallbackAction::GoalsMood(1));
+        assert_eq!(parse_callback("goals_mood:5"), CallbackAction::GoalsMood(5));
+        assert_eq!(parse_callback("goals_mood:3"), CallbackAction::GoalsMood(3));
+        // Invalid mood values fall through to Unknown
+        assert_eq!(parse_callback("goals_mood:0"), CallbackAction::Unknown("goals_mood:0".to_string()));
+        assert_eq!(parse_callback("goals_mood:6"), CallbackAction::Unknown("goals_mood:6".to_string()));
+        assert_eq!(parse_callback("goals_mood:abc"), CallbackAction::Unknown("goals_mood:abc".to_string()));
+    }
+
+    #[test]
+    fn test_parse_goals_task() {
+        assert_eq!(
+            parse_callback("goals_task:t-abc-123"),
+            CallbackAction::GoalsTaskDone("t-abc-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_goals_mood_selector() {
+        let kb = goals_mood_selector();
+        assert_eq!(kb.rows.len(), 1);
+        assert_eq!(kb.rows[0].len(), 5);
+        // Verify roundtrip
+        let j = kb.to_json();
+        let btn3 = &j["inline_keyboard"][0][2];
+        assert_eq!(parse_callback(btn3["callback_data"].as_str().unwrap()), CallbackAction::GoalsMood(3));
+    }
+
+    #[test]
+    fn test_goals_task_buttons() {
+        let tasks = vec![("t1", "背單字"), ("t2", "寫程式")];
+        let kb = goals_task_buttons(&tasks);
+        assert_eq!(kb.rows.len(), 2);
+        let j = kb.to_json();
+        let btn0 = &j["inline_keyboard"][0][0];
+        assert_eq!(parse_callback(btn0["callback_data"].as_str().unwrap()), CallbackAction::GoalsTaskDone("t1".to_string()));
+        assert!(btn0["text"].as_str().unwrap().contains("背單字"));
     }
 }

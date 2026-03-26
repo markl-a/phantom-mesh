@@ -1,11 +1,11 @@
 #!/bin/bash
-# Clawtex Cluster Status Script
+# Phantom Mesh Cluster Status Script
 # Checks hub health and worker status.
 
 HUB_PORT="${HUB_PORT:-7878}"
 HUB_URL="http://127.0.0.1:$HUB_PORT"
 
-echo "=== Clawtex Cluster Status ==="
+echo "=== Phantom Mesh Cluster Status ==="
 
 # Check hub
 echo ""

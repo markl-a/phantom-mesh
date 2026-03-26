@@ -86,16 +86,16 @@ impl ShellSessionManager {
 
     pub fn state_capture_suffix() -> &'static str {
         if cfg!(target_os = "windows") {
-            " & echo ___CLAWTEX_CWD___ & cd & echo ___CLAWTEX_ENV___ & set"
+            " & echo ___PHANTOM_MESH_CWD___ & cd & echo ___PHANTOM_MESH_ENV___ & set"
         } else {
-            "; echo '___CLAWTEX_CWD___'; pwd; echo '___CLAWTEX_ENV___'; env -0"
+            "; echo '___PHANTOM_MESH_CWD___'; pwd; echo '___PHANTOM_MESH_ENV___'; env -0"
         }
     }
 }
 
 pub fn parse_state_capture(raw_output: &str) -> (String, Option<PathBuf>, HashMap<String, String>) {
-    let cwd_marker = "___CLAWTEX_CWD___";
-    let env_marker = "___CLAWTEX_ENV___";
+    let cwd_marker = "___PHANTOM_MESH_CWD___";
+    let env_marker = "___PHANTOM_MESH_ENV___";
 
     let cwd_pos = match raw_output.find(cwd_marker) {
         Some(pos) => pos,
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn test_parse_state_capture_unix() {
-        let output = "hello world\n___CLAWTEX_CWD___\n/tmp/subdir\n___CLAWTEX_ENV___\nFOO=bar\nBAZ=qux\n";
+        let output = "hello world\n___PHANTOM_MESH_CWD___\n/tmp/subdir\n___PHANTOM_MESH_ENV___\nFOO=bar\nBAZ=qux\n";
         let (user_output, cwd, env) = parse_state_capture(output);
         assert_eq!(user_output, "hello world\n");
         assert_eq!(cwd, Some(std::path::PathBuf::from("/tmp/subdir")));
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn test_parse_state_capture_null_delimited() {
         // Unix env -0 output
-        let output = "output\n___CLAWTEX_CWD___\n/home\n___CLAWTEX_ENV___\nFOO=bar\0BAZ=qux\0";
+        let output = "output\n___PHANTOM_MESH_CWD___\n/home\n___PHANTOM_MESH_ENV___\nFOO=bar\0BAZ=qux\0";
         let (user_output, cwd, env) = parse_state_capture(output);
         assert_eq!(user_output, "output\n");
         assert_eq!(cwd, Some(std::path::PathBuf::from("/home")));
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn test_windows_state_capture() {
-        let output = "file1.txt\nfile2.txt\n___CLAWTEX_CWD___\nC:\\Users\\test\n___CLAWTEX_ENV___\nPATH=C:\\Windows\nHOME=C:\\Users\\test\n";
+        let output = "file1.txt\nfile2.txt\n___PHANTOM_MESH_CWD___\nC:\\Users\\test\n___PHANTOM_MESH_ENV___\nPATH=C:\\Windows\nHOME=C:\\Users\\test\n";
         let (user_output, cwd, env) = parse_state_capture(output);
         assert_eq!(user_output, "file1.txt\nfile2.txt\n");
         assert_eq!(cwd, Some(std::path::PathBuf::from("C:\\Users\\test")));

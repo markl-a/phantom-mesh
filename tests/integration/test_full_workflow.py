@@ -1,5 +1,5 @@
 """
-Clawtex E2E Money-Making Workflow Test
+Phantom Mesh E2E Money-Making Workflow Test
 ======================================
 Tests 4 hand workflows end-to-end via HTTP API + Telegram progress verification.
 
@@ -10,7 +10,7 @@ Scenarios:
 4. Outreach (4 phases, full sales pipeline)
 
 Requirements:
-- clawtex-core daemon running on localhost:7878
+- phantom-mesh daemon running on localhost:7878
 - LM Studio running with qwen/qwen3-coder-next loaded
 - pip install requests pyautogui pillow
 """
@@ -101,7 +101,7 @@ def take_screenshot(name):
 
 
 def check_health():
-    """Check if clawtex-core daemon is running."""
+    """Check if phantom-mesh daemon is running."""
     try:
         r = requests.get(f"{BASE_URL}/health", timeout=5)
         data = r.json()
@@ -126,7 +126,7 @@ def check_lmstudio():
 
 
 def list_workspace_files():
-    """List files in the clawtex workspace via API."""
+    """List files in the phantom-mesh workspace via API."""
     try:
         r = requests.get(f"{BASE_URL}/workspace/files", timeout=10)
         data = r.json()
@@ -281,14 +281,14 @@ def run_scenario(scenario):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log("Clawtex E2E Workflow Test Starting")
+    log("Phantom Mesh E2E Workflow Test Starting")
     log(f"Screenshot dir: {SCREENSHOT_DIR}")
 
     # Pre-flight checks
     log("\n--- Pre-flight Checks ---")
 
     if not check_health():
-        log("ABORT: clawtex-core daemon not running. Start with: cargo run --release", "ERROR")
+        log("ABORT: phantom-mesh daemon not running. Start with: cargo run --release", "ERROR")
         sys.exit(1)
 
     lmstudio_ok = check_lmstudio()

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════
-# Clawtex Worker — 通用快速啟動（任何有 Python3 的裝置）
+# Phantom Mesh Worker — 通用快速啟動（任何有 Python3 的裝置）
 # ═══════════════════════════════════════════════════════════
 # 只需要這一個檔案，不需要 git clone 整個 repo
 #
@@ -11,12 +11,12 @@
 #
 set -e
 
-HUB_IP="${CLAWTEX_HUB_IP:-10.0.1.1}"
-HUB_PORT="${CLAWTEX_HUB_PORT:-7878}"
-WORKER_NAME="${CLAWTEX_WORKER_NAME:-worker-$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo 'unknown')}"
-WORKER_PORT="${CLAWTEX_WORKER_PORT:-7880}"
+HUB_IP="${PHANTOM_MESH_HUB_IP:-10.0.1.1}"
+HUB_PORT="${PHANTOM_MESH_HUB_PORT:-7878}"
+WORKER_NAME="${PHANTOM_MESH_WORKER_NAME:-worker-$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo 'unknown')}"
+WORKER_PORT="${PHANTOM_MESH_WORKER_PORT:-7880}"
 
-echo "Clawtex Worker 快速啟動"
+echo "Phantom Mesh Worker 快速啟動"
 echo "========================"
 echo "Hub: http://${HUB_IP}:${HUB_PORT}"
 echo "Name: ${WORKER_NAME}"
@@ -24,8 +24,8 @@ echo "Port: ${WORKER_PORT}"
 echo ""
 
 # 下載 worker
-WORKER_URL="https://raw.githubusercontent.com/anthropomorphic-AI/clawtex-core/master/deploy/lightweight-worker/clawtex-worker.py"
-WORKER_FILE="/tmp/clawtex-worker.py"
+WORKER_URL="https://raw.githubusercontent.com/anthropomorphic-AI/phantom-mesh/master/deploy/lightweight-worker/phantom-mesh-worker.py"
+WORKER_FILE="/tmp/phantom-mesh-worker.py"
 
 echo "下載 worker..."
 if command -v curl &> /dev/null; then

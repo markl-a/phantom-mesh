@@ -1,6 +1,6 @@
 // Cron management tool — programmatic CRUD for cron jobs via agent tool calling
 // Actions: list_jobs, create_job, update_job, delete_job, trigger_job
-// Uses ~/.clawtex/core.db SQLite table `cron_jobs` (CronStore)
+// Uses ~/.phantom-mesh/core.db SQLite table `cron_jobs` (CronStore)
 
 use anyhow::Result;
 use async_trait::async_trait;

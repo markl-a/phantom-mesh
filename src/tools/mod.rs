@@ -268,7 +268,7 @@ fn default_workspace() -> String {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    format!("{}/.clawtex/workspace", home)
+    format!("{}/.phantom-mesh/workspace", home)
 }
 
 fn default_true() -> bool { true }
@@ -323,12 +323,12 @@ pub(crate) fn normalize_llm_path(path: &str, workspace: &std::path::Path) -> Str
         }
     }
 
-    // 3. Remove duplicate workspace prefix (workspace/~/.clawtex/workspace/X → workspace/X)
+    // 3. Remove duplicate workspace prefix (workspace/~/.phantom-mesh/workspace/X → workspace/X)
     let ws_str = workspace.to_string_lossy().replace('\\', "/");
     let _ws_suffix = if ws_str.ends_with('/') { &ws_str } else { &format!("{}/", ws_str) };
     // Check if path contains workspace path embedded after workspace join
     if p.replace('\\', "/").matches(&ws_str.replace('\\', "/")).count() > 1 {
-        // e.g., ~/.clawtex/workspace/~/.clawtex/workspace/file.py
+        // e.g., ~/.phantom-mesh/workspace/~/.phantom-mesh/workspace/file.py
         // Keep only the last occurrence
         if let Some(last_idx) = p.replace('\\', "/").rfind(&ws_str.replace('\\', "/")) {
             p = p[last_idx..].to_string();

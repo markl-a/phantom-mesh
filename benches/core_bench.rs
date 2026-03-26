@@ -1,4 +1,4 @@
-//! Clawtex-Core Hot Path Benchmarks
+//! Phantom Mesh Hot Path Benchmarks
 //!
 //! Focused criterion benchmarks for performance-critical code paths.
 //! Run: cargo bench --bench core_bench
@@ -7,7 +7,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use serde_json::json;
 
-use clawtex_core::{
+use phantom_mesh::{
     // Injection guard
     InjectionGuard,
     // Response cache
@@ -21,7 +21,7 @@ use clawtex_core::{
     // Credential scrubbing
     scrub_credentials,
 };
-use clawtex_core::providers::ToolCallFunction;
+use phantom_mesh::providers::ToolCallFunction;
 
 // ── 1. InjectionGuard::check() ────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ fn bench_injection_guard_check(c: &mut Criterion) {
 // ── 2. ResponseCache get/put ──────────────────────────────────────────────────
 
 fn bench_response_cache_lookup(c: &mut Criterion) {
-    use clawtex_core::providers::{ChatResponse, TokenUsage};
+    use phantom_mesh::providers::{ChatResponse, TokenUsage};
     use std::time::Duration;
 
     let mut group = c.benchmark_group("response_cache_lookup");
@@ -452,7 +452,7 @@ fn bench_tool_registry_dispatch(c: &mut Criterion) {
 
     let security = SecurityConfig {
         workspace_dir: std::env::temp_dir()
-            .join("clawtex_bench_workspace")
+            .join("phantom_mesh_bench_workspace")
             .to_string_lossy()
             .to_string(),
         workspace_only: true,
@@ -478,7 +478,7 @@ fn bench_tool_registry_dispatch(c: &mut Criterion) {
     // Combined: check + record (typical hot path during tool execution)
     let registry2 = ToolRegistry::new(SecurityConfig {
         workspace_dir: std::env::temp_dir()
-            .join("clawtex_bench_workspace2")
+            .join("phantom_mesh_bench_workspace2")
             .to_string_lossy()
             .to_string(),
         workspace_only: true,
@@ -499,7 +499,7 @@ fn bench_tool_registry_dispatch(c: &mut Criterion) {
     // check_rate_limit after many recordings (checks window cleanup)
     let registry3 = ToolRegistry::new(SecurityConfig {
         workspace_dir: std::env::temp_dir()
-            .join("clawtex_bench_workspace3")
+            .join("phantom_mesh_bench_workspace3")
             .to_string_lossy()
             .to_string(),
         workspace_only: true,

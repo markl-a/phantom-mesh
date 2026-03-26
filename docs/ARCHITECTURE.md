@@ -1,7 +1,7 @@
-# Clawtex-Core Architecture
+# Phantom-Mesh Architecture
 
 > Last updated: 2026-03-16
-> Source: 102 .rs files, ~44,200 LOC
+> Source: 233 .rs files, ~142,000 LOC
 
 ## System Overview
 
@@ -49,7 +49,7 @@
 ## Directory Structure
 
 ```
-clawtex-core/
+phantom-mesh/
 ├── src/
 │   ├── main.rs              # CLI entry, daemon startup, HTTP server
 │   ├── lib.rs               # Public API (47 module exports)
@@ -237,7 +237,7 @@ tools = ["web_search"]
 - Approval gates (Telegram human-in-the-loop)
 - Condition gates (skip phases based on criteria)
 - L1/L2 quality checks between phases
-- Auto-save to `~/.clawtex/workspace/{hand}_{datetime}.{ext}`
+- Auto-save to `~/.phantom-mesh/workspace/{hand}_{datetime}.{ext}`
 - Chain-to (trigger next hand on completion)
 
 ### 5. Cluster Architecture
@@ -299,11 +299,11 @@ Supporting infrastructure:
 
 | Database | Path | Tables | Purpose |
 |----------|------|--------|---------|
-| core.db | `~/.clawtex/core.db` | sessions, cron_jobs | Session state, scheduling |
-| costs.db | `~/.clawtex/costs.db` | cost_records | Token/cost tracking |
-| memory.db | `~/.clawtex/memory.db` | memories | Semantic memory store |
-| revenue.db | `~/.clawtex/revenue.db` | revenue entries | Revenue accounting |
-| trajectories.db | `~/.clawtex/trajectories.db` | trajectory logs | Self-evolution feedback |
+| core.db | `~/.phantom-mesh/core.db` | sessions, cron_jobs | Session state, scheduling |
+| costs.db | `~/.phantom-mesh/costs.db` | cost_records | Token/cost tracking |
+| memory.db | `~/.phantom-mesh/memory.db` | memories | Semantic memory store |
+| revenue.db | `~/.phantom-mesh/revenue.db` | revenue entries | Revenue accounting |
+| trajectories.db | `~/.phantom-mesh/trajectories.db` | trajectory logs | Self-evolution feedback |
 
 ## Cron Schedule (11 jobs)
 

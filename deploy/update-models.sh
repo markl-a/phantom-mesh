@@ -57,7 +57,7 @@ pull_model() {
 
 echo ""
 echo "================================================"
-echo " Clawtex Ollama 模型管理"
+echo " Phantom Mesh Ollama 模型管理"
 echo "================================================"
 echo ""
 

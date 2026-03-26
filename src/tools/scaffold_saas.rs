@@ -1,5 +1,5 @@
 // SaaS project scaffolding tool
-// Copies the SaaS API template from ~/.clawtex/templates/saas-api/
+// Copies the SaaS API template from ~/.phantom-mesh/templates/saas-api/
 // and replaces placeholder values with actual product info.
 // This ensures code_gen always starts with a working, compilable project.
 
@@ -19,8 +19,8 @@ pub struct ScaffoldSaasTool {
 impl ScaffoldSaasTool {
     pub fn new(home: &str) -> Self {
         Self {
-            template_dir: PathBuf::from(format!("{}/.clawtex/templates/saas-api", home)),
-            workspace_dir: PathBuf::from(format!("{}/.clawtex/workspace", home)),
+            template_dir: PathBuf::from(format!("{}/.phantom-mesh/templates/saas-api", home)),
+            workspace_dir: PathBuf::from(format!("{}/.phantom-mesh/workspace", home)),
         }
     }
 
@@ -227,7 +227,7 @@ mod tests {
         let home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| "/tmp".to_string());
-        let template_dir = format!("{}/.clawtex/templates/saas-api", home);
+        let template_dir = format!("{}/.phantom-mesh/templates/saas-api", home);
         if !std::path::Path::new(&template_dir).exists() {
             return; // Skip if template not installed
         }

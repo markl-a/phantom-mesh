@@ -1,6 +1,6 @@
 //! Multi-Tenant Isolation System — manages tenants with isolated workspaces,
 //! API key authentication, and tier-based access control.
-//! Persisted to SQLite (~/.clawtex/tenants.db).
+//! Persisted to SQLite (~/.phantom-mesh/tenants.db).
 
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -47,7 +47,7 @@ pub struct TenantManager {
 
 impl TenantManager {
     /// Create a new TenantManager backed by the given SQLite path.
-    /// `base_dir` is the parent directory for tenant workspaces (e.g. ~/.clawtex/tenants).
+    /// `base_dir` is the parent directory for tenant workspaces (e.g. ~/.phantom-mesh/tenants).
     pub fn new(db_path: &str, base_dir: &str) -> Result<Self> {
         let conn = Connection::open(db_path)?;
         conn.execute_batch(
@@ -272,7 +272,7 @@ mod tests {
 
     fn temp_db() -> (String, String) {
         let id = uuid::Uuid::new_v4().to_string();
-        let dir = std::env::temp_dir().join(format!("clawtex_tenant_test_{}", &id[..8]));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_tenant_test_{}", &id[..8]));
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("tenants.db");
         let base_dir = dir.join("tenants");
@@ -536,7 +536,7 @@ mod tests {
     fn test_extract_tenant_key_bearer_non_ctx() {
         let mut headers = axum::http::HeaderMap::new();
         // Non-ctx_ Bearer token should NOT be extracted (hub auth token, not tenant key)
-        headers.insert("authorization", "Bearer clawtex-hub-2026".parse().unwrap());
+        headers.insert("authorization", "Bearer phantom_mesh-hub-2026".parse().unwrap());
         let key = extract_tenant_key(&headers);
         assert!(key.is_none());
     }

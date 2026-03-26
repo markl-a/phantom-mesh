@@ -1,26 +1,26 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════
-# Clawtex Worker — iOS (iSH / a-Shell) 一鍵安裝
+# Phantom Mesh Worker — iOS (iSH / a-Shell) 一鍵安裝
 # ═══════════════════════════════════════════════════════════
 #
 # 方式 A — iSH (App Store 免費, Alpine Linux 環境)：
 #   apk add bash curl git python3
-#   git clone https://github.com/anthropomorphic-AI/clawtex-core.git
-#   bash clawtex-core/deploy/mobile/ios/install-ish.sh
+#   git clone https://github.com/anthropomorphic-AI/phantom-mesh.git
+#   bash phantom-mesh/deploy/mobile/ios/install-ish.sh
 #
 # 方式 B — a-Shell (App Store 免費, 內建 Python)：
 #   curl -sL <raw URL> -o install.sh && bash install.sh
 #
 set -e
 
-HUB_IP="${CLAWTEX_HUB_IP:-10.0.1.1}"
-HUB_PORT="${CLAWTEX_HUB_PORT:-7878}"
-WORKER_NAME="${CLAWTEX_WORKER_NAME:-ios-$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo 'iphone')}"
-WORKER_PORT="${CLAWTEX_WORKER_PORT:-7882}"
-INSTALL_DIR="$HOME/clawtex"
+HUB_IP="${PHANTOM_MESH_HUB_IP:-10.0.1.1}"
+HUB_PORT="${PHANTOM_MESH_HUB_PORT:-7878}"
+WORKER_NAME="${PHANTOM_MESH_WORKER_NAME:-ios-$(hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo 'iphone')}"
+WORKER_PORT="${PHANTOM_MESH_WORKER_PORT:-7882}"
+INSTALL_DIR="$HOME/phantom-mesh"
 
 echo "╔══════════════════════════════════════╗"
-echo "║   Clawtex Worker — iOS 安裝程式      ║"
+echo "║   Phantom Mesh Worker — iOS 安裝程式      ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
@@ -66,26 +66,26 @@ if command -v git &> /dev/null; then
     if [ -d "$INSTALL_DIR/.git" ]; then
         cd "$INSTALL_DIR" && git pull --quiet
     else
-        git clone --depth 1 https://github.com/anthropomorphic-AI/clawtex-core.git "$INSTALL_DIR" 2>/dev/null || {
+        git clone --depth 1 https://github.com/anthropomorphic-AI/phantom-mesh.git "$INSTALL_DIR" 2>/dev/null || {
             echo "Git clone 失敗，直接下載..."
-            curl -sL "https://raw.githubusercontent.com/anthropomorphic-AI/clawtex-core/master/deploy/lightweight-worker/clawtex-worker.py" \
-                -o "$INSTALL_DIR/clawtex-worker.py"
+            curl -sL "https://raw.githubusercontent.com/anthropomorphic-AI/phantom-mesh/master/deploy/lightweight-worker/phantom-mesh-worker.py" \
+                -o "$INSTALL_DIR/phantom-mesh-worker.py"
         }
     fi
 else
-    curl -sL "https://raw.githubusercontent.com/anthropomorphic-AI/clawtex-core/master/deploy/lightweight-worker/clawtex-worker.py" \
-        -o "$INSTALL_DIR/clawtex-worker.py"
+    curl -sL "https://raw.githubusercontent.com/anthropomorphic-AI/phantom-mesh/master/deploy/lightweight-worker/phantom-mesh-worker.py" \
+        -o "$INSTALL_DIR/phantom-mesh-worker.py"
 fi
 
 WORKER_SCRIPT=""
-if [ -f "$INSTALL_DIR/deploy/lightweight-worker/clawtex-worker.py" ]; then
-    WORKER_SCRIPT="$INSTALL_DIR/deploy/lightweight-worker/clawtex-worker.py"
-elif [ -f "$INSTALL_DIR/clawtex-worker.py" ]; then
-    WORKER_SCRIPT="$INSTALL_DIR/clawtex-worker.py"
+if [ -f "$INSTALL_DIR/deploy/lightweight-worker/phantom-mesh-worker.py" ]; then
+    WORKER_SCRIPT="$INSTALL_DIR/deploy/lightweight-worker/phantom-mesh-worker.py"
+elif [ -f "$INSTALL_DIR/phantom-mesh-worker.py" ]; then
+    WORKER_SCRIPT="$INSTALL_DIR/phantom-mesh-worker.py"
 fi
 
 if [ -z "$WORKER_SCRIPT" ]; then
-    echo "ERROR: clawtex-worker.py 找不到"
+    echo "ERROR: phantom-mesh-worker.py 找不到"
     exit 1
 fi
 

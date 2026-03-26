@@ -2,7 +2,7 @@
 
 > 日期: 2026-03-05
 > 狀態: 設計完成，待實施
-> 依賴: clawtex-core seo_content hand, blog_publish tool, twitter tool, web_search tool
+> 依賴: phantom-mesh seo_content hand, blog_publish tool, twitter tool, web_search tool
 
 ---
 
@@ -18,7 +18,7 @@
 - **Scaled Content Abuse** 政策：大量生產無價值頁面仍會被視為垃圾
 - AI 內容 + 人工審核 + 獨特見解 = 安全且有效的策略
 
-**對 clawtex 的影響：**
+**對 phantom-mesh 的影響：**
 - 每篇文章必須有真實價值，不能只是關鍵詞堆砌
 - 需要加入個人經驗、獨特數據、原創觀點
 - seo_content hand 的 Phase 4（SEO 優化）必須包含 E-E-A-T 檢查
@@ -75,7 +75,7 @@
 - **目標關鍵詞**: "best AI tools for X", "X vs Y comparison", "how to use X"
 - **RPM**: $8-15（美國流量）
 - **聯盟**: Jasper, Copy.ai, Midjourney alternatives, ChatGPT plugins
-- **優勢**: clawtex 團隊本身就在做 AI，有真實 E-E-A-T
+- **優勢**: phantom-mesh 團隊本身就在做 AI，有真實 E-E-A-T
 - **內容範例**: "10 Best AI Writing Tools 2026", "Claude vs ChatGPT: In-Depth Comparison"
 - **月搜尋量**: 高，且持續成長
 
@@ -131,7 +131,7 @@
 | SEO 排名潛力 | 中 | 高 | 高 |
 | E-E-A-T 分數 | 低 | 中-高 | 高 |
 
-### 3.2 clawtex 產能估算
+### 3.2 phantom-mesh 產能估算
 
 以 seo_content hand 5 個 phases 計算：
 
@@ -218,7 +218,7 @@
 □ 申請 5+ 聯盟計劃（SEMrush, Jasper, HubSpot, Hostinger, NordVPN）
 □ 設定 Google Search Console
 □ 設定 Google Analytics 4
-□ 建立 brand_voice_profile（存入 clawtex memory）
+□ 建立 brand_voice_profile（存入 phantom-mesh memory）
 □ 優化 seo_content hand（見第六節改進點）
 □ 每天 1 篇核心文章 + 在 Medium/Dev.to 聯發
 □ Twitter 自動推廣每篇文章
@@ -428,7 +428,7 @@ Day 30: 檢查排名，若 P2-P3 → 優化標題/meta
 
 ---
 
-## 六、clawtex 改進計劃
+## 六、phantom-mesh 改進計劃
 
 ### 6.1 seo_content hand 改進
 
@@ -450,7 +450,7 @@ Day 30: 檢查排名，若 P2-P3 → 優化標題/meta
 ```
 新增設定 (hand.toml [settings]):
   affiliate_programs = "semrush,jasper,hubspot,hostinger,nordvpn"
-  affiliate_links_json = "~/.clawtex/affiliate_links.json"
+  affiliate_links_json = "~/.phantom-mesh/affiliate_links.json"
 
 Phase 3 新增邏輯：
   1. 讀取 affiliate_links.json 獲取產品清單和連結
@@ -551,7 +551,7 @@ Phase 3 新增邏輯：
 //   - get_links: 獲取指定類別的聯盟連結
 //   - track_click: 記錄連結點擊（需 redirect service）
 //   - report: 按文章/產品統計轉換
-// 資料來源: ~/.clawtex/affiliate_links.json
+// 資料來源: ~/.phantom-mesh/affiliate_links.json
 ```
 
 ### 6.3 自動化排程設計
@@ -805,7 +805,7 @@ max_rounds = 2
 
 ### Phase 1（第 1 週）— 核心管線
 1. 更新 seo_content hand（加入 E-E-A-T 要求、affiliate 設定）
-2. 建立 `~/.clawtex/affiliate_links.json`
+2. 建立 `~/.phantom-mesh/affiliate_links.json`
 3. 建立 brand_voice_profile（memory_store）
 4. 更新 cron 排程（每天 2 篇 SEO 文章）
 5. 申請 Google Search Console 和 Analytics

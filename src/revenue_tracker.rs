@@ -1,4 +1,4 @@
-//! Revenue Tracker — records revenue from all income routes (A-J) in Clawtex.
+//! Revenue Tracker — records revenue from all income routes (A-J) in Phantom Mesh.
 //! Persisted to SQLite. Queryable by route, source, date, and client.
 
 use anyhow::Result;
@@ -289,7 +289,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_revenue");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_revenue");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);

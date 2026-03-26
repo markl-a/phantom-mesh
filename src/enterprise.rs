@@ -349,13 +349,13 @@ fn generate_enterprise_key(prefix: &str) -> String {
     format!("{}_{}", prefix, hex::encode(bytes))
 }
 
-/// Generate a random API key with the `clawtex_` prefix and 32 hex characters.
+/// Generate a random API key with the `phantom_mesh_` prefix and 32 hex characters.
 ///
-/// Format: `clawtex_<32 hex chars>` (16 random bytes = 128 bits of entropy).
+/// Format: `phantom_mesh_<32 hex chars>` (16 random bytes = 128 bits of entropy).
 pub fn generate_key() -> String {
     let mut rng = rand::thread_rng();
     let bytes: [u8; 16] = rng.gen();
-    format!("clawtex_{}", hex::encode(bytes))
+    format!("phantom_mesh_{}", hex::encode(bytes))
 }
 
 /// Compute the SHA-256 hash of `key` and return it as a lowercase hex string
@@ -1103,8 +1103,8 @@ mod tests {
 
     #[test]
     fn test_hash_key_deterministic() {
-        let h1 = hash_key("clawtex_abcdef1234567890abcdef12");
-        let h2 = hash_key("clawtex_abcdef1234567890abcdef12");
+        let h1 = hash_key("phantom_mesh_abcdef1234567890abcdef12");
+        let h2 = hash_key("phantom_mesh_abcdef1234567890abcdef12");
         assert_eq!(h1, h2);
         // SHA-256 produces 64 hex chars
         assert_eq!(h1.len(), 64);
@@ -1119,7 +1119,7 @@ mod tests {
 
     #[test]
     fn test_verify_key_correct() {
-        let plaintext = "clawtex_test1234567890abcdef1234";
+        let plaintext = "phantom_mesh_test1234567890abcdef1234";
         let stored = format!("sha256:{}", hash_key(plaintext));
         assert!(verify_key(plaintext, &stored));
     }
@@ -1142,11 +1142,11 @@ mod tests {
     #[test]
     fn test_generate_key_format() {
         let key = generate_key();
-        assert!(key.starts_with("clawtex_"), "key should start with clawtex_");
-        // "clawtex_" (8 chars) + 32 hex chars = 40 total
-        assert_eq!(key.len(), 40, "key should be 40 chars total");
+        assert!(key.starts_with("phantom_mesh_"), "key should start with phantom_mesh_");
+        // "phantom_mesh_" (13 chars) + 32 hex chars = 45 total
+        assert_eq!(key.len(), 45, "key should be 45 chars total");
         // The hex part should be valid hex
-        let hex_part = &key[8..];
+        let hex_part = &key[13..];
         assert_eq!(hex_part.len(), 32);
         assert!(hex_part.chars().all(|c| c.is_ascii_hexdigit()));
     }
@@ -1156,8 +1156,8 @@ mod tests {
         let k1 = generate_key();
         let k2 = generate_key();
         assert_ne!(k1, k2, "generated keys should be unique");
-        assert!(k1.starts_with("clawtex_"));
-        assert!(k2.starts_with("clawtex_"));
+        assert!(k1.starts_with("phantom_mesh_"));
+        assert!(k2.starts_with("phantom_mesh_"));
     }
 
     #[test]

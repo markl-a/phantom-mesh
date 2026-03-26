@@ -75,7 +75,7 @@ fn default_output_path() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    format!("{}/.clawtex/workspace/screenshot_{}.png", home, ts)
+    format!("{}/.phantom-mesh/workspace/screenshot_{}.png", home, ts)
 }
 
 #[async_trait]
@@ -292,7 +292,7 @@ mod tests {
         let path = default_output_path();
         assert!(path.contains("screenshot_"));
         assert!(path.ends_with(".png"));
-        assert!(path.contains(".clawtex/workspace"));
+        assert!(path.contains(".phantom-mesh/workspace"));
     }
 
     #[tokio::test]
@@ -326,7 +326,7 @@ mod tests {
         // We just ensure it doesn't panic and returns a ToolResult
         let tool = ScreenshotTool::new();
         let tmp = std::env::temp_dir()
-            .join("clawtex_screenshot_test.png")
+            .join("phantom_mesh_screenshot_test.png")
             .to_string_lossy()
             .to_string();
         let result = tool

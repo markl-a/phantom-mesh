@@ -2,9 +2,9 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in Clawtex, please **do not** open a public GitHub issue. Instead, report it privately so we can address it before public disclosure.
+If you discover a security vulnerability in Phantom Mesh, please **do not** open a public GitHub issue. Instead, report it privately so we can address it before public disclosure.
 
-**Report via**: Open a [GitHub Security Advisory](https://github.com/clawtex/clawtex-core/security/advisories/new) (preferred), or email the maintainers directly if you cannot use GitHub.
+**Report via**: Open a [GitHub Security Advisory](https://github.com/phantom-mesh/phantom-mesh/security/advisories/new) (preferred), or email the maintainers directly if you cannot use GitHub.
 
 Please include:
 - A clear description of the vulnerability
@@ -34,7 +34,7 @@ We will credit reporters in the release notes unless you prefer to remain anonym
 
 ### Secret Encryption
 
-All sensitive configuration values (API keys, passwords, tokens) are encrypted at rest using **ChaCha20-Poly1305** authenticated encryption. Encrypted values are stored with an `enc2:` prefix in `~/.clawtex/agents.toml` and related config files. The encryption key is derived from a master passphrase and never written to disk in plaintext.
+All sensitive configuration values (API keys, passwords, tokens) are encrypted at rest using **ChaCha20-Poly1305** authenticated encryption. Encrypted values are stored with an `enc2:` prefix in `~/.phantom-mesh/agents.toml` and related config files. The encryption key is derived from a master passphrase and never written to disk in plaintext.
 
 ### Prompt Injection Guard
 
@@ -84,7 +84,7 @@ All tool executions, approval decisions, cost events, and security events are wr
 
 ### Encrypted Transport
 
-All cluster communication between Hub and Workers uses HTTPS when configured with TLS certificates. The Hub authenticates Workers with a shared Bearer token. The default token (`clawtex-hub-2026`) should be changed to a random secret in any production deployment.
+All cluster communication between Hub and Workers uses HTTPS when configured with TLS certificates. The Hub authenticates Workers with a shared Bearer token. The default token (`phantom-mesh-hub-2026`) should be changed to a random secret in any production deployment.
 
 ---
 
@@ -96,7 +96,7 @@ All cluster communication between Hub and Workers uses HTTPS when configured wit
 - [ ] Restrict the shell tool allowlist to only commands your workflows actually need
 - [ ] Configure per-agent budget limits to prevent cost runaway
 - [ ] Use environment variables or the encrypted secrets system for all API keys -- never put plaintext keys in `agents.toml`
-- [ ] Limit filesystem access: run the daemon as a non-root user with write access only to `~/.clawtex/` and `~/.clawtex/workspace/`
+- [ ] Limit filesystem access: run the daemon as a non-root user with write access only to `~/.phantom-mesh/` and `~/.phantom-mesh/workspace/`
 - [ ] Enable Telegram approval gates for all destructive tools
 
 ---

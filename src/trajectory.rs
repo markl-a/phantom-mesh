@@ -2,7 +2,7 @@
 //! Used by the self-evolution system (review_agents / self_evolve hands) to analyze
 //! provider quality, worker efficiency, and identify optimization opportunities.
 //!
-//! DB: `~/.clawtex/trajectories.db`
+//! DB: `~/.phantom-mesh/trajectories.db`
 
 use std::sync::{Arc, Mutex};
 
@@ -476,7 +476,7 @@ mod tests {
 
     /// Create a temp DB path, removing any stale file.
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_trajectory");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_trajectory");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);

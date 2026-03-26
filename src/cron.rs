@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_cron_store_roundtrip() {
-        let dir = std::env::temp_dir().join("clawtex_test_cron");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_cron");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_cron.db");
         let _ = std::fs::remove_file(&db_path);
@@ -934,7 +934,7 @@ mod tests {
 
     #[test]
     fn test_cron_store_delete() {
-        let dir = std::env::temp_dir().join("clawtex_test_cron_del");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_cron_del");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_cron_del.db");
         let _ = std::fs::remove_file(&db_path);
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn test_cron_store_hand_job() {
-        let dir = std::env::temp_dir().join("clawtex_test_cron_hand");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_cron_hand");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_cron_hand.db");
         let _ = std::fs::remove_file(&db_path);
@@ -1047,7 +1047,7 @@ mod tests {
 
     /// Helper: create a temporary CostTracker backed by an in-memory-style temp DB.
     fn temp_cost_tracker(name: &str) -> (CostTracker, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_cron_fin");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_cron_fin");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);
@@ -1226,7 +1226,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tick_now_fires_due_jobs() {
-        let dir = std::env::temp_dir().join("clawtex_test_tick_now");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_tick_now");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("cron.db");
         let store = Arc::new(CronStore::new(db_path.to_str().unwrap()).unwrap());
@@ -1260,7 +1260,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tick_now_skips_paused_jobs() {
-        let dir = std::env::temp_dir().join("clawtex_test_tick_paused");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_tick_paused");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("cron.db");
         let store = Arc::new(CronStore::new(db_path.to_str().unwrap()).unwrap());

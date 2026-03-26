@@ -2,7 +2,7 @@
 //! Sends the same prompt to multiple workers and measures output consistency
 //! across factual content, output format, and tool usage.
 //!
-//! Results are persisted to SQLite (`~/.clawtex/consistency.db`) for tracking over time.
+//! Results are persisted to SQLite (`~/.phantom-mesh/consistency.db`) for tracking over time.
 
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -779,7 +779,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_consistency");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_consistency");
         let _ = std::fs::create_dir_all(&dir);
         // Use a unique suffix to avoid collisions with leftover DB files
         let unique = uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("0000").to_string();

@@ -1,10 +1,10 @@
 //! Cluster Verification Tests — 10 tests proving the cluster infrastructure works.
 //! Run with: cargo test --test cluster_verify
 
-use clawtex_core::*;
-use clawtex_core::cluster::ClusterRegistry;
-use clawtex_core::cluster_hub::{ClusterHub, ClusterMetrics, ToolRouting};
-use clawtex_core::cluster_worker::ClusterConfig;
+use phantom_mesh::*;
+use phantom_mesh::cluster::ClusterRegistry;
+use phantom_mesh::cluster_hub::{ClusterHub, ClusterMetrics, ToolRouting};
+use phantom_mesh::cluster_worker::ClusterConfig;
 use serde_json::json;
 use std::sync::Arc;
 

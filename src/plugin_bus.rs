@@ -17,7 +17,7 @@ use crate::health_check::HealthStatus;
 // PluginModule trait
 // ---------------------------------------------------------------------------
 
-/// The universal interface for all clawtex-core modules.
+/// The universal interface for all phantom-mesh modules.
 ///
 /// NOTE: Spec defines `version() -> semver::Version`, but we use `&str` to
 /// avoid adding the `semver` dependency. No code currently parses versions.
@@ -54,6 +54,8 @@ pub struct PluginBus {
     phases: BTreeMap<u8, Vec<Arc<dyn PluginModule>>>,
     ctx: AppContext,
     initialized: Vec<String>,
+    /// 防止 init_all() 被重複呼叫
+    is_initialized: bool,
 }
 
 impl PluginBus {
@@ -62,11 +64,26 @@ impl PluginBus {
             phases: BTreeMap::new(),
             ctx: AppContext::new(),
             initialized: Vec::new(),
+            is_initialized: false,
         }
     }
 
-    pub fn register(&mut self, phase: u8, module: Arc<dyn PluginModule>) {
+    /// Register a module in the given phase.
+    /// Returns an error if a module with the same ID already exists in any phase.
+    pub fn register(&mut self, phase: u8, module: Arc<dyn PluginModule>) -> Result<()> {
+        let new_id = module.id();
+        for modules in self.phases.values() {
+            for existing in modules {
+                if existing.id() == new_id {
+                    return Err(anyhow::anyhow!(
+                        "Duplicate module ID '{}': already registered",
+                        new_id
+                    ));
+                }
+            }
+        }
         self.phases.entry(phase).or_default().push(module);
+        Ok(())
     }
 
     pub fn context(&self) -> &AppContext {
@@ -74,6 +91,12 @@ impl PluginBus {
     }
 
     pub async fn init_all(&mut self) -> Result<()> {
+        if self.is_initialized {
+            return Err(anyhow::anyhow!(
+                "PluginBus is already initialized; call shutdown_all() before re-initializing"
+            ));
+        }
+
         // Collect (phase, module) pairs up-front so we don't hold an immutable
         // borrow of `self.phases` across the await points where we may need
         // `&mut self` for rollback.
@@ -111,6 +134,7 @@ impl PluginBus {
                 }
             }
         }
+        self.is_initialized = true;
         Ok(())
     }
 
@@ -120,15 +144,23 @@ impl PluginBus {
             if let Some(module) = self.find_module(module_id) {
                 info!("[PluginBus] Shutting down '{}'...", module_id);
                 if let Err(e) = module.shutdown().await {
-                    error!("[PluginBus] '{}' shutdown error: {}", module_id, e);
-                    errors.push(format!("{}: {}", module_id, e));
+                    let err_str = e.to_string();
+                    error!("[PluginBus] '{}' shutdown error: {}", module_id, err_str);
+                    errors.push(format!("{}: {}", module_id, err_str));
+                    self.ctx.emit(PluginEvent::ModuleShutdownFailed {
+                        module_id: module_id.clone(),
+                        error: err_str,
+                    });
+                } else {
+                    self.ctx.emit(PluginEvent::ModuleShutdown {
+                        module_id: module_id.clone(),
+                    });
                 }
-                self.ctx.emit(PluginEvent::ModuleShutdown {
-                    module_id: module_id.clone(),
-                });
             }
         }
         self.initialized.clear();
+        self.is_initialized = false;
+        self.ctx.clear();
         if errors.is_empty() {
             Ok(())
         } else {
@@ -163,10 +195,16 @@ impl PluginBus {
             if let Some(module) = self.find_module(module_id) {
                 if let Err(e) = module.shutdown().await {
                     error!("[PluginBus] Rollback: '{}' shutdown error: {}", module_id, e);
+                } else {
+                    self.ctx.emit(PluginEvent::ModuleShutdown {
+                        module_id: module_id.clone(),
+                    });
                 }
             }
         }
         self.initialized.clear();
+        self.is_initialized = false;
+        self.ctx.clear();
     }
 
     fn find_module(&self, id: &str) -> Option<Arc<dyn PluginModule>> {
@@ -309,8 +347,8 @@ mod tests {
         let (p2, init2, _shut2) = DummyPlugin::new("beta");
 
         let mut bus = PluginBus::new();
-        bus.register(1, p1);
-        bus.register(1, p2);
+        bus.register(1, p1).unwrap();
+        bus.register(1, p2).unwrap();
 
         bus.init_all().await.unwrap();
 
@@ -336,9 +374,9 @@ mod tests {
         });
 
         let mut bus = PluginBus::new();
-        bus.register(1, a);
-        bus.register(2, b);
-        bus.register(3, c);
+        bus.register(1, a).unwrap();
+        bus.register(2, b).unwrap();
+        bus.register(3, c).unwrap();
 
         bus.init_all().await.unwrap();
 
@@ -368,9 +406,9 @@ mod tests {
         });
 
         let mut bus = PluginBus::new();
-        bus.register(1, ok1);
-        bus.register(2, ok2);
-        bus.register(3, fail);
+        bus.register(1, ok1).unwrap();
+        bus.register(2, ok2).unwrap();
+        bus.register(3, fail).unwrap();
 
         let result = bus.init_all().await;
         assert!(result.is_err());
@@ -404,9 +442,9 @@ mod tests {
 
         let mut bus = PluginBus::new();
         // Register out of order.
-        bus.register(3, p3);
-        bus.register(1, p1);
-        bus.register(2, p2);
+        bus.register(3, p3).unwrap();
+        bus.register(1, p1).unwrap();
+        bus.register(2, p2).unwrap();
 
         bus.init_all().await.unwrap();
 
@@ -427,8 +465,8 @@ mod tests {
         });
 
         let mut bus = PluginBus::new();
-        bus.register(1, healthy);
-        bus.register(1, degraded);
+        bus.register(1, healthy).unwrap();
+        bus.register(1, degraded).unwrap();
 
         bus.init_all().await.unwrap();
 
@@ -441,8 +479,8 @@ mod tests {
         let (p2, _, _) = DummyPlugin::new("beta");
 
         let mut bus = PluginBus::new();
-        bus.register(1, p1);
-        bus.register(2, p2);
+        bus.register(1, p1).unwrap();
+        bus.register(2, p2).unwrap();
 
         // Before init: module_ids should list all, initialized_ids should be empty.
         let all_ids = bus.module_ids();
@@ -459,7 +497,7 @@ mod tests {
         let (p1, _, _) = DummyPlugin::new("emitter");
 
         let mut bus = PluginBus::new();
-        bus.register(1, p1);
+        bus.register(1, p1).unwrap();
 
         // Subscribe before init.
         let mut rx = bus.context().subscribe();
@@ -472,6 +510,165 @@ mod tests {
                 assert_eq!(module_id, "emitter");
             }
             _ => panic!("Expected ModuleInitialized event"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // New tests: duplicate ID rejection (Fix 3)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_register_duplicate_id_same_phase_rejected() {
+        let (p1, _, _) = DummyPlugin::new("dup");
+        let (p2, _, _) = DummyPlugin::new("dup");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+        let err = bus.register(1, p2).unwrap_err();
+        assert!(err.to_string().contains("Duplicate module ID 'dup'"));
+    }
+
+    #[tokio::test]
+    async fn test_register_duplicate_id_different_phase_rejected() {
+        let (p1, _, _) = DummyPlugin::new("dup");
+        let (p2, _, _) = DummyPlugin::new("dup");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+        let err = bus.register(3, p2).unwrap_err();
+        assert!(err.to_string().contains("Duplicate module ID 'dup'"));
+    }
+
+    #[tokio::test]
+    async fn test_register_different_ids_accepted() {
+        let (p1, _, _) = DummyPlugin::new("alpha");
+        let (p2, _, _) = DummyPlugin::new("beta");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+        bus.register(1, p2).unwrap();
+        assert_eq!(bus.module_ids().len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // New tests: idempotency guard (Fix 2)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_double_init_returns_error() {
+        let (p1, _, _) = DummyPlugin::new("guard");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+
+        bus.init_all().await.unwrap();
+
+        // 第二次呼叫 init_all() 應回傳錯誤
+        let err = bus.init_all().await.unwrap_err();
+        assert!(err.to_string().contains("already initialized"));
+    }
+
+    #[tokio::test]
+    async fn test_reinit_after_shutdown_succeeds() {
+        let (p1, _, _) = DummyPlugin::new("reinit");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+
+        bus.init_all().await.unwrap();
+        bus.shutdown_all().await.unwrap();
+
+        // shutdown_all 重設 is_initialized，再次 init 應成功
+        bus.init_all().await.unwrap();
+        assert_eq!(bus.initialized_ids(), &["reinit"]);
+    }
+
+    #[tokio::test]
+    async fn test_reinit_after_rollback_succeeds() {
+        let order = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+
+        let ok1: Arc<dyn PluginModule> = Arc::new(OrderPlugin {
+            name: "ok_rollback".to_string(),
+            order: order.clone(),
+        });
+        let fail: Arc<dyn PluginModule> = Arc::new(FailPlugin {
+            name: "fail_rollback".to_string(),
+        });
+
+        let mut bus = PluginBus::new();
+        bus.register(1, ok1).unwrap();
+        bus.register(2, fail).unwrap();
+
+        // 初始化失敗 → rollback 重設 is_initialized
+        assert!(bus.init_all().await.is_err());
+
+        // rollback 之後應可重新 init（雖然仍會失敗，但不會因為 idempotency guard）
+        let err = bus.init_all().await.unwrap_err();
+        assert!(err.to_string().contains("boom"), "should fail from FailPlugin, not idempotency guard");
+    }
+
+    // -----------------------------------------------------------------------
+    // New tests: shutdown event semantics (Fix 4)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_shutdown_emits_correct_events_on_success() {
+        let (p1, _, _) = DummyPlugin::new("evt_ok");
+
+        let mut bus = PluginBus::new();
+        bus.register(1, p1).unwrap();
+
+        bus.init_all().await.unwrap();
+
+        let mut rx = bus.context().subscribe();
+
+        bus.shutdown_all().await.unwrap();
+
+        let event = rx.recv().await.unwrap();
+        match event {
+            PluginEvent::ModuleShutdown { module_id } => {
+                assert_eq!(module_id, "evt_ok");
+            }
+            _ => panic!("Expected ModuleShutdown event, got {:?}", event),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_emits_failed_event_on_error() {
+        // ShutdownFailPlugin — always fails on shutdown
+        struct ShutdownFailPlugin { name: String }
+        #[async_trait]
+        impl PluginModule for ShutdownFailPlugin {
+            fn id(&self) -> &str { &self.name }
+            fn version(&self) -> &str { "0.1.0" }
+            fn capabilities(&self) -> Vec<String> { vec![] }
+            async fn init(&self, _ctx: &AppContext) -> Result<()> { Ok(()) }
+            async fn shutdown(&self) -> Result<()> {
+                Err(anyhow::anyhow!("shutdown_boom"))
+            }
+            fn health(&self) -> HealthStatus { HealthStatus::Healthy }
+        }
+
+        let fail_shut: Arc<dyn PluginModule> = Arc::new(ShutdownFailPlugin {
+            name: "shut_fail".to_string(),
+        });
+
+        let mut bus = PluginBus::new();
+        bus.register(1, fail_shut).unwrap();
+        bus.init_all().await.unwrap();
+
+        let mut rx = bus.context().subscribe();
+
+        let result = bus.shutdown_all().await;
+        assert!(result.is_err());
+
+        let event = rx.recv().await.unwrap();
+        match event {
+            PluginEvent::ModuleShutdownFailed { module_id, error } => {
+                assert_eq!(module_id, "shut_fail");
+                assert!(error.contains("shutdown_boom"));
+            }
+            _ => panic!("Expected ModuleShutdownFailed event, got {:?}", event),
         }
     }
 }

@@ -1,7 +1,7 @@
 // Output Stash — save large tool results to disk and return a reference handle
 //
 // When a tool result exceeds 8000 tokens (~32000 chars), calling code can stash
-// the content to `~/.clawtex/stash/` and receive a short handle back instead of
+// the content to `~/.phantom-mesh/stash/` and receive a short handle back instead of
 // flooding the LLM context window.
 
 use anyhow::{Context, Result};
@@ -14,12 +14,12 @@ pub struct OutputStash {
 }
 
 impl OutputStash {
-    /// Create a new stash using the default directory (`~/.clawtex/stash/`).
+    /// Create a new stash using the default directory (`~/.phantom-mesh/stash/`).
     pub fn new() -> Self {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        let stash_dir = PathBuf::from(format!("{}/.clawtex/stash", home));
+        let stash_dir = PathBuf::from(format!("{}/.phantom-mesh/stash", home));
         Self { stash_dir }
     }
 

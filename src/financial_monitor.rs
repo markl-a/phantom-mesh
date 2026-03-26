@@ -1,6 +1,6 @@
 //! Financial Red-Line Monitoring — tracks 7 key financial indicators and raises alerts
 //! when thresholds are breached. Designed for real-time cost/revenue health checks
-//! across the Clawtex cluster.
+//! across the Phantom Mesh cluster.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

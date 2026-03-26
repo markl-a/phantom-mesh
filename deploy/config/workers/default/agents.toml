@@ -1,4 +1,4 @@
-# clawtex-core Worker 配置模板
+# phantom-mesh Worker 配置模板
 # Worker 只運行 Ollama 推理，不持有 API keys
 
 [core]

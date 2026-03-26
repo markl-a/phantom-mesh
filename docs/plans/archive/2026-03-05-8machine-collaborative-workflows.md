@@ -1,4 +1,4 @@
-# Clawtex 8 機協同工作流設計文件
+# Phantom Mesh 8 機協同工作流設計文件
 
 > 日期: 2026-03-05
 > 狀態: 設計完成
@@ -290,7 +290,7 @@ Phase 0: search_jobs          Phase 2: write_proposals
 ### 3.3 Hand TOML 配置
 
 ```toml
-# ~/.clawtex/hands/freelancer/hand.toml
+# ~/.phantom-mesh/hands/freelancer/hand.toml
 
 name = "freelancer"
 description = "8-machine collaborative freelance job pipeline"
@@ -505,7 +505,7 @@ Phase 4: publish_and_promote
 ### 4.3 Hand TOML 配置
 
 ```toml
-# ~/.clawtex/hands/seo_content/hand.toml
+# ~/.phantom-mesh/hands/seo_content/hand.toml
 
 name = "seo_content"
 description = "8-machine parallel SEO content pipeline with SoT"
@@ -730,7 +730,7 @@ fn distribute_batch(
 ### 5.4 批次任務 TOML (outreach hand 擴展)
 
 ```toml
-# ~/.clawtex/hands/outreach/hand.toml 中的批次 phase
+# ~/.phantom-mesh/hands/outreach/hand.toml 中的批次 phase
 
 [[phases]]
 name = "generate_emails"
@@ -1111,7 +1111,7 @@ Overflow 優先級:
 ```
 /cluster 命令輸出:
 
-  Clawtex 8-Node Cluster Status
+  Phantom Mesh 8-Node Cluster Status
   ─────────────────────────────────
   NODE      STATUS  TASKS  GPU%  SCORE
   z13       Online  1/3    45%   0.72
@@ -1138,7 +1138,7 @@ Worker 執行 Phase 完成:
 
   Worker 端:
     1. Agent loop 完成 → 取得 final_output (String)
-    2. 掃描 /tmp/clawtex_task_{id}/ 目錄:
+    2. 掃描 /tmp/phantom-mesh_task_{id}/ 目錄:
        - 工具產出的檔案 (file_write)
        - 生成的 PDF (pdf_export)
        - 圖片或其他二進位
@@ -1166,7 +1166,7 @@ Worker 執行 Phase 完成:
       filename: "report.pdf",
       chunks: [chunk1, chunk2, chunk3, ...]  // 每 chunk 64KB
     }
-    Hub 接收 → 寫入 ~/.clawtex/workspace/task_123/report.pdf
+    Hub 接收 → 寫入 ~/.phantom-mesh/workspace/task_123/report.pdf
 
     Step 2: Worker 回報完成 (帶檔案清單)
     Worker ──[gRPC CompleteTask]──> Hub
@@ -1199,7 +1199,7 @@ Worker 執行 Phase 完成:
     ┌──────────────────────────────┐
     │ pdf_export tool 執行          │
     │ pandoc → output.pdf (5MB)    │
-    │ 存到 /tmp/clawtex_task_abc/  │
+    │ 存到 /tmp/phantom-mesh_task_abc/  │
     └──────────────┬───────────────┘
                    │
                    v
@@ -1222,7 +1222,7 @@ Worker 執行 Phase 完成:
                    v
     ┌──────────────────────────────┐
     │ Hub 接收                      │
-    │ → ~/.clawtex/workspace/      │
+    │ → ~/.phantom-mesh/workspace/      │
     │   └── abc/                   │
     │       └── output.pdf (5MB)   │
     └──────────────────────────────┘
@@ -1617,7 +1617,7 @@ impl SkeletonRunner {
 ### 11.4 agents.toml 完整配置範例
 
 ```toml
-# Z13 Hub 的 ~/.clawtex/agents.toml
+# Z13 Hub 的 ~/.phantom-mesh/agents.toml
 
 [cluster]
 mode = "hub"
@@ -1711,7 +1711,7 @@ section_timeout_secs = 180
 # Memory
 [memory]
 backend = "pgvector"
-pg_url = "host=localhost user=clawtex dbname=clawtex"
+pg_url = "host=localhost user=phantom-mesh dbname=phantom-mesh"
 embed_url = "http://localhost:11434"
 embed_model = "nomic-embed-text"
 dimensions = 768

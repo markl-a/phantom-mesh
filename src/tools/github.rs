@@ -42,7 +42,7 @@ impl GitHubTool {
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "clawtex-core")
+            .header("User-Agent", "phantom-mesh")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .query(query)
             .send()
@@ -68,7 +68,7 @@ impl GitHubTool {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "application/vnd.github+json")
-            .header("User-Agent", "clawtex-core")
+            .header("User-Agent", "phantom-mesh")
             .header("X-GitHub-Api-Version", "2022-11-28")
             .json(body)
             .send()
@@ -347,7 +347,7 @@ impl Tool for GitHubTool {
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Repository name (e.g. 'clawtex-core')"
+                    "description": "Repository name (e.g. 'phantom-mesh')"
                 },
                 "title": {
                     "type": "string",
@@ -743,7 +743,7 @@ mod tests {
         let result = tool.preflight(&json!({
             "action": "create_issue",
             "owner": "markl-a",
-            "repo": "Clawtex"
+            "repo": "Phantom Mesh"
         }));
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("title"));
@@ -755,7 +755,7 @@ mod tests {
         let result = tool.preflight(&json!({
             "action": "create_issue",
             "owner": "markl-a",
-            "repo": "Clawtex",
+            "repo": "Phantom Mesh",
             "title": "Test issue"
         }));
         assert!(result.is_ok());
@@ -778,7 +778,7 @@ mod tests {
         let result = tool.preflight(&json!({
             "action": "list_issues",
             "owner": "markl-a",
-            "repo": "Clawtex"
+            "repo": "Phantom Mesh"
         }));
         assert!(result.is_ok());
     }
@@ -789,7 +789,7 @@ mod tests {
         let result = tool.preflight(&json!({
             "action": "create_pr",
             "owner": "markl-a",
-            "repo": "Clawtex",
+            "repo": "Phantom Mesh",
             "title": "My PR"
         }));
         assert!(result.is_err());
@@ -802,7 +802,7 @@ mod tests {
         let result = tool.preflight(&json!({
             "action": "create_pr",
             "owner": "markl-a",
-            "repo": "Clawtex",
+            "repo": "Phantom Mesh",
             "title": "My PR",
             "head": "feat/new-tool"
         }));
@@ -876,7 +876,7 @@ mod tests {
             .execute(json!({
                 "action": "create_pr",
                 "owner": "markl-a",
-                "repo": "Clawtex",
+                "repo": "Phantom Mesh",
                 "title": "test"
             }))
             .await

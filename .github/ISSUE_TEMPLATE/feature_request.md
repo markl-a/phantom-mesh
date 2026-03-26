@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Suggest a new feature or improvement for Clawtex
+about: Suggest a new feature or improvement for Phantom Mesh
 title: "[Feature] "
 labels: enhancement
 assignees: ''
@@ -20,7 +20,7 @@ Describe your preferred approach. If this involves a new tool, provider, or hand
 
 - [ ] New tool (`src/tools/`)
 - [ ] New provider (`src/providers/`)
-- [ ] New hand / workflow (`~/.clawtex/hands/`)
+- [ ] New hand / workflow (`~/.phantom-mesh/hands/`)
 - [ ] Core improvement (agent runtime, cluster, security, etc.)
 - [ ] Other
 

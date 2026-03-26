@@ -7,7 +7,7 @@ use crate::llm_router::LlmRouter;
 use crate::agent_runtime::AgentRuntime;
 use crate::tools::ToolRegistry;
 
-/// CLI subcommands for clawtex
+/// CLI subcommands for phantom_mesh
 #[derive(Subcommand, Debug)]
 pub enum CliCommand {
     /// Start the daemon (HTTP server + Telegram bot)
@@ -42,7 +42,7 @@ pub enum CliCommand {
     },
 }
 
-/// Execute `clawtex run "prompt"` — single-shot execution
+/// Execute `phantom_mesh run "prompt"` — single-shot execution
 pub async fn run_once(
     prompt: &str,
     agent_name: &str,
@@ -65,14 +65,14 @@ pub async fn run_once(
     Ok(())
 }
 
-/// Execute `clawtex interactive` — REPL mode
+/// Execute `phantom_mesh interactive` — REPL mode
 pub async fn run_interactive(
     agent_name: &str,
     router: &LlmRouter,
     runtime: &AgentRuntime,
     tool_registry: &ToolRegistry,
 ) -> Result<()> {
-    println!("clawtex interactive mode (agent: {})", agent_name);
+    println!("phantom_mesh interactive mode (agent: {})", agent_name);
     println!("Type your prompt, or 'quit'/'exit' to leave.\n");
 
     let stdin = io::stdin();
@@ -136,7 +136,7 @@ pub async fn run_interactive(
     Ok(())
 }
 
-/// Execute `clawtex config` — display configuration
+/// Execute `phantom_mesh config` — display configuration
 pub fn show_config(config_path: &str) {
     println!("Configuration file: {}", config_path);
     if std::path::Path::new(config_path).exists() {
@@ -149,13 +149,13 @@ pub fn show_config(config_path: &str) {
     }
 }
 
-/// Execute `clawtex status` — show system status
+/// Execute `phantom_mesh status` — show system status
 pub async fn show_status(
     router: &LlmRouter,
     runtime: &AgentRuntime,
     tool_registry: &ToolRegistry,
 ) {
-    println!("=== clawtex-core status ===\n");
+    println!("=== phantom-mesh status ===\n");
 
     // Providers
     println!("Providers:");

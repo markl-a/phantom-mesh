@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Clawtex Money-Making Flows - E2E Test Suite (Stage 4)
+Phantom Mesh Money-Making Flows - E2E Test Suite (Stage 4)
 Tests all money-making hands and workflows via HTTP API and Telegram.
 
 Usage:
     python test_money_flows.py
 
 Prerequisites:
-    - clawtex-core daemon running on http://127.0.0.1:7878
+    - phantom-mesh daemon running on http://127.0.0.1:7878
     - Telegram Desktop open on right side of screen
     - pip install pyautogui pillow requests
 """
@@ -255,7 +255,7 @@ def test_telegram_hand_lead():
 
 def main():
     print("=" * 60)
-    print("Clawtex Money-Making Flows - E2E Test Suite")
+    print("Phantom Mesh Money-Making Flows - E2E Test Suite")
     print(f"Screenshots: {SCREENSHOT_DIR}")
     print(f"API: {API_BASE}")
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

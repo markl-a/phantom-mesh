@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use clawtex_core::{
+use phantom_mesh::{
     AiCodeConfig, AgentRuntime, AppState, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
     ClusterHub, ClusterWorker, ClusterConfig, WorkerConfig, TaskResultPayload,
     ComputerUseConfig, ConversationStore, CostTracker, CostSummary, CronStore,
@@ -49,20 +49,20 @@ use clawtex_core::{
     DeployManifest,
     StripeWebhook, WebhookAction,
 };
-use clawtex_core::telegram_i18n::{TelegramI18n, LangCommand, parse_lang_command, detect_locale, supported_locales};
-use clawtex_core::user_profile::UserProfile;
-use clawtex_core::plugin_bus::PluginBus;
-use clawtex_core::health_check::HealthCheckPlugin;
-use clawtex_core::trajectory::TrajectoryPlugin;
-use clawtex_core::circuit_breaker::CircuitBreakerPlugin;
+use phantom_mesh::telegram_i18n::{TelegramI18n, LangCommand, parse_lang_command, detect_locale, supported_locales};
+use phantom_mesh::user_profile::UserProfile;
+use phantom_mesh::plugin_bus::PluginBus;
+use phantom_mesh::health_check::HealthCheckPlugin;
+use phantom_mesh::trajectory::TrajectoryPlugin;
+use phantom_mesh::circuit_breaker::CircuitBreakerPlugin;
 
 // ── CLI Args ───────────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "clawtex-core",
+    name = "phantom-mesh",
     version,
-    about = "Clawtex LLM Cluster Core — lightweight daemon for LLM routing, task queue, and agent coordination"
+    about = "Phantom Mesh LLM Cluster Core — lightweight daemon for LLM routing, task queue, and agent coordination"
 )]
 struct Args {
     /// Host to bind to (0.0.0.0 for all interfaces, needed for cluster workers)
@@ -73,11 +73,11 @@ struct Args {
     #[arg(long, default_value_t = 7878)]
     port: u16,
 
-    /// Config file path (default: ~/.clawtex/agents.toml)
+    /// Config file path (default: ~/.phantom-mesh/agents.toml)
     #[arg(long)]
     config: Option<String>,
 
-    /// SQLite database path (default: ~/.clawtex/core.db)
+    /// SQLite database path (default: ~/.phantom-mesh/core.db)
     #[arg(long)]
     db: Option<String>,
 
@@ -268,7 +268,7 @@ struct PricingEstimateRequest {
     tokens_out: u32,
 }
 
-// ── App State (defined in clawtex_core::app_state) ───────────────────────────
+// ── App State (defined in phantom_mesh::app_state) ───────────────────────────
 
 // ── Auth Middleware ────────────────────────────────────────────────────────────
 
@@ -310,7 +310,7 @@ async fn health(State(_state): State<AppState>) -> Json<Value> {
     Json(json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
-        "service": "clawtex-core"
+        "service": "phantom-mesh"
     }))
 }
 
@@ -413,7 +413,7 @@ async fn agent_run(
     // Inject goals context for the master agent
     let goals_ctx = if agent_name == "master" {
         state.goals_store.as_ref()
-            .and_then(|gs| clawtex_core::goals_push::goals_context(gs).ok())
+            .and_then(|gs| phantom_mesh::goals_push::goals_context(gs).ok())
             .filter(|s| !s.is_empty())
     } else {
         None
@@ -567,14 +567,14 @@ async fn cluster_dispatch(
 async fn prometheus_metrics(State(state): State<AppState>) -> (StatusCode, [(axum::http::header::HeaderName, &'static str); 1], String) {
     // Update uptime gauge
     let uptime = state.started_at.elapsed().as_secs();
-    state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
+    state.metrics_registry.gauge_set("phantom_mesh_uptime_seconds", uptime);
 
     // Update worker count gauge
     let worker_count = state.cluster.online_workers().await.len() as u64;
-    state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
+    state.metrics_registry.gauge_set("phantom_mesh_workers_online", worker_count);
 
     // Update tool count gauge
-    state.metrics_registry.gauge_set("clawtex_tools_registered", state.tool_registry.names().len() as u64);
+    state.metrics_registry.gauge_set("phantom_mesh_tools_registered", state.tool_registry.names().len() as u64);
 
     let body = state.metrics_registry.render_prometheus();
     (
@@ -587,10 +587,10 @@ async fn prometheus_metrics(State(state): State<AppState>) -> (StatusCode, [(axu
 /// GET /metrics/health — JSON health summary
 async fn metrics_health(State(state): State<AppState>) -> Json<Value> {
     let uptime = state.started_at.elapsed().as_secs();
-    state.metrics_registry.gauge_set("clawtex_uptime_seconds", uptime);
+    state.metrics_registry.gauge_set("phantom_mesh_uptime_seconds", uptime);
     let worker_count = state.cluster.online_workers().await.len() as u64;
-    state.metrics_registry.gauge_set("clawtex_workers_online", worker_count);
-    state.metrics_registry.gauge_set("clawtex_tools_registered", state.tool_registry.names().len() as u64);
+    state.metrics_registry.gauge_set("phantom_mesh_workers_online", worker_count);
+    state.metrics_registry.gauge_set("phantom_mesh_tools_registered", state.tool_registry.names().len() as u64);
 
     Json(state.metrics_registry.render_health_json())
 }
@@ -773,7 +773,7 @@ async fn cluster_onboard_mobile(
     let hub_url = body.get("hub_url").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
     let auth_token = body.get("auth_token").and_then(|v| v.as_str());
 
-    let link = clawtex_core::WorkerOnboarder::generate_mobile_link(hub_url, auth_token, worker_name);
+    let link = phantom_mesh::WorkerOnboarder::generate_mobile_link(hub_url, auth_token, worker_name);
 
     // Also pre-register in the registry
     let capabilities = body.get("capabilities")
@@ -805,7 +805,7 @@ async fn cluster_consistency_test(
     }
     let hub = state.cluster_hub.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let home = dirs_home();
-    let db_path = format!("{}/.clawtex/consistency.db", home);
+    let db_path = format!("{}/.phantom-mesh/consistency.db", home);
     let tester = ConsistencyTester::new(&db_path)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let threshold = body.get("threshold").and_then(|v| v.as_f64()).unwrap_or(0.90);
@@ -841,7 +841,7 @@ async fn cluster_consistency_history(
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
 ) -> Json<Value> {
     let home = dirs_home();
-    let db_path = format!("{}/.clawtex/consistency.db", home);
+    let db_path = format!("{}/.phantom-mesh/consistency.db", home);
     let tester = match ConsistencyTester::new(&db_path) {
         Ok(t) => t,
         Err(e) => return Json(json!({"error": format!("Failed to open DB: {}", e)})),
@@ -1481,7 +1481,7 @@ async fn test_stress_start(State(state): State<AppState>, Json(body): Json<Value
     let st = tester.status().await;
     if st.running { return Ok(Json(json!({"error":"Test already running","run_id":st.run_id}))); }
     let (cfg, pn) = if let Some(ps) = body.get("profile").and_then(|v| v.as_str()) {
-        match clawtex_core::load_test::profile(ps) { Some(c) => (c, Some(ps.to_string())), None => return Ok(Json(json!({"error":format!("Unknown profile '{}'", ps)}))) }
+        match phantom_mesh::load_test::profile(ps) { Some(c) => (c, Some(ps.to_string())), None => return Ok(Json(json!({"error":format!("Unknown profile '{}'", ps)}))) }
     } else { match serde_json::from_value::<StressTestConfig>(body.clone()) { Ok(c) => (c, None), Err(e) => return Ok(Json(json!({"error":format!("Invalid config: {}", e)}))) } };
     let cs = cfg.clone(); let pc = pn.clone();
     tokio::spawn(async move { let _ = tester.run_stress_test(cfg, pc).await; });
@@ -1500,7 +1500,7 @@ async fn test_stress_report(State(state): State<AppState>, Path(rid): Path<Strin
     match t.store() { Some(s) => match s.get_report(&rid) { Ok(Some(r)) => Json(r), Ok(None) => Json(json!({"error":"not found"})), Err(e) => Json(json!({"error":e.to_string()})) }, None => Json(json!({"error":"no store"})) }
 }
 async fn test_profiles() -> Json<Value> {
-    let p: Vec<Value> = clawtex_core::load_test::profile_names().iter().filter_map(|n| clawtex_core::load_test::profile(n).map(|c| json!({"name":n,"concurrent_tasks":c.concurrent_tasks,"duration_secs":c.duration_secs,"multiplier":c.multiplier}))).collect();
+    let p: Vec<Value> = phantom_mesh::load_test::profile_names().iter().filter_map(|n| phantom_mesh::load_test::profile(n).map(|c| json!({"name":n,"concurrent_tasks":c.concurrent_tasks,"duration_secs":c.duration_secs,"multiplier":c.multiplier}))).collect();
     Json(json!({"profiles":p}))
 }
 
@@ -1518,12 +1518,12 @@ async fn audit_query(
     let filter = AuditFilter {
         agent: params.get("agent").cloned(),
         action_type: params.get("action_type")
-            .and_then(|s| clawtex_core::ActionType::from_str(s)),
+            .and_then(|s| phantom_mesh::ActionType::from_str(s)),
         risk_level: params.get("risk_level")
-            .and_then(|s| clawtex_core::RiskLevel::from_str(s)),
+            .and_then(|s| phantom_mesh::RiskLevel::from_str(s)),
         tool_name: params.get("tool").cloned(),
         outcome: params.get("outcome")
-            .and_then(|s| clawtex_core::Outcome::from_str(s)),
+            .and_then(|s| phantom_mesh::Outcome::from_str(s)),
         start_time: None,
         end_time: None,
         limit: params.get("limit").and_then(|s| s.parse().ok()),
@@ -1564,7 +1564,7 @@ async fn dashboard(
     let uptime_secs = state.started_at.elapsed().as_secs();
     let active_chats = state.conversations.active_count().await;
 
-    Ok(clawtex_core::dashboard::render(
+    Ok(phantom_mesh::dashboard::render(
         &tasks, &tools, &agents, ollama_status, &state.dashboard_token,
         uptime_secs, active_chats,
     ))
@@ -1616,11 +1616,11 @@ async fn handle_telegram_messages(
                     if let Some(ref gs) = state.goals_store {
                         // Record check-in for all active goals
                         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-                        let goals = gs.list_goals(Some(clawtex_core::goals::GoalStatus::Active)).unwrap_or_default();
+                        let goals = gs.list_goals(Some(phantom_mesh::goals::GoalStatus::Active)).unwrap_or_default();
                         let mood_emojis = ["", "\u{1f622}", "\u{1f614}", "\u{1f610}", "\u{1f60a}", "\u{1f929}"];
                         let mood_labels = ["", "糟糕", "不太好", "普通", "不錯", "超棒"];
                         for g in &goals {
-                            let ci = clawtex_core::goals::CheckIn {
+                            let ci = phantom_mesh::goals::CheckIn {
                                 id: format!("ci-{}-{}", g.id, today),
                                 goal_id: g.id.clone(),
                                 date: today.clone(),
@@ -1679,12 +1679,12 @@ async fn handle_telegram_messages(
                         // Check if there's a recent evening check-in push (within last hour)
                         // Simple heuristic: if any active goals exist, treat bare 1-5 as mood
                         if let Some(ref gs) = state.goals_store {
-                            let goals = gs.list_goals(Some(clawtex_core::goals::GoalStatus::Active)).unwrap_or_default();
+                            let goals = gs.list_goals(Some(phantom_mesh::goals::GoalStatus::Active)).unwrap_or_default();
                             if !goals.is_empty() {
                                 let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
                                 let mood_emojis = ["", "\u{1f622}", "\u{1f614}", "\u{1f610}", "\u{1f60a}", "\u{1f929}"];
                                 for g in &goals {
-                                    let ci = clawtex_core::goals::CheckIn {
+                                    let ci = phantom_mesh::goals::CheckIn {
                                         id: format!("ci-{}-{}", g.id, today),
                                         goal_id: g.id.clone(),
                                         date: today.clone(),
@@ -1708,12 +1708,12 @@ async fn handle_telegram_messages(
 
             if text == "/goals" {
                 if let Some(ref gs) = state.goals_store {
-                    let ctx = clawtex_core::goals_push::goals_context(gs).unwrap_or_default();
+                    let ctx = phantom_mesh::goals_push::goals_context(gs).unwrap_or_default();
                     if ctx.is_empty() {
                         let _ = channel.send(&chat_id, "目前沒有進行中的目標。\n\n告訴我你的目標，我會幫你建立追蹤計畫！").await;
                     } else {
                         // Also include today's task status
-                        let briefing = clawtex_core::goals_push::morning_briefing(gs).unwrap_or_default();
+                        let briefing = phantom_mesh::goals_push::morning_briefing(gs).unwrap_or_default();
                         if briefing.is_empty() {
                             let _ = channel.send(&chat_id, &ctx).await;
                         } else {
@@ -1770,7 +1770,7 @@ async fn handle_telegram_messages(
                                 Ok(format!("Butler name set to {}", value))
                             }
                             "proactivity" => {
-                                match serde_json::from_str::<clawtex_core::user_profile::ProactivityLevel>(
+                                match serde_json::from_str::<phantom_mesh::user_profile::ProactivityLevel>(
                                     &format!("\"{}\"", value),
                                 ) {
                                     Ok(level) => {
@@ -1788,7 +1788,7 @@ async fn handle_telegram_messages(
 
                         // On success, persist to SQLite
                         if result.is_ok() {
-                            let db_path = format!("{}/.clawtex/core.db", dirs_home());
+                            let db_path = format!("{}/.phantom-mesh/core.db", dirs_home());
                             if let Ok(conn) = rusqlite::Connection::open(&db_path) {
                                 let _ = profile.save(&conn);
                             }
@@ -1847,7 +1847,7 @@ async fn handle_telegram_messages(
                             if let Some(trigger) = mgr.triggers.iter_mut().find(|t| t.id == trigger_id) {
                                 trigger.enabled = enable;
                                 // Persist to SQLite
-                                let db_path = format!("{}/.clawtex/core.db", dirs_home());
+                                let db_path = format!("{}/.phantom-mesh/core.db", dirs_home());
                                 if let Ok(conn) = rusqlite::Connection::open(&db_path) {
                                     let _ = conn.execute(
                                         "UPDATE event_triggers SET enabled = ?1 WHERE id = ?2",
@@ -1899,7 +1899,7 @@ async fn handle_telegram_messages(
 
             if text == "/help" || text == "/start" {
                 let reply = "\
-Clawtex Bot Commands:
+Phantom Mesh Bot Commands:
 
 /help — Show this help
 /lang — List available languages
@@ -1984,7 +1984,7 @@ Any other message will be processed by the AI agent.";
                 let home = std::env::var("HOME")
                     .or_else(|_| std::env::var("USERPROFILE"))
                     .unwrap_or_else(|_| ".".to_string());
-                let config_path = format!("{}/.clawtex/agents.toml", home);
+                let config_path = format!("{}/.phantom-mesh/agents.toml", home);
 
                 if args.is_empty() {
                     // Show setup status
@@ -2145,7 +2145,7 @@ Any other message will be processed by the AI agent.";
                 let global_calls = rl_stats.get("global").copied().unwrap_or(0);
 
                 let reply = format!(
-                    "Clawtex Status\n\n\
+                    "Phantom Mesh Status\n\n\
                      Uptime: {}h {}m\n\
                      LLM: {}\n\
                      Tools: {} ({})\n\
@@ -2178,7 +2178,7 @@ Any other message will be processed by the AI agent.";
             if text == "/hands" {
                 let hands_list = state.hands.list();
                 if hands_list.is_empty() {
-                    let _ = channel.send(&chat_id, "No hands available. Add TOML files to ~/.clawtex/hands/").await;
+                    let _ = channel.send(&chat_id, "No hands available. Add TOML files to ~/.phantom-mesh/hands/").await;
                 } else {
                     let mut reply = String::from("Available Hands:\n");
                     for hand in &hands_list {
@@ -2294,7 +2294,7 @@ Any other message will be processed by the AI agent.";
                         }
                     } else {
                         let _ = channel.send(&chat_id, &format!(
-                            "⚠️ Hand '{}' not found. Check ~/.clawtex/hands/", hand_name
+                            "⚠️ Hand '{}' not found. Check ~/.phantom-mesh/hands/", hand_name
                         )).await;
                         all_ok = false;
                         break;
@@ -2343,7 +2343,7 @@ Any other message will be processed by the AI agent.";
                 }
 
                 // Check which providers are alive
-                let config = clawtex_core::SkeletonConfig::default();
+                let config = phantom_mesh::SkeletonConfig::default();
                 let mut alive_list = Vec::new();
                 for p in &config.expansion_providers {
                     if state.llm_router.has_provider(p) && state.llm_router.is_alive(p).await {
@@ -2360,7 +2360,7 @@ Any other message will be processed by the AI agent.";
                     &topic[..topic.len().min(80)], alive_str
                 )).await;
 
-                let runner = clawtex_core::SkeletonRunner::new(
+                let runner = phantom_mesh::SkeletonRunner::new(
                     state.llm_router.clone(), config,
                 );
 
@@ -2587,15 +2587,15 @@ Any other message will be processed by the AI agent.";
                         let mut reply = format!("Scheduled Jobs ({}):\n", jobs.len());
                         for job in &jobs {
                             let action_desc = match &job.action {
-                                clawtex_core::JobAction::Shell { command } => format!("shell: {}", &command[..command.len().min(40)]),
-                                clawtex_core::JobAction::Agent { agent, prompt } => format!("agent:{} \"{}\"", agent, &prompt[..prompt.len().min(30)]),
-                                clawtex_core::JobAction::Hand { hand_name, input } => format!("hand:{} \"{}\"", hand_name, &input[..input.len().min(30)]),
-                                clawtex_core::JobAction::Notify { chat_id, message } => format!("notify:{} \"{}\"", chat_id, &message[..message.len().min(30)]),
+                                phantom_mesh::JobAction::Shell { command } => format!("shell: {}", &command[..command.len().min(40)]),
+                                phantom_mesh::JobAction::Agent { agent, prompt } => format!("agent:{} \"{}\"", agent, &prompt[..prompt.len().min(30)]),
+                                phantom_mesh::JobAction::Hand { hand_name, input } => format!("hand:{} \"{}\"", hand_name, &input[..input.len().min(30)]),
+                                phantom_mesh::JobAction::Notify { chat_id, message } => format!("notify:{} \"{}\"", chat_id, &message[..message.len().min(30)]),
                             };
                             let sched_desc = match &job.schedule {
-                                clawtex_core::Schedule::Cron { expr } => format!("cron:{}", expr),
-                                clawtex_core::Schedule::At { at } => format!("at:{}", at.format("%Y-%m-%d %H:%M")),
-                                clawtex_core::Schedule::Every { interval_secs } => format!("every:{}s", interval_secs),
+                                phantom_mesh::Schedule::Cron { expr } => format!("cron:{}", expr),
+                                phantom_mesh::Schedule::At { at } => format!("at:{}", at.format("%Y-%m-%d %H:%M")),
+                                phantom_mesh::Schedule::Every { interval_secs } => format!("every:{}s", interval_secs),
                             };
                             reply.push_str(&format!(
                                 "\n• {} [{}]\n  {} | {} | runs:{}\n  id: {}",
@@ -2869,7 +2869,7 @@ Any other message will be processed by the AI agent.";
 
             // ── Goals context injection ──────────────────────────────
             let goals_ctx = if let Some(ref gs) = state.goals_store {
-                clawtex_core::goals_push::goals_context(gs).unwrap_or_default()
+                phantom_mesh::goals_push::goals_context(gs).unwrap_or_default()
             } else {
                 String::new()
             };
@@ -2904,7 +2904,7 @@ Any other message will be processed by the AI agent.";
 
                     // ── Self-correction evaluate ──────────────────────
                     if state.eval_config.enabled {
-                        match clawtex_core::evaluate::evaluate(
+                        match phantom_mesh::evaluate::evaluate(
                             &state.llm_router, &text, &final_output, &state.eval_config,
                         ).await {
                             Ok(eval_result) => {
@@ -2942,7 +2942,7 @@ Any other message will be processed by the AI agent.";
                         };
                         let _ = state.task_queue.set_status(
                             tid,
-                            clawtex_core::task_queue::TaskStatus::Done,
+                            phantom_mesh::task_queue::TaskStatus::Done,
                             Some(&result_preview),
                             Some("master"),
                         );
@@ -3002,7 +3002,7 @@ Any other message will be processed by the AI agent.";
                     if let Some(ref tid) = task_id {
                         let _ = state.task_queue.set_status(
                             tid,
-                            clawtex_core::task_queue::TaskStatus::Failed,
+                            phantom_mesh::task_queue::TaskStatus::Failed,
                             Some(&e.to_string()),
                             None,
                         );
@@ -3028,24 +3028,24 @@ async fn main() -> anyhow::Result<()> {
     let home = dirs_home();
 
     // Setup logging: console + daily rotating log file
-    let log_dir = format!("{}/.clawtex/logs", home);
+    let log_dir = format!("{}/.phantom-mesh/logs", home);
     let _ = std::fs::create_dir_all(&log_dir);
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "clawtex-core.log");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "phantom-mesh.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     use tracing_subscriber::fmt::writer::MakeWriterExt;
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("clawtex_core=info".parse()?))
+        .with_env_filter(EnvFilter::from_default_env().add_directive("phantom_mesh=info".parse()?))
         .with_writer(std::io::stderr.and(non_blocking))
         .init();
     let config_path = args
         .config
-        .unwrap_or_else(|| format!("{}/.clawtex/agents.toml", home));
+        .unwrap_or_else(|| format!("{}/.phantom-mesh/agents.toml", home));
     let db_path = args
         .db
-        .unwrap_or_else(|| format!("{}/.clawtex/core.db", home));
+        .unwrap_or_else(|| format!("{}/.phantom-mesh/core.db", home));
 
-    info!("clawtex-core v{} starting", env!("CARGO_PKG_VERSION"));
+    info!("phantom-mesh v{} starting", env!("CARGO_PKG_VERSION"));
     info!("config: {}", config_path);
     info!("db:     {}", db_path);
 
@@ -3054,13 +3054,13 @@ async fn main() -> anyhow::Result<()> {
         let content = std::fs::read_to_string(&config_path)?;
 
         // Decrypt enc2: values in-place before TOML parsing
-        let clawtex_dir = format!(
-            "{}/.clawtex",
+        let phantom_mesh_dir = format!(
+            "{}/.phantom-mesh",
             std::env::var("HOME")
                 .or_else(|_| std::env::var("USERPROFILE"))
                 .unwrap_or_else(|_| ".".to_string())
         );
-        let content = match SecretManager::new(&clawtex_dir) {
+        let content = match SecretManager::new(&phantom_mesh_dir) {
             Ok(sm) => {
                 let mut decrypted = content.clone();
                 // Find and decrypt enc2: values in the raw TOML string
@@ -3108,7 +3108,7 @@ async fn main() -> anyhow::Result<()> {
     match args.command {
         Some(Command::EncryptSecret { value }) => {
             let secret_dir = format!(
-                "{}/.clawtex",
+                "{}/.phantom-mesh",
                 std::env::var("HOME")
                     .or_else(|_| std::env::var("USERPROFILE"))
                     .unwrap_or_else(|_| ".".to_string())
@@ -3146,7 +3146,7 @@ async fn main() -> anyhow::Result<()> {
         // Resolve cluster secret for worker auth (config or CLUSTER_SECRET env var)
         let worker_cluster_secret = {
             let config_val = app_config.cluster.as_ref().and_then(|c| c.cluster_secret.as_deref());
-            clawtex_core::cluster_worker::resolve_cluster_secret(config_val)
+            phantom_mesh::cluster_worker::resolve_cluster_secret(config_val)
         };
         if worker_cluster_secret.is_some() {
             info!("Cluster secret found — worker will authenticate with hub");
@@ -3192,13 +3192,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Provider rotation engine — rate-limit-aware provider switching
     let provider_names = llm_router.provider_names();
-    let rotation_config = clawtex_core::RotationConfig {
+    let rotation_config = phantom_mesh::RotationConfig {
         base_cooldown_secs: 60,
         max_cooldown_secs: 600,
         backoff_multiplier: 2.0,
         priority_order: provider_names.clone(),
     };
-    let rotation = Arc::new(clawtex_core::ProviderRotation::new(rotation_config));
+    let rotation = Arc::new(phantom_mesh::ProviderRotation::new(rotation_config));
     llm_router.set_rotation(rotation.clone());
     info!("Provider rotation engine initialized ({} providers)", provider_names.len());
 
@@ -3209,15 +3209,15 @@ async fn main() -> anyhow::Result<()> {
     plugin_bus.register(1, Arc::new(HealthCheckPlugin::new()))?;
 
     // Phase 2: Data layer
-    let traj_db = format!("{}/.clawtex/trajectories.db", home);
+    let traj_db = format!("{}/.phantom-mesh/trajectories.db", home);
     plugin_bus.register(2, Arc::new(TrajectoryPlugin::new(&traj_db)))?;
 
     // Phase 4: Engine
     plugin_bus.register(4, Arc::new(CircuitBreakerPlugin::new(
-        clawtex_core::circuit_breaker::BreakerConfig::default()
+        phantom_mesh::circuit_breaker::BreakerConfig::default()
     )))?;
 
-    let clawtex_dir = std::path::PathBuf::from(format!("{}/.clawtex", home));
+    let phantom_mesh_dir = std::path::PathBuf::from(format!("{}/.phantom-mesh", home));
 
     // Initialize all plugins — retrieve services from AppContext on success,
     // fall back to manual construction on failure.
@@ -3232,7 +3232,7 @@ async fn main() -> anyhow::Result<()> {
         info!("CircuitBreaker (fallback) attached to LlmRouter");
 
         trajectory_logger = match TrajectoryLogger::new(
-            clawtex_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
+            phantom_mesh_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
         ) {
             Ok(tl) => {
                 let tl = Arc::new(tl);
@@ -3278,7 +3278,7 @@ async fn main() -> anyhow::Result<()> {
     let llm_router = Arc::new(llm_router);
     let task_queue = Arc::new(TaskQueue::new(&db_path).await?);
     let mut agent_runtime = AgentRuntime::new(&config_path)?;
-    let execution_node_id = std::env::var("CLAWTEX_NODE_ID")
+    let execution_node_id = std::env::var("PHANTOM_MESH_NODE_ID")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "local".to_string());
@@ -3289,7 +3289,7 @@ async fn main() -> anyhow::Result<()> {
         info!("TrajectoryLogger wired to AgentRuntime");
     }
     // Wire cost tracker into agent runtime (initialized below, set before Arc wrap)
-    let cost_db_path = format!("{}/.clawtex/costs.db", home);
+    let cost_db_path = format!("{}/.phantom-mesh/costs.db", home);
     let cost_tracker: Option<Arc<CostTracker>> = match CostTracker::new(&cost_db_path) {
         Ok(ct) => {
             let ct = Arc::new(ct);
@@ -3302,7 +3302,7 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
-    let pricing_db_path = format!("{}/.clawtex/pricing.db", home);
+    let pricing_db_path = format!("{}/.phantom-mesh/pricing.db", home);
     let provider_pricing: Option<Arc<ProviderPricingStore>> = match ProviderPricingStore::new(&pricing_db_path) {
         Ok(store) => {
             let store = Arc::new(store);
@@ -3315,7 +3315,7 @@ async fn main() -> anyhow::Result<()> {
             None
         }
     };
-    let power_db_path = format!("{}/.clawtex/power.db", home);
+    let power_db_path = format!("{}/.phantom-mesh/power.db", home);
     let power_economics: Option<Arc<PowerEconomics>> = match PowerEconomics::new(&power_db_path) {
         Ok(pe) => {
             let pe = Arc::new(pe);
@@ -3330,7 +3330,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // Revenue tracker
-    let revenue_db_path = format!("{}/.clawtex/revenue.db", home);
+    let revenue_db_path = format!("{}/.phantom-mesh/revenue.db", home);
     let revenue_tracker: Option<Arc<RevenueTracker>> = match RevenueTracker::new(&revenue_db_path) {
         Ok(rt) => {
             info!("Revenue tracker initialized");
@@ -3342,8 +3342,8 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     // Goals store
-    let goals_db_path = format!("{}/.clawtex/goals.db", home);
-    let goals_store: Option<Arc<clawtex_core::goals::GoalsStore>> = match clawtex_core::goals::GoalsStore::new(&goals_db_path) {
+    let goals_db_path = format!("{}/.phantom-mesh/goals.db", home);
+    let goals_store: Option<Arc<phantom_mesh::goals::GoalsStore>> = match phantom_mesh::goals::GoalsStore::new(&goals_db_path) {
         Ok(gs) => {
             info!("Goals store initialized: {}", goals_db_path);
             Some(Arc::new(gs))
@@ -3355,7 +3355,7 @@ async fn main() -> anyhow::Result<()> {
     };
     let cluster = Arc::new(ClusterRegistry::new(&db_path).await?);
     // Start CPU monitor for accurate cluster scheduling (even on hub)
-    clawtex_core::cluster_worker::start_cpu_monitor();
+    phantom_mesh::cluster_worker::start_cpu_monitor();
     // Wire cluster hub into agent runtime for distributed tool dispatch
     let cluster_hub = Arc::new(ClusterHub::new(cluster.clone()));
     agent_runtime.set_cluster_hub(cluster_hub.clone());
@@ -3367,17 +3367,17 @@ async fn main() -> anyhow::Result<()> {
         }
     }
     // Wire budget breaker for fast-path budget checking (5 minute cooldown)
-    let budget_breaker = Arc::new(clawtex_core::BudgetBreaker::new(300));
+    let budget_breaker = Arc::new(phantom_mesh::BudgetBreaker::new(300));
     agent_runtime.set_budget_breaker(budget_breaker.clone());
     info!("Budget breaker wired (300s cooldown)");
 
     // Wire injection guard for prompt safety
-    let injection_guard = Arc::new(clawtex_core::InjectionGuard::new());
+    let injection_guard = Arc::new(phantom_mesh::InjectionGuard::new());
     agent_runtime.set_injection_guard(injection_guard.clone());
     info!("Injection guard wired (8 patterns)");
 
     // ── Service Tier Manager ─────────────────────────────────────────
-    let tier_db_path = format!("{}/.clawtex/tiers.db", home);
+    let tier_db_path = format!("{}/.phantom-mesh/tiers.db", home);
     let service_tier: Option<Arc<ServiceTierManager>> = match ServiceTierManager::new(&tier_db_path) {
         Ok(stm) => {
             let stm = Arc::new(stm);
@@ -3392,8 +3392,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Tenant Manager ────────────────────────────────────────────────
-    let tenant_db_path = format!("{}/.clawtex/tenants.db", home);
-    let tenant_base_dir = format!("{}/.clawtex/tenants", home);
+    let tenant_db_path = format!("{}/.phantom-mesh/tenants.db", home);
+    let tenant_base_dir = format!("{}/.phantom-mesh/tenants", home);
     let tenant_manager: Option<Arc<TenantManager>> = match TenantManager::new(&tenant_db_path, &tenant_base_dir) {
         Ok(tm) => {
             let tm = Arc::new(tm);
@@ -3407,7 +3407,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Order Workflow ─────────────────────────────────────────────
-    let orders_db_path = format!("{}/.clawtex/orders.db", home);
+    let orders_db_path = format!("{}/.phantom-mesh/orders.db", home);
     let order_workflow: Option<Arc<OrderWorkflow>> = match OrderWorkflow::new(&orders_db_path) {
         Ok(ow) => {
             let ow = Arc::new(ow);
@@ -3434,7 +3434,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Register ai_code tool (external AI CLI integration)
     let ai_code_config = app_config.ai_code.unwrap_or_default();
-    tool_registry.register(Box::new(clawtex_core::tools::ai_code::AiCodeTool::new(
+    tool_registry.register(Box::new(phantom_mesh::tools::ai_code::AiCodeTool::new(
         ai_code_config,
         security_for_aicode,
     )));
@@ -3444,7 +3444,7 @@ async fn main() -> anyhow::Result<()> {
         if cu_config.enabled {
             info!("computer_use: enabled (sandbox: {})", cu_config.sandbox);
             tool_registry.register(Box::new(
-                clawtex_core::tools::computer_use::ComputerUseTool::new(cu_config),
+                phantom_mesh::tools::computer_use::ComputerUseTool::new(cu_config),
             ));
         } else {
             info!("computer_use: disabled in config");
@@ -3465,7 +3465,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Semantic Memory ─────────────────────────────────────────────
     let memory_config = app_config.memory.unwrap_or_default();
-    let memory_db = format!("{}/.clawtex/memory.db", home);
+    let memory_db = format!("{}/.phantom-mesh/memory.db", home);
     let memory_store = match MemoryStore::from_config(memory_config.clone(), &memory_db).await {
         Ok(store) => {
             info!("Semantic memory: {} backend enabled", store.backend_name());
@@ -3479,9 +3479,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Register memory tools (need Arc<MemoryStore>)
     if let Some(ref mem) = memory_store {
-        tool_registry.register(Box::new(clawtex_core::tools::memory_tools::MemoryStoreTool::new(mem.clone())));
-        tool_registry.register(Box::new(clawtex_core::tools::memory_tools::MemoryRecallTool::new(mem.clone())));
-        tool_registry.register(Box::new(clawtex_core::tools::memory_tools::MemoryForgetTool::new(mem.clone())));
+        tool_registry.register(Box::new(phantom_mesh::tools::memory_tools::MemoryStoreTool::new(mem.clone())));
+        tool_registry.register(Box::new(phantom_mesh::tools::memory_tools::MemoryRecallTool::new(mem.clone())));
+        tool_registry.register(Box::new(phantom_mesh::tools::memory_tools::MemoryForgetTool::new(mem.clone())));
         info!("Memory tools registered: memory_store, memory_recall, memory_forget");
     }
 
@@ -3489,7 +3489,7 @@ async fn main() -> anyhow::Result<()> {
     let gemini_key = std::env::var("GEMINI_API_KEY").ok();
     let groq_key = std::env::var("GROQ_API_KEY").ok();
     if gemini_key.is_some() || groq_key.is_some() {
-        tool_registry.register(Box::new(clawtex_core::tools::vision::VisionTool::new(
+        tool_registry.register(Box::new(phantom_mesh::tools::vision::VisionTool::new(
             gemini_key.clone(), groq_key.clone(),
         )));
         info!("Vision tool registered (Gemini={}, Groq={})",
@@ -3500,7 +3500,7 @@ async fn main() -> anyhow::Result<()> {
     // Register email tool (SMTP send — requires approval gate)
     if let Some(email_config) = app_config.email {
         if !email_config.username.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::email::EmailTool::new(email_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::email::EmailTool::new(email_config)));
             info!("Email tool registered (SMTP configured)");
         } else {
             info!("Email tool: SMTP username not set, skipping");
@@ -3510,7 +3510,7 @@ async fn main() -> anyhow::Result<()> {
     // Register email receive tool (IMAP read — uses Python imaplib subprocess)
     {
         let imap_config = app_config.imap.unwrap_or_default();
-        tool_registry.register(Box::new(clawtex_core::tools::email_receive::EmailReceiveTool::new(imap_config.clone())));
+        tool_registry.register(Box::new(phantom_mesh::tools::email_receive::EmailReceiveTool::new(imap_config.clone())));
         if imap_config.is_configured() {
             info!("Email receive tool registered (IMAP configured: {})", imap_config.host);
         } else {
@@ -3521,7 +3521,7 @@ async fn main() -> anyhow::Result<()> {
     // Register slack tool (Slack Incoming Webhook)
     if let Some(slack_config) = app_config.slack {
         if !slack_config.webhook_url.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::slack::SlackTool::new(slack_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::slack::SlackTool::new(slack_config)));
             info!("Slack tool registered");
         } else {
             info!("Slack tool: webhook_url not set, skipping");
@@ -3531,7 +3531,7 @@ async fn main() -> anyhow::Result<()> {
     // Register discord tool (Discord Webhook)
     if let Some(discord_config) = app_config.discord {
         if !discord_config.webhook_url.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::discord::DiscordTool::new(discord_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::discord::DiscordTool::new(discord_config)));
             info!("Discord tool registered");
         } else {
             info!("Discord tool: webhook_url not set, skipping");
@@ -3541,7 +3541,7 @@ async fn main() -> anyhow::Result<()> {
     // Register LINE Notify tool
     if let Some(line_config) = app_config.line {
         if !line_config.notify_token.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::line_notify::LineTool::new(line_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::line_notify::LineTool::new(line_config)));
             info!("LINE Notify tool registered");
         } else {
             info!("LINE Notify tool: notify_token not set, skipping");
@@ -3551,7 +3551,7 @@ async fn main() -> anyhow::Result<()> {
     // Register WhatsApp tool (Business Cloud API)
     if let Some(whatsapp_config) = app_config.whatsapp {
         if !whatsapp_config.phone_number_id.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::whatsapp::WhatsAppTool::new(whatsapp_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::whatsapp::WhatsAppTool::new(whatsapp_config)));
             info!("WhatsApp tool registered");
         } else {
             info!("WhatsApp tool: phone_number_id not set, skipping");
@@ -3561,7 +3561,7 @@ async fn main() -> anyhow::Result<()> {
     // Register twitter tool (tweet posting via API + Playwright browser)
     if let Some(twitter_config) = app_config.twitter {
         if !twitter_config.consumer_key.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::twitter::TwitterTool::new(twitter_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::twitter::TwitterTool::new(twitter_config)));
             info!("Twitter tool registered (API + browser posting)");
         } else {
             info!("Twitter tool: consumer_key not set, skipping");
@@ -3571,7 +3571,7 @@ async fn main() -> anyhow::Result<()> {
     // Register blog_publish tool (MDX + index.ts + git push → Vercel)
     if let Some(blog_config) = app_config.blog {
         if !blog_config.repo_path.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::blog_publish::BlogPublishTool::new(blog_config)));
+            tool_registry.register(Box::new(phantom_mesh::tools::blog_publish::BlogPublishTool::new(blog_config)));
             info!("Blog publish tool registered");
         } else {
             info!("Blog publish tool: repo_path not set, skipping");
@@ -3581,43 +3581,43 @@ async fn main() -> anyhow::Result<()> {
     // Register pdf_export tool
     {
         let ws_dir = tool_registry.workspace_dir().to_string();
-        tool_registry.register(Box::new(clawtex_core::tools::pdf_export::PdfExportTool::new(&ws_dir)));
+        tool_registry.register(Box::new(phantom_mesh::tools::pdf_export::PdfExportTool::new(&ws_dir)));
         info!("PDF export tool registered");
     }
 
     // Register skeleton_generate tool (SoT parallel content generation)
-    tool_registry.register(Box::new(clawtex_core::tools::skeleton_generate::SkeletonGenerateTool::new(
+    tool_registry.register(Box::new(phantom_mesh::tools::skeleton_generate::SkeletonGenerateTool::new(
         llm_router.clone(),
     )));
     info!("Skeleton-of-Thought (SoT) tool registered");
 
     // Register scaffold_saas tool (SaaS project template scaffolding)
-    tool_registry.register(Box::new(clawtex_core::tools::scaffold_saas::ScaffoldSaasTool::new(&home)));
+    tool_registry.register(Box::new(phantom_mesh::tools::scaffold_saas::ScaffoldSaasTool::new(&home)));
     info!("scaffold_saas tool registered");
 
     // Register cli_anything tool (CLI-Anything integration for controlling desktop software)
-    tool_registry.register(Box::new(clawtex_core::tools::cli_anything::CliAnythingTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::cli_anything::CliAnythingTool::new()));
     info!("cli_anything tool registered");
 
     // Register utility tools (no external API keys needed)
-    tool_registry.register(Box::new(clawtex_core::tools::translate::TranslateTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::translate::TranslateTool::new()));
     info!("translate tool registered");
-    tool_registry.register(Box::new(clawtex_core::tools::json_transform::JsonTransformTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::json_transform::JsonTransformTool::new()));
     info!("json_transform tool registered");
-    tool_registry.register(Box::new(clawtex_core::tools::csv_parse::CsvParseTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::csv_parse::CsvParseTool::new()));
     info!("csv_parse tool registered");
-    tool_registry.register(Box::new(clawtex_core::tools::summarize::SummarizeTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::summarize::SummarizeTool::new()));
     info!("summarize tool registered");
-    tool_registry.register(Box::new(clawtex_core::tools::docx_export::DocxExportTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::docx_export::DocxExportTool::new()));
     info!("docx_export tool registered");
-    tool_registry.register(Box::new(clawtex_core::tools::xlsx_export::XlsxExportTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::xlsx_export::XlsxExportTool::new()));
     info!("xlsx_export tool registered");
 
     // Register image_generate tool (config-gated: requires gemini_api_key)
     if let Some(img_config) = app_config.image_generate {
         if !img_config.gemini_api_key.is_empty() {
-            tool_registry.register(Box::new(clawtex_core::tools::image_generate::ImageGenerateTool::new(
-                clawtex_core::tools::image_generate::ImageGenerateConfig {
+            tool_registry.register(Box::new(phantom_mesh::tools::image_generate::ImageGenerateTool::new(
+                phantom_mesh::tools::image_generate::ImageGenerateConfig {
                     gemini_api_key: img_config.gemini_api_key,
                 }
             )));
@@ -3626,15 +3626,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Register TTS (text-to-speech) tool — always available (edge-tts is free, elevenlabs needs API key)
-    tool_registry.register(Box::new(clawtex_core::tools::tts::TtsTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::tts::TtsTool::new()));
     info!("tts tool registered");
 
     // Register video_compose tool — always available (requires ffmpeg in PATH)
-    tool_registry.register(Box::new(clawtex_core::tools::video_compose::VideoComposeTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::video_compose::VideoComposeTool::new()));
     info!("video_compose tool registered");
 
     // Register youtube_upload tool — always available (requires YOUTUBE_OAUTH_TOKEN or YOUTUBE_API_KEY)
-    tool_registry.register(Box::new(clawtex_core::tools::youtube_upload::YouTubeUploadTool::new()));
+    tool_registry.register(Box::new(phantom_mesh::tools::youtube_upload::YouTubeUploadTool::new()));
     info!("youtube_upload tool registered");
 
     // Register stripe tool (payment integration) — config first, env var fallback
@@ -3643,7 +3643,7 @@ async fn main() -> anyhow::Result<()> {
         .filter(|k| !k.is_empty())
         .or_else(|| std::env::var("STRIPE_SECRET_KEY").ok().filter(|k| !k.is_empty()));
     if let Some(key) = stripe_key {
-        tool_registry.register(Box::new(clawtex_core::tools::stripe::StripeTool::new(key)));
+        tool_registry.register(Box::new(phantom_mesh::tools::stripe::StripeTool::new(key)));
         info!("Stripe tool registered");
     } else {
         info!("Stripe tool: no key in [stripe] config or STRIPE_SECRET_KEY env, skipping");
@@ -3655,14 +3655,14 @@ async fn main() -> anyhow::Result<()> {
         .filter(|k| !k.is_empty())
         .or_else(|| std::env::var("RENDER_API_KEY").ok().filter(|k| !k.is_empty()));
     if let Some(key) = render_key {
-        tool_registry.register(Box::new(clawtex_core::tools::render_deploy::RenderDeployTool::new(key)));
+        tool_registry.register(Box::new(phantom_mesh::tools::render_deploy::RenderDeployTool::new(key)));
         info!("Render deploy tool registered");
     } else {
         info!("Render deploy tool: no key in [render] config or RENDER_API_KEY env, skipping");
     }
 
     // ── Hands Registry (early, needed for run_hand tool) ───────────
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     let _ = std::fs::create_dir_all(&hands_dir);
     let hands = Arc::new(HandRegistry::load(&hands_dir).unwrap_or_else(|e| {
         warn!("Hands loading failed: {}", e);
@@ -3675,7 +3675,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Register run_hand tool (natural language → Hand workflow)
     let tool_registry_arc_for_hand = Arc::new(ToolRegistry::new(SecurityConfig::default()));
-    tool_registry.register(Box::new(clawtex_core::tools::run_hand::RunHandTool::new(
+    tool_registry.register(Box::new(phantom_mesh::tools::run_hand::RunHandTool::new(
         agent_runtime.clone(),
         llm_router.clone(),
         tool_registry_arc_for_hand,
@@ -3684,7 +3684,7 @@ async fn main() -> anyhow::Result<()> {
     info!("run_hand tool registered ({} hands available)", hands.names().len());
 
     // ── Audit Logger ─────────────────────────────────────────────────
-    let audit_db_path = format!("{}/.clawtex/audit.db", home);
+    let audit_db_path = format!("{}/.phantom-mesh/audit.db", home);
     let audit_logger: Option<Arc<AuditLogger>> = match AuditLogger::new(&audit_db_path) {
         Ok(al) => {
             let al = Arc::new(al);
@@ -3701,8 +3701,8 @@ async fn main() -> anyhow::Result<()> {
     let tool_registry = Arc::new(tool_registry);
 
     // ── Skills Registry ─────────────────────────────────────────────
-    let skills_dir = format!("{}/.clawtex/skills", home);
-    let installed_dir = format!("{}/.clawtex/installed_skills", home);
+    let skills_dir = format!("{}/.phantom-mesh/skills", home);
+    let installed_dir = format!("{}/.phantom-mesh/installed_skills", home);
     let _ = std::fs::create_dir_all(&skills_dir);
     let skill_registry = Arc::new(SkillRegistry::load(&[
         (&skills_dir, TrustLevel::Trusted),
@@ -3778,7 +3778,7 @@ async fn main() -> anyhow::Result<()> {
     // Read from [cluster] config section or CLUSTER_SECRET env var.
     let cluster_secret: Option<String> = {
         let config_val = app_config.cluster.as_ref().and_then(|c| c.cluster_secret.as_deref());
-        clawtex_core::cluster_worker::resolve_cluster_secret(config_val)
+        phantom_mesh::cluster_worker::resolve_cluster_secret(config_val)
     };
     if cluster_secret.is_some() {
         info!("Cluster secret configured — worker authentication enabled on cluster endpoints");
@@ -3811,8 +3811,8 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Bootstrap event triggers ─────────────────────────────────────
-    let trigger_manager: Option<Arc<std::sync::Mutex<clawtex_core::event_triggers::EventTriggerManager>>> = {
-        use clawtex_core::event_triggers::EventTriggerManager;
+    let trigger_manager: Option<Arc<std::sync::Mutex<phantom_mesh::event_triggers::EventTriggerManager>>> = {
+        use phantom_mesh::event_triggers::EventTriggerManager;
         match rusqlite::Connection::open(&db_path) {
             Ok(conn) => {
                 if let Err(e) = EventTriggerManager::create_table(&conn) {
@@ -3986,7 +3986,7 @@ async fn main() -> anyhow::Result<()> {
     // Reuse the ClusterHub created earlier for agent_runtime dispatch
 
     // Initialize load tester
-    let load_test_db_path = format!("{}/.clawtex/load_tests.db", dirs_home());
+    let load_test_db_path = format!("{}/.phantom-mesh/load_tests.db", dirs_home());
     let load_tester: Option<Arc<LoadTester>> = match LoadTester::new(
         agent_runtime.clone(),
         llm_router.clone(),
@@ -4005,7 +4005,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Optimizer Policy Store ───────────────────────────────────────
-    let optimizer_db_path = clawtex_dir.join("optimizer.db");
+    let optimizer_db_path = phantom_mesh_dir.join("optimizer.db");
     let optimizer_store: Option<Arc<OptimizerStore>> = match OptimizerStore::new(
         optimizer_db_path.to_str().unwrap_or("optimizer.db"),
     ) {
@@ -4036,7 +4036,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Worker onboarder initialized");
 
     // ── Auto Diagnoser ──────────────────────────────────────────────
-    let diagnosis_db_path = format!("{}/.clawtex/diagnosis.db", home);
+    let diagnosis_db_path = format!("{}/.phantom-mesh/diagnosis.db", home);
     let auto_diagnoser: Option<Arc<AutoDiagnoser>> = match AutoDiagnoser::new(&diagnosis_db_path) {
         Ok(ad) => {
             info!("Auto-diagnosis engine initialized ({} known patterns, db: {})",
@@ -4050,7 +4050,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Customer Health & Churn Detection ──────────────────────────
-    let customer_health_db_path = format!("{}/.clawtex/customer_health.db", home);
+    let customer_health_db_path = format!("{}/.phantom-mesh/customer_health.db", home);
     let (customer_health, churn_detector) = match CustomerHealthManager::new(&customer_health_db_path) {
         Ok(mgr) => {
             let detector = ChurnDetector::new(&customer_health_db_path).ok().map(Arc::new);
@@ -4064,7 +4064,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Observational Memory ─────────────────────────────────────────
-    let obs_db_path = format!("{}/.clawtex/observations.db", home);
+    let obs_db_path = format!("{}/.phantom-mesh/observations.db", home);
     let observational_memory: Option<Arc<ObservationalMemory>> = match ObservationalMemory::new(&obs_db_path) {
         Ok(om) => {
             info!("Observational memory initialized (db: {})", obs_db_path);
@@ -4077,7 +4077,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Task Preemption Manager ─────────────────────────────────────
-    let preemption_db_path = format!("{}/.clawtex/core.db", home);
+    let preemption_db_path = format!("{}/.phantom-mesh/core.db", home);
     let preemption_manager: Option<Arc<PreemptionManager>> = match PreemptionManager::new(&preemption_db_path) {
         Ok(pm) => {
             info!("Task preemption manager initialized (db: {})", preemption_db_path);
@@ -4090,7 +4090,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // ── Node Capability Scorer ──────────────────────────────────────
-    let scoring_db_path = format!("{}/.clawtex/core.db", home);
+    let scoring_db_path = format!("{}/.phantom-mesh/core.db", home);
     let node_scorer: Option<Arc<NodeScorer>> = match NodeScorer::new(&scoring_db_path) {
         Ok(ns) => {
             info!("Node capability scorer initialized (db: {})", scoring_db_path);
@@ -4122,7 +4122,7 @@ async fn main() -> anyhow::Result<()> {
         hub_api_key,
         dashboard_token,
         public_url,
-        metrics_registry: Arc::new(clawtex_core::metrics::default_metrics()),
+        metrics_registry: Arc::new(phantom_mesh::metrics::default_metrics()),
         audit_logger,
         load_tester,
         worker_onboarder: Some(worker_onboarder),
@@ -4158,12 +4158,12 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Networking: mDNS Discovery + Route Manager ─────────────────
     {
-        use clawtex_core::networking::mdns::MdnsDiscovery;
-        use clawtex_core::networking::iroh_transport::IrohTransport;
-        use clawtex_core::networking::{RouteManager, ServiceDiscovery};
+        use phantom_mesh::networking::mdns::MdnsDiscovery;
+        use phantom_mesh::networking::iroh_transport::IrohTransport;
+        use phantom_mesh::networking::{RouteManager, ServiceDiscovery};
 
-        let node_name = std::env::var("CLAWTEX_NODE_NAME")
-            .unwrap_or_else(|_| "clawtex-hub".to_string());
+        let node_name = std::env::var("PHANTOM_MESH_NODE_NAME")
+            .unwrap_or_else(|_| "phantom_mesh-hub".to_string());
         let mdns = Arc::new(MdnsDiscovery::new(node_name.clone(), args.port, vec!["hub".into()]));
         match ServiceDiscovery::start(mdns.as_ref()).await {
             Ok(()) => info!("mDNS discovery started for '{}' on port {}", node_name, args.port),
@@ -4242,7 +4242,7 @@ async fn main() -> anyhow::Result<()> {
             {
                 let tg_for_approval = telegram.clone();
                 let last_id = last_chat_id.clone();
-                let notifier: clawtex_core::ApprovalNotifier = Arc::new(move |msg: String| {
+                let notifier: phantom_mesh::ApprovalNotifier = Arc::new(move |msg: String| {
                     let tg = tg_for_approval.clone();
                     let last_id = last_id.clone();
                     Box::pin(async move {
@@ -4281,31 +4281,31 @@ async fn main() -> anyhow::Result<()> {
         let trigger_manager_for_cron = state.trigger_manager.clone();
         let db_path_for_cron = db_path.clone();
         tokio::spawn(async move {
-            let executor: clawtex_core::cron::JobExecutor = Arc::new(move |action| {
+            let executor: phantom_mesh::cron::JobExecutor = Arc::new(move |action| {
                 let s = executor_state.clone();
                 let tg_ref = tg_for_cron.clone();
                 let chat_ref = chat_id_for_cron.clone();
                 tokio::spawn(async move {
                     match action {
-                        clawtex_core::JobAction::Shell { command } => {
+                        phantom_mesh::JobAction::Shell { command } => {
                             match s.tool_registry.execute_tool("shell", serde_json::json!({"command": command})).await {
                                 Ok(r) => r.output,
                                 Err(e) => format!("Shell error: {}", e),
                             }
                         }
-                        clawtex_core::JobAction::Agent { agent, prompt } => {
+                        phantom_mesh::JobAction::Agent { agent, prompt } => {
                             let history = vec![];
                             match s.agent_runtime.run(&agent, &prompt, &history, &s.llm_router, &s.tool_registry, None).await {
                                 Ok(r) => r.output,
                                 Err(e) => format!("Agent error: {}", e),
                             }
                         }
-                        clawtex_core::JobAction::Notify { chat_id, message } => {
+                        phantom_mesh::JobAction::Notify { chat_id, message } => {
                             // Handle goals push magic messages
                             let is_goals_push = message == "__GOALS_MORNING__" || message == "__GOALS_EVENING__" || message == "__GOALS_WEEKLY__";
-                            let goals_keyboard: Option<clawtex_core::telegram_menu::InlineKeyboard> = if is_goals_push {
+                            let goals_keyboard: Option<phantom_mesh::telegram_menu::InlineKeyboard> = if is_goals_push {
                                 if message == "__GOALS_EVENING__" {
-                                    Some(clawtex_core::telegram_menu::goals_mood_selector())
+                                    Some(phantom_mesh::telegram_menu::goals_mood_selector())
                                 } else if message == "__GOALS_MORNING__" {
                                     // Build task buttons for incomplete tasks
                                     if let Some(ref gs) = s.goals_store {
@@ -4315,7 +4315,7 @@ async fn main() -> anyhow::Result<()> {
                                                 .map(|t| (t.task.id.as_str(), t.task.title.as_str()))
                                                 .collect();
                                             if !pending.is_empty() {
-                                                Some(clawtex_core::telegram_menu::goals_task_buttons(&pending))
+                                                Some(phantom_mesh::telegram_menu::goals_task_buttons(&pending))
                                             } else { None }
                                         } else { None }
                                     } else { None }
@@ -4325,11 +4325,11 @@ async fn main() -> anyhow::Result<()> {
                             let actual_message = if is_goals_push {
                                 if let Some(ref gs) = s.goals_store {
                                     let result = if message == "__GOALS_MORNING__" {
-                                        clawtex_core::goals_push::morning_briefing(gs)
+                                        phantom_mesh::goals_push::morning_briefing(gs)
                                     } else if message == "__GOALS_WEEKLY__" {
-                                        clawtex_core::goals_push::weekly_report(gs)
+                                        phantom_mesh::goals_push::weekly_report(gs)
                                     } else {
-                                        clawtex_core::goals_push::evening_checkin(gs)
+                                        phantom_mesh::goals_push::evening_checkin(gs)
                                     };
                                     match result {
                                         Ok(msg) if msg.is_empty() => {
@@ -4381,7 +4381,7 @@ async fn main() -> anyhow::Result<()> {
                                 format!("Notified (Telegram disabled): {}", &actual_message[..actual_message.len().min(80)])
                             }
                         }
-                        clawtex_core::JobAction::Hand { hand_name, input } => {
+                        phantom_mesh::JobAction::Hand { hand_name, input } => {
                             if let Some(hand) = s.hands.get(&hand_name) {
                                 info!("Cron executing hand '{}' with input: {}", hand_name, &input[..input.len().min(80)]);
                                 match HandRunner::run(hand, &input, &s.agent_runtime, &s.llm_router, &s.tool_registry, Some(&s.approval_gate)).await {
@@ -4539,7 +4539,7 @@ async fn main() -> anyhow::Result<()> {
             None => return Json(json!({ "error": "Churn detector not available" })),
         };
         let alerts = detector.get_all_active_alerts().unwrap_or_default();
-        let summary = detector.churn_summary().unwrap_or(clawtex_core::ChurnSummary {
+        let summary = detector.churn_summary().unwrap_or(phantom_mesh::ChurnSummary {
             total_active: 0, low: 0, medium: 0, high: 0, critical: 0,
         });
         Json(json!({ "alerts": alerts, "summary": summary }))
@@ -4556,12 +4556,12 @@ async fn main() -> anyhow::Result<()> {
     // ── Revenue Dashboard API ─────────────────────────────────────────────────
     async fn api_revenue_dashboard() -> Result<Json<Value>, StatusCode> {
         let home = dirs::home_dir().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let revenue_db = home.join(".clawtex").join("revenue.db");
-        let cost_db = home.join(".clawtex").join("costs.db");
+        let revenue_db = home.join(".phantom-mesh").join("revenue.db");
+        let cost_db = home.join(".phantom-mesh").join("costs.db");
         let revenue_path = revenue_db.to_str().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
         let cost_path = cost_db.to_str().ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        match clawtex_core::web_dashboard::build_revenue_dashboard(revenue_path, cost_path) {
+        match phantom_mesh::web_dashboard::build_revenue_dashboard(revenue_path, cost_path) {
             Ok(data) => {
                 let json_val = serde_json::to_value(&data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                 Ok(Json(json_val))
@@ -4623,7 +4623,7 @@ async fn main() -> anyhow::Result<()> {
                 info!("Stripe webhook: recording ${:.2} from {} — {}", amount_usd, client, description);
                 // Record revenue if tracker is available
                 if let Some(ref tracker) = state.revenue_tracker {
-                    let record = clawtex_core::revenue_tracker::RevenueRecord {
+                    let record = phantom_mesh::revenue_tracker::RevenueRecord {
                         id: uuid::Uuid::new_v4().to_string(),
                         timestamp: chrono::Utc::now(),
                         route: "stripe".to_string(),
@@ -4631,7 +4631,7 @@ async fn main() -> anyhow::Result<()> {
                         client_name: client.clone(),
                         amount_usd,
                         currency: "USD".to_string(),
-                        status: clawtex_core::revenue_tracker::RevenueStatus::Confirmed,
+                        status: phantom_mesh::revenue_tracker::RevenueStatus::Confirmed,
                         notes: Some(description.clone()),
                         invoice_id: None,
                     };
@@ -4692,9 +4692,9 @@ async fn main() -> anyhow::Result<()> {
 
     async fn api_governor_status(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
         let store = state.optimizer_store.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
-        let canary = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Canary).unwrap_or_default();
-        let active = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Active).unwrap_or_default();
-        let draft = store.list_policies_by_status(clawtex_core::optimizer_store::PolicyStatus::Draft).unwrap_or_default();
+        let canary = store.list_policies_by_status(phantom_mesh::optimizer_store::PolicyStatus::Canary).unwrap_or_default();
+        let active = store.list_policies_by_status(phantom_mesh::optimizer_store::PolicyStatus::Active).unwrap_or_default();
+        let draft = store.list_policies_by_status(phantom_mesh::optimizer_store::PolicyStatus::Draft).unwrap_or_default();
         Ok(Json(json!({
             "canary_policies": canary.len(),
             "active_policies": active.len(),
@@ -4932,15 +4932,15 @@ async fn main() -> anyhow::Result<()> {
         .route("/goals/:id/mood-trend", get(goals_mood_trend))
         .with_state(state.clone())
         // Gateway streaming endpoints (separate state)
-        .route("/stream/agent/:name", get(clawtex_core::gateway::sse_agent))
-        .route("/ws/agent/:name", get(clawtex_core::gateway::ws_agent))
-        .route("/agent/think", post(clawtex_core::gateway::agent_think))
-        .route("/trajectories", get(clawtex_core::gateway::get_trajectories))
-        .route("/trajectories/stats", get(clawtex_core::gateway::get_trajectory_stats))
-        .route("/cluster/health", get(clawtex_core::gateway::get_cluster_health))
+        .route("/stream/agent/:name", get(phantom_mesh::gateway::sse_agent))
+        .route("/ws/agent/:name", get(phantom_mesh::gateway::ws_agent))
+        .route("/agent/think", post(phantom_mesh::gateway::agent_think))
+        .route("/trajectories", get(phantom_mesh::gateway::get_trajectories))
+        .route("/trajectories/stats", get(phantom_mesh::gateway::get_trajectory_stats))
+        .route("/cluster/health", get(phantom_mesh::gateway::get_cluster_health))
         .with_state(gateway_state)
         // Web dashboard — embedded single-page UI + JSON API
-        .merge(clawtex_core::dashboard_routes(clawtex_core::DashboardState {
+        .merge(phantom_mesh::dashboard_routes(phantom_mesh::DashboardState {
             tool_registry: state.tool_registry.clone(),
             hands: state.hands.clone(),
             conversations: state.conversations.clone(),
@@ -4999,7 +4999,7 @@ async fn diagnose_error_handler(
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    let context = clawtex_core::ErrorContext {
+    let context = phantom_mesh::ErrorContext {
         error_message,
         tool_name,
         hand_name,
@@ -5103,13 +5103,13 @@ async fn memory_observe(
         .and_then(|v| v.as_array())
         .ok_or(StatusCode::BAD_REQUEST)?;
 
-    let messages: Vec<clawtex_core::ConversationMessage> = messages_val
+    let messages: Vec<phantom_mesh::ConversationMessage> = messages_val
         .iter()
         .filter_map(|m| {
             let role = m.get("role")?.as_str()?.to_string();
             let content = m.get("content")?.as_str()?.to_string();
             let timestamp = m.get("timestamp").and_then(|t| t.as_str()).map(String::from);
-            Some(clawtex_core::ConversationMessage { role, content, timestamp })
+            Some(phantom_mesh::ConversationMessage { role, content, timestamp })
         })
         .collect();
 
@@ -5211,7 +5211,7 @@ async fn orders_create(State(state): State<AppState>, Json(body): Json<Value>) -
 async fn orders_list(State(state): State<AppState>, axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>) -> Result<Json<Value>, StatusCode> {
     let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let orders = if let Some(status_str) = params.get("status") {
-        let status = clawtex_core::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
+        let status = phantom_mesh::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
         wf.list_by_status(status).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         wf.list_all().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -5231,7 +5231,7 @@ async fn orders_get(State(state): State<AppState>, Path(id): Path<String>) -> Re
 async fn orders_transition(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<Value>) -> Result<Json<Value>, StatusCode> {
     let wf = state.order_workflow.as_ref().ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let status_str = body.get("status").and_then(|v| v.as_str()).ok_or(StatusCode::BAD_REQUEST)?;
-    let new_status = clawtex_core::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
+    let new_status = phantom_mesh::OrderStatus::from_str_loose(status_str).ok_or(StatusCode::BAD_REQUEST)?;
     match wf.transition(&id, new_status) {
         Ok(order) => Ok(Json(json!({ "status": "transitioned", "order": order }))),
         Err(e) => {
@@ -5281,7 +5281,7 @@ fn dirs_home() -> String {
 ///   every:3600 hand:lead "Find SaaS leads"
 ///   "*/30 * * * *" agent:master "check tasks"
 ///   "0 9 * * 1-5" shell "echo weekday"
-fn parse_cron_add_command(input: &str) -> Option<(clawtex_core::Schedule, clawtex_core::JobAction, String)> {
+fn parse_cron_add_command(input: &str) -> Option<(phantom_mesh::Schedule, phantom_mesh::JobAction, String)> {
     let input = input.trim();
 
     // Parse schedule: either "cron expr" in quotes or every:N
@@ -5289,12 +5289,12 @@ fn parse_cron_add_command(input: &str) -> Option<(clawtex_core::Schedule, clawte
         // Quoted cron expression
         let end_quote = input[1..].find('"')? + 1;
         let expr = &input[1..end_quote];
-        let schedule = clawtex_core::Schedule::Cron { expr: expr.to_string() };
+        let schedule = phantom_mesh::Schedule::Cron { expr: expr.to_string() };
         (schedule, input[end_quote + 1..].trim())
     } else if input.starts_with("every:") {
         let space_idx = input.find(' ')?;
         let secs: u64 = input[6..space_idx].parse().ok()?;
-        let schedule = clawtex_core::Schedule::Every { interval_secs: secs };
+        let schedule = phantom_mesh::Schedule::Every { interval_secs: secs };
         (schedule, input[space_idx + 1..].trim())
     } else {
         return None;
@@ -5306,26 +5306,26 @@ fn parse_cron_add_command(input: &str) -> Option<(clawtex_core::Schedule, clawte
         let space_idx = after_prefix.find(' ').unwrap_or(after_prefix.len());
         let hand_name = &after_prefix[..space_idx];
         let input_text = extract_quoted_or_rest(&after_prefix[space_idx..]);
-        (clawtex_core::JobAction::Hand { hand_name: hand_name.to_string(), input: input_text.clone() }, input_text)
+        (phantom_mesh::JobAction::Hand { hand_name: hand_name.to_string(), input: input_text.clone() }, input_text)
     } else if rest.starts_with("agent:") {
         let after_prefix = &rest[6..];
         let space_idx = after_prefix.find(' ').unwrap_or(after_prefix.len());
         let agent_name = &after_prefix[..space_idx];
         let prompt = extract_quoted_or_rest(&after_prefix[space_idx..]);
-        (clawtex_core::JobAction::Agent { agent: agent_name.to_string(), prompt: prompt.clone() }, prompt)
+        (phantom_mesh::JobAction::Agent { agent: agent_name.to_string(), prompt: prompt.clone() }, prompt)
     } else if rest.starts_with("shell ") {
         let cmd = extract_quoted_or_rest(&rest[5..]);
-        (clawtex_core::JobAction::Shell { command: cmd.clone() }, cmd)
+        (phantom_mesh::JobAction::Shell { command: cmd.clone() }, cmd)
     } else {
         return None;
     };
 
     // Generate a name from the action
     let name = match &action {
-        clawtex_core::JobAction::Hand { hand_name, .. } => format!("cron-hand-{}", hand_name),
-        clawtex_core::JobAction::Agent { agent, .. } => format!("cron-agent-{}", agent),
-        clawtex_core::JobAction::Shell { .. } => "cron-shell".to_string(),
-        clawtex_core::JobAction::Notify { .. } => "cron-notify".to_string(),
+        phantom_mesh::JobAction::Hand { hand_name, .. } => format!("cron-hand-{}", hand_name),
+        phantom_mesh::JobAction::Agent { agent, .. } => format!("cron-agent-{}", agent),
+        phantom_mesh::JobAction::Shell { .. } => "cron-shell".to_string(),
+        phantom_mesh::JobAction::Notify { .. } => "cron-notify".to_string(),
     };
 
     Some((schedule, action, name))
@@ -5415,7 +5415,7 @@ async fn goals_list(
         None => return Json(json!({ "error": "Goals store not available" })),
     };
     let status_filter = params.get("status").and_then(|s| {
-        Some(clawtex_core::goals::GoalStatus::from_str(s))
+        Some(phantom_mesh::goals::GoalStatus::from_str(s))
     });
     match store.list_goals(status_filter) {
         Ok(goals) => Json(json!({ "goals": goals })),
@@ -5433,13 +5433,13 @@ async fn goals_create(
     };
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
-    let goal = clawtex_core::goals::Goal {
+    let goal = phantom_mesh::goals::Goal {
         id: id.clone(),
         title: body["title"].as_str().unwrap_or("").to_string(),
         category: body["category"].as_str().unwrap_or("").to_string(),
         description: body["description"].as_str().map(|s| s.to_string()),
         target_date: body["target_date"].as_str().map(|s| s.to_string()),
-        status: clawtex_core::goals::GoalStatus::Active,
+        status: phantom_mesh::goals::GoalStatus::Active,
         context: body["context"].as_str().map(|s| s.to_string()),
         created_at: now.clone(),
         updated_at: now,
@@ -5474,7 +5474,7 @@ async fn goals_update(
         Some(s) => s,
         None => return Json(json!({ "error": "Goals store not available" })),
     };
-    let status = body["status"].as_str().map(|s| clawtex_core::goals::GoalStatus::from_str(s));
+    let status = body["status"].as_str().map(|s| phantom_mesh::goals::GoalStatus::from_str(s));
     match store.update_goal(
         &id,
         body["title"].as_str(),
@@ -5564,7 +5564,7 @@ async fn goals_milestone_add(
         None => return Json(json!({ "error": "Goals store not available" })),
     };
     let id = uuid::Uuid::new_v4().to_string();
-    let ms = clawtex_core::goals::Milestone {
+    let ms = phantom_mesh::goals::Milestone {
         id: id.clone(),
         goal_id,
         title: body["title"].as_str().unwrap_or("").to_string(),
@@ -5618,7 +5618,7 @@ async fn goals_recurring_add(
         None => return Json(json!({ "error": "Goals store not available" })),
     };
     let id = uuid::Uuid::new_v4().to_string();
-    let task = clawtex_core::goals::RecurringTask {
+    let task = phantom_mesh::goals::RecurringTask {
         id: id.clone(),
         goal_id,
         title: body["title"].as_str().unwrap_or("").to_string(),
@@ -5658,7 +5658,7 @@ async fn goals_checkin_add(
         None => return Json(json!({ "error": "Goals store not available" })),
     };
     let id = uuid::Uuid::new_v4().to_string();
-    let ci = clawtex_core::goals::CheckIn {
+    let ci = phantom_mesh::goals::CheckIn {
         id: id.clone(),
         goal_id,
         date: body["date"].as_str().unwrap_or(&chrono::Utc::now().format("%Y-%m-%d").to_string()).to_string(),
@@ -5682,9 +5682,9 @@ async fn goals_push_preview(
     };
     let kind = params.get("type").map(|s| s.as_str()).unwrap_or("morning");
     let result = match kind {
-        "evening" => clawtex_core::goals_push::evening_checkin(store),
-        "weekly" => clawtex_core::goals_push::weekly_report(store),
-        _ => clawtex_core::goals_push::morning_briefing(store),
+        "evening" => phantom_mesh::goals_push::evening_checkin(store),
+        "weekly" => phantom_mesh::goals_push::weekly_report(store),
+        _ => phantom_mesh::goals_push::morning_briefing(store),
     };
     match result {
         Ok(msg) if msg.is_empty() => Json(json!({ "message": null, "reason": "no active goals" })),

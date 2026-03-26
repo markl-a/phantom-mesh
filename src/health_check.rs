@@ -152,7 +152,7 @@ pub struct SystemHealth {
 // Built-in check functions
 // ---------------------------------------------------------------------------
 
-/// Check that SQLite database files under `~/.clawtex/` are accessible.
+/// Check that SQLite database files under `~/.phantom-mesh/` are accessible.
 pub fn check_database(db_dir: &str) -> ComponentHealth {
     let start = Instant::now();
     let db_files = ["core.db", "costs.db", "memory.db"];
@@ -771,46 +771,46 @@ impl HealthChecker {
     /// Render a `SystemHealth` in Prometheus text exposition format.
     ///
     /// Emits:
-    /// - `clawtex_health_status` gauge (0=healthy, 1=degraded, 2=unhealthy)
-    /// - `clawtex_health_uptime_seconds` gauge
-    /// - Per-component `clawtex_component_health{component="X"}` gauge
-    /// - Per-component `clawtex_component_latency_ms{component="X"}` gauge
+    /// - `phantom_mesh_health_status` gauge (0=healthy, 1=degraded, 2=unhealthy)
+    /// - `phantom_mesh_health_uptime_seconds` gauge
+    /// - Per-component `phantom_mesh_component_health{component="X"}` gauge
+    /// - Per-component `phantom_mesh_component_latency_ms{component="X"}` gauge
     pub fn to_prometheus(health: &SystemHealth) -> String {
         let mut out = String::new();
 
         // Overall status
-        out.push_str("# HELP clawtex_health_status Overall system health (0=healthy, 1=degraded, 2=unhealthy)\n");
-        out.push_str("# TYPE clawtex_health_status gauge\n");
+        out.push_str("# HELP phantom_mesh_health_status Overall system health (0=healthy, 1=degraded, 2=unhealthy)\n");
+        out.push_str("# TYPE phantom_mesh_health_status gauge\n");
         out.push_str(&format!(
-            "clawtex_health_status {}\n",
+            "phantom_mesh_health_status {}\n",
             health.status.severity()
         ));
 
         // Uptime
-        out.push_str("# HELP clawtex_health_uptime_seconds System uptime in seconds\n");
-        out.push_str("# TYPE clawtex_health_uptime_seconds gauge\n");
+        out.push_str("# HELP phantom_mesh_health_uptime_seconds System uptime in seconds\n");
+        out.push_str("# TYPE phantom_mesh_health_uptime_seconds gauge\n");
         out.push_str(&format!(
-            "clawtex_health_uptime_seconds {}\n",
+            "phantom_mesh_health_uptime_seconds {}\n",
             health.uptime_secs
         ));
 
         // Component health
-        out.push_str("# HELP clawtex_component_health Per-component health (0=healthy, 1=degraded, 2=unhealthy)\n");
-        out.push_str("# TYPE clawtex_component_health gauge\n");
+        out.push_str("# HELP phantom_mesh_component_health Per-component health (0=healthy, 1=degraded, 2=unhealthy)\n");
+        out.push_str("# TYPE phantom_mesh_component_health gauge\n");
         for comp in &health.components {
             out.push_str(&format!(
-                "clawtex_component_health{{component=\"{}\"}} {}\n",
+                "phantom_mesh_component_health{{component=\"{}\"}} {}\n",
                 comp.name,
                 comp.status.severity()
             ));
         }
 
         // Component latency
-        out.push_str("# HELP clawtex_component_latency_ms Health check latency in milliseconds\n");
-        out.push_str("# TYPE clawtex_component_latency_ms gauge\n");
+        out.push_str("# HELP phantom_mesh_component_latency_ms Health check latency in milliseconds\n");
+        out.push_str("# TYPE phantom_mesh_component_latency_ms gauge\n");
         for comp in &health.components {
             out.push_str(&format!(
-                "clawtex_component_latency_ms{{component=\"{}\"}} {}\n",
+                "phantom_mesh_component_latency_ms{{component=\"{}\"}} {}\n",
                 comp.name, comp.latency_ms
             ));
         }
@@ -1092,8 +1092,8 @@ pub fn check_tool_availability(
 /// Run all deep health checks and produce an aggregated report.
 ///
 /// Parameters:
-/// - `db_path`: Path to the primary SQLite database (e.g. `~/.clawtex/core.db`).
-/// - `disk_path`: Path to check for free disk space (e.g. `~/.clawtex/workspace`).
+/// - `db_path`: Path to the primary SQLite database (e.g. `~/.phantom-mesh/core.db`).
+/// - `disk_path`: Path to check for free disk space (e.g. `~/.phantom-mesh/workspace`).
 /// - `expected_tools`: Tool names that should be registered.
 /// - `registered_tools`: Tool names that are actually registered in the system.
 pub fn deep_health_check(
@@ -1622,12 +1622,12 @@ mod tests {
         let health = checker.run_all();
         let prom = HealthChecker::to_prometheus(&health);
 
-        assert!(prom.contains("clawtex_health_status 1"), "overall should be degraded (1)");
-        assert!(prom.contains("clawtex_health_uptime_seconds"));
-        assert!(prom.contains("clawtex_component_health{component=\"db\"} 0"));
-        assert!(prom.contains("clawtex_component_health{component=\"disk\"} 1"));
-        assert!(prom.contains("clawtex_component_latency_ms{component=\"db\"}"));
-        assert!(prom.contains("clawtex_component_latency_ms{component=\"disk\"}"));
+        assert!(prom.contains("phantom_mesh_health_status 1"), "overall should be degraded (1)");
+        assert!(prom.contains("phantom_mesh_health_uptime_seconds"));
+        assert!(prom.contains("phantom_mesh_component_health{component=\"db\"} 0"));
+        assert!(prom.contains("phantom_mesh_component_health{component=\"disk\"} 1"));
+        assert!(prom.contains("phantom_mesh_component_latency_ms{component=\"db\"}"));
+        assert!(prom.contains("phantom_mesh_component_latency_ms{component=\"disk\"}"));
     }
 
     #[test]
@@ -1706,17 +1706,17 @@ mod tests {
         };
         let prom = HealthChecker::to_prometheus(&health);
         // Each metric should have HELP and TYPE annotations
-        assert!(prom.contains("# HELP clawtex_health_status"));
-        assert!(prom.contains("# TYPE clawtex_health_status gauge"));
-        assert!(prom.contains("# HELP clawtex_health_uptime_seconds"));
-        assert!(prom.contains("# TYPE clawtex_health_uptime_seconds gauge"));
-        assert!(prom.contains("# HELP clawtex_component_health"));
-        assert!(prom.contains("# TYPE clawtex_component_health gauge"));
-        assert!(prom.contains("# HELP clawtex_component_latency_ms"));
-        assert!(prom.contains("# TYPE clawtex_component_latency_ms gauge"));
+        assert!(prom.contains("# HELP phantom_mesh_health_status"));
+        assert!(prom.contains("# TYPE phantom_mesh_health_status gauge"));
+        assert!(prom.contains("# HELP phantom_mesh_health_uptime_seconds"));
+        assert!(prom.contains("# TYPE phantom_mesh_health_uptime_seconds gauge"));
+        assert!(prom.contains("# HELP phantom_mesh_component_health"));
+        assert!(prom.contains("# TYPE phantom_mesh_component_health gauge"));
+        assert!(prom.contains("# HELP phantom_mesh_component_latency_ms"));
+        assert!(prom.contains("# TYPE phantom_mesh_component_latency_ms gauge"));
         // Verify values
-        assert!(prom.contains("clawtex_health_status 0"));
-        assert!(prom.contains("clawtex_health_uptime_seconds 120"));
+        assert!(prom.contains("phantom_mesh_health_status 0"));
+        assert!(prom.contains("phantom_mesh_health_uptime_seconds 120"));
     }
 
     #[test]

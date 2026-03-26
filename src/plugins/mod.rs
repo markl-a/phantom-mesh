@@ -2,7 +2,7 @@
 //! Inspired by ZeroClaw's Plugin trait + PluginManifest discovery.
 //!
 //! Plugins are discovered from:
-//! - `~/.clawtex/plugins/<name>/plugin.toml` (user-installed)
+//! - `~/.phantom-mesh/plugins/<name>/plugin.toml` (user-installed)
 //! - Built-in directory (bundled)
 //!
 //! Plugin TOML format:
@@ -90,7 +90,7 @@ impl PluginRegistry {
 
         // Default plugin directory
         if let Ok(home) = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            dirs.push(PathBuf::from(home).join(".clawtex").join("plugins"));
+            dirs.push(PathBuf::from(home).join(".phantom-mesh").join("plugins"));
         }
 
         Self {
@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_discover_real_dir() {
-        let dir = std::env::temp_dir().join("clawtex_test_plugins");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_plugins");
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
 

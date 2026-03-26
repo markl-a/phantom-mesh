@@ -19,9 +19,9 @@ pub struct SecretManager {
 }
 
 impl SecretManager {
-    /// Load or create the secret key from `~/.clawtex/.secret_key`
-    pub fn new(clawtex_dir: &str) -> Result<Self> {
-        let key_path = Path::new(clawtex_dir).join(SECRET_KEY_FILE);
+    /// Load or create the secret key from `~/.phantom-mesh/.secret_key`
+    pub fn new(phantom_mesh_dir: &str) -> Result<Self> {
+        let key_path = Path::new(phantom_mesh_dir).join(SECRET_KEY_FILE);
 
         let key_bytes = if key_path.exists() {
             let hex_str = std::fs::read_to_string(&key_path)?;

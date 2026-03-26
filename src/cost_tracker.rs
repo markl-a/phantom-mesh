@@ -21,6 +21,12 @@ pub struct CostRecord {
     pub tokens_in: u32,
     pub tokens_out: u32,
     pub total_tokens: u32,
+    #[serde(default)]
+    pub node_id: Option<String>,
+    #[serde(default)]
+    pub api_estimated_cost_usd: f64,
+    #[serde(default)]
+    pub hardware_estimated_cost_usd: f64,
     pub estimated_cost_usd: f64,
     pub duration_secs: f64,
     /// Optional context: hand name, phase, cron job, etc.
@@ -32,6 +38,10 @@ pub struct CostRecord {
 pub struct CostSummary {
     pub group: String,
     pub total_tokens: u64,
+    #[serde(default)]
+    pub api_cost_usd: f64,
+    #[serde(default)]
+    pub hardware_cost_usd: f64,
     pub total_cost_usd: f64,
     pub call_count: u32,
 }
@@ -119,6 +129,11 @@ pub struct CostTracker {
 impl CostTracker {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        Self::ensure_schema(&conn)?;
+        Ok(Self { db_path: db_path.to_string() })
+    }
+
+    fn ensure_schema(conn: &rusqlite::Connection) -> Result<()> {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS cost_records (
                 id TEXT PRIMARY KEY,
@@ -129,6 +144,9 @@ impl CostTracker {
                 tokens_in INTEGER NOT NULL DEFAULT 0,
                 tokens_out INTEGER NOT NULL DEFAULT 0,
                 total_tokens INTEGER NOT NULL DEFAULT 0,
+                node_id TEXT,
+                api_estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
+                hardware_estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
                 estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
                 duration_secs REAL NOT NULL DEFAULT 0.0,
                 context TEXT,
@@ -138,7 +156,49 @@ impl CostTracker {
             CREATE INDEX IF NOT EXISTS idx_cost_agent ON cost_records(agent);
             CREATE INDEX IF NOT EXISTS idx_cost_provider ON cost_records(provider);"
         )?;
-        Ok(Self { db_path: db_path.to_string() })
+
+        let mut stmt = conn.prepare("PRAGMA table_info(cost_records)")?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let has_node_id = columns.iter().any(|c| c == "node_id");
+        let has_api_cost = columns.iter().any(|c| c == "api_estimated_cost_usd");
+        let has_hardware_cost = columns.iter().any(|c| c == "hardware_estimated_cost_usd");
+
+        if !has_node_id {
+            conn.execute("ALTER TABLE cost_records ADD COLUMN node_id TEXT", [])?;
+        }
+        if !has_api_cost {
+            conn.execute(
+                "ALTER TABLE cost_records ADD COLUMN api_estimated_cost_usd REAL NOT NULL DEFAULT 0.0",
+                [],
+            )?;
+        }
+        if !has_hardware_cost {
+            conn.execute(
+                "ALTER TABLE cost_records ADD COLUMN hardware_estimated_cost_usd REAL NOT NULL DEFAULT 0.0",
+                [],
+            )?;
+        }
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cost_node ON cost_records(node_id)",
+            [],
+        )?;
+
+        if !has_api_cost || !has_hardware_cost {
+            conn.execute(
+                "UPDATE cost_records
+                 SET api_estimated_cost_usd = estimated_cost_usd
+                 WHERE estimated_cost_usd > 0.0
+                   AND api_estimated_cost_usd = 0.0
+                   AND hardware_estimated_cost_usd = 0.0",
+                [],
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Record a new cost entry
@@ -146,8 +206,12 @@ impl CostTracker {
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let date_key = record.timestamp.format("%Y-%m-%d").to_string();
         conn.execute(
-            "INSERT INTO cost_records (id, timestamp, agent, provider, model, tokens_in, tokens_out, total_tokens, estimated_cost_usd, duration_secs, context, date_key)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO cost_records (
+                id, timestamp, agent, provider, model, tokens_in, tokens_out, total_tokens,
+                node_id, api_estimated_cost_usd, hardware_estimated_cost_usd,
+                estimated_cost_usd, duration_secs, context, date_key
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             rusqlite::params![
                 record.id,
                 record.timestamp.to_rfc3339(),
@@ -157,13 +221,25 @@ impl CostTracker {
                 record.tokens_in,
                 record.tokens_out,
                 record.total_tokens,
+                record.node_id,
+                record.api_estimated_cost_usd,
+                record.hardware_estimated_cost_usd,
                 record.estimated_cost_usd,
                 record.duration_secs,
                 record.context,
                 date_key,
             ],
         )?;
-        debug!("Cost recorded: {} tokens, ${:.6} ({}:{})", record.total_tokens, record.estimated_cost_usd, record.provider, record.model);
+        debug!(
+            "Cost recorded: {} tokens, total ${:.6} (api ${:.6}, hw ${:.6}, {}:{}, node={})",
+            record.total_tokens,
+            record.estimated_cost_usd,
+            record.api_estimated_cost_usd,
+            record.hardware_estimated_cost_usd,
+            record.provider,
+            record.model,
+            record.node_id.as_deref().unwrap_or("unknown"),
+        );
         Ok(())
     }
 
@@ -226,16 +302,29 @@ impl CostTracker {
     pub fn summary_for_date(&self, date: &str) -> Result<CostSummary> {
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT COALESCE(SUM(total_tokens), 0), COALESCE(SUM(estimated_cost_usd), 0.0), COUNT(*)
+            "SELECT
+                COALESCE(SUM(total_tokens), 0),
+                COALESCE(SUM(api_estimated_cost_usd), 0.0),
+                COALESCE(SUM(hardware_estimated_cost_usd), 0.0),
+                COALESCE(SUM(estimated_cost_usd), 0.0),
+                COUNT(*)
              FROM cost_records WHERE date_key = ?1"
         )?;
-        let (tokens, cost, count) = stmt.query_row([date], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?, row.get::<_, u32>(2)?))
+        let (tokens, api_cost, hardware_cost, total_cost, count) = stmt.query_row([date], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, f64>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, u32>(4)?,
+            ))
         })?;
         Ok(CostSummary {
             group: date.to_string(),
             total_tokens: tokens as u64,
-            total_cost_usd: cost,
+            api_cost_usd: api_cost,
+            hardware_cost_usd: hardware_cost,
+            total_cost_usd: total_cost,
             call_count: count,
         })
     }
@@ -245,7 +334,13 @@ impl CostTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT agent, SUM(total_tokens), SUM(estimated_cost_usd), COUNT(*)
+            "SELECT
+                agent,
+                SUM(total_tokens),
+                SUM(api_estimated_cost_usd),
+                SUM(hardware_estimated_cost_usd),
+                SUM(estimated_cost_usd),
+                COUNT(*)
              FROM cost_records WHERE date_key >= ?1
              GROUP BY agent ORDER BY SUM(estimated_cost_usd) DESC"
         )?;
@@ -253,8 +348,10 @@ impl CostTracker {
             Ok(CostSummary {
                 group: row.get(0)?,
                 total_tokens: row.get::<_, i64>(1)? as u64,
-                total_cost_usd: row.get(2)?,
-                call_count: row.get(3)?,
+                api_cost_usd: row.get(2)?,
+                hardware_cost_usd: row.get(3)?,
+                total_cost_usd: row.get(4)?,
+                call_count: row.get(5)?,
             })
         })?.filter_map(|r| r.ok()).collect();
         Ok(summaries)
@@ -265,7 +362,13 @@ impl CostTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT provider, SUM(total_tokens), SUM(estimated_cost_usd), COUNT(*)
+            "SELECT
+                provider,
+                SUM(total_tokens),
+                SUM(api_estimated_cost_usd),
+                SUM(hardware_estimated_cost_usd),
+                SUM(estimated_cost_usd),
+                COUNT(*)
              FROM cost_records WHERE date_key >= ?1
              GROUP BY provider ORDER BY SUM(estimated_cost_usd) DESC"
         )?;
@@ -273,8 +376,10 @@ impl CostTracker {
             Ok(CostSummary {
                 group: row.get(0)?,
                 total_tokens: row.get::<_, i64>(1)? as u64,
-                total_cost_usd: row.get(2)?,
-                call_count: row.get(3)?,
+                api_cost_usd: row.get(2)?,
+                hardware_cost_usd: row.get(3)?,
+                total_cost_usd: row.get(4)?,
+                call_count: row.get(5)?,
             })
         })?.filter_map(|r| r.ok()).collect();
         Ok(summaries)
@@ -285,7 +390,13 @@ impl CostTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT date_key, SUM(total_tokens), SUM(estimated_cost_usd), COUNT(*)
+            "SELECT
+                date_key,
+                SUM(total_tokens),
+                SUM(api_estimated_cost_usd),
+                SUM(hardware_estimated_cost_usd),
+                SUM(estimated_cost_usd),
+                COUNT(*)
              FROM cost_records WHERE date_key >= ?1
              GROUP BY date_key ORDER BY date_key DESC"
         )?;
@@ -293,8 +404,10 @@ impl CostTracker {
             Ok(CostSummary {
                 group: row.get(0)?,
                 total_tokens: row.get::<_, i64>(1)? as u64,
-                total_cost_usd: row.get(2)?,
-                call_count: row.get(3)?,
+                api_cost_usd: row.get(2)?,
+                hardware_cost_usd: row.get(3)?,
+                total_cost_usd: row.get(4)?,
+                call_count: row.get(5)?,
             })
         })?.filter_map(|r| r.ok()).collect();
         Ok(summaries)
@@ -304,7 +417,10 @@ impl CostTracker {
     pub fn records_between(&self, start: &str, end: &str) -> Result<Vec<CostRecord>> {
         let conn = rusqlite::Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
-            "SELECT id, timestamp, agent, provider, model, tokens_in, tokens_out, total_tokens, estimated_cost_usd, duration_secs, context
+            "SELECT
+                id, timestamp, agent, provider, model, tokens_in, tokens_out, total_tokens,
+                node_id, api_estimated_cost_usd, hardware_estimated_cost_usd,
+                estimated_cost_usd, duration_secs, context
              FROM cost_records WHERE date_key >= ?1 AND date_key <= ?2
              ORDER BY timestamp DESC"
         )?;
@@ -321,9 +437,12 @@ impl CostTracker {
                 tokens_in: row.get(5)?,
                 tokens_out: row.get(6)?,
                 total_tokens: row.get(7)?,
-                estimated_cost_usd: row.get(8)?,
-                duration_secs: row.get(9)?,
-                context: row.get(10)?,
+                node_id: row.get(8)?,
+                api_estimated_cost_usd: row.get(9)?,
+                hardware_estimated_cost_usd: row.get(10)?,
+                estimated_cost_usd: row.get(11)?,
+                duration_secs: row.get(12)?,
+                context: row.get(13)?,
             })
         })?.filter_map(|r| r.ok()).collect();
         Ok(records)
@@ -366,7 +485,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_cost");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_cost");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);
@@ -374,6 +493,7 @@ mod tests {
     }
 
     fn sample_record(agent: &str, provider: &str, model: &str, tokens: u32) -> CostRecord {
+        let api_estimated_cost_usd = estimate_cost(provider, model, tokens / 2, tokens / 2);
         CostRecord {
             id: uuid::Uuid::new_v4().to_string(),
             timestamp: Utc::now(),
@@ -383,7 +503,10 @@ mod tests {
             tokens_in: tokens / 2,
             tokens_out: tokens / 2,
             total_tokens: tokens,
-            estimated_cost_usd: estimate_cost(provider, model, tokens / 2, tokens / 2),
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd,
+            hardware_estimated_cost_usd: 0.0,
+            estimated_cost_usd: api_estimated_cost_usd,
             duration_secs: 1.5,
             context: None,
         }
@@ -458,7 +581,37 @@ mod tests {
         let today = tracker.today_total().unwrap();
         assert_eq!(today.call_count, 0);
         assert_eq!(today.total_tokens, 0);
+        assert_eq!(today.api_cost_usd, 0.0);
+        assert_eq!(today.hardware_cost_usd, 0.0);
         assert_eq!(today.total_cost_usd, 0.0);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn test_cost_tracker_breakdown_fields_round_trip() {
+        let (db_str, db_path) = temp_db("breakdown_round_trip");
+        let tracker = CostTracker::new(&db_str).unwrap();
+
+        let mut record = sample_record("master", "anthropic", "claude-sonnet-4", 2000);
+        record.node_id = Some("Z13".to_string());
+        record.api_estimated_cost_usd = 0.018;
+        record.hardware_estimated_cost_usd = 0.004;
+        record.estimated_cost_usd = 0.022;
+
+        tracker.record(&record).unwrap();
+
+        let today = tracker.today_total().unwrap();
+        assert!((today.api_cost_usd - 0.018).abs() < 0.0001);
+        assert!((today.hardware_cost_usd - 0.004).abs() < 0.0001);
+        assert!((today.total_cost_usd - 0.022).abs() < 0.0001);
+
+        let today_key = Utc::now().format("%Y-%m-%d").to_string();
+        let records = tracker.records_between(&today_key, &today_key).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].node_id.as_deref(), Some("Z13"));
+        assert!((records[0].api_estimated_cost_usd - 0.018).abs() < 0.0001);
+        assert!((records[0].hardware_estimated_cost_usd - 0.004).abs() < 0.0001);
 
         let _ = std::fs::remove_file(&db_path);
     }

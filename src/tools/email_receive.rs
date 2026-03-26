@@ -85,7 +85,7 @@ impl EmailReceiveTool {
     /// Generate the inline Python IMAP helper script.
     fn python_script() -> &'static str {
         r#"#!/usr/bin/env python3
-"""Clawtex IMAP helper - check/read/search emails via imaplib."""
+"""Phantom Mesh IMAP helper - check/read/search emails via imaplib."""
 import sys, json, imaplib, email
 from email.header import decode_header
 from email.utils import parsedate_to_datetime
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        let helper_path = format!("{}/.clawtex/imap_helper.py", home);
+        let helper_path = format!("{}/.phantom-mesh/imap_helper.py", home);
         std::fs::write(&helper_path, Self::python_script())?;
         Ok(helper_path)
     }

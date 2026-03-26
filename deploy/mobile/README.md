@@ -1,4 +1,4 @@
-# Clawtex Mobile Worker 部署指南
+# Phantom Mesh Mobile Worker 部署指南
 
 ## Hub 資訊
 - **Hub IP**: `10.0.1.1` (Z13 LAN)
@@ -14,20 +14,20 @@
 ### 一鍵安裝
 ```bash
 pkg install -y git bash
-git clone https://github.com/anthropomorphic-AI/clawtex-core.git ~/clawtex
-bash ~/clawtex/deploy/mobile/android/install-termux.sh
+git clone https://github.com/anthropomorphic-AI/phantom-mesh.git ~/phantom-mesh
+bash ~/phantom-mesh/deploy/mobile/android/install-termux.sh
 ```
 
 ### 自訂 Hub IP
 ```bash
-export CLAWTEX_HUB_IP=10.0.1.1
-export CLAWTEX_WORKER_NAME=android-pixel
-bash ~/clawtex/deploy/mobile/android/install-termux.sh
+export PHANTOM_MESH_HUB_IP=10.0.1.1
+export PHANTOM_MESH_WORKER_NAME=android-pixel
+bash ~/phantom-mesh/deploy/mobile/android/install-termux.sh
 ```
 
 ### 多台 Android
-- Android 1: `CLAWTEX_WORKER_NAME=android-1 CLAWTEX_WORKER_PORT=7880`
-- Android 2: `CLAWTEX_WORKER_NAME=android-2 CLAWTEX_WORKER_PORT=7883`
+- Android 1: `PHANTOM_MESH_WORKER_NAME=android-1 PHANTOM_MESH_WORKER_PORT=7880`
+- Android 2: `PHANTOM_MESH_WORKER_NAME=android-2 PHANTOM_MESH_WORKER_PORT=7883`
 
 ---
 
@@ -38,16 +38,16 @@ bash ~/clawtex/deploy/mobile/android/install-termux.sh
 2. 開啟 iSH，執行：
 ```bash
 apk add bash git curl python3
-git clone https://github.com/anthropomorphic-AI/clawtex-core.git ~/clawtex
-bash ~/clawtex/deploy/mobile/ios/install-ish.sh
+git clone https://github.com/anthropomorphic-AI/phantom-mesh.git ~/phantom-mesh
+bash ~/phantom-mesh/deploy/mobile/ios/install-ish.sh
 ```
 
 ### 方式 B — a-Shell
 1. App Store 搜尋 **a-Shell** 安裝（免費）
 2. 開啟 a-Shell，執行：
 ```bash
-curl -sL https://raw.githubusercontent.com/anthropomorphic-AI/clawtex-core/master/deploy/lightweight-worker/clawtex-worker.py -o clawtex-worker.py
-python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name iphone --port 7882
+curl -sL https://raw.githubusercontent.com/anthropomorphic-AI/phantom-mesh/master/deploy/lightweight-worker/phantom-mesh-worker.py -o phantom-mesh-worker.py
+python3 phantom-mesh-worker.py --hub http://10.0.1.1:7878 --name iphone --port 7882
 ```
 
 ---
@@ -55,10 +55,10 @@ python3 clawtex-worker.py --hub http://10.0.1.1:7878 --name iphone --port 7882
 ## M1 Mac (Full Worker)
 
 ```bash
-git clone https://github.com/anthropomorphic-AI/clawtex-core.git
-cd clawtex-core
+git clone https://github.com/anthropomorphic-AI/phantom-mesh.git
+cd phantom-mesh
 cargo build --release
-./target/release/clawtex-core worker \
+./target/release/phantom-mesh worker \
   --hub http://10.0.1.1:7878 \
   --name m1-mac \
   --port 7879 \
@@ -70,9 +70,9 @@ cargo build --release
 ## Acer (Light Worker)
 
 ```bash
-git clone https://github.com/anthropomorphic-AI/clawtex-core.git
-cd clawtex-core
-python3 deploy/lightweight-worker/clawtex-worker.py \
+git clone https://github.com/anthropomorphic-AI/phantom-mesh.git
+cd phantom-mesh
+python3 deploy/lightweight-worker/phantom-mesh-worker.py \
   --hub http://10.0.1.1:7878 \
   --name acer \
   --port 7881

@@ -23,7 +23,7 @@ use tracing::{debug, info, warn};
 // Constants
 // ---------------------------------------------------------------------------
 
-/// The six SQLite databases managed by clawtex-core.
+/// The six SQLite databases managed by phantom-mesh.
 pub const MANAGED_DBS: &[&str] = &[
     "core.db",
     "costs.db",
@@ -128,9 +128,9 @@ impl Default for BackupSchedule {
 // BackupManager
 // ---------------------------------------------------------------------------
 
-/// Manages backup, restore, and integrity checking of clawtex SQLite databases.
+/// Manages backup, restore, and integrity checking of phantom_mesh SQLite databases.
 pub struct BackupManager {
-    /// Directory containing the source databases (e.g. `~/.clawtex/`).
+    /// Directory containing the source databases (e.g. `~/.phantom-mesh/`).
     pub db_dir: PathBuf,
     /// Root directory for backup storage.
     pub backup_dir: PathBuf,

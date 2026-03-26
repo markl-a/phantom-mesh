@@ -12,7 +12,7 @@ fn calendar_path() -> PathBuf {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(format!("{}/.clawtex/workspace/calendar_events.json", home))
+    PathBuf::from(format!("{}/.phantom-mesh/workspace/calendar_events.json", home))
 }
 
 /// A single calendar event.
@@ -458,7 +458,7 @@ mod tests {
 
     fn test_calendar_path() -> PathBuf {
         let id = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join("clawtex_calendar_test");
+        let dir = std::env::temp_dir().join("phantom_mesh_calendar_test");
         let _ = std::fs::create_dir_all(&dir);
         dir.join(format!("calendar_test_{}.json", id))
     }

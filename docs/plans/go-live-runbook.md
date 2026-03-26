@@ -1,8 +1,8 @@
-# Clawtex-Core Go-Live Production Runbook
+# Phantom-Mesh Go-Live Production Runbook
 
 > **Version**: 1.0
 > **Date**: 2026-03-17
-> **System**: clawtex-core (Rust daemon) v0.1.0
+> **System**: phantom-mesh (Rust daemon) v0.1.0
 > **Scope**: 8-device cluster (1 Hub + 3 PC Workers + 4 Mobile Workers)
 > **Port**: 7878 (Hub), 7879-7881 (Workers)
 > **Auth**: Bearer `your-hub-token-here`
@@ -44,7 +44,7 @@
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| clawtex-core | 7878 | Hub daemon |
+| phantom-mesh | 7878 | Hub daemon |
 | LM Studio | 1234 | qwen3-coder-next |
 | Ollama | 11434 | llama3.2:1b |
 | NPU Server | 8000 | Mistral-7B (AMD XDNA) |
@@ -53,15 +53,15 @@
 
 | Data | Path | Criticality | Recoverable? |
 |------|------|-------------|--------------|
-| `core.db` | `~/.clawtex/core.db` | **Critical** | No -- sessions, tasks, cluster state |
-| `costs.db` | `~/.clawtex/costs.db` | **High** | No -- operational cost records |
-| `memory.db` | `~/.clawtex/memory.db` | **Critical** | No -- AI accumulated knowledge |
-| `knowledge.db` | `~/.clawtex/knowledge.db` | **High** | No -- captured problem/decision/lesson |
-| `revenue.db` | `~/.clawtex/revenue.db` | **Critical** | No -- financial data |
-| `trajectories.db` | `~/.clawtex/trajectories.db` | **Medium** | No -- trajectory logs |
-| `agents.toml` | `~/.clawtex/agents.toml` | **Critical** | Yes -- Git version controlled |
-| `hands/` | `~/.clawtex/hands/` | **High** | Yes -- Git version controlled |
-| `.secret_key` | `~/.clawtex/.secret_key` | **Critical** | No -- loss means all enc2: secrets unrecoverable |
+| `core.db` | `~/.phantom-mesh/core.db` | **Critical** | No -- sessions, tasks, cluster state |
+| `costs.db` | `~/.phantom-mesh/costs.db` | **High** | No -- operational cost records |
+| `memory.db` | `~/.phantom-mesh/memory.db` | **Critical** | No -- AI accumulated knowledge |
+| `knowledge.db` | `~/.phantom-mesh/knowledge.db` | **High** | No -- captured problem/decision/lesson |
+| `revenue.db` | `~/.phantom-mesh/revenue.db` | **Critical** | No -- financial data |
+| `trajectories.db` | `~/.phantom-mesh/trajectories.db` | **Medium** | No -- trajectory logs |
+| `agents.toml` | `~/.phantom-mesh/agents.toml` | **Critical** | Yes -- Git version controlled |
+| `hands/` | `~/.phantom-mesh/hands/` | **High** | Yes -- Git version controlled |
+| `.secret_key` | `~/.phantom-mesh/.secret_key` | **Critical** | No -- loss means all enc2: secrets unrecoverable |
 
 ---
 
@@ -73,7 +73,7 @@ Complete every item before proceeding to deploy steps. Mark each item as verifie
 
 - [ ] **All tests pass**: Run `cargo test` from the project root. Expect 1011+ tests, 0 failures.
   ```bash
-  cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
+  cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
   cargo test 2>&1 | tail -5
   # Expected: test result: ok. 1011 passed; 0 failed; 0 ignored
   ```
@@ -104,21 +104,21 @@ Create timestamped backups of all databases before deployment.
 
 ```bash
 # Create backup directory with timestamp
-$BACKUP_DIR="$HOME/.clawtex/backups/$(date +%Y%m%d_%H%M%S)"
+$BACKUP_DIR="$HOME/.phantom-mesh/backups/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 
 # Backup all critical databases
-cp "$HOME/.clawtex/core.db" "$BACKUP_DIR/core.db"
-cp "$HOME/.clawtex/core.db-wal" "$BACKUP_DIR/core.db-wal" 2>/dev/null
-cp "$HOME/.clawtex/core.db-shm" "$BACKUP_DIR/core.db-shm" 2>/dev/null
-cp "$HOME/.clawtex/costs.db" "$BACKUP_DIR/costs.db"
-cp "$HOME/.clawtex/memory.db" "$BACKUP_DIR/memory.db"
-cp "$HOME/.clawtex/knowledge.db" "$BACKUP_DIR/knowledge.db"
-cp "$HOME/.clawtex/revenue.db" "$BACKUP_DIR/revenue.db"
-cp "$HOME/.clawtex/trajectories.db" "$BACKUP_DIR/trajectories.db"
+cp "$HOME/.phantom-mesh/core.db" "$BACKUP_DIR/core.db"
+cp "$HOME/.phantom-mesh/core.db-wal" "$BACKUP_DIR/core.db-wal" 2>/dev/null
+cp "$HOME/.phantom-mesh/core.db-shm" "$BACKUP_DIR/core.db-shm" 2>/dev/null
+cp "$HOME/.phantom-mesh/costs.db" "$BACKUP_DIR/costs.db"
+cp "$HOME/.phantom-mesh/memory.db" "$BACKUP_DIR/memory.db"
+cp "$HOME/.phantom-mesh/knowledge.db" "$BACKUP_DIR/knowledge.db"
+cp "$HOME/.phantom-mesh/revenue.db" "$BACKUP_DIR/revenue.db"
+cp "$HOME/.phantom-mesh/trajectories.db" "$BACKUP_DIR/trajectories.db"
 
 # Backup the encryption key (HANDLE WITH EXTREME CARE)
-cp "$HOME/.clawtex/.secret_key" "$BACKUP_DIR/.secret_key"
+cp "$HOME/.phantom-mesh/.secret_key" "$BACKUP_DIR/.secret_key"
 
 echo "Backup created at: $BACKUP_DIR"
 ls -la "$BACKUP_DIR"
@@ -127,15 +127,15 @@ ls -la "$BACKUP_DIR"
 - [ ] **Backups verified**: Confirm all files exist and have non-zero sizes.
 - [ ] **Off-node backup**: Copy backups to Acer for redundancy.
   ```bash
-  scp -r "$BACKUP_DIR" worker@10.0.1.1:'C:\Users\worker\clawtex-backups\'
+  scp -r "$BACKUP_DIR" worker@10.0.1.1:'C:\Users\worker\phantom-mesh-backups\'
   ```
 
 ### 2.3 Config Backup
 
 ```bash
 # Backup configuration
-cp "$HOME/.clawtex/agents.toml" "$BACKUP_DIR/agents.toml"
-cp -r "$HOME/.clawtex/hands" "$BACKUP_DIR/hands"
+cp "$HOME/.phantom-mesh/agents.toml" "$BACKUP_DIR/agents.toml"
+cp -r "$HOME/.phantom-mesh/hands" "$BACKUP_DIR/hands"
 ```
 
 - [ ] **Config backup verified**: Confirm `agents.toml` and all hand TOML files are backed up.
@@ -202,10 +202,10 @@ Step 7: Verify cluster registration (all 8 nodes)
 ### Step 1: Build Release Binary
 
 ```bash
-cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
+cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
 cargo build --release 2>&1 | tail -5
 # Confirm: Finished `release` profile [optimized] target
-# Binary location: target/release/clawtex-core.exe
+# Binary location: target/release/phantom-mesh.exe
 ```
 
 **Estimated time**: 3-8 minutes (first build), 30-90 seconds (incremental).
@@ -214,11 +214,11 @@ cargo build --release 2>&1 | tail -5
 
 ```bash
 # Graceful stop attempt (give 5 seconds for in-flight requests)
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 # Wait for process to fully terminate
 sleep 3
 # Confirm stopped
-tasklist | grep -i clawtex || echo "Daemon stopped successfully"
+tasklist | grep -i phantom-mesh || echo "Daemon stopped successfully"
 ```
 
 **WARNING**: This will immediately stop all:
@@ -233,28 +233,28 @@ Coordinate timing to avoid disrupting in-progress cron jobs. Check the cron sche
 
 ```bash
 # Backup the currently running binary
-cp target/release/clawtex-core.exe target/release/clawtex-core.exe.bak
+cp target/release/phantom-mesh.exe target/release/phantom-mesh.exe.bak
 
-# The new binary is already at target/release/clawtex-core.exe from Step 1
+# The new binary is already at target/release/phantom-mesh.exe from Step 1
 # Verify file size is reasonable (should be ~20-30MB)
-ls -la target/release/clawtex-core.exe
+ls -la target/release/phantom-mesh.exe
 ```
 
 ### Step 4: Deploy Worker Updates to Remote Nodes
 
-The Python lightweight worker (`clawtex-worker.py`) must be pure ASCII -- Windows cp950 cannot decode UTF-8 special characters (em-dash, box-drawing).
+The Python lightweight worker (`phantom-mesh-worker.py`) must be pure ASCII -- Windows cp950 cannot decode UTF-8 special characters (em-dash, box-drawing).
 
 ```bash
-cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
+cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
 
 # 4a. Deploy to M1 Mac
-scp deploy/lightweight-worker/clawtex-worker.py worker@10.0.2.1:~/clawtex-worker.py
+scp deploy/lightweight-worker/phantom-mesh-worker.py worker@10.0.2.1:~/phantom-mesh-worker.py
 
 # 4b. Deploy to AYANEO
-scp deploy/lightweight-worker/clawtex-worker.py worker@10.0.2.2:'C:\Users\worker\clawtex-worker.py'
+scp deploy/lightweight-worker/phantom-mesh-worker.py worker@10.0.2.2:'C:\Users\worker\phantom-mesh-worker.py'
 
 # 4c. Deploy to Acer
-scp deploy/lightweight-worker/clawtex-worker.py worker@10.0.1.1:'C:\Users\worker\clawtex-worker.py'
+scp deploy/lightweight-worker/phantom-mesh-worker.py worker@10.0.1.1:'C:\Users\worker\phantom-mesh-worker.py'
 ```
 
 **Verify**: Confirm each SCP reports 100% transfer with no errors.
@@ -262,7 +262,7 @@ scp deploy/lightweight-worker/clawtex-worker.py worker@10.0.1.1:'C:\Users\worker
 ### Step 5: Start Daemon on Z13
 
 ```bash
-cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
+cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
 
 # CRITICAL: --host 0.0.0.0 is a TOP-LEVEL argument, placed BEFORE the daemon subcommand
 # Using "daemon --host 0.0.0.0" will fail with: unexpected argument '--host' found
@@ -271,12 +271,12 @@ cargo run --release -- --host 0.0.0.0 daemon
 
 **Alternative -- background mode (Windows PowerShell)**:
 ```powershell
-Start-Process -WindowStyle Hidden -FilePath "target\release\clawtex-core.exe" -ArgumentList "--host","0.0.0.0","daemon"
+Start-Process -WindowStyle Hidden -FilePath "target\release\phantom-mesh.exe" -ArgumentList "--host","0.0.0.0","daemon"
 ```
 
 **Expected startup output**:
 ```
-INFO  Loading config from C:\Users\worker\.clawtex\agents.toml
+INFO  Loading config from C:\Users\worker\.phantom-mesh\agents.toml
 INFO  Loaded 10 providers
 INFO  Loaded XX hands
 INFO  Scheduler started with XX cron jobs
@@ -292,36 +292,36 @@ INFO  Listening on http://0.0.0.0:7878
 
 ```bash
 # M1 Mac
-ssh worker@10.0.2.1 'pkill -f clawtex-worker'
+ssh worker@10.0.2.1 'pkill -f phantom-mesh-worker'
 
 # AYANEO
-ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate'
+ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate'
 
 # Acer
-ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate'
+ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate'
 ```
 
 #### 6b. Start New Workers
 
 ```bash
 # M1 Mac (macOS -- use nohup + &)
-ssh worker@10.0.2.1 'nohup /opt/homebrew/bin/python3 ~/clawtex-worker.py --hub http://10.0.2.0:7878 --name m1-mac --port 7879 > ~/clawtex-worker.log 2>&1 &'
+ssh worker@10.0.2.1 'nohup /opt/homebrew/bin/python3 ~/phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name m1-mac --port 7879 > ~/phantom-mesh-worker.log 2>&1 &'
 
 # AYANEO (Windows -- must use wmic, Start-Process fails via SSH)
-ssh worker@10.0.2.2 'wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\clawtex-worker.py --hub http://10.0.2.0:7878 --name ayaneo --port 7880"'
+ssh worker@10.0.2.2 'wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name ayaneo --port 7880"'
 
 # Acer (Windows -- must use wmic)
 # IMPORTANT: Use C:\Python314\python.exe, NOT the WindowsApps python3 (has network sandbox)
-ssh worker@10.0.1.1 'wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\clawtex-worker.py --hub http://10.0.2.0:7878 --name acer --port 7881"'
+ssh worker@10.0.1.1 'wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name acer --port 7881"'
 ```
 
 #### 6c. Mobile Workers
 
-Mobile workers operate in polling mode. Ensure the Clawtex Worker App is running in the foreground on each device:
-- **ROG6**: Open Clawtex Worker app, verify hub URL `http://10.0.2.0:7878`
-- **Mi Pad**: Open Clawtex Worker app, verify hub URL
-- **iPhone**: Open Clawtex Worker app (background limited to ~15min via expo-background-fetch)
-- **iPad**: Open Clawtex Worker app, verify hub URL
+Mobile workers operate in polling mode. Ensure the Phantom Mesh Worker App is running in the foreground on each device:
+- **ROG6**: Open Phantom Mesh Worker app, verify hub URL `http://10.0.2.0:7878`
+- **Mi Pad**: Open Phantom Mesh Worker app, verify hub URL
+- **iPhone**: Open Phantom Mesh Worker app (background limited to ~15min via expo-background-fetch)
+- **iPad**: Open Phantom Mesh Worker app, verify hub URL
 
 ### Step 7: Verify Cluster Registration
 
@@ -465,7 +465,7 @@ curl -s -X POST http://localhost:7878/llm/route \
 curl -s -X POST http://localhost:7878/cluster/dispatch \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-hub-token-here" \
-  -d '{"tool":"web_search","input":{"query":"clawtex test ping"}}' | head -c 500
+  -d '{"tool":"web_search","input":{"query":"phantom-mesh test ping"}}' | head -c 500
 # Expected: Search results returned from a worker
 ```
 
@@ -481,7 +481,7 @@ curl -s -X POST http://localhost:7878/hand/content/run \
 
 #### Smoke Test 4: Telegram Bot
 
-Send `/status` to the Clawtex Telegram bot.
+Send `/status` to the Phantom Mesh Telegram bot.
 
 **Expected response**: System status summary with provider info, worker counts, and uptime.
 
@@ -548,25 +548,25 @@ Rollback **within 30 minutes** if:
 
 ```bash
 # Step 1: Stop the new daemon
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 sleep 3
 
 # Step 2: Restore the old binary
-cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
-cp target/release/clawtex-core.exe.bak target/release/clawtex-core.exe
+cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
+cp target/release/phantom-mesh.exe.bak target/release/phantom-mesh.exe
 
 # Step 3: Restore databases (if corrupted)
 # Only do this if database corruption is suspected
-BACKUP_DIR="$HOME/.clawtex/backups/YYYYMMDD_HHMMSS"  # Use the actual backup timestamp
-cp "$BACKUP_DIR/core.db" "$HOME/.clawtex/core.db"
-cp "$BACKUP_DIR/costs.db" "$HOME/.clawtex/costs.db"
-cp "$BACKUP_DIR/memory.db" "$HOME/.clawtex/memory.db"
-cp "$BACKUP_DIR/knowledge.db" "$HOME/.clawtex/knowledge.db"
-cp "$BACKUP_DIR/revenue.db" "$HOME/.clawtex/revenue.db"
+BACKUP_DIR="$HOME/.phantom-mesh/backups/YYYYMMDD_HHMMSS"  # Use the actual backup timestamp
+cp "$BACKUP_DIR/core.db" "$HOME/.phantom-mesh/core.db"
+cp "$BACKUP_DIR/costs.db" "$HOME/.phantom-mesh/costs.db"
+cp "$BACKUP_DIR/memory.db" "$HOME/.phantom-mesh/memory.db"
+cp "$BACKUP_DIR/knowledge.db" "$HOME/.phantom-mesh/knowledge.db"
+cp "$BACKUP_DIR/revenue.db" "$HOME/.phantom-mesh/revenue.db"
 
 # Step 4: Restore config (if changed)
-cp "$BACKUP_DIR/agents.toml" "$HOME/.clawtex/agents.toml"
-cp -r "$BACKUP_DIR/hands" "$HOME/.clawtex/hands"
+cp "$BACKUP_DIR/agents.toml" "$HOME/.phantom-mesh/agents.toml"
+cp -r "$BACKUP_DIR/hands" "$HOME/.phantom-mesh/hands"
 
 # Step 5: Start the old daemon
 cargo run --release -- --host 0.0.0.0 daemon
@@ -600,7 +600,7 @@ curl -s http://localhost:7878/cluster/workers \
 | +30 min | Error rate check | `curl /metrics/health` |
 | +1 hour | Cost tracker check | `curl /costs` |
 | +2 hours | Worker staleness check | `curl /cluster/workers` |
-| +4 hours | Memory usage check | `tasklist /FI "IMAGENAME eq clawtex-core.exe"` |
+| +4 hours | Memory usage check | `tasklist /FI "IMAGENAME eq phantom-mesh.exe"` |
 | +6 hours | Full cluster dispatch test | 6 parallel dispatches (see below) |
 | +12 hours | Overnight cron pre-check | Verify daemon still running |
 | +24 hours | Full post-deploy review | All metrics, logs, costs |
@@ -637,10 +637,10 @@ curl -s http://localhost:7878/costs \
 
 ```bash
 # Z13 Hub process memory
-tasklist /FI "IMAGENAME eq clawtex-core.exe" /FO TABLE
+tasklist /FI "IMAGENAME eq phantom-mesh.exe" /FO TABLE
 
 # M1 Mac worker
-ssh worker@10.0.2.1 'ps aux | grep clawtex-worker | grep -v grep'
+ssh worker@10.0.2.1 'ps aux | grep phantom-mesh-worker | grep -v grep'
 
 # AYANEO worker
 ssh worker@10.0.2.2 'tasklist | findstr python'
@@ -795,12 +795,12 @@ curl -X DELETE http://localhost:7878/estop \
 
 ```bash
 # 1. Stop Hub daemon
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 
 # 2. Stop all PC workers
-ssh worker@10.0.2.1 'pkill -f clawtex-worker'
-ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate'
-ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate'
+ssh worker@10.0.2.1 'pkill -f phantom-mesh-worker'
+ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate'
+ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate'
 
 # 3. Mobile workers: close the app on each device
 ```
@@ -811,14 +811,14 @@ If the daemon crashes unexpectedly:
 
 ```bash
 # 1. Check for crash artifacts
-ls -la C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core\target\release\
+ls -la C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh\target\release\
 
 # 2. Check WAL file integrity
-ls -la "$HOME/.clawtex/core.db-wal"
+ls -la "$HOME/.phantom-mesh/core.db-wal"
 # If WAL is very large (>100MB), SQLite may need recovery
 
 # 3. Restart daemon
-cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core
+cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh
 cargo run --release -- --host 0.0.0.0 daemon
 
 # 4. Workers will auto-reconnect via heartbeat within 90 seconds
@@ -829,16 +829,16 @@ cargo run --release -- --host 0.0.0.0 daemon
 
 ```bash
 # 1. Stop daemon
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 
 # 2. Try SQLite integrity check
-sqlite3 "$HOME/.clawtex/core.db" "PRAGMA integrity_check;"
-sqlite3 "$HOME/.clawtex/costs.db" "PRAGMA integrity_check;"
-sqlite3 "$HOME/.clawtex/memory.db" "PRAGMA integrity_check;"
+sqlite3 "$HOME/.phantom-mesh/core.db" "PRAGMA integrity_check;"
+sqlite3 "$HOME/.phantom-mesh/costs.db" "PRAGMA integrity_check;"
+sqlite3 "$HOME/.phantom-mesh/memory.db" "PRAGMA integrity_check;"
 
 # 3. If integrity check fails, restore from backup
-BACKUP_DIR="$HOME/.clawtex/backups/LATEST_TIMESTAMP"
-cp "$BACKUP_DIR/core.db" "$HOME/.clawtex/core.db"
+BACKUP_DIR="$HOME/.phantom-mesh/backups/LATEST_TIMESTAMP"
+cp "$BACKUP_DIR/core.db" "$HOME/.phantom-mesh/core.db"
 # Repeat for affected databases
 
 # 4. Restart daemon
@@ -879,13 +879,13 @@ curl -s http://localhost:7878/metrics/health \
 
 ```bash
 # 1. Check if daemon is running
-tasklist | grep -i clawtex
+tasklist | grep -i phantom-mesh
 
 # 2. If running, check Telegram webhook/polling
 # The bot uses long-polling, so if the daemon is running it should be connected
 
 # 3. Restart daemon if needed
-taskkill //F //IM clawtex-core.exe
+taskkill //F //IM phantom-mesh.exe
 cargo run --release -- --host 0.0.0.0 daemon
 ```
 
@@ -921,7 +921,7 @@ curl -X POST http://localhost:7878/estop \
   -H "Authorization: Bearer your-hub-token-here"
 
 # 2. Rotate the hub auth token
-#    Edit ~/.clawtex/agents.toml: change the Bearer token
+#    Edit ~/.phantom-mesh/agents.toml: change the Bearer token
 #    Restart daemon + update all workers with new token
 
 # 3. Check injection guard logs
@@ -1015,15 +1015,15 @@ All endpoints require `Authorization: Bearer your-hub-token-here` header except 
 ### Restart Daemon (One-liner)
 
 ```bash
-taskkill //F //IM clawtex-core.exe && cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\clawtex-core && cargo run --release -- --host 0.0.0.0 daemon
+taskkill //F //IM phantom-mesh.exe && cd C:\Users\worker\Desktop\adreanalai\LLM-Cluster-Project\phantom-mesh && cargo run --release -- --host 0.0.0.0 daemon
 ```
 
 ### Restart All Workers (One-liner per node)
 
 ```bash
-ssh worker@10.0.2.1 'pkill -f clawtex-worker; nohup /opt/homebrew/bin/python3 ~/clawtex-worker.py --hub http://10.0.2.0:7878 --name m1-mac --port 7879 > ~/clawtex-worker.log 2>&1 &'
-ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate & wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\clawtex-worker.py --hub http://10.0.2.0:7878 --name ayaneo --port 7880"'
-ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%clawtex-worker%%'\''" call terminate & wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\clawtex-worker.py --hub http://10.0.2.0:7878 --name acer --port 7881"'
+ssh worker@10.0.2.1 'pkill -f phantom-mesh-worker; nohup /opt/homebrew/bin/python3 ~/phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name m1-mac --port 7879 > ~/phantom-mesh-worker.log 2>&1 &'
+ssh worker@10.0.2.2 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate & wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name ayaneo --port 7880"'
+ssh worker@10.0.1.1 'wmic process where "commandline like '\''%%phantom-mesh-worker%%'\''" call terminate & wmic process call create "C:\\Python314\\python.exe C:\\Users\\worker\\phantom-mesh-worker.py --hub http://10.0.2.0:7878 --name acer --port 7881"'
 ```
 
 ### Check Everything (5-second health check)
@@ -1038,24 +1038,24 @@ echo "=== Metrics ===" && curl -s http://localhost:7878/metrics/health -H "Autho
 
 ```bash
 #!/bin/bash
-BACKUP_DIR="$HOME/.clawtex/backups/$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="$HOME/.phantom-mesh/backups/$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$BACKUP_DIR"
 for db in core.db costs.db memory.db knowledge.db revenue.db trajectories.db; do
-  cp "$HOME/.clawtex/$db" "$BACKUP_DIR/$db" 2>/dev/null
+  cp "$HOME/.phantom-mesh/$db" "$BACKUP_DIR/$db" 2>/dev/null
 done
-cp "$HOME/.clawtex/.secret_key" "$BACKUP_DIR/.secret_key"
-cp "$HOME/.clawtex/agents.toml" "$BACKUP_DIR/agents.toml"
-cp -r "$HOME/.clawtex/hands" "$BACKUP_DIR/hands"
+cp "$HOME/.phantom-mesh/.secret_key" "$BACKUP_DIR/.secret_key"
+cp "$HOME/.phantom-mesh/agents.toml" "$BACKUP_DIR/agents.toml"
+cp -r "$HOME/.phantom-mesh/hands" "$BACKUP_DIR/hands"
 # Prune backups older than 7 days
-find "$HOME/.clawtex/backups" -maxdepth 1 -mtime +7 -type d -exec rm -rf {} \;
+find "$HOME/.phantom-mesh/backups" -maxdepth 1 -mtime +7 -type d -exec rm -rf {} \;
 echo "Backup complete: $BACKUP_DIR"
 # Off-site copy to Acer
-scp -r "$BACKUP_DIR" worker@10.0.1.1:'C:\Users\worker\clawtex-backups\' 2>/dev/null
+scp -r "$BACKUP_DIR" worker@10.0.1.1:'C:\Users\worker\phantom-mesh-backups\' 2>/dev/null
 ```
 
 ---
 
-> **Document maintained by**: Clawtex operations team
+> **Document maintained by**: Phantom Mesh operations team
 > **Last updated**: 2026-03-17
 > **Related documents**:
 > - [Disaster Recovery Plan](archive/2026-03-05-disaster-recovery-plan.md)

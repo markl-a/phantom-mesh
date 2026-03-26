@@ -454,7 +454,7 @@ mod tests {
             name: name.to_string(),
             description: format!("A {} hand", name),
             version: "1.0.0".to_string(),
-            author: "clawtex".to_string(),
+            author: "phantom_mesh".to_string(),
             tools_required: vec!["web_search".to_string()],
             phases_count: 3,
             downloads: 100,
@@ -470,7 +470,7 @@ mod tests {
             name: "lead".to_string(),
             description: "Lead generation workflow".to_string(),
             version: "1.0.0".to_string(),
-            author: "clawtex".to_string(),
+            author: "phantom_mesh".to_string(),
             tools_required: vec!["web_search".to_string(), "email_send".to_string()],
             phases_count: 4,
             downloads: 500,
@@ -482,7 +482,7 @@ mod tests {
             name: "content".to_string(),
             description: "Content creation pipeline".to_string(),
             version: "2.0.0".to_string(),
-            author: "clawtex".to_string(),
+            author: "phantom_mesh".to_string(),
             tools_required: vec!["web_search".to_string(), "file_write".to_string()],
             phases_count: 4,
             downloads: 300,
@@ -562,7 +562,7 @@ system_prompt = "Write the content."
     #[test]
     fn test_hand_package_matches_author() {
         let pkg = sample_package("lead");
-        assert!(pkg.matches("clawtex"));
+        assert!(pkg.matches("phantom_mesh"));
     }
 
     #[test]

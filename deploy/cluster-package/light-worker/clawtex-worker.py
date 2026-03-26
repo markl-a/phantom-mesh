@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Clawtex Lightweight Worker — single-file HTTP server for mobile/light devices.
+Phantom Mesh Lightweight Worker — single-file HTTP server for mobile/light devices.
 Zero pip dependencies (stdlib only). Runs on Termux, a-Shell, iSH.
 
 Usage:
-    python3 clawtex-worker.py --hub http://100.x.x.x:7878 --name android1 --port 7880
+    python3 phantom-mesh-worker.py --hub http://100.x.x.x:7878 --name android1 --port 7880
 
 Supported tools: web_search, http_request, email_send
 """
@@ -130,7 +130,7 @@ def web_search_tool(args):
     # DuckDuckGo instant answer fallback (no API key needed)
     try:
         url = f"https://api.duckduckgo.com/?q={quote_plus(query)}&format=json&no_html=1"
-        req = Request(url, headers={"User-Agent": "ClawtexWorker/1.0"})
+        req = Request(url, headers={"User-Agent": "Phantom MeshWorker/1.0"})
         with urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode())
             abstract_text = data.get("AbstractText", "")
@@ -168,7 +168,7 @@ def http_request_tool(args):
                 data = str(body).encode()
 
         req = Request(url, data=data, method=method)
-        req.add_header("User-Agent", "ClawtexWorker/1.0")
+        req.add_header("User-Agent", "Phantom MeshWorker/1.0")
         for k, v in headers_dict.items():
             req.add_header(k, v)
 
@@ -408,7 +408,7 @@ def get_local_ip():
 def main():
     global HUB_URL, HUB_API_KEY, NODE_NAME, NODE_PORT
 
-    parser = argparse.ArgumentParser(description="Clawtex Lightweight Worker")
+    parser = argparse.ArgumentParser(description="Phantom Mesh Lightweight Worker")
     parser.add_argument("--hub", required=True, help="Hub URL (e.g., http://10.0.1.1:7878)")
     parser.add_argument("--hub-key", default="your-hub-token-here", help="Hub API key (default: your-hub-token-here)")
     parser.add_argument("--name", default=None, help="Worker name (default: auto-detect)")
@@ -420,7 +420,7 @@ def main():
     NODE_NAME = args.name or socket.gethostname() or f"light-{args.port}"
     NODE_PORT = args.port
 
-    print(f"=== Clawtex Light Worker '{NODE_NAME}' ===")
+    print(f"=== Phantom Mesh Light Worker '{NODE_NAME}' ===")
     print(f"Hub:          {HUB_URL}")
     print(f"Port:         {NODE_PORT}")
     print(f"Capabilities: {CAPABILITIES}")

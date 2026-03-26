@@ -1,8 +1,8 @@
-//! Integration tests for clawtex-core
+//! Integration tests for phantom-mesh
 //! These tests verify cross-module behavior without requiring external services.
 
-use clawtex_core::*;
-use clawtex_core::revenue_tracker::{RevenueTracker, RevenueRecord, RevenueStatus, ROUTE_B};
+use phantom_mesh::*;
+use phantom_mesh::revenue_tracker::{RevenueTracker, RevenueRecord, RevenueStatus, ROUTE_B};
 use serde_json::json;
 
 // ── Provider System ──────────────────────────────────────────────────────────
@@ -25,9 +25,9 @@ fn test_provider_router_provider_names() {
 
 #[tokio::test]
 async fn test_chatgpt_backend_provider_creation() {
-    use clawtex_core::providers::ChatGptBackendProvider;
-    use clawtex_core::providers::codex::CodexTokenManager;
-    use clawtex_core::providers::Provider;
+    use phantom_mesh::providers::ChatGptBackendProvider;
+    use phantom_mesh::providers::codex::CodexTokenManager;
+    use phantom_mesh::providers::Provider;
     use std::sync::Arc;
 
     let tm = Arc::new(CodexTokenManager::new());
@@ -41,9 +41,9 @@ async fn test_chatgpt_backend_provider_creation() {
 
 #[tokio::test]
 async fn test_chatgpt_ws_provider_creation() {
-    use clawtex_core::providers::ChatGptWsProvider;
-    use clawtex_core::providers::codex::CodexTokenManager;
-    use clawtex_core::providers::Provider;
+    use phantom_mesh::providers::ChatGptWsProvider;
+    use phantom_mesh::providers::codex::CodexTokenManager;
+    use phantom_mesh::providers::Provider;
     use std::sync::Arc;
 
     let tm = Arc::new(CodexTokenManager::new());
@@ -59,7 +59,7 @@ async fn test_chatgpt_ws_provider_creation() {
 
 #[tokio::test]
 async fn test_key_pool_integration() {
-    use clawtex_core::providers::KeyPool;
+    use phantom_mesh::providers::KeyPool;
 
     let pool = KeyPool::new(vec![
         "gemini-key-1".into(),
@@ -76,8 +76,8 @@ async fn test_key_pool_integration() {
 
 #[tokio::test]
 async fn test_request_classifier_integration() {
-    use clawtex_core::providers::{RequestClassifier, RequestComplexity};
-    use clawtex_core::providers::MockProvider;
+    use phantom_mesh::providers::{RequestClassifier, RequestComplexity};
+    use phantom_mesh::providers::MockProvider;
     use std::sync::Arc;
 
     let mock = Arc::new(MockProvider::fixed("COMPLEX"));
@@ -96,8 +96,8 @@ async fn test_request_classifier_integration() {
 
 #[tokio::test]
 async fn test_request_classifier_simple_message() {
-    use clawtex_core::providers::{RequestClassifier, RequestComplexity};
-    use clawtex_core::providers::MockProvider;
+    use phantom_mesh::providers::{RequestClassifier, RequestComplexity};
+    use phantom_mesh::providers::MockProvider;
     use std::sync::Arc;
 
     let mock = Arc::new(MockProvider::fixed("SIMPLE"));
@@ -545,7 +545,7 @@ max_rounds = 3
 #[test]
 fn test_e2e_hand_context_preparation() {
     use std::collections::HashMap;
-    let hand = clawtex_core::hands::Hand {
+    let hand = phantom_mesh::hands::Hand {
         name: "test".to_string(),
         description: "test".to_string(),
         category: "test".to_string(),
@@ -654,6 +654,9 @@ fn test_e2e_cost_tracking_full_workflow() {
             tokens_in: *tok_in,
             tokens_out: *tok_out,
             total_tokens: tok_in + tok_out,
+            node_id: Some("local".to_string()),
+            api_estimated_cost_usd: cost,
+            hardware_estimated_cost_usd: 0.0,
             estimated_cost_usd: cost,
             duration_secs: 2.5,
             context: Some("hand:lead phase:1".to_string()),
@@ -678,7 +681,7 @@ fn test_e2e_cost_tracking_full_workflow() {
     assert_eq!(ollama.total_cost_usd, 0.0);
 }
 
-// ── E2E: Full Hand Load (live ~/.clawtex/hands) ────────────────────────────
+// ── E2E: Full Hand Load (live ~/.phantom-mesh/hands) ────────────────────────────
 
 #[test]
 fn test_e2e_all_hands_load_and_validate() {
@@ -686,7 +689,7 @@ fn test_e2e_all_hands_load_and_validate() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
         return; // Skip if not configured
@@ -725,9 +728,9 @@ fn test_e2e_all_hands_load_and_validate() {
 
 #[test]
 fn test_e2e_pdf_export_tool_creation() {
-    use clawtex_core::tools::Tool;
+    use phantom_mesh::tools::Tool;
     let dir = tempfile::tempdir().unwrap();
-    let tool = clawtex_core::tools::pdf_export::PdfExportTool::new(dir.path().to_str().unwrap());
+    let tool = phantom_mesh::tools::pdf_export::PdfExportTool::new(dir.path().to_str().unwrap());
     assert_eq!(tool.name(), "pdf_export");
     let schema = tool.parameters_schema();
     assert!(schema["required"].as_array().unwrap().contains(&json!("input_file")));
@@ -736,19 +739,19 @@ fn test_e2e_pdf_export_tool_creation() {
 
 #[test]
 fn test_e2e_twitter_tool_creation() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::TwitterConfig;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::TwitterConfig;
     let config = TwitterConfig::default();
-    let tool = clawtex_core::tools::twitter::TwitterTool::new(config);
+    let tool = phantom_mesh::tools::twitter::TwitterTool::new(config);
     assert_eq!(tool.name(), "twitter");
 }
 
 #[test]
 fn test_e2e_blog_publish_tool_creation() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::BlogConfig;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::BlogConfig;
     let config = BlogConfig::default();
-    let tool = clawtex_core::tools::blog_publish::BlogPublishTool::new(config);
+    let tool = phantom_mesh::tools::blog_publish::BlogPublishTool::new(config);
     assert_eq!(tool.name(), "blog_publish");
 }
 
@@ -757,8 +760,8 @@ fn test_e2e_blog_publish_tool_creation() {
 /// Test 1: file_write tool produces a real CSV file with sample lead data
 #[tokio::test]
 async fn test_e2e_file_write_produces_real_output() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -804,9 +807,9 @@ async fn test_e2e_file_write_produces_real_output() {
 /// Test 2: file_write then file_read roundtrip — content integrity verification
 #[tokio::test]
 async fn test_e2e_file_read_roundtrip() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
-    use clawtex_core::tools::file_read::FileReadTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::file_read::FileReadTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -837,7 +840,7 @@ async fn test_e2e_file_read_roundtrip() {
                          Would you be available for a 15-minute call this week?\n\
                          \n\
                          Best,\n\
-                         Clawtex AI Team\n";
+                         Phantom Mesh AI Team\n";
 
     // Step 1: Write via file_write tool
     let write_result = write_tool.execute(json!({
@@ -881,8 +884,8 @@ async fn test_e2e_file_read_roundtrip() {
 /// Test 3: PDF export — write markdown, attempt conversion, verify at least HTML fallback
 #[tokio::test]
 async fn test_e2e_pdf_export_produces_file() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::pdf_export::PdfExportTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::pdf_export::PdfExportTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -902,7 +905,7 @@ async fn test_e2e_pdf_export_produces_file() {
                       2. Create long-form content (2000+ words)\n\
                       3. Include comparison tables for top products\n\n\
                       ---\n\
-                      *Generated by Clawtex SEO Content Hand*\n";
+                      *Generated by Phantom Mesh SEO Content Hand*\n";
 
     let input_path = dir.path().join("report.md");
     std::fs::write(&input_path, md_content).unwrap();
@@ -912,7 +915,7 @@ async fn test_e2e_pdf_export_produces_file() {
         "input_file": "report.md",
         "output_file": "report.pdf",
         "title": "SEO Content Report",
-        "author": "Clawtex"
+        "author": "Phantom Mesh"
     })).await.unwrap();
 
     // The tool may succeed (if pandoc or python+markdown is available) or fail gracefully.
@@ -945,8 +948,8 @@ async fn test_e2e_pdf_export_produces_file() {
 /// Test 4: Lead -> Outreach chain pipeline with real file outputs
 #[tokio::test]
 async fn test_e2e_lead_outreach_chain_produces_files() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
 
     let dir = tempfile::tempdir().unwrap();
     let hands_dir = dir.path().join("hands");
@@ -1101,10 +1104,10 @@ fn test_e2e_seo_blog_twitter_pipeline_structure() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
-        eprintln!("Skipping test: ~/.clawtex/hands does not exist");
+        eprintln!("Skipping test: ~/.phantom-mesh/hands does not exist");
         return;
     }
 
@@ -1203,10 +1206,10 @@ fn test_e2e_freelancer_full_pipeline_structure() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
-        eprintln!("Skipping test: ~/.clawtex/hands does not exist");
+        eprintln!("Skipping test: ~/.phantom-mesh/hands does not exist");
         return;
     }
 
@@ -1414,6 +1417,9 @@ fn test_e2e_cost_and_revenue_tracking() {
         tokens_in: 2000,
         tokens_out: 1500,
         total_tokens: 3500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 2000, 1500),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 2000, 1500),
         duration_secs: 5.2,
         context: Some("route:freelancer phase:job_search".to_string()),
@@ -1428,6 +1434,9 @@ fn test_e2e_cost_and_revenue_tracking() {
         tokens_in: 1000,
         tokens_out: 800,
         total_tokens: 1800,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 1000, 800),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 1000, 800),
         duration_secs: 3.1,
         context: Some("route:freelancer phase:scoring".to_string()),
@@ -1443,6 +1452,9 @@ fn test_e2e_cost_and_revenue_tracking() {
         tokens_in: 3000,
         tokens_out: 2000,
         total_tokens: 5000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("gemini", "gemini-2.5-flash-lite", 3000, 2000),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("gemini", "gemini-2.5-flash-lite", 3000, 2000),
         duration_secs: 4.5,
         context: Some("route:seo phase:keyword_research".to_string()),
@@ -1457,6 +1469,9 @@ fn test_e2e_cost_and_revenue_tracking() {
         tokens_in: 1500,
         tokens_out: 2500,
         total_tokens: 4000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 1500, 2500),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 1500, 2500),
         duration_secs: 8.3,
         context: Some("route:seo phase:article_writing".to_string()),
@@ -1472,6 +1487,9 @@ fn test_e2e_cost_and_revenue_tracking() {
         tokens_in: 2000,
         tokens_out: 3000,
         total_tokens: 5000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("openai", "gpt-4o", 2000, 3000),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("openai", "gpt-4o", 2000, 3000),
         duration_secs: 6.7,
         context: Some("route:market_intel phase:overview".to_string()),
@@ -1562,7 +1580,7 @@ fn test_e2e_cost_and_revenue_tracking() {
 /// Test 9: Revenue tracking across all 10 income routes
 #[test]
 fn test_e2e_revenue_tracker_all_routes() {
-    use clawtex_core::revenue_tracker::*;
+    use phantom_mesh::revenue_tracker::*;
 
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("revenue_e2e.db").to_string_lossy().to_string();
@@ -1644,10 +1662,10 @@ fn test_e2e_all_10_hands_load() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
-        eprintln!("Skipping test: ~/.clawtex/hands does not exist");
+        eprintln!("Skipping test: ~/.phantom-mesh/hands does not exist");
         return;
     }
 
@@ -1744,7 +1762,7 @@ fn test_e2e_all_10_hands_load() {
 /// Test 11: Combined cost/revenue analysis showing ROI visibility
 #[test]
 fn test_e2e_roi_analysis_cost_vs_revenue() {
-    use clawtex_core::revenue_tracker::*;
+    use phantom_mesh::revenue_tracker::*;
 
     let dir = tempfile::tempdir().unwrap();
     let cost_db = dir.path().join("costs.db").to_string_lossy().to_string();
@@ -1761,6 +1779,9 @@ fn test_e2e_roi_analysis_cost_vs_revenue() {
         provider: "ollama".to_string(),
         model: "qwen3:8b".to_string(),
         tokens_in: 5000, tokens_out: 3000, total_tokens: 8000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.0,
         duration_secs: 10.0,
         context: Some("hand:freelancer".to_string()),
@@ -1787,6 +1808,9 @@ fn test_e2e_roi_analysis_cost_vs_revenue() {
         provider: "anthropic".to_string(),
         model: "claude-sonnet-4".to_string(),
         tokens_in: 2000, tokens_out: 3000, total_tokens: 5000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 2000, 3000),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 2000, 3000),
         duration_secs: 8.0,
         context: Some("hand:seo_content".to_string()),
@@ -1834,10 +1858,10 @@ fn test_e2e_roi_analysis_cost_vs_revenue() {
 /// Test 12: Twitter tool execute() — validates input, enforces 280 char limit
 #[tokio::test]
 async fn test_e2e_twitter_tool_execute() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::TwitterConfig;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::TwitterConfig;
 
-    let tool = clawtex_core::tools::twitter::TwitterTool::new(TwitterConfig::default());
+    let tool = phantom_mesh::tools::twitter::TwitterTool::new(TwitterConfig::default());
 
     // Missing action → error
     let result = tool.execute(json!({})).await.unwrap();
@@ -1859,7 +1883,7 @@ async fn test_e2e_twitter_tool_execute() {
     // Valid tweet with no API keys — will fail at execution but validates input first
     let result = tool.execute(json!({
         "action": "post",
-        "text": "Clawtex AI: Automating revenue pipelines with 10 hands and 20 tools. #AI #automation"
+        "text": "Phantom Mesh AI: Automating revenue pipelines with 10 hands and 20 tools. #AI #automation"
     })).await.unwrap();
     // This will fail because no API keys configured, but it should get past input validation
     // The error should be about Python/API, not about input
@@ -1870,9 +1894,9 @@ async fn test_e2e_twitter_tool_execute() {
 /// Test 13: Blog publish tool execute() with dry_run — creates real MDX files
 #[tokio::test]
 async fn test_e2e_blog_publish_execute_dry_run() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::BlogConfig;
-    use clawtex_core::tools::blog_publish::BlogPublishTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::BlogConfig;
+    use phantom_mesh::tools::blog_publish::BlogPublishTool;
 
     let dir = tempfile::tempdir().unwrap();
     let blog_dir = dir.path().join("blog-repo");
@@ -1922,7 +1946,7 @@ export const blogPosts: BlogPost[] = [
     let result = tool.execute(json!({
         "title": "AI 自動化工具比較 2026",
         "titleEn": "AI Automation Tools Comparison 2026",
-        "content": "# AI Automation Tools\n\nComparing the top 10 AI automation platforms...\n\n## 1. Clawtex\nBest for multi-agent orchestration.\n\n## 2. AutoGPT\nGood for simple tasks.",
+        "content": "# AI Automation Tools\n\nComparing the top 10 AI automation platforms...\n\n## 1. Phantom Mesh\nBest for multi-agent orchestration.\n\n## 2. AutoGPT\nGood for simple tasks.",
         "description": "Comprehensive comparison of AI automation tools in 2026",
         "tags": ["AI", "automation", "tools", "comparison"],
         "icon": "Brain",
@@ -1945,7 +1969,7 @@ export const blogPosts: BlogPost[] = [
     // Read the MDX content and verify structure
     let mdx_content = std::fs::read_to_string(mdx_files[0].path()).unwrap();
     assert!(mdx_content.contains("AI Automation Tools"), "MDX should contain article title");
-    assert!(mdx_content.contains("Clawtex"), "MDX should contain article body");
+    assert!(mdx_content.contains("Phantom Mesh"), "MDX should contain article body");
 
     // Verify index.ts was updated
     let index_content = std::fs::read_to_string(blog_dir.join("src/data/blog/index.ts")).unwrap();
@@ -1957,9 +1981,9 @@ export const blogPosts: BlogPost[] = [
 /// Test 14: Email tool execute() — validates inputs and handles missing SMTP gracefully
 #[tokio::test]
 async fn test_e2e_email_tool_execute() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::EmailConfig;
-    use clawtex_core::tools::email::EmailTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::EmailConfig;
+    use phantom_mesh::tools::email::EmailTool;
 
     let tool = EmailTool::new(EmailConfig::default());
 
@@ -1983,9 +2007,9 @@ async fn test_e2e_email_tool_execute() {
 
     // Valid args but no SMTP credentials → will attempt to send but fail at SMTP
     let result = tool.execute(json!({
-        "to": "test@clawtex.com",
+        "to": "test@phantom_mesh.com",
         "subject": "AI Automation Proposal — 40% Efficiency Gain",
-        "body": "Dear Team,\n\nI noticed your company is expanding into AI. We can help automate key workflows.\n\nBest,\nClawtex AI"
+        "body": "Dear Team,\n\nI noticed your company is expanding into AI. We can help automate key workflows.\n\nBest,\nPhantom Mesh AI"
     })).await.unwrap();
     // Should fail at SMTP connection (no valid credentials), but pass input validation
     assert!(!result.output.contains("Missing"), "Should pass input validation");
@@ -1996,9 +2020,9 @@ async fn test_e2e_email_tool_execute() {
 /// Test 15: Full content creation pipeline — write content, read back, validate for twitter
 #[tokio::test]
 async fn test_e2e_full_content_pipeline() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
-    use clawtex_core::tools::file_read::FileReadTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::file_read::FileReadTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -2100,10 +2124,10 @@ fn test_e2e_content_hand_has_publish_phase() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
-        eprintln!("Skipping test: ~/.clawtex/hands does not exist");
+        eprintln!("Skipping test: ~/.phantom-mesh/hands does not exist");
         return;
     }
 
@@ -2155,9 +2179,9 @@ fn test_e2e_content_hand_has_publish_phase() {
 /// Cost recording at each phase. Revenue recorded at the end.
 #[tokio::test]
 async fn test_e2e_complete_lead_to_outreach_pipeline() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
-    use clawtex_core::tools::file_read::FileReadTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::file_read::FileReadTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -2182,9 +2206,9 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     if !std::path::Path::new(&hands_dir).exists() {
-        eprintln!("Skipping: ~/.clawtex/hands not found");
+        eprintln!("Skipping: ~/.phantom-mesh/hands not found");
         return;
     }
     let registry = HandRegistry::load(&hands_dir).unwrap();
@@ -2215,6 +2239,9 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
         provider: "ollama".to_string(),
         model: "qwen3:8b".to_string(),
         tokens_in: 2000, tokens_out: 1500, total_tokens: 3500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 2000, 1500),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("ollama", "qwen3:8b", 2000, 1500),
         duration_secs: 5.2,
         context: Some("hand:lead phase:research".to_string()),
@@ -2243,6 +2270,9 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
         provider: "ollama".to_string(),
         model: "qwen3:8b".to_string(),
         tokens_in: 3000, tokens_out: 2000, total_tokens: 5000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.0,
         duration_secs: 4.1,
         context: Some("hand:lead phase:scoring".to_string()),
@@ -2265,7 +2295,7 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
                   I noticed MedFlow's recent Series B and rapid team growth — congrats! With 120+ employees, I imagine manual data processing is becoming a bottleneck.\n\n\
                   We've helped similar medical SaaS companies automate their data pipelines, reducing manual work by 65% and saving ~$120K annually.\n\n\
                   Would you be available for a 15-minute call this week?\n\n\
-                  Best,\nClawtex AI Team\n\n\
+                  Best,\nPhantom Mesh AI Team\n\n\
                   ---\n\n\
                   ## 2. HealthAI Inc — Dr. Sarah Chen (Score: 88)\n\n\
                   Subject: AI-Powered Patient Data Automation for HealthAI\n\n\
@@ -2273,7 +2303,7 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
                   HealthAI's work on patient data analysis caught our attention. As you scale post-Series A, automating repetitive data tasks could free your team to focus on innovation.\n\n\
                   Our AI automation platform integrates with existing healthcare workflows, ensuring HIPAA compliance while reducing manual processing time by 70%.\n\n\
                   Could we schedule a brief demo?\n\n\
-                  Best regards,\nClawtex AI Team\n\n\
+                  Best regards,\nPhantom Mesh AI Team\n\n\
                   ---\n\n\
                   ## 3. BioLogic AI — Mike Johnson (Score: 85)\n\n\
                   Subject: Streamline BioLogic's Lab Analysis with AI Automation\n\n\
@@ -2281,7 +2311,7 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
                   BioLogic's AI-driven biotech research is impressive. We specialize in automating repetitive lab analysis workflows — a pain point for many biotech teams.\n\n\
                   Our clients have seen 3x faster data processing with 99.2% accuracy.\n\n\
                   Happy to chat if this resonates.\n\n\
-                  Best,\nClawtex AI Team\n";
+                  Best,\nPhantom Mesh AI Team\n";
 
     let r = write_tool.execute(json!({ "path": "outreach/emails.md", "content": emails })).await.unwrap();
     assert!(r.success, "Phase 3 write failed");
@@ -2293,6 +2323,9 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
         provider: "gemini".to_string(),
         model: "gemini-2.5-flash-lite".to_string(),
         tokens_in: 4000, tokens_out: 3000, total_tokens: 7000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.0,
         duration_secs: 6.3,
         context: Some("hand:outreach phase:email_generation".to_string()),
@@ -2310,7 +2343,7 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
     assert!(r.success, "Phase 4 write failed");
 
     // Phase 4b: Attempt email send (will fail gracefully — no SMTP)
-    let email_tool = clawtex_core::tools::email::EmailTool::new(clawtex_core::EmailConfig::default());
+    let email_tool = phantom_mesh::tools::email::EmailTool::new(phantom_mesh::EmailConfig::default());
     let email_result = email_tool.execute(json!({
         "to": "james@medflow.io",
         "subject": "Automate MedFlow's Data Processing — Save 40+ Hours/Week",
@@ -2327,6 +2360,9 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
         provider: "ollama".to_string(),
         model: "qwen3:8b".to_string(),
         tokens_in: 1000, tokens_out: 800, total_tokens: 1800,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.0,
         duration_secs: 2.5,
         context: Some("hand:outreach phase:schedule".to_string()),
@@ -2397,10 +2433,10 @@ async fn test_e2e_complete_lead_to_outreach_pipeline() {
 /// Simulates: keyword_research → competitor_analysis → article_writing → seo_optimization → publish_and_promote
 #[tokio::test]
 async fn test_e2e_complete_seo_to_publish_pipeline() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
-    use clawtex_core::tools::file_read::FileReadTool;
-    use clawtex_core::tools::blog_publish::BlogPublishTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::file_read::FileReadTool;
+    use phantom_mesh::tools::blog_publish::BlogPublishTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -2420,7 +2456,7 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     if !std::path::Path::new(&hands_dir).exists() { return; }
     let registry = HandRegistry::load(&hands_dir).unwrap();
     let seo = registry.get("seo_content").expect("seo_content hand must exist");
@@ -2439,7 +2475,11 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
     cost_tracker.record(&CostRecord {
         id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now(),
         agent: "master".into(), provider: "ollama".into(), model: "qwen3:8b".into(),
-        tokens_in: 2000, tokens_out: 1500, total_tokens: 3500, estimated_cost_usd: 0.0,
+        tokens_in: 2000, tokens_out: 1500, total_tokens: 3500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
+        estimated_cost_usd: 0.0,
         duration_secs: 4.0, context: Some("hand:seo_content phase:keyword_research".into()),
     }).unwrap();
 
@@ -2458,7 +2498,11 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
     cost_tracker.record(&CostRecord {
         id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now(),
         agent: "master".into(), provider: "ollama".into(), model: "qwen3:8b".into(),
-        tokens_in: 3000, tokens_out: 2500, total_tokens: 5500, estimated_cost_usd: 0.0,
+        tokens_in: 3000, tokens_out: 2500, total_tokens: 5500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
+        estimated_cost_usd: 0.0,
         duration_secs: 5.5, context: Some("hand:seo_content phase:competitor_analysis".into()),
     }).unwrap();
 
@@ -2477,9 +2521,9 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
                    - Task completion accuracy\n\
                    - Cost per 1000 automated tasks\n\
                    - Multi-agent orchestration capabilities\n\n\
-                   ## 1. Clawtex — Best for Multi-Agent Orchestration\n\n\
+                   ## 1. Phantom Mesh — Best for Multi-Agent Orchestration\n\n\
                    **Price:** Free (open-source) | **Best for:** Developers building complex AI workflows\n\n\
-                   Clawtex stands out with its hand-based workflow engine that chains multiple AI agents together. In our testing, it completed a full lead-generation-to-outreach pipeline in under 2 minutes.\n\n\
+                   Phantom Mesh stands out with its hand-based workflow engine that chains multiple AI agents together. In our testing, it completed a full lead-generation-to-outreach pipeline in under 2 minutes.\n\n\
                    ### Pros\n\
                    - 10 pre-built hands covering sales, content, research\n\
                    - 20 integrated tools (web search, email, browser, etc.)\n\
@@ -2490,7 +2534,7 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
                    ## 2. AutoGPT — Best for Simple Task Automation\n\n\
                    [... 2000+ more words ...]\n\n\
                    ## Conclusion\n\n\
-                   For teams needing multi-agent orchestration with full control, Clawtex delivers the best ROI.\n\n\
+                   For teams needing multi-agent orchestration with full control, Phantom Mesh delivers the best ROI.\n\n\
                    ---\n\
                    *Keywords: AI automation tools 2026, best AI workflow software, multi-agent orchestration*\n";
 
@@ -2499,6 +2543,9 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
         id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now(),
         agent: "master".into(), provider: "anthropic".into(), model: "claude-sonnet-4".into(),
         tokens_in: 5000, tokens_out: 8000, total_tokens: 13000,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 5000, 8000),
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: estimate_cost("anthropic", "claude-sonnet-4", 5000, 8000),
         duration_secs: 12.0, context: Some("hand:seo_content phase:article_writing".into()),
     }).unwrap();
@@ -2535,7 +2582,7 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
         "import { Brain } from 'lucide-react';\n\nexport interface BlogPost { id: number; title: string; titleEn: string; slug: string; date: string; description: string; tags: string[]; icon: any; color: string; featured: boolean; }\n\nexport const blogPosts: BlogPost[] = [\n];\n"
     ).unwrap();
 
-    let blog_tool = BlogPublishTool::new(clawtex_core::BlogConfig {
+    let blog_tool = BlogPublishTool::new(phantom_mesh::BlogConfig {
         repo_path: blog_dir.to_string_lossy().to_string(),
         ..Default::default()
     });
@@ -2557,8 +2604,8 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
     assert_eq!(mdx_count, 1, "One MDX file should be created by blog_publish");
 
     // 5c: Twitter post (validates input, fails at API — expected)
-    let twitter_tool = clawtex_core::tools::twitter::TwitterTool::new(clawtex_core::TwitterConfig::default());
-    let tweet_text = "AI Automation Tools Comparison 2026: We tested 10 platforms. Clawtex wins for multi-agent orchestration. Full guide: #AI #automation";
+    let twitter_tool = phantom_mesh::tools::twitter::TwitterTool::new(phantom_mesh::TwitterConfig::default());
+    let tweet_text = "AI Automation Tools Comparison 2026: We tested 10 platforms. Phantom Mesh wins for multi-agent orchestration. Full guide: #AI #automation";
     assert!(tweet_text.len() <= 280, "Tweet must be under 280 chars");
     let _tweet_result = twitter_tool.execute(json!({
         "action": "post",
@@ -2569,7 +2616,11 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
     cost_tracker.record(&CostRecord {
         id: uuid::Uuid::new_v4().to_string(), timestamp: chrono::Utc::now(),
         agent: "master".into(), provider: "ollama".into(), model: "qwen3:8b".into(),
-        tokens_in: 1000, tokens_out: 500, total_tokens: 1500, estimated_cost_usd: 0.0,
+        tokens_in: 1000, tokens_out: 500, total_tokens: 1500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.0,
+        hardware_estimated_cost_usd: 0.0,
+        estimated_cost_usd: 0.0,
         duration_secs: 2.0, context: Some("hand:seo_content phase:publish_and_promote".into()),
     }).unwrap();
 
@@ -2607,9 +2658,9 @@ async fn test_e2e_complete_seo_to_publish_pipeline() {
 /// Verifies the freelancer hand structure supports Upwork-specific job search
 #[tokio::test]
 async fn test_e2e_freelancer_upwork_pipeline() {
-    use clawtex_core::tools::Tool;
-    use clawtex_core::tools::file_write::FileWriteTool;
-    use clawtex_core::tools::file_read::FileReadTool;
+    use phantom_mesh::tools::Tool;
+    use phantom_mesh::tools::file_write::FileWriteTool;
+    use phantom_mesh::tools::file_read::FileReadTool;
 
     let dir = tempfile::tempdir().unwrap();
     let workspace = dir.path().to_string_lossy().to_string();
@@ -2626,7 +2677,7 @@ async fn test_e2e_freelancer_upwork_pipeline() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     if !std::path::Path::new(&hands_dir).exists() { return; }
     let registry = HandRegistry::load(&hands_dir).unwrap();
     let freelancer = registry.get("freelancer").expect("freelancer hand must exist");
@@ -2682,7 +2733,7 @@ async fn test_e2e_freelancer_upwork_pipeline() {
     let proposals = "# Proposals\n\n\
                      ## 1. DataFlow Inc — Multi-Agent AI System (Score: 95)\n\n\
                      Hi DataFlow team,\n\n\
-                     Your multi-agent AI project caught my eye — I've built exactly this kind of system. My open-source project Clawtex orchestrates 10+ AI agents with tool chaining, cron scheduling, and cost tracking.\n\n\
+                     Your multi-agent AI project caught my eye — I've built exactly this kind of system. My open-source project Phantom Mesh orchestrates 10+ AI agents with tool chaining, cron scheduling, and cost tracking.\n\n\
                      **Relevant experience:**\n\
                      - Built multi-agent orchestration system (10 agents, 20 tools)\n\
                      - Rust + Python AI pipeline processing 100K+ requests/day\n\
@@ -2727,7 +2778,7 @@ async fn test_e2e_freelancer_upwork_pipeline() {
     // Verify proposals have correct structure
     let props = read_tool.execute(json!({ "path": "freelance/proposals.md" })).await.unwrap();
     assert!(props.output.contains("Score: 95"), "Proposal should reference score");
-    assert!(props.output.contains("Clawtex"), "Proposal should mention Clawtex as portfolio");
+    assert!(props.output.contains("Phantom Mesh"), "Proposal should mention Phantom Mesh as portfolio");
     assert!(props.output.contains("$65/hr"), "Proposal should include rate");
 }
 
@@ -2797,12 +2848,12 @@ async fn test_e2e_cron_default_jobs_and_hand_actions() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     if std::path::Path::new(&hands_dir).exists() {
         let registry = HandRegistry::load(&hands_dir).unwrap();
         for (_, hand_name) in &expected {
             assert!(registry.get(hand_name).is_some(),
-                "Cron target hand '{}' must exist in ~/.clawtex/hands/", hand_name);
+                "Cron target hand '{}' must exist in ~/.phantom-mesh/hands/", hand_name);
         }
     }
 }
@@ -2908,14 +2959,14 @@ tools = ["web_search", "file_write"]
     assert_eq!(result.final_output, result.outputs[2].output);
 }
 
-/// Test HandRunner with a real hand from ~/.clawtex/hands/ (if available)
+/// Test HandRunner with a real hand from ~/.phantom-mesh/hands/ (if available)
 /// This validates that production hand.toml files work with the runner.
 #[tokio::test]
 async fn test_e2e_hand_runner_with_real_hand() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
         return; // Skip if no hands configured
@@ -2976,7 +3027,7 @@ async fn test_e2e_hand_runner_chain_propagation() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
         return;
@@ -3043,7 +3094,7 @@ fn test_e2e_all_hand_tools_exist_in_registry() {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
 
     if !std::path::Path::new(&hands_dir).exists() {
         return;
@@ -3141,7 +3192,7 @@ async fn test_e2e_system_wiring_smoke_test() {
 
     // 8. Memory store initializes (via SQLite backend)
     let mem_db = format!("{}/memory.db", base);
-    let sqlite_backend = clawtex_core::memory::sqlite::SqliteMemory::new(&mem_db).unwrap();
+    let sqlite_backend = phantom_mesh::memory::sqlite::SqliteMemory::new(&mem_db).unwrap();
     let _memory = MemoryStore::new(Box::new(sqlite_backend), MemoryConfig::default()).unwrap();
 
     // 9. E-Stop initializes
@@ -3161,6 +3212,9 @@ async fn test_e2e_system_wiring_smoke_test() {
         provider: "gemini".into(),
         model: "gemini-2.5-flash".into(),
         tokens_in: 1000, tokens_out: 500, total_tokens: 1500,
+        node_id: Some("local".to_string()),
+        api_estimated_cost_usd: 0.001,
+        hardware_estimated_cost_usd: 0.0,
         estimated_cost_usd: 0.001,
         duration_secs: 2.0,
         context: Some("smoke_test".into()),
@@ -3186,13 +3240,13 @@ async fn test_e2e_system_wiring_smoke_test() {
     assert!(!costs.is_empty(), "Costs must be recorded");
 
     // 12. HandRunner can prepare context
-    let hand = clawtex_core::hands::Hand {
+    let hand = phantom_mesh::hands::Hand {
         name: "smoke".into(),
         description: "Smoke test".into(),
         category: "test".into(),
         provider: "auto".into(),
         model: String::new(),
-        phases: vec![clawtex_core::hands::Phase {
+        phases: vec![phantom_mesh::hands::Phase {
             name: "test".into(),
             system_prompt: "Test prompt".into(),
             max_rounds: 1,

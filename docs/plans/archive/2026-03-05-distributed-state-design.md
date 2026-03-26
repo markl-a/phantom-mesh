@@ -1,4 +1,4 @@
-# Clawtex 分散式狀態與記憶體管理設計
+# Phantom Mesh 分散式狀態與記憶體管理設計
 
 > 日期: 2026-03-05
 > 範圍: 8 機集群 (1 Hub Z13 + 7 Worker)
@@ -27,12 +27,12 @@
 
 ### 現有狀態存儲分析
 
-目前 clawtex-core 的狀態全部集中在單機：
+目前 phantom-mesh 的狀態全部集中在單機：
 
 | 存儲類型 | 位置 | 資料 | 存取模式 |
 |---------|------|------|---------|
-| SQLite (`core.db`) | `~/.clawtex/core.db` | memories, cost_records, revenue_records, tasks, cluster_nodes | 讀寫密集 |
-| 檔案系統 | `~/.clawtex/workspace/` | Hand 輸出檔案、工具產物 | 寫後讀 |
+| SQLite (`core.db`) | `~/.phantom-mesh/core.db` | memories, cost_records, revenue_records, tasks, cluster_nodes | 讀寫密集 |
+| 檔案系統 | `~/.phantom-mesh/workspace/` | Hand 輸出檔案、工具產物 | 寫後讀 |
 | 記憶體 (in-process) | HashMap/Arc | ToolRegistry, AgentRuntime, HandRegistry, EStop, Heartbeat | 高頻讀取 |
 | Hands 輸出 | in-process Vec | 每個 Phase 的 PhaseOutput | 短生命週期 |
 
@@ -246,13 +246,13 @@ Hub 透過 TaskRecord 的即時狀態 + Worker heartbeat 產生進度訊息：
 檔案傳輸流程:
 
 Worker 工具執行 file_write("/workspace/output.md", content)
-  → 寫入 Worker 本地 /tmp/clawtex_task_{id}/output.md
-  → 任務完成時，掃描 /tmp/clawtex_task_{id}/ 下所有檔案
+  → 寫入 Worker 本地 /tmp/phantom-mesh_task_{id}/output.md
+  → 任務完成時，掃描 /tmp/phantom-mesh_task_{id}/ 下所有檔案
   → 透過 gRPC FileUpload 串流上傳至 Hub
-  → Hub 存入 ~/.clawtex/workspace/{task_id}/output.md
+  → Hub 存入 ~/.phantom-mesh/workspace/{task_id}/output.md
 
 Hub 端目錄結構:
-  ~/.clawtex/workspace/
+  ~/.phantom-mesh/workspace/
     ├── {task_id_1}/
     │   ├── output.md
     │   └── chart.png
@@ -386,12 +386,12 @@ Hub 上的 Ollama 同時提供:
 
 ### CAP Theorem 分析
 
-在 8 機 Clawtex 集群中：
+在 8 機 Phantom Mesh 集群中：
 
 ```
     Consistency ─────── Availability
          \                /
-          \    Clawtex   /
+          \    Phantom Mesh   /
            \    ★      /
             \        /
              \     /
@@ -860,7 +860,7 @@ pub struct ClusterSummary {
 
 ```protobuf
 syntax = "proto3";
-package clawtex.cluster;
+package phantom-mesh.cluster;
 
 service ClusterHub {
     // Worker 註冊
@@ -993,7 +993,7 @@ E-Stop 傳播路徑:
   [ ] 定義 .proto 檔 (cluster.proto)
   [ ] tonic server (Hub 端) — Register, PollTask, CompleteTask
   [ ] tonic client (Worker 端) — WorkerExecutor 基本框架
-  [ ] Worker 二進位 (clawtex-worker) — 獨立 binary crate
+  [ ] Worker 二進位 (phantom-mesh-worker) — 獨立 binary crate
   [ ] Heartbeat 雙向串流
   [ ] 整合 Tailscale 網路 (手動 IP 配置)
 
@@ -1086,7 +1086,7 @@ E-Stop 傳播路徑:
 
 ## 附錄 A: 設定檔變更
 
-`~/.clawtex/agents.toml` 新增：
+`~/.phantom-mesh/agents.toml` 新增：
 
 ```toml
 [cluster]
@@ -1107,7 +1107,7 @@ task_timeout_secs = 600
 
 [memory]
 backend = "pgvector"
-pg_url = "host=localhost user=clawtex dbname=clawtex"
+pg_url = "host=localhost user=phantom-mesh dbname=phantom-mesh"
 embed_url = "http://localhost:11434"
 embed_model = "nomic-embed-text"
 dimensions = 768
@@ -1129,7 +1129,7 @@ tonic-build = "0.12"
 
 ```bash
 #!/bin/bash
-# deploy-worker.sh — 在新 Worker 上部署 clawtex-worker
+# deploy-worker.sh — 在新 Worker 上部署 phantom-mesh-worker
 
 # 1. 安裝 Tailscale (如果沒有)
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -1139,12 +1139,12 @@ tailscale up --authkey $TAILSCALE_KEY
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen3:8b
 
-# 3. 部署 clawtex-worker 二進位
-scp z13:~/clawtex-core/target/release/clawtex-worker /usr/local/bin/
+# 3. 部署 phantom-mesh-worker 二進位
+scp z13:~/phantom-mesh/target/release/phantom-mesh-worker /usr/local/bin/
 
 # 4. 建立設定檔
-mkdir -p ~/.clawtex
-cat > ~/.clawtex/agents.toml << 'EOF'
+mkdir -p ~/.phantom-mesh
+cat > ~/.phantom-mesh/agents.toml << 'EOF'
 [cluster]
 mode = "worker"
 hub_address = "100.87.93.1:50051"
@@ -1154,24 +1154,24 @@ heartbeat_interval_secs = 10
 EOF
 
 # 5. 啟動 Worker (systemd service)
-cat > /etc/systemd/system/clawtex-worker.service << 'EOF'
+cat > /etc/systemd/system/phantom-mesh-worker.service << 'EOF'
 [Unit]
-Description=Clawtex Worker
+Description=Phantom Mesh Worker
 After=network-online.target ollama.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/local/bin/clawtex-worker
+ExecStart=/usr/local/bin/phantom-mesh-worker
 Restart=always
 RestartSec=5
-User=clawtex
+User=phantom-mesh
 Environment=RUST_LOG=info
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-systemctl enable --now clawtex-worker
+systemctl enable --now phantom-mesh-worker
 ```
 
 ---
@@ -1181,7 +1181,7 @@ systemctl enable --now clawtex-worker
 ```
 Step 1: 部署 PostgreSQL + pgvector (Hub 上)
   → 安裝 PG 15 + pgvector extension
-  → 建立 clawtex database + memories table
+  → 建立 phantom-mesh database + memories table
   → 測試連線
 
 Step 2: 遷移 SQLite memories → PostgreSQL
@@ -1190,11 +1190,11 @@ Step 2: 遷移 SQLite memories → PostgreSQL
 
 Step 3: 切換 memory backend
   → agents.toml: backend = "pgvector"
-  → 重啟 clawtex-core
+  → 重啟 phantom-mesh
   → 驗證 memory_recall 正常
 
 Step 4: 部署 Hub gRPC server
-  → 在 clawtex-core binary 中新增 gRPC listener
+  → 在 phantom-mesh binary 中新增 gRPC listener
   → 監聽 :50051
   → 與現有 HTTP :7878 共存
 

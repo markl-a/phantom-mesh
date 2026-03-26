@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Clawtex Money Agent - E2E Test Suite (US-012)
+Phantom Mesh Money Agent - E2E Test Suite (US-012)
 Tests all new Stage 3 features via HTTP API and Telegram (pyautogui).
 
 Usage:
     python test_money_agent.py
 
 Prerequisites:
-    - clawtex-core daemon running on http://127.0.0.1:7878
+    - phantom-mesh daemon running on http://127.0.0.1:7878
     - Telegram Desktop open on right side of screen
     - pip install pyautogui pillow requests
 """
@@ -212,7 +212,7 @@ def test_telegram_clear():
 
 def main():
     print("=" * 60)
-    print("Clawtex Money Agent - E2E Test Suite")
+    print("Phantom Mesh Money Agent - E2E Test Suite")
     print(f"Screenshots: {SCREENSHOT_DIR}")
     print(f"API: {API_BASE}")
     print("=" * 60)

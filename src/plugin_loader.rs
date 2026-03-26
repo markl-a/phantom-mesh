@@ -8,7 +8,7 @@
 //!
 //! Plugin directory layout:
 //! ```text
-//! ~/.clawtex/plugins/<name>/
+//! ~/.phantom-mesh/plugins/<name>/
 //!     plugin.toml       # manifest
 //!     run.sh / run.py   # entry point
 //! ```
@@ -1123,10 +1123,10 @@ entry_point = "run.py"
         let plugin = LoadedPlugin {
             manifest: make_manifest("path-test", PluginToolType::ShellScript),
             status: LoadedPluginStatus::Loaded,
-            plugin_dir: PathBuf::from("/home/user/.clawtex/plugins/path-test"),
+            plugin_dir: PathBuf::from("/home/user/.phantom-mesh/plugins/path-test"),
             load_time_unix_ms: 0,
         };
-        let expected = PathBuf::from("/home/user/.clawtex/plugins/path-test/run.sh");
+        let expected = PathBuf::from("/home/user/.phantom-mesh/plugins/path-test/run.sh");
         assert_eq!(plugin.entry_point_path(), expected);
     }
 

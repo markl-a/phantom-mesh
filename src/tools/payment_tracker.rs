@@ -1,6 +1,6 @@
 //! Payment Tracker tool — manage invoices and payments backed by SQLite.
 //! Supports: create_invoice, record_payment, list_outstanding, revenue_by_period.
-//! DB: ~/.clawtex/payments.db (auto-created).
+//! DB: ~/.phantom-mesh/payments.db (auto-created).
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -15,7 +15,7 @@ fn default_db_path() -> String {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".to_string());
-    format!("{}/.clawtex/payments.db", home)
+    format!("{}/.phantom-mesh/payments.db", home)
 }
 
 /// Validate a date string is YYYY-MM-DD format with valid ranges.
@@ -56,7 +56,7 @@ pub struct PaymentTrackerTool {
 }
 
 impl PaymentTrackerTool {
-    /// Create a new PaymentTrackerTool with the default DB path (~/.clawtex/payments.db).
+    /// Create a new PaymentTrackerTool with the default DB path (~/.phantom-mesh/payments.db).
     pub fn new() -> Result<Self> {
         Self::with_db_path(&default_db_path())
     }
@@ -334,7 +334,7 @@ impl Tool for PaymentTrackerTool {
 
     fn description(&self) -> &str {
         "Track invoices and payments. Actions: create_invoice, record_payment, \
-         list_outstanding, revenue_by_period. Backed by SQLite at ~/.clawtex/payments.db."
+         list_outstanding, revenue_by_period. Backed by SQLite at ~/.phantom-mesh/payments.db."
     }
 
     fn parameters_schema(&self) -> Value {

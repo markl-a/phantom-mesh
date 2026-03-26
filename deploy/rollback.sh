@@ -38,9 +38,9 @@ rollback_node() {
 
     # 停止
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null || true" 2>/dev/null || true
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null || true" 2>/dev/null || true
     fi
     sleep 2
 
@@ -57,7 +57,7 @@ rollback_node() {
     if [[ "$os" == "windows" ]]; then
         run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/${binary_name} --host 0.0.0.0 --config config/agents.toml daemon" &
     else
-        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &"
+        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &"
     fi
     sleep 5
 

@@ -3,7 +3,7 @@
 ## Date: 2026-03-05
 
 ## Goal
-Enable clawtex agents to autonomously: research market → generate API service code → deploy to Render → integrate Stripe payments → produce a live, paying SaaS product.
+Enable phantom-mesh agents to autonomously: research market → generate API service code → deploy to Render → integrate Stripe payments → produce a live, paying SaaS product.
 
 ## User Choices
 - Product type: SaaS API services
@@ -49,7 +49,7 @@ Revenue auto-tracked via Stripe webhook → revenue_tracker
   - `delete_service` → teardown
 - Auth: RENDER_API_KEY env var
 
-### Hand 1: `product_spec` (~/.clawtex/hands/product_spec/hand.toml)
+### Hand 1: `product_spec` (~/.phantom-mesh/hands/product_spec/hand.toml)
 - Phase 1: `market_analysis` — recall market_intel output, identify top opportunity
 - Phase 2: `api_design` — generate OpenAPI 3.0 spec (endpoints, models, auth)
 - Phase 3: `pricing_strategy` — define Stripe pricing (free tier, paid tiers, metered)
@@ -57,7 +57,7 @@ Revenue auto-tracked via Stripe webhook → revenue_tracker
 - Tools: web_search, file_write, file_read, memory_store, memory_recall
 - Output: openapi.yaml, pricing.json, architecture.md
 
-### Hand 2: `code_gen` (~/.clawtex/hands/code_gen/hand.toml)
+### Hand 2: `code_gen` (~/.phantom-mesh/hands/code_gen/hand.toml)
 - Phase 1: `scaffold` — generate project structure (package.json, tsconfig, Dockerfile)
 - Phase 2: `implement` — generate API endpoints, middleware, DB schema from OpenAPI spec
 - Phase 3: `auth_and_billing` — add Stripe integration (API key auth, usage tracking, webhook handler)
@@ -66,7 +66,7 @@ Revenue auto-tracked via Stripe webhook → revenue_tracker
 - Tools: file_write, file_read, file_edit, shell, ai_code, memory_recall
 - Output: complete project directory in workspace
 
-### Hand 3: `saas_deploy` (~/.clawtex/hands/saas_deploy/hand.toml)
+### Hand 3: `saas_deploy` (~/.phantom-mesh/hands/saas_deploy/hand.toml)
 - Phase 1: `github_push` — create GitHub repo, push code
 - Phase 2: `render_deploy` — create Render service, set env vars, deploy
 - Phase 3: `stripe_setup` — create Stripe product + prices, generate checkout link

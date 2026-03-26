@@ -425,7 +425,7 @@ mod tests {
     use super::*;
 
     fn temp_db() -> String {
-        let path = std::env::temp_dir().join(format!("clawtex_tier_test_{}.db", uuid::Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("phantom_mesh_tier_test_{}.db", uuid::Uuid::new_v4()));
         path.to_string_lossy().to_string()
     }
 

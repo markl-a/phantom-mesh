@@ -1,4 +1,4 @@
-# Clawtex-Core rustfmt 配置
+# Phantom Mesh rustfmt 配置
 # 使用穩定選項，確保所有工具鏈版本相容
 
 edition = "2021"

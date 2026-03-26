@@ -92,7 +92,7 @@ impl Tool for ImageGenerateTool {
         } else {
             let workspace = dirs::home_dir()
                 .unwrap_or_default()
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("workspace");
             let _ = std::fs::create_dir_all(&workspace);
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");

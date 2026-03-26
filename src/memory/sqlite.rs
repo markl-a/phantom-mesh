@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_sqlite_memory_basic() {
-        let dir = std::env::temp_dir().join("clawtex_test_memory_sqlite");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_memory_sqlite");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_mem.db");
         let _ = std::fs::remove_file(&db_path);
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn test_sqlite_keyword_search() {
-        let dir = std::env::temp_dir().join("clawtex_test_memory_sqlite_kw");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_memory_sqlite_kw");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_kw.db");
         let _ = std::fs::remove_file(&db_path);

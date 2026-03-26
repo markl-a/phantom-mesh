@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy/inventory.sh — Clawtex 集群清單與共用函數
+# deploy/inventory.sh — Phantom Mesh 集群清單與共用函數
 # 所有其他腳本 source 此檔
 #
 # 維護者: 修改 NODES 陣列來增減節點
@@ -12,10 +12,10 @@ set -euo pipefail
 # ══════════════════════════════════════════════════════════════════
 
 NODES=(
-    "z13||windows|x86_64|C:/clawtex|11434|hub"
-    "m1|worker@10.0.2.1|macos|aarch64|/opt/clawtex|11434|worker"
-    "ayaneo|worker@10.0.1.2|windows|x86_64|C:/clawtex|11434|worker"
-    "acer|worker@10.0.1.3|windows|x86_64|C:/clawtex|11434|worker"
+    "z13||windows|x86_64|C:/phantom-mesh|11434|hub"
+    "m1|worker@10.0.2.1|macos|aarch64|/opt/phantom-mesh|11434|worker"
+    "ayaneo|worker@10.0.1.2|windows|x86_64|C:/phantom-mesh|11434|worker"
+    "acer|worker@10.0.1.3|windows|x86_64|C:/phantom-mesh|11434|worker"
 )
 
 # Ollama API endpoints
@@ -26,7 +26,7 @@ declare -A OLLAMA_URLS=(
     [acer]="http://10.0.1.3:11434"
 )
 
-# clawtex-core HTTP endpoints
+# phantom-mesh HTTP endpoints
 declare -A CORE_URLS=(
     [z13]="http://localhost:7878"
     [m1]="http://10.0.2.1:7878"
@@ -80,9 +80,9 @@ get_role()        { get_node_field "$1" 7; }
 get_binary_name() {
     local os="$1"
     if [[ "$os" == "windows" ]]; then
-        echo "clawtex-core.exe"
+        echo "phantom-mesh.exe"
     else
-        echo "clawtex-core"
+        echo "phantom-mesh"
     fi
 }
 

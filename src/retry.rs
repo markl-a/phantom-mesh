@@ -1,4 +1,4 @@
-// retry.rs -- Generic retry-with-backoff utility for Clawtex.
+// retry.rs -- Generic retry-with-backoff utility for Phantom Mesh.
 //
 // Provides configurable retry logic with multiple backoff policies (Fixed,
 // Exponential, Linear), jitter support, and a builder API.  The core

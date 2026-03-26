@@ -1,20 +1,21 @@
-# Clawtex-Core Development Guide
+# Phantom-Mesh Development Guide
 
 ## Project Overview
-Rust-based AI agent daemon with Telegram bot interface, 25 tools, 20 hands (workflows), 10 LLM providers, 8-device cluster support, and self-evolution system.
+Rust-based AI agent daemon with Telegram bot interface, 53 tools, 48 hands (workflows), 11 LLM providers, 4-node cluster + mobile workers, and self-evolution system.
 
 ## Quick Reference
 - **Daemon**: `cargo run -- daemon` (port 7878)
-- **Config**: `~/.clawtex/agents.toml`
-- **Workspace**: `~/.clawtex/workspace/`
-- **Hands**: `~/.clawtex/hands/<name>/hand.toml`
-- **Tests**: `cargo test` (820+ tests)
-- **Restart**: `taskkill //F //IM clawtex-core.exe && cargo run --release -- --host 0.0.0.0 daemon`
-- **Source**: 102 .rs files, ~44,200 LOC
+- **Config**: `~/.phantom-mesh/agents.toml`
+- **Workspace**: `~/.phantom-mesh/workspace/`
+- **Hands**: `~/.phantom-mesh/hands/<name>/hand.toml`
+- **Tests**: `cargo test` (3914+ tests)
+- **Restart**: `taskkill //F //IM phantom-mesh.exe && cargo run --release -- --host 0.0.0.0 daemon`
+- **Source**: 233 .rs files, ~142,000 LOC
+- **References**: `D:\Projects\phantom-mesh-references\` (moved from docs/references/ to save C: space)
 
 ## Architecture
 ```
-Telegram Bot API → clawtex-core (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq → models
+Telegram Bot API → phantom-mesh (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq → models
                         ↓
               src/providers/  (18 files, 10 providers)
               src/tools/      (26 files, 25 tools)
@@ -44,7 +45,7 @@ Telegram Bot API → clawtex-core (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq
 
 When implementing new features, check the reference analysis docs for proven patterns:
 
-**Full index**: [`docs/references/INDEX.md`](docs/references/INDEX.md)
+**Full index**: [`D:\Projects\phantom-mesh-references\INDEX.md`](D:\Projects\phantom-mesh-references\INDEX.md)
 
 ### Quick Lookup by Feature Area
 

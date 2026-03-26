@@ -10,7 +10,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CLAWTEX_CI: "1"
+  PHANTOM_MESH_CI: "1"
 
 jobs:
   # ── Full test suite (default features) ──────────────────────────────────
@@ -55,7 +55,7 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: ${{ secrets.TEST_DB_PASSWORD }}
-          POSTGRES_DB: clawtex_test
+          POSTGRES_DB: phantom-mesh_test
         ports:
           - 5432:5432
         options: >-
@@ -79,7 +79,7 @@ jobs:
       - name: Run all tests (pg feature)
         run: cargo test --all-targets --features pg -- --test-threads=2
         env:
-          CLAWTEX_PG_URL: "postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/clawtex_test"
+          PHANTOM_MESH_PG_URL: "postgresql://postgres:${{ secrets.TEST_DB_PASSWORD }}@localhost:5432/phantom-mesh_test"
 
   # ── Security audit ───────────────────────────────────────────────────────
   audit:

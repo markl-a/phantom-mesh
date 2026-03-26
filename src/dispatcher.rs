@@ -477,7 +477,7 @@ Also reading a file.
     fn test_function_tag_parse() {
         let content = r#"Let me run that.
 <function=shell>
-<parameter=command>sqlite3 ~/.clawtex/costs.db "SELECT * FROM cost_records;"</parameter>
+<parameter=command>sqlite3 ~/.phantom-mesh/costs.db "SELECT * FROM cost_records;"</parameter>
 <parameter=timeout_secs>60</parameter>
 </function>"#;
         let resp = make_response(content, vec![]);

@@ -596,7 +596,7 @@ mod tests {
     fn test_walkdir_count_nonexistent() {
         // Use a path that cannot possibly exist (random UUID suffix ensures it)
         let nonexistent = std::env::temp_dir()
-            .join("clawtex_nonexistent_dir_29a1f74b8c3e")
+            .join("phantom_mesh_nonexistent_dir_29a1f74b8c3e")
             .to_string_lossy()
             .to_string();
         // Ensure it really doesn't exist

@@ -1,10 +1,10 @@
-//! Structured error codes for Clawtex operations.
+//! Structured error codes for Phantom Mesh operations.
 //! Provides machine-readable error classification for API responses and internal diagnostics.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Structured error code enum for all Clawtex operations.
+/// Structured error code enum for all Phantom Mesh operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ErrorCode {
@@ -228,14 +228,14 @@ impl fmt::Display for ErrorCode {
 
 /// Structured error response for API endpoints
 #[derive(Debug, Clone, Serialize)]
-pub struct ClawtexError {
+pub struct PhantomMeshError {
     pub code: ErrorCode,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
 
-impl ClawtexError {
+impl PhantomMeshError {
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
@@ -250,13 +250,13 @@ impl ClawtexError {
     }
 }
 
-impl fmt::Display for ClawtexError {
+impl fmt::Display for PhantomMeshError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{}] {}", self.code, self.message)
     }
 }
 
-impl std::error::Error for ClawtexError {}
+impl std::error::Error for PhantomMeshError {}
 
 #[cfg(test)]
 mod tests {
@@ -278,15 +278,15 @@ mod tests {
     }
 
     #[test]
-    fn test_clawtex_error_display() {
-        let err = ClawtexError::new(ErrorCode::BudgetExceeded, "Agent 'master' exceeded $5.00 daily budget");
+    fn test_phantom_mesh_error_display() {
+        let err = PhantomMeshError::new(ErrorCode::BudgetExceeded, "Agent 'master' exceeded $5.00 daily budget");
         let s = format!("{}", err);
         assert!(s.contains("budget"));
     }
 
     #[test]
-    fn test_clawtex_error_serialize() {
-        let err = ClawtexError::new(ErrorCode::ToolNotFound, "shell_exec")
+    fn test_phantom_mesh_error_serialize() {
+        let err = PhantomMeshError::new(ErrorCode::ToolNotFound, "shell_exec")
             .with_detail("Did you mean 'shell'?");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("TOOL_NOT_FOUND"));
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_error_without_detail_no_null() {
-        let err = ClawtexError::new(ErrorCode::AuthFailed, "bad key");
+        let err = PhantomMeshError::new(ErrorCode::AuthFailed, "bad key");
         let json = serde_json::to_string(&err).unwrap();
         assert!(!json.contains("detail"));
     }
@@ -394,8 +394,8 @@ mod tests {
     }
 
     #[test]
-    fn test_clawtex_error_with_numeric_display() {
-        let err = ClawtexError::new(ErrorCode::ToolRateLimited, "shell rate limited");
+    fn test_phantom_mesh_error_with_numeric_display() {
+        let err = PhantomMeshError::new(ErrorCode::ToolRateLimited, "shell rate limited");
         let s = format!("{}", err);
         assert!(s.contains("E205"));
     }
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn test_error_code_serialize_json() {
-        let err = ClawtexError::new(ErrorCode::DispatchFailed, "worker offline");
+        let err = PhantomMeshError::new(ErrorCode::DispatchFailed, "worker offline");
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("DISPATCH_FAILED"));
     }

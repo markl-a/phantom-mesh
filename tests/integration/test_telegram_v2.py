@@ -160,7 +160,7 @@ send_telegram('What is 2+2?', wait_secs=20)
 screenshot('08_agent')
 
 test('Telegram: tool use (shell)')
-send_telegram('Run: echo hello-from-clawtex', wait_secs=20)
+send_telegram('Run: echo hello-from-phantom-mesh', wait_secs=20)
 screenshot('09_shell')
 
 test('Telegram: /history')

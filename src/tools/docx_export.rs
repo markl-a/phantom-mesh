@@ -86,7 +86,7 @@ impl Tool for DocxExportTool {
         } else {
             let workspace = dirs::home_dir()
                 .unwrap_or_default()
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("workspace");
             let _ = std::fs::create_dir_all(&workspace);
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -95,7 +95,7 @@ impl Tool for DocxExportTool {
 
         // Write temp markdown file
         let temp_dir = std::env::temp_dir();
-        let temp_md = temp_dir.join("clawtex_docx_input.md");
+        let temp_md = temp_dir.join("phantom_mesh_docx_input.md");
         std::fs::write(&temp_md, &md_content)?;
 
         debug!("Converting markdown to DOCX: {} -> {}", temp_md.display(), output_path.display());
@@ -194,7 +194,7 @@ mod tests {
         if std::process::Command::new("pandoc").arg("--version").output().is_err() {
             return; // Skip test
         }
-        let temp = std::env::temp_dir().join("clawtex_test_export.docx");
+        let temp = std::env::temp_dir().join("phantom_mesh_test_export.docx");
         let result = tool.execute(json!({
             "content": "# Test\n\nHello world",
             "output_path": temp.to_str().unwrap(),

@@ -1,8 +1,8 @@
-# Contributing to Clawtex
+# Contributing to Phantom Mesh
 
-Thank you for your interest in contributing to Clawtex. This guide covers development setup, code style, architecture, and the PR process.
+Thank you for your interest in contributing to Phantom Mesh. This guide covers development setup, code style, architecture, and the PR process.
 
-Clawtex is licensed under the [MIT License](LICENSE).
+Phantom Mesh is licensed under the [MIT License](LICENSE).
 
 ---
 
@@ -15,8 +15,8 @@ Clawtex is licensed under the [MIT License](LICENSE).
 ## Build
 
 ```bash
-git clone https://github.com/clawtex/clawtex-core
-cd clawtex-core
+git clone https://github.com/phantom-mesh/phantom-mesh
+cd phantom-mesh
 cargo build
 ```
 
@@ -26,7 +26,7 @@ cargo build
 cargo run -- --host 0.0.0.0 daemon
 ```
 
-The daemon starts on port 7878 by default. Configuration lives in `~/.clawtex/agents.toml`.
+The daemon starts on port 7878 by default. Configuration lives in `~/.phantom-mesh/agents.toml`.
 
 ## Test
 
@@ -42,14 +42,14 @@ Integration tests are in the `tests/` directory and run alongside unit tests.
 
 - Use `tempfile::NamedTempFile` for SQLite in tests (not `:memory:`, which creates a separate DB per connection).
 - Mock external HTTP calls; never make real API calls in tests.
-- Tests must not write outside `~/.clawtex/` or the system temp directory.
+- Tests must not write outside `~/.phantom-mesh/` or the system temp directory.
 
 ---
 
 ## Architecture Overview
 
 ```
-Telegram Bot API --> clawtex-core (Rust daemon) --> LLM Providers --> Models
+Telegram Bot API --> phantom-mesh (Rust daemon) --> LLM Providers --> Models
 ```
 
 ### Source Layout
@@ -74,7 +74,7 @@ Telegram Bot API --> clawtex-core (Rust daemon) --> LLM Providers --> Models
 
 ### Adding a Hand (Workflow)
 
-Create a TOML file at `~/.clawtex/hands/your_hand/hand.toml`. Key rules:
+Create a TOML file at `~/.phantom-mesh/hands/your_hand/hand.toml`. Key rules:
 - Use `system_prompt` (not `instructions`) for phase prompts.
 - `[settings]` values must be strings.
 - Each phase can override `tools`, `provider`, and `model`.

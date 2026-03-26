@@ -4,11 +4,11 @@
 //!
 //! Run with: cargo test --test cluster_acceptance -- --nocapture
 
-use clawtex_core::*;
-use clawtex_core::cluster::ClusterRegistry;
-use clawtex_core::cluster_hub::{ClusterHub, ToolRouting};
-use clawtex_core::hands::{Hand, HandRunner, HandRegistry, Phase};
-use clawtex_core::approval::{ApprovalGate, ApprovalConfig};
+use phantom_mesh::*;
+use phantom_mesh::cluster::ClusterRegistry;
+use phantom_mesh::cluster_hub::{ClusterHub, ToolRouting};
+use phantom_mesh::hands::{Hand, HandRunner, HandRegistry, Phase};
+use phantom_mesh::approval::{ApprovalGate, ApprovalConfig};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -361,8 +361,8 @@ async fn a7_allowed_paths_unlocks_src() {
 
 #[tokio::test]
 async fn a8_shell_timeout_and_working_dir() {
-    use clawtex_core::tools::shell::ShellTool;
-    use clawtex_core::tools::Tool;
+    use phantom_mesh::tools::shell::ShellTool;
+    use phantom_mesh::tools::Tool;
 
     let temp_dir = tempfile::tempdir().unwrap();
     let security = SecurityConfig {
@@ -523,7 +523,7 @@ async fn a11_self_optimize_hand_loads() {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     let registry = HandRegistry::load(&hands_dir).unwrap_or_else(|_| HandRegistry::empty());
 
     if let Some(hand) = registry.get("self_optimize") {

@@ -28,6 +28,232 @@ const TELEGRAM_API: &str = "https://api.telegram.org";
 const MAX_MESSAGE_LEN: usize = 4096;
 const POLL_TIMEOUT: u64 = 30;
 
+// ---------------------------------------------------------------------------
+// MarkdownV2 escaping utilities
+// ---------------------------------------------------------------------------
+
+/// Characters that must be escaped in Telegram MarkdownV2 outside of
+/// pre/code spans: _ * [ ] ( ) ~ ` > # + - = | { } . !
+const MARKDOWNV2_SPECIAL: &[char] = &[
+    '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!',
+];
+
+/// Escape **all** MarkdownV2 special characters in `text`.
+///
+/// Use this when you want the text rendered verbatim (no formatting at all).
+/// Every special char is prefixed with a backslash.
+pub fn escape_markdown_v2(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / 4);
+    for ch in text.chars() {
+        if MARKDOWNV2_SPECIAL.contains(&ch) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Convert common LLM Markdown output to Telegram MarkdownV2.
+///
+/// Strategy:
+/// 1. Protect fenced code blocks (```...```) — content inside is not escaped
+///    except for `` ` `` and `\`.
+/// 2. Protect inline code (`...`) — same treatment.
+/// 3. Outside code spans, escape all MarkdownV2 special characters that are
+///    **not** part of a recognised formatting pair (bold, italic, strike, etc.).
+///
+/// This handles CJK text adjacent to formatting markers by working at the
+/// character level rather than relying on word-boundary heuristics, which
+/// break for scripts without spaces (Chinese, Japanese, Korean).
+pub fn sanitize_for_telegram(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() + text.len() / 4);
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+
+    while i < len {
+        // --- Fenced code block: ```lang\n...\n``` ---
+        if i + 2 < len && chars[i] == '`' && chars[i + 1] == '`' && chars[i + 2] == '`' {
+            // Find the closing ```
+            if let Some(close) = find_fenced_close(&chars, i + 3) {
+                // Emit opening ```
+                result.push_str("```");
+                // Emit content between the fences (escape only ` and \ inside pre)
+                for &ch in &chars[i + 3..close] {
+                    if ch == '\\' {
+                        result.push_str("\\\\");
+                    } else {
+                        result.push(ch);
+                    }
+                }
+                // Emit closing ```
+                result.push_str("```");
+                i = close + 3;
+                continue;
+            }
+            // No closing fence found — escape the backticks and continue
+            result.push_str("\\`\\`\\`");
+            i += 3;
+            continue;
+        }
+
+        // --- Inline code: `...` ---
+        if chars[i] == '`' {
+            if let Some(close) = find_inline_code_close(&chars, i + 1) {
+                result.push('`');
+                for &ch in &chars[i + 1..close] {
+                    if ch == '\\' {
+                        result.push_str("\\\\");
+                    } else if ch == '`' {
+                        result.push_str("\\`");
+                    } else {
+                        result.push(ch);
+                    }
+                }
+                result.push('`');
+                i = close + 1;
+                continue;
+            }
+            // Unmatched backtick — escape it
+            result.push_str("\\`");
+            i += 1;
+            continue;
+        }
+
+        // --- Bold markers: ** or __ ---
+        // We convert **text** to *text* for MarkdownV2 bold.
+        if i + 1 < len && chars[i] == '*' && chars[i + 1] == '*' {
+            if let Some(close) = find_double_close(&chars, i + 2, '*') {
+                result.push('*');
+                let inner: String = chars[i + 2..close].iter().collect();
+                result.push_str(&escape_markdown_v2_inline(&inner));
+                result.push('*');
+                i = close + 2;
+                continue;
+            }
+        }
+
+        // --- Italic: single * ---
+        if chars[i] == '*' && (i + 1 >= len || chars[i + 1] != '*') {
+            if let Some(close) = find_single_close(&chars, i + 1, '*') {
+                result.push_str("_");
+                let inner: String = chars[i + 1..close].iter().collect();
+                result.push_str(&escape_markdown_v2_inline(&inner));
+                result.push_str("_");
+                i = close + 1;
+                continue;
+            }
+        }
+
+        // --- Strikethrough: ~~ ---
+        if i + 1 < len && chars[i] == '~' && chars[i + 1] == '~' {
+            if let Some(close) = find_double_close(&chars, i + 2, '~') {
+                result.push('~');
+                let inner: String = chars[i + 2..close].iter().collect();
+                result.push_str(&escape_markdown_v2_inline(&inner));
+                result.push('~');
+                i = close + 2;
+                continue;
+            }
+        }
+
+        // --- Everything else: escape MarkdownV2 specials ---
+        let ch = chars[i];
+        if MARKDOWNV2_SPECIAL.contains(&ch) {
+            result.push('\\');
+        }
+        result.push(ch);
+        i += 1;
+    }
+
+    result
+}
+
+/// Escape MarkdownV2 specials inside an already-identified formatting span.
+/// This escapes everything except the formatting delimiters themselves.
+fn escape_markdown_v2_inline(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + text.len() / 4);
+    for ch in text.chars() {
+        // Inside a bold/italic/strikethrough span we still need to escape
+        // special chars that are not the wrapping delimiter.
+        if MARKDOWNV2_SPECIAL.contains(&ch) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Find closing ``` starting from position `start`.
+/// Returns the index of the first backtick of the closing ```.
+fn find_fenced_close(chars: &[char], start: usize) -> Option<usize> {
+    let len = chars.len();
+    let mut i = start;
+    while i + 2 < len {
+        if chars[i] == '`' && chars[i + 1] == '`' && chars[i + 2] == '`' {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find closing single backtick for inline code.
+fn find_inline_code_close(chars: &[char], start: usize) -> Option<usize> {
+    for i in start..chars.len() {
+        if chars[i] == '`' {
+            // Make sure it's not part of a triple backtick
+            if i + 2 < chars.len() && chars[i + 1] == '`' && chars[i + 2] == '`' {
+                continue;
+            }
+            return Some(i);
+        }
+        // Inline code cannot span newlines
+        if chars[i] == '\n' {
+            return None;
+        }
+    }
+    None
+}
+
+/// Find closing double delimiter (e.g. ** or ~~).
+/// Returns index of the first char of the closing pair.
+fn find_double_close(chars: &[char], start: usize, delim: char) -> Option<usize> {
+    let len = chars.len();
+    let mut i = start;
+    while i + 1 < len {
+        if chars[i] == delim && chars[i + 1] == delim {
+            // Don't match empty spans
+            if i > start {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find closing single delimiter (e.g. single *).
+/// Returns index of the closing delimiter.
+fn find_single_close(chars: &[char], start: usize, delim: char) -> Option<usize> {
+    for i in start..chars.len() {
+        if chars[i] == delim {
+            // Skip double delimiters
+            if i + 1 < chars.len() && chars[i + 1] == delim {
+                continue;
+            }
+            if i > start {
+                return Some(i);
+            }
+        }
+        // Single-line only for inline formatting
+        if chars[i] == '\n' {
+            return None;
+        }
+    }
+    None
+}
+
 /// Telegram Bot API response wrapper
 #[derive(Debug, Deserialize)]
 struct TelegramResponse<T> {
@@ -190,11 +416,14 @@ impl TelegramChannel {
         TypingGuard { cancel }
     }
 
-    /// Send a message and return the message_id for later editing
+    /// Send a message and return the message_id for later editing.
+    /// Text is escaped for MarkdownV2 so CJK and special chars display correctly.
     pub async fn send_message_get_id(&self, chat_id: &str, text: &str) -> Result<i64> {
+        let escaped = escape_markdown_v2(text);
         let body = json!({
             "chat_id": chat_id,
-            "text": text,
+            "text": escaped,
+            "parse_mode": "MarkdownV2",
             "disable_web_page_preview": true,
         });
 
@@ -211,7 +440,8 @@ impl TelegramChannel {
             .ok_or_else(|| anyhow!("Failed to get message_id from sendMessage response"))
     }
 
-    /// Edit an existing message's text
+    /// Edit an existing message's text.
+    /// Text is escaped for MarkdownV2 so CJK and special chars display correctly.
     pub async fn edit_message(&self, chat_id: &str, message_id: i64, text: &str) -> Result<()> {
         // Telegram requires the text to be different from the current text
         // and has a minimum length of 1 character
@@ -219,10 +449,12 @@ impl TelegramChannel {
             return Ok(());
         }
 
+        let escaped = escape_markdown_v2(text);
         let body = json!({
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text,
+            "text": escaped,
+            "parse_mode": "MarkdownV2",
             "disable_web_page_preview": true,
         });
 
@@ -357,9 +589,11 @@ impl TelegramChannel {
         text: &str,
         keyboard: &InlineKeyboard,
     ) -> Result<i64> {
+        let escaped = escape_markdown_v2(text);
         let body = json!({
             "chat_id": chat_id,
-            "text": text,
+            "text": escaped,
+            "parse_mode": "MarkdownV2",
             "reply_markup": keyboard.to_json(),
             "disable_web_page_preview": true,
         });
@@ -385,9 +619,11 @@ impl TelegramChannel {
         text: &str,
         keyboard: &InlineKeyboard,
     ) -> Value {
+        let escaped = escape_markdown_v2(text);
         json!({
             "chat_id": chat_id,
-            "text": text,
+            "text": escaped,
+            "parse_mode": "MarkdownV2",
             "reply_markup": keyboard.to_json(),
             "disable_web_page_preview": true,
         })
@@ -516,10 +752,13 @@ impl Channel for TelegramChannel {
                 String::new()
             };
 
+            let raw = format!("{}{}", chunk, suffix);
+            let sanitized = sanitize_for_telegram(&raw);
+
             let body = json!({
                 "chat_id": chat_id,
-                "text": format!("{}{}", chunk, suffix),
-                "parse_mode": "Markdown",
+                "text": sanitized,
+                "parse_mode": "MarkdownV2",
                 "disable_web_page_preview": true
             });
 
@@ -533,19 +772,37 @@ impl Channel for TelegramChannel {
             let status = resp.status();
             if !status.is_success() {
                 let err_text = resp.text().await.unwrap_or_default();
-                // If Markdown fails, retry without parse_mode
+                // If MarkdownV2 fails, retry with fully-escaped text
                 if err_text.contains("can't parse entities") {
-                    debug!("Markdown parse failed, retrying as plain text");
-                    let plain_body = json!({
+                    debug!("MarkdownV2 parse failed, retrying with full escaping");
+                    let escaped = escape_markdown_v2(&raw);
+                    let escaped_body = json!({
                         "chat_id": chat_id,
-                        "text": format!("{}{}", chunk, suffix),
+                        "text": escaped,
+                        "parse_mode": "MarkdownV2",
                         "disable_web_page_preview": true
                     });
-                    self.client
+                    let resp2 = self
+                        .client
                         .post(&self.api_url("sendMessage"))
-                        .json(&plain_body)
+                        .json(&escaped_body)
                         .send()
                         .await?;
+
+                    // If even full escaping fails, fall back to plain text
+                    if !resp2.status().is_success() {
+                        debug!("Full-escaped MarkdownV2 also failed, falling back to plain text");
+                        let plain_body = json!({
+                            "chat_id": chat_id,
+                            "text": raw,
+                            "disable_web_page_preview": true
+                        });
+                        self.client
+                            .post(&self.api_url("sendMessage"))
+                            .json(&plain_body)
+                            .send()
+                            .await?;
+                    }
                 } else {
                     error!("sendMessage failed ({}): {}", status, err_text);
                 }
@@ -648,6 +905,12 @@ impl Channel for TelegramChannel {
                                 CallbackAction::Cancel => "/cancel".to_string(),
                                 CallbackAction::SelectProvider(name) => {
                                     format!("/provider {}", name)
+                                }
+                                CallbackAction::GoalsMood(m) => {
+                                    format!("/goals_mood {}", m)
+                                }
+                                CallbackAction::GoalsTaskDone(id) => {
+                                    format!("/goals_task {}", id)
                                 }
                                 CallbackAction::Unknown(raw) => raw.clone(),
                             };
@@ -822,6 +1085,7 @@ mod tests {
         // Verify top-level fields
         assert_eq!(body["chat_id"], "12345");
         assert_eq!(body["text"], "Pick a hand:");
+        assert_eq!(body["parse_mode"], "MarkdownV2");
         assert_eq!(body["disable_web_page_preview"], true);
 
         // Verify reply_markup contains inline_keyboard
@@ -1024,5 +1288,162 @@ mod tests {
         assert!(text.contains("No hands available"));
         let kb = kb.expect("Should still have a keyboard (empty)");
         assert!(kb.rows.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // MarkdownV2 escaping tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_escape_markdown_v2_basic_specials() {
+        let input = "Hello_world *bold* [link](url) ~strike~";
+        let escaped = super::escape_markdown_v2(input);
+        assert_eq!(
+            escaped,
+            "Hello\\_world \\*bold\\* \\[link\\]\\(url\\) \\~strike\\~"
+        );
+    }
+
+    #[test]
+    fn test_escape_markdown_v2_all_specials() {
+        let input = "_*[]()~`>#+-=|{}.!";
+        let escaped = super::escape_markdown_v2(input);
+        assert_eq!(
+            escaped,
+            "\\_\\*\\[\\]\\(\\)\\~\\`\\>\\#\\+\\-\\=\\|\\{\\}\\.\\!"
+        );
+    }
+
+    #[test]
+    fn test_escape_markdown_v2_no_specials() {
+        let input = "Hello world 123";
+        let escaped = super::escape_markdown_v2(input);
+        assert_eq!(escaped, "Hello world 123");
+    }
+
+    #[test]
+    fn test_escape_markdown_v2_empty_string() {
+        assert_eq!(super::escape_markdown_v2(""), "");
+    }
+
+    #[test]
+    fn test_escape_markdown_v2_cjk_plain() {
+        // CJK characters should pass through unmodified
+        let input = "你好世界 こんにちは 안녕하세요";
+        let escaped = super::escape_markdown_v2(input);
+        assert_eq!(escaped, input);
+    }
+
+    #[test]
+    fn test_escape_markdown_v2_cjk_with_specials() {
+        // CJK adjacent to special chars
+        let input = "价格是$100.50! 测试*加粗*文本";
+        let escaped = super::escape_markdown_v2(input);
+        assert_eq!(escaped, "价格是$100\\.50\\! 测试\\*加粗\\*文本");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_plain_text() {
+        let input = "Hello world";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_bold() {
+        // **bold** in Markdown -> *bold* in MarkdownV2
+        let input = "This is **bold** text";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "This is *bold* text");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_italic() {
+        // *italic* in Markdown -> _italic_ in MarkdownV2
+        let input = "This is *italic* text";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "This is _italic_ text");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_strikethrough() {
+        let input = "This is ~~deleted~~ text";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "This is ~deleted~ text");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_inline_code() {
+        let input = "Use `foo.bar()` here";
+        let result = super::sanitize_for_telegram(input);
+        // Inside inline code, only ` and \ are escaped; . is not
+        assert_eq!(result, "Use `foo.bar()` here");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_fenced_code_block() {
+        let input = "```rust\nfn main() { println!(\"hello\"); }\n```";
+        let result = super::sanitize_for_telegram(input);
+        // Inside fenced code blocks, content is preserved (only \ is escaped)
+        assert!(result.starts_with("```"));
+        assert!(result.ends_with("```"));
+        assert!(result.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_cjk_bold() {
+        // CJK directly adjacent to bold markers — no space between
+        let input = "**加粗文本**是重要的";
+        let result = super::sanitize_for_telegram(input);
+        // Should produce *加粗文本* with the CJK remainder escaped
+        assert_eq!(result, "*加粗文本*是重要的");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_cjk_mixed_formatting() {
+        let input = "你好**世界**！这是*测试*。";
+        let result = super::sanitize_for_telegram(input);
+        // 你好 -> plain, **世界** -> *世界* (MarkdownV2 bold),
+        // ！ (U+FF01 fullwidth exclamation) -> not ASCII '!' so not escaped,
+        // 这是 -> plain, *测试* -> _测试_ (MarkdownV2 italic),
+        // 。 (U+3002 fullwidth period) -> not ASCII '.' so not escaped
+        assert_eq!(result, "你好*世界*！这是_测试_。");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_dots_and_exclamations() {
+        let input = "Hello! This costs $5.99. Really!";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "Hello\\! This costs $5\\.99\\. Really\\!");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_unmatched_bold() {
+        // Unmatched ** should be escaped rather than breaking the message
+        let input = "This is **unmatched bold";
+        let result = super::sanitize_for_telegram(input);
+        assert!(result.contains("\\*\\*"));
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_unmatched_backtick() {
+        let input = "Here is a ` backtick";
+        let result = super::sanitize_for_telegram(input);
+        assert!(result.contains("\\`"));
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_parentheses_outside_links() {
+        let input = "Result (1 of 3) is ready.";
+        let result = super::sanitize_for_telegram(input);
+        assert_eq!(result, "Result \\(1 of 3\\) is ready\\.");
+    }
+
+    #[test]
+    fn test_sanitize_for_telegram_number_sign_and_dash() {
+        let input = "# Heading\n- item 1\n- item 2";
+        let result = super::sanitize_for_telegram(input);
+        assert!(result.contains("\\#"));
+        assert!(result.contains("\\-"));
     }
 }

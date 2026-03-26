@@ -1,4 +1,4 @@
-# Gap Closure Design — Clawtex vs Reference Projects
+# Gap Closure Design — Phantom Mesh vs Reference Projects
 
 Date: 2026-03-04
 

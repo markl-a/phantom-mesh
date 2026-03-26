@@ -164,7 +164,7 @@ fn safe_subprocess_env() -> Vec<(String, String)> {
     let sensitive_prefixes = [
         "ANTHROPIC_", "OPENAI_", "GEMINI_", "GROQ_", "DEEPSEEK_",
         "SERPER_", "TAVILY_", "BRAVE_", "EXA_", "STRIPE_",
-        "CLAWTEX_SECRET", "CLAWTEX_HUB_KEY",
+        "PHANTOM_MESH_SECRET", "PHANTOM_MESH_HUB_KEY",
         "TWITTER_", "SMTP_", "EMAIL_",
     ];
     let sensitive_exact = [

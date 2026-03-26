@@ -3,10 +3,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use clawtex_core::providers::mock::MockProvider;
-use clawtex_core::providers::ProviderRouter;
-use clawtex_core::{AgentRuntime, AgentResult, LlmRouter, ToolRegistry};
-use clawtex_core::tools::SecurityConfig;
+use phantom_mesh::providers::mock::MockProvider;
+use phantom_mesh::providers::ProviderRouter;
+use phantom_mesh::{AgentRuntime, AgentResult, LlmRouter, ToolRegistry};
+use phantom_mesh::tools::SecurityConfig;
 
 use super::fixtures;
 
@@ -43,7 +43,7 @@ impl CoreHarness {
     pub async fn run_agent_with_history(
         &self,
         prompt: &str,
-        history: &[clawtex_core::ChatMessage],
+        history: &[phantom_mesh::ChatMessage],
     ) -> anyhow::Result<AgentResult> {
         self.agent_runtime.run(
             "master",
@@ -61,7 +61,7 @@ impl CoreHarness {
     }
 
     /// Get a specific LLM call record.
-    pub fn provider_call(&self, index: usize) -> Option<clawtex_core::providers::mock::MockCallRecord> {
+    pub fn provider_call(&self, index: usize) -> Option<phantom_mesh::providers::mock::MockCallRecord> {
         self.provider.get_call(index)
     }
 
@@ -71,7 +71,7 @@ impl CoreHarness {
     }
 
     /// Execute a tool directly by name with the given JSON args.
-    pub async fn run_tool(&self, name: &str, args: serde_json::Value) -> anyhow::Result<clawtex_core::tools::ToolResult> {
+    pub async fn run_tool(&self, name: &str, args: serde_json::Value) -> anyhow::Result<phantom_mesh::tools::ToolResult> {
         self.tool_registry.execute_tool(name, args).await
     }
 }

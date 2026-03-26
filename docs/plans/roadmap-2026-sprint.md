@@ -1,4 +1,4 @@
-# Clawtex Sprint Roadmap: 3/16 → 3/31
+# Phantom Mesh Sprint Roadmap: 3/16 → 3/31
 
 > 時區：台灣時間 (UTC+8)
 > Deadline: 3/27 全功能完成，3/31 商品化上架
@@ -31,7 +31,7 @@
 | `src/cluster_hub.rs` | C（主要）| **只有 C 碰** |
 | `src/approval.rs` | F（tiered approval） | **只有 F 碰** |
 | `Cargo.toml` | B/D/E 可能加依賴 | **各 session 加在不同行，merge 時手動解** |
-| `~/.clawtex/hands/*.toml` | G（主要）+ A（微調） | **G 建新 hand，A 只調現有** |
+| `~/.phantom-mesh/hands/*.toml` | G（主要）+ A（微調） | **G 建新 hand，A 只調現有** |
 
 ### 完全不衝突的組合
 - **B ↔ G**：B 寫 Rust tool，G 寫 TOML hand — 零交集
@@ -246,7 +246,7 @@
   - privacy: "public" | "unlisted" | "private" (default: "private")
 
 實作：
-  1. 檢查 OAuth 認證（~/.clawtex/youtube_oauth.json）
+  1. 檢查 OAuth 認證（~/.phantom-mesh/youtube_oauth.json）
   2. 使用 Python google-api-python-client:
      python -c "
      from googleapiclient.discovery import build
@@ -669,7 +669,7 @@ Research report 銷售通道
 
 ## 七、Session G — Hand TOML 實作計畫
 
-### 所有 Hand 都是 ~/.clawtex/hands/{name}/hand.toml，不碰 Rust
+### 所有 Hand 都是 ~/.phantom-mesh/hands/{name}/hand.toml，不碰 Rust
 
 ### 通用 Hand TOML 結構
 ```toml
@@ -801,7 +801,7 @@ Phase 5: 輸出（docx_export 或 file_write）
   1. 每個 request 帶 X-API-Key header
   2. 查 tenants 表 → 取得 tenant info
   3. 注入 tenant context（隔離 workspace, memory, sessions）
-  4. 每個 tenant 有自己的 namespace: ~/.clawtex/tenants/{id}/
+  4. 每個 tenant 有自己的 namespace: ~/.phantom-mesh/tenants/{id}/
 
   endpoints:
   POST /tenants — 建立租戶（需 admin API key）
@@ -841,7 +841,7 @@ Phase 5: 輸出（docx_export 或 file_write）
 ```
 技術：Astro or Next.js 靜態站
 頁面：
-  - Hero: Clawtex — AI Agent Cluster Platform
+  - Hero: Phantom Mesh — AI Agent Cluster Platform
   - Features: 25+ Tools, 20+ Hands, 8-Device Cluster
   - Pricing: Lite/Pro/Team
   - Docs: Quick Start + API Reference

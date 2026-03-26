@@ -1,5 +1,5 @@
 //! ClusterWorker — runs on worker nodes, registers with hub, executes tools.
-//! Start with: `clawtex-core worker --hub http://100.x.x.x:7878 --name m1`
+//! Start with: `phantom-mesh worker --hub http://100.x.x.x:7878 --name m1`
 
 use anyhow::Result;
 use axum::{extract::State, http::StatusCode, response::Json, routing::{get, post}, Router};
@@ -20,6 +20,10 @@ pub struct WorkerConfig {
     pub capabilities: Vec<String>,
     pub device_type: String,
     pub port: u16,
+    /// Optional shared secret for cluster authentication.
+    /// When set, all requests to the hub include an `Authorization: Bearer <token>` header.
+    /// Read from config or the `CLUSTER_SECRET` environment variable.
+    pub cluster_secret: Option<String>,
 }
 
 /// Worker state shared across HTTP handlers
@@ -186,11 +190,11 @@ impl ClusterWorker {
         });
 
         info!("Registering with hub at {}", url);
-        let resp = self.state.http_client
-            .post(&url)
-            .json(&payload)
-            .send()
-            .await?;
+        let mut req = self.state.http_client.post(&url).json(&payload);
+        if let Some(ref secret) = self.state.config.cluster_secret {
+            req = req.header("Authorization", format!("Bearer {}", secret));
+        }
+        let resp = req.send().await?;
 
         if resp.status().is_success() {
             info!("Registered with hub as '{}'", self.state.config.node_name);
@@ -223,7 +227,11 @@ impl ClusterWorker {
                     "telemetry": telemetry,
                 });
 
-                match state.http_client.post(&url).json(&payload).send().await {
+                let mut hb_req = state.http_client.post(&url).json(&payload);
+                if let Some(ref secret) = state.config.cluster_secret {
+                    hb_req = hb_req.header("Authorization", format!("Bearer {}", secret));
+                }
+                match hb_req.send().await {
                     Ok(resp) if resp.status().is_success() => {
                         if was_disconnected {
                             info!("Reconnected to hub after {} failures — re-registering", consecutive_failures);
@@ -236,7 +244,11 @@ impl ClusterWorker {
                                 "capabilities": state.config.capabilities,
                                 "device_type": state.config.device_type,
                             });
-                            match state.http_client.post(&reg_url).json(&reg_payload).send().await {
+                            let mut reg_req = state.http_client.post(&reg_url).json(&reg_payload);
+                            if let Some(ref secret) = state.config.cluster_secret {
+                                reg_req = reg_req.header("Authorization", format!("Bearer {}", secret));
+                            }
+                            match reg_req.send().await {
                                 Ok(r) if r.status().is_success() => {
                                     info!("Re-registered with hub successfully");
                                 }
@@ -457,6 +469,21 @@ pub struct ClusterConfig {
     /// Node name (auto-detected if not set)
     #[serde(default)]
     pub node_name: Option<String>,
+    /// Shared secret for cluster authentication (optional).
+    /// Falls back to the `CLUSTER_SECRET` environment variable if not set.
+    /// When present, workers send `Authorization: Bearer <secret>` on all
+    /// hub requests, and the hub rejects cluster API calls with invalid tokens.
+    #[serde(default)]
+    pub cluster_secret: Option<String>,
+}
+
+/// Read the effective cluster secret: config value takes precedence over env var.
+/// Returns `None` if neither is set (auth disabled).
+pub fn resolve_cluster_secret(config_value: Option<&str>) -> Option<String> {
+    if let Some(s) = config_value {
+        if !s.is_empty() { return Some(s.to_string()); }
+    }
+    std::env::var("CLUSTER_SECRET").ok().filter(|s| !s.is_empty())
 }
 
 fn default_role() -> String { "hub".to_string() }
@@ -473,9 +500,24 @@ mod tests {
             capabilities: vec!["tools".to_string()],
             device_type: "full".to_string(),
             port: 7879,
+            cluster_secret: None,
         };
         assert_eq!(config.node_name, "test-worker");
         assert_eq!(config.capabilities.len(), 1);
+        assert!(config.cluster_secret.is_none());
+    }
+
+    #[test]
+    fn test_worker_config_with_secret() {
+        let config = WorkerConfig {
+            hub_url: "http://100.0.0.1:7878".to_string(),
+            node_name: "test-worker".to_string(),
+            capabilities: vec!["tools".to_string()],
+            device_type: "full".to_string(),
+            port: 7879,
+            cluster_secret: Some("my-secret-token".to_string()),
+        };
+        assert_eq!(config.cluster_secret.as_deref(), Some("my-secret-token"));
     }
 
     #[test]
@@ -484,6 +526,7 @@ mod tests {
         assert_eq!(config.role, "hub");
         assert!(config.hub_url.is_none());
         assert!(config.node_name.is_none());
+        assert!(config.cluster_secret.is_none());
     }
 
     #[test]
@@ -497,6 +540,43 @@ node_name = "m1"
         assert_eq!(config.role, "worker");
         assert_eq!(config.hub_url.unwrap(), "http://100.0.0.1:7878");
         assert_eq!(config.node_name.unwrap(), "m1");
+        assert!(config.cluster_secret.is_none());
+    }
+
+    #[test]
+    fn test_cluster_config_with_secret() {
+        let toml_str = r#"
+role = "worker"
+hub_url = "http://100.0.0.1:7878"
+node_name = "m1"
+cluster_secret = "s3cr3t-token"
+"#;
+        let config: ClusterConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.cluster_secret.as_deref(), Some("s3cr3t-token"));
+    }
+
+    #[test]
+    fn test_resolve_cluster_secret_config_takes_precedence() {
+        // Config value should take precedence over env var
+        let result = resolve_cluster_secret(Some("from-config"));
+        assert_eq!(result, Some("from-config".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_cluster_secret_empty_config_falls_through() {
+        // Empty string in config should be treated as unset
+        let result = resolve_cluster_secret(Some(""));
+        // Falls through to env var — which may or may not be set.
+        // We just check it doesn't return Some("").
+        assert_ne!(result, Some("".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_cluster_secret_none_config() {
+        let result = resolve_cluster_secret(None);
+        // Falls through to env var — may or may not be set.
+        // Just ensure it doesn't panic.
+        let _ = result;
     }
 
     #[test]

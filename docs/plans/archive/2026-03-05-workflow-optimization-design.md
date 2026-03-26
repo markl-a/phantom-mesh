@@ -10,7 +10,7 @@
 
 ### 1.1 目前瓶頸
 
-clawtex-core 單機執行一個 Hand（如 freelancer）：
+phantom-mesh 單機執行一個 Hand（如 freelancer）：
 - 5 phase × 最多 5 round = **25 次串行 LLM 呼叫**
 - 全部走同一個 LM Studio 模型（Qwen3-Coder-Next Q4_K_M）
 - market_intel 花 32 分鐘，平均每次 LLM 呼叫 ~75 秒
@@ -74,7 +74,7 @@ clawtex-core 單機執行一個 Hand（如 freelancer）：
 
 ```
                           ┌─────────────────────────────────┐
-                          │        Z13 Hub (clawtex-core)   │
+                          │        Z13 Hub (phantom-mesh)   │
                           │                                 │
   Telegram ──────────────►│  TaskRouter                     │
                           │    │                            │
@@ -198,7 +198,7 @@ impl AliveCache {
 
 ### 4.1 零部署方案
 
-4 台機器都已跑 Ollama + SSH 確認連通。**不需要部署 clawtex-core worker**，只需要：
+4 台機器都已跑 Ollama + SSH 確認連通。**不需要部署 phantom-mesh worker**，只需要：
 
 1. `agents.toml` 加 3 個 `openai_compat` provider（指向遠端 Ollama）
 2. `ProviderRouter` 支援遠端健康檢查
@@ -520,7 +520,7 @@ daily_requests = 0  # 0 = 無硬限制（rate limit 由 server 端控制）
 
 | 任務 | 檔案 | 改動 |
 |------|------|------|
-| 1.1 agents.toml 加 6 個 provider | `~/.clawtex/agents.toml` | 新增 TOML section |
+| 1.1 agents.toml 加 6 個 provider | `~/.phantom-mesh/agents.toml` | 新增 TOML section |
 | 1.2 申請免費 API key | OpenRouter, Groq, Cerebras | 網頁操作 |
 | 1.3 ProviderRouter 加路由表 | `src/providers/router.rs` | 讀取 `[routing]` 表 |
 | 1.4 is_alive 快取 | `src/providers/router.rs` | AliveCache 結構 |
@@ -542,7 +542,7 @@ daily_requests = 0  # 0 = 無硬限制（rate limit 由 server 端控制）
 | 2.1 ai_code 加 gemini_cli 後端 | `src/tools/ai_code.rs` | GeminiCli backend |
 | 2.2 ai_code 加 codex 後端 | `src/tools/ai_code.rs` | Codex backend |
 | 2.3 Phase execution_mode | `src/hands/mod.rs` | ai_tool 直呼模式 |
-| 2.4 更新 10 個 hand.toml | `~/.clawtex/hands/*/hand.toml` | 每 phase 加 provider_hint + execution_mode |
+| 2.4 更新 10 個 hand.toml | `~/.phantom-mesh/hands/*/hand.toml` | 每 phase 加 provider_hint + execution_mode |
 | 2.5 測試 | `tests/` | AI 工具呼叫 + phase routing 測試 |
 
 **驗收**：
@@ -558,7 +558,7 @@ daily_requests = 0  # 0 = 無硬限制（rate limit 由 server 端控制）
 | 3.2 並行執行引擎 | `src/hands/mod.rs` | JoinSet 並行 + 依賴解析 |
 | 3.3 SoT 集群擴展 | `src/skeleton.rs` | expansion_providers 包含遠端 |
 | 3.4 Provider 負載均衡 | `src/providers/router.rs` | pending_requests 計數 |
-| 3.5 更新 hand.toml 依賴 | `~/.clawtex/hands/*/hand.toml` | 加 depends_on 欄位 |
+| 3.5 更新 hand.toml 依賴 | `~/.phantom-mesh/hands/*/hand.toml` | 加 depends_on 欄位 |
 | 3.6 /sot 指令增強 | `src/telegram.rs` | 顯示各節點進度 |
 | 3.7 整合測試 | `tests/integration.rs` | 並行 + 集群 E2E |
 

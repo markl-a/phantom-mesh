@@ -123,7 +123,7 @@ mod tests {
     use std::fs;
 
     fn make_tool(suffix: &str) -> (FileWriteTool, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("clawtex_test_fw_{}", suffix));
+        let dir = std::env::temp_dir().join(format!("phantom_mesh_test_fw_{}", suffix));
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::create_dir_all(&dir);
         let security = SecurityConfig {

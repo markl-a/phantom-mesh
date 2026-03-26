@@ -1,7 +1,7 @@
 //! Auto-Diagnosis Engine — pattern-matched + LLM-backed error analysis.
 //! Matches errors against a built-in database of 20+ known issues, falls back to
 //! LLM analysis via the existing provider system, and persists every diagnosis to
-//! SQLite (`~/.clawtex/diagnosis.db`) for learning over time.
+//! SQLite (`~/.phantom-mesh/diagnosis.db`) for learning over time.
 
 use std::sync::{Arc, Mutex};
 
@@ -220,7 +220,7 @@ fn known_issues_database() -> Vec<KnownIssue> {
             fix_command: None,
         },
         KnownIssue {
-            pattern: r"(?i)(missing\s*env|environment\s*variable|env\s*var.*not\s*set|getenv|CLAWTEX_|API_KEY\s*not)".to_string(),
+            pattern: r"(?i)(missing\s*env|environment\s*variable|env\s*var.*not\s*set|getenv|PHANTOM_MESH_|API_KEY\s*not)".to_string(),
             category: ErrorCategory::ConfigError,
             typical_cause: "Required environment variable is not set".to_string(),
             fix_steps: "Set the missing environment variable in your shell or .env file".to_string(),
@@ -238,8 +238,8 @@ fn known_issues_database() -> Vec<KnownIssue> {
         KnownIssue {
             pattern: r"(?i)(hand\s*not\s*found|no\s*hand\s*named|unknown\s*hand|workflow.*not\s*found)".to_string(),
             category: ErrorCategory::ConfigError,
-            typical_cause: "Hand (workflow) not found in ~/.clawtex/hands/ directory".to_string(),
-            fix_steps: "Verify hand name, check ~/.clawtex/hands/<name>/hand.toml exists".to_string(),
+            typical_cause: "Hand (workflow) not found in ~/.phantom-mesh/hands/ directory".to_string(),
+            fix_steps: "Verify hand name, check ~/.phantom-mesh/hands/<name>/hand.toml exists".to_string(),
             auto_fixable: false,
             fix_command: None,
         },
@@ -291,7 +291,7 @@ fn known_issues_database() -> Vec<KnownIssue> {
             typical_cause: "Disk is full or insufficient storage space".to_string(),
             fix_steps: "Free disk space, clean old logs/caches, expand storage volume".to_string(),
             auto_fixable: true,
-            fix_command: Some("du -sh ~/.clawtex/ && echo 'Consider cleaning old workspace files'".to_string()),
+            fix_command: Some("du -sh ~/.phantom-mesh/ && echo 'Consider cleaning old workspace files'".to_string()),
         },
         KnownIssue {
             pattern: r"(?i)(out\s*of\s*memory|OOM|memory\s*limit|cannot\s*allocate|ENOMEM|heap\s*overflow)".to_string(),
@@ -740,7 +740,7 @@ mod tests {
     use super::*;
 
     fn temp_db(name: &str) -> (String, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join("clawtex_test_diagnosis");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_diagnosis");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join(format!("{}.db", name));
         let _ = std::fs::remove_file(&db_path);
@@ -946,7 +946,7 @@ mod tests {
     fn test_diagnose_missing_env_var() {
         let (db_str, db_path) = temp_db("env_var");
         let diag = AutoDiagnoser::new(&db_str).unwrap();
-        let ctx = make_context("environment variable CLAWTEX_API_KEY not set");
+        let ctx = make_context("environment variable PHANTOM_MESH_API_KEY not set");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);

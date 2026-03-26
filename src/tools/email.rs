@@ -57,10 +57,10 @@ impl EmailTool {
         let home = std::env::var("USERPROFILE")
             .or_else(|_| std::env::var("HOME"))
             .unwrap_or_else(|_| ".".to_string());
-        let helper_path = format!("{}/.clawtex/email_helper.py", home);
+        let helper_path = format!("{}/.phantom-mesh/email_helper.py", home);
 
         let script = r#"#!/usr/bin/env python3
-"""Clawtex email helper — sends emails via SMTP."""
+"""Phantom Mesh email helper — sends emails via SMTP."""
 import sys, json, smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart

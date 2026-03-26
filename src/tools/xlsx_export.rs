@@ -85,7 +85,7 @@ impl Tool for XlsxExportTool {
         } else {
             let workspace = dirs::home_dir()
                 .unwrap_or_default()
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("workspace");
             let _ = std::fs::create_dir_all(&workspace);
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -94,7 +94,7 @@ impl Tool for XlsxExportTool {
 
         // Write CSV to temp file
         let temp_dir = std::env::temp_dir();
-        let temp_csv = temp_dir.join("clawtex_xlsx_input.csv");
+        let temp_csv = temp_dir.join("phantom_mesh_xlsx_input.csv");
         std::fs::write(&temp_csv, &data)?;
 
         // Generate Python script
@@ -114,7 +114,7 @@ print(f"Saved to {output_str}")
 "#
         );
 
-        let temp_py = temp_dir.join("clawtex_xlsx_gen.py");
+        let temp_py = temp_dir.join("phantom_mesh_xlsx_gen.py");
         std::fs::write(&temp_py, &py_script)?;
 
         debug!("Converting CSV to XLSX: {} -> {}", temp_csv.display(), output_path.display());
@@ -223,7 +223,7 @@ mod tests {
             .map(|o| o.status.success())
             .unwrap_or(false)
         {
-            let temp = std::env::temp_dir().join("clawtex_test_export.xlsx");
+            let temp = std::env::temp_dir().join("phantom_mesh_test_export.xlsx");
             let result = tool.execute(json!({
                 "data": "Name,Age,City\nAlice,30,Tokyo\nBob,25,Taipei",
                 "output_path": temp.to_str().unwrap(),

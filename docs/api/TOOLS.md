@@ -1,6 +1,6 @@
-# Clawtex Tools Reference
+# Phantom Mesh Tools Reference
 
-All 42 tools registered in Clawtex Core. Tools are invoked by agents during task execution and can also be dispatched directly to cluster workers.
+All 42 tools registered in Phantom Mesh Core. Tools are invoked by agents during task execution and can also be dispatched directly to cluster workers.
 
 Use `GET /tools` to retrieve the live list at runtime.
 
@@ -30,7 +30,7 @@ Run arbitrary CLI tools with more flexible invocation than `shell`.
 
 ### file_read
 Read a file from the workspace sandbox.
-- **Parameters**: `path` (string) — relative to `~/.clawtex/workspace/`
+- **Parameters**: `path` (string) — relative to `~/.phantom-mesh/workspace/`
 - **Security**: Workspace-only; cannot traverse outside sandbox
 - **Preflight**: Checks file exists before reading
 - **Routing**: LOCAL_ONLY (hub)
@@ -86,7 +86,7 @@ Headless browser automation (navigate, click, scrape pages).
 ### memory_store
 Store a value in the persistent semantic memory database.
 - **Parameters**: `key` (string), `content` (string), `category` (string: conversation/fact/preference/skill/task)
-- **Database**: `~/.clawtex/memory.db`
+- **Database**: `~/.phantom-mesh/memory.db`
 - **Routing**: LOCAL_ONLY (hub)
 
 ### memory_recall
@@ -269,7 +269,7 @@ All tools run through a shared security/rate-limit pipeline:
 2. **Rate limit check** — global 840 calls/hr, per-tool 280 calls/hr (sliding window)
 3. **InjectionGuard** — 8 regex patterns detect prompt injection before LLM tool calls
 4. **Credential scrubbing** — tool output is scrubbed for API keys, tokens, and secrets before returning
-5. **Audit logging** — every tool call is logged to `~/.clawtex/audit.db` with risk level and outcome
+5. **Audit logging** — every tool call is logged to `~/.phantom-mesh/audit.db` with risk level and outcome
 
 ## Tool Routing
 

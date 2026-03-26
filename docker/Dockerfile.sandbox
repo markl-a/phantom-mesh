@@ -1,8 +1,8 @@
-# Clawtex Sandbox — Ubuntu desktop for Computer Use
+# Phantom Mesh Sandbox — Ubuntu desktop for Computer Use
 # Provides: Xvfb + Openbox + Tint2 + xdotool + scrot + VNC + noVNC
 #
-# Build: docker build -t clawtex-sandbox -f docker/Dockerfile.sandbox .
-# Run:   docker run -d --name clawtex-sandbox -p 5900:5900 -p 6080:6080 clawtex-sandbox
+# Build: docker build -t phantom-mesh-sandbox -f docker/Dockerfile.sandbox .
+# Run:   docker run -d --name phantom-mesh-sandbox -p 5900:5900 -p 6080:6080 phantom-mesh-sandbox
 # View:  http://localhost:6080 (noVNC web client)
 
 FROM ubuntu:22.04

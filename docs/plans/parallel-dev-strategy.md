@@ -20,7 +20,7 @@
 |----------|------|
 | `src/tools/<name>.rs` | 每個 tool 獨立檔案 |
 | `src/providers/<name>.rs` | 每個 provider 獨立檔案 |
-| `~/.clawtex/hands/<name>/hand.toml` | 每個 hand 獨立目錄 |
+| `~/.phantom-mesh/hands/<name>/hand.toml` | 每個 hand 獨立目錄 |
 | `src/<new_module>.rs` | 新系統模組獨立檔案 |
 | `docs/**` | 文件互不干涉 |
 
@@ -74,15 +74,15 @@
 待實作 hands：
 | Hand | 路徑 |
 |------|------|
-| `youtube` | `~/.clawtex/hands/youtube/hand.toml` |
-| `report` | `~/.clawtex/hands/report/hand.toml` |
-| `novel` | `~/.clawtex/hands/novel/hand.toml` |
-| `design` | `~/.clawtex/hands/design/hand.toml` |
-| `comic` | `~/.clawtex/hands/comic/hand.toml` |
-| `ecommerce_ops` | `~/.clawtex/hands/ecommerce_ops/hand.toml` |
-| `music` | `~/.clawtex/hands/music/hand.toml` |
-| `game_dev` | `~/.clawtex/hands/game_dev/hand.toml` |
-| `micro_saas` | `~/.clawtex/hands/micro_saas/hand.toml` |
+| `youtube` | `~/.phantom-mesh/hands/youtube/hand.toml` |
+| `report` | `~/.phantom-mesh/hands/report/hand.toml` |
+| `novel` | `~/.phantom-mesh/hands/novel/hand.toml` |
+| `design` | `~/.phantom-mesh/hands/design/hand.toml` |
+| `comic` | `~/.phantom-mesh/hands/comic/hand.toml` |
+| `ecommerce_ops` | `~/.phantom-mesh/hands/ecommerce_ops/hand.toml` |
+| `music` | `~/.phantom-mesh/hands/music/hand.toml` |
+| `game_dev` | `~/.phantom-mesh/hands/game_dev/hand.toml` |
+| `micro_saas` | `~/.phantom-mesh/hands/micro_saas/hand.toml` |
 
 另外負責：
 - agents.toml 調優

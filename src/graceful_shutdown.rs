@@ -1,4 +1,4 @@
-//! Graceful shutdown manager for the clawtex-core daemon.
+//! Graceful shutdown manager for the phantom-mesh daemon.
 //!
 //! Provides coordinated shutdown with active-task tracking, RAII-based
 //! task guards, configurable timeout, and OS signal handling (Ctrl+C / SIGTERM).

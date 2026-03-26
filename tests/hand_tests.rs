@@ -2,7 +2,7 @@
 //! Hand loading from TOML, TOML edge cases, phase execution helpers,
 //! condition gates, and HandRegistry operations.
 
-use clawtex_core::hands::{
+use phantom_mesh::hands::{
     Hand, HandRegistry, HandRunner, PhaseOutput, HandCheckpoint,
     evaluate_condition,
 };
@@ -435,7 +435,7 @@ fn evaluate_condition_unknown_type_returns_true() {
 #[test]
 fn hand_checkpoint_save_and_load() {
     let _tmp = tempfile::tempdir().unwrap();
-    // We can't easily override the checkpoint path (~/.clawtex/checkpoints),
+    // We can't easily override the checkpoint path (~/.phantom-mesh/checkpoints),
     // so just verify the struct serializes correctly
     let cp = HandCheckpoint {
         hand_name: "test_hand".to_string(),

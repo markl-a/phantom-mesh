@@ -1,20 +1,20 @@
 # ============================================================================
-# Clawtex-Core Docker Compose — Route G (Managed Hosting)
+# Phantom Mesh-Core Docker Compose — Route G (Managed Hosting)
 #
 # Usage:
 #   1. Copy .env.example to .env and fill in your secrets
 #   2. Place your agents.toml in ./config/agents.toml
 #   3. Place hand definitions in ./config/hands/
 #   4. Run: docker-compose up -d
-#   5. View logs: docker-compose logs -f clawtex-core
+#   5. View logs: docker-compose logs -f phantom-mesh
 # ============================================================================
 
 services:
-  clawtex-core:
+  phantom-mesh:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: clawtex-core
+    container_name: phantom-mesh
     restart: unless-stopped
 
     ports:
@@ -23,14 +23,14 @@ services:
 
     volumes:
       # Persist config, databases, workspace, hands, and skills
-      # ./config/ on host maps to /root/.clawtex/ in container
-      - ./config:/root/.clawtex
+      # ./config/ on host maps to /root/.phantom-mesh/ in container
+      - ./config:/root/.phantom-mesh
 
       # Alternatively, mount individual paths:
-      # - ./config/agents.toml:/root/.clawtex/agents.toml:ro
-      # - ./config/hands:/root/.clawtex/hands:ro
-      # - clawtex-data:/root/.clawtex/workspace
-      # - clawtex-db:/root/.clawtex
+      # - ./config/agents.toml:/root/.phantom-mesh/agents.toml:ro
+      # - ./config/hands:/root/.phantom-mesh/hands:ro
+      # - phantom-mesh-data:/root/.phantom-mesh/workspace
+      # - phantom-mesh-db:/root/.phantom-mesh
 
     environment:
       # ── Required ──
@@ -55,12 +55,12 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
 
       # ── PostgreSQL (optional, for pgvector semantic memory) ──
-      - CLAWTEX_PG_URL=${CLAWTEX_PG_URL:-}
+      - PHANTOM_MESH_PG_URL=${PHANTOM_MESH_PG_URL:-}
 
       # ── Rust logging ──
       - RUST_LOG=${RUST_LOG:-info}
 
-      # ── Home directory (used by clawtex-core to find ~/.clawtex) ──
+      # ── Home directory (used by phantom-mesh to find ~/.phantom-mesh) ──
       - HOME=/root
 
     # Resource limits (adjust based on your hosting plan)
@@ -93,5 +93,5 @@ services:
 
 # Named volumes (uncomment if using split volume mounts above)
 # volumes:
-#   clawtex-data:
-#   clawtex-db:
+#   phantom-mesh-data:
+#   phantom-mesh-db:

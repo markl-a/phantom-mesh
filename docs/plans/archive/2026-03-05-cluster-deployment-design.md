@@ -1,4 +1,4 @@
-# Clawtex 8 機 AI 集群自動化部署系統設計
+# Phantom Mesh 8 機 AI 集群自動化部署系統設計
 
 > 文件建立日期: 2026-03-05
 > 作者: DevOps 工程設計
@@ -38,7 +38,7 @@
 
 ```
 Hub (Z13):
-  - 運行完整 clawtex-core (Telegram bot + HTTP API + Hands + Gateway)
+  - 運行完整 phantom-mesh (Telegram bot + HTTP API + Hands + Gateway)
   - 持有所有 API keys 和 secrets
   - ClusterRegistry 主節點
   - Cron 調度器
@@ -47,7 +47,7 @@ Hub (Z13):
 
 Worker (M1/Ayaneo/Acer/...):
   - 運行 Ollama (模型推理)
-  - 可選: 運行 clawtex-core worker 模式 (接收委派任務)
+  - 可選: 運行 phantom-mesh worker 模式 (接收委派任務)
   - 不持有 API keys (透過 Hub 代理)
   - 定期向 Hub 回報健康狀態
 ```
@@ -112,7 +112,7 @@ Worker (M1/Ayaneo/Acer/...):
 cargo build --release  # x86_64-pc-windows-msvc
 
 # M1 上 SSH 執行遠端編譯 (最可靠的 macOS binary 來源)
-ssh m1 "cd /tmp/clawtex-core && cargo build --release"
+ssh m1 "cd /tmp/phantom-mesh && cargo build --release"
 
 # Linux binary: 用 cross 工具在 Z13 上交叉編譯
 cross build --release --target x86_64-unknown-linux-gnu
@@ -120,7 +120,7 @@ cross build --release --target x86_64-unknown-linux-gnu
 
 ### 2.3 依賴處理
 
-clawtex-core 的依賴分析 (基於 Cargo.toml):
+phantom-mesh 的依賴分析 (基於 Cargo.toml):
 
 ```
 rusqlite: features=["bundled"]  → 自帶 SQLite C 源碼，不依賴系統 libsqlite3
@@ -129,7 +129,7 @@ chacha20poly1305: 純 Rust
 axum, tokio: 純 Rust
 ```
 
-**結論: clawtex-core 是完全自包含的 Rust binary，零 native 依賴。**
+**結論: phantom-mesh 是完全自包含的 Rust binary，零 native 依賴。**
 這大幅簡化了交叉編譯 -- 不需要處理 OpenSSL 或其他 C 庫。
 
 唯一的運行時依賴是外部程式:
@@ -168,7 +168,7 @@ cross build --release --target aarch64-unknown-linux-gnu
 
 1. **8 台規模不需要 Kubernetes/Docker Swarm** -- 過度工程化
 2. **Windows 機器佔多數** -- Docker Desktop on Windows 性能差、授權問題
-3. **clawtex-core 是靜態連結 binary** -- SCP 一個檔案就完事
+3. **phantom-mesh 是靜態連結 binary** -- SCP 一個檔案就完事
 4. **M1 Mac** -- Docker 在 ARM Mac 上跑 x86 有 Rosetta 開銷
 5. **Acer 如果裝 Linux** -- 可以用 Docker 作為備選方案
 
@@ -176,15 +176,15 @@ cross build --release --target aarch64-unknown-linux-gnu
 
 ```
 Z13 (Build Machine)
-├── cargo build --release              → target/release/clawtex-core.exe (Windows)
+├── cargo build --release              → target/release/phantom-mesh.exe (Windows)
 ├── ssh m1 "cargo build --release"     → 從 M1 拉回 binary (macOS)
 └── cross build --release --target x86_64-unknown-linux-gnu → (Linux)
 
 然後:
-├── scp clawtex-core.exe → Ayaneo:/opt/clawtex/
-├── scp clawtex-core.exe → Acer:/opt/clawtex/   (若 Windows)
-├── scp clawtex-core   → Acer:/opt/clawtex/     (若 Linux)
-└── scp clawtex-core   → M1:/opt/clawtex/       (macOS)
+├── scp phantom-mesh.exe → Ayaneo:/opt/phantom-mesh/
+├── scp phantom-mesh.exe → Acer:/opt/phantom-mesh/   (若 Windows)
+├── scp phantom-mesh   → Acer:/opt/phantom-mesh/     (若 Linux)
+└── scp phantom-mesh   → M1:/opt/phantom-mesh/       (macOS)
 ```
 
 ---
@@ -210,7 +210,7 @@ Z13 (Build Machine)
 host = "0.0.0.0"
 port = 7878
 role = "hub"               # 標識為 Hub
-db_path = "~/.clawtex/core.db"
+db_path = "~/.phantom-mesh/core.db"
 
 [cluster]
 # Hub 知道所有 Worker 的位置
@@ -294,7 +294,7 @@ default_model = "qwen2.5:7b"
 在 Z13 上維護配置模板:
 
 ```
-~/.clawtex/deploy/
+~/.phantom-mesh/deploy/
 ├── templates/
 │   ├── hub.agents.toml.template
 │   ├── worker.agents.toml.template
@@ -310,7 +310,7 @@ default_model = "qwen2.5:7b"
 ### 4.4 inventory.toml (集群清單)
 
 ```toml
-# ~/.clawtex/deploy/inventory.toml
+# ~/.phantom-mesh/deploy/inventory.toml
 # 集群節點清單 — deploy.sh 讀取此檔
 
 [hub]
@@ -328,7 +328,7 @@ ssh = "mark@10.0.2.1"
 os = "macos"
 arch = "aarch64"
 ollama_models = ["llama3.1:8b", "qwen2.5:14b"]
-deploy_path = "/opt/clawtex"
+deploy_path = "/opt/phantom-mesh"
 ollama_port = 11434
 
 [[workers]]
@@ -338,7 +338,7 @@ ssh = "user@10.0.1.4"
 os = "windows"
 arch = "x86_64"
 ollama_models = ["qwen2.5:7b"]
-deploy_path = "C:/clawtex"
+deploy_path = "C:/phantom-mesh"
 ollama_port = 11434
 
 [[workers]]
@@ -348,7 +348,7 @@ ssh = "user@10.0.1.3"
 os = "windows"
 arch = "x86_64"
 ollama_models = ["llama3.1:8b", "qwen2.5:13b"]
-deploy_path = "C:/clawtex"
+deploy_path = "C:/phantom-mesh"
 ollama_port = 11434
 ```
 
@@ -360,7 +360,7 @@ ollama_port = 11434
 2. Hub 的 agents.toml 使用 enc2: 加密格式 (ChaCha20-Poly1305)
 3. Worker 不需要 API keys — 它們只跑 Ollama
 4. .env 檔案不進 git
-5. 加密金鑰存在 ~/.clawtex/secret.key (自動生成，不進 git)
+5. 加密金鑰存在 ~/.phantom-mesh/secret.key (自動生成，不進 git)
 
 如果 Worker 需要 cloud API (未來):
   → Hub 代理模式: Worker 把請求送到 Hub，Hub 帶上 API key 轉發
@@ -369,19 +369,19 @@ ollama_port = 11434
 
 ### 4.6 動態配置更新
 
-目前 clawtex-core 啟動時讀取 agents.toml，需要重啟才能更新。
+目前 phantom-mesh 啟動時讀取 agents.toml，需要重啟才能更新。
 
 **Phase 1 (目前可行):** 配置更新時自動重啟服務
 ```bash
 # deploy.sh 更新配置後會自動 restart
-scp agents.toml worker:/opt/clawtex/agents.toml
-ssh worker "systemctl restart clawtex-core"  # Linux
-ssh worker "taskkill /f /im clawtex-core.exe && start clawtex-core.exe"  # Windows
+scp agents.toml worker:/opt/phantom-mesh/agents.toml
+ssh worker "systemctl restart phantom-mesh"  # Linux
+ssh worker "taskkill /f /im phantom-mesh.exe && start phantom-mesh.exe"  # Windows
 ```
 
 **Phase 2 (未來):** 熱載入配置
 ```rust
-// 需要在 clawtex-core 中加入:
+// 需要在 phantom-mesh 中加入:
 // 1. SIGHUP handler (Linux/Mac) 或 named pipe (Windows) 觸發重新載入
 // 2. 監聽 agents.toml 的 fs::watch
 // 3. AtomicSwap 更新 provider router
@@ -402,15 +402,15 @@ BUILD_TIME=$(date +%Y%m%d-%H%M%S)
 RELEASE_TAG="${VERSION}-${BUILD_TIME}"
 
 # 部署目錄結構 (每台 Worker 上)
-/opt/clawtex/
+/opt/phantom-mesh/
 ├── bin/
-│   ├── clawtex-core                    → symlink → releases/abc1234-20260305-143000/clawtex-core
-│   └── clawtex-core.prev               → symlink → releases/def5678-20260304-120000/clawtex-core
+│   ├── phantom-mesh                    → symlink → releases/abc1234-20260305-143000/phantom-mesh
+│   └── phantom-mesh.prev               → symlink → releases/def5678-20260304-120000/phantom-mesh
 ├── releases/
 │   ├── abc1234-20260305-143000/
-│   │   └── clawtex-core
+│   │   └── phantom-mesh
 │   ├── def5678-20260304-120000/
-│   │   └── clawtex-core
+│   │   └── phantom-mesh
 │   └── (保留最近 5 個版本)
 ├── config/
 │   └── agents.toml
@@ -420,13 +420,13 @@ RELEASE_TAG="${VERSION}-${BUILD_TIME}"
 
 Windows 上等效結構:
 ```
-C:\clawtex\
+C:\phantom-mesh\
 ├── bin\
-│   ├── clawtex-core.exe               → 當前版本
-│   └── clawtex-core.prev.exe          → 上一版本
+│   ├── phantom-mesh.exe               → 當前版本
+│   └── phantom-mesh.prev.exe          → 上一版本
 ├── releases\
 │   ├── abc1234-20260305-143000\
-│   │   └── clawtex-core.exe
+│   │   └── phantom-mesh.exe
 │   └── ...
 ├── config\
 │   └── agents.toml
@@ -483,7 +483,7 @@ C:\clawtex\
 ### 6.1 模型版本對齊策略
 
 ```toml
-# ~/.clawtex/deploy/models.toml
+# ~/.phantom-mesh/deploy/models.toml
 # 定義每台機器應該有哪些模型
 
 [models]
@@ -538,7 +538,7 @@ update-models.sh 流程:
 
 ## 7. 自動化腳本完整實作
 
-所有腳本放在 `~/.clawtex/deploy/scripts/` 或 repo 的 `deploy/` 目錄。
+所有腳本放在 `~/.phantom-mesh/deploy/scripts/` 或 repo 的 `deploy/` 目錄。
 
 ### 7.1 deploy/inventory.sh (共用函數庫)
 
@@ -555,10 +555,10 @@ set -euo pipefail
 
 # 格式: NAME|SSH|OS|ARCH|DEPLOY_PATH|OLLAMA_PORT|ROLE
 NODES=(
-    "z13||windows|x86_64|C:/clawtex|11434|hub"
-    "m1|mark@10.0.2.1|macos|aarch64|/opt/clawtex|11434|worker"
-    "ayaneo|user@10.0.1.4|windows|x86_64|C:/clawtex|11434|worker"
-    "acer|user@10.0.1.3|windows|x86_64|C:/clawtex|11434|worker"
+    "z13||windows|x86_64|C:/phantom-mesh|11434|hub"
+    "m1|mark@10.0.2.1|macos|aarch64|/opt/phantom-mesh|11434|worker"
+    "ayaneo|user@10.0.1.4|windows|x86_64|C:/phantom-mesh|11434|worker"
+    "acer|user@10.0.1.3|windows|x86_64|C:/phantom-mesh|11434|worker"
 )
 
 # Ollama API endpoints (用於健康檢查)
@@ -569,7 +569,7 @@ declare -A OLLAMA_URLS=(
     [acer]="http://10.0.1.3:11434"
 )
 
-# clawtex-core HTTP endpoints
+# phantom-mesh HTTP endpoints
 declare -A CORE_URLS=(
     [z13]="http://localhost:7878"
     [m1]="http://10.0.2.1:7878"
@@ -616,9 +616,9 @@ get_role()        { get_node_field "$1" 7; }
 get_binary_name() {
     local os="$1"
     if [[ "$os" == "windows" ]]; then
-        echo "clawtex-core.exe"
+        echo "phantom-mesh.exe"
     else
-        echo "clawtex-core"
+        echo "phantom-mesh"
     fi
 }
 
@@ -654,7 +654,7 @@ check_ollama() {
     curl -sf --max-time "$timeout" "${url}/api/tags" > /dev/null 2>&1
 }
 
-# 健康檢查: clawtex-core HTTP API
+# 健康檢查: phantom-mesh HTTP API
 check_core() {
     local url="$1"
     local timeout="${2:-5}"
@@ -706,7 +706,7 @@ notify_telegram() {
 
 ```bash
 #!/usr/bin/env bash
-# deploy/deploy.sh — 一鍵部署 clawtex-core 到所有節點
+# deploy/deploy.sh — 一鍵部署 phantom-mesh 到所有節點
 #
 # 用法:
 #   ./deploy.sh              # 部署到所有節點
@@ -726,8 +726,8 @@ BUILD_ONLY=false
 SKIP_BUILD=false
 WORKERS_ONLY=false
 TARGET_NODE=""
-CLAWTEX_SRC="${CLAWTEX_SRC:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
-BUILD_DIR="${CLAWTEX_SRC}/target"
+PHANTOM_MESH_SRC="${PHANTOM_MESH_SRC:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+BUILD_DIR="${PHANTOM_MESH_SRC}/target"
 RELEASE_DIR="${SCRIPT_DIR}/releases"
 
 while [[ $# -gt 0 ]]; do
@@ -750,14 +750,14 @@ done
 
 # ── 版本資訊 ──────────────────────────────────────────────────────
 
-cd "$CLAWTEX_SRC"
+cd "$PHANTOM_MESH_SRC"
 GIT_HASH=$(git rev-parse --short HEAD 2>/dev/null || echo "nogit")
 BUILD_TIME=$(date +%Y%m%d-%H%M%S)
 VERSION="${GIT_HASH}-${BUILD_TIME}"
 
-log_info "Clawtex 部署開始"
+log_info "Phantom Mesh 部署開始"
 log_info "版本: ${VERSION}"
-log_info "源碼: ${CLAWTEX_SRC}"
+log_info "源碼: ${PHANTOM_MESH_SRC}"
 echo ""
 
 # ══════════════════════════════════════════════════════════════════
@@ -772,8 +772,8 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     # ── Windows x86_64 (本地編譯) ────────────────────────────────
     log_info "編譯 Windows x86_64 (本地)..."
     cargo build --release 2>&1 | tail -3
-    cp "${BUILD_DIR}/release/clawtex-core.exe" "${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe"
-    log_ok "Windows x86_64 binary 完成 ($(du -h "${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe" | cut -f1))"
+    cp "${BUILD_DIR}/release/phantom-mesh.exe" "${RELEASE_DIR}/${VERSION}/phantom-mesh-windows-x86_64.exe"
+    log_ok "Windows x86_64 binary 完成 ($(du -h "${RELEASE_DIR}/${VERSION}/phantom-mesh-windows-x86_64.exe" | cut -f1))"
 
     # ── macOS aarch64 (遠端編譯) ─────────────────────────────────
     M1_SSH="mark@10.0.2.1"
@@ -782,12 +782,12 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
         # 同步源碼到 M1
         rsync -az --delete \
             --exclude target --exclude .git \
-            "${CLAWTEX_SRC}/" "${M1_SSH}:/tmp/clawtex-build/"
+            "${PHANTOM_MESH_SRC}/" "${M1_SSH}:/tmp/phantom-mesh-build/"
         # 遠端編譯
-        ssh "$M1_SSH" "cd /tmp/clawtex-build && cargo build --release 2>&1 | tail -3"
+        ssh "$M1_SSH" "cd /tmp/phantom-mesh-build && cargo build --release 2>&1 | tail -3"
         # 拉回 binary
-        scp "${M1_SSH}:/tmp/clawtex-build/target/release/clawtex-core" \
-            "${RELEASE_DIR}/${VERSION}/clawtex-core-macos-aarch64"
+        scp "${M1_SSH}:/tmp/phantom-mesh-build/target/release/phantom-mesh" \
+            "${RELEASE_DIR}/${VERSION}/phantom-mesh-macos-aarch64"
         log_ok "macOS aarch64 binary 完成"
     else
         log_warn "M1 不可達，跳過 macOS 編譯"
@@ -797,8 +797,8 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
     if command -v cross &>/dev/null; then
         log_info "編譯 Linux x86_64 (cross)..."
         cross build --release --target x86_64-unknown-linux-gnu 2>&1 | tail -3
-        cp "${BUILD_DIR}/x86_64-unknown-linux-gnu/release/clawtex-core" \
-            "${RELEASE_DIR}/${VERSION}/clawtex-core-linux-x86_64"
+        cp "${BUILD_DIR}/x86_64-unknown-linux-gnu/release/phantom-mesh" \
+            "${RELEASE_DIR}/${VERSION}/phantom-mesh-linux-x86_64"
         log_ok "Linux x86_64 binary 完成"
     else
         log_warn "cross 未安裝，跳過 Linux 編譯。安裝: cargo install cross"
@@ -838,9 +838,9 @@ deploy_node() {
 
     # 選擇正確的 binary
     case "${os}-${arch}" in
-        windows-x86_64)  binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-windows-x86_64.exe" ;;
-        macos-aarch64)   binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-macos-aarch64" ;;
-        linux-x86_64)    binary_src="${RELEASE_DIR}/${VERSION}/clawtex-core-linux-x86_64" ;;
+        windows-x86_64)  binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-windows-x86_64.exe" ;;
+        macos-aarch64)   binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-macos-aarch64" ;;
+        linux-x86_64)    binary_src="${RELEASE_DIR}/${VERSION}/phantom-mesh-linux-x86_64" ;;
         *)
             log_error "[$name] 不支援的平台: ${os}-${arch}"
             return 1
@@ -875,9 +875,9 @@ deploy_node() {
     # ── 2c. 停止舊服務 ──────────────────────────────────────────
     log_info "[$name] 停止舊服務..."
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null || true" 2>/dev/null || true
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null || true" 2>/dev/null || true
     fi
     sleep 2
 
@@ -904,26 +904,26 @@ deploy_node() {
     if [[ "$os" == "windows" ]]; then
         # Windows: 使用 start 在背景啟動
         if [[ "$role" == "hub" ]]; then
-            run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/clawtex-core.exe --host 0.0.0.0 --config config/agents.toml daemon" &
+            run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/phantom-mesh.exe --host 0.0.0.0 --config config/agents.toml daemon" &
         else
-            run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/clawtex-core.exe --host 0.0.0.0 --config config/agents.toml daemon" &
+            run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/phantom-mesh.exe --host 0.0.0.0 --config config/agents.toml daemon" &
         fi
     elif [[ "$os" == "macos" ]]; then
         # macOS: nohup 背景啟動
         run_remote "$ssh_target" "
             cd '${deploy_path}' && \
-            nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon \
-                > /tmp/clawtex-core.log 2>&1 &
+            nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon \
+                > /tmp/phantom-mesh.log 2>&1 &
         "
     else
         # Linux: systemd 或 nohup
         run_remote "$ssh_target" "
-            if command -v systemctl &>/dev/null && [ -f /etc/systemd/system/clawtex-core.service ]; then
-                sudo systemctl restart clawtex-core
+            if command -v systemctl &>/dev/null && [ -f /etc/systemd/system/phantom-mesh.service ]; then
+                sudo systemctl restart phantom-mesh
             else
                 cd '${deploy_path}' && \
-                nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon \
-                    > /tmp/clawtex-core.log 2>&1 &
+                nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon \
+                    > /tmp/phantom-mesh.log 2>&1 &
             fi
         "
     fi
@@ -1032,12 +1032,12 @@ echo ""
 
 # Telegram 通知
 if [[ $DEPLOY_FAIL -eq 0 ]]; then
-    notify_telegram "Clawtex 部署完成
+    notify_telegram "Phantom Mesh 部署完成
 版本: ${VERSION}
 成功: ${DEPLOY_SUCCESS} 台"
     log_ok "部署完成"
 else
-    notify_telegram "Clawtex 部署有問題!
+    notify_telegram "Phantom Mesh 部署有問題!
 版本: ${VERSION}
 成功: ${DEPLOY_SUCCESS} 台
 失敗: ${DEPLOY_FAIL} 台 (${FAILED_NODES[*]})"
@@ -1121,7 +1121,7 @@ except: print('parse error')
         fi
     fi
 
-    # clawtex-core 檢查
+    # phantom-mesh 檢查
     if [[ -n "$core_url" ]]; then
         local health_json
         health_json=$(curl -sf --max-time 5 "${core_url}/health" 2>/dev/null) || true
@@ -1184,7 +1184,7 @@ run_check() {
     if [[ "$JSON_OUTPUT" != "true" ]]; then
         echo ""
         echo "══════════════════════════════════════════"
-        echo " Clawtex 集群健康檢查 — $(date '+%Y-%m-%d %H:%M:%S')"
+        echo " Phantom Mesh 集群健康檢查 — $(date '+%Y-%m-%d %H:%M:%S')"
         echo "══════════════════════════════════════════"
         echo ""
     else
@@ -1304,7 +1304,7 @@ pull_model_remote() {
 
 echo ""
 echo "══════════════════════════════════════════"
-echo " Clawtex Ollama 模型管理"
+echo " Phantom Mesh Ollama 模型管理"
 echo "══════════════════════════════════════════"
 echo ""
 
@@ -1446,9 +1446,9 @@ rollback_node() {
 
     # 停止服務
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null || true" 2>/dev/null || true
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null || true" 2>/dev/null || true
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null || true" 2>/dev/null || true
     fi
     sleep 2
 
@@ -1468,9 +1468,9 @@ rollback_node() {
     # 重啟
     log_info "[$name] 啟動舊版本..."
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/clawtex-core.exe --host 0.0.0.0 --config config/agents.toml daemon" &
+        run_remote "$ssh_target" "cd '${deploy_path}' && start /b bin/phantom-mesh.exe --host 0.0.0.0 --config config/agents.toml daemon" &
     else
-        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &"
+        run_remote "$ssh_target" "cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &"
     fi
 
     sleep 5
@@ -1570,9 +1570,9 @@ for node in "${NODES[@]}"; do
     local os
     os=$(get_os "$node")
     if [[ "$os" == "windows" ]]; then
-        run_remote "$ssh_target" "taskkill /f /im clawtex-core.exe 2>/dev/null; cd '${deploy_path}' && start /b bin/clawtex-core.exe --host 0.0.0.0 --config config/agents.toml daemon" 2>/dev/null &
+        run_remote "$ssh_target" "taskkill /f /im phantom-mesh.exe 2>/dev/null; cd '${deploy_path}' && start /b bin/phantom-mesh.exe --host 0.0.0.0 --config config/agents.toml daemon" 2>/dev/null &
     else
-        run_remote "$ssh_target" "pkill -f clawtex-core 2>/dev/null; sleep 2; cd '${deploy_path}' && nohup bin/clawtex-core --host 0.0.0.0 --config config/agents.toml daemon > /tmp/clawtex-core.log 2>&1 &"
+        run_remote "$ssh_target" "pkill -f phantom-mesh 2>/dev/null; sleep 2; cd '${deploy_path}' && nohup bin/phantom-mesh --host 0.0.0.0 --config config/agents.toml daemon > /tmp/phantom-mesh.log 2>&1 &"
     fi
 
     log_ok "[$name] 服務已重啟"
@@ -1639,9 +1639,9 @@ sudo systemctl daemon-reload
 sudo systemctl restart ollama
 sudo systemctl enable ollama
 
-# 建立 clawtex 目錄
-sudo mkdir -p /opt/clawtex/{bin,config,data,releases}
-sudo chown -R $(whoami) /opt/clawtex
+# 建立 phantom-mesh 目錄
+sudo mkdir -p /opt/phantom-mesh/{bin,config,data,releases}
+sudo chown -R $(whoami) /opt/phantom-mesh
 
 # 安裝 Python3 (browser/email 工具需要)
 if ! command -v python3 &>/dev/null; then
@@ -1649,16 +1649,16 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # 建立 systemd 服務
-sudo tee /etc/systemd/system/clawtex-core.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/phantom-mesh.service > /dev/null <<EOF
 [Unit]
-Description=Clawtex Core - LLM Agent Daemon
+Description=Phantom Mesh Core - LLM Agent Daemon
 After=network.target ollama.service
 
 [Service]
 Type=simple
 User=$(whoami)
-WorkingDirectory=/opt/clawtex
-ExecStart=/opt/clawtex/bin/clawtex-core --host 0.0.0.0 --config /opt/clawtex/config/agents.toml daemon
+WorkingDirectory=/opt/phantom-mesh
+ExecStart=/opt/phantom-mesh/bin/phantom-mesh --host 0.0.0.0 --config /opt/phantom-mesh/config/agents.toml daemon
 Restart=on-failure
 RestartSec=10
 Environment=RUST_LOG=info
@@ -1691,8 +1691,8 @@ fi
 grep -q OLLAMA_HOST ~/.zshrc 2>/dev/null || echo 'export OLLAMA_HOST=0.0.0.0' >> ~/.zshrc
 grep -q OLLAMA_KEEP_ALIVE ~/.zshrc 2>/dev/null || echo 'export OLLAMA_KEEP_ALIVE=24h' >> ~/.zshrc
 
-# 建立 clawtex 目錄
-mkdir -p /opt/clawtex/{bin,config,data,releases}
+# 建立 phantom-mesh 目錄
+mkdir -p /opt/phantom-mesh/{bin,config,data,releases}
 
 # 安裝 Rust (用於遠端編譯)
 if ! command -v cargo &>/dev/null; then
@@ -1710,12 +1710,12 @@ REMOTE_SCRIPT
         echo "  2. 設定環境變數:"
         echo "     setx OLLAMA_HOST 0.0.0.0"
         echo "     setx OLLAMA_KEEP_ALIVE 24h"
-        echo "  3. 建立目錄:  mkdir C:\\clawtex\\bin C:\\clawtex\\config C:\\clawtex\\data"
+        echo "  3. 建立目錄:  mkdir C:\\phantom-mesh\\bin C:\\phantom-mesh\\config C:\\phantom-mesh\\data"
         echo "  4. 確保 SSH Server 已啟用 (Settings > Apps > Optional Features > OpenSSH Server)"
         echo "  5. 啟動 Ollama:  ollama serve"
         echo ""
         log_info "建立遠端目錄..."
-        ssh "$SSH_TARGET" "mkdir -p C:/clawtex/bin C:/clawtex/config C:/clawtex/data C:/clawtex/releases" 2>/dev/null || true
+        ssh "$SSH_TARGET" "mkdir -p C:/phantom-mesh/bin C:/phantom-mesh/config C:/phantom-mesh/data C:/phantom-mesh/releases" 2>/dev/null || true
         ;;
 esac
 
@@ -1839,16 +1839,16 @@ deploy/
 │           └── agents.toml
 └── releases/            # 編譯好的 binary 存放目錄
     └── {version}/
-        ├── clawtex-core-windows-x86_64.exe
-        ├── clawtex-core-macos-aarch64
-        └── clawtex-core-linux-x86_64
+        ├── phantom-mesh-windows-x86_64.exe
+        ├── phantom-mesh-macos-aarch64
+        └── phantom-mesh-linux-x86_64
 ```
 
 ### 8.3 何時考慮升級到 Ansible
 
 當滿足以下條件時:
 - 節點數量超過 20 台
-- 需要管理多種不同服務 (不只是 clawtex-core)
+- 需要管理多種不同服務 (不只是 phantom-mesh)
 - 有多人 DevOps 團隊需要標準化工具
 - 需要 idempotent 配置管理 (確保系統狀態一致)
 
@@ -1972,7 +1972,7 @@ deploy/
 | 項目 | 檢查方式 | 頻率 | 告警閾值 |
 |------|---------|------|---------|
 | Ollama 可達 | curl /api/tags | 60s | 連續 3 次失敗 |
-| clawtex-core 健康 | curl /health | 60s | 連續 2 次失敗 |
+| phantom-mesh 健康 | curl /health | 60s | 連續 2 次失敗 |
 | 磁碟空間 | df / wmic | 300s | < 10GB |
 | 模型列表一致 | ollama list vs models.toml | 3600s | 有差異 |
 | 推理延遲 | curl /api/generate + 計時 | 300s | > 30s |
@@ -1980,18 +1980,18 @@ deploy/
 ### 10.2 Cron 監控 (Hub 上執行)
 
 ```bash
-# 加入 Hub 的 crontab (或 clawtex-core 的內建 cron)
+# 加入 Hub 的 crontab (或 phantom-mesh 的內建 cron)
 # 每 5 分鐘執行健康檢查，失敗時發 Telegram
-*/5 * * * * /opt/clawtex/deploy/health-check.sh --quick 2>&1 | grep -q "DOWN" && \
-    /opt/clawtex/deploy/health-check.sh | \
+*/5 * * * * /opt/phantom-mesh/deploy/health-check.sh --quick 2>&1 | grep -q "DOWN" && \
+    /opt/phantom-mesh/deploy/health-check.sh | \
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
         -d "chat_id=${TELEGRAM_CHAT_ID}" \
-        -d "text=Clawtex 集群告警: 有節點 DOWN"
+        -d "text=Phantom Mesh 集群告警: 有節點 DOWN"
 ```
 
-### 10.3 clawtex-core 內建監控 (未來)
+### 10.3 phantom-mesh 內建監控 (未來)
 
-在 clawtex-core 中加入 `/cluster/health` endpoint，定期 ping 所有已註冊節點:
+在 phantom-mesh 中加入 `/cluster/health` endpoint，定期 ping 所有已註冊節點:
 
 ```rust
 // 未來可在 main.rs 加入的 cluster health 自動檢測
@@ -2104,22 +2104,22 @@ async fn cluster_health_loop(state: AppState) {
 | M1 編譯失敗 | Rust 未安裝 | curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh |
 | cross 編譯失敗 | Docker 未啟動 | 啟動 Docker Desktop |
 | 磁碟空間不足 | 模型太多 | ollama rm <不需要的模型> |
-| Windows binary 執行被擋 | Defender | 加入排除路徑: C:\clawtex |
+| Windows binary 執行被擋 | Defender | 加入排除路徑: C:\phantom-mesh |
 
 ### C. Linux systemd 服務模板
 
 ```ini
 [Unit]
-Description=Clawtex Core - LLM Agent Daemon
+Description=Phantom Mesh Core - LLM Agent Daemon
 After=network.target ollama.service
 Wants=ollama.service
 
 [Service]
 Type=simple
-User=clawtex
-Group=clawtex
-WorkingDirectory=/opt/clawtex
-ExecStart=/opt/clawtex/bin/clawtex-core --host 0.0.0.0 --config /opt/clawtex/config/agents.toml daemon
+User=phantom-mesh
+Group=phantom-mesh
+WorkingDirectory=/opt/phantom-mesh
+ExecStart=/opt/phantom-mesh/bin/phantom-mesh --host 0.0.0.0 --config /opt/phantom-mesh/config/agents.toml daemon
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
@@ -2128,13 +2128,13 @@ StartLimitBurst=5
 
 # 環境
 Environment=RUST_LOG=info
-Environment=HOME=/opt/clawtex
+Environment=HOME=/opt/phantom-mesh
 
 # 安全
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/opt/clawtex
+ReadWritePaths=/opt/phantom-mesh
 
 [Install]
 WantedBy=multi-user.target
@@ -2144,10 +2144,10 @@ WantedBy=multi-user.target
 
 ```powershell
 # 在 Worker Windows 機器上執行 (管理員 PowerShell):
-$action = New-ScheduledTaskAction -Execute "C:\clawtex\bin\clawtex-core.exe" `
-    -Argument "--host 0.0.0.0 --config C:\clawtex\config\agents.toml daemon" `
-    -WorkingDirectory "C:\clawtex"
+$action = New-ScheduledTaskAction -Execute "C:\phantom-mesh\bin\phantom-mesh.exe" `
+    -Argument "--host 0.0.0.0 --config C:\phantom-mesh\config\agents.toml daemon" `
+    -WorkingDirectory "C:\phantom-mesh"
 $trigger = New-ScheduledTaskTrigger -AtStartup
 $settings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName "Clawtex Core" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest
+Register-ScheduledTask -TaskName "Phantom Mesh Core" -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest
 ```

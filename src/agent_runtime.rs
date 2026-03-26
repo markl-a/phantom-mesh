@@ -22,6 +22,8 @@ use crate::security::{AutonomyLevel, PrivacyGuard};
 use crate::policy_engine::{PolicyEngine, PolicyRequest, PolicyAction};
 use crate::tools::{ToolRegistry, ToolSpec};
 use crate::capability_broadcast::build_capability_prompt;
+use crate::power_economics::PowerEconomics;
+use crate::provider_pricing::ProviderPricingStore;
 use crate::trajectory::{TrajectoryLogger, TrajectoryEntry};
 use std::sync::Arc;
 
@@ -143,6 +145,15 @@ pub struct AgentResult {
     pub total_tokens: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RunCostBreakdown {
+    tokens_in: u32,
+    tokens_out: u32,
+    api_estimated_cost_usd: f64,
+    hardware_estimated_cost_usd: f64,
+    total_estimated_cost_usd: f64,
+}
+
 /// Built-in agent specs
 fn default_agents() -> HashMap<String, AgentConfig> {
     let mut map = HashMap::new();
@@ -153,7 +164,7 @@ fn default_agents() -> HashMap<String, AgentConfig> {
             model: Some("qwen3:8b".to_string()),
             tools: Some(vec!["shell".to_string(), "file_read".to_string(), "file_write".to_string()]),
             instructions: Some(
-                "You are Clawtex, a local AI assistant running on the user's machine. \
+                "You are Phantom Mesh, a local AI assistant running on the user's machine. \
                  You have access to shell commands, file reading, and file writing tools. \
                  Use tools when the user asks you to perform actions on the system. \
                  Be concise and helpful. Always respond in the same language as the user."
@@ -187,6 +198,9 @@ fn default_agents() -> HashMap<String, AgentConfig> {
 pub struct AgentRuntime {
     agents: HashMap<String, AgentConfig>,
     cost_tracker: Option<Arc<CostTracker>>,
+    power_economics: Option<Arc<PowerEconomics>>,
+    provider_pricing: Option<Arc<ProviderPricingStore>>,
+    execution_node_id: String,
     memory_store: Option<Arc<MemoryStore>>,
     cluster_hub: Option<Arc<ClusterHub>>,
     privacy_guard: Option<PrivacyGuard>,
@@ -213,12 +227,48 @@ impl AgentRuntime {
             default_agents()
         };
 
-        Ok(Self { agents, cost_tracker: None, memory_store: None, cluster_hub: None, privacy_guard: None, response_cache: None, event_bus: None, trajectory_logger: None, budget_breaker: None, injection_guard: None, service_tier: None, policy_engine: None })
+        Ok(Self {
+            agents,
+            cost_tracker: None,
+            power_economics: None,
+            provider_pricing: None,
+            execution_node_id: "local".to_string(),
+            memory_store: None,
+            cluster_hub: None,
+            privacy_guard: None,
+            response_cache: None,
+            event_bus: None,
+            trajectory_logger: None,
+            budget_breaker: None,
+            injection_guard: None,
+            service_tier: None,
+            policy_engine: None,
+        })
     }
 
     /// Attach a cost tracker to automatically record costs for every agent run
     pub fn set_cost_tracker(&mut self, tracker: Arc<CostTracker>) {
         self.cost_tracker = Some(tracker);
+    }
+
+    /// Set the logical execution node id used for local hardware cost accounting.
+    pub fn set_execution_node_id(&mut self, node_id: impl Into<String>) {
+        let node_id = node_id.into();
+        self.execution_node_id = if node_id.trim().is_empty() {
+            "local".to_string()
+        } else {
+            node_id
+        };
+    }
+
+    /// Attach power economics so local hardware cost can be merged into run accounting.
+    pub fn set_power_economics(&mut self, power_economics: Arc<PowerEconomics>) {
+        self.power_economics = Some(power_economics);
+    }
+
+    /// Attach runtime-editable provider pricing so API cost estimates no longer depend on hardcoded pricing only.
+    pub fn set_provider_pricing(&mut self, provider_pricing: Arc<ProviderPricingStore>) {
+        self.provider_pricing = Some(provider_pricing);
     }
 
     /// Attach a memory store for automatic context injection before each agent run
@@ -596,8 +646,6 @@ impl AgentRuntime {
                         warn!("Agent '{}' budget exceeded: {}", agent_name, e);
                         // Log trajectory (budget exceeded)
                         if let Some(ref logger) = self.trajectory_logger {
-                            let tokens_in = (total_tokens as f64 * 0.6) as u32;
-                            let tokens_out = total_tokens - tokens_in;
                             let entry = TrajectoryEntry {
                                 id: uuid::Uuid::new_v4().to_string(),
                                 session_id: None,
@@ -612,7 +660,7 @@ impl AgentRuntime {
                                 tool_names: last_tool_names.clone(),
                                 total_tokens,
                                 duration_secs: elapsed,
-                                estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                                estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                                 quality_score: None,
                                 guardrail_issues: vec![],
                                 success: false,
@@ -644,8 +692,6 @@ impl AgentRuntime {
                 self.record_run_cost(agent_name, &effective_provider, model, total_tokens, elapsed, Some("timeout"));
                 // Log trajectory (timeout)
                 if let Some(ref logger) = self.trajectory_logger {
-                    let tokens_in = (total_tokens as f64 * 0.6) as u32;
-                    let tokens_out = total_tokens - tokens_in;
                     let entry = TrajectoryEntry {
                         id: uuid::Uuid::new_v4().to_string(),
                         session_id: None,
@@ -660,7 +706,7 @@ impl AgentRuntime {
                         tool_names: last_tool_names.clone(),
                         total_tokens,
                         duration_secs: elapsed,
-                        estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                        estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                         quality_score: None,
                         guardrail_issues: vec![],
                         success: false,
@@ -1050,8 +1096,6 @@ impl AgentRuntime {
                             self.record_run_cost(agent_name, &effective_provider, model, total_tokens, elapsed, Some("loop_detected"));
                             // Log trajectory (loop detected)
                             if let Some(ref logger) = self.trajectory_logger {
-                                let tokens_in = (total_tokens as f64 * 0.6) as u32;
-                                let tokens_out = total_tokens - tokens_in;
                                 let entry = TrajectoryEntry {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     session_id: None,
@@ -1066,7 +1110,7 @@ impl AgentRuntime {
                                     tool_names: last_tool_names.clone(),
                                     total_tokens,
                                     duration_secs: elapsed,
-                                    estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                                    estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                                     quality_score: None,
                                     guardrail_issues: vec![],
                                     success: false,
@@ -1157,8 +1201,6 @@ impl AgentRuntime {
                                         self.record_run_cost(agent_name, &effective_provider, model, total_tokens, elapsed, Some("stale_loop"));
                                         // Log trajectory (stale loop)
                                         if let Some(ref logger) = self.trajectory_logger {
-                                            let tokens_in = (total_tokens as f64 * 0.6) as u32;
-                                            let tokens_out = total_tokens - tokens_in;
                                             let entry = TrajectoryEntry {
                                                 id: uuid::Uuid::new_v4().to_string(),
                                                 session_id: None,
@@ -1173,7 +1215,7 @@ impl AgentRuntime {
                                                 tool_names: last_tool_names.clone(),
                                                 total_tokens,
                                                 duration_secs: elapsed,
-                                                estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                                                estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                                                 quality_score: None,
                                                 guardrail_issues: vec![],
                                                 success: false,
@@ -1241,8 +1283,6 @@ impl AgentRuntime {
 
             // Log trajectory (successful completion)
             if let Some(ref logger) = self.trajectory_logger {
-                let tokens_in = (total_tokens as f64 * 0.6) as u32;
-                let tokens_out = total_tokens - tokens_in;
                 let entry = TrajectoryEntry {
                     id: uuid::Uuid::new_v4().to_string(),
                     session_id: None,
@@ -1257,7 +1297,7 @@ impl AgentRuntime {
                     tool_names: last_tool_names.clone(),
                     total_tokens,
                     duration_secs: elapsed,
-                    estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                    estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                     quality_score: None,
                     guardrail_issues: vec![],
                     success: true,
@@ -1314,8 +1354,6 @@ impl AgentRuntime {
 
         // Log trajectory (hit max rounds)
         if let Some(ref logger) = self.trajectory_logger {
-            let tokens_in = (total_tokens as f64 * 0.6) as u32;
-            let tokens_out = total_tokens - tokens_in;
             let entry = TrajectoryEntry {
                 id: uuid::Uuid::new_v4().to_string(),
                 session_id: None,
@@ -1330,7 +1368,7 @@ impl AgentRuntime {
                 tool_names: last_tool_names.clone(),
                 total_tokens,
                 duration_secs: elapsed,
-                estimated_cost_usd: estimate_cost(&effective_provider, model, tokens_in, tokens_out),
+                estimated_cost_usd: self.estimate_total_run_cost(&effective_provider, model, total_tokens, elapsed),
                 quality_score: None,
                 guardrail_issues: vec![],
                 success: true,
@@ -1362,26 +1400,113 @@ impl AgentRuntime {
     /// Record cost for an agent run (if cost tracker is attached)
     fn record_run_cost(&self, agent: &str, provider: &str, model: &str, total_tokens: u32, duration_secs: f64, context: Option<&str>) {
         if let Some(ref ct) = self.cost_tracker {
-            // Estimate input/output split (rough: 60% in, 40% out)
-            let tokens_in = (total_tokens as f64 * 0.6) as u32;
-            let tokens_out = total_tokens - tokens_in;
-            let cost = estimate_cost(provider, model, tokens_in, tokens_out);
+            let cost = self.estimate_run_cost_breakdown(provider, model, total_tokens, duration_secs);
             let record = CostRecord {
                 id: uuid::Uuid::new_v4().to_string(),
                 timestamp: chrono::Utc::now(),
                 agent: agent.to_string(),
                 provider: provider.to_string(),
                 model: model.to_string(),
-                tokens_in,
-                tokens_out,
+                tokens_in: cost.tokens_in,
+                tokens_out: cost.tokens_out,
                 total_tokens,
-                estimated_cost_usd: cost,
+                node_id: Some(self.execution_node_id.clone()),
+                api_estimated_cost_usd: cost.api_estimated_cost_usd,
+                hardware_estimated_cost_usd: cost.hardware_estimated_cost_usd,
+                estimated_cost_usd: cost.total_estimated_cost_usd,
                 duration_secs,
                 context: context.map(|s| s.to_string()),
             };
             if let Err(e) = ct.record(&record) {
                 warn!("Failed to record cost: {}", e);
             }
+        }
+    }
+
+    fn estimate_run_cost_breakdown(
+        &self,
+        provider: &str,
+        model: &str,
+        total_tokens: u32,
+        duration_secs: f64,
+    ) -> RunCostBreakdown {
+        let tokens_in = (total_tokens as f64 * 0.6) as u32;
+        let tokens_out = total_tokens - tokens_in;
+        let api_estimated_cost_usd = self.estimate_api_cost(provider, model, tokens_in, tokens_out);
+        let hardware_estimated_cost_usd = self.estimate_hardware_cost(provider, duration_secs);
+
+        RunCostBreakdown {
+            tokens_in,
+            tokens_out,
+            api_estimated_cost_usd,
+            hardware_estimated_cost_usd,
+            total_estimated_cost_usd: api_estimated_cost_usd + hardware_estimated_cost_usd,
+        }
+    }
+
+    fn estimate_total_run_cost(&self, provider: &str, model: &str, total_tokens: u32, duration_secs: f64) -> f64 {
+        self.estimate_run_cost_breakdown(provider, model, total_tokens, duration_secs)
+            .total_estimated_cost_usd
+    }
+
+    fn estimate_api_cost(&self, provider: &str, model: &str, tokens_in: u32, tokens_out: u32) -> f64 {
+        if let Some(store) = self.provider_pricing.as_ref() {
+            match store.estimate_cost(provider, model, tokens_in, tokens_out) {
+                Ok(estimate) => return estimate.total_usd,
+                Err(error) => {
+                    warn!(
+                        "Failed to estimate API cost from pricing store for {}:{}: {}; falling back to builtin pricing",
+                        provider, model, error
+                    );
+                }
+            }
+        }
+        estimate_cost(provider, model, tokens_in, tokens_out)
+    }
+
+    fn estimate_hardware_cost(&self, provider: &str, duration_secs: f64) -> f64 {
+        if duration_secs <= 0.0 {
+            return 0.0;
+        }
+        let power = match self.power_economics.as_ref() {
+            Some(power) => power,
+            None => return 0.0,
+        };
+        let load_factor = Self::hardware_load_factor(provider);
+        match power.estimate_run_cost(&self.execution_node_id, duration_secs, load_factor) {
+            Ok(estimate) => estimate.total_usd,
+            Err(primary_error) if self.execution_node_id != "local" => {
+                match power.estimate_run_cost("local", duration_secs, load_factor) {
+                    Ok(estimate) => {
+                        debug!(
+                            "Power economics fallback: node '{}' missing profile for provider '{}', using 'local' ({})",
+                            self.execution_node_id, provider, primary_error
+                        );
+                        estimate.total_usd
+                    }
+                    Err(fallback_error) => {
+                        warn!(
+                            "Failed to estimate hardware cost for node '{}' (fallback 'local' also failed): {}; {}",
+                            self.execution_node_id, primary_error, fallback_error
+                        );
+                        0.0
+                    }
+                }
+            }
+            Err(error) => {
+                warn!(
+                    "Failed to estimate hardware cost for node '{}': {}",
+                    self.execution_node_id, error
+                );
+                0.0
+            }
+        }
+    }
+
+    fn hardware_load_factor(provider: &str) -> f64 {
+        match provider {
+            "ollama" | "lmstudio" | "lemonade" => 1.0,
+            _ => 0.25,
         }
     }
 

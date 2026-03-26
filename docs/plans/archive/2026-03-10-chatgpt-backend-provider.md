@@ -41,7 +41,7 @@ tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo check 2>&1 | tail -5`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo check 2>&1 | tail -5`
 Expected: compiles successfully (new dep downloaded)
 
 - [ ] **Step 3: Commit**
@@ -73,7 +73,7 @@ async fn test_get_credential_clone_returns_none_without_auth_file() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test test_get_credential_clone -- --nocapture 2>&1 | tail -10`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test test_get_credential_clone -- --nocapture 2>&1 | tail -10`
 Expected: FAIL — `get_credential_clone` method not found
 
 - [ ] **Step 3: Add get_credential_clone method**
@@ -105,7 +105,7 @@ Also ensure `CodexCredential` derives `Clone` (check line 32 — it should alrea
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test test_get_credential_clone -- --nocapture 2>&1 | tail -10`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test test_get_credential_clone -- --nocapture 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -122,7 +122,7 @@ git commit -m "feat: add get_credential_clone to CodexTokenManager"
 **Files:**
 - Create: `src/providers/chatgpt_backend.rs`
 
-This task implements the message format translation between clawtex `ChatMessage` and the ChatGPT backend API format. No HTTP calls yet — pure data transformation.
+This task implements the message format translation between phantom-mesh `ChatMessage` and the ChatGPT backend API format. No HTTP calls yet — pure data transformation.
 
 - [ ] **Step 1: Write tests for message translation**
 
@@ -229,7 +229,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
 Expected: FAIL — `todo!()` panics
 
 - [ ] **Step 3: Implement message translation functions**
@@ -289,7 +289,7 @@ pub mod chatgpt_backend;
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
 Expected: all 5 tests PASS
 
 - [ ] **Step 6: Commit**
@@ -356,7 +356,7 @@ async fn test_build_request_body() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -15`
 Expected: FAIL — `ChatGptBackendProvider` not found
 
 - [ ] **Step 3: Implement ChatGptBackendProvider struct**
@@ -612,7 +612,7 @@ use super::codex::CodexTokenManager;
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -20`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_backend::tests -- --nocapture 2>&1 | tail -20`
 Expected: all 7 tests PASS
 
 - [ ] **Step 6: Commit**
@@ -652,7 +652,7 @@ fn test_create_chatgpt_backend_provider() {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test test_create_chatgpt_backend -- --nocapture 2>&1 | tail -10`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test test_create_chatgpt_backend -- --nocapture 2>&1 | tail -10`
 Expected: FAIL — no match arm for "chatgpt_backend"
 
 - [ ] **Step 3: Add chatgpt_backend to create_provider match block**
@@ -692,12 +692,12 @@ pub use chatgpt_backend::ChatGptBackendProvider;
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test test_create_chatgpt_backend -- --nocapture 2>&1 | tail -10`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test test_create_chatgpt_backend -- --nocapture 2>&1 | tail -10`
 Expected: PASS
 
 - [ ] **Step 6: Run full test suite**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test 2>&1 | tail -5`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test 2>&1 | tail -5`
 Expected: all existing tests still pass
 
 - [ ] **Step 7: Commit**
@@ -891,7 +891,7 @@ pub mod chatgpt_ws;
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
 Expected: FAIL — `todo!()` panics
 
 - [ ] **Step 4: Implement conversion functions**
@@ -1032,7 +1032,7 @@ fn parse_ws_event(event: &Value) -> WsEventData {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
 Expected: all 6 tests PASS
 
 - [ ] **Step 6: Commit**
@@ -1112,7 +1112,7 @@ fn test_build_response_create_with_previous_id() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
 Expected: FAIL — `ChatGptWsProvider` and `build_response_create_event` not found
 
 - [ ] **Step 3: Implement build_response_create_event**
@@ -1380,7 +1380,7 @@ impl Provider for ChatGptWsProvider {
 
 - [ ] **Step 5: Run tests**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test chatgpt_ws::tests -- --nocapture 2>&1 | tail -15`
 Expected: all 9 tests PASS
 
 - [ ] **Step 6: Commit**
@@ -1421,7 +1421,7 @@ pub use chatgpt_ws::ChatGptWsProvider;
 
 - [ ] **Step 3: Run full test suite**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test 2>&1 | tail -5`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test 2>&1 | tail -5`
 Expected: all tests pass
 
 - [ ] **Step 4: Commit**
@@ -1565,7 +1565,7 @@ pub use key_pool::KeyPool;
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test key_pool::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test key_pool::tests -- --nocapture 2>&1 | tail -15`
 Expected: all 4 tests PASS
 
 - [ ] **Step 4: Commit**
@@ -1748,7 +1748,7 @@ pub use classifier::{RequestClassifier, RequestComplexity};
 
 - [ ] **Step 3: Run tests**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test classifier::tests -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test classifier::tests -- --nocapture 2>&1 | tail -15`
 Expected: all 5 tests PASS (may need to adapt MockProvider constructor)
 
 - [ ] **Step 4: Commit**
@@ -1898,7 +1898,7 @@ if (provider.is_empty() || provider == "auto") && self.classifier.is_some() {
 
 - [ ] **Step 4: Run full test suite**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test 2>&1 | tail -5`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test 2>&1 | tail -5`
 Expected: all tests pass
 
 - [ ] **Step 5: Commit**
@@ -1922,9 +1922,9 @@ Add to integration tests:
 #[tokio::test]
 async fn test_chatgpt_backend_provider_creation() {
     // Verify the provider can be created and has correct metadata
-    use clawtex_core::providers::ChatGptBackendProvider;
-    use clawtex_core::providers::codex::CodexTokenManager;
-    use clawtex_core::providers::Provider;
+    use phantom_mesh::providers::ChatGptBackendProvider;
+    use phantom_mesh::providers::codex::CodexTokenManager;
+    use phantom_mesh::providers::Provider;
     use std::sync::Arc;
 
     let tm = Arc::new(CodexTokenManager::new());
@@ -1936,9 +1936,9 @@ async fn test_chatgpt_backend_provider_creation() {
 
 #[tokio::test]
 async fn test_chatgpt_ws_provider_creation() {
-    use clawtex_core::providers::ChatGptWsProvider;
-    use clawtex_core::providers::codex::CodexTokenManager;
-    use clawtex_core::providers::Provider;
+    use phantom_mesh::providers::ChatGptWsProvider;
+    use phantom_mesh::providers::codex::CodexTokenManager;
+    use phantom_mesh::providers::Provider;
     use std::sync::Arc;
 
     let tm = Arc::new(CodexTokenManager::new());
@@ -1949,7 +1949,7 @@ async fn test_chatgpt_ws_provider_creation() {
 
 #[tokio::test]
 async fn test_key_pool_integration() {
-    use clawtex_core::providers::KeyPool;
+    use phantom_mesh::providers::KeyPool;
 
     let pool = KeyPool::new(vec![
         "gemini-key-1".into(),
@@ -1967,9 +1967,9 @@ async fn test_key_pool_integration() {
 
 #[tokio::test]
 async fn test_request_classifier_integration() {
-    use clawtex_core::providers::{RequestClassifier, RequestComplexity};
-    use clawtex_core::providers::mock::MockProvider;
-    use clawtex_core::providers::ChatMessage;
+    use phantom_mesh::providers::{RequestClassifier, RequestComplexity};
+    use phantom_mesh::providers::mock::MockProvider;
+    use phantom_mesh::providers::ChatMessage;
     use std::sync::Arc;
 
     let mock = Arc::new(MockProvider::fixed("COMPLEX"));
@@ -1989,12 +1989,12 @@ async fn test_request_classifier_integration() {
 
 - [ ] **Step 2: Run integration tests**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test --test integration test_chatgpt test_key_pool test_request_classifier -- --nocapture 2>&1 | tail -15`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test --test integration test_chatgpt test_key_pool test_request_classifier -- --nocapture 2>&1 | tail -15`
 Expected: all 4 integration tests PASS
 
 - [ ] **Step 3: Run full test suite**
 
-Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/clawtex-core && cargo test 2>&1 | tail -5`
+Run: `cd C:/Users/m4932/Desktop/adreanalai/LLM-Cluster-Project/phantom-mesh && cargo test 2>&1 | tail -5`
 Expected: all tests pass, 0 failures
 
 - [ ] **Step 4: Commit**

@@ -14,7 +14,7 @@ use std::time::Duration;
 const DEFAULT_MAX_IDLE_PER_HOST: usize = 5;
 const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 120;
-const USER_AGENT: &str = "clawtex-core/0.1.0";
+const USER_AGENT: &str = "phantom-mesh/0.1.0";
 
 // ── PoolConfig ─────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ impl Default for PoolConfig {
 /// - Pool max idle per host (default 5)
 /// - Connect timeout (default 10 s)
 /// - Request timeout (default 120 s)
-/// - User-Agent header: `clawtex-core/0.1.0`
+/// - User-Agent header: `phantom-mesh/0.1.0`
 pub struct HttpPool {
     client: Client,
     config: PoolConfig,

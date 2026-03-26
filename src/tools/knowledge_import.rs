@@ -20,7 +20,7 @@ impl KnowledgeImportTool {
     fn default_db_path() -> std::path::PathBuf {
         dirs::home_dir()
             .unwrap_or_default()
-            .join(".clawtex")
+            .join(".phantom-mesh")
             .join("knowledge_import.db")
     }
 
@@ -400,7 +400,7 @@ impl KnowledgeImportTool {
 
         let client = reqwest::Client::new();
         let resp = client.get(source)
-            .header("User-Agent", "Clawtex-KnowledgeImport/1.0")
+            .header("User-Agent", "Phantom Mesh-KnowledgeImport/1.0")
             .timeout(std::time::Duration::from_secs(60))
             .send()
             .await;
@@ -872,7 +872,7 @@ mod tests {
 
     #[test]
     fn test_init_db() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_init.db");
         let _ = std::fs::remove_file(&db_path);
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn test_store_and_query_chunk() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_store.db");
         let _ = std::fs::remove_file(&db_path);
@@ -911,7 +911,7 @@ mod tests {
 
     #[test]
     fn test_store_multiple_chunks() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki");
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("test_multi.db");
         let _ = std::fs::remove_file(&db_path);
@@ -937,7 +937,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_txt_file() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki_import");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki_import");
         let _ = std::fs::create_dir_all(&dir);
         let txt_path = dir.join("test_import.txt");
         std::fs::write(&txt_path, "This is test content.\nWith multiple lines.\nFor knowledge import.").unwrap();
@@ -958,7 +958,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_json_file() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki_import");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki_import");
         let _ = std::fs::create_dir_all(&dir);
         let json_path = dir.join("test_import.json");
         std::fs::write(&json_path, r#"{"key": "value", "items": [1, 2, 3]}"#).unwrap();
@@ -978,7 +978,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_csv_file() {
-        let dir = std::env::temp_dir().join("clawtex_test_ki_import");
+        let dir = std::env::temp_dir().join("phantom_mesh_test_ki_import");
         let _ = std::fs::create_dir_all(&dir);
         let csv_path = dir.join("test_import.csv");
         std::fs::write(&csv_path, "name,age,city\nAlice,30,Taipei\nBob,25,Tokyo\n").unwrap();

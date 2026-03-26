@@ -1,6 +1,6 @@
-# Clawtex Core API Guide
+# Phantom Mesh Core API Guide
 
-Clawtex Core is a Rust daemon running on port **7878** (hub) that provides:
+Phantom Mesh Core is a Rust daemon running on port **7878** (hub) that provides:
 
 - LLM routing across 10+ providers
 - Multi-agent orchestration with tool calling
@@ -18,7 +18,7 @@ All endpoints except `/health` and `/dashboard` require:
 Authorization: Bearer <hub_api_key>
 ```
 
-The key is either set in `~/.clawtex/agents.toml`:
+The key is either set in `~/.phantom-mesh/agents.toml`:
 
 ```toml
 [core]
@@ -47,7 +47,7 @@ No auth required.
 
 ```bash
 curl http://localhost:7878/health
-# {"status":"ok","version":"0.1.0","service":"clawtex-core"}
+# {"status":"ok","version":"0.1.0","service":"phantom-mesh"}
 ```
 
 ### GET /metrics
@@ -164,7 +164,7 @@ Subscribe to agent event bus (SSE). Receives all AgentEvent objects in real-time
 
 ## Hands
 
-Hands are multi-phase agentic workflows defined in TOML files under `~/.clawtex/hands/`.
+Hands are multi-phase agentic workflows defined in TOML files under `~/.phantom-mesh/hands/`.
 
 ### GET /hands
 List all loaded hands with metadata.
@@ -209,7 +209,7 @@ curl -s http://localhost:7878/tools \
 ```
 
 ### GET /workspace/files
-List files in the agent workspace directory (`~/.clawtex/workspace/`).
+List files in the agent workspace directory (`~/.phantom-mesh/workspace/`).
 
 ```bash
 curl -s http://localhost:7878/workspace/files \

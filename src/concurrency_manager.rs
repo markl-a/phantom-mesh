@@ -139,7 +139,7 @@ impl ConcurrencyManager {
         Self { nodes }
     }
 
-    /// Create a `ConcurrencyManager` with the default Clawtex cluster limits:
+    /// Create a `ConcurrencyManager` with the default Phantom Mesh cluster limits:
     /// Z13: 4, M1: 2, Acer: 3, AYANEO: 2.
     pub fn with_defaults() -> Self {
         let mut limits = HashMap::new();

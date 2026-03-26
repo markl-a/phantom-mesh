@@ -9,9 +9,9 @@
 //!
 //! Run with: cargo test --test cluster_simulate
 
-use clawtex_core::cluster::ClusterRegistry;
-use clawtex_core::cluster_hub::{ClusterHub, ToolRouting};
-use clawtex_core::hands::HandRegistry;
+use phantom_mesh::cluster::ClusterRegistry;
+use phantom_mesh::cluster_hub::{ClusterHub, ToolRouting};
+use phantom_mesh::hands::HandRegistry;
 use std::sync::Arc;
 
 /// Build the simulated 8-device cluster for all tests
@@ -53,12 +53,12 @@ fn simulate_dispatch_plan(hub: &ClusterHub, tools: &[&str]) -> Vec<(String, Tool
     tools.iter().map(|t| (t.to_string(), hub.tool_routing(t))).collect()
 }
 
-/// Load hands from the real ~/.clawtex/hands/ directory
+/// Load hands from the real ~/.phantom-mesh/hands/ directory
 fn load_real_hands() -> HandRegistry {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
-    let hands_dir = format!("{}/.clawtex/hands", home);
+    let hands_dir = format!("{}/.phantom-mesh/hands", home);
     HandRegistry::load(&hands_dir).unwrap_or_else(|_| HandRegistry::empty())
 }
 
@@ -600,7 +600,7 @@ async fn s_summary_cluster_revenue_overview() {
     let hands = load_real_hands();
 
     println!("\n{}", "=".repeat(60));
-    println!("  CLAWTEX CLUSTER REVENUE SIMULATION SUMMARY");
+    println!("  PHANTOM_MESH CLUSTER REVENUE SIMULATION SUMMARY");
     println!("{}\n", "=".repeat(60));
 
     let routes = vec![

@@ -465,7 +465,7 @@ mod tests {
         // It will succeed on Windows (powershell) and macOS (pbcopy/pbpaste),
         // but may fail on headless Linux without xclip/xsel.
         let tool = ClipboardTool::new();
-        let test_text = "clawtex clipboard test 12345";
+        let test_text = "phantom_mesh clipboard test 12345";
 
         let copy_result = tool
             .execute(json!({"operation": "copy", "text": test_text}))

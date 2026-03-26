@@ -41,7 +41,7 @@ impl TtsTool {
         } else {
             let workspace = dirs::home_dir()
                 .unwrap_or_default()
-                .join(".clawtex")
+                .join(".phantom-mesh")
                 .join("workspace");
             let _ = std::fs::create_dir_all(&workspace);
             let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
@@ -224,7 +224,7 @@ impl Tool for TtsTool {
                 },
                 "output_path": {
                     "type": "string",
-                    "description": "Optional output file path. Defaults to ~/.clawtex/workspace/tts_{timestamp}.mp3"
+                    "description": "Optional output file path. Defaults to ~/.phantom-mesh/workspace/tts_{timestamp}.mp3"
                 }
             },
             "required": ["text"]
@@ -409,7 +409,7 @@ mod tests {
         // Default path should be in workspace
         let path = TtsTool::build_output_path(None);
         let path_str = path.to_string_lossy().to_string();
-        assert!(path_str.contains(".clawtex"), "Path should contain .clawtex: {}", path_str);
+        assert!(path_str.contains(".phantom-mesh"), "Path should contain .phantom-mesh: {}", path_str);
         assert!(path_str.contains("workspace"), "Path should contain workspace: {}", path_str);
         assert!(path_str.contains("tts_"), "Path should contain tts_ prefix: {}", path_str);
         assert!(path_str.ends_with(".mp3"), "Path should end with .mp3: {}", path_str);

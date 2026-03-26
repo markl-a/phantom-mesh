@@ -1,4 +1,4 @@
-# Clawtex-Core clippy 配置
+# Phantom Mesh clippy 配置
 # 放寬一些過於嚴格的 pedantic lint
 
 # 允許函式最多 10 個參數（agent_runtime 一些函式較複雜）

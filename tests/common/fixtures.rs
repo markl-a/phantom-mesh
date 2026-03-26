@@ -21,8 +21,8 @@ tools = ["file_read", "file_edit", "shell"]
 }
 
 /// Create a ChatMessage with role and content.
-pub fn msg(role: &str, content: &str) -> clawtex_core::ChatMessage {
-    clawtex_core::ChatMessage {
+pub fn msg(role: &str, content: &str) -> phantom_mesh::ChatMessage {
+    phantom_mesh::ChatMessage {
         role: role.to_string(),
         content: content.to_string(),
         tool_calls: None,
@@ -31,11 +31,11 @@ pub fn msg(role: &str, content: &str) -> clawtex_core::ChatMessage {
 }
 
 /// Create a user message.
-pub fn user_msg(text: &str) -> clawtex_core::ChatMessage {
+pub fn user_msg(text: &str) -> phantom_mesh::ChatMessage {
     msg("user", text)
 }
 
 /// Create an assistant message.
-pub fn assistant_msg(text: &str) -> clawtex_core::ChatMessage {
+pub fn assistant_msg(text: &str) -> phantom_mesh::ChatMessage {
     msg("assistant", text)
 }
