@@ -129,7 +129,7 @@ pub use agent_runtime::AgentRuntime;
 pub use cluster::{ClusterRegistry, ClusterNode};
 pub use cluster_hub::{ClusterHub, ClusterMetrics, WorkerStats, ToolRouting, PollTaskResponse, TaskResultPayload, AgentTask};
 pub use cluster_worker::{ClusterWorker, ClusterConfig, WorkerConfig, resolve_cluster_secret};
-pub use channel::{Channel, ChannelMessage, ChannelType, ChannelRegistry};
+pub use channel::{Channel, ChannelMessage, ChannelType, ChannelRegistry, MockChannel};
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use tools::{ToolRegistry, SecurityConfig, RateLimitConfig, ActionTracker, scrub_credentials};
 pub use tools::web_search::SearchConfig;
