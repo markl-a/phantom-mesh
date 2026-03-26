@@ -889,4 +889,32 @@ mod tests {
         // No state capture markers should appear in output
         assert!(!result.output.contains("CLAWTEX_CWD"));
     }
+
+    #[tokio::test]
+    async fn test_state_capture_not_visible_to_user() {
+        use crate::tools::shell_session::ShellSessionManager;
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join("clawtex_test_shell_e2e");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let mgr = Arc::new(ShellSessionManager::new(dir.clone()));
+        let security = SecurityConfig {
+            workspace_dir: dir.to_string_lossy().to_string(),
+            workspace_only: false,
+            allowed_commands: super::super::default_allowed_commands(),
+            ..Default::default()
+        };
+        let tool = ShellTool::new_with_sessions(security, mgr);
+
+        let result = tool.execute(json!({
+            "command": "echo hello",
+            "session_id": "test_vis"
+        })).await.unwrap();
+        assert!(result.success, "command should succeed: {}", result.output);
+        assert!(!result.output.contains("CLAWTEX_CWD"), "CWD marker should not appear in output");
+        assert!(!result.output.contains("CLAWTEX_ENV"), "ENV marker should not appear in output");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
