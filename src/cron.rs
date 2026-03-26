@@ -513,6 +513,65 @@ impl Scheduler {
         self.jobs.read().await.clone()
     }
 
+    /// Evaluate all due jobs once (single tick). Returns names of triggered jobs.
+    /// Used by test harnesses to drive the scheduler without the infinite loop.
+    pub async fn tick_now(&self, executor: &JobExecutor) -> Vec<String> {
+        let now = chrono::Utc::now();
+        let mut triggered = Vec::new();
+
+        // Collect due jobs
+        let due_jobs: Vec<CronJob> = {
+            let jobs = self.jobs.read().await;
+            jobs.iter()
+                .filter(|j| {
+                    j.status == JobStatus::Active
+                        && j.next_run.map(|nr| nr <= now).unwrap_or(false)
+                })
+                .cloned()
+                .collect()
+        };
+
+        for job in due_jobs {
+            let action = job.action.clone();
+            let handle = executor(action);
+            let result = match handle.await {
+                Ok(output) => output,
+                Err(e) => format!("Job execution error: {}", e),
+            };
+
+            let next_run = compute_next_run(&job.schedule, &now);
+            let new_run_count = job.run_count + 1;
+            let new_status = if matches!(job.schedule, Schedule::At { .. }) {
+                JobStatus::Completed
+            } else if job.max_runs.map(|m| new_run_count >= m).unwrap_or(false) {
+                JobStatus::Completed
+            } else if next_run.is_none() {
+                JobStatus::Completed
+            } else {
+                JobStatus::Active
+            };
+
+            if let Err(e) = self.store.update_after_run(&job.id, &result, next_run, new_status) {
+                tracing::error!("Failed to update cron job '{}': {}", job.id, e);
+            }
+
+            {
+                let mut jobs = self.jobs.write().await;
+                if let Some(j) = jobs.iter_mut().find(|j| j.id == job.id) {
+                    j.last_run = Some(now);
+                    j.last_result = Some(result);
+                    j.next_run = next_run;
+                    j.run_count = new_run_count;
+                    j.status = new_status;
+                }
+            }
+
+            triggered.push(job.name.clone());
+        }
+
+        triggered
+    }
+
     /// Main scheduler loop — call this in a tokio::spawn.
     /// This is the backward-compatible version without financial checks.
     pub async fn run(&self, executor: JobExecutor) {
@@ -1163,5 +1222,64 @@ mod tests {
 
             let _ = std::fs::remove_file(&db_path);
         }
+    }
+
+    #[tokio::test]
+    async fn test_tick_now_fires_due_jobs() {
+        let dir = std::env::temp_dir().join("clawtex_test_tick_now");
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join("cron.db");
+        let store = Arc::new(CronStore::new(db_path.to_str().unwrap()).unwrap());
+        let scheduler = Scheduler::new(store).unwrap();
+
+        // Add a job that's due immediately (Every 1 second)
+        scheduler.add_job(
+            "test-job",
+            Schedule::Every { interval_secs: 1 },
+            JobAction::Shell { command: "echo hello".to_string() },
+            None,
+        ).await.unwrap();
+
+        // Wait a moment so the job becomes due
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+        let call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let cc = call_count.clone();
+        let executor: JobExecutor = Arc::new(move |_action| {
+            cc.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::spawn(async { "ok".to_string() })
+        });
+
+        let triggered = scheduler.tick_now(&executor).await;
+        assert_eq!(triggered.len(), 1);
+        assert_eq!(triggered[0], "test-job");
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_tick_now_skips_paused_jobs() {
+        let dir = std::env::temp_dir().join("clawtex_test_tick_paused");
+        let _ = std::fs::create_dir_all(&dir);
+        let db_path = dir.join("cron.db");
+        let store = Arc::new(CronStore::new(db_path.to_str().unwrap()).unwrap());
+        let scheduler = Scheduler::new(store).unwrap();
+
+        let id = scheduler.add_job(
+            "paused-job",
+            Schedule::Every { interval_secs: 1 },
+            JobAction::Shell { command: "echo hi".to_string() },
+            None,
+        ).await.unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        scheduler.pause_job(&id).await.unwrap();
+
+        let executor: JobExecutor = Arc::new(|_| tokio::spawn(async { "ok".to_string() }));
+        let triggered = scheduler.tick_now(&executor).await;
+        assert!(triggered.is_empty(), "Paused jobs should not fire");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
