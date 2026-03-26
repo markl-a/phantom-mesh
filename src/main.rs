@@ -1893,6 +1893,71 @@ async fn handle_telegram_messages(
                 return;
             }
 
+            // ── /alerts command — manage event trigger alerts ──────────
+            if text == "/alerts" || text.starts_with("/alerts ") {
+                if let Some(ref trigger_mgr) = state.trigger_manager {
+                    let parts: Vec<&str> = text.split_whitespace().collect();
+
+                    if parts.len() >= 3 && (parts[1] == "enable" || parts[1] == "disable") {
+                        let trigger_id = parts[2].to_string();
+                        let enable = parts[1] == "enable";
+
+                        // Scope the mutex guard so it is dropped before .await
+                        let reply = {
+                            let mut mgr = trigger_mgr.lock().unwrap_or_else(|p| p.into_inner());
+                            if let Some(trigger) = mgr.triggers.iter_mut().find(|t| t.id == trigger_id) {
+                                trigger.enabled = enable;
+                                // Persist to SQLite
+                                let db_path = format!("{}/.clawtex/core.db", dirs_home());
+                                if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                                    let _ = conn.execute(
+                                        "UPDATE event_triggers SET enabled = ?1 WHERE id = ?2",
+                                        rusqlite::params![enable as i32, &trigger_id],
+                                    );
+                                }
+                                let status = if enable { "enabled" } else { "disabled" };
+                                format!(
+                                    "{} Trigger '{}' {}",
+                                    if enable { "\u{2705}" } else { "\u{274c}" },
+                                    trigger_id,
+                                    status
+                                )
+                            } else {
+                                format!("Unknown trigger ID: {}", trigger_id)
+                            }
+                        }; // mutex guard dropped here
+
+                        let _ = telegram.send(&chat_id, &reply).await;
+                    } else {
+                        // List all triggers — scope the guard before .await
+                        let reply = {
+                            let mgr = trigger_mgr.lock().unwrap_or_else(|p| p.into_inner());
+                            let mut out = "\u{1f514} Event Triggers:\n\n".to_string();
+                            for trigger in &mgr.triggers {
+                                let status = if trigger.enabled { "\u{2705}" } else { "\u{274c}" };
+                                let last = trigger.last_fired
+                                    .map(|t| t.format("%m-%d %H:%M").to_string())
+                                    .unwrap_or_else(|| "never".to_string());
+                                out.push_str(&format!(
+                                    "{} {} \u{2014} cooldown: {}s, last fired: {}\n",
+                                    status, trigger.id, trigger.cooldown_secs, last
+                                ));
+                            }
+                            if mgr.triggers.is_empty() {
+                                out.push_str("No triggers configured.\n");
+                            }
+                            out.push_str("\nUse /alerts enable|disable <id> to toggle.");
+                            out
+                        }; // mutex guard dropped here
+
+                        let _ = telegram.send(&chat_id, &reply).await;
+                    }
+                } else {
+                    let _ = telegram.send(&chat_id, "Event triggers not configured.").await;
+                }
+                return;
+            }
+
             if text == "/help" || text == "/start" {
                 let reply = "\
 Clawtex Bot Commands:
@@ -1920,6 +1985,8 @@ Clawtex Bot Commands:
 /dashboard — Open web dashboard
 /profile — View your profile
 /profile set <field> <value> — Update profile field
+/alerts — List event trigger alerts
+/alerts enable|disable <id> — Toggle an alert trigger
 /history — Conversation message count
 /clear — Clear conversation memory
 /estop — Emergency stop all agents
