@@ -1574,14 +1574,14 @@ async fn dashboard(
 
 async fn handle_telegram_messages(
     mut rx: mpsc::Receiver<ChannelMessage>,
-    telegram: Arc<TelegramChannel>,
+    channel: Arc<dyn Channel>,
     state: AppState,
     last_chat_id: Arc<tokio::sync::RwLock<Option<String>>>,
 ) {
     info!("Telegram message handler started");
 
     while let Some(msg) = rx.recv().await {
-        let telegram = telegram.clone();
+        let channel = channel.clone();
         let state = state.clone();
         // Track the latest chat_id for approval notifications
         {
@@ -1606,7 +1606,7 @@ async fn handle_telegram_messages(
             // Handle commands
             if text == "/clear" || text == "/reset" {
                 state.conversations.clear(&chat_id).await;
-                let _ = telegram.send(&chat_id, "Conversation cleared.").await;
+                let _ = channel.send(&chat_id, "Conversation cleared.").await;
                 return;
             }
 
@@ -1636,9 +1636,9 @@ async fn handle_telegram_messages(
                             "{} 已記錄今日心情：{} ({})\n\n為 {} 個目標記錄了 check-in。晚安！",
                             emoji, label, mood, goals.len()
                         );
-                        let _ = telegram.send(&chat_id, &reply).await;
+                        let _ = channel.send(&chat_id, &reply).await;
                     } else {
-                        let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                        let _ = channel.send(&chat_id, "目標系統尚未初始化").await;
                     }
                 }
                 return;
@@ -1654,20 +1654,20 @@ async fn handle_telegram_messages(
                             } else {
                                 String::new()
                             };
-                            let _ = telegram.send(&chat_id, &format!(
+                            let _ = channel.send(&chat_id, &format!(
                                 "\u{2705} 任務完成！{}",
                                 streak_msg
                             )).await;
                         }
                         Ok(None) => {
-                            let _ = telegram.send(&chat_id, "找不到這個任務").await;
+                            let _ = channel.send(&chat_id, "找不到這個任務").await;
                         }
                         Err(e) => {
-                            let _ = telegram.send(&chat_id, &format!("完成任務失敗：{}", e)).await;
+                            let _ = channel.send(&chat_id, &format!("完成任務失敗：{}", e)).await;
                         }
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                    let _ = channel.send(&chat_id, "目標系統尚未初始化").await;
                 }
                 return;
             }
@@ -1695,7 +1695,7 @@ async fn handle_telegram_messages(
                                     let _ = gs.add_check_in(&ci);
                                 }
                                 let emoji = mood_emojis.get(mood as usize).unwrap_or(&"");
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "{} 已記錄心情 {}/5，晚安！",
                                     emoji, mood
                                 )).await;
@@ -1710,18 +1710,18 @@ async fn handle_telegram_messages(
                 if let Some(ref gs) = state.goals_store {
                     let ctx = clawtex_core::goals_push::goals_context(gs).unwrap_or_default();
                     if ctx.is_empty() {
-                        let _ = telegram.send(&chat_id, "目前沒有進行中的目標。\n\n告訴我你的目標，我會幫你建立追蹤計畫！").await;
+                        let _ = channel.send(&chat_id, "目前沒有進行中的目標。\n\n告訴我你的目標，我會幫你建立追蹤計畫！").await;
                     } else {
                         // Also include today's task status
                         let briefing = clawtex_core::goals_push::morning_briefing(gs).unwrap_or_default();
                         if briefing.is_empty() {
-                            let _ = telegram.send(&chat_id, &ctx).await;
+                            let _ = channel.send(&chat_id, &ctx).await;
                         } else {
-                            let _ = telegram.send(&chat_id, &briefing).await;
+                            let _ = channel.send(&chat_id, &briefing).await;
                         }
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "目標系統尚未初始化").await;
+                    let _ = channel.send(&chat_id, "目標系統尚未初始化").await;
                 }
                 return;
             }
@@ -1729,7 +1729,7 @@ async fn handle_telegram_messages(
             if text == "/history" {
                 let count = state.conversations.message_count(&chat_id).await;
                 let reply = format!("Current conversation: {} messages ({} turns)", count, count / 2);
-                let _ = telegram.send(&chat_id, &reply).await;
+                let _ = channel.send(&chat_id, &reply).await;
                 return;
             }
 
@@ -1739,7 +1739,7 @@ async fn handle_telegram_messages(
                     // /profile set <field> <value>
                     let parts: Vec<&str> = text.splitn(4, ' ').collect();
                     if parts.len() < 4 {
-                        let _ = telegram.send(&chat_id, "Usage: /profile set <field> <value>\nFields: timezone, locale, display_name, butler_name, proactivity").await;
+                        let _ = channel.send(&chat_id, "Usage: /profile set <field> <value>\nFields: timezone, locale, display_name, butler_name, proactivity").await;
                         return;
                     }
                     let field = parts[2];
@@ -1800,7 +1800,7 @@ async fn handle_telegram_messages(
                         }
                     }; // write lock dropped here
 
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                 } else {
                     // Display current profile — scope the read lock before .await
                     let reply = {
@@ -1827,7 +1827,7 @@ async fn handle_telegram_messages(
                         )
                     }; // read lock dropped here
 
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                 }
                 return;
             }
@@ -1866,7 +1866,7 @@ async fn handle_telegram_messages(
                             }
                         }; // mutex guard dropped here
 
-                        let _ = telegram.send(&chat_id, &reply).await;
+                        let _ = channel.send(&chat_id, &reply).await;
                     } else {
                         // List all triggers — scope the guard before .await
                         let reply = {
@@ -1889,10 +1889,10 @@ async fn handle_telegram_messages(
                             out
                         }; // mutex guard dropped here
 
-                        let _ = telegram.send(&chat_id, &reply).await;
+                        let _ = channel.send(&chat_id, &reply).await;
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "Event triggers not configured.").await;
+                    let _ = channel.send(&chat_id, "Event triggers not configured.").await;
                 }
                 return;
             }
@@ -1938,9 +1938,9 @@ Any other message will be processed by the AI agent.";
                     let ti = state.telegram_i18n.read().await;
                     let welcome = ti.translate(chat_id_num, "welcome");
                     let full_reply = format!("{}\n\n{}", welcome, reply);
-                    let _ = telegram.send(&chat_id, &full_reply).await;
+                    let _ = channel.send(&chat_id, &full_reply).await;
                 } else {
-                    let _ = telegram.send(&chat_id, reply).await;
+                    let _ = channel.send(&chat_id, reply).await;
                 }
                 return;
             }
@@ -1953,12 +1953,12 @@ Any other message will be processed by the AI agent.";
                     match ti.set_locale(chat_id_num, &locale) {
                         Ok(()) => {
                             let welcome = ti.translate(chat_id_num, "welcome");
-                            let _ = telegram.send(&chat_id, &format!(
+                            let _ = channel.send(&chat_id, &format!(
                                 "Language set to '{}'. {}", locale, welcome
                             )).await;
                         }
                         Err(e) => {
-                            let _ = telegram.send(&chat_id, &e).await;
+                            let _ = channel.send(&chat_id, &e).await;
                         }
                     }
                     return;
@@ -1972,7 +1972,7 @@ Any other message will be processed by the AI agent.";
                         "Available languages: {}\nCurrent: {}\n\nUsage: /lang <locale>",
                         locales.join(", "), current
                     );
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                     return;
                 }
                 LangCommand::NotACommand => { /* fall through to other commands */ }
@@ -2001,14 +2001,14 @@ Any other message will be processed by the AI agent.";
                         if has_stripe { "✅ Active" } else { "❌ Not configured" },
                         if has_render { "✅ Active" } else { "❌ Not configured" },
                     );
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                     return;
                 }
 
                 // Parse: /setup stripe <key> or /setup render <key>
                 let parts: Vec<&str> = args.splitn(2, ' ').collect();
                 if parts.len() != 2 || parts[1].is_empty() {
-                    let _ = telegram.send(&chat_id, "Usage: /setup stripe <key> or /setup render <key>").await;
+                    let _ = channel.send(&chat_id, "Usage: /setup stripe <key> or /setup render <key>").await;
                     return;
                 }
 
@@ -2017,7 +2017,7 @@ Any other message will be processed by the AI agent.";
                     "stripe" => ("stripe", "secret_key"),
                     "render" => ("render", "api_key"),
                     _ => {
-                        let _ = telegram.send(&chat_id, "Unknown service. Use: /setup stripe <key> or /setup render <key>").await;
+                        let _ = channel.send(&chat_id, "Unknown service. Use: /setup stripe <key> or /setup render <key>").await;
                         return;
                     }
                 };
@@ -2041,18 +2041,18 @@ Any other message will be processed by the AI agent.";
                         };
                         match std::fs::write(&config_path, &updated) {
                             Ok(_) => {
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "✅ {} key saved to agents.toml.\n\nRestart the daemon to activate the {} tool:\nkill + cargo run --release",
                                     service, service
                                 )).await;
                             }
                             Err(e) => {
-                                let _ = telegram.send(&chat_id, &format!("❌ Failed to write config: {}", e)).await;
+                                let _ = channel.send(&chat_id, &format!("❌ Failed to write config: {}", e)).await;
                             }
                         }
                     }
                     Err(e) => {
-                        let _ = telegram.send(&chat_id, &format!("❌ Failed to read config: {}", e)).await;
+                        let _ = channel.send(&chat_id, &format!("❌ Failed to read config: {}", e)).await;
                     }
                 }
                 return;
@@ -2122,7 +2122,7 @@ Any other message will be processed by the AI agent.";
                     check(state.cost_tracker.is_some()),
                     check(state.revenue_tracker.is_some()),
                 );
-                let _ = telegram.send(&chat_id, &reply).await;
+                let _ = channel.send(&chat_id, &reply).await;
                 return;
             }
 
@@ -2161,7 +2161,7 @@ Any other message will be processed by the AI agent.";
                     conv_count,
                     global_calls,
                 );
-                let _ = telegram.send(&chat_id, &reply).await;
+                let _ = channel.send(&chat_id, &reply).await;
                 return;
             }
 
@@ -2171,14 +2171,14 @@ Any other message will be processed by the AI agent.";
                 for spec in &specs {
                     reply.push_str(&format!("\n• {} — {}", spec.name, spec.description));
                 }
-                let _ = telegram.send(&chat_id, &reply).await;
+                let _ = channel.send(&chat_id, &reply).await;
                 return;
             }
 
             if text == "/hands" {
                 let hands_list = state.hands.list();
                 if hands_list.is_empty() {
-                    let _ = telegram.send(&chat_id, "No hands available. Add TOML files to ~/.clawtex/hands/").await;
+                    let _ = channel.send(&chat_id, "No hands available. Add TOML files to ~/.clawtex/hands/").await;
                 } else {
                     let mut reply = String::from("Available Hands:\n");
                     for hand in &hands_list {
@@ -2187,7 +2187,7 @@ Any other message will be processed by the AI agent.";
                             hand.name, hand.description, hand.phases.len(), hand.name
                         ));
                     }
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                 }
                 return;
             }
@@ -2196,7 +2196,7 @@ Any other message will be processed by the AI agent.";
             if text.starts_with("/product ") {
                 let idea = text[9..].trim();
                 if idea.is_empty() {
-                    let _ = telegram.send(&chat_id, "Usage: /product <product idea>\nExample: /product AI-powered text summarizer API").await;
+                    let _ = channel.send(&chat_id, "Usage: /product <product idea>\nExample: /product AI-powered text summarizer API").await;
                     return;
                 }
 
@@ -2207,7 +2207,7 @@ Any other message will be processed by the AI agent.";
                 let llm_ok = state.llm_router.route("ping", "auto").await.is_ok();
 
                 if !llm_ok {
-                    let _ = telegram.send(&chat_id, "❌ LLM provider is offline. Start LM Studio or Ollama first.").await;
+                    let _ = channel.send(&chat_id, "❌ LLM provider is offline. Start LM Studio or Ollama first.").await;
                     return;
                 }
 
@@ -2231,7 +2231,7 @@ Any other message will be processed by the AI agent.";
                     .collect::<Vec<_>>()
                     .join(" → ");
 
-                let _ = telegram.send(&chat_id, &format!(
+                let _ = channel.send(&chat_id, &format!(
                     "🚀 Starting SaaS product pipeline:\n\
                      Idea: {}\n\
                      Pipeline: {}\n\
@@ -2251,7 +2251,7 @@ Any other message will be processed by the AI agent.";
                     if let Some(hand) = state.hands.get(*hand_name) {
                         let hand = hand.clone();
                         let total_phases = hand.phases.len();
-                        let _ = telegram.send(&chat_id, &format!(
+                        let _ = channel.send(&chat_id, &format!(
                             "⏳ [{}/{}] Running '{}' ({} phases)...",
                             completed_hands.len() + 1, pipeline_hands.len(),
                             hand_name, total_phases
@@ -2269,7 +2269,7 @@ Any other message will be processed by the AI agent.";
                                 } else {
                                     result.final_output.clone()
                                 };
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "✅ '{}' done ({}/{} phases, {:.1}s)\n\n{}",
                                     hand_name, result.phases_completed, result.total_phases,
                                     result.elapsed_secs, preview
@@ -2282,7 +2282,7 @@ Any other message will be processed by the AI agent.";
                                 );
                             }
                             Err(e) => {
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "❌ '{}' failed: {}\n\nCompleted: {}\nUse /hand {} <input> to retry.",
                                     hand_name, e,
                                     if completed_hands.is_empty() { "none".into() } else { completed_hands.join(", ") },
@@ -2293,7 +2293,7 @@ Any other message will be processed by the AI agent.";
                             }
                         }
                     } else {
-                        let _ = telegram.send(&chat_id, &format!(
+                        let _ = channel.send(&chat_id, &format!(
                             "⚠️ Hand '{}' not found. Check ~/.clawtex/hands/", hand_name
                         )).await;
                         all_ok = false;
@@ -2329,7 +2329,7 @@ Any other message will be processed by the AI agent.";
                             idea
                         )
                     };
-                    let _ = telegram.send(&chat_id, &summary).await;
+                    let _ = channel.send(&chat_id, &summary).await;
                 }
                 return;
             }
@@ -2338,7 +2338,7 @@ Any other message will be processed by the AI agent.";
             if text.starts_with("/sot ") {
                 let topic = text[5..].trim();
                 if topic.is_empty() {
-                    let _ = telegram.send(&chat_id, "Usage: /sot <topic>\nExample: /sot Write a guide to Rust async programming").await;
+                    let _ = channel.send(&chat_id, "Usage: /sot <topic>\nExample: /sot Write a guide to Rust async programming").await;
                     return;
                 }
 
@@ -2352,7 +2352,7 @@ Any other message will be processed by the AI agent.";
                 }
                 let alive_str = if alive_list.is_empty() { "auto".to_string() } else { alive_list.join(", ") };
 
-                let _ = telegram.send(&chat_id, &format!(
+                let _ = channel.send(&chat_id, &format!(
                     "SoT: Starting parallel generation\n\
                      Topic: {}\n\
                      Alive providers: {}\n\
@@ -2382,10 +2382,10 @@ Any other message will be processed by the AI agent.";
                                 result.merged_output
                             }
                         );
-                        let _ = telegram.send(&chat_id, &summary).await;
+                        let _ = channel.send(&chat_id, &summary).await;
                     }
                     Err(e) => {
-                        let _ = telegram.send(&chat_id, &format!("SoT failed: {}", e)).await;
+                        let _ = channel.send(&chat_id, &format!("SoT failed: {}", e)).await;
                     }
                 }
                 return;
@@ -2405,7 +2405,7 @@ Any other message will be processed by the AI agent.";
                         let ti = state.telegram_i18n.read().await;
                         ti.translate(chat_id_num, "hand.starting")
                     };
-                    let _ = telegram.send(&chat_id, &format!(
+                    let _ = channel.send(&chat_id, &format!(
                         "{} '{}' ({} phases)\nPhases: {}",
                         starting_msg, hand.name, total_phases, phase_names.join(" → ")
                     )).await;
@@ -2418,7 +2418,7 @@ Any other message will be processed by the AI agent.";
 
                     for i in 0..total_phases {
                         let phase_name = &hand.phases[i].name;
-                        let _ = telegram.send(&chat_id, &format!(
+                        let _ = channel.send(&chat_id, &format!(
                             "⏳ Phase {}/{}: {} ...",
                             i + 1, total_phases, phase_name
                         )).await;
@@ -2439,7 +2439,7 @@ Any other message will be processed by the AI agent.";
                                     let ti = state.telegram_i18n.read().await;
                                     ti.translate(chat_id_num, "hand.phase_complete")
                                 };
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "Phase {}/{}: {} — {} ({} tool calls)\n\n{}",
                                     i + 1, total_phases, phase_name, phase_done_msg, output.tool_calls, preview
                                 )).await;
@@ -2447,7 +2447,7 @@ Any other message will be processed by the AI agent.";
                                 context = new_context;
                             }
                             Err(e) => {
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "❌ Phase {}/{}: {} failed: {}",
                                     i + 1, total_phases, phase_name, e
                                 )).await;
@@ -2479,7 +2479,7 @@ Any other message will be processed by the AI agent.";
                             final_output.clone()
                         }
                     );
-                    let _ = telegram.send(&chat_id, &summary).await;
+                    let _ = channel.send(&chat_id, &summary).await;
 
                     // Hand chaining: if chain_to is set, auto-start the next hand
                     if all_ok {
@@ -2490,7 +2490,7 @@ Any other message will be processed by the AI agent.";
                                     "Previous hand '{}' output:\n\n{}\n\nOriginal request: {}",
                                     hand.name, final_output, user_input
                                 );
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "🔗 Chaining to hand '{}' ({} phases)...",
                                     next_hand.name, next_hand.phases.len()
                                 )).await;
@@ -2517,16 +2517,16 @@ Any other message will be processed by the AI agent.";
                                                 chain_result.final_output
                                             }
                                         );
-                                        let _ = telegram.send(&chat_id, &chain_summary).await;
+                                        let _ = channel.send(&chat_id, &chain_summary).await;
                                     }
                                     Err(e) => {
-                                        let _ = telegram.send(&chat_id, &format!(
+                                        let _ = channel.send(&chat_id, &format!(
                                             "🔗 Chained hand '{}' failed: {}", next_hand_name, e
                                         )).await;
                                     }
                                 }
                             } else {
-                                let _ = telegram.send(&chat_id, &format!(
+                                let _ = channel.send(&chat_id, &format!(
                                     "⚠️ chain_to '{}' not found in registry", next_hand_name
                                 )).await;
                             }
@@ -2534,7 +2534,7 @@ Any other message will be processed by the AI agent.";
                     }
                 } else {
                     let available = state.hands.names().join(", ");
-                    let _ = telegram.send(&chat_id, &format!(
+                    let _ = channel.send(&chat_id, &format!(
                         "Unknown hand '{}'. Available: {}\nUsage: /hand <name> <your request>",
                         hand_name, if available.is_empty() { "(none)".to_string() } else { available }
                     )).await;
@@ -2551,28 +2551,28 @@ Any other message will be processed by the AI agent.";
                     if let Some((prev_approvals, required)) = was_multi {
                         let new_count = prev_approvals + 1;
                         if new_count >= required {
-                            let _ = telegram.send(&chat_id, &format!(
+                            let _ = channel.send(&chat_id, &format!(
                                 "Approved ({}/{}). Quorum reached.", new_count, required
                             )).await;
                         } else {
-                            let _ = telegram.send(&chat_id, &format!(
+                            let _ = channel.send(&chat_id, &format!(
                                 "Vote recorded ({}/{}). Waiting for more approvals...", new_count, required
                             )).await;
                         }
                     } else {
-                        let _ = telegram.send(&chat_id, "Approved.").await;
+                        let _ = channel.send(&chat_id, "Approved.").await;
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "No pending approval with that ID.").await;
+                    let _ = channel.send(&chat_id, "No pending approval with that ID.").await;
                 }
                 return;
             }
             if text.starts_with("/deny ") {
                 let id = &text[6..];
                 if state.approval_gate.respond(id, false).await {
-                    let _ = telegram.send(&chat_id, "Denied.").await;
+                    let _ = channel.send(&chat_id, "Denied.").await;
                 } else {
-                    let _ = telegram.send(&chat_id, "No pending approval with that ID.").await;
+                    let _ = channel.send(&chat_id, "No pending approval with that ID.").await;
                 }
                 return;
             }
@@ -2582,7 +2582,7 @@ Any other message will be processed by the AI agent.";
                 if let Some(ref sched) = state.scheduler {
                     let jobs = sched.list_jobs().await;
                     if jobs.is_empty() {
-                        let _ = telegram.send(&chat_id, "No scheduled jobs.").await;
+                        let _ = channel.send(&chat_id, "No scheduled jobs.").await;
                     } else {
                         let mut reply = format!("Scheduled Jobs ({}):\n", jobs.len());
                         for job in &jobs {
@@ -2604,10 +2604,10 @@ Any other message will be processed by the AI agent.";
                                 job.run_count, &job.id[..8]
                             ));
                         }
-                        let _ = telegram.send(&chat_id, &reply).await;
+                        let _ = channel.send(&chat_id, &reply).await;
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "Scheduler not available.").await;
+                    let _ = channel.send(&chat_id, "Scheduler not available.").await;
                 }
                 return;
             }
@@ -2623,18 +2623,18 @@ Any other message will be processed by the AI agent.";
                         if let Some(ref sched) = state.scheduler {
                             match sched.add_job(&name, schedule, action, None).await {
                                 Ok(id) => {
-                                    let _ = telegram.send(&chat_id, &format!("Job '{}' created (id: {})", name, &id[..8])).await;
+                                    let _ = channel.send(&chat_id, &format!("Job '{}' created (id: {})", name, &id[..8])).await;
                                 }
                                 Err(e) => {
-                                    let _ = telegram.send(&chat_id, &format!("Failed to create job: {}", e)).await;
+                                    let _ = channel.send(&chat_id, &format!("Failed to create job: {}", e)).await;
                                 }
                             }
                         } else {
-                            let _ = telegram.send(&chat_id, "Scheduler not available.").await;
+                            let _ = channel.send(&chat_id, "Scheduler not available.").await;
                         }
                     }
                     None => {
-                        let _ = telegram.send(&chat_id, "Usage: /cron add <schedule> <action> [name]\n\nSchedule: \"0 9 * * *\" | every:3600\nAction: hand:<name> \"input\" | agent:<name> \"prompt\" | shell \"command\"").await;
+                        let _ = channel.send(&chat_id, "Usage: /cron add <schedule> <action> [name]\n\nSchedule: \"0 9 * * *\" | every:3600\nAction: hand:<name> \"input\" | agent:<name> \"prompt\" | shell \"command\"").await;
                     }
                 }
                 return;
@@ -2647,20 +2647,20 @@ Any other message will be processed by the AI agent.";
                     let jobs = sched.list_jobs().await;
                     let matching: Vec<_> = jobs.iter().filter(|j| j.id.starts_with(id_prefix)).collect();
                     match matching.len() {
-                        0 => { let _ = telegram.send(&chat_id, &format!("No job matching id '{}'", id_prefix)).await; }
+                        0 => { let _ = channel.send(&chat_id, &format!("No job matching id '{}'", id_prefix)).await; }
                         1 => {
                             let job_id = matching[0].id.clone();
                             let job_name = matching[0].name.clone();
                             match sched.delete_job(&job_id).await {
-                                Ok(true) => { let _ = telegram.send(&chat_id, &format!("Deleted job '{}' ({})", job_name, &job_id[..8])).await; }
-                                Ok(false) => { let _ = telegram.send(&chat_id, "Job not found.").await; }
-                                Err(e) => { let _ = telegram.send(&chat_id, &format!("Error: {}", e)).await; }
+                                Ok(true) => { let _ = channel.send(&chat_id, &format!("Deleted job '{}' ({})", job_name, &job_id[..8])).await; }
+                                Ok(false) => { let _ = channel.send(&chat_id, "Job not found.").await; }
+                                Err(e) => { let _ = channel.send(&chat_id, &format!("Error: {}", e)).await; }
                             }
                         }
-                        n => { let _ = telegram.send(&chat_id, &format!("{} jobs match '{}', be more specific.", n, id_prefix)).await; }
+                        n => { let _ = channel.send(&chat_id, &format!("{} jobs match '{}', be more specific.", n, id_prefix)).await; }
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "Scheduler not available.").await;
+                    let _ = channel.send(&chat_id, "Scheduler not available.").await;
                 }
                 return;
             }
@@ -2698,9 +2698,9 @@ Any other message will be processed by the AI agent.";
                             }
                         }
                     }
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                 } else {
-                    let _ = telegram.send(&chat_id, "Cost tracker not available.").await;
+                    let _ = channel.send(&chat_id, "Cost tracker not available.").await;
                 }
                 return;
             }
@@ -2739,9 +2739,9 @@ Any other message will be processed by the AI agent.";
                             }
                         }
                     }
-                    let _ = telegram.send(&chat_id, &reply).await;
+                    let _ = channel.send(&chat_id, &reply).await;
                 } else {
-                    let _ = telegram.send(&chat_id, "Revenue tracker not available.").await;
+                    let _ = channel.send(&chat_id, "Revenue tracker not available.").await;
                 }
                 return;
             }
@@ -2754,41 +2754,41 @@ Any other message will be processed by the AI agent.";
                         Ok(entries) => {
                             let crm_entries: Vec<_> = entries.iter().filter(|e| e.key.starts_with("outreach_")).collect();
                             if crm_entries.is_empty() {
-                                let _ = telegram.send(&chat_id, "No outreach records found. Run the outreach hand first.").await;
+                                let _ = channel.send(&chat_id, "No outreach records found. Run the outreach hand first.").await;
                             } else {
                                 let mut reply = format!("CRM Pipeline ({} contacts):\n", crm_entries.len());
                                 for entry in &crm_entries {
                                     let val_preview = if entry.content.len() > 100 { &entry.content[..100] } else { &entry.content };
                                     reply.push_str(&format!("\n• {} → {}", entry.key, val_preview));
                                 }
-                                let _ = telegram.send(&chat_id, &reply).await;
+                                let _ = channel.send(&chat_id, &reply).await;
                             }
                         }
                         Err(e) => {
-                            let _ = telegram.send(&chat_id, &format!("CRM error: {}", e)).await;
+                            let _ = channel.send(&chat_id, &format!("CRM error: {}", e)).await;
                         }
                     }
                 } else {
-                    let _ = telegram.send(&chat_id, "Memory store not available.").await;
+                    let _ = channel.send(&chat_id, "Memory store not available.").await;
                 }
                 return;
             }
 
             if text == "/estop" {
                 state.estop.stop();
-                let _ = telegram.send(&chat_id, "E-STOP ACTIVATED. All agent operations halted.\nUse /resume to deactivate.").await;
+                let _ = channel.send(&chat_id, "E-STOP ACTIVATED. All agent operations halted.\nUse /resume to deactivate.").await;
                 return;
             }
 
             if text == "/resume" {
                 state.estop.reset();
-                let _ = telegram.send(&chat_id, "E-Stop deactivated. Normal operation resumed.").await;
+                let _ = channel.send(&chat_id, "E-Stop deactivated. Normal operation resumed.").await;
                 return;
             }
 
             // Check E-Stop before processing
             if state.estop.is_stopped() {
-                let _ = telegram.send(&chat_id, "E-Stop is active. Send /resume to deactivate.").await;
+                let _ = channel.send(&chat_id, "E-Stop is active. Send /resume to deactivate.").await;
                 return;
             }
 
@@ -2804,7 +2804,7 @@ Any other message will be processed by the AI agent.";
                         state.dashboard_token
                     )
                 };
-                let _ = telegram.send(&chat_id, &reply).await;
+                let _ = channel.send(&chat_id, &reply).await;
                 return;
             }
 
@@ -2829,8 +2829,7 @@ Any other message will be processed by the AI agent.";
                 }
             }
 
-            // Show "typing..." indicator
-            let _typing = telegram.keep_typing(chat_id.clone());
+            // Show "typing..." indicator (no-op for dyn Channel)
 
             // Record task in TaskQueue (so Dashboard shows it)
             let task_id = match state.task_queue.add(&title, &text).await {
@@ -2886,7 +2885,7 @@ Any other message will be processed by the AI agent.";
 
             // ── Agent run (with progress reporting) ────────────────────
             let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<String>(16);
-            let progress_tg = telegram.clone();
+            let progress_tg = channel.clone();
             let progress_chat_id = chat_id.clone();
             let progress_task = tokio::spawn(async move {
                 while let Some(msg) = progress_rx.recv().await {
@@ -2994,7 +2993,7 @@ Any other message will be processed by the AI agent.";
                         final_output
                     };
 
-                    if let Err(e) = telegram.send(&chat_id, &response).await {
+                    if let Err(e) = channel.send(&chat_id, &response).await {
                         error!("Failed to send response: {}", e);
                     }
                 }
@@ -3010,7 +3009,7 @@ Any other message will be processed by the AI agent.";
                     }
 
                     error!("Agent processing failed: {}", e);
-                    let _ = telegram
+                    let _ = channel
                         .send(&chat_id, &format!("Error: {}", e))
                         .await;
                 }
@@ -4261,10 +4260,10 @@ async fn main() -> anyhow::Result<()> {
                 info!("Approval gate notifier wired to Telegram");
             }
 
-            let tg_handler = telegram.clone();
+            let tg_channel: Arc<dyn Channel> = telegram.clone();
             let handler_state = state.clone();
             tokio::spawn(async move {
-                handle_telegram_messages(rx, tg_handler, handler_state, last_chat_id).await;
+                handle_telegram_messages(rx, tg_channel, handler_state, last_chat_id).await;
             });
 
             info!("Telegram channel enabled");
