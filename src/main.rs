@@ -1792,6 +1792,105 @@ async fn handle_telegram_messages(
                 return;
             }
 
+            // ── /profile command — view/modify user profile ────────────
+            if text == "/profile" || text.starts_with("/profile ") {
+                if text.starts_with("/profile set ") {
+                    // /profile set <field> <value>
+                    let parts: Vec<&str> = text.splitn(4, ' ').collect();
+                    if parts.len() < 4 {
+                        let _ = telegram.send(&chat_id, "Usage: /profile set <field> <value>\nFields: timezone, locale, display_name, butler_name, proactivity").await;
+                        return;
+                    }
+                    let field = parts[2];
+                    let value = parts[3];
+
+                    // Scope the write lock so it is dropped before any .await
+                    let reply = {
+                        let mut profile = state.user_profile.write().unwrap_or_else(|p| p.into_inner());
+                        let result: Result<String, String> = match field {
+                            "timezone" => {
+                                if value.parse::<chrono_tz::Tz>().is_err() {
+                                    Err("Invalid timezone. Use IANA format, e.g. America/New_York".to_string())
+                                } else {
+                                    profile.timezone = value.to_string();
+                                    Ok(format!("Timezone set to {}", value))
+                                }
+                            }
+                            "locale" => {
+                                profile.locale = value.to_string();
+                                Ok(format!("Locale set to {}", value))
+                            }
+                            "display_name" | "name" => {
+                                profile.display_name = value.to_string();
+                                Ok(format!("Display name set to {}", value))
+                            }
+                            "butler_name" => {
+                                profile.persona.name = value.to_string();
+                                Ok(format!("Butler name set to {}", value))
+                            }
+                            "proactivity" => {
+                                match serde_json::from_str::<clawtex_core::user_profile::ProactivityLevel>(
+                                    &format!("\"{}\"", value),
+                                ) {
+                                    Ok(level) => {
+                                        profile.persona.proactivity = level;
+                                        Ok(format!("Proactivity set to {}", value))
+                                    }
+                                    Err(_) => Err("Invalid proactivity. Use: passive, moderate, active, autonomous".to_string()),
+                                }
+                            }
+                            _ => Err(format!(
+                                "Unknown field: {}. Available: timezone, locale, display_name, butler_name, proactivity",
+                                field
+                            )),
+                        };
+
+                        // On success, persist to SQLite
+                        if result.is_ok() {
+                            let db_path = format!("{}/.clawtex/core.db", dirs_home());
+                            if let Ok(conn) = rusqlite::Connection::open(&db_path) {
+                                let _ = profile.save(&conn);
+                            }
+                        }
+
+                        match result {
+                            Ok(msg) => format!("\u{2705} {}", msg),
+                            Err(msg) => format!("\u{274c} {}", msg),
+                        }
+                    }; // write lock dropped here
+
+                    let _ = telegram.send(&chat_id, &reply).await;
+                } else {
+                    // Display current profile — scope the read lock before .await
+                    let reply = {
+                        let profile = state.user_profile.read().unwrap_or_else(|p| p.into_inner());
+                        let proactivity_str = serde_json::to_string(&profile.persona.proactivity)
+                            .unwrap_or_default()
+                            .trim_matches('"')
+                            .to_string();
+                        format!(
+                            "\u{1f464} Profile\n\
+                             Name: {}\n\
+                             Locale: {}\n\
+                             Timezone: {}\n\
+                             Butler: {} ({})\n\
+                             Proactivity: {}\n\n\
+                             Use: /profile set <field> <value>\n\
+                             Fields: timezone, locale, display_name, butler_name, proactivity",
+                            profile.display_name,
+                            profile.locale,
+                            profile.timezone,
+                            profile.persona.name,
+                            profile.persona.style,
+                            proactivity_str,
+                        )
+                    }; // read lock dropped here
+
+                    let _ = telegram.send(&chat_id, &reply).await;
+                }
+                return;
+            }
+
             if text == "/help" || text == "/start" {
                 let reply = "\
 Clawtex Bot Commands:
@@ -1817,6 +1916,8 @@ Clawtex Bot Commands:
 /pipeline — Show full pipeline readiness
 /crm — Outreach pipeline status
 /dashboard — Open web dashboard
+/profile — View your profile
+/profile set <field> <value> — Update profile field
 /history — Conversation message count
 /clear — Clear conversation memory
 /estop — Emergency stop all agents
