@@ -115,6 +115,7 @@ pub mod goals_push;
 pub mod user_profile;
 pub mod event_triggers;
 pub mod app_state;
+pub mod http;
 
 // Re-export types from their canonical locations
 pub use app_state::AppState;

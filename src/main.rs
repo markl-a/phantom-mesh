@@ -6,7 +6,6 @@ use axum::{
     Router,
 };
 use clap::{Parser, Subcommand};
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -17,18 +16,17 @@ use tracing::{debug, error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 use phantom_mesh::{
-    AiCodeConfig, AgentRuntime, AppState, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
-    ClusterHub, ClusterWorker, ClusterConfig, WorkerConfig, TaskResultPayload,
-    ComputerUseConfig, ConversationStore, CostTracker, CostSummary, CronStore,
-    EmailConfig, ImapConfig, EStop, EvalConfig, GatewayState, HandRegistry, HandRunner, JobAction, LlmRouter,
-    MemoryCategory, MemoryConfig, MemoryStore, PhaseOutput, PrivacyConfig, PrivacyGuard,
+    AgentRuntime, AppState, ApprovalGate, Channel, ChannelMessage, ChatMessage, ClusterRegistry,
+    ClusterHub, ClusterWorker, WorkerConfig, TaskResultPayload,
+    ConversationStore, CostTracker, CostSummary, CronStore,
+    EStop, GatewayState, HandRegistry, HandRunner, JobAction, LlmRouter,
+    MemoryCategory, MemoryStore, PhaseOutput, PrivacyGuard,
     ProviderCircuitBreaker, BreakerConfig,
     RevenueTracker, RevenueSummary,
     RecoveryConfig, WorkerWatchdog,
-    Schedule, Scheduler, SearchConfig,
-    SecretManager, SecurityConfig, SkillRegistry, TaskQueue, TelegramChannel, TelegramConfig,
-    ToolRegistry, TrajectoryLogger, TwitterConfig, BlogConfig, TrustLevel,
-    SlackConfig, DiscordConfig, LineConfig, WhatsAppConfig,
+    Schedule, Scheduler,
+    SecretManager, SecurityConfig, SkillRegistry, TaskQueue, TelegramChannel,
+    ToolRegistry, TrajectoryLogger, TrustLevel,
     AuditLogger, AuditFilter,
     ConsistencyTester,
     WorkerOnboarder, OnboardConfig,
@@ -137,136 +135,12 @@ enum Command {
     },
 }
 
-// ── Config ─────────────────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Default)]
-#[allow(dead_code)]
-struct CoreConfig {
-    #[serde(default)]
-    host: Option<String>,
-    #[serde(default)]
-    port: Option<u16>,
-    #[serde(default)]
-    hub_api_key: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
-#[allow(dead_code)]
-struct AppConfig {
-    #[serde(default)]
-    core: Option<CoreConfig>,
-    #[serde(default)]
-    telegram: Option<TelegramConfig>,
-    #[serde(default)]
-    security: Option<SecurityConfig>,
-    #[serde(default)]
-    search: Option<SearchConfig>,
-    #[serde(default)]
-    ai_code: Option<AiCodeConfig>,
-    #[serde(default)]
-    computer_use: Option<ComputerUseConfig>,
-    #[serde(default)]
-    memory: Option<MemoryConfig>,
-    #[serde(default)]
-    eval: Option<EvalConfig>,
-    #[serde(default)]
-    email: Option<EmailConfig>,
-    #[serde(default)]
-    imap: Option<ImapConfig>,
-    #[serde(default)]
-    twitter: Option<TwitterConfig>,
-    #[serde(default)]
-    blog: Option<BlogConfig>,
-    #[serde(default)]
-    stripe: Option<StripeConfig>,
-    #[serde(default)]
-    render: Option<RenderConfig>,
-    #[serde(default)]
-    cluster: Option<ClusterConfig>,
-    #[serde(default)]
-    privacy: Option<PrivacyConfig>,
-    #[serde(default)]
-    slack: Option<SlackConfig>,
-    #[serde(default)]
-    discord: Option<DiscordConfig>,
-    #[serde(default)]
-    line: Option<LineConfig>,
-    #[serde(default)]
-    whatsapp: Option<WhatsAppConfig>,
-    #[serde(default)]
-    image_generate: Option<ImageGenerateAppConfig>,
-}
-
-#[derive(Debug, Deserialize, Default, Clone)]
-struct ImageGenerateAppConfig {
-    #[serde(default)]
-    gemini_api_key: String,
-}
-
-#[derive(Debug, Deserialize, Default, Clone)]
-struct StripeConfig {
-    #[serde(default)]
-    secret_key: String,
-}
-
-#[derive(Debug, Deserialize, Default, Clone)]
-struct RenderConfig {
-    #[serde(default)]
-    api_key: String,
-}
-
-fn default_load_factor() -> f64 {
-    1.0
-}
-
-#[derive(Debug, Deserialize)]
-struct PowerEstimateRequest {
-    node_id: String,
-    duration_secs: f64,
-    #[serde(default = "default_load_factor")]
-    load_factor: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct PowerProfitabilityRequest {
-    node_id: String,
-    expected_revenue_per_hour_usd: f64,
-    #[serde(default)]
-    api_cost_per_hour_usd: f64,
-    #[serde(default = "default_load_factor")]
-    load_factor: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct PowerProfileUpsertRequest {
-    idle_watts: f64,
-    active_watts: f64,
-    electricity_usd_per_kwh: f64,
-    #[serde(default)]
-    depreciation_usd_per_hour: f64,
-    #[serde(default)]
-    cooling_usd_per_hour: f64,
-    #[serde(default)]
-    notes: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PricingRuleUpsertRequest {
-    provider: String,
-    model_pattern: String,
-    input_usd_per_1m_tokens: f64,
-    output_usd_per_1m_tokens: f64,
-    #[serde(default)]
-    notes: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PricingEstimateRequest {
-    provider: String,
-    model: String,
-    tokens_in: u32,
-    tokens_out: u32,
-}
+// ── Config & Request types (moved to phantom_mesh::http) ─────────────────────
+use phantom_mesh::http::{
+    AppConfig,
+    PowerEstimateRequest, PowerProfitabilityRequest, PowerProfileUpsertRequest,
+    PricingRuleUpsertRequest, PricingEstimateRequest,
+};
 
 // ── App State (defined in phantom_mesh::app_state) ───────────────────────────
 
