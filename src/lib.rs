@@ -116,6 +116,7 @@ pub mod user_profile;
 pub mod event_triggers;
 pub mod app_state;
 pub mod http;
+pub mod runtime;
 
 // Re-export types from their canonical locations
 pub use app_state::AppState;
@@ -222,3 +223,4 @@ pub use revenue_pipeline::{RevenuePipeline, PipelineDef, PipelineStage, StageTyp
 pub use provider_pricing::{ProviderPricingStore, ProviderPriceRule, ProviderPriceEstimate};
 pub use optimizer_store::{OptimizerStore, PolicyType, PolicyStatus, PolicyVersion, OptimizationRun};
 pub use power_economics::{PowerEconomics, NodePowerProfile, HourlyNodeCost, PowerCostEstimate, ProfitabilityAssessment};
+pub use runtime::{PhantomMeshRuntime, RuntimeConfig};
