@@ -156,6 +156,7 @@ fn decrypt_with_session(session_key: &[u8; SESSION_KEY_SIZE], ciphertext: &[u8])
 /// encrypts and distributes API keys.
 pub struct KeySyncServer {
     /// Node ID for this hub
+    #[allow(dead_code)]
     node_id: String,
     /// Active sessions: worker_id → session_key
     sessions: std::collections::HashMap<String, [u8; SESSION_KEY_SIZE]>,

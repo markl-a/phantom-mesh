@@ -5,7 +5,6 @@
 
 use crate::governor::Governor;
 use crate::optimizer_store::{OptimizerStore, PolicyStatus, PolicyType};
-use crate::prompt_optimizer::{OptimizationResult, PromptOptimizer};
 use crate::roi_scheduler::RoiScheduler;
 use crate::trajectory::TrajectoryLogger;
 use serde::Serialize;

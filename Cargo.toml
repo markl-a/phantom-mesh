@@ -2,9 +2,12 @@
 name = "phantom-mesh"
 version = "0.5.0"
 edition = "2021"
-description = "Phantom Mesh LLM Cluster Core — lightweight Rust daemon for LLM routing, task queue, and agent coordination"
+description = "Phantom Mesh — distributed AI agent daemon with 53 tools, 48 hands, 11 providers, cluster orchestration, and self-evolution"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/markl-a/Phantom Mesh"
+repository = "https://github.com/markl-a/phantom-mesh"
+homepage = "https://github.com/markl-a/phantom-mesh"
+keywords = ["agent", "llm", "distributed", "rust", "ai"]
+categories = ["command-line-utilities", "web-programming"]
 default-run = "phantom-mesh"
 
 [[bin]]

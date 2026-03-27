@@ -508,6 +508,7 @@ impl Provider for GeminiProvider {
 
 /// Parse a single Gemini SSE JSON event into StreamChunks.
 /// Used by stream_chat and exposed for unit testing.
+#[allow(dead_code)]
 fn parse_gemini_sse_event(json: &Value) -> (Vec<StreamChunk>, Option<TokenUsage>) {
     let mut chunks = Vec::new();
     let mut usage = None;

@@ -34,7 +34,7 @@ The daemon starts on port 7878 by default. Configuration lives in `~/.phantom-me
 cargo test
 ```
 
-All 2564 tests should pass. If any fail, verify your SQLite installation and environment variables.
+All 3914 tests should pass. If any fail, verify your SQLite installation and environment variables.
 
 Integration tests are in the `tests/` directory and run alongside unit tests.
 
@@ -141,7 +141,7 @@ Both must pass before submitting a PR. Configuration is in `rustfmt.toml` and `c
 
 - [ ] `cargo fmt` applied
 - [ ] `cargo clippy -- -D warnings` passes
-- [ ] `cargo test` passes (all 2564+ tests green)
+- [ ] `cargo test` passes (all 3914+ tests green)
 - [ ] New tests added for new functionality
 - [ ] README updated if adding tools, hands, or providers
 - [ ] No hardcoded secrets or API keys

@@ -1,10 +1,10 @@
-# clawtex-core agent configuration
-# Copy to ~/.clawtex/agents.toml and edit as needed
+# phantom-mesh agent configuration
+# Copy to ~/.phantom-mesh/agents.toml and edit as needed
 
 [core]
 host = "127.0.0.1"
 port = 7878
-db_path = "~/.clawtex/core.db"
+db_path = "~/.phantom-mesh/core.db"
 
 # ── LLM Providers ────────────────────────────────────────────────────────────
 

@@ -14,7 +14,6 @@
 //! - **Slow** (>3s): Free → Local → Subscription → PayAsYouGo
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tracing::debug;
 
 // ---------------------------------------------------------------------------

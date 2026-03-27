@@ -4781,7 +4781,7 @@ async fn main() -> anyhow::Result<()> {
             });
         }
 
-        if let Some(roi) = roi {
+        if let Some(_roi) = roi {
             result["roi_scheduler"] = json!({
                 "status": "active",
             });

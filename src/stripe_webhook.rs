@@ -18,6 +18,7 @@ use tracing::{debug, warn};
 // ---------------------------------------------------------------------------
 
 /// Tolerance window for timestamp verification (5 minutes).
+#[allow(dead_code)]
 const TIMESTAMP_TOLERANCE_SECS: u64 = 300;
 
 // ---------------------------------------------------------------------------

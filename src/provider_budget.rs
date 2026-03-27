@@ -79,6 +79,7 @@ impl DailyUsage {
         }
     }
 
+    #[allow(dead_code)]
     fn new_at(ts: DateTime<Utc>) -> Self {
         Self {
             requests_today: 0,

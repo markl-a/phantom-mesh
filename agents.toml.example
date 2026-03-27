@@ -1,12 +1,12 @@
 # =============================================================================
-# Clawtex Agent Configuration (agents.toml)
+# Phantom Mesh Agent Configuration (agents.toml)
 # =============================================================================
 #
-# Copy this file to ~/.clawtex/agents.toml and edit to match your setup.
+# Copy this file to ~/.phantom-mesh/agents.toml and edit to match your setup.
 # All API keys and credentials shown here are placeholders -- replace them
 # with your own values before running the daemon.
 #
-# Documentation: https://github.com/clawtex/clawtex-core
+# Documentation: https://github.com/markl-a/phantom-mesh
 # =============================================================================
 
 
@@ -41,7 +41,7 @@ allowed_users = ["your_telegram_username"]
 #                  chatgpt_backend, chatgpt_ws, codex, opencode
 #
 # API keys can be set directly or via environment variables.
-# Use the "enc2:" prefix for encrypted secrets (see: clawtex-core encrypt-secret).
+# Use the "enc2:" prefix for encrypted secrets (see: phantom-mesh encrypt-secret).
 
 # -- Local Providers (no API key needed) --
 
@@ -148,7 +148,7 @@ tools = [
     "run_hand",
 ]
 instructions = """
-You are Clawtex, an autonomous AI agent running on the user's machine.
+You are Phantom Mesh, an autonomous AI agent running on the user's machine.
 You coordinate subagents and use tools to complete tasks.
 Always respond in the same language as the user.
 Be concise, accurate, and helpful.
@@ -199,7 +199,7 @@ role = "hub"                            # "hub" or "worker"
 # Controls tool execution sandboxing and rate limits.
 
 [security]
-workspace_dir = "~/.clawtex/workspace"  # Sandbox directory for file operations
+workspace_dir = "~/.phantom-mesh/workspace"  # Sandbox directory for file operations
 workspace_only = true                    # Restrict file I/O to workspace_dir
 allowed_commands = [                     # Shell allowlist (commands outside this list are blocked)
     "git", "python", "python3", "pip", "pip3",
@@ -254,7 +254,7 @@ max_per_tool_per_hour = 280             # Per-tool call limit per hour
 # -----------------------------------------------------------------------------
 
 # [memory]
-# db_path = "~/.clawtex/memory.db"
+# db_path = "~/.phantom-mesh/memory.db"
 
 
 # -----------------------------------------------------------------------------

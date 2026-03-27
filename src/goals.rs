@@ -1,7 +1,7 @@
 //! Goals module — persistent goal tracking with milestones, recurring tasks, and check-ins.
 
 use anyhow::Result;
-use chrono::{DateTime, Utc, NaiveDate};
+use chrono::{Utc, NaiveDate};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
