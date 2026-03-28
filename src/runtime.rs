@@ -209,6 +209,30 @@ impl PhantomMeshRuntime {
     }
 }
 
+// ── HTTP Server ─────────────────────────────────────────────────────────────────
+
+/// Start the HTTP API server (for CLI daemon mode).
+///
+/// Tauri doesn't need this — it calls Rust functions directly via
+/// [`PhantomMeshRuntime`].  This is a standalone helper that wraps the
+/// axum serve boilerplate with graceful Ctrl-C shutdown.
+pub async fn start_http_server(
+    host: &str,
+    port: u16,
+    router: axum::Router,
+) -> anyhow::Result<()> {
+    let addr = format!("{}:{}", host, port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!("Listening on http://{}", addr);
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            let _ = tokio::signal::ctrl_c().await;
+            tracing::info!("Shutting down...");
+        })
+        .await?;
+    Ok(())
+}
+
 // ── Config secret decryption helper ────────────────────────────────────────────
 
 /// Replace `enc2:…` encrypted tokens in a TOML config string with their
