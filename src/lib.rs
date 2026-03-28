@@ -108,6 +108,7 @@ pub mod governor;
 pub mod roi_gate;
 pub mod pipeline;
 pub mod feedback_loop;
+pub mod data;
 pub mod networking;
 pub mod evolution;
 pub mod goals;

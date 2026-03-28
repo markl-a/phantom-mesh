@@ -133,9 +133,20 @@ impl PhantomMeshRuntime {
         let cluster = Arc::new(ClusterRegistry::new(
             data_dir.join("cluster.db").to_str().unwrap_or(":memory:"),
         ).await?);
-        let conversations = Arc::new(ConversationStore::new(
-            data_dir.join("conversations.db").to_str().unwrap_or("conversations.db"),
-        ).await?);
+        let conv_db_str = data_dir.join("conversations.db");
+        let conv_db_str = conv_db_str.to_str().unwrap_or("conversations.db");
+        let conversations = Arc::new(ConversationStore::new(conv_db_str).await?);
+
+        // --- Schema migrations (add node_id / updated_at columns) ---
+        // Run on each database file that may contain tables we need to migrate.
+        {
+            let core_conn = rusqlite::Connection::open(&db_path)?;
+            crate::data::migrations::MigrationRunner::run(&core_conn)?;
+        }
+        {
+            let conv_conn = rusqlite::Connection::open(conv_db_str)?;
+            crate::data::migrations::MigrationRunner::run(&conv_conn)?;
+        }
 
         // --- Simple sync components ---
         let skill_registry = Arc::new(SkillRegistry::new());
