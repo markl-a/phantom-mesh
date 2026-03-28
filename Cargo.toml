@@ -106,6 +106,9 @@ aes-gcm = "0.10"
 # Cluster Key Sync (B.4) — X25519 Diffie-Hellman key exchange
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 
+# Node Identity (Phase 0.2) — Ed25519 signing for P2P RPC auth
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
 # Security hardening (B.4 review fixes)
 zeroize = { version = "1", features = ["zeroize_derive"] }
 subtle = "2"
