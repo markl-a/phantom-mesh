@@ -11,7 +11,13 @@ pub mod transport;
 pub mod route_manager;
 pub mod mdns;
 pub mod iroh_transport;
+pub mod peer;
+pub mod election;
+pub mod heartbeat;
 
 pub use discovery::{ServiceDiscovery, DiscoveredNode, ConnectionLayer};
 pub use transport::{MeshTransport, PeerInfo, TransportChannel, PeerId};
 pub use route_manager::{RouteManager, ResolvedRoute, RouteEntry};
+pub use peer::{PeerInfo as MeshPeerInfo, PeerRegistry, PeerStatus, DeviceType};
+pub use election::{elect_coordinator, should_trigger_election, ElectionConfig, ElectionPriority};
+pub use heartbeat::{HeartbeatPayload, HeartbeatResponse, HeartbeatConfig, PeerSummary, next_interval, process_heartbeat};
