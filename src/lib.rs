@@ -120,6 +120,7 @@ pub mod app_state;
 pub mod http;
 pub mod rpc;
 pub mod runtime;
+pub mod config;
 
 // Re-export types from their canonical locations
 pub use app_state::AppState;

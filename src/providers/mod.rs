@@ -46,3 +46,5 @@ pub use copilot::{CopilotTokenManager, CopilotAwareProvider, CopilotApiToken};
 pub use claude_cli::{ClaudeCliTokenManager, ClaudeCliCredential};
 pub use azure_openai::AzureOpenAiProvider;
 pub use bedrock::BedrockProvider;
+pub mod cluster_fallback;
+pub use cluster_fallback::{ProviderAvailability, nodes_with_provider};

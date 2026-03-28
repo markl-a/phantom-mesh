@@ -63,6 +63,9 @@ pub mod payment_tracker;
 pub mod input_sanitizer;
 pub mod code_evolution;
 pub mod shell_session;
+pub mod capability_requirements;
+
+pub use capability_requirements::{required_for_tool, can_run_tool};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -237,6 +240,11 @@ pub trait Tool: Send + Sync {
     /// Default implementation passes all checks.
     fn preflight(&self, _args: &Value) -> Result<()> {
         Ok(())
+    }
+
+    /// Capabilities required to run this tool. Empty means no special requirements.
+    fn required_capabilities(&self) -> Vec<String> {
+        capability_requirements::required_for_tool(self.name())
     }
 
     fn spec(&self) -> ToolSpec {
