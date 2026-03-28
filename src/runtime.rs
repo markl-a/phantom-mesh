@@ -22,7 +22,7 @@ use crate::hands::HandRegistry;
 use crate::llm_router::LlmRouter;
 use crate::metrics::MetricsRegistry;
 use crate::providers::ProviderRouter;
-use crate::security::SecretManager;
+use crate::security::{SecretManager, NodeIdentity};
 use crate::skills::SkillRegistry;
 use crate::task_queue::TaskQueue;
 use crate::telegram_i18n::TelegramI18n;
@@ -78,6 +78,7 @@ impl RuntimeConfig {
 /// hand its `AppState` to whatever HTTP / IPC layer they use.
 pub struct PhantomMeshRuntime {
     state: AppState,
+    identity: NodeIdentity,
 }
 
 impl PhantomMeshRuntime {
@@ -94,6 +95,10 @@ impl PhantomMeshRuntime {
     pub async fn init(config: RuntimeConfig) -> Result<Self> {
         let data_dir = config.resolve_data_dir();
         std::fs::create_dir_all(&data_dir)?;
+
+        // --- Node Identity (Ed25519 keypair) ---
+        let identity = NodeIdentity::load_or_generate(&data_dir)?;
+        tracing::info!("Node ID: {}", identity.node_id);
 
         let config_path = config.resolve_config_path();
         let db_path = config.resolve_db_path();
@@ -195,7 +200,17 @@ impl PhantomMeshRuntime {
             networking_tasks: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
 
-        Ok(Self { state })
+        Ok(Self { state, identity })
+    }
+
+    /// Access this node's Ed25519 identity.
+    pub fn identity(&self) -> &NodeIdentity {
+        &self.identity
+    }
+
+    /// Get the short node ID (first 16 hex chars of public key).
+    pub fn node_id(&self) -> &str {
+        &self.identity.node_id
     }
 
     /// Borrow the fully-initialized [`AppState`].
