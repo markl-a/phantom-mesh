@@ -88,7 +88,7 @@ which = "7"
 sysinfo = "0.32"
 
 # mDNS service discovery (Layer 1 networking)
-mdns-sd = "0.11"
+mdns-sd = "0.18"
 flume = "0.11"
 
 # CSV parsing (for csv_parse tool)
