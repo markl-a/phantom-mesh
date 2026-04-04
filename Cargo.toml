@@ -37,7 +37,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # HTTP client (for LLM API calls + Telegram Bot API)
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.13", features = ["json", "stream"] }
 
 # SQLite (bundled — no external sqlite3.dll needed on Windows)
 rusqlite = { version = "0.31", features = ["bundled"] }
