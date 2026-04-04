@@ -182,24 +182,43 @@ pub struct PendingAgentTask {
     pub created_at: Instant,
 }
 
+/// Consolidated task state — single lock for all task routing data.
+struct TaskState {
+    /// Per-worker queue of pending tasks (for polling/mobile workers)
+    pending_tasks: HashMap<String, VecDeque<PendingTask>>,
+    /// Map of task_id → oneshot sender, for results that arrive via POST /cluster/result
+    inflight_results: HashMap<String, tokio::sync::oneshot::Sender<Value>>,
+    /// Number of in-flight tasks per worker (for load-aware routing)
+    inflight_counts: HashMap<String, u32>,
+    /// Shared task pool for mobile workers (any mobile worker can pick up)
+    shared_mobile_pool: VecDeque<PendingTask>,
+    /// Per-worker queue of agent tasks (higher-level autonomous tasks)
+    pending_agent_tasks: HashMap<String, VecDeque<PendingAgentTask>>,
+    /// Shared agent task pool for mobile workers
+    shared_agent_pool: VecDeque<PendingAgentTask>,
+}
+
+impl TaskState {
+    fn new() -> Self {
+        Self {
+            pending_tasks: HashMap::new(),
+            inflight_results: HashMap::new(),
+            inflight_counts: HashMap::new(),
+            shared_mobile_pool: VecDeque::new(),
+            pending_agent_tasks: HashMap::new(),
+            shared_agent_pool: VecDeque::new(),
+        }
+    }
+}
+
 /// ClusterHub — central coordinator that dispatches tasks to workers
 pub struct ClusterHub {
     pub registry: Arc<ClusterRegistry>,
     pub metrics: Arc<ClusterMetrics>,
     http_client: reqwest::Client,
-    /// Per-worker queue of pending tasks (for polling/mobile workers)
-    pending_tasks: Mutex<HashMap<String, VecDeque<PendingTask>>>,
-    /// Map of task_id → oneshot sender, for results that arrive via POST /cluster/result
-    inflight_results: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Value>>>,
-    /// Number of in-flight tasks per worker (for load-aware routing)
-    inflight_counts: Mutex<HashMap<String, u32>>,
-    /// Shared task pool for mobile workers (any mobile worker can pick up)
-    shared_mobile_pool: Mutex<VecDeque<PendingTask>>,
-    /// Per-worker queue of agent tasks (higher-level autonomous tasks)
-    pending_agent_tasks: Mutex<HashMap<String, VecDeque<PendingAgentTask>>>,
-    /// Shared agent task pool for mobile workers
-    shared_agent_pool: Mutex<VecDeque<PendingAgentTask>>,
-    /// Idempotency log: key → timestamp (for dedup within TTL)
+    /// Consolidated task state — single lock for all task routing data
+    task_state: Mutex<TaskState>,
+    /// Idempotency log: key → timestamp (for dedup within TTL, separate lifecycle)
     dispatch_log: Mutex<HashMap<String, Instant>>,
     /// Optional task taxonomy for category-aware routing
     taxonomy: Option<Arc<TaskTaxonomy>>,
@@ -218,12 +237,7 @@ impl ClusterHub {
             registry,
             metrics: Arc::new(ClusterMetrics::new()),
             http_client,
-            pending_tasks: Mutex::new(HashMap::new()),
-            inflight_results: Mutex::new(HashMap::new()),
-            inflight_counts: Mutex::new(HashMap::new()),
-            shared_mobile_pool: Mutex::new(VecDeque::new()),
-            pending_agent_tasks: Mutex::new(HashMap::new()),
-            shared_agent_pool: Mutex::new(VecDeque::new()),
+            task_state: Mutex::new(TaskState::new()),
             dispatch_log: Mutex::new(HashMap::new()),
             taxonomy: None,
             concurrency: None,
@@ -287,23 +301,26 @@ impl ClusterHub {
         !matches!(self.tool_routing(tool_name), ToolRouting::Local)
     }
 
-    /// Get the effective load for a worker (cpu_load + inflight penalty).
-    async fn effective_load(&self, worker: &ClusterNode) -> f32 {
-        let counts = self.inflight_counts.lock().await;
-        let inflight = counts.get(&worker.name).copied().unwrap_or(0);
-        worker.cpu_load + (inflight as f32 * 0.15)
+    /// Get effective loads for multiple workers in a single lock acquisition.
+    /// Returns a Vec of f32 loads in the same order as the input workers.
+    async fn effective_loads(&self, workers: &[ClusterNode]) -> Vec<f32> {
+        let state = self.task_state.lock().await;
+        workers.iter().map(|w| {
+            let inflight = state.inflight_counts.get(&w.name).copied().unwrap_or(0);
+            w.cpu_load + (inflight as f32 * 0.15)
+        }).collect()
     }
 
     /// Increment inflight count for a worker.
     async fn inc_inflight(&self, worker_name: &str) {
-        let mut counts = self.inflight_counts.lock().await;
-        *counts.entry(worker_name.to_string()).or_insert(0) += 1;
+        let mut state = self.task_state.lock().await;
+        *state.inflight_counts.entry(worker_name.to_string()).or_insert(0) += 1;
     }
 
     /// Decrement inflight count for a worker.
     async fn dec_inflight(&self, worker_name: &str) {
-        let mut counts = self.inflight_counts.lock().await;
-        if let Some(count) = counts.get_mut(worker_name) {
+        let mut state = self.task_state.lock().await;
+        if let Some(count) = state.inflight_counts.get_mut(worker_name) {
             *count = count.saturating_sub(1);
         }
     }
@@ -421,13 +438,11 @@ impl ClusterHub {
         } else {
             // No taxonomy — sort by effective load (backward compat).
             let sorted = candidates.clone();
-            // Simple insertion sort by effective load is fine for small node counts.
-            let mut loads: Vec<(usize, f32)> = Vec::with_capacity(sorted.len());
-            for (i, w) in sorted.iter().enumerate() {
-                loads.push((i, self.effective_load(w).await));
-            }
-            loads.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            let reordered: Vec<ClusterNode> = loads.iter().map(|(i, _)| sorted[*i].clone()).collect();
+            // Batch read: single lock for all workers' effective loads.
+            let eff_loads = self.effective_loads(&sorted).await;
+            let mut indexed: Vec<(usize, f32)> = eff_loads.into_iter().enumerate().collect();
+            indexed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            let reordered: Vec<ClusterNode> = indexed.iter().map(|(i, _)| sorted[*i].clone()).collect();
             reordered
         };
 
@@ -506,16 +521,13 @@ impl ClusterHub {
                     self.metrics.record_failure("none", &msg).await;
                     return Err(anyhow!(msg));
                 }
-                let mut best = filtered[0].clone();
-                let mut best_load = self.effective_load(&best).await;
-                for w in &filtered[1..] {
-                    let eff = self.effective_load(w).await;
-                    if eff < best_load {
-                        best = w.clone();
-                        best_load = eff;
-                    }
-                }
-                best
+                // Batch read: single lock for all workers' effective loads.
+                let eff_loads = self.effective_loads(&filtered).await;
+                let best_idx = eff_loads.iter().enumerate()
+                    .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                filtered[best_idx].clone()
             }
         };
 
@@ -592,8 +604,8 @@ impl ClusterHub {
 
         // Enqueue for this specific worker
         {
-            let mut queues = self.pending_tasks.lock().await;
-            queues.entry(worker.name.clone()).or_default().push_back(pending);
+            let mut state = self.task_state.lock().await;
+            state.pending_tasks.entry(worker.name.clone()).or_default().push_back(pending);
         }
 
         // Wait for result with timeout (120s)
@@ -615,8 +627,8 @@ impl ClusterHub {
                 let msg = format!("Mobile task '{}' timed out after 120s", task_id);
                 self.metrics.record_failure(&worker.name, &msg).await;
                 // Clean up the pending task if it wasn't picked up
-                let mut queues = self.pending_tasks.lock().await;
-                if let Some(queue) = queues.get_mut(&worker.name) {
+                let mut state = self.task_state.lock().await;
+                if let Some(queue) = state.pending_tasks.get_mut(&worker.name) {
                     queue.retain(|t| t.id != task_id);
                 }
                 Err(anyhow!(msg))
@@ -648,8 +660,8 @@ impl ClusterHub {
         };
 
         {
-            let mut pool = self.shared_mobile_pool.lock().await;
-            pool.push_back(pending);
+            let mut state = self.task_state.lock().await;
+            state.shared_mobile_pool.push_back(pending);
         }
 
         let start = Instant::now();
@@ -669,8 +681,8 @@ impl ClusterHub {
             Err(_) => {
                 let msg = format!("Mobile pool task '{}' timed out after 120s", task_id);
                 self.metrics.record_failure("mobile-pool", &msg).await;
-                let mut pool = self.shared_mobile_pool.lock().await;
-                pool.retain(|t| t.id != task_id);
+                let mut state = self.task_state.lock().await;
+                state.shared_mobile_pool.retain(|t| t.id != task_id);
                 Err(anyhow!(msg))
             }
         }
@@ -791,8 +803,8 @@ impl ClusterHub {
         };
 
         {
-            let mut queues = self.pending_agent_tasks.lock().await;
-            queues.entry(worker_name.to_string()).or_default().push_back(pending);
+            let mut state = self.task_state.lock().await;
+            state.pending_agent_tasks.entry(worker_name.to_string()).or_default().push_back(pending);
         }
 
         // Agent tasks get longer timeout (600s = 10 min)
@@ -812,8 +824,8 @@ impl ClusterHub {
             Err(_) => {
                 let msg = format!("Agent task '{}' timed out after 600s", task_id);
                 self.metrics.record_failure(worker_name, &msg).await;
-                let mut queues = self.pending_agent_tasks.lock().await;
-                if let Some(queue) = queues.get_mut(worker_name) {
+                let mut state = self.task_state.lock().await;
+                if let Some(queue) = state.pending_agent_tasks.get_mut(worker_name) {
                     queue.retain(|t| t.task.task_id != task_id);
                 }
                 Err(anyhow!(msg))
@@ -848,8 +860,8 @@ impl ClusterHub {
         };
 
         {
-            let mut pool = self.shared_agent_pool.lock().await;
-            pool.push_back(pending);
+            let mut state = self.task_state.lock().await;
+            state.shared_agent_pool.push_back(pending);
         }
 
         let start = Instant::now();
@@ -869,8 +881,8 @@ impl ClusterHub {
             Err(_) => {
                 let msg = format!("Agent pool task '{}' timed out after 600s", task_id);
                 self.metrics.record_failure("agent-pool", &msg).await;
-                let mut pool = self.shared_agent_pool.lock().await;
-                pool.retain(|t| t.task.task_id != task_id);
+                let mut state = self.task_state.lock().await;
+                state.shared_agent_pool.retain(|t| t.task.task_id != task_id);
                 Err(anyhow!(msg))
             }
         }
@@ -879,56 +891,18 @@ impl ClusterHub {
     /// Called by GET /cluster/poll — returns the next pending task for a worker, or None.
     /// Priority: agent_task > per-worker tool task > shared agent pool > shared mobile pool.
     /// Also acts as a heartbeat for the worker.
+    ///
+    /// Single lock acquisition — all task queues and inflight tracking are in TaskState.
     pub async fn poll_task(&self, worker_name: &str) -> Option<PollTaskResponse> {
         // Update heartbeat (treat poll as heartbeat for mobile workers)
         let _ = self.registry.heartbeat(worker_name, 0.0).await;
 
+        let mut state = self.task_state.lock().await;
+
         // Priority 1: check per-worker agent task queue (highest-priority first)
-        {
-            let mut queues = self.pending_agent_tasks.lock().await;
-            if let Some(queue) = queues.get_mut(worker_name) {
-                if let Some(idx) = Self::best_priority_agent_idx(queue) {
-                    let agent_pending = queue.remove(idx).unwrap();
-                    let task_id = agent_pending.task.task_id.clone();
-                    let priority = agent_pending.priority;
-                    let response = PollTaskResponse {
-                        task_id: task_id.clone(),
-                        tool: "__agent_task__".to_string(),
-                        input: serde_json::to_value(&agent_pending.task).unwrap_or_default(),
-                        priority,
-                    };
-                    let mut inflight = self.inflight_results.lock().await;
-                    inflight.insert(task_id, agent_pending.result_tx);
-                    return Some(response);
-                }
-            }
-        }
-
-        // Priority 2: check per-worker tool task queue (highest-priority first)
-        {
-            let mut queues = self.pending_tasks.lock().await;
-            if let Some(queue) = queues.get_mut(worker_name) {
-                if let Some(idx) = Self::best_priority_task_idx(queue) {
-                    let task = queue.remove(idx).unwrap();
-                    let priority = task.priority;
-                    let response = PollTaskResponse {
-                        task_id: task.id.clone(),
-                        tool: task.tool.clone(),
-                        input: task.input.clone(),
-                        priority,
-                    };
-                    let mut inflight = self.inflight_results.lock().await;
-                    inflight.insert(task.id, task.result_tx);
-                    return Some(response);
-                }
-            }
-        }
-
-        // Priority 3: shared agent pool (highest-priority first)
-        {
-            let mut pool = self.shared_agent_pool.lock().await;
-            if let Some(idx) = Self::best_priority_agent_idx(&pool) {
-                let agent_pending = pool.remove(idx).unwrap();
+        if let Some(queue) = state.pending_agent_tasks.get_mut(worker_name) {
+            if let Some(idx) = Self::best_priority_agent_idx(queue) {
+                let agent_pending = queue.remove(idx).unwrap();
                 let task_id = agent_pending.task.task_id.clone();
                 let priority = agent_pending.priority;
                 let response = PollTaskResponse {
@@ -937,17 +911,15 @@ impl ClusterHub {
                     input: serde_json::to_value(&agent_pending.task).unwrap_or_default(),
                     priority,
                 };
-                let mut inflight = self.inflight_results.lock().await;
-                inflight.insert(task_id, agent_pending.result_tx);
+                state.inflight_results.insert(task_id, agent_pending.result_tx);
                 return Some(response);
             }
         }
 
-        // Priority 4: shared mobile pool (highest-priority first)
-        {
-            let mut pool = self.shared_mobile_pool.lock().await;
-            if let Some(idx) = Self::best_priority_task_idx(&pool) {
-                let task = pool.remove(idx).unwrap();
+        // Priority 2: check per-worker tool task queue (highest-priority first)
+        if let Some(queue) = state.pending_tasks.get_mut(worker_name) {
+            if let Some(idx) = Self::best_priority_task_idx(queue) {
+                let task = queue.remove(idx).unwrap();
                 let priority = task.priority;
                 let response = PollTaskResponse {
                     task_id: task.id.clone(),
@@ -955,10 +927,38 @@ impl ClusterHub {
                     input: task.input.clone(),
                     priority,
                 };
-                let mut inflight = self.inflight_results.lock().await;
-                inflight.insert(task.id, task.result_tx);
+                state.inflight_results.insert(task.id, task.result_tx);
                 return Some(response);
             }
+        }
+
+        // Priority 3: shared agent pool (highest-priority first)
+        if let Some(idx) = Self::best_priority_agent_idx(&state.shared_agent_pool) {
+            let agent_pending = state.shared_agent_pool.remove(idx).unwrap();
+            let task_id = agent_pending.task.task_id.clone();
+            let priority = agent_pending.priority;
+            let response = PollTaskResponse {
+                task_id: task_id.clone(),
+                tool: "__agent_task__".to_string(),
+                input: serde_json::to_value(&agent_pending.task).unwrap_or_default(),
+                priority,
+            };
+            state.inflight_results.insert(task_id, agent_pending.result_tx);
+            return Some(response);
+        }
+
+        // Priority 4: shared mobile pool (highest-priority first)
+        if let Some(idx) = Self::best_priority_task_idx(&state.shared_mobile_pool) {
+            let task = state.shared_mobile_pool.remove(idx).unwrap();
+            let priority = task.priority;
+            let response = PollTaskResponse {
+                task_id: task.id.clone(),
+                tool: task.tool.clone(),
+                input: task.input.clone(),
+                priority,
+            };
+            state.inflight_results.insert(task.id, task.result_tx);
+            return Some(response);
         }
 
         None
@@ -966,8 +966,8 @@ impl ClusterHub {
 
     /// Called by POST /cluster/result — worker submits the completed task result.
     pub async fn submit_result(&self, payload: TaskResultPayload) -> Result<()> {
-        let mut inflight = self.inflight_results.lock().await;
-        if let Some(tx) = inflight.remove(&payload.task_id) {
+        let mut state = self.task_state.lock().await;
+        if let Some(tx) = state.inflight_results.remove(&payload.task_id) {
             let worker_name = payload.worker.clone().unwrap_or_else(|| "unknown".to_string());
             let result = json!({
                 "success": payload.success,
@@ -989,35 +989,33 @@ impl ClusterHub {
             None => return,
         };
 
-        let mut queues = self.pending_tasks.lock().await;
-        for (_worker, queue) in queues.iter_mut() {
-            queue.retain(|task| task.created_at > cutoff);
-        }
-
-        // Clean shared mobile pool
+        // Single lock for all task state cleanup
         {
-            let mut pool = self.shared_mobile_pool.lock().await;
-            pool.retain(|task| task.created_at > cutoff);
-        }
+            let mut state = self.task_state.lock().await;
 
-        // Clean agent task queues (use longer cutoff: 10 min)
-        let agent_cutoff = Instant::now().checked_sub(std::time::Duration::from_secs(max_age_secs * 4));
-        if let Some(agent_cutoff) = agent_cutoff {
-            let mut agent_queues = self.pending_agent_tasks.lock().await;
-            for (_worker, queue) in agent_queues.iter_mut() {
-                queue.retain(|t| t.created_at > agent_cutoff);
+            // Clean per-worker task queues
+            for (_worker, queue) in state.pending_tasks.iter_mut() {
+                queue.retain(|task| task.created_at > cutoff);
             }
-            let mut agent_pool = self.shared_agent_pool.lock().await;
-            agent_pool.retain(|t| t.created_at > agent_cutoff);
+
+            // Clean shared mobile pool
+            state.shared_mobile_pool.retain(|task| task.created_at > cutoff);
+
+            // Clean agent task queues (use longer cutoff: 10 min)
+            let agent_cutoff = Instant::now().checked_sub(std::time::Duration::from_secs(max_age_secs * 4));
+            if let Some(agent_cutoff) = agent_cutoff {
+                for (_worker, queue) in state.pending_agent_tasks.iter_mut() {
+                    queue.retain(|t| t.created_at > agent_cutoff);
+                }
+                state.shared_agent_pool.retain(|t| t.created_at > agent_cutoff);
+            }
+
+            if !state.inflight_results.is_empty() {
+                debug!("Inflight tasks: {}", state.inflight_results.len());
+            }
         }
 
-        let inflight = self.inflight_results.lock().await;
-        if !inflight.is_empty() {
-            debug!("Inflight tasks: {}", inflight.len());
-        }
-        let _ = inflight;
-
-        // Clean expired idempotency keys
+        // Clean expired idempotency keys (separate lock — different lifecycle)
         if let Some(idem_cutoff) = Instant::now().checked_sub(std::time::Duration::from_secs(IDEMPOTENCY_TTL_SECS)) {
             let mut log = self.dispatch_log.lock().await;
             log.retain(|_, ts| *ts > idem_cutoff);
@@ -1314,8 +1312,8 @@ mod tests {
         // Manually enqueue a task for android1
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
-            let mut queues = hub.pending_tasks.lock().await;
-            queues.entry("android1".to_string()).or_default().push_back(PendingTask {
+            let mut state = hub.task_state.lock().await;
+            state.pending_tasks.entry("android1".to_string()).or_default().push_back(PendingTask {
                 id: "mt-test1".to_string(),
                 tool: "web_search".to_string(),
                 input: json!({"query": "test"}),
@@ -1385,8 +1383,8 @@ mod tests {
         // Enqueue a regular tool task
         let (tx1, _rx1) = tokio::sync::oneshot::channel();
         {
-            let mut queues = hub.pending_tasks.lock().await;
-            queues.entry("rog6".to_string()).or_default().push_back(PendingTask {
+            let mut state = hub.task_state.lock().await;
+            state.pending_tasks.entry("rog6".to_string()).or_default().push_back(PendingTask {
                 id: "mt-tool1".to_string(),
                 tool: "web_search".to_string(),
                 input: json!({"query": "test"}),
@@ -1400,8 +1398,8 @@ mod tests {
         // Enqueue an agent task
         let (tx2, _rx2) = tokio::sync::oneshot::channel();
         {
-            let mut queues = hub.pending_agent_tasks.lock().await;
-            queues.entry("rog6".to_string()).or_default().push_back(PendingAgentTask {
+            let mut state = hub.task_state.lock().await;
+            state.pending_agent_tasks.entry("rog6".to_string()).or_default().push_back(PendingAgentTask {
                 task: AgentTask {
                     task_id: "ag-agent1".to_string(),
                     goal: "Research pricing".to_string(),
@@ -1440,8 +1438,8 @@ mod tests {
         // Enqueue to shared agent pool
         let (tx, _rx) = tokio::sync::oneshot::channel();
         {
-            let mut pool = hub.shared_agent_pool.lock().await;
-            pool.push_back(PendingAgentTask {
+            let mut state = hub.task_state.lock().await;
+            state.shared_agent_pool.push_back(PendingAgentTask {
                 task: AgentTask {
                     task_id: "ap-shared1".to_string(),
                     goal: "Search trends".to_string(),
@@ -1495,8 +1493,8 @@ mod tests {
         // Enqueue 3 tasks with different priorities
         for (id, prio) in [("t-low", 200u8), ("t-high", 10u8), ("t-mid", 100u8)] {
             let (tx, _rx) = tokio::sync::oneshot::channel();
-            hub.pending_tasks.lock().await
-                .entry("w1".to_string()).or_default()
+            hub.task_state.lock().await
+                .pending_tasks.entry("w1".to_string()).or_default()
                 .push_back(PendingTask {
                     id: id.to_string(),
                     tool: "web_search".to_string(),
@@ -1531,8 +1529,8 @@ mod tests {
         // Enqueue 3 tasks with same priority — should be FIFO
         for id in ["t-first", "t-second", "t-third"] {
             let (tx, _rx) = tokio::sync::oneshot::channel();
-            hub.pending_tasks.lock().await
-                .entry("w1".to_string()).or_default()
+            hub.task_state.lock().await
+                .pending_tasks.entry("w1".to_string()).or_default()
                 .push_back(PendingTask {
                     id: id.to_string(),
                     tool: "web_search".to_string(),

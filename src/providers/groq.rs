@@ -27,7 +27,7 @@ impl GroqProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Self {
         Self {
             api_key,
-            default_model: default_model.unwrap_or_else(|| "llama-4-scout-17b-16e-instruct".to_string()),
+            default_model: default_model.unwrap_or_else(|| "llama-3.3-70b-versatile".to_string()),
             client: HttpPool::global().client().clone(),
         }
     }
