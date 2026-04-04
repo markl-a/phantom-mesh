@@ -40,7 +40,7 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # SQLite (bundled — no external sqlite3.dll needed on Windows)
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
