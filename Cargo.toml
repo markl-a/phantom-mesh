@@ -97,7 +97,7 @@ csv = "1"
 # Encrypted secrets (Sprint 3)
 chacha20poly1305 = "0.10"
 hex = "0.4"
-rand = "0.8"
+rand = "0.9"
 
 # KeyVault (B.4) — Argon2id KDF + AES-256-GCM per-key encryption
 argon2 = "0.5"
