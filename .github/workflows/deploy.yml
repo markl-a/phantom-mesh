@@ -26,7 +26,7 @@ jobs:
       name: staging
       url: http://acer.local:7878/status
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Login to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -71,7 +71,7 @@ jobs:
     needs: deploy-staging
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run E2E tests against staging
         run: |
@@ -92,7 +92,7 @@ jobs:
       name: production
       url: http://z13.local:7878/status
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Deploy to production (Z13)
         run: |
