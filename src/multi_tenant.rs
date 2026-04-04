@@ -48,26 +48,33 @@ pub struct TenantManager {
 impl TenantManager {
     /// Create a new TenantManager backed by the given SQLite path.
     /// `base_dir` is the parent directory for tenant workspaces (e.g. ~/.phantom-mesh/tenants).
-    pub fn new(db_path: &str, base_dir: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS tenants (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                api_key TEXT NOT NULL UNIQUE,
-                tier TEXT NOT NULL DEFAULT 'lite',
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                active INTEGER NOT NULL DEFAULT 1,
-                workspace_path TEXT NOT NULL,
-                settings_json TEXT NOT NULL DEFAULT '{}'
-            );
-            CREATE INDEX IF NOT EXISTS idx_tenants_api_key ON tenants(api_key);
-            CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(active);"
-        )?;
+    pub async fn new(db_path: &str, base_dir: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let base = base_dir.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS tenants (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    api_key TEXT NOT NULL UNIQUE,
+                    tier TEXT NOT NULL DEFAULT 'lite',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    active INTEGER NOT NULL DEFAULT 1,
+                    workspace_path TEXT NOT NULL,
+                    settings_json TEXT NOT NULL DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_tenants_api_key ON tenants(api_key);
+                CREATE INDEX IF NOT EXISTS idx_tenants_active ON tenants(active);"
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),
-            base_dir: base_dir.to_string(),
+            base_dir: base,
         })
     }
 
@@ -292,10 +299,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_create_tenant() {
+    #[tokio::test]
+    async fn test_create_tenant() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Acme Corp", ServiceTier::Pro).unwrap();
         assert_eq!(tenant.name, "Acme Corp");
         assert_eq!(tenant.tier, ServiceTier::Pro);
@@ -306,10 +313,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_get_tenant_by_id() {
+    #[tokio::test]
+    async fn test_get_tenant_by_id() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("TestCo", ServiceTier::Lite).unwrap();
         let fetched = mgr.get_tenant(&tenant.id).unwrap();
         assert_eq!(fetched.id, tenant.id);
@@ -318,18 +325,18 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_get_tenant_not_found() {
+    #[tokio::test]
+    async fn test_get_tenant_not_found() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         assert!(mgr.get_tenant("nonexistent-id").is_none());
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_get_by_api_key() {
+    #[tokio::test]
+    async fn test_get_by_api_key() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("KeyTest", ServiceTier::Team).unwrap();
         let fetched = mgr.get_by_api_key(&tenant.api_key).unwrap();
         assert_eq!(fetched.id, tenant.id);
@@ -337,18 +344,18 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_get_by_api_key_invalid() {
+    #[tokio::test]
+    async fn test_get_by_api_key_invalid() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         assert!(mgr.get_by_api_key("ctx_invalid_key_12345678901234567").is_none());
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_list_tenants() {
+    #[tokio::test]
+    async fn test_list_tenants() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         mgr.create_tenant("Alpha", ServiceTier::Lite).unwrap();
         mgr.create_tenant("Beta", ServiceTier::Pro).unwrap();
         mgr.create_tenant("Gamma", ServiceTier::Team).unwrap();
@@ -361,10 +368,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_update_tier() {
+    #[tokio::test]
+    async fn test_update_tier() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("TierTest", ServiceTier::Lite).unwrap();
         assert_eq!(mgr.get_tenant(&tenant.id).unwrap().tier, ServiceTier::Lite);
         mgr.update_tier(&tenant.id, ServiceTier::Pro).unwrap();
@@ -374,20 +381,20 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_update_tier_not_found() {
+    #[tokio::test]
+    async fn test_update_tier_not_found() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let result = mgr.update_tier("no-such-id", ServiceTier::Pro);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_deactivate_tenant() {
+    #[tokio::test]
+    async fn test_deactivate_tenant() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Deactivate", ServiceTier::Lite).unwrap();
         assert!(mgr.get_tenant(&tenant.id).unwrap().active);
         mgr.deactivate_tenant(&tenant.id).unwrap();
@@ -396,19 +403,19 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_deactivate_not_found() {
+    #[tokio::test]
+    async fn test_deactivate_not_found() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let result = mgr.deactivate_tenant("no-such-id");
         assert!(result.is_err());
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_validate_api_key_active() {
+    #[tokio::test]
+    async fn test_validate_api_key_active() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Active", ServiceTier::Pro).unwrap();
         let validated = mgr.validate_api_key(&tenant.api_key);
         assert!(validated.is_some());
@@ -416,10 +423,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_validate_api_key_deactivated() {
+    #[tokio::test]
+    async fn test_validate_api_key_deactivated() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("WillDeactivate", ServiceTier::Lite).unwrap();
         mgr.deactivate_tenant(&tenant.id).unwrap();
         // Deactivated tenant's key should not validate
@@ -428,10 +435,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_validate_api_key_invalid() {
+    #[tokio::test]
+    async fn test_validate_api_key_invalid() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         assert!(mgr.validate_api_key("ctx_not_a_real_key_00000000000000").is_none());
         cleanup(&db, &base);
     }
@@ -453,20 +460,20 @@ mod tests {
         assert_ne!(key1, key2);
     }
 
-    #[test]
-    fn test_workspace_path_contains_tenant_id() {
+    #[tokio::test]
+    async fn test_workspace_path_contains_tenant_id() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("PathTest", ServiceTier::Lite).unwrap();
         assert!(tenant.workspace_path.contains(&tenant.id));
         assert!(tenant.workspace_path.ends_with("/workspace"));
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_reactivate_tenant() {
+    #[tokio::test]
+    async fn test_reactivate_tenant() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Reactivate", ServiceTier::Lite).unwrap();
         mgr.deactivate_tenant(&tenant.id).unwrap();
         assert!(!mgr.get_tenant(&tenant.id).unwrap().active);
@@ -477,10 +484,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_active_count() {
+    #[tokio::test]
+    async fn test_active_count() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         assert_eq!(mgr.active_count(), 0);
         let t1 = mgr.create_tenant("One", ServiceTier::Lite).unwrap();
         mgr.create_tenant("Two", ServiceTier::Pro).unwrap();
@@ -490,10 +497,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_update_settings() {
+    #[tokio::test]
+    async fn test_update_settings() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Settings", ServiceTier::Pro).unwrap();
         let new_settings = serde_json::json!({
             "max_agents": 5,
@@ -507,10 +514,10 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_update_settings_not_found() {
+    #[tokio::test]
+    async fn test_update_settings_not_found() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let result = mgr.update_settings("no-id", serde_json::json!({}));
         assert!(result.is_err());
         cleanup(&db, &base);
@@ -557,10 +564,10 @@ mod tests {
         assert!(extract_tenant_key(&headers).is_none());
     }
 
-    #[test]
-    fn test_multiple_tenants_unique_keys() {
+    #[tokio::test]
+    async fn test_multiple_tenants_unique_keys() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let t1 = mgr.create_tenant("T1", ServiceTier::Lite).unwrap();
         let t2 = mgr.create_tenant("T2", ServiceTier::Lite).unwrap();
         let t3 = mgr.create_tenant("T3", ServiceTier::Lite).unwrap();
@@ -575,19 +582,19 @@ mod tests {
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_tenant_default_settings() {
+    #[tokio::test]
+    async fn test_tenant_default_settings() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenant = mgr.create_tenant("Defaults", ServiceTier::Lite).unwrap();
         assert_eq!(tenant.settings, serde_json::json!({}));
         cleanup(&db, &base);
     }
 
-    #[test]
-    fn test_list_tenants_empty() {
+    #[tokio::test]
+    async fn test_list_tenants_empty() {
         let (db, base) = temp_db();
-        let mgr = TenantManager::new(&db, &base).unwrap();
+        let mgr = TenantManager::new(&db, &base).await.unwrap();
         let tenants = mgr.list_tenants();
         assert!(tenants.is_empty());
         cleanup(&db, &base);

@@ -39,27 +39,33 @@ pub struct ProviderPricingStore {
 }
 
 impl ProviderPricingStore {
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS provider_price_rules (
-                provider                   TEXT NOT NULL,
-                model_pattern              TEXT NOT NULL,
-                input_usd_per_1m_tokens    REAL NOT NULL DEFAULT 0.0,
-                output_usd_per_1m_tokens   REAL NOT NULL DEFAULT 0.0,
-                notes                      TEXT,
-                updated_at                 TEXT NOT NULL,
-                PRIMARY KEY (provider, model_pattern)
-            );
-            CREATE INDEX IF NOT EXISTS idx_provider_price_provider
-                ON provider_price_rules(provider);",
-        )?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS provider_price_rules (
+                    provider                   TEXT NOT NULL,
+                    model_pattern              TEXT NOT NULL,
+                    input_usd_per_1m_tokens    REAL NOT NULL DEFAULT 0.0,
+                    output_usd_per_1m_tokens   REAL NOT NULL DEFAULT 0.0,
+                    notes                      TEXT,
+                    updated_at                 TEXT NOT NULL,
+                    PRIMARY KEY (provider, model_pattern)
+                );
+                CREATE INDEX IF NOT EXISTS idx_provider_price_provider
+                    ON provider_price_rules(provider);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         let me = Self {
             conn: Mutex::new(conn),
@@ -283,9 +289,9 @@ impl ProviderPricingStore {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_default_rule_match_longest_pattern() {
-        let store = ProviderPricingStore::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_default_rule_match_longest_pattern() {
+        let store = ProviderPricingStore::new(":memory:").await.unwrap();
         let estimate = store
             .estimate_cost("openai", "gpt-4o-mini", 1000, 500)
             .unwrap();
@@ -294,9 +300,9 @@ mod tests {
         assert!(estimate.total_usd > 0.0);
     }
 
-    #[test]
-    fn test_upsert_override_to_zero_cost() {
-        let store = ProviderPricingStore::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_upsert_override_to_zero_cost() {
+        let store = ProviderPricingStore::new(":memory:").await.unwrap();
         store
             .upsert_rule(&ProviderPriceRule {
                 provider: "openai".to_string(),
@@ -314,9 +320,9 @@ mod tests {
         assert_eq!(estimate.total_usd, 0.0);
     }
 
-    #[test]
-    fn test_unknown_provider_falls_back() {
-        let store = ProviderPricingStore::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_unknown_provider_falls_back() {
+        let store = ProviderPricingStore::new(":memory:").await.unwrap();
         let estimate = store
             .estimate_cost("unknown", "mystery", 1000, 1000)
             .unwrap();

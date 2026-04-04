@@ -91,47 +91,52 @@ pub struct TaskQueue {
 impl TaskQueue {
     /// Open (or create) the task queue database
     pub async fn new(db_path: &str) -> Result<Self> {
-        // Ensure parent directory exists
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            // Ensure parent directory exists
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
 
-        let conn = Connection::open(db_path)?;
+            let conn = Connection::open(&path)?;
 
-        // Enable WAL for concurrent reads
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+            // Enable WAL for concurrent reads
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
 
-        // Create table if not exists (with new columns for fresh DBs)
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS tasks (
-                task_id        TEXT PRIMARY KEY,
-                title          TEXT NOT NULL,
-                prompt         TEXT NOT NULL,
-                status         TEXT NOT NULL DEFAULT 'pending',
-                result         TEXT,
-                strategy_used  TEXT,
-                feedback_score REAL,
-                priority       INTEGER NOT NULL DEFAULT 2,
-                idempotency_key TEXT,
-                created_at     TEXT NOT NULL,
-                updated_at     TEXT NOT NULL
-            );",
-        )?;
+            // Create table if not exists (with new columns for fresh DBs)
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS tasks (
+                    task_id        TEXT PRIMARY KEY,
+                    title          TEXT NOT NULL,
+                    prompt         TEXT NOT NULL,
+                    status         TEXT NOT NULL DEFAULT 'pending',
+                    result         TEXT,
+                    strategy_used  TEXT,
+                    feedback_score REAL,
+                    priority       INTEGER NOT NULL DEFAULT 2,
+                    idempotency_key TEXT,
+                    created_at     TEXT NOT NULL,
+                    updated_at     TEXT NOT NULL
+                );",
+            )?;
 
-        // Migrate existing tables: add columns if missing
-        let has_priority: bool = conn.prepare("SELECT priority FROM tasks LIMIT 0").is_ok();
-        if !has_priority {
+            // Migrate existing tables: add columns if missing
+            let has_priority: bool = conn.prepare("SELECT priority FROM tasks LIMIT 0").is_ok();
+            if !has_priority {
+                let _ = conn.execute_batch(
+                    "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
+                     ALTER TABLE tasks ADD COLUMN idempotency_key TEXT;"
+                );
+            }
+
+            // Create indexes (safe to run after migration)
             let _ = conn.execute_batch(
-                "ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 2;
-                 ALTER TABLE tasks ADD COLUMN idempotency_key TEXT;"
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL;
+                 CREATE INDEX IF NOT EXISTS idx_tasks_priority_status ON tasks(priority, status);"
             );
-        }
 
-        // Create indexes (safe to run after migration)
-        let _ = conn.execute_batch(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL;
-             CREATE INDEX IF NOT EXISTS idx_tasks_priority_status ON tasks(priority, status);"
-        );
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),

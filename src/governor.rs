@@ -283,8 +283,8 @@ mod tests {
 
     /// Helper: set up a store with a single Canary-status policy and return
     /// the (store, policy_id, version) triple.
-    fn setup_canary_policy(db: &str) -> (Arc<OptimizerStore>, String, i64) {
-        let store = Arc::new(OptimizerStore::new(db).unwrap());
+    async fn setup_canary_policy(db: &str) -> (Arc<OptimizerStore>, String, i64) {
+        let store = Arc::new(OptimizerStore::new(db).await.unwrap());
         let policy_id = format!("test.policy.{}", Uuid::new_v4());
 
         // v1: Active baseline
@@ -319,7 +319,7 @@ mod tests {
     #[tokio::test]
     async fn test_promote_canary_to_active() {
         let db = temp_db("promote");
-        let (store, policy_id, _version) = setup_canary_policy(&db);
+        let (store, policy_id, _version) = setup_canary_policy(&db).await;
 
         let config = GovernorConfig {
             canary_min_runs: 3,
@@ -362,7 +362,7 @@ mod tests {
     #[tokio::test]
     async fn test_reject_failing_canary() {
         let db = temp_db("reject");
-        let (store, policy_id, _version) = setup_canary_policy(&db);
+        let (store, policy_id, _version) = setup_canary_policy(&db).await;
 
         let config = GovernorConfig {
             canary_min_runs: 5,
@@ -403,7 +403,7 @@ mod tests {
     #[tokio::test]
     async fn test_no_action_insufficient_runs() {
         let db = temp_db("no_action");
-        let (store, policy_id, _version) = setup_canary_policy(&db);
+        let (store, policy_id, _version) = setup_canary_policy(&db).await;
 
         let config = GovernorConfig {
             canary_min_runs: 10,
@@ -442,7 +442,7 @@ mod tests {
     #[tokio::test]
     async fn test_no_canary_policies_yields_empty() {
         let db = temp_db("empty");
-        let store = Arc::new(OptimizerStore::new(&db).unwrap());
+        let store = Arc::new(OptimizerStore::new(&db).await.unwrap());
         let governor = Governor::new(store, GovernorConfig::default());
 
         let actions = governor.check_and_promote().await.unwrap();
@@ -452,7 +452,7 @@ mod tests {
     #[tokio::test]
     async fn test_quality_drop_causes_rejection() {
         let db = temp_db("quality_drop");
-        let (store, policy_id, _version) = setup_canary_policy(&db);
+        let (store, policy_id, _version) = setup_canary_policy(&db).await;
 
         let config = GovernorConfig {
             canary_min_runs: 3,
@@ -481,7 +481,7 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_canary_policies() {
         let db = temp_db("multi");
-        let store = Arc::new(OptimizerStore::new(&db).unwrap());
+        let store = Arc::new(OptimizerStore::new(&db).await.unwrap());
 
         let pid_a = format!("policy.a.{}", Uuid::new_v4());
         let pid_b = format!("policy.b.{}", Uuid::new_v4());

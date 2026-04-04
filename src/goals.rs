@@ -125,12 +125,15 @@ pub struct WeeklySummary {
 // ── GoalsStore ─────────────────────────────────────────────────────────────
 
 pub struct GoalsStore {
+    #[allow(dead_code)]
     db_path: String,
+    conn: std::sync::Mutex<rusqlite::Connection>,
 }
 
 impl GoalsStore {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
 
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS goals (
@@ -187,19 +190,17 @@ impl GoalsStore {
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
 
         info!("GoalsStore initialized: {}", db_path);
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self { db_path: db_path.to_string(), conn: std::sync::Mutex::new(conn) })
     }
 
-    fn conn(&self) -> Result<rusqlite::Connection> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        Ok(conn)
+    fn conn(&self) -> std::sync::MutexGuard<'_, rusqlite::Connection> {
+        self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     // ── Goal CRUD ──────────────────────────────────────────────────────
 
     pub fn create_goal(&self, goal: &Goal) -> Result<()> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO goals (id, title, category, description, target_date, status, context, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -214,7 +215,7 @@ impl GoalsStore {
     }
 
     pub fn get_goal(&self, id: &str) -> Result<Option<Goal>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, title, category, description, target_date, status, context, created_at, updated_at
              FROM goals WHERE id = ?1"
@@ -240,7 +241,7 @@ impl GoalsStore {
     }
 
     pub fn list_goals(&self, status: Option<GoalStatus>) -> Result<Vec<Goal>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
             Some(s) => (
                 "SELECT id, title, category, description, target_date, status, context, created_at, updated_at
@@ -272,7 +273,7 @@ impl GoalsStore {
     }
 
     pub fn update_goal(&self, id: &str, title: Option<&str>, status: Option<GoalStatus>, description: Option<&str>, context: Option<&str>) -> Result<bool> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let now = Utc::now().to_rfc3339();
         let mut sets = vec!["updated_at = ?1".to_string()];
         let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(now)];
@@ -307,7 +308,7 @@ impl GoalsStore {
     }
 
     pub fn delete_goal(&self, id: &str) -> Result<bool> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let rows = conn.execute("DELETE FROM goals WHERE id = ?1", [id])?;
         Ok(rows > 0)
     }
@@ -315,7 +316,7 @@ impl GoalsStore {
     // ── Milestone CRUD ─────────────────────────────────────────────────
 
     pub fn add_milestone(&self, ms: &Milestone) -> Result<()> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO milestones (id, goal_id, title, due_date, status, sort_order, completed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -325,7 +326,7 @@ impl GoalsStore {
     }
 
     pub fn list_milestones(&self, goal_id: &str) -> Result<Vec<Milestone>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, goal_id, title, due_date, status, sort_order, completed_at
              FROM milestones WHERE goal_id = ?1 ORDER BY sort_order"
@@ -341,7 +342,7 @@ impl GoalsStore {
     }
 
     pub fn toggle_milestone(&self, id: &str) -> Result<Option<Milestone>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let current: Option<String> = conn.query_row(
             "SELECT status FROM milestones WHERE id = ?1", [id],
             |row| row.get(0),
@@ -373,7 +374,7 @@ impl GoalsStore {
     // ── Recurring Tasks ────────────────────────────────────────────────
 
     pub fn add_recurring_task(&self, task: &RecurringTask) -> Result<()> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO recurring_tasks (id, goal_id, title, cron_expr, last_completed, streak_count, enabled)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -383,7 +384,7 @@ impl GoalsStore {
     }
 
     pub fn list_recurring_tasks(&self, goal_id: &str) -> Result<Vec<RecurringTask>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, goal_id, title, cron_expr, last_completed, streak_count, enabled
              FROM recurring_tasks WHERE goal_id = ?1 ORDER BY title"
@@ -399,7 +400,7 @@ impl GoalsStore {
     }
 
     pub fn complete_recurring_task(&self, task_id: &str) -> Result<Option<i32>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let today = Utc::now().format("%Y-%m-%d").to_string();
         let current: Option<(Option<String>, i32)> = conn.query_row(
             "SELECT last_completed, streak_count FROM recurring_tasks WHERE id = ?1", [task_id],
@@ -425,7 +426,7 @@ impl GoalsStore {
     }
 
     pub fn get_today_tasks(&self) -> Result<Vec<TodayTask>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let today = Utc::now().format("%Y-%m-%d").to_string();
         let mut stmt = conn.prepare(
             "SELECT rt.id, rt.goal_id, rt.title, rt.cron_expr, rt.last_completed, rt.streak_count, rt.enabled, g.title
@@ -452,7 +453,7 @@ impl GoalsStore {
     // ── Check-ins ──────────────────────────────────────────────────────
 
     pub fn add_check_in(&self, ci: &CheckIn) -> Result<()> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO check_ins (id, goal_id, date, mood, note, ai_feedback)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -462,7 +463,7 @@ impl GoalsStore {
     }
 
     pub fn list_check_ins(&self, goal_id: &str, limit: i32) -> Result<Vec<CheckIn>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, goal_id, date, mood, note, ai_feedback
              FROM check_ins WHERE goal_id = ?1 ORDER BY date DESC LIMIT ?2"
@@ -524,7 +525,7 @@ impl GoalsStore {
 
     /// Get mood trend for a goal over the last N days.
     pub fn mood_trend(&self, goal_id: &str, days: i32) -> Result<Vec<(String, i32)>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT date, mood FROM check_ins
              WHERE goal_id = ?1
@@ -539,7 +540,7 @@ impl GoalsStore {
 
     /// Get mood trend across ALL goals for overall history.
     pub fn global_mood_trend(&self, days: i32) -> Result<Vec<(String, f64)>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT date, AVG(mood) as avg_mood FROM check_ins
              GROUP BY date ORDER BY date DESC LIMIT ?1"
@@ -558,7 +559,7 @@ impl GoalsStore {
         let week_start_str = week_start.format("%Y-%m-%d").to_string();
         let week_end_str = today.format("%Y-%m-%d").to_string();
 
-        let conn = self.conn()?;
+        let conn = self.conn();
 
         // Count recurring task completions this week
         let completed_tasks: i32 = conn.query_row(
@@ -623,7 +624,7 @@ impl GoalsStore {
 
     /// All check-ins across all goals, limited.
     pub fn all_check_ins(&self, limit: i32) -> Result<Vec<CheckIn>> {
-        let conn = self.conn()?;
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, goal_id, date, mood, note, ai_feedback
              FROM check_ins ORDER BY date DESC LIMIT ?1"

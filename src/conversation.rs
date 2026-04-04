@@ -32,6 +32,7 @@ impl ConversationStore {
             let db = db.clone();
             move || -> Result<HashMap<String, Session>> {
                 let conn = rusqlite::Connection::open(&db)?;
+                conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
                 conn.execute_batch(
                     "CREATE TABLE IF NOT EXISTS sessions (
                         chat_id     TEXT PRIMARY KEY,

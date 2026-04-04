@@ -201,23 +201,29 @@ pub struct ServiceTierManager {
 impl ServiceTierManager {
     /// Create a new manager backed by the given SQLite path.
     /// Creates tables if they don't exist.
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS agent_tiers (
-                agent TEXT PRIMARY KEY,
-                tier TEXT NOT NULL DEFAULT 'lite',
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            CREATE TABLE IF NOT EXISTS tier_usage (
-                agent TEXT NOT NULL,
-                date_key TEXT NOT NULL,
-                task_count INTEGER NOT NULL DEFAULT 0,
-                storage_bytes INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (agent, date_key)
-            );"
-        )?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS agent_tiers (
+                    agent TEXT PRIMARY KEY,
+                    tier TEXT NOT NULL DEFAULT 'lite',
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE IF NOT EXISTS tier_usage (
+                    agent TEXT NOT NULL,
+                    date_key TEXT NOT NULL,
+                    task_count INTEGER NOT NULL DEFAULT 0,
+                    storage_bytes INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (agent, date_key)
+                );"
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         let mut configs = HashMap::new();
         configs.insert(ServiceTier::Lite, default_tier_config(ServiceTier::Lite));
@@ -429,18 +435,18 @@ mod tests {
         path.to_string_lossy().to_string()
     }
 
-    #[test]
-    fn test_default_tier_is_lite() {
+    #[tokio::test]
+    async fn test_default_tier_is_lite() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         assert_eq!(mgr.get_tier("some_agent"), ServiceTier::Lite);
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_set_and_get_tier() {
+    #[tokio::test]
+    async fn test_set_and_get_tier() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent_a", ServiceTier::Pro).unwrap();
         assert_eq!(mgr.get_tier("agent_a"), ServiceTier::Pro);
         mgr.set_tier("agent_a", ServiceTier::Team).unwrap();
@@ -448,10 +454,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_lite_tool_access() {
+    #[tokio::test]
+    async fn test_lite_tool_access() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         // Lite tier: all tools allowed (self-hosted single-user mode)
         assert!(mgr.check_access("agent", "web_search").is_ok());
         assert!(mgr.check_access("agent", "shell").is_ok());
@@ -459,10 +465,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_pro_tool_access() {
+    #[tokio::test]
+    async fn test_pro_tool_access() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent", ServiceTier::Pro).unwrap();
         // Pro tier: shell allowed
         assert!(mgr.check_access("agent", "shell").is_ok());
@@ -473,10 +479,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_team_all_tools() {
+    #[tokio::test]
+    async fn test_team_all_tools() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent", ServiceTier::Team).unwrap();
         // Team tier: everything allowed
         assert!(mgr.check_access("agent", "scaffold_saas").is_ok());
@@ -486,10 +492,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_rate_limit_lite() {
+    #[tokio::test]
+    async fn test_rate_limit_lite() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         // Record 10_000 tasks (Lite limit)
         for _ in 0..10_000 {
             mgr.record_task("agent").unwrap();
@@ -502,10 +508,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_rate_limit_team_unlimited() {
+    #[tokio::test]
+    async fn test_rate_limit_team_unlimited() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent", ServiceTier::Team).unwrap();
         // Team tier: unlimited tasks
         for _ in 0..200 {
@@ -515,10 +521,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_get_usage() {
+    #[tokio::test]
+    async fn test_get_usage() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent", ServiceTier::Pro).unwrap();
         mgr.record_task("agent").unwrap();
         mgr.record_task("agent").unwrap();
@@ -531,10 +537,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_priority_boost() {
+    #[tokio::test]
+    async fn test_priority_boost() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         assert_eq!(mgr.priority_boost("agent"), 0); // Lite default
         mgr.set_tier("agent", ServiceTier::Pro).unwrap();
         assert_eq!(mgr.priority_boost("agent"), 5);
@@ -543,10 +549,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_model_access() {
+    #[tokio::test]
+    async fn test_model_access() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         // Lite: all models allowed (self-hosted single-user mode)
         assert!(mgr.check_model_access("agent", "qwen3:8b").is_ok());
         assert!(mgr.check_model_access("agent", "gpt-4o").is_ok());
@@ -559,10 +565,10 @@ mod tests {
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_list_agents() {
+    #[tokio::test]
+    async fn test_list_agents() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("alice", ServiceTier::Pro).unwrap();
         mgr.set_tier("bob", ServiceTier::Team).unwrap();
         mgr.set_tier("charlie", ServiceTier::Lite).unwrap();
@@ -643,20 +649,20 @@ mod tests {
         assert!(team.limits.allowed_models.is_all());
     }
 
-    #[test]
-    fn test_storage_tracking() {
+    #[tokio::test]
+    async fn test_storage_tracking() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.update_storage("agent", 5000).unwrap();
         let usage = mgr.get_usage("agent");
         assert_eq!(usage.storage_used, 5000);
         let _ = std::fs::remove_file(&db);
     }
 
-    #[test]
-    fn test_set_tier_upsert() {
+    #[tokio::test]
+    async fn test_set_tier_upsert() {
         let db = temp_db();
-        let mgr = ServiceTierManager::new(&db).unwrap();
+        let mgr = ServiceTierManager::new(&db).await.unwrap();
         mgr.set_tier("agent", ServiceTier::Lite).unwrap();
         mgr.set_tier("agent", ServiceTier::Pro).unwrap();
         mgr.set_tier("agent", ServiceTier::Team).unwrap();

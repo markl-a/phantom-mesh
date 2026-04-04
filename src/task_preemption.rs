@@ -61,27 +61,32 @@ pub struct PreemptionManager {
 
 impl PreemptionManager {
     /// Create a new PreemptionManager, creating the `preempted_tasks` table if needed.
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
 
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS preempted_tasks (
-                task_id          TEXT PRIMARY KEY,
-                original_priority INTEGER NOT NULL,
-                worker_name      TEXT NOT NULL,
-                checkpoint_data  TEXT,
-                preempted_at     TEXT NOT NULL,
-                restored_at      TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_preempted_restored ON preempted_tasks(restored_at);",
-        )?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS preempted_tasks (
+                    task_id          TEXT PRIMARY KEY,
+                    original_priority INTEGER NOT NULL,
+                    worker_name      TEXT NOT NULL,
+                    checkpoint_data  TEXT,
+                    preempted_at     TEXT NOT NULL,
+                    restored_at      TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_preempted_restored ON preempted_tasks(restored_at);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -272,9 +277,9 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
-    fn make_manager() -> PreemptionManager {
+    async fn make_manager() -> PreemptionManager {
         let tmp = NamedTempFile::new().unwrap();
-        PreemptionManager::new(tmp.path().to_str().unwrap()).unwrap()
+        PreemptionManager::new(tmp.path().to_str().unwrap()).await.unwrap()
     }
 
     fn running(task_id: &str, priority: u8, worker: &str, started: &str) -> RunningTask {
@@ -287,9 +292,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_p0_preempts_p3() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_p0_preempts_p3() {
+        let mgr = make_manager().await;
         let tasks = vec![running("t1", 3, "acer", "2026-01-01T00:00:00Z")];
         let plan = mgr.check_preemption(0, &tasks);
         assert!(plan.is_some());
@@ -299,43 +304,43 @@ mod tests {
         assert_eq!(plan.incoming_priority, 0);
     }
 
-    #[test]
-    fn test_p0_preempts_p2() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_p0_preempts_p2() {
+        let mgr = make_manager().await;
         let tasks = vec![running("t1", 2, "z13", "2026-01-01T00:00:00Z")];
         let plan = mgr.check_preemption(0, &tasks);
         assert!(plan.is_some());
         assert_eq!(plan.unwrap().target_task_id, "t1");
     }
 
-    #[test]
-    fn test_p1_preempts_p2() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_p1_preempts_p2() {
+        let mgr = make_manager().await;
         let tasks = vec![running("t1", 2, "m1-mac", "2026-01-01T00:00:00Z")];
         let plan = mgr.check_preemption(1, &tasks);
         assert!(plan.is_some());
         assert_eq!(plan.unwrap().target_task_id, "t1");
     }
 
-    #[test]
-    fn test_p2_cannot_preempt() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_p2_cannot_preempt() {
+        let mgr = make_manager().await;
         let tasks = vec![running("t1", 3, "acer", "2026-01-01T00:00:00Z")];
         let plan = mgr.check_preemption(2, &tasks);
         assert!(plan.is_none());
     }
 
-    #[test]
-    fn test_p3_cannot_preempt() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_p3_cannot_preempt() {
+        let mgr = make_manager().await;
         let tasks = vec![running("t1", 3, "acer", "2026-01-01T00:00:00Z")];
         let plan = mgr.check_preemption(3, &tasks);
         assert!(plan.is_none());
     }
 
-    #[test]
-    fn test_never_preempt_p0_or_p1() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_never_preempt_p0_or_p1() {
+        let mgr = make_manager().await;
         let tasks = vec![
             running("t0", 0, "z13", "2026-01-01T00:00:00Z"),
             running("t1", 1, "m1-mac", "2026-01-01T00:00:00Z"),
@@ -344,9 +349,9 @@ mod tests {
         assert!(plan.is_none(), "Must never preempt P0 or P1 tasks");
     }
 
-    #[test]
-    fn test_prefers_lowest_priority_target() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_prefers_lowest_priority_target() {
+        let mgr = make_manager().await;
         let tasks = vec![
             running("t-p2", 2, "z13", "2026-01-01T00:00:00Z"),
             running("t-p3", 3, "acer", "2026-01-01T00:00:00Z"),
@@ -355,9 +360,9 @@ mod tests {
         assert_eq!(plan.target_task_id, "t-p3", "Should preempt P3 before P2");
     }
 
-    #[test]
-    fn test_tiebreak_by_earliest_started() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_tiebreak_by_earliest_started() {
+        let mgr = make_manager().await;
         let tasks = vec![
             running("t-new", 3, "z13", "2026-01-01T01:00:00Z"),
             running("t-old", 3, "acer", "2026-01-01T00:00:00Z"),
@@ -369,17 +374,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_no_preemptable_tasks() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_no_preemptable_tasks() {
+        let mgr = make_manager().await;
         let tasks: Vec<RunningTask> = vec![];
         let plan = mgr.check_preemption(0, &tasks);
         assert!(plan.is_none());
     }
 
-    #[test]
-    fn test_preempt_and_restore_lifecycle() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_preempt_and_restore_lifecycle() {
+        let mgr = make_manager().await;
 
         let plan = PreemptionPlan {
             target_task_id: "task-abc".to_string(),
@@ -413,16 +418,16 @@ mod tests {
         assert_eq!(mgr.preempted_count().unwrap(), 0);
     }
 
-    #[test]
-    fn test_restore_nonexistent_fails() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_restore_nonexistent_fails() {
+        let mgr = make_manager().await;
         let result = mgr.restore("no-such-task");
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_double_restore_fails() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_double_restore_fails() {
+        let mgr = make_manager().await;
         let plan = PreemptionPlan {
             target_task_id: "task-xyz".to_string(),
             target_worker: "z13".to_string(),
@@ -438,9 +443,9 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_preempt_without_checkpoint_data() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_preempt_without_checkpoint_data() {
+        let mgr = make_manager().await;
         let plan = PreemptionPlan {
             target_task_id: "task-nochk".to_string(),
             target_worker: "m1-mac".to_string(),
@@ -455,9 +460,9 @@ mod tests {
         assert_eq!(record.original_priority, 3);
     }
 
-    #[test]
-    fn test_history_returns_all() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_history_returns_all() {
+        let mgr = make_manager().await;
 
         for i in 0..5 {
             let plan = PreemptionPlan {
@@ -481,9 +486,9 @@ mod tests {
         assert_eq!(pending.len(), 3);
     }
 
-    #[test]
-    fn test_mixed_priorities_only_preempts_eligible() {
-        let mgr = make_manager();
+    #[tokio::test]
+    async fn test_mixed_priorities_only_preempts_eligible() {
+        let mgr = make_manager().await;
         let tasks = vec![
             running("t-p0", 0, "z13", "2026-01-01T00:00:00Z"),
             running("t-p1", 1, "m1-mac", "2026-01-01T00:00:00Z"),

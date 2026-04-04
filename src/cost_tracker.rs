@@ -123,14 +123,20 @@ impl BudgetBreaker {
 
 /// Cost tracker with SQLite persistence
 pub struct CostTracker {
+    #[allow(dead_code)]
     db_path: String,
+    conn: Mutex<rusqlite::Connection>,
 }
 
 impl CostTracker {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         Self::ensure_schema(&conn)?;
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self {
+            db_path: db_path.to_string(),
+            conn: Mutex::new(conn),
+        })
     }
 
     fn ensure_schema(conn: &rusqlite::Connection) -> Result<()> {
@@ -203,7 +209,7 @@ impl CostTracker {
 
     /// Record a new cost entry
     pub fn record(&self, record: &CostRecord) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let date_key = record.timestamp.format("%Y-%m-%d").to_string();
         conn.execute(
             "INSERT INTO cost_records (
@@ -251,7 +257,7 @@ impl CostTracker {
             return Ok(()); // No limit configured
         }
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
              FROM cost_records WHERE date_key = ?1 AND agent = ?2"
@@ -274,7 +280,7 @@ impl CostTracker {
             return Ok(BudgetStatus::Ok { spent: 0.0, remaining: f64::INFINITY });
         }
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT COALESCE(SUM(estimated_cost_usd), 0.0)
              FROM cost_records WHERE date_key = ?1 AND agent = ?2"
@@ -300,7 +306,7 @@ impl CostTracker {
 
     /// Get total costs for a specific date
     pub fn summary_for_date(&self, date: &str) -> Result<CostSummary> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT
                 COALESCE(SUM(total_tokens), 0),
@@ -332,7 +338,7 @@ impl CostTracker {
     /// Get costs grouped by agent
     pub fn by_agent(&self, days: u32) -> Result<Vec<CostSummary>> {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT
                 agent,
@@ -360,7 +366,7 @@ impl CostTracker {
     /// Get costs grouped by provider
     pub fn by_provider(&self, days: u32) -> Result<Vec<CostSummary>> {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT
                 provider,
@@ -388,7 +394,7 @@ impl CostTracker {
     /// Get costs grouped by day (last N days)
     pub fn by_day(&self, days: u32) -> Result<Vec<CostSummary>> {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64)).format("%Y-%m-%d").to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT
                 date_key,
@@ -415,7 +421,7 @@ impl CostTracker {
 
     /// Get all records for a date range (for export)
     pub fn records_between(&self, start: &str, end: &str) -> Result<Vec<CostRecord>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT
                 id, timestamp, agent, provider, model, tokens_in, tokens_out, total_tokens,

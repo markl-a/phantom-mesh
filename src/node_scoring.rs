@@ -118,33 +118,38 @@ pub struct NodeScorer {
 
 impl NodeScorer {
     /// Create a new NodeScorer, creating the `node_scores` table if needed.
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
 
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS node_scores (
-                node_id          TEXT PRIMARY KEY,
-                success_count    INTEGER NOT NULL DEFAULT 0,
-                failure_count    INTEGER NOT NULL DEFAULT 0,
-                avg_latency_ms   REAL NOT NULL DEFAULT 0.0,
-                total_cost       REAL NOT NULL DEFAULT 0.0,
-                quality_score    REAL NOT NULL DEFAULT 0.0,
-                stability        REAL NOT NULL DEFAULT 0.0,
-                speed            REAL NOT NULL DEFAULT 0.0,
-                cost_efficiency  REAL NOT NULL DEFAULT 0.0,
-                quality          REAL NOT NULL DEFAULT 0.0,
-                overall          REAL NOT NULL DEFAULT 0.0,
-                grade            TEXT NOT NULL DEFAULT 'D',
-                updated_at       TEXT NOT NULL
-            );",
-        )?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS node_scores (
+                    node_id          TEXT PRIMARY KEY,
+                    success_count    INTEGER NOT NULL DEFAULT 0,
+                    failure_count    INTEGER NOT NULL DEFAULT 0,
+                    avg_latency_ms   REAL NOT NULL DEFAULT 0.0,
+                    total_cost       REAL NOT NULL DEFAULT 0.0,
+                    quality_score    REAL NOT NULL DEFAULT 0.0,
+                    stability        REAL NOT NULL DEFAULT 0.0,
+                    speed            REAL NOT NULL DEFAULT 0.0,
+                    cost_efficiency  REAL NOT NULL DEFAULT 0.0,
+                    quality          REAL NOT NULL DEFAULT 0.0,
+                    overall          REAL NOT NULL DEFAULT 0.0,
+                    grade            TEXT NOT NULL DEFAULT 'D',
+                    updated_at       TEXT NOT NULL
+                );",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -368,9 +373,9 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
-    fn make_scorer() -> NodeScorer {
+    async fn make_scorer() -> NodeScorer {
         let tmp = NamedTempFile::new().unwrap();
-        NodeScorer::new(tmp.path().to_str().unwrap()).unwrap()
+        NodeScorer::new(tmp.path().to_str().unwrap()).await.unwrap()
     }
 
     #[test]
@@ -385,9 +390,9 @@ mod tests {
         assert_eq!(NodeScorer::get_grade(0.0), NodeGrade::D);
     }
 
-    #[test]
-    fn test_perfect_node_gets_grade_a() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_perfect_node_gets_grade_a() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 100,
             failure_count: 0,
@@ -401,9 +406,9 @@ mod tests {
         assert_eq!(score.stability, 100.0);
     }
 
-    #[test]
-    fn test_terrible_node_gets_grade_d() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_terrible_node_gets_grade_d() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 10,
             failure_count: 90,
@@ -416,9 +421,9 @@ mod tests {
         assert!(score.overall < 60.0);
     }
 
-    #[test]
-    fn test_stability_100_percent_success() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_stability_100_percent_success() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 50,
             failure_count: 0,
@@ -430,9 +435,9 @@ mod tests {
         assert_eq!(score.stability, 100.0);
     }
 
-    #[test]
-    fn test_stability_50_percent() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_stability_50_percent() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 50,
             failure_count: 50,
@@ -444,9 +449,9 @@ mod tests {
         assert!((score.stability - 50.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_speed_zero_latency_is_perfect() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_speed_zero_latency_is_perfect() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 10,
             failure_count: 0,
@@ -458,9 +463,9 @@ mod tests {
         assert_eq!(score.speed, 100.0);
     }
 
-    #[test]
-    fn test_speed_baseline_latency_is_50() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_speed_baseline_latency_is_50() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 10,
             failure_count: 0,
@@ -472,9 +477,9 @@ mod tests {
         assert!((score.speed - 50.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_cost_efficiency_free_is_100() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_cost_efficiency_free_is_100() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 10,
             failure_count: 0,
@@ -486,10 +491,10 @@ mod tests {
         assert_eq!(score.cost_efficiency, 100.0);
     }
 
-    #[test]
-    fn test_overall_formula_weights() {
+    #[tokio::test]
+    async fn test_overall_formula_weights() {
         // Verify: overall = 0.30*stability + 0.25*speed + 0.25*cost_efficiency + 0.20*quality
-        let scorer = make_scorer();
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 80,
             failure_count: 20,
@@ -515,9 +520,9 @@ mod tests {
         assert!((score.overall - expected_overall).abs() < 0.01);
     }
 
-    #[test]
-    fn test_rankings_sorted_by_overall() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_rankings_sorted_by_overall() {
+        let scorer = make_scorer().await;
 
         // Add 3 nodes with different quality levels
         scorer
@@ -566,17 +571,17 @@ mod tests {
         assert!(rankings[1].1.overall >= rankings[2].1.overall);
     }
 
-    #[test]
-    fn test_calculate_score_unknown_node() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_calculate_score_unknown_node() {
+        let scorer = make_scorer().await;
         let score = scorer.calculate_score("nonexistent");
         assert_eq!(score.overall, 0.0);
         assert_eq!(score.grade, NodeGrade::D);
     }
 
-    #[test]
-    fn test_update_and_retrieve() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_update_and_retrieve() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 90,
             failure_count: 10,
@@ -591,9 +596,9 @@ mod tests {
         assert_eq!(written.grade, read.grade);
     }
 
-    #[test]
-    fn test_remove_node() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_remove_node() {
+        let scorer = make_scorer().await;
         scorer
             .update_metrics(
                 "to-remove",
@@ -613,9 +618,9 @@ mod tests {
         assert!(scorer.get_node_details("to-remove").is_none());
     }
 
-    #[test]
-    fn test_no_tasks_gives_zero_scores() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_no_tasks_gives_zero_scores() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 0,
             failure_count: 0,
@@ -632,9 +637,9 @@ mod tests {
         assert_eq!(score.grade, NodeGrade::D);
     }
 
-    #[test]
-    fn test_quality_clamped_to_100() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_quality_clamped_to_100() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 10,
             failure_count: 0,
@@ -646,9 +651,9 @@ mod tests {
         assert_eq!(score.quality, 100.0);
     }
 
-    #[test]
-    fn test_get_node_details() {
-        let scorer = make_scorer();
+    #[tokio::test]
+    async fn test_get_node_details() {
+        let scorer = make_scorer().await;
         let metrics = NodeMetrics {
             success_count: 42,
             failure_count: 8,

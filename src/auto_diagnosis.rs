@@ -343,29 +343,35 @@ pub struct AutoDiagnoser {
 
 impl AutoDiagnoser {
     /// Create or open the diagnosis database and initialize the engine.
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS diagnoses (
-                id TEXT PRIMARY KEY,
-                error_message TEXT NOT NULL,
-                tool_name TEXT,
-                hand_name TEXT,
-                phase INTEGER,
-                agent_name TEXT NOT NULL,
-                error_category TEXT NOT NULL,
-                root_cause TEXT NOT NULL,
-                suggested_fix TEXT NOT NULL,
-                confidence REAL NOT NULL,
-                auto_fixable INTEGER NOT NULL DEFAULT 0,
-                fix_command TEXT,
-                matched_pattern TEXT,
-                created_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_diag_category ON diagnoses(error_category);
-            CREATE INDEX IF NOT EXISTS idx_diag_agent ON diagnoses(agent_name);
-            CREATE INDEX IF NOT EXISTS idx_diag_created ON diagnoses(created_at);"
-        )?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS diagnoses (
+                    id TEXT PRIMARY KEY,
+                    error_message TEXT NOT NULL,
+                    tool_name TEXT,
+                    hand_name TEXT,
+                    phase INTEGER,
+                    agent_name TEXT NOT NULL,
+                    error_category TEXT NOT NULL,
+                    root_cause TEXT NOT NULL,
+                    suggested_fix TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    auto_fixable INTEGER NOT NULL DEFAULT 0,
+                    fix_command TEXT,
+                    matched_pattern TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_diag_category ON diagnoses(error_category);
+                CREATE INDEX IF NOT EXISTS idx_diag_agent ON diagnoses(agent_name);
+                CREATE INDEX IF NOT EXISTS idx_diag_created ON diagnoses(created_at);"
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         let known_issues = known_issues_database();
         let mut compiled = Vec::new();
@@ -775,10 +781,10 @@ mod tests {
 
     // ── Pattern matching tests ──────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_rate_limit() {
+    #[tokio::test]
+    async fn test_diagnose_rate_limit() {
         let (db_str, db_path) = temp_db("rate_limit");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Error: rate limit exceeded, please try again later");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -787,10 +793,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_auth_failure() {
+    #[tokio::test]
+    async fn test_diagnose_auth_failure() {
         let (db_str, db_path) = temp_db("auth_fail");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("401 Unauthorized: Invalid API key provided");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -799,10 +805,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_timeout() {
+    #[tokio::test]
+    async fn test_diagnose_timeout() {
         let (db_str, db_path) = temp_db("timeout");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Request timed out after 30 seconds");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -810,10 +816,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_model_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_model_not_found() {
         let (db_str, db_path) = temp_db("model_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Model not found: gpt-99 does not exist");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -821,10 +827,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_context_length() {
+    #[tokio::test]
+    async fn test_diagnose_context_length() {
         let (db_str, db_path) = temp_db("ctx_len");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("context length exceeded: maximum context window is 4096 tokens");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -832,10 +838,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_providers_exhausted() {
+    #[tokio::test]
+    async fn test_diagnose_providers_exhausted() {
         let (db_str, db_path) = temp_db("exhausted");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("All providers exhausted after 5 attempts");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -843,10 +849,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_billing() {
+    #[tokio::test]
+    async fn test_diagnose_billing() {
         let (db_str, db_path) = temp_db("billing");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("402 Payment Required: insufficient funds in your account");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ProviderError);
@@ -856,10 +862,10 @@ mod tests {
 
     // ── Tool error tests ────────────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_file_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_file_not_found() {
         let (db_str, db_path) = temp_db("file_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context_with_tool("file not found: /tmp/missing.txt", "file_read");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
@@ -867,10 +873,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_permission_denied() {
+    #[tokio::test]
+    async fn test_diagnose_permission_denied() {
         let (db_str, db_path) = temp_db("perm_denied");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context_with_tool("Permission denied: cannot write to /etc/hosts", "file_write");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
@@ -878,10 +884,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_command_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_command_not_found() {
         let (db_str, db_path) = temp_db("cmd_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context_with_tool("command not found: xyz123", "shell");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
@@ -889,30 +895,30 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_tool_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_tool_not_found() {
         let (db_str, db_path) = temp_db("tool_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("tool not found: nonexistent_tool");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_tool_rate_limit() {
+    #[tokio::test]
+    async fn test_diagnose_tool_rate_limit() {
         let (db_str, db_path) = temp_db("tool_rl");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("tool rate limit exceeded: shell exceeded max_per_tool per hour");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_approval_denied() {
+    #[tokio::test]
+    async fn test_diagnose_approval_denied() {
         let (db_str, db_path) = temp_db("approval");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Approval denied by human operator");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ToolError);
@@ -922,60 +928,60 @@ mod tests {
 
     // ── Config error tests ──────────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_missing_field() {
+    #[tokio::test]
+    async fn test_diagnose_missing_field() {
         let (db_str, db_path) = temp_db("missing_field");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("missing field 'provider' in agent configuration");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_toml_parse_error() {
+    #[tokio::test]
+    async fn test_diagnose_toml_parse_error() {
         let (db_str, db_path) = temp_db("toml_parse");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("TOML parse error at line 42: unexpected character");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_missing_env_var() {
+    #[tokio::test]
+    async fn test_diagnose_missing_env_var() {
         let (db_str, db_path) = temp_db("env_var");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("environment variable PHANTOM_MESH_API_KEY not set");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_agent_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_agent_not_found() {
         let (db_str, db_path) = temp_db("agent_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("agent not found: 'missing_agent' is not configured");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_hand_not_found() {
+    #[tokio::test]
+    async fn test_diagnose_hand_not_found() {
         let (db_str, db_path) = temp_db("hand_nf");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("hand not found: workflow 'bad_hand' does not exist");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_budget_exceeded() {
+    #[tokio::test]
+    async fn test_diagnose_budget_exceeded() {
         let (db_str, db_path) = temp_db("budget");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Agent daily budget exceeded: spent $5.23 of $5.00 limit");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ConfigError);
@@ -985,10 +991,10 @@ mod tests {
 
     // ── Network error tests ─────────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_connection_refused() {
+    #[tokio::test]
+    async fn test_diagnose_connection_refused() {
         let (db_str, db_path) = temp_db("conn_refused");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("connection refused: could not connect to localhost:11434");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::NetworkError);
@@ -997,10 +1003,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_dns_failure() {
+    #[tokio::test]
+    async fn test_diagnose_dns_failure() {
         let (db_str, db_path) = temp_db("dns_fail");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("DNS resolution failed for api.example.com: NXDOMAIN");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::NetworkError);
@@ -1008,10 +1014,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_ssl_error() {
+    #[tokio::test]
+    async fn test_diagnose_ssl_error() {
         let (db_str, db_path) = temp_db("ssl");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("SSL certificate verification failed: self signed certificate");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::NetworkError);
@@ -1019,10 +1025,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_worker_offline() {
+    #[tokio::test]
+    async fn test_diagnose_worker_offline() {
         let (db_str, db_path) = temp_db("worker_off");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("No workers available for dispatch");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::NetworkError);
@@ -1032,10 +1038,10 @@ mod tests {
 
     // ── Resource error tests ────────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_disk_full() {
+    #[tokio::test]
+    async fn test_diagnose_disk_full() {
         let (db_str, db_path) = temp_db("disk_full");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("ENOSPC: no space left on device");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ResourceError);
@@ -1044,10 +1050,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_out_of_memory() {
+    #[tokio::test]
+    async fn test_diagnose_out_of_memory() {
         let (db_str, db_path) = temp_db("oom");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("out of memory: cannot allocate 4GB for model");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ResourceError);
@@ -1055,10 +1061,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_diagnose_cpu_overload() {
+    #[tokio::test]
+    async fn test_diagnose_cpu_overload() {
         let (db_str, db_path) = temp_db("cpu");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("CPU overload detected: load average 12.5 on 4-core machine");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert_eq!(report.error_category, ErrorCategory::ResourceError);
@@ -1068,10 +1074,10 @@ mod tests {
 
     // ── Hand failure test ───────────────────────────────────────────
 
-    #[test]
-    fn test_diagnose_hand_failure() {
+    #[tokio::test]
+    async fn test_diagnose_hand_failure() {
         let (db_str, db_path) = temp_db("hand_fail");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let report = diag.diagnose_hand_failure(
             "content",
             2,
@@ -1085,10 +1091,10 @@ mod tests {
 
     // ── Fallback / unknown error test ───────────────────────────────
 
-    #[test]
-    fn test_diagnose_unknown_error() {
+    #[tokio::test]
+    async fn test_diagnose_unknown_error() {
         let (db_str, db_path) = temp_db("unknown");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("Something completely unexpected happened XYZ123");
         let report = diag.diagnose_error(&ctx).unwrap();
         assert!(report.confidence <= 0.3);
@@ -1098,10 +1104,10 @@ mod tests {
 
     // ── Persistence tests ───────────────────────────────────────────
 
-    #[test]
-    fn test_store_and_retrieve() {
+    #[tokio::test]
+    async fn test_store_and_retrieve() {
         let (db_str, db_path) = temp_db("store_retrieve");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
 
         let ctx = make_context("rate limit hit on openai API");
         let report = diag.diagnose_error(&ctx).unwrap();
@@ -1115,19 +1121,19 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_get_nonexistent_diagnosis() {
+    #[tokio::test]
+    async fn test_get_nonexistent_diagnosis() {
         let (db_str, db_path) = temp_db("nonexistent");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let result = diag.get_diagnosis("no-such-id").unwrap();
         assert!(result.is_none());
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_count() {
+    #[tokio::test]
+    async fn test_count() {
         let (db_str, db_path) = temp_db("count");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         assert_eq!(diag.count().unwrap(), 0);
 
         diag.diagnose_error(&make_context("rate limit exceeded")).unwrap();
@@ -1138,10 +1144,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_list_recent() {
+    #[tokio::test]
+    async fn test_list_recent() {
         let (db_str, db_path) = temp_db("list_recent");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         diag.diagnose_error(&make_context("rate limit hit")).unwrap();
         diag.diagnose_error(&make_context("file not found: /tmp/x")).unwrap();
         diag.diagnose_error(&make_context("connection refused on port 8080")).unwrap();
@@ -1153,10 +1159,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_stats_by_category() {
+    #[tokio::test]
+    async fn test_stats_by_category() {
         let (db_str, db_path) = temp_db("stats_cat");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         diag.diagnose_error(&make_context("rate limit hit")).unwrap();
         diag.diagnose_error(&make_context("401 unauthorized API key")).unwrap();
         diag.diagnose_error(&make_context("file not found: missing.txt")).unwrap();
@@ -1171,10 +1177,10 @@ mod tests {
 
     // ── Similar error search test ───────────────────────────────────
 
-    #[test]
-    fn test_similar_errors_found() {
+    #[tokio::test]
+    async fn test_similar_errors_found() {
         let (db_str, db_path) = temp_db("similar");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
 
         // Store a first diagnosis
         diag.diagnose_error(&make_context("rate limit exceeded on gemini provider")).unwrap();
@@ -1189,10 +1195,10 @@ mod tests {
 
     // ── get_common_issues test ──────────────────────────────────────
 
-    #[test]
-    fn test_get_common_issues() {
+    #[tokio::test]
+    async fn test_get_common_issues() {
         let (db_str, db_path) = temp_db("common");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let issues = diag.get_common_issues();
         assert!(issues.len() >= 20);
 
@@ -1208,10 +1214,10 @@ mod tests {
 
     // ── Confidence scoring tests ────────────────────────────────────
 
-    #[test]
-    fn test_confidence_boosted_by_context() {
+    #[tokio::test]
+    async fn test_confidence_boosted_by_context() {
         let (db_str, db_path) = temp_db("conf_boost");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
 
         // Minimal context
         let ctx1 = make_context("connection refused");
@@ -1297,10 +1303,10 @@ mod tests {
 
     // ── Edge case tests ─────────────────────────────────────────────
 
-    #[test]
-    fn test_empty_error_message() {
+    #[tokio::test]
+    async fn test_empty_error_message() {
         let (db_str, db_path) = temp_db("empty_err");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let ctx = make_context("");
         let report = diag.diagnose_error(&ctx).unwrap();
         // Should fall through to fallback with low confidence
@@ -1308,10 +1314,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_very_long_error_message() {
+    #[tokio::test]
+    async fn test_very_long_error_message() {
         let (db_str, db_path) = temp_db("long_err");
-        let diag = AutoDiagnoser::new(&db_str).unwrap();
+        let diag = AutoDiagnoser::new(&db_str).await.unwrap();
         let long_msg = format!("rate limit exceeded {}", "x".repeat(5000));
         let ctx = make_context(&long_msg);
         let report = diag.diagnose_error(&ctx).unwrap();

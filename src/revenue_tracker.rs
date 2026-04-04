@@ -95,12 +95,15 @@ pub struct RevenueSummary {
 
 /// Revenue tracker with SQLite persistence
 pub struct RevenueTracker {
+    #[allow(dead_code)]
     db_path: String,
+    conn: std::sync::Mutex<rusqlite::Connection>,
 }
 
 impl RevenueTracker {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS revenue_records (
                 id TEXT PRIMARY KEY,
@@ -121,12 +124,12 @@ impl RevenueTracker {
             CREATE INDEX IF NOT EXISTS idx_revenue_client ON revenue_records(client_name);
             CREATE INDEX IF NOT EXISTS idx_revenue_status ON revenue_records(status);"
         )?;
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self { db_path: db_path.to_string(), conn: std::sync::Mutex::new(conn) })
     }
 
     /// Record a new revenue entry
     pub fn record(&self, record: &RevenueRecord) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let date_key = record.timestamp.format("%Y-%m-%d").to_string();
         conn.execute(
             "INSERT INTO revenue_records (id, timestamp, route, source, client_name, amount_usd, currency, status, notes, invoice_id, date_key)
@@ -160,7 +163,7 @@ impl RevenueTracker {
 
     /// Get total revenue for a specific date
     pub fn summary_for_date(&self, date: &str) -> Result<RevenueSummary> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT COALESCE(SUM(amount_usd), 0.0), COUNT(*)
              FROM revenue_records WHERE date_key = ?1"
@@ -180,7 +183,7 @@ impl RevenueTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64))
             .format("%Y-%m-%d")
             .to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT route, SUM(amount_usd), COUNT(*)
              FROM revenue_records WHERE date_key >= ?1
@@ -204,7 +207,7 @@ impl RevenueTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64))
             .format("%Y-%m-%d")
             .to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT source, SUM(amount_usd), COUNT(*)
              FROM revenue_records WHERE date_key >= ?1
@@ -228,7 +231,7 @@ impl RevenueTracker {
         let cutoff = (Utc::now() - chrono::Duration::days(days as i64))
             .format("%Y-%m-%d")
             .to_string();
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT date_key, SUM(amount_usd), COUNT(*)
              FROM revenue_records WHERE date_key >= ?1
@@ -249,7 +252,7 @@ impl RevenueTracker {
 
     /// Get all records for a date range (for export / detailed view)
     pub fn records_between(&self, start: &str, end: &str) -> Result<Vec<RevenueRecord>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, timestamp, route, source, client_name, amount_usd, currency, status, notes, invoice_id
              FROM revenue_records WHERE date_key >= ?1 AND date_key <= ?2

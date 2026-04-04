@@ -74,26 +74,32 @@ pub struct PowerEconomics {
 }
 
 impl PowerEconomics {
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS node_power_profiles (
-                node_id                    TEXT PRIMARY KEY,
-                idle_watts                 REAL NOT NULL,
-                active_watts               REAL NOT NULL,
-                electricity_usd_per_kwh    REAL NOT NULL DEFAULT 0.10,
-                depreciation_usd_per_hour  REAL NOT NULL DEFAULT 0.0,
-                cooling_usd_per_hour       REAL NOT NULL DEFAULT 0.0,
-                notes                      TEXT,
-                updated_at                 TEXT NOT NULL
-            );",
-        )?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS node_power_profiles (
+                    node_id                    TEXT PRIMARY KEY,
+                    idle_watts                 REAL NOT NULL,
+                    active_watts               REAL NOT NULL,
+                    electricity_usd_per_kwh    REAL NOT NULL DEFAULT 0.10,
+                    depreciation_usd_per_hour  REAL NOT NULL DEFAULT 0.0,
+                    cooling_usd_per_hour       REAL NOT NULL DEFAULT 0.0,
+                    notes                      TEXT,
+                    updated_at                 TEXT NOT NULL
+                );",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         let me = Self {
             conn: Mutex::new(conn),
@@ -369,17 +375,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_default_profiles_seeded() {
-        let pe = PowerEconomics::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_default_profiles_seeded() {
+        let pe = PowerEconomics::new(":memory:").await.unwrap();
         let profiles = pe.list_profiles().unwrap();
         assert!(profiles.iter().any(|p| p.node_id == "local"));
         assert!(profiles.iter().any(|p| p.node_id == "Z13"));
     }
 
-    #[test]
-    fn test_estimate_hourly_cost_uses_load_factor() {
-        let pe = PowerEconomics::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_estimate_hourly_cost_uses_load_factor() {
+        let pe = PowerEconomics::new(":memory:").await.unwrap();
         pe.upsert_profile(&sample_profile("bench")).unwrap();
 
         let hourly = pe.estimate_hourly_cost("bench", 0.5).unwrap();
@@ -388,9 +394,9 @@ mod tests {
         assert!((hourly.total_usd_per_hour - 0.406).abs() < 0.0001);
     }
 
-    #[test]
-    fn test_estimate_run_cost_scales_by_duration() {
-        let pe = PowerEconomics::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_estimate_run_cost_scales_by_duration() {
+        let pe = PowerEconomics::new(":memory:").await.unwrap();
         pe.upsert_profile(&sample_profile("run")).unwrap();
 
         let estimate = pe.estimate_run_cost("run", 1800.0, 1.0).unwrap();
@@ -401,9 +407,9 @@ mod tests {
         assert!((estimate.total_usd - 0.205).abs() < 0.0001);
     }
 
-    #[test]
-    fn test_profitability_assessment_has_two_thresholds() {
-        let pe = PowerEconomics::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_profitability_assessment_has_two_thresholds() {
+        let pe = PowerEconomics::new(":memory:").await.unwrap();
         pe.upsert_profile(&sample_profile("profit")).unwrap();
 
         let assessment = pe
@@ -415,9 +421,9 @@ mod tests {
         assert!(assessment.aggressive_utilization_floor_usd_per_hour >= assessment.break_even_revenue_usd_per_hour);
     }
 
-    #[test]
-    fn test_invalid_profile_rejected() {
-        let pe = PowerEconomics::new(":memory:").unwrap();
+    #[tokio::test]
+    async fn test_invalid_profile_rejected() {
+        let pe = PowerEconomics::new(":memory:").await.unwrap();
         let mut bad = sample_profile("bad");
         bad.active_watts = 5.0;
         assert!(pe.upsert_profile(&bad).is_err());

@@ -51,21 +51,28 @@ pub struct FeedbackCollector {
 
 impl FeedbackCollector {
     /// Open (or create) the feedback database and ensure the schema exists.
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS feedback (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                hand        TEXT NOT NULL,
-                phase       TEXT NOT NULL,
-                output_hash TEXT NOT NULL,
-                rating      INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
-                notes       TEXT NOT NULL DEFAULT '',
-                created_at  TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_feedback_hand ON feedback(hand);
-            CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);",
-        )?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS feedback (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    hand        TEXT NOT NULL,
+                    phase       TEXT NOT NULL,
+                    output_hash TEXT NOT NULL,
+                    rating      INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
+                    notes       TEXT NOT NULL DEFAULT '',
+                    created_at  TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_feedback_hand ON feedback(hand);
+                CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -840,10 +847,10 @@ mod tests {
     // FeedbackCollector tests
     // -----------------------------------------------------------------------
 
-    #[test]
-    fn test_feedback_record_and_retrieve() {
+    #[tokio::test]
+    async fn test_feedback_record_and_retrieve() {
         let (db_str, db_path) = temp_db("fb_record");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         fc.record_feedback("content", "write", "abc123", 4, "Good article").unwrap();
         fc.record_feedback("content", "edit", "def456", 5, "Excellent").unwrap();
@@ -856,10 +863,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_feedback_invalid_rating() {
+    #[tokio::test]
+    async fn test_feedback_invalid_rating() {
         let (db_str, db_path) = temp_db("fb_invalid");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         assert!(fc.record_feedback("h", "p", "hash", 0, "").is_err());
         assert!(fc.record_feedback("h", "p", "hash", 6, "").is_err());
@@ -869,10 +876,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_feedback_stats_avg_and_count() {
+    #[tokio::test]
+    async fn test_feedback_stats_avg_and_count() {
         let (db_str, db_path) = temp_db("fb_stats");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         fc.record_feedback("seo", "p1", "h1", 3, "").unwrap();
         fc.record_feedback("seo", "p1", "h2", 4, "").unwrap();
@@ -885,10 +892,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_feedback_stats_trend() {
+    #[tokio::test]
+    async fn test_feedback_stats_trend() {
         let (db_str, db_path) = temp_db("fb_trend");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         // Insert ratings that improve over time: 1,2,3,4,5,5
         for rating in [1u8, 2, 3, 4, 5, 5] {
@@ -901,10 +908,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_feedback_stats_empty_hand() {
+    #[tokio::test]
+    async fn test_feedback_stats_empty_hand() {
         let (db_str, db_path) = temp_db("fb_empty");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         let stats = fc.get_feedback_stats("nonexistent").unwrap();
         assert_eq!(stats.count, 0);
@@ -914,10 +921,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_feedback_total_count() {
+    #[tokio::test]
+    async fn test_feedback_total_count() {
         let (db_str, db_path) = temp_db("fb_total");
-        let fc = FeedbackCollector::new(&db_str).unwrap();
+        let fc = FeedbackCollector::new(&db_str).await.unwrap();
 
         assert_eq!(fc.total_count().unwrap(), 0);
         fc.record_feedback("a", "p", "h", 3, "").unwrap();

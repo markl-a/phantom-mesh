@@ -24,12 +24,15 @@ pub struct KnowledgeNode {
 
 /// Knowledge capturer with SQLite persistence
 pub struct KnowledgeCapturer {
+    #[allow(dead_code)]
     db_path: String,
+    conn: std::sync::Mutex<rusqlite::Connection>,
 }
 
 impl KnowledgeCapturer {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS knowledge_nodes (
                 id TEXT PRIMARY KEY,
@@ -46,7 +49,7 @@ impl KnowledgeCapturer {
             CREATE INDEX IF NOT EXISTS idx_knowledge_hand ON knowledge_nodes(hand_name);
             CREATE INDEX IF NOT EXISTS idx_knowledge_tags ON knowledge_nodes(tags);"
         )?;
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self { db_path: db_path.to_string(), conn: std::sync::Mutex::new(conn) })
     }
 
     /// Extract knowledge from a hand phase output using regex patterns.
@@ -121,7 +124,7 @@ impl KnowledgeCapturer {
 
     /// Store a knowledge node to SQLite
     fn store(&self, node: &KnowledgeNode) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let tags_json = serde_json::to_string(&node.tags)?;
         conn.execute(
             "INSERT INTO knowledge_nodes (id, hand_name, phase_name, problem, decision, result, lesson, confidence, tags, created_at)
@@ -145,7 +148,7 @@ impl KnowledgeCapturer {
     /// Recall relevant knowledge by searching tags.
     /// Returns nodes matching any of the given tags, ordered by confidence desc.
     pub fn recall_relevant(&self, tags: &[&str], limit: usize) -> Result<Vec<KnowledgeNode>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         // Build LIKE conditions for tag matching
         let conditions: Vec<String> = tags.iter()
             .map(|t| format!("tags LIKE '%\"{}%'", t.replace('\'', "''")))
@@ -184,7 +187,7 @@ impl KnowledgeCapturer {
 
     /// Count total knowledge nodes
     pub fn count(&self) -> Result<u64> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM knowledge_nodes", [], |row| row.get(0)
         )?;

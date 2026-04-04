@@ -121,46 +121,51 @@ pub struct OptimizerStore {
 }
 
 impl OptimizerStore {
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS policy_versions (
-                policy_id      TEXT NOT NULL,
-                policy_type    TEXT NOT NULL,
-                version        INTEGER NOT NULL,
-                content_json   TEXT NOT NULL,
-                status         TEXT NOT NULL,
-                created_at     TEXT NOT NULL,
-                activated_at   TEXT,
-                replaced_by    TEXT,
-                PRIMARY KEY (policy_id, version)
-            );
-            CREATE INDEX IF NOT EXISTS idx_policy_versions_created
-                ON policy_versions(created_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_policy_versions_status
-                ON policy_versions(status);
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS policy_versions (
+                    policy_id      TEXT NOT NULL,
+                    policy_type    TEXT NOT NULL,
+                    version        INTEGER NOT NULL,
+                    content_json   TEXT NOT NULL,
+                    status         TEXT NOT NULL,
+                    created_at     TEXT NOT NULL,
+                    activated_at   TEXT,
+                    replaced_by    TEXT,
+                    PRIMARY KEY (policy_id, version)
+                );
+                CREATE INDEX IF NOT EXISTS idx_policy_versions_created
+                    ON policy_versions(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_policy_versions_status
+                    ON policy_versions(status);
 
-            CREATE TABLE IF NOT EXISTS optimization_runs (
-                run_id                TEXT PRIMARY KEY,
-                run_type              TEXT NOT NULL,
-                target_scope          TEXT NOT NULL,
-                input_window          TEXT NOT NULL,
-                baseline_policy_ref   TEXT,
-                candidate_policy_ref  TEXT,
-                decision              TEXT NOT NULL,
-                summary               TEXT NOT NULL,
-                created_at            TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_optimization_runs_created
-                ON optimization_runs(created_at DESC);",
-        )?;
+                CREATE TABLE IF NOT EXISTS optimization_runs (
+                    run_id                TEXT PRIMARY KEY,
+                    run_type              TEXT NOT NULL,
+                    target_scope          TEXT NOT NULL,
+                    input_window          TEXT NOT NULL,
+                    baseline_policy_ref   TEXT,
+                    candidate_policy_ref  TEXT,
+                    decision              TEXT NOT NULL,
+                    summary               TEXT NOT NULL,
+                    created_at            TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_optimization_runs_created
+                    ON optimization_runs(created_at DESC);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -490,10 +495,10 @@ mod tests {
         dir.join("optimizer.db").to_string_lossy().to_string()
     }
 
-    #[test]
-    fn test_ensure_baseline_policy_is_idempotent() {
+    #[tokio::test]
+    async fn test_ensure_baseline_policy_is_idempotent() {
         let db = temp_db("baseline");
-        let store = OptimizerStore::new(&db).unwrap();
+        let store = OptimizerStore::new(&db).await.unwrap();
 
         let first = store
             .ensure_baseline_policy("prompt.default", PolicyType::Prompt, r#"{"hands":{}}"#)
@@ -506,10 +511,10 @@ mod tests {
         assert_eq!(first.status, PolicyStatus::Active);
     }
 
-    #[test]
-    fn test_insert_and_latest_policy() {
+    #[tokio::test]
+    async fn test_insert_and_latest_policy() {
         let db = temp_db("latest");
-        let store = OptimizerStore::new(&db).unwrap();
+        let store = OptimizerStore::new(&db).await.unwrap();
 
         store
             .insert_policy_version(
@@ -539,10 +544,10 @@ mod tests {
         assert_eq!(latest.status, PolicyStatus::Canary);
     }
 
-    #[test]
-    fn test_list_policies() {
+    #[tokio::test]
+    async fn test_list_policies() {
         let db = temp_db("list_policies");
-        let store = OptimizerStore::new(&db).unwrap();
+        let store = OptimizerStore::new(&db).await.unwrap();
 
         store
             .ensure_baseline_policy("prompt.default", PolicyType::Prompt, r#"{}"#)
@@ -555,10 +560,10 @@ mod tests {
         assert!(policies.len() >= 2);
     }
 
-    #[test]
-    fn test_record_and_list_runs() {
+    #[tokio::test]
+    async fn test_record_and_list_runs() {
         let db = temp_db("runs");
-        let store = OptimizerStore::new(&db).unwrap();
+        let store = OptimizerStore::new(&db).await.unwrap();
 
         let run = store
             .record_optimization_run(

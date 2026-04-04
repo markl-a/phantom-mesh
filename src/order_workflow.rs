@@ -151,25 +151,32 @@ pub struct OrderWorkflow {
 impl OrderWorkflow {
     /// Create a new OrderWorkflow backed by the given SQLite path.
     /// Creates tables if they don't exist.
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS orders (
-                id TEXT PRIMARY KEY,
-                customer_name TEXT NOT NULL,
-                customer_email TEXT NOT NULL DEFAULT '',
-                service_tier TEXT NOT NULL DEFAULT 'standard',
-                status TEXT NOT NULL DEFAULT 'lead',
-                amount_usd REAL NOT NULL DEFAULT 0.0,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-                notes TEXT NOT NULL DEFAULT '',
-                assigned_agent TEXT NOT NULL DEFAULT '',
-                previous_status TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
-            CREATE INDEX IF NOT EXISTS idx_orders_updated ON orders(updated_at);"
-        )?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS orders (
+                    id TEXT PRIMARY KEY,
+                    customer_name TEXT NOT NULL,
+                    customer_email TEXT NOT NULL DEFAULT '',
+                    service_tier TEXT NOT NULL DEFAULT 'standard',
+                    status TEXT NOT NULL DEFAULT 'lead',
+                    amount_usd REAL NOT NULL DEFAULT 0.0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    notes TEXT NOT NULL DEFAULT '',
+                    assigned_agent TEXT NOT NULL DEFAULT '',
+                    previous_status TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+                CREATE INDEX IF NOT EXISTS idx_orders_updated ON orders(updated_at);"
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
+
         info!("OrderWorkflow initialized (db: {})", db_path);
         Ok(Self {
             conn: Mutex::new(conn),
@@ -451,15 +458,15 @@ mod tests {
     use super::*;
     use tempfile::NamedTempFile;
 
-    fn test_workflow() -> (OrderWorkflow, NamedTempFile) {
+    async fn test_workflow() -> (OrderWorkflow, NamedTempFile) {
         let tmp = NamedTempFile::new().unwrap();
-        let wf = OrderWorkflow::new(tmp.path().to_str().unwrap()).unwrap();
+        let wf = OrderWorkflow::new(tmp.path().to_str().unwrap()).await.unwrap();
         (wf, tmp)
     }
 
-    #[test]
-    fn test_create_order() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_create_order() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("Alice Corp", "alice@example.com", "pro").unwrap();
         assert_eq!(order.customer_name, "Alice Corp");
         assert_eq!(order.customer_email, "alice@example.com");
@@ -469,42 +476,42 @@ mod tests {
         assert!(!order.id.is_empty());
     }
 
-    #[test]
-    fn test_get_order() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_get_order() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("Bob Inc", "bob@test.com", "standard").unwrap();
         let fetched = wf.get_order(&order.id).unwrap().unwrap();
         assert_eq!(fetched.customer_name, "Bob Inc");
         assert_eq!(fetched.status, OrderStatus::Lead);
     }
 
-    #[test]
-    fn test_get_order_not_found() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_get_order_not_found() {
+        let (wf, _tmp) = test_workflow().await;
         let result = wf.get_order("nonexistent").unwrap();
         assert!(result.is_none());
     }
 
-    #[test]
-    fn test_transition_lead_to_demo() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_lead_to_demo() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("C Corp", "c@test.com", "pro").unwrap();
         let updated = wf.transition(&order.id, OrderStatus::Demo).unwrap();
         assert_eq!(updated.status, OrderStatus::Demo);
     }
 
-    #[test]
-    fn test_transition_demo_to_quote() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_demo_to_quote() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("D Corp", "d@test.com", "pro").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         let updated = wf.transition(&order.id, OrderStatus::Quote).unwrap();
         assert_eq!(updated.status, OrderStatus::Quote);
     }
 
-    #[test]
-    fn test_transition_quote_to_contract() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_quote_to_contract() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("E Corp", "e@test.com", "pro").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -512,9 +519,9 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Contract);
     }
 
-    #[test]
-    fn test_transition_contract_to_delivery() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_contract_to_delivery() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("F Corp", "f@test.com", "team").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -523,9 +530,9 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Delivery);
     }
 
-    #[test]
-    fn test_transition_delivery_to_acceptance() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_delivery_to_acceptance() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("G Corp", "g@test.com", "team").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -535,9 +542,9 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Acceptance);
     }
 
-    #[test]
-    fn test_transition_acceptance_to_renewal() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_acceptance_to_renewal() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("H Corp", "h@test.com", "team").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -548,9 +555,9 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Renewal);
     }
 
-    #[test]
-    fn test_transition_renewal_to_lead() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_renewal_to_lead() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("I Corp", "i@test.com", "standard").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -562,9 +569,9 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Lead);
     }
 
-    #[test]
-    fn test_transition_quote_back_to_lead() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_quote_back_to_lead() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("J Corp", "j@test.com", "standard").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -573,26 +580,26 @@ mod tests {
         assert_eq!(updated.status, OrderStatus::Lead);
     }
 
-    #[test]
-    fn test_transition_to_cancelled() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_to_cancelled() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("K Corp", "k@test.com", "lite").unwrap();
         let updated = wf.transition(&order.id, OrderStatus::Cancelled).unwrap();
         assert_eq!(updated.status, OrderStatus::Cancelled);
     }
 
-    #[test]
-    fn test_invalid_transition_lead_to_contract() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_invalid_transition_lead_to_contract() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("L Corp", "l@test.com", "pro").unwrap();
         let result = wf.transition(&order.id, OrderStatus::Contract);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Invalid transition"));
     }
 
-    #[test]
-    fn test_invalid_transition_cancelled_to_anything() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_invalid_transition_cancelled_to_anything() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("M Corp", "m@test.com", "pro").unwrap();
         wf.transition(&order.id, OrderStatus::Cancelled).unwrap();
         // Cancelled is terminal — no transitions out
@@ -600,18 +607,18 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_invalid_transition_demo_to_delivery() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_invalid_transition_demo_to_delivery() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("N Corp", "n@test.com", "pro").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         let result = wf.transition(&order.id, OrderStatus::Delivery);
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_on_hold_and_resume() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_on_hold_and_resume() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("O Corp", "o@test.com", "team").unwrap();
         wf.transition(&order.id, OrderStatus::Demo).unwrap();
         wf.transition(&order.id, OrderStatus::Quote).unwrap();
@@ -625,17 +632,17 @@ mod tests {
         assert_eq!(resumed.status, OrderStatus::Contract);
     }
 
-    #[test]
-    fn test_transition_nonexistent_order() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_transition_nonexistent_order() {
+        let (wf, _tmp) = test_workflow().await;
         let result = wf.transition("does-not-exist", OrderStatus::Demo);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
     }
 
-    #[test]
-    fn test_list_by_status() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_list_by_status() {
+        let (wf, _tmp) = test_workflow().await;
         wf.create_order("A1", "a1@test.com", "pro").unwrap();
         wf.create_order("A2", "a2@test.com", "pro").unwrap();
         let o3 = wf.create_order("A3", "a3@test.com", "pro").unwrap();
@@ -647,9 +654,9 @@ mod tests {
         assert_eq!(demos.len(), 1);
     }
 
-    #[test]
-    fn test_list_all() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_list_all() {
+        let (wf, _tmp) = test_workflow().await;
         wf.create_order("B1", "b1@test.com", "lite").unwrap();
         wf.create_order("B2", "b2@test.com", "lite").unwrap();
         wf.create_order("B3", "b3@test.com", "lite").unwrap();
@@ -657,9 +664,9 @@ mod tests {
         assert_eq!(all.len(), 3);
     }
 
-    #[test]
-    fn test_pipeline_summary() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_pipeline_summary() {
+        let (wf, _tmp) = test_workflow().await;
         let o1 = wf.create_order("C1", "c1@test.com", "pro").unwrap();
         let o2 = wf.create_order("C2", "c2@test.com", "pro").unwrap();
         wf.set_amount(&o1.id, 500.0).unwrap();
@@ -674,9 +681,9 @@ mod tests {
         assert!((*lead_val - 500.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_add_note() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_add_note() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("D1", "d1@test.com", "standard").unwrap();
         wf.add_note(&order.id, "Initial contact made").unwrap();
         wf.add_note(&order.id, "Follow-up scheduled").unwrap();
@@ -685,34 +692,34 @@ mod tests {
         assert!(fetched.notes.contains("Follow-up scheduled"));
     }
 
-    #[test]
-    fn test_add_note_not_found() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_add_note_not_found() {
+        let (wf, _tmp) = test_workflow().await;
         let result = wf.add_note("ghost", "test");
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_set_amount() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_set_amount() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("E1", "e1@test.com", "pro").unwrap();
         wf.set_amount(&order.id, 1500.0).unwrap();
         let fetched = wf.get_order(&order.id).unwrap().unwrap();
         assert!((fetched.amount_usd - 1500.0).abs() < 0.01);
     }
 
-    #[test]
-    fn test_assign_agent() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_assign_agent() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("F1", "f1@test.com", "team").unwrap();
         wf.assign_agent(&order.id, "sales-bot").unwrap();
         let fetched = wf.get_order(&order.id).unwrap().unwrap();
         assert_eq!(fetched.assigned_agent, "sales-bot");
     }
 
-    #[test]
-    fn test_full_pipeline_journey() {
-        let (wf, _tmp) = test_workflow();
+    #[tokio::test]
+    async fn test_full_pipeline_journey() {
+        let (wf, _tmp) = test_workflow().await;
         let order = wf.create_order("FullCycle Corp", "full@test.com", "team").unwrap();
 
         // Lead -> Demo -> Quote -> Contract -> Delivery -> Acceptance -> Renewal -> Lead

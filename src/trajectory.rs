@@ -99,40 +99,47 @@ pub struct TrajectoryLogger {
 impl TrajectoryLogger {
     /// Open (or create) the trajectories database at `db_path` and ensure the
     /// schema exists.
-    pub fn new(db_path: &str) -> Result<Self> {
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS trajectories (
-                id                TEXT PRIMARY KEY,
-                session_id        TEXT,
-                agent_name        TEXT NOT NULL,
-                hand_name         TEXT,
-                phase_name        TEXT,
-                provider          TEXT NOT NULL,
-                model             TEXT NOT NULL,
-                prompt            TEXT NOT NULL,
-                output            TEXT NOT NULL,
-                tool_calls        INTEGER NOT NULL DEFAULT 0,
-                tool_names        TEXT NOT NULL DEFAULT '[]',
-                total_tokens      INTEGER NOT NULL DEFAULT 0,
-                duration_secs     REAL NOT NULL DEFAULT 0.0,
-                estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
-                quality_score     INTEGER,
-                guardrail_issues  TEXT NOT NULL DEFAULT '[]',
-                success           INTEGER NOT NULL DEFAULT 1,
-                error_message     TEXT,
-                worker_name       TEXT,
-                worker_latency_ms INTEGER,
-                created_at        TEXT NOT NULL,
-                date_key          TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_traj_date      ON trajectories(date_key);
-            CREATE INDEX IF NOT EXISTS idx_traj_agent     ON trajectories(agent_name);
-            CREATE INDEX IF NOT EXISTS idx_traj_hand      ON trajectories(hand_name);
-            CREATE INDEX IF NOT EXISTS idx_traj_provider  ON trajectories(provider);
-            CREATE INDEX IF NOT EXISTS idx_traj_worker    ON trajectories(worker_name);
-            CREATE INDEX IF NOT EXISTS idx_traj_created   ON trajectories(created_at);",
-        )?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS trajectories (
+                    id                TEXT PRIMARY KEY,
+                    session_id        TEXT,
+                    agent_name        TEXT NOT NULL,
+                    hand_name         TEXT,
+                    phase_name        TEXT,
+                    provider          TEXT NOT NULL,
+                    model             TEXT NOT NULL,
+                    prompt            TEXT NOT NULL,
+                    output            TEXT NOT NULL,
+                    tool_calls        INTEGER NOT NULL DEFAULT 0,
+                    tool_names        TEXT NOT NULL DEFAULT '[]',
+                    total_tokens      INTEGER NOT NULL DEFAULT 0,
+                    duration_secs     REAL NOT NULL DEFAULT 0.0,
+                    estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
+                    quality_score     INTEGER,
+                    guardrail_issues  TEXT NOT NULL DEFAULT '[]',
+                    success           INTEGER NOT NULL DEFAULT 1,
+                    error_message     TEXT,
+                    worker_name       TEXT,
+                    worker_latency_ms INTEGER,
+                    created_at        TEXT NOT NULL,
+                    date_key          TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_traj_date      ON trajectories(date_key);
+                CREATE INDEX IF NOT EXISTS idx_traj_agent     ON trajectories(agent_name);
+                CREATE INDEX IF NOT EXISTS idx_traj_hand      ON trajectories(hand_name);
+                CREATE INDEX IF NOT EXISTS idx_traj_provider  ON trajectories(provider);
+                CREATE INDEX IF NOT EXISTS idx_traj_worker    ON trajectories(worker_name);
+                CREATE INDEX IF NOT EXISTS idx_traj_created   ON trajectories(created_at);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -449,7 +456,7 @@ impl PluginModule for TrajectoryPlugin {
         vec!["trajectory-logging".into(), "quality-analysis".into()]
     }
     async fn init(&self, ctx: &AppContext) -> anyhow::Result<()> {
-        let logger = Arc::new(TrajectoryLogger::new(&self.db_path)?);
+        let logger = Arc::new(TrajectoryLogger::new(&self.db_path).await?);
         ctx.register(logger.clone());
         *self.logger.write().expect("lock poisoned") = Some(logger);
         Ok(())
@@ -512,10 +519,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_create_and_log() {
+    #[tokio::test]
+    async fn test_create_and_log() {
         let (db_str, db_path) = temp_db("create_and_log");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         let entry = sample_entry("master", "ollama", "qwen3:8b");
         logger.log_run(&entry).unwrap();
@@ -530,10 +537,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_recent_query() {
+    #[tokio::test]
+    async fn test_recent_query() {
         let (db_str, db_path) = temp_db("recent_query");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         // Insert 5 entries
         for i in 0..5 {
@@ -553,10 +560,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_by_hand_query() {
+    #[tokio::test]
+    async fn test_by_hand_query() {
         let (db_str, db_path) = temp_db("by_hand");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         // Two entries for "seo_content", one for "outreach"
         let mut e1 = sample_entry("master", "gemini", "flash");
@@ -583,10 +590,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_quality_stats() {
+    #[tokio::test]
+    async fn test_quality_stats() {
         let (db_str, db_path) = temp_db("quality_stats");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         // Provider A: 2 runs, quality 4 and 5, one failure
         let mut e1 = sample_entry("agent", "anthropic", "claude-sonnet");
@@ -633,10 +640,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_worker_stats() {
+    #[tokio::test]
+    async fn test_worker_stats() {
         let (db_str, db_path) = temp_db("worker_stats");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         // Worker "acer": 3 tasks, 2 success, 1 failure
         for i in 0..3 {
@@ -675,10 +682,10 @@ mod tests {
         let _ = std::fs::remove_file(&db_path);
     }
 
-    #[test]
-    fn test_cleanup_old() {
+    #[tokio::test]
+    async fn test_cleanup_old() {
         let (db_str, db_path) = temp_db("cleanup_old");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         // Insert an entry dated "today"
         let mut today_entry = sample_entry("agent", "ollama", "qwen3:8b");
@@ -735,10 +742,10 @@ mod tests {
         assert_eq!(truncate_str("hello", 0), "");
     }
 
-    #[test]
-    fn test_entry_with_all_fields() {
+    #[tokio::test]
+    async fn test_entry_with_all_fields() {
         let (db_str, db_path) = temp_db("all_fields");
-        let logger = TrajectoryLogger::new(&db_str).unwrap();
+        let logger = TrajectoryLogger::new(&db_str).await.unwrap();
 
         let now = Utc::now();
         let entry = TrajectoryEntry {

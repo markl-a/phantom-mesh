@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 use tracing::debug;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -79,13 +80,16 @@ struct ExtractedItem {
 
 /// Mastra-style observational memory backed by SQLite.
 pub struct ObservationalMemory {
+    #[allow(dead_code)]
     db_path: String,
+    conn: Mutex<rusqlite::Connection>,
 }
 
 impl ObservationalMemory {
     /// Create a new ObservationalMemory, initializing the SQLite schema.
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS observations (
                 id TEXT PRIMARY KEY,
@@ -103,7 +107,10 @@ impl ObservationalMemory {
             CREATE INDEX IF NOT EXISTS idx_obs_relevance ON observations(relevance_score DESC);
             CREATE INDEX IF NOT EXISTS idx_obs_created ON observations(created_at DESC);"
         )?;
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self {
+            db_path: db_path.to_string(),
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Observe a conversation: compress messages into a compact observation.
@@ -193,7 +200,7 @@ impl ObservationalMemory {
     /// Search observations by keyword matching in content + tags.
     /// Returns most relevant, ordered by relevance_score DESC.
     pub fn recall(&self, query: &str, limit: usize) -> Result<Vec<Observation>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let query_pattern = format!("%{}%", query.to_lowercase());
         let mut stmt = conn.prepare(
             "SELECT id, content, source_session_id, message_count, original_tokens,
@@ -209,7 +216,7 @@ impl ObservationalMemory {
 
     /// Retrieve the most recent observations.
     pub fn recall_recent(&self, limit: usize) -> Result<Vec<Observation>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, content, source_session_id, message_count, original_tokens,
                     compressed_tokens, compression_ratio, tags_json, relevance_score, created_at
@@ -267,7 +274,7 @@ impl ObservationalMemory {
 
     /// Count total observations.
     pub fn count(&self) -> Result<u64> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM observations", [], |row| row.get(0)
         )?;
@@ -276,7 +283,7 @@ impl ObservationalMemory {
 
     /// Total tokens saved across all observations (sum of original - compressed).
     pub fn total_tokens_saved(&self) -> Result<u64> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let saved: i64 = conn.query_row(
             "SELECT COALESCE(SUM(original_tokens - compressed_tokens), 0) FROM observations",
             [],
@@ -287,7 +294,7 @@ impl ObservationalMemory {
 
     /// Average compression ratio across all observations.
     pub fn avg_compression_ratio(&self) -> Result<f64> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let avg: f64 = conn.query_row(
             "SELECT COALESCE(AVG(compression_ratio), 0.0) FROM observations",
             [],
@@ -298,7 +305,7 @@ impl ObservationalMemory {
 
     /// Remove old low-relevance observations. Returns count of pruned rows.
     pub fn prune(&self, older_than_days: u64) -> Result<u64> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let cutoff = Utc::now() - chrono::Duration::days(older_than_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         let deleted = conn.execute(
@@ -311,7 +318,7 @@ impl ObservationalMemory {
 
     /// Store an observation to SQLite.
     fn store(&self, obs: &Observation) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let tags_json = serde_json::to_string(&obs.tags)?;
         conn.execute(
             "INSERT INTO observations (id, content, source_session_id, message_count,

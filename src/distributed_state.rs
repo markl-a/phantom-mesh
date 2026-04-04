@@ -85,72 +85,77 @@ impl DistributedTaskTracker {
     }
 
     /// Create a tracker with SQLite persistence at `db_path`.
-    pub fn new_persistent(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new_persistent(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let (conn, states) = tokio::task::spawn_blocking(move || -> Result<(Connection, HashMap<String, TaskState>)> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
 
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS task_states (
-                task_id      TEXT PRIMARY KEY,
-                status       TEXT NOT NULL,
-                worker       TEXT,
-                started_at   TEXT,
-                duration_secs REAL,
-                result_summary TEXT,
-                error        TEXT,
-                updated_at   TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_task_status ON task_states(status);
-            CREATE INDEX IF NOT EXISTS idx_task_worker ON task_states(worker);",
-        )?;
-
-        // Load existing rows into memory
-        let mut states = HashMap::new();
-        {
-            let mut stmt = conn.prepare(
-                "SELECT task_id, status, worker, started_at, duration_secs, result_summary, error
-                 FROM task_states",
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS task_states (
+                    task_id      TEXT PRIMARY KEY,
+                    status       TEXT NOT NULL,
+                    worker       TEXT,
+                    started_at   TEXT,
+                    duration_secs REAL,
+                    result_summary TEXT,
+                    error        TEXT,
+                    updated_at   TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_task_status ON task_states(status);
+                CREATE INDEX IF NOT EXISTS idx_task_worker ON task_states(worker);",
             )?;
-            let rows = stmt.query_map([], |row| {
-                let task_id: String = row.get(0)?;
-                let status: String = row.get(1)?;
-                let worker: Option<String> = row.get(2)?;
-                let started_at: Option<String> = row.get(3)?;
-                let duration_secs: Option<f64> = row.get(4)?;
-                let result_summary: Option<String> = row.get(5)?;
-                let error: Option<String> = row.get(6)?;
 
-                let state = match status.as_str() {
-                    "pending" => TaskState::Pending,
-                    "running" => TaskState::Running {
-                        worker: worker.unwrap_or_default(),
-                        started_at: started_at.unwrap_or_default(),
-                    },
-                    "completed" => TaskState::Completed {
-                        worker: worker.unwrap_or_default(),
-                        duration_secs: duration_secs.unwrap_or(0.0),
-                        result_summary: result_summary.unwrap_or_default(),
-                    },
-                    "failed" => TaskState::Failed {
-                        worker: worker.unwrap_or_default(),
-                        error: error.unwrap_or_default(),
-                    },
-                    _ => TaskState::Pending,
-                };
-                Ok((task_id, state))
-            })?;
+            // Load existing rows into memory
+            let mut states = HashMap::new();
+            {
+                let mut stmt = conn.prepare(
+                    "SELECT task_id, status, worker, started_at, duration_secs, result_summary, error
+                     FROM task_states",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    let task_id: String = row.get(0)?;
+                    let status: String = row.get(1)?;
+                    let worker: Option<String> = row.get(2)?;
+                    let started_at: Option<String> = row.get(3)?;
+                    let duration_secs: Option<f64> = row.get(4)?;
+                    let result_summary: Option<String> = row.get(5)?;
+                    let error: Option<String> = row.get(6)?;
 
-            for row in rows {
-                let (id, state) = row?;
-                states.insert(id, state);
+                    let state = match status.as_str() {
+                        "pending" => TaskState::Pending,
+                        "running" => TaskState::Running {
+                            worker: worker.unwrap_or_default(),
+                            started_at: started_at.unwrap_or_default(),
+                        },
+                        "completed" => TaskState::Completed {
+                            worker: worker.unwrap_or_default(),
+                            duration_secs: duration_secs.unwrap_or(0.0),
+                            result_summary: result_summary.unwrap_or_default(),
+                        },
+                        "failed" => TaskState::Failed {
+                            worker: worker.unwrap_or_default(),
+                            error: error.unwrap_or_default(),
+                        },
+                        _ => TaskState::Pending,
+                    };
+                    Ok((task_id, state))
+                })?;
+
+                for row in rows {
+                    let (id, state) = row?;
+                    states.insert(id, state);
+                }
             }
-        }
+
+            Ok((conn, states))
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             states: Mutex::new(states),
@@ -273,28 +278,33 @@ pub struct FileTransferRegistry {
 
 impl FileTransferRegistry {
     /// Create a new registry with SQLite backing at `db_path`.
-    pub fn new(db_path: &str) -> Result<Self> {
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
+    pub async fn new(db_path: &str) -> Result<Self> {
+        let path = db_path.to_string();
+        let conn = tokio::task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
             }
-        }
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")?;
+            let conn = Connection::open(&path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;")?;
 
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS file_transfers (
-                transfer_id    TEXT PRIMARY KEY,
-                source_worker  TEXT NOT NULL,
-                path           TEXT NOT NULL,
-                target_worker  TEXT NOT NULL,
-                registered_at  TEXT NOT NULL,
-                transferred_at TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_ft_target ON file_transfers(target_worker);
-            CREATE INDEX IF NOT EXISTS idx_ft_pending ON file_transfers(transferred_at);",
-        )?;
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS file_transfers (
+                    transfer_id    TEXT PRIMARY KEY,
+                    source_worker  TEXT NOT NULL,
+                    path           TEXT NOT NULL,
+                    target_worker  TEXT NOT NULL,
+                    registered_at  TEXT NOT NULL,
+                    transferred_at TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_ft_target ON file_transfers(target_worker);
+                CREATE INDEX IF NOT EXISTS idx_ft_pending ON file_transfers(transferred_at);",
+            )?;
+
+            Ok(conn)
+        }).await.map_err(|e| anyhow::anyhow!("spawn_blocking join error: {}", e))??;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -809,13 +819,13 @@ mod tests {
 
     // ── DistributedTaskTracker — persistent tests ───────────────────────────
 
-    #[test]
-    fn test_tracker_persistent_roundtrip() {
+    #[tokio::test]
+    async fn test_tracker_persistent_roundtrip() {
         let path = tmp_path();
 
         // Create tracker and insert data
         {
-            let tracker = DistributedTaskTracker::new_persistent(&path).unwrap();
+            let tracker = DistributedTaskTracker::new_persistent(&path).await.unwrap();
             tracker.update_state("p1", TaskState::Pending).unwrap();
             tracker
                 .update_state(
@@ -849,7 +859,7 @@ mod tests {
 
         // Re-open and verify data was loaded from SQLite
         {
-            let tracker = DistributedTaskTracker::new_persistent(&path).unwrap();
+            let tracker = DistributedTaskTracker::new_persistent(&path).await.unwrap();
             assert_eq!(tracker.total_count(), 4);
             assert_eq!(tracker.get_state("p1").unwrap().status_name(), "pending");
             assert_eq!(tracker.get_state("p2").unwrap().status_name(), "running");
@@ -864,12 +874,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_tracker_persistent_remove() {
+    #[tokio::test]
+    async fn test_tracker_persistent_remove() {
         let path = tmp_path();
 
         {
-            let tracker = DistributedTaskTracker::new_persistent(&path).unwrap();
+            let tracker = DistributedTaskTracker::new_persistent(&path).await.unwrap();
             tracker.update_state("rm1", TaskState::Pending).unwrap();
             tracker.update_state("rm2", TaskState::Pending).unwrap();
             tracker.remove("rm1").unwrap();
@@ -877,7 +887,7 @@ mod tests {
 
         // Re-open: rm1 should be gone, rm2 should remain
         {
-            let tracker = DistributedTaskTracker::new_persistent(&path).unwrap();
+            let tracker = DistributedTaskTracker::new_persistent(&path).await.unwrap();
             assert_eq!(tracker.get_state("rm1"), None);
             assert_eq!(tracker.get_state("rm2").unwrap().status_name(), "pending");
         }
@@ -885,10 +895,10 @@ mod tests {
 
     // ── FileTransferRegistry tests ──────────────────────────────────────────
 
-    #[test]
-    fn test_file_registry_register_and_pending() {
+    #[tokio::test]
+    async fn test_file_registry_register_and_pending() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         let ids = registry
             .register_file("z13", "/workspace/output.pdf", vec!["m1".into(), "acer".into()])
@@ -908,10 +918,10 @@ mod tests {
         assert_eq!(z13_pending.len(), 0);
     }
 
-    #[test]
-    fn test_file_registry_mark_transferred() {
+    #[tokio::test]
+    async fn test_file_registry_mark_transferred() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         let ids = registry
             .register_file("z13", "/data/model.bin", vec!["m1".into()])
@@ -930,19 +940,19 @@ mod tests {
         assert!(transfer.transferred_at.is_some());
     }
 
-    #[test]
-    fn test_file_registry_mark_transferred_nonexistent() {
+    #[tokio::test]
+    async fn test_file_registry_mark_transferred_nonexistent() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         let result = registry.mark_transferred("no-such-id");
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_file_registry_double_mark_fails() {
+    #[tokio::test]
+    async fn test_file_registry_double_mark_fails() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         let ids = registry
             .register_file("z13", "/tmp/file.txt", vec!["acer".into()])
@@ -954,10 +964,10 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_file_registry_history() {
+    #[tokio::test]
+    async fn test_file_registry_history() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         registry
             .register_file("z13", "/a.txt", vec!["m1".into()])
@@ -973,10 +983,10 @@ mod tests {
         assert_eq!(history.len(), 4); // 1 + 1 + 2
     }
 
-    #[test]
-    fn test_file_registry_pending_count() {
+    #[tokio::test]
+    async fn test_file_registry_pending_count() {
         let path = tmp_path();
-        let registry = FileTransferRegistry::new(&path).unwrap();
+        let registry = FileTransferRegistry::new(&path).await.unwrap();
 
         let ids1 = registry
             .register_file("z13", "/x.txt", vec!["m1".into(), "acer".into()])

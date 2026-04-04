@@ -193,6 +193,7 @@ impl AuditLogger {
     /// Create a new AuditLogger, initializing the SQLite schema.
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS audit_log (
                 id TEXT PRIMARY KEY,
@@ -246,6 +247,7 @@ impl AuditLogger {
         // Run SQLite insert on blocking thread pool to avoid blocking async runtime
         tokio::task::spawn_blocking(move || {
             let conn = rusqlite::Connection::open(&db_path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             conn.execute(
                 "INSERT INTO audit_log (id, timestamp, agent_name, action_type, tool_name, target, details, outcome, session_id, risk_level)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -285,6 +287,7 @@ impl AuditLogger {
 
         tokio::task::spawn_blocking(move || {
             let conn = rusqlite::Connection::open(&db_path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             let mut conditions: Vec<String> = Vec::new();
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -378,6 +381,7 @@ impl AuditLogger {
         let db_path = self.db_path.clone();
         tokio::task::spawn_blocking(move || {
             let conn = rusqlite::Connection::open(&db_path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             let count: i64 =
                 conn.query_row("SELECT COUNT(*) FROM audit_log", [], |row| row.get(0))?;
             Ok(count as u64)
@@ -390,6 +394,7 @@ impl AuditLogger {
         let db_path = self.db_path.clone();
         tokio::task::spawn_blocking(move || {
             let conn = rusqlite::Connection::open(&db_path)?;
+            conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             let mut stmt = conn.prepare(
                 "SELECT risk_level, COUNT(*) FROM audit_log GROUP BY risk_level ORDER BY COUNT(*) DESC",
             )?;
@@ -414,6 +419,7 @@ impl AuditLogger {
         tokio::task::spawn_blocking(move || {
             // Read all entries from the source audit_log table
             let src_conn = rusqlite::Connection::open(&source_db)?;
+            src_conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             let mut stmt = src_conn.prepare(
                 "SELECT id, timestamp, agent_name, action_type, tool_name, target, details, outcome, session_id, risk_level
                  FROM audit_log ORDER BY timestamp ASC",
@@ -431,6 +437,7 @@ impl AuditLogger {
 
             // Open target DB and ensure audit_entries table exists
             let tgt_conn = rusqlite::Connection::open(&target_db)?;
+            tgt_conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
             ensure_audit_entries_table(&tgt_conn)?;
 
             let mut count = 0usize;
@@ -502,6 +509,7 @@ fn row_to_audit_entry(row: &rusqlite::Row) -> rusqlite::Result<AuditEntry> {
 /// applying the provided filters. The table is auto-created if missing.
 pub fn load_from_db(db_path: &str, filter: &AuditFilter) -> Result<Vec<AuditEntry>> {
     let conn = rusqlite::Connection::open(db_path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
     ensure_audit_entries_table(&conn)?;
 
     let mut conditions: Vec<String> = Vec::new();
@@ -562,6 +570,7 @@ pub fn load_from_db(db_path: &str, filter: &AuditFilter) -> Result<Vec<AuditEntr
 /// Returns the number of deleted rows.
 pub fn retention_cleanup(db_path: &str, max_days: u32) -> Result<usize> {
     let conn = rusqlite::Connection::open(db_path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
     ensure_audit_entries_table(&conn)?;
 
     let cutoff = Utc::now() - Duration::days(max_days as i64);

@@ -175,12 +175,15 @@ fn parse_cron_field(field: &str, min: u8, max: u8) -> Option<Vec<u8>> {
 // ── CronStore (SQLite persistence) ───────────────────────────────────────────
 
 pub struct CronStore {
+    #[allow(dead_code)]
     db_path: String,
+    conn: std::sync::Mutex<rusqlite::Connection>,
 }
 
 impl CronStore {
     pub fn new(db_path: &str) -> Result<Self> {
         let conn = rusqlite::Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;")?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS cron_jobs (
                 id TEXT PRIMARY KEY,
@@ -196,11 +199,11 @@ impl CronStore {
                 created_at TEXT NOT NULL
             );"
         )?;
-        Ok(Self { db_path: db_path.to_string() })
+        Ok(Self { db_path: db_path.to_string(), conn: std::sync::Mutex::new(conn) })
     }
 
     pub fn save_job(&self, job: &CronJob) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "INSERT OR REPLACE INTO cron_jobs
              (id, name, schedule_json, action_json, status, next_run, last_run, last_result, run_count, max_runs, created_at)
@@ -223,7 +226,7 @@ impl CronStore {
     }
 
     pub fn load_active_jobs(&self) -> Result<Vec<CronJob>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, name, schedule_json, action_json, status, next_run, last_run, last_result, run_count, max_runs, created_at
              FROM cron_jobs WHERE status = 'active'"
@@ -258,7 +261,7 @@ impl CronStore {
     }
 
     pub fn update_after_run(&self, job_id: &str, result: &str, next_run: Option<DateTime<Utc>>, new_status: JobStatus) -> Result<()> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         conn.execute(
             "UPDATE cron_jobs SET last_run = ?1, last_result = ?2, next_run = ?3, status = ?4, run_count = run_count + 1
              WHERE id = ?5",
@@ -274,13 +277,13 @@ impl CronStore {
     }
 
     pub fn delete_job(&self, job_id: &str) -> Result<bool> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let rows = conn.execute("DELETE FROM cron_jobs WHERE id = ?1", [job_id])?;
         Ok(rows > 0)
     }
 
     pub fn list_all(&self) -> Result<Vec<CronJob>> {
-        let conn = rusqlite::Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = conn.prepare(
             "SELECT id, name, schedule_json, action_json, status, next_run, last_run, last_result, run_count, max_runs, created_at
              FROM cron_jobs ORDER BY created_at DESC"
