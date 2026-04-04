@@ -85,7 +85,7 @@ dirs = "5"
 which = "7"
 
 # System info (CPU load for cluster worker)
-sysinfo = "0.32"
+sysinfo = "0.38"
 
 # mDNS service discovery (Layer 1 networking)
 mdns-sd = "0.11"
