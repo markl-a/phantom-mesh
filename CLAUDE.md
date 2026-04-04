@@ -1,7 +1,7 @@
 # Phantom-Mesh Development Guide
 
 ## Project Overview
-Rust-based AI agent daemon with Telegram bot interface, 53 tools, 48 hands (workflows), 11 LLM providers, 4-node cluster + mobile workers, and self-evolution system.
+Rust-based AI agent daemon with Telegram bot interface, 59 tools, TOML workflow engine (Hands), 11 LLM providers, 4-node cluster + mobile workers, and self-evolution system.
 
 ## Quick Reference
 - **Daemon**: `cargo run -- daemon` (port 7878)
@@ -17,9 +17,9 @@ Rust-based AI agent daemon with Telegram bot interface, 53 tools, 48 hands (work
 ```
 Telegram Bot API → phantom-mesh (Rust) → Ollama/Anthropic/OpenAI/Gemini/Groq → models
                         ↓
-              src/providers/  (18 files, 10 providers)
-              src/tools/      (26 files, 25 tools)
-              src/hands/      (20 workflow definitions)
+              src/providers/  (18 files, 11 providers)
+              src/tools/      (26 files, 59 tools)
+              src/hands/      (TOML workflow engine)
               src/cluster_hub.rs + cluster_worker.rs
 ```
 

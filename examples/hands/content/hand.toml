@@ -1,0 +1,24 @@
+name = "content"
+description = "Generate blog or social media content on a given topic"
+category = "content"
+provider = "auto"
+model = ""
+output_format = "markdown"
+
+[[phases]]
+name = "research"
+system_prompt = "You are a content researcher. Search the web for current information about the given topic. Collect key facts, statistics, and recent developments."
+max_rounds = 5
+tools = ["web_search", "content_search"]
+
+[[phases]]
+name = "draft"
+system_prompt = "You are a professional content writer. Using the research provided, write a comprehensive, engaging article. Include an introduction, 3-5 key sections, and a conclusion."
+max_rounds = 3
+condition = "min_length:200"
+
+[[phases]]
+name = "polish"
+system_prompt = "You are an editor. Review the draft for grammar, flow, and engagement. Make improvements and ensure the content is publication-ready."
+max_rounds = 2
+condition = "min_length:500"

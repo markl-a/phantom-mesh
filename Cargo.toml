@@ -2,7 +2,7 @@
 name = "phantom-mesh"
 version = "0.5.0"
 edition = "2021"
-description = "Phantom Mesh — distributed AI agent daemon with 53 tools, 48 hands, 11 providers, cluster orchestration, and self-evolution"
+description = "Phantom Mesh — distributed AI agent daemon with 59 tools, 11 providers, TOML workflow engine, cluster orchestration, and self-evolution"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/markl-a/phantom-mesh"
 homepage = "https://github.com/markl-a/phantom-mesh"

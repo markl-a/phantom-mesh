@@ -1,6 +1,6 @@
 # Phantom Mesh
 
-**Distributed AI Agent Daemon** -- 53 tools, 48 hands, 11 providers, 4-node cluster + mobile workers, self-evolution -- built in Rust.
+**Distributed AI Agent Daemon** -- 59 tools, 11 providers, TOML workflow engine, 4-node cluster + mobile workers, self-evolution -- built in Rust.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.78%2B-orange.svg)](https://www.rust-lang.org)
@@ -12,14 +12,14 @@
 
 ## What is Phantom Mesh?
 
-Phantom Mesh is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 10 LLM providers, executes 53 built-in tools, runs 29 multi-phase workflow automations called **Hands**, and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
+Phantom Mesh is a production-grade autonomous agent daemon written in Rust. It receives tasks over Telegram (or HTTP), routes them through 11 LLM providers, executes 59 built-in tools, and a multi-phase workflow engine called **Hands** (user-defined via TOML), and distributes work across an 8-device heterogeneous cluster -- all while tracking costs, enforcing budgets, and continuously self-improving via nightly evolution cycles.
 
 ---
 
 ## Features
 
-- **53 Tools** -- shell, file I/O, web search, HTTP, browser, vision, image/video/music generation, email send/receive, Twitter, YouTube upload, Stripe, Render deploy, SaaS scaffolding, TTS, PDF/DOCX/XLSX export, knowledge import, calendar, data analysis, screenshot, QR generate, RSS reader, archive extract, clipboard, system info, weather, calculator, notification center, and more
-- **48 Hands** -- pre-built multi-phase automation workflows: content, SEO, lead gen, freelancer, researcher, novel, music, game dev, comic, micro-SaaS, trading analysis, customer service, and more
+- **59 Tools** -- shell, file I/O, web search, HTTP, browser, vision, image/video/music generation, email send/receive, Twitter, YouTube upload, Stripe, Render deploy, SaaS scaffolding, TTS, PDF/DOCX/XLSX export, knowledge import, calendar, data analysis, screenshot, QR generate, RSS reader, archive extract, clipboard, system info, weather, calculator, notification center, and more
+- **Hands Engine** -- TOML-defined multi-phase workflows with guardrails, caching, and ROI scheduling
 - **11 Providers** -- Ollama, LM Studio, NPU, Gemini, OpenRouter, Groq, Cerebras, Mistral, Codex CLI, ChatGPT, OpenCode CLI
 - **4-Node Cluster + Mobile** -- distributed task dispatch across PCs, Macs, and mobile workers; inflight-aware load balancing
 - **Self-Evolution** -- nightly DSPy-style prompt optimization, trajectory logging, circuit breaker, watchdog SSH auto-recovery
@@ -42,7 +42,7 @@ Phantom Mesh is a production-grade autonomous agent daemon written in Rust. It r
               |                   |                   |
      +--------+-------+  +--------+-------+  +-------+--------+
      |  Tool Registry |  |  Hands Engine  |  |  LLM Router    |
-     |  (53 tools)    |  |  (29 workflows)|  |  (10 providers)|
+     |  (59 tools)    |  | (workflow engine)| |  (11 providers)|
      +--------+-------+  +--------+-------+  +-------+--------+
               |                   |                   |
      +--------+-------------------+-------------------+--------+
