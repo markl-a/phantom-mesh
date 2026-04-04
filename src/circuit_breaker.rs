@@ -137,7 +137,7 @@ impl ProviderCircuitBreaker {
     ///   `half_open_success_needed` consecutive successes are reached.
     /// * **Open** — no-op (requests should not be reaching here).
     pub fn record_success(&self, provider: &str) {
-        let mut states = self.states.lock().expect("circuit_breaker lock poisoned");
+        let mut states = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let entry = states
             .entry(provider.to_string())
             .or_insert_with(BreakerState::new);
@@ -179,7 +179,7 @@ impl ProviderCircuitBreaker {
     /// * **HalfOpen** — immediately trips back to Open (single failure).
     /// * **Open** — no-op.
     pub fn record_failure(&self, provider: &str) {
-        let mut states = self.states.lock().expect("circuit_breaker lock poisoned");
+        let mut states = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let entry = states
             .entry(provider.to_string())
             .or_insert_with(BreakerState::new);
@@ -231,7 +231,7 @@ impl ProviderCircuitBreaker {
     ///   auto-transitions to HalfOpen and returns `true`; otherwise `false`.
     /// * **HalfOpen** — `true` (probing is allowed).
     pub fn is_available(&self, provider: &str) -> bool {
-        let mut states = self.states.lock().expect("circuit_breaker lock poisoned");
+        let mut states = self.states.lock().unwrap_or_else(|e| e.into_inner());
         let entry = match states.get_mut(provider) {
             Some(e) => e,
             None => return true, // Never seen => Closed by default.
@@ -263,7 +263,7 @@ impl ProviderCircuitBreaker {
 
     /// Return a snapshot of every tracked provider's circuit breaker status.
     pub fn status(&self) -> HashMap<String, CircuitStatus> {
-        let states = self.states.lock().expect("circuit_breaker lock poisoned");
+        let states = self.states.lock().unwrap_or_else(|e| e.into_inner());
         states
             .iter()
             .map(|(provider, bs)| {
@@ -283,7 +283,7 @@ impl ProviderCircuitBreaker {
 
     /// Manually reset a provider's circuit breaker to Closed.
     pub fn reset(&self, provider: &str) {
-        let mut states = self.states.lock().expect("circuit_breaker lock poisoned");
+        let mut states = self.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = states.get_mut(provider) {
             info!(provider, "circuit breaker: manually reset to Closed");
             entry.state = CircuitState::Closed;

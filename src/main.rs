@@ -13,6 +13,7 @@ use std::time::Instant;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+use subtle::ConstantTimeEq;
 use tracing_subscriber::EnvFilter;
 
 use phantom_mesh::{
@@ -173,7 +174,7 @@ async fn auth_middleware(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
     match auth {
-        Some(token) if token == key => Ok(next.run(req).await),
+        Some(token) if bool::from(token.as_bytes().ct_eq(key.as_bytes())) => Ok(next.run(req).await),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
@@ -332,7 +333,7 @@ fn validate_cluster_auth(state: &AppState, headers: &axum::http::HeaderMap) -> R
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "));
     match auth_header {
-        Some(token) if token == secret => Ok(()),
+        Some(token) if bool::from(token.as_bytes().ct_eq(secret.as_bytes())) => Ok(()),
         _ => {
             warn!("Cluster auth failed: missing or invalid Authorization header");
             Err(StatusCode::UNAUTHORIZED)
@@ -3107,7 +3108,7 @@ async fn main() -> anyhow::Result<()> {
 
         trajectory_logger = match TrajectoryLogger::new(
             phantom_mesh_dir.join("trajectories.db").to_str().unwrap_or("trajectories.db"),
-        ) {
+        ).await {
             Ok(tl) => {
                 let tl = Arc::new(tl);
                 llm_router.set_trajectory_logger(tl.clone());
@@ -3177,7 +3178,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     let pricing_db_path = format!("{}/.phantom-mesh/pricing.db", home);
-    let provider_pricing: Option<Arc<ProviderPricingStore>> = match ProviderPricingStore::new(&pricing_db_path) {
+    let provider_pricing: Option<Arc<ProviderPricingStore>> = match ProviderPricingStore::new(&pricing_db_path).await {
         Ok(store) => {
             let store = Arc::new(store);
             agent_runtime.set_provider_pricing(store.clone());
@@ -3190,7 +3191,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     let power_db_path = format!("{}/.phantom-mesh/power.db", home);
-    let power_economics: Option<Arc<PowerEconomics>> = match PowerEconomics::new(&power_db_path) {
+    let power_economics: Option<Arc<PowerEconomics>> = match PowerEconomics::new(&power_db_path).await {
         Ok(pe) => {
             let pe = Arc::new(pe);
             agent_runtime.set_power_economics(pe.clone());
@@ -3252,7 +3253,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Service Tier Manager ─────────────────────────────────────────
     let tier_db_path = format!("{}/.phantom-mesh/tiers.db", home);
-    let service_tier: Option<Arc<ServiceTierManager>> = match ServiceTierManager::new(&tier_db_path) {
+    let service_tier: Option<Arc<ServiceTierManager>> = match ServiceTierManager::new(&tier_db_path).await {
         Ok(stm) => {
             let stm = Arc::new(stm);
             agent_runtime.set_service_tier(stm.clone());
@@ -3268,7 +3269,7 @@ async fn main() -> anyhow::Result<()> {
     // ── Tenant Manager ────────────────────────────────────────────────
     let tenant_db_path = format!("{}/.phantom-mesh/tenants.db", home);
     let tenant_base_dir = format!("{}/.phantom-mesh/tenants", home);
-    let tenant_manager: Option<Arc<TenantManager>> = match TenantManager::new(&tenant_db_path, &tenant_base_dir) {
+    let tenant_manager: Option<Arc<TenantManager>> = match TenantManager::new(&tenant_db_path, &tenant_base_dir).await {
         Ok(tm) => {
             let tm = Arc::new(tm);
             info!("Tenant manager initialized (db: {}, base: {})", tenant_db_path, tenant_base_dir);
@@ -3282,7 +3283,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Order Workflow ─────────────────────────────────────────────
     let orders_db_path = format!("{}/.phantom-mesh/orders.db", home);
-    let order_workflow: Option<Arc<OrderWorkflow>> = match OrderWorkflow::new(&orders_db_path) {
+    let order_workflow: Option<Arc<OrderWorkflow>> = match OrderWorkflow::new(&orders_db_path).await {
         Ok(ow) => {
             let ow = Arc::new(ow);
             info!("Order workflow initialized (db: {})", orders_db_path);
@@ -3882,7 +3883,7 @@ async fn main() -> anyhow::Result<()> {
     let optimizer_db_path = phantom_mesh_dir.join("optimizer.db");
     let optimizer_store: Option<Arc<OptimizerStore>> = match OptimizerStore::new(
         optimizer_db_path.to_str().unwrap_or("optimizer.db"),
-    ) {
+    ).await {
         Ok(store) => {
             let store = Arc::new(store);
             let baselines = [
@@ -3911,7 +3912,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Auto Diagnoser ──────────────────────────────────────────────
     let diagnosis_db_path = format!("{}/.phantom-mesh/diagnosis.db", home);
-    let auto_diagnoser: Option<Arc<AutoDiagnoser>> = match AutoDiagnoser::new(&diagnosis_db_path) {
+    let auto_diagnoser: Option<Arc<AutoDiagnoser>> = match AutoDiagnoser::new(&diagnosis_db_path).await {
         Ok(ad) => {
             info!("Auto-diagnosis engine initialized ({} known patterns, db: {})",
                   ad.get_common_issues().len(), diagnosis_db_path);
@@ -3952,7 +3953,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Task Preemption Manager ─────────────────────────────────────
     let preemption_db_path = format!("{}/.phantom-mesh/core.db", home);
-    let preemption_manager: Option<Arc<PreemptionManager>> = match PreemptionManager::new(&preemption_db_path) {
+    let preemption_manager: Option<Arc<PreemptionManager>> = match PreemptionManager::new(&preemption_db_path).await {
         Ok(pm) => {
             info!("Task preemption manager initialized (db: {})", preemption_db_path);
             Some(Arc::new(pm))
@@ -3965,7 +3966,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Node Capability Scorer ──────────────────────────────────────
     let scoring_db_path = format!("{}/.phantom-mesh/core.db", home);
-    let node_scorer: Option<Arc<NodeScorer>> = match NodeScorer::new(&scoring_db_path) {
+    let node_scorer: Option<Arc<NodeScorer>> = match NodeScorer::new(&scoring_db_path).await {
         Ok(ns) => {
             info!("Node capability scorer initialized (db: {})", scoring_db_path);
             Some(Arc::new(ns))
