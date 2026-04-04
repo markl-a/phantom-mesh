@@ -1230,6 +1230,7 @@ mod tests {
     #[tokio::test]
     async fn test_tick_now_fires_due_jobs() {
         let dir = std::env::temp_dir().join("phantom_mesh_test_tick_now");
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         let db_path = dir.join("cron.db");
         let store = Arc::new(CronStore::new(db_path.to_str().unwrap()).unwrap());

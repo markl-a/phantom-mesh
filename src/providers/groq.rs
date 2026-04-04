@@ -396,7 +396,7 @@ mod tests {
     fn test_groq_provider_name() {
         let p = GroqProvider::new("test-key".into(), None);
         assert_eq!(p.name(), "groq");
-        assert_eq!(p.default_model(), "llama-4-scout-17b-16e-instruct");
+        assert_eq!(p.default_model(), "llama-3.3-70b-versatile");
     }
 
     #[test]

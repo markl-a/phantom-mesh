@@ -17,7 +17,7 @@ use phantom_mesh::unit_economics::UnitEconomics;
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn setup_engine() -> (
+async fn setup_engine() -> (
     Arc<RoiGate>,
     Arc<Governor>,
     Arc<OptimizerStore>,
@@ -29,10 +29,10 @@ fn setup_engine() -> (
     std::fs::create_dir_all(&dir).unwrap();
 
     let store = Arc::new(
-        OptimizerStore::new(dir.join("policies.db").to_str().unwrap()).unwrap(),
+        OptimizerStore::new(dir.join("policies.db").to_str().unwrap()).await.unwrap(),
     );
     let traj = Arc::new(
-        TrajectoryLogger::new(dir.join("traj.db").to_str().unwrap()).unwrap(),
+        TrajectoryLogger::new(dir.join("traj.db").to_str().unwrap()).await.unwrap(),
     );
     let roi = Arc::new(RoiScheduler::new());
     let econ = Arc::new(UnitEconomics::new());
@@ -54,9 +54,9 @@ fn setup_engine() -> (
     (gate, governor, store, roi, econ, traj)
 }
 
-#[test]
-fn test_roi_gate_allows_first_execution() {
-    let (gate, _, _, _, _, _) = setup_engine();
+#[tokio::test]
+async fn test_roi_gate_allows_first_execution() {
+    let (gate, _, _, _, _, _) = setup_engine().await;
     let decision = gate.check("freelancer", false);
     assert!(
         decision.is_allowed(),
@@ -64,9 +64,9 @@ fn test_roi_gate_allows_first_execution() {
     );
 }
 
-#[test]
-fn test_roi_gate_user_triggered_always_passes() {
-    let (gate, _, _, _, _, _) = setup_engine();
+#[tokio::test]
+async fn test_roi_gate_user_triggered_always_passes() {
+    let (gate, _, _, _, _, _) = setup_engine().await;
     gate.record_spend(100.0); // exceed any budget
     let decision = gate.check("any-hand", true);
     assert!(
@@ -75,9 +75,9 @@ fn test_roi_gate_user_triggered_always_passes() {
     );
 }
 
-#[test]
-fn test_roi_gate_budget_exhaustion() {
-    let (gate, _, _, _, _, _) = setup_engine();
+#[tokio::test]
+async fn test_roi_gate_budget_exhaustion() {
+    let (gate, _, _, _, _, _) = setup_engine().await;
     gate.record_spend(5.01); // exceed default $5 budget
     let decision = gate.check("freelancer", false);
     assert!(
@@ -86,9 +86,9 @@ fn test_roi_gate_budget_exhaustion() {
     );
 }
 
-#[test]
-fn test_record_execution_updates_roi() {
-    let (_, _, _, roi, econ, _) = setup_engine();
+#[tokio::test]
+async fn test_record_execution_updates_roi() {
+    let (_, _, _, roi, econ, _) = setup_engine().await;
 
     // Record profitable execution
     roi.record_execution("freelancer", 50.0, 2.0, true);
@@ -101,7 +101,7 @@ fn test_record_execution_updates_roi() {
 
 #[tokio::test]
 async fn test_governor_canary_promotion_cycle() {
-    let (_, governor, store, _, _, _) = setup_engine();
+    let (_, governor, store, _, _, _) = setup_engine().await;
 
     // Create Active + Canary policies
     store
@@ -167,12 +167,12 @@ fn test_pipeline_orchestrator_builtins() {
     );
 }
 
-#[test]
-fn test_trajectory_hand_query_helpers() {
+#[tokio::test]
+async fn test_trajectory_hand_query_helpers() {
     let dir = std::env::temp_dir().join(format!("traj-helpers-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let logger =
-        TrajectoryLogger::new(dir.join("traj.db").to_str().unwrap()).unwrap();
+        TrajectoryLogger::new(dir.join("traj.db").to_str().unwrap()).await.unwrap();
 
     // Log some entries
     let now = chrono::Utc::now();
@@ -215,12 +215,12 @@ fn test_trajectory_hand_query_helpers() {
     assert_eq!(logger.count_for_hand("nonexistent").unwrap(), 0);
 }
 
-#[test]
-fn test_optimizer_store_list_by_status() {
+#[tokio::test]
+async fn test_optimizer_store_list_by_status() {
     let dir = std::env::temp_dir().join(format!("opt-store-status-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let store =
-        OptimizerStore::new(dir.join("policies.db").to_str().unwrap()).unwrap();
+        OptimizerStore::new(dir.join("policies.db").to_str().unwrap()).await.unwrap();
 
     store
         .insert_policy_version("p1", PolicyType::Prompt, 1, "{}", PolicyStatus::Active, None, None)
@@ -247,7 +247,7 @@ fn test_optimizer_store_list_by_status() {
 
 #[tokio::test]
 async fn test_full_engine_cycle() {
-    let (gate, governor, store, roi, econ, _traj) = setup_engine();
+    let (gate, governor, store, roi, econ, _traj) = setup_engine().await;
 
     // 1. Gate allows first execution (unknown hand, allow_unknown = true)
     let decision = gate.check("freelancer", false);
