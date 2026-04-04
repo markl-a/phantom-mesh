@@ -112,7 +112,7 @@ ed25519-dalek = { version = "2", features = ["rand_core"] }
 # Security hardening (B.4 review fixes)
 zeroize = { version = "1", features = ["zeroize_derive"] }
 subtle = "2"
-hkdf = "0.12"
+hkdf = "0.13"
 
 # PostgreSQL + pgvector (optional — for semantic memory pgvector backend)
 tokio-postgres = { version = "0.7", optional = true }
