@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://markl-a.github.io/phantom-mesh/">Website</a> ·
+  <a href="https://phantommesh.io">Website</a> ·
   <a href="#what-is-phantom-mesh">About</a> ·
   <a href="#open-source-coming-may-2026">Open Source</a> ·
   <a href="LICENSE">MIT License</a>
