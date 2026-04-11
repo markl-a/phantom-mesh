@@ -1,6 +1,0 @@
-# AYANEO — Full Worker (AMD NPU)
-name = "ayaneo"
-device_type = "full"
-port = 7880
-hub = "http://10.0.1.1:7878"
-capabilities = ["tools", "llm", "npu"]

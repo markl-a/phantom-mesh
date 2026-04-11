@@ -1,6 +1,0 @@
-# Acer Aspire 5 — Light Worker (連接 2 台 Android)
-name = "acer"
-device_type = "light"
-port = 7881
-hub = "http://10.0.1.1:7878"
-capabilities = ["web_search", "http_request", "email_send"]

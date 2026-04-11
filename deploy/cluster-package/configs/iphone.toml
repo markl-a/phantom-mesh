@@ -1,6 +1,0 @@
-# iPhone — Light Worker
-name = "iphone"
-device_type = "light"
-port = 7882
-hub = "http://10.0.1.1:7878"
-capabilities = ["web_search", "http_request"]

@@ -1,156 +1,28 @@
-# ===========================================================================
-# Clawtex .gitignore
-# ===========================================================================
-
-# ── Rust build artifacts ────────────────────────────────────────────────────
-/target/
-/target*/
-**/*.rs.bk
-Cargo.lock.bak
-
-# ── Environment / secrets ───────────────────────────────────────────────────
-.env
-.env.local
-.env.*.local
-*.pem
-*.key
-*.p12
-*.pfx
-secrets/
-.secrets/
-
-# ── Clawtex runtime data (never commit user data) ──────────────────────────
-/workspace/
-.clawtex/
-~/.clawtex/
-core.db
-costs.db
-memory.db
-revenue.db
-knowledge.db
-trajectories.db
-*.db
-*.db-wal
-*.db-shm
-
-# ── OS files ─────────────────────────────────────────────────────────────────
+# OS
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
 Desktop.ini
-$RECYCLE.BIN/
-*.lnk
 
-# ── IDE / Editor ─────────────────────────────────────────────────────────────
+# Editor
 .vscode/
-!.vscode/extensions.json
-!.vscode/settings.json.example
 .idea/
-*.iml
-*.iws
-*.ipr
-.project
-.classpath
-.settings/
-*.sublime-project
-*.sublime-workspace
 *.swp
 *.swo
 *~
-.vim/
-.netrwhist
 
-# ── Logs ─────────────────────────────────────────────────────────────────────
+# Build (for future open source release)
+/target/
+**/*.rs.bk
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Logs
 *.log
-logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# ── Temporary files ──────────────────────────────────────────────────────────
+# Temporary
 *.tmp
 *.temp
-.temp/
-tmp/
-temp/
-
-# ── Node.js (scaffold_saas output, mobile app) ───────────────────────────────
-node_modules/
-.npm/
-.yarn/
-.pnp.*
-.yarn/cache/
-.yarn/unplugged/
-.yarn/build-state.yml
-.yarn/install-state.gz
-dist/
-build/
-.next/
-.nuxt/
-.output/
-.cache/
-.parcel-cache/
-
-# ── Python (worker scripts, tooling) ─────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-env/
-ENV/
-pip-log.txt
-pip-delete-this-directory.txt
-*.egg-info/
-.eggs/
-dist/
-*.egg
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-
-# ── Coverage / profiling ─────────────────────────────────────────────────────
-*.profraw
-*.profdata
-lcov.info
-coverage/
-.nyc_output/
-
-# ── Docker ───────────────────────────────────────────────────────────────────
-.docker/
-
-# ── Mobile (Expo / React Native) ─────────────────────────────────────────────
-.expo/
-.expo-shared/
-*.jks
-*.keystore
-android/app/google-services.json
-ios/GoogleService-Info.plist
-
-# ── Benchmark artifacts ───────────────────────────────────────────────────────
-criterion/
-
-# ── Compiled binaries (when checked in by mistake) ───────────────────────────
-*.exe
-*.dll
-*.dylib
-*.so
-*.a
-*.lib
-clawtex-core
-clawtex-worker
-
-# ── Windows cmd accidents ─────────────────────────────────────────────────────
-null
-nul
-NUL
-
-# ── Legacy Ralph files (pre-Clawtex era) ─────────────────────────────────────
-.ralph/
-.ralph_backup_*

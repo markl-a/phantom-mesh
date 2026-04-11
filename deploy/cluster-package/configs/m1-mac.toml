@@ -1,6 +1,0 @@
-# M1 Mac — Full Worker
-name = "m1-mac"
-device_type = "full"
-port = 7879
-hub = "http://10.0.1.1:7878"
-capabilities = ["tools", "llm", "build"]
