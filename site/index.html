@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phantom Mesh — 你的設備，你的 AI 團隊</title>
+  <meta name="description" content="把你的電腦、手機和雲端主機串成私人 AI 代理網路。資料留在你的設備上，AI 替你持續運作。">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      position: relative;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, rgba(120,120,120,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-logo {
+      width: 280px;
+      height: auto;
+      margin-bottom: 2rem;
+      filter: drop-shadow(0 0 40px rgba(180,180,180,0.15));
+    }
+
+    .hero h1 {
+      font-size: clamp(1.8rem, 5vw, 3.2rem);
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, #c0c0c0, #ffffff, #a0a0a0);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero .subtitle {
+      font-size: clamp(1rem, 2.5vw, 1.4rem);
+      color: #999;
+      max-width: 600px;
+      margin-bottom: 2.5rem;
+    }
+
+    .cta-btn {
+      display: inline-block;
+      padding: 0.9rem 2.4rem;
+      background: #fff;
+      color: #0a0a0a;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.05rem;
+      border-radius: 6px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(255,255,255,0.15);
+    }
+
+    /* Sections */
+    section {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 5rem 2rem;
+    }
+
+    section h2 {
+      font-size: 1.8rem;
+      color: #fff;
+      margin-bottom: 1.5rem;
+      font-weight: 600;
+    }
+
+    .problem {
+      border-left: 3px solid #444;
+      padding-left: 1.5rem;
+      color: #aaa;
+      font-size: 1.1rem;
+      margin-bottom: 3rem;
+    }
+
+    /* How it works */
+    .steps {
+      display: grid;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .step {
+      display: flex;
+      gap: 1.2rem;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border: 2px solid #555;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #fff;
+      font-size: 0.95rem;
+    }
+
+    .step-content h3 {
+      color: #fff;
+      font-size: 1.15rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .step-content p {
+      color: #999;
+      font-size: 0.95rem;
+    }
+
+    /* Quote */
+    .testimonial {
+      background: #111;
+      border-radius: 12px;
+      padding: 2rem;
+      margin: 3rem auto;
+      max-width: 800px;
+      position: relative;
+    }
+
+    .testimonial::before {
+      content: '\201C';
+      position: absolute;
+      top: -10px;
+      left: 20px;
+      font-size: 4rem;
+      color: #333;
+      line-height: 1;
+    }
+
+    .testimonial p {
+      font-size: 1.1rem;
+      color: #ccc;
+      font-style: italic;
+      margin-bottom: 0.8rem;
+      padding-left: 1rem;
+    }
+
+    .testimonial cite {
+      color: #777;
+      font-size: 0.9rem;
+      padding-left: 1rem;
+    }
+
+    /* Features */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .feature {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 10px;
+      padding: 1.5rem;
+    }
+
+    .feature h3 {
+      color: #fff;
+      font-size: 1.05rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .feature p {
+      color: #888;
+      font-size: 0.9rem;
+    }
+
+    /* CTA bottom */
+    .cta-section {
+      text-align: center;
+      padding: 5rem 2rem;
+    }
+
+    .cta-section h2 {
+      margin-bottom: 1rem;
+    }
+
+    .cta-section p {
+      color: #888;
+      margin-bottom: 2rem;
+      font-size: 1.05rem;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: #555;
+      font-size: 0.85rem;
+      border-top: 1px solid #1a1a1a;
+    }
+
+    footer a {
+      color: #777;
+      text-decoration: none;
+    }
+
+    footer a:hover {
+      color: #fff;
+    }
+
+    @media (max-width: 600px) {
+      .hero-logo { width: 200px; }
+      section { padding: 3rem 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="hero">
+    <img src="logo.png" alt="Phantom Mesh" class="hero-logo">
+    <h1><span>你的電腦、手機和雲端主機</span><br>現在是你的 AI 下屬</h1>
+    <p class="subtitle">你的設備不再只是工具 — 它們現在是你的團隊。</p>
+    <a href="https://github.com/markl-a/phantom-mesh" class="cta-btn">GitHub 開始使用</a>
+  </div>
+
+  <section>
+    <h2>問題</h2>
+    <div class="problem">
+      今天，一個獨立經營者打開 ChatGPT 寫文案，切到另一個工具排貼文，再開一個做分析。每個工具各自為政 — 不互通、不記得你昨天做了什麼、不會主動幫你做任何事。同時，你的電腦、手機、雲端主機大部分時間都在閒置。你擁有算力，卻只能一次用一個工具、做一件事。你關上螢幕，一切就停了。
+    </div>
+
+    <h2>解決方案</h2>
+    <p>使用 Phantom Mesh 後，你的設備開始替你工作。筆電在你寫提案的同時，自動產出三篇 SEO 文章；手機在你通勤時彙整昨晚的客戶回覆並草擬回信；雲端主機在你睡覺時跑完一整批社群貼文排程。你在網站頁面上下一個指令，AI 代理們自己分配該誰做、在哪台設備上做、什麼時候做。你醒來，事情已經做完了。</p>
+  </section>
+
+  <section>
+    <h2>如何運作</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>安裝</h3>
+          <p>在每台設備上安裝 Phantom Mesh，掃一個 QR code 完成配對。不需要架伺服器、不需要設定網路，你的設備就自動組成一個私人 AI 網路。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>指派</h3>
+          <p>打開網站頁面，用自然語言描述你要完成的事：「每天早上八點產出一篇關於跨境電商的 SEO 文章」、「監控這五個競品的定價變動」。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>放手</h3>
+          <p>AI 代理自動拆解任務、分配到合適的設備上執行。筆電跑內容生成，手機做輕量監控，雲端主機處理批量工作。</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>收成</h3>
+          <p>你醒來、通勤結束、會議開完，打開頁面看到成果。文章已經寫好、報告已經整理好、回信草稿等你一鍵發送。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="testimonial">
+    <p>以前我每天花三個小時寫內容、回信、查競品。現在我睡前在頁面上排好任務，早上起來東西都準備好了。感覺多了三個不用付薪水的員工。</p>
+    <cite>— 一位跨境電商獨立經營者</cite>
+  </div>
+
+  <section>
+    <h2>為什麼選 Phantom Mesh</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>隱私優先</h3>
+        <p>資料留在你自己的設備上，預設使用本地 AI 模型，不需要上傳至任何第三方雲端。</p>
+      </div>
+      <div class="feature">
+        <h3>跨設備協作</h3>
+        <p>電腦、手機、雲端主機組成 P2P 網路。設備離線時任務自動轉移，不遺失進度。</p>
+      </div>
+      <div class="feature">
+        <h3>自主運作</h3>
+        <p>AI 代理理解目標、拆解步驟、持續執行。你關上螢幕，它們繼續工作。</p>
+      </div>
+      <div class="feature">
+        <h3>零額外成本</h3>
+        <p>用你已有的設備和算力。本地 AI 推理不產生 API 費用。免費方案無使用量限制。</p>
+      </div>
+      <div class="feature">
+        <h3>開源透明</h3>
+        <p>程式碼完全開源，你可以自行檢查。Rust 打造，效能卓越，單一二進位檔部署。</p>
+      </div>
+      <div class="feature">
+        <h3>中文原生支援</h3>
+        <p>介面、AI 對話、內容產出完整支援繁體中文和簡體中文。</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="cta-section">
+    <h2>開始使用</h2>
+    <p>免費方案支援最多三台設備組網，五分鐘內完成設定。</p>
+    <a href="https://github.com/markl-a/phantom-mesh" class="cta-btn">GitHub 下載</a>
+  </div>
+
+  <footer>
+    <p>&copy; 2026 Phantom Mesh &mdash; <a href="https://github.com/markl-a/phantom-mesh">GitHub</a></p>
+  </footer>
+
+</body>
+</html>
