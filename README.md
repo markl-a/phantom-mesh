@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://phantommesh.io">Website</a> ·
   <a href="#what-is-phantom-mesh">About</a> ·
-  <a href="#open-source-coming-may-2026">Open Source</a> ·
+  <a href="#roadmap">Roadmap</a> ·
   <a href="LICENSE">MIT License</a>
 </p>
 
@@ -23,7 +23,7 @@
 
 ## Try it now (early access binary, May 2026)
 
-The full source release is still being prepared (see [Open Source](#open-source-coming-may-2026)
+The full source release is still being prepared (see [Roadmap](#roadmap)
 below). In the meantime the **phantom CLI binary** is downloadable so
 you can try the agent runtime + cluster + TUI yourself.
 
@@ -87,17 +87,51 @@ Phantom Mesh 將你已有的設備 — 電腦、手機、雲端主機 — 串成
 
 ---
 
-## Open Source — Coming May 2026
+## Roadmap
 
-Phantom Mesh 的 agent 集群核心將於 **2026 年 5 月**正式開源。
+> Single maintainer, dates are best-effort (early access — see warning above).
 
-### 開源範圍（預計）
+### Platform availability
 
-- Rust agent runtime（核心引擎）
-- P2P cluster layer（設備組網與任務分配）
-- Tool registry（內建工具系統）
-- Hands workflow engine（TOML 工作流引擎）
-- LLM provider router（多模型路由）
+| 平台 | 狀態 | 預計 |
+|---|---|---|
+| Windows x86_64 | 🟢 Available now (early-access binary) | ✓ |
+| macOS Apple Silicon | 🟢 Available now (early-access binary) | ✓ |
+| **Linux x86_64** | 🟡 Build pipeline exists, binary not yet on R2 | **Week of May 11, 2026** |
+| **Android (Tauri thin)** | 🟡 Tauri shell scaffolded, packaging pending | **End of May 2026** |
+| **iOS (Tauri thin)** | 🟡 Tauri shell scaffolded, packaging pending | **End of May 2026** |
+| macOS Intel x86_64 | 🔴 Not prioritised (Apple Silicon covers most users) | TBD |
+
+### Stability milestones
+
+| Version | Scope | Target |
+|---|---|---|
+| v0.4 (current) | Early access, expect bugs (see warning) | Now |
+| **v0.5 stable** | Win + Mac stable, multi-provider failover battle-tested, install path frictionless | **End of May 2026** |
+| **v1.0 stable** | All 5 platforms stable, source release Phase 1+2 (see below), incident response process in place | **Mid June 2026** |
+
+### Source open-sourcing (Phase 1-4)
+
+Today only the install scripts in [`installers/`](installers/) are open. Source release
+will be staged as separate Cargo crates so each piece can land + get
+reviewed independently:
+
+| Phase | Crate | What | Target |
+|---|---|---|---|
+| 1 | `phantom-tools` | 23 LLM-callable tools (shell, file_*, search, git_*, http, memory, cluster_*) | **Mid May 2026** |
+| 2 | `phantom-runtime` | Multi-provider router, failover, streaming, tool-call protocol | **Late May 2026** |
+| 3 | `phantom-cluster` | P2P RPC, HMAC auth, self-update trampoline, admin shell | **Early June 2026** |
+| 4 | `phantom` (binary) | TUI + CLI glue (top of crates above) | **Mid June 2026** |
+
+Each phase = independently compileable crate. v1.0 stable lands when
+all 4 phases are public + reviewed.
+
+---
+
+## Architecture
+
+phantom 的核心引擎與設備組網層將分階段開源 — see [Roadmap](#roadmap)
+above for phase / target dates per crate.
 
 ### 技術概覽
 
