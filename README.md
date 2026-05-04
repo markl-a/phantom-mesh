@@ -17,6 +17,46 @@
 
 ---
 
+
+## Try it now (early access binary, May 2026)
+
+The full source release is still being prepared (see [Open Source](#open-source-coming-may-2026)
+below). In the meantime the **phantom CLI binary** is downloadable so
+you can try the agent runtime + cluster + TUI yourself.
+
+```powershell
+# Windows (PowerShell)
+iwr -useb https://phantommesh.io/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://phantommesh.io/install.sh | sh
+```
+
+What the installer does (each script is in [`installers/`](installers/) — read before piping):
+
+1. Downloads `phantom` binary to `~/.local/bin/`
+2. Adds it to `PATH`
+3. Runs `phantom login` (Google OAuth via phantommesh.io broker — used to vault your LLM API keys so they sync between machines)
+4. Auto-registers this device + joins it to your cluster
+5. Starts `phantom serve` in the background
+
+After install:
+
+```bash
+phantom              # launch the TUI (press Tab to switch agents, /help for slash commands)
+phantom cluster status   # see which mesh peers are alive
+phantom dispatch --to <peer> "your prompt"    # run a task on a specific machine
+phantom dispatch --all "your prompt"          # broadcast to every peer
+```
+
+**What's open today**: install scripts in [`installers/`](installers/) — what gets piped to `iex`/`sh`. Read them before running.
+
+**What isn't open yet**: the phantom binary itself. The full Rust source release is on track for May 2026 per the section below — until then the binary is closed, but the install path is auditable so you can decide whether you trust running it.
+
+---
+
 ## What is Phantom Mesh?
 
 Phantom Mesh 將你已有的設備 — 電腦、手機、雲端主機 — 串成一個**私人 AI 代理網路**。
