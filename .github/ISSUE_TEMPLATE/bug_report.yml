@@ -1,0 +1,71 @@
+name: Bug report
+description: Something broke — installer, TUI, cluster RPC, model dispatch, anything
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: input
+    id: phantom-version
+    attributes:
+      label: phantom version
+      description: Output of `phantom --version` (or "didn't get that far" if the installer crashed)
+      placeholder: phantom 0.4.0 (abc1234, windows-x86_64, built 2026-05-04)
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS / platform
+      options:
+        - Windows 10
+        - Windows 11
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you run / type? Paste exact commands.
+      placeholder: |
+        1. iwr -useb https://phantommesh.io/install.ps1 | iex
+        2. phantom
+        3. typed `/sidebar`
+        4. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected to happen
+    validations:
+      required: false
+  - type: textarea
+    id: actual
+    attributes:
+      label: What actually happened
+      description: Error message, screenshot, screen freeze, wrong output, etc.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs (if any)
+      description: |
+        Look in `~/.phantom-mesh/`:
+          - events.jsonl     (last few entries — `tail -50`)
+          - stderr.log
+          - phantom-restart.log (if cluster upgrade related)
+        Paste only what's relevant. Strip API keys / OAuth tokens.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Network setup (Tailscale? VPN?), other phantom peers, custom agents.toml, etc.
+    validations:
+      required: false

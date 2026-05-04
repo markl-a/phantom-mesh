@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/markl-a/phantom-mesh/discussions
+    about: For general questions, ideas, or showing off your setup

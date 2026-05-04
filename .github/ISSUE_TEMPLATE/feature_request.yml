@@ -1,0 +1,26 @@
+name: Feature request
+description: New capability, UX change, or "I wish phantom could ..."
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem you're hitting
+      description: What are you trying to do? Why doesn't the current phantom let you do it?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your proposed solution (optional)
+      description: How you imagine it could work — slash command, CLI flag, TUI element, etc.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: e.g. "I'm currently using `phantom dispatch --to X` in a loop, would be nicer if..."
+    validations:
+      required: false
