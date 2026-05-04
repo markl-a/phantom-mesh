@@ -56,7 +56,7 @@ phantom dispatch --all "your prompt"          # broadcast to every peer
 
 **What's open today**: install scripts in [`installers/`](installers/) — what gets piped to `iex`/`sh`. Read them before running.
 
-**What isn't open yet**: the phantom binary itself. The full Rust source release is on track for May 2026 per the section below — until then the binary is closed, but the install path is auditable so you can decide whether you trust running it.
+**What isn't open yet**: the phantom binary itself. The full Rust source release is staged across May–June 2026 (Phase 1-4 in the [Roadmap](#roadmap) below) — until then the binary is closed, but the install path is auditable so you can decide whether you trust running it.
 
 ---
 
@@ -108,7 +108,7 @@ Phantom Mesh 將你已有的設備 — 電腦、手機、雲端主機 — 串成
 |---|---|---|
 | v0.4 (current) | Early access, expect bugs (see warning) | Now |
 | **v0.5 stable** | Win + Mac stable, multi-provider failover battle-tested, install path frictionless | **End of May 2026** |
-| **v1.0 stable** | All 5 platforms stable, source release Phase 1+2 (see below), incident response process in place | **Mid June 2026** |
+| **v1.0 stable** | All 5 platforms stable, source release Phase 1-4 complete (see below), incident response process in place | **Mid June 2026** |
 
 ### Source open-sourcing (Phase 1-4)
 
