@@ -30,7 +30,7 @@ iwr -useb https://phantommesh.io/install.ps1 | iex
 ```
 
 ```bash
-# macOS / Linux
+# macOS 
 curl -fsSL https://phantommesh.io/install.sh | sh
 ```
 
