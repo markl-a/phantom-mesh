@@ -15,6 +15,9 @@
   <a href="LICENSE">MIT License</a>
 </p>
 
+> ⚠️ **Early access — expect bugs.** 目前功能尚不穩定，可能會遇到各種 bug。
+> 遇到問題請[開 issue](https://github.com/markl-a/phantom-mesh/issues/new) 或直接聯絡我，我會儘快修。
+
 ---
 
 
