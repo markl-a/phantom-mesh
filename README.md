@@ -136,12 +136,12 @@ Phantom Mesh 核心 runtime 將於 5 月開源。在那之前，圍繞它建構�
 
 | 專案 | 角色 | 狀態 |
 |---|---|---|
-| **[Automation_with_AI](https://github.com/markl-a/Automation_with_AI)** | 應用自動化 + AIOps + MLOps：17+ production tools、multi-provider LLM、RAG、agents、workflows | 🟢 Public |
-| **[Data-Analysis-with-Chatbots](https://github.com/markl-a/Data-Analysis-with-Chatbots)** | 資料科學分析層：clustering（K-Means / DBSCAN / GMM / Hierarchical）、CLV、RFM、agent 遙測分析 | 🟢 Public |
+| **[Automation_with_Agent](https://github.com/markl-a/Automation_with_Agent)** | 應用自動化 + AIOps + MLOps：17+ production tools、multi-provider LLM、RAG、agents、workflows | 🟢 Public |
+| **[Data-Analysis-with-Agents](https://github.com/markl-a/Data-Analysis-with-Agents)** | 資料科學分析層：clustering（K-Means / DBSCAN / GMM / Hierarchical）、CLV、RFM、agent 遙測分析 | 🟢 Public |
 | **[My-AI-Learning-Notes](https://github.com/markl-a/My-AI-Learning-Notes)** | 繁中 AI 工程師學習路徑 + 面試準備教材（17 ⭐） | 🟢 Public |
 | **[GarageSwarm](https://github.com/markl-a/GarageSwarm)** | Phantom Mesh 的 Python 前傳 — 已被 Rust 重寫取代，保留作設計史料（含 [LESSONS.md](https://github.com/markl-a/GarageSwarm/blob/main/LESSONS.md)） | 📖 Predecessor |
-| **phantom-secops** | 多 agent 紅藍隊資安模擬研究（基於 Juice Shop / DVWA isolated lab） | 🔒 Private during development |
-| **phantom-mobile** | Android agentic E2E 測試框架（含 simulation engine：弱網 / 低電 / locale / a11y / 生命週期） | 🔒 Private during development |
+| **[phantom-secops](https://github.com/markl-a/phantom-secops)** | 多 agent 紅藍隊資安模擬研究（基於 Juice Shop / DVWA isolated lab） | 🟢 Public |
+| **[phantom-mobile](https://github.com/markl-a/phantom-mobile)** | Android agentic E2E 測試框架（含 simulation engine：弱網 / 低電 / locale / a11y / 生命週期） | 🟢 Public |
 
 每個 satellite 都有自己的 README，並在開頭附上 phantom-mesh ecosystem
 hook，互相連回主 repo。
