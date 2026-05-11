@@ -1,0 +1,75 @@
+# Phantom Mesh — ROG Phone 6 Worker Node
+# ========================================
+# 硬體: ASUS ROG Phone 6
+#   CPU: Snapdragon 8+ Gen 1 (4nm), 8核心
+#   RAM: 12/16GB LPDDR5
+#   電池: 6000mAh (大電池，適合長時間工作)
+#
+# 角色: 高效能 Android Worker
+#   - 常設在充電座上以保持性能
+#   - 開 X-Mode 時 CPU/GPU 全速
+#   - 比 Mi Pad 更強的 CPU 核心
+#
+# 安裝步驟:
+#   1. 安裝 Tailscale (Play Store)
+#   2. 安裝 phantom-mesh.apk
+#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.phantommesh.app/agents.toml
+#      (或透過 App → 設定 → 匯入設定)
+#   4. 設定 → 電池 → 為 Phantom Mesh 關閉電池最佳化
+#   5. 開啟 App → 節點自動在背景持續運行
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+# 主要使用 Groq (免費, 快速 Llama) 或 Gemini (長 context)
+# 不在手機跑本地模型以節省電量
+
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-haiku-4-5"
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+[cluster]
+node_name = "rog6"
+cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+peers = [
+  "http://100.x.x.MAC:7878",     # Coordinator (Mac)
+  "http://100.x.x.ORACLE:7878",  # Oracle Cloud VM
+  "http://100.x.x.Z13:7878",     # Z13
+  "http://100.x.x.ACER:7878",    # Acer
+  "http://100.x.x.AYANEO:7878",  # AYANEO
+  "http://100.x.x.MIPAD:7878",   # Mi Pad
+  "http://100.x.x.IPAD:7878",    # iPad Pro
+]
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent.master]
+provider = "groq"
+model = "llama-3.3-70b-versatile"
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """你是 Phantom Mesh 叢集中的高效能 Android 工作節點 (ROG Phone 6)。
+你負責接收協調者指派的計算任務，使用快速的雲端 LLM (Groq Llama) 完成。
+回覆簡潔，專注於任務執行。"""

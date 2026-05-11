@@ -1,0 +1,106 @@
+name: Publish phantom binary to R2
+
+# On-demand build of the `phantom` CLI binary for a specific target
+# triple, then upload to the phantom-binaries R2 bucket so the public
+# install scripts (https://phantommesh.io/install.{ps1,sh}) serve it.
+#
+# Why this exists separately from release-daemon.yml:
+#   - release-daemon.yml builds the OLDER `phantom-mesh` daemon binary
+#     into GitHub Releases, not R2
+#   - This builds the NEWER `phantom` CLI (src/bin/phantom.rs) and pushes
+#     to R2 directly so the install one-liners pick it up
+#   - Triggered manually so we don't accidentally publish every push
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Rust target triple to build for'
+        required: true
+        default: 'x86_64-unknown-linux-gnu'
+        type: choice
+        options:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+      r2_object_name:
+        description: 'R2 object key (the install scripts look for these specific names)'
+        required: true
+        default: 'phantom-linux-x86_64'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build-and-publish:
+    name: Build phantom + upload to R2
+    # bullseye-equivalent base. ubuntu-24.04 ships glibc 2.39 which is too
+    # new for OL9 / RHEL 8 / Ubuntu 20.04. Pin to ubuntu-22.04 for glibc
+    # 2.35 — wider compat. Eventually swap to a slim-bullseye container if
+    # OL9 users (glibc 2.34) report breakage.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.target }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: phantom-${{ inputs.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: phantom-${{ inputs.target }}-
+
+      - name: Install cross-compile linker (aarch64 only)
+        if: inputs.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "[target.aarch64-unknown-linux-gnu]" >> $HOME/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> $HOME/.cargo/config.toml
+
+      - name: Build phantom binary
+        working-directory: core
+        run: cargo build --release --bin phantom --target ${{ inputs.target }}
+
+      - name: Verify binary + glibc compat
+        run: |
+          BIN="core/target/${{ inputs.target }}/release/phantom"
+          ls -la "$BIN"
+          file "$BIN"
+          # Print max GLIBC symbol dependency so we know the floor distro.
+          # See memory/crosscompile-gotchas.md — bullseye-floor (2.31) is
+          # the goal; bookworm (2.36+) is fine; trixie (2.39) is too new.
+          if command -v objdump > /dev/null; then
+            echo "Max GLIBC dep:"
+            objdump -T "$BIN" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -V | uniq -c | tail -5 || echo "  (no GLIBC deps — likely musl or static)"
+          fi
+
+      - name: Upload to R2 via wrangler
+        working-directory: phantommesh-io
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          BIN="../core/target/${{ inputs.target }}/release/phantom"
+          npx wrangler r2 object put "phantom-binaries/${{ inputs.r2_object_name }}" \
+            --file "$BIN" \
+            --content-type application/octet-stream
+
+      - name: Verify R2 edge serves the new binary
+        run: |
+          sleep 3
+          # Cache-bust to bypass any stale CF edge state.
+          curl -sSI "https://phantommesh.io/dist/${{ inputs.r2_object_name }}?cb=$(date +%s)" | \
+            grep -iE 'Content-Length|ETag'
+          echo
+          echo "✓ ${{ inputs.r2_object_name }} live at https://phantommesh.io/dist/${{ inputs.r2_object_name }}"

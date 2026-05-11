@@ -1,0 +1,71 @@
+[package]
+name = "phantom-mesh"
+version = "0.4.0"
+edition = "2021"
+
+[[bin]]
+name = "phantom-mesh"
+path = "src/main.rs"
+
+[[bin]]
+name = "phantom"
+path = "src/bin/phantom.rs"
+
+[features]
+default = []
+desktop = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }   # CancellationToken — used by AgentRuntime interrupt handle
+axum = { version = "0.7", features = ["ws"] }
+anyhow = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+toml = "1.1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+libc = "0.2"
+toml_edit = "0.22"
+tower-http = { version = "0.6", features = ["cors"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+urlencoding = "2"
+dirs = "5"
+unicode-width = "0.2"   # display-width-aware cursor + wrap math in tui.rs (CJK = 2 cells)
+jsonwebtoken = "9"
+hex = "0.4"
+hmac = "0.12"
+shell-words = "1.1"
+subtle = "2.5"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+futures = "0.3"
+uuid = { version = "1", features = ["v4", "serde"] }
+rustyline = { version = "14", features = ["derive"] }
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+fnv = "1"
+pm-types = { path = "../crates/pm-types" }
+async-trait = "0.1"
+ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }   # for Paragraph::line_count() — see core/src/tui.rs::render_transcript
+crossterm = "0.28"
+
+# ── Platform-conditional deps ──────────────────────────────────────────────────
+# notify-rust: macOS/Windows/Linux desktop only.
+# Android (Termux) has no NSUserNotificationCenter/dbus.
+# iOS app sandbox forbids dbus (zbus won't compile for aarch64-apple-ios).
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+notify-rust = "4"
+
+# Linux-only: Landlock LSM bindings used by `platform::sandbox_linux`
+# (file-write restrictions for shell/bash tools — Linux equivalent of
+# macOS sandbox-exec). Crate gracefully no-ops on kernels older than
+# 5.13, so adding the dep doesn't break older Linux targets.
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6.5"

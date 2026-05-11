@@ -1,0 +1,88 @@
+name: Deploy phantommesh.io
+
+# Single source of truth for CF Worker deploys. Without this workflow,
+# whoever last ran `wrangler deploy` from any local machine wins the
+# race — happened on 2026-05-03 when a Mac session pushed an older
+# checkout and rolled back the cluster-peers endpoints + dashboard UI.
+#
+# Now: every change to phantommesh-io/** that lands on a deploy branch
+# triggers an authoritative deploy from CI. Mac + Windows + any future
+# machine are all observers, not deploy sources.
+
+on:
+  push:
+    branches:
+      - phase1-r1-foundations
+      - main
+    paths:
+      - 'phantommesh-io/**'
+      - '.github/workflows/deploy-phantommesh-io.yml'
+  workflow_dispatch:   # manual re-deploy from Actions tab
+
+concurrency:
+  # Serialize deploys per-branch so two near-simultaneous pushes don't
+  # both deploy with one of them ending up overwritten by the other on
+  # the CF side.
+  group: deploy-phantommesh-io-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Skipping `cache: npm` because root .gitignore excludes
+          # package-lock.json (monorepo convention here). Reinstalling
+          # deps every run takes ~30s — acceptable trade for not having
+          # to fight gitignore + maintain a lock file.
+
+      - name: Install deps
+        working-directory: phantommesh-io
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        working-directory: phantommesh-io
+        run: npx tsc --noEmit
+
+      - name: Validate install.ps1 / install.sh regex literals
+        working-directory: phantommesh-io
+        # Renders the PS / sh scripts from dist.ts and runs `new RegExp()`
+        # on every -match 'X' literal. Catches the TS template-literal
+        # backslash-eaten bug class that has hit twice in production
+        # (\[providers.opencode\] and \\s*\\[ both shipped broken before
+        # this gate existed). Cheap (~3s); fails the deploy before any
+        # user sees a broken installer.
+        run: npm run check:install
+
+      - name: Deploy to Cloudflare Workers (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: phantommesh-io
+          # No --env flag → deploys to the default env (worker name
+          # "phantommesh-io", route "phantommesh.io/*"). Staging env
+          # exists in wrangler.toml for Mac local experiments and is
+          # NEVER touched by this workflow — staging is manual-only.
+          command: deploy
+
+      - name: Post-deploy smoke test
+        run: |
+          # Quick verification that the new deploy actually serves and
+          # the broker version marker is fresh. Doesn't gate the build
+          # (deploy already succeeded above) — just gives an observable
+          # checkmark in the workflow logs.
+          sleep 3
+          curl -sS --max-time 10 https://phantommesh.io/api/health
+          echo
+          curl -sS --max-time 10 https://phantommesh.io/api/me/cluster-peers || true

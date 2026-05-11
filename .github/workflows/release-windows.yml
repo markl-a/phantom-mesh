@@ -1,0 +1,142 @@
+name: Release Windows Binary + MSI
+
+# Native Windows build (vs `release-daemon.yml`, which cross-compiles
+# from Linux → x86_64-pc-windows-gnu and produces a binary that depends
+# on libwinpthread-1.dll). This workflow uses windows-latest +
+# x86_64-pc-windows-msvc — the same toolchain Z13 dev sessions ship
+# with — so the artifact behaves identically to a `cargo build` on a
+# real Windows machine.
+#
+# Triggered by: `git tag v*.*.* && git push --tags`. Drop a manual
+# workflow_dispatch run for ad-hoc release builds.
+#
+# Artifacts uploaded:
+#   - phantom-x86_64-pc-windows.exe          standalone CLI (matches the
+#                                            install-phantom-windows.ps1
+#                                            $exeUrl path)
+#   - phantom-x86_64-pc-windows.exe.sha256   for `phantom self-update`
+#                                            integrity checks
+#   - Phantom Mesh_<ver>_x64-setup.exe       NSIS installer (Tauri shell)
+#   - Phantom Mesh_<ver>_x64_en-US.msi       MSI installer (Tauri shell)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create as draft release'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  # Build outside the workspace so Defender's real-time scan doesn't
+  # lock build-script-build.exe mid-link. Mirrors what the doc and
+  # scripts/build-windows.ps1 use locally on Z13.
+  CARGO_TARGET_DIR: ${{ github.workspace }}\..\target-windows
+
+jobs:
+  build:
+    name: Build Windows artifacts
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable (msvc)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core -> target
+            app/src-tauri -> target
+          key: windows-msvc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      # ── Standalone CLI binary ───────────────────────────────────────────
+      - name: Build phantom CLI (release, msvc)
+        working-directory: core
+        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc
+
+      - name: Stage CLI artifact
+        shell: pwsh
+        run: |
+          $src = "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\release\phantom.exe"
+          if (-not (Test-Path $src)) { throw "build output missing: $src" }
+          $dst = "phantom-x86_64-pc-windows.exe"
+          Copy-Item $src $dst
+          $sha = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
+          "$sha  $dst" | Out-File -Encoding ascii "$dst.sha256"
+          Get-Item $dst, "$dst.sha256"
+
+      - name: Upload CLI binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantom-cli-windows
+          path: |
+            phantom-x86_64-pc-windows.exe
+            phantom-x86_64-pc-windows.exe.sha256
+
+      # ── Tauri MSI / NSIS bundle ─────────────────────────────────────────
+      - name: Build Tauri Windows bundle (MSI + NSIS)
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: ./app
+          # Tauri auto-picks targets from app/src-tauri/tauri.conf.json
+          # (currently bundle.targets = "all", so on Windows it produces
+          # both .msi and .nsis-setup.exe).
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: 'Phantom Mesh ${{ github.ref_name }}'
+          releaseDraft: ${{ inputs.draft != 'false' }}
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+  publish:
+    name: Attach CLI binary to release
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: phantom-cli-windows
+          path: ./dist
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ./dist/phantom-x86_64-pc-windows.exe
+            ./dist/phantom-x86_64-pc-windows.exe.sha256
+          fail_on_unmatched_files: true
+          draft: ${{ inputs.draft != 'false' }}
+          prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

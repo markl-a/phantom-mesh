@@ -1,0 +1,19 @@
+[Unit]
+Description=Phantom Mesh AI Agent Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phantom
+WorkingDirectory=/home/phantom
+ExecStart=/opt/phantom-mesh/phantom-mesh daemon --host 0.0.0.0 --port 7878
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=HOME=/home/phantom
+EnvironmentFile=-/home/phantom/.phantom-mesh/env
+
+[Install]
+WantedBy=multi-user.target

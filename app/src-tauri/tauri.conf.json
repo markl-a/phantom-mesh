@@ -1,0 +1,77 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Phantom Mesh",
+  "version": "0.4.0",
+  "identifier": "ai.phantommesh.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Phantom Mesh",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: https:"
+    },
+    "trayIcon": {
+      "tooltip": "Phantom Mesh",
+      "iconPath": "icons/icon.png"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/markl-a/phantom-mesh/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZEOEQxQzkzOTc3N0NGNUIKUldSYnozZVhreHlOL2FBMlUyWVFyNzBwcnpqYmdVMTJlOUNHRkNzRVIrNk5WWWtnam1Id3B6TDAK",
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": ["phantom"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "scripts/detect_hardware.ps1"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "wix": {
+        "language": ["en-US"]
+      },
+      "nsis": {
+        "installMode": "perUser",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      },
+      "allowDowngrades": true
+    },
+    "iOS": {
+      "developmentTeam": "F7683B69U7"
+    }
+  }
+}

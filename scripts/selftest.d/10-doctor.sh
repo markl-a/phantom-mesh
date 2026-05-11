@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# `phantom doctor` is the canonical health summary. We assert it runs cleanly
+# and emits the sections we expect — so a regression that quietly drops a
+# section (e.g. provider keys) fails the self-test loudly.
+
+selftest_feature_meta() {
+  echo "name=doctor"
+  echo "priority=P0"
+  echo "requires="
+  echo "description=phantom doctor exits 0 and contains all expected sections"
+  echo "hints=core/src/bin/phantom.rs core/src/diag.rs"
+}
+
+selftest_run() {
+  P=$(printf '%q' "$PHANTOM")
+  out="$SELFTEST_ARTIFACTS/doctor.out"
+  T_REPRO="$P doctor"
+  T_ARTIFACT="$out"
+  if "$PHANTOM" doctor > "$out" 2>&1; then
+    lines=$(wc -l < "$out" | tr -d ' ')
+    t_pass "phantom doctor runs" "$lines lines of output"
+  else
+    t_fail "phantom doctor runs" "non-zero exit (see $out)"
+    return
+  fi
+
+  for sec in binary config "provider keys" "phantom serve" network tools autoevolve identity diagnostics; do
+    if grep -qF "$sec" "$out"; then
+      t_pass "section: $sec" ""
+    else
+      t_fail "section: $sec" "not present in doctor output"
+    fi
+  done
+
+  # Platform-specific section: nice-to-have on the matching host.
+  case "$(uname -s)" in
+    Darwin)
+      if grep -q "macOS integrations" "$out"; then
+        t_pass "macOS integrations section" ""
+      else
+        t_skip "macOS integrations section" "not present (older build?)"
+      fi
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      # Git Bash on Windows — phantom doctor's Windows-integrations block
+      # only runs when phantom itself was built for windows-msvc/gnu.
+      if grep -q "Windows integrations" "$out"; then
+        t_pass "Windows integrations section" ""
+      else
+        t_skip "Windows integrations section" "not present (running a non-windows phantom build?)"
+      fi
+      ;;
+  esac
+
+  red=$(grep -c '✗' "$out" || true)
+  if [ "$red" -gt 0 ]; then
+    t_fail "doctor red checks" "$red red ✗ lines — run \`phantom doctor\` to see"
+  else
+    t_pass "doctor red checks" "none"
+  fi
+}

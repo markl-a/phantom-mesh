@@ -1,0 +1,4 @@
+# Sidecar binaries are copied by build.rs — don't commit them
+*
+!.gitignore
+!.gitkeep

@@ -1,0 +1,21 @@
+title = "phantom-mesh gitleaks config"
+
+[allowlist]
+description = "Global allowlist"
+regexes = [
+  # Generic placeholder / test patterns
+  '''REMOVED_''',
+  '''example''',
+  '''your-key-here''',
+  # agents.toml.example placeholders
+  '''BSA_\.\.\. ''',
+  # Test/example secrets used in unit tests and example files
+  '''(test-secret|example-key|YOUR_|REPLACE_ME|sk-or-v1-0{10,})''',
+  # Cargo version strings that look like semver secrets
+  '''CARGO_PKG_VERSION''',
+]
+paths = [
+  '''agents\.toml\.example''',
+  '''configs/.*\.toml''',
+  '''docs/.*''',
+]

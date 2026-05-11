@@ -1,0 +1,25 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for Phantom Mesh",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "store:default",
+    "notification:default",
+    "process:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/phantom-mesh",
+          "sidecar": true,
+          "args": true
+        }
+      ]
+    },
+    "shell:allow-spawn",
+    "shell:allow-kill",
+    "shell:allow-open",
+    "deep-link:default"
+  ]
+}

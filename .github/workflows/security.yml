@@ -1,0 +1,70 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+    # Skip docs-only / config-only pushes; nothing here can leak a secret
+    # or pull a vulnerable crate.
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '_planning-audit/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '_planning-audit/**'
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am
+
+# Cancel superseded runs on the same branch/PR — saves CI minutes during
+# rapid iteration. (Schedule runs aren't affected.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Minimal read-only permissions by default; jobs add write only where needed.
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Secret Scanning (gitleaks)
+    runs-on: ubuntu-latest
+    # Skip on forks — they lack access to repo secrets and this surfaces noise.
+    if: github.repository_owner == 'markl-a'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cargo-audit:
+    name: Dependency Audit (cargo audit)
+    runs-on: ubuntu-latest
+    if: github.repository_owner == 'markl-a'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit
+      - run: cargo audit --manifest-path core/Cargo.toml
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    # dependency-review only makes sense on PRs and must have write access
+    # to post review comments; restrict to non-fork PRs.
+    if: github.event_name == 'pull_request' && github.repository_owner == 'markl-a'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4

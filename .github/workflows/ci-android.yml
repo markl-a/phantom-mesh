@@ -1,0 +1,157 @@
+name: CI Android
+
+# Per-PR Android smoke test. Catches regressions in target-conditional
+# code paths that the host-target check-and-test workflow doesn't see.
+# Runtime ~5 min cached, ~8 min cold.
+
+on:
+  push:
+    branches: [main, phase1-r1-foundations]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - 'scripts/package-android.sh'
+      - '.github/workflows/ci-android.yml'
+      - '.github/workflows/release-daemon.yml'
+  pull_request:
+    branches: [main, phase1-r1-foundations]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - 'scripts/package-android.sh'
+      - '.github/workflows/ci-android.yml'
+      - '.github/workflows/release-daemon.yml'
+
+# Cancel superseded runs on the same branch/PR — saves CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  NDK_VERSION: '28.2.13676358'
+
+jobs:
+  android-smoke:
+    name: aarch64-linux-android compile + ELF sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;${NDK_VERSION}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_HOME" >> "$GITHUB_ENV"
+
+      - name: Install Rust + aarch64-linux-android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ci-android-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ci-android-cargo-
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # ── 1. cargo test --no-run for the android target ────────────────────
+      # Catches breakage in target-conditional code or in tests that import
+      # platform-specific APIs. We compile the full test suite but don't try
+      # to run it on the host (different arch).
+      - name: Compile tests for aarch64-linux-android
+        working-directory: core
+        run: cargo ndk -t arm64-v8a -P 21 test --release --no-run --lib
+
+      # ── 2. Build the user-facing CLI binary ──────────────────────────────
+      - name: Build phantom binary
+        working-directory: core
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+
+      # ── 3. ELF sanity: arch + Bionic-only + no glibc symbols ─────────────
+      - name: ELF sanity check
+        run: |
+          set -euo pipefail
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          BIN=core/target/aarch64-linux-android/release/phantom
+          ls -lh "$BIN"
+
+          echo "--- file headers ---"
+          "$NDK_BIN/llvm-readobj" --file-headers "$BIN" | head -20
+
+          echo "--- arch must be EM_AARCH64 ---"
+          "$NDK_BIN/llvm-readobj" --file-headers "$BIN" | grep -q "EM_AARCH64" \
+            || { echo "FAIL: not an aarch64 ELF"; exit 1; }
+
+          echo "--- NEEDED libs (must be Bionic-only) ---"
+          NEEDED=$("$NDK_BIN/llvm-readobj" --needed-libs "$BIN" \
+            | grep -oE 'lib[a-z+]+\.so[0-9.]*' | sort -u)
+          echo "$NEEDED"
+          # Reject any glibc-only / non-Bionic libs. Bionic libs:
+          # libc.so libdl.so libm.so liblog.so libandroid.so libGLES* libEGL*.
+          BAD=$(echo "$NEEDED" | grep -vE '^(libc|libdl|libm|liblog|libandroid|libEGL|libGLES[a-z0-9]*|libjnigraphics|libz)\.so' || true)
+          if [ -n "$BAD" ]; then
+            echo "FAIL: non-Bionic NEEDED libs: $BAD"; exit 1
+          fi
+
+          echo "--- no GLIBC versioned symbols ---"
+          if "$NDK_BIN/llvm-readobj" --dynamic-table "$BIN" 2>/dev/null \
+              | grep -q "GLIBC_"; then
+            echo "FAIL: binary has GLIBC versioned symbols"; exit 1
+          fi
+          # objdump fallback for the same check
+          if "$NDK_BIN/llvm-objdump" -T "$BIN" 2>/dev/null \
+              | grep -q "GLIBC_"; then
+            echo "FAIL (objdump): binary has GLIBC versioned symbols"; exit 1
+          fi
+
+          echo "--- interpreter must be /system/bin/linker64 ---"
+          INTERP=$("$NDK_BIN/llvm-readobj" --program-headers "$BIN" \
+            | grep -A1 'PT_INTERP' | tail -1 | tr -d ' ')
+          echo "interpreter: $INTERP"
+          # Just ensure it's an Android-style linker path; older NDKs may emit
+          # /system/bin/linker64, never /lib64/ld-linux-*.
+          if "$NDK_BIN/llvm-readelf" -l "$BIN" \
+              | grep -q "Requesting program interpreter: /lib"; then
+            echo "FAIL: glibc-style interpreter, expected /system/bin/linker64"
+            exit 1
+          fi
+
+          echo "✓ android binary passes all ELF sanity gates"
+
+      # ── 4. Strip + size budget ───────────────────────────────────────────
+      - name: Strip + size budget
+        run: |
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          BIN=core/target/aarch64-linux-android/release/phantom
+          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-stripped
+          SIZE=$(stat -c%s phantom-stripped)
+          SIZE_MB=$(( SIZE / 1024 / 1024 ))
+          echo "stripped size: ${SIZE_MB} MB"
+          # Soft cap: 30 MB. Today's release is ~18 MB; if we breach 30 MB
+          # something probably went wrong (debug symbols not stripped, or
+          # accidentally pulling in a huge dep).
+          if [ "$SIZE_MB" -gt 30 ]; then
+            echo "FAIL: stripped binary > 30 MB — investigate dep additions"
+            exit 1
+          fi
+          echo "✓ size within budget"

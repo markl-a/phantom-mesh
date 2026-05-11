@@ -1,0 +1,70 @@
+# Phantom Mesh — Mi Pad Worker Node
+# =====================================
+# 硬體: Xiaomi Mi Pad (5/6)
+#   Mi Pad 5: Snapdragon 860, 6GB RAM
+#   Mi Pad 6: Snapdragon 870, 8GB RAM
+#
+# 角色: Android Tablet Worker
+#   - 螢幕大，方便監控叢集狀態
+#   - 適合當「顯示板」同時當 worker
+#   - 平板電池大，適合長時間待機
+#
+# 安裝步驟:
+#   1. 安裝 Tailscale (Play Store)
+#   2. 安裝 phantom-mesh.apk
+#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.phantommesh.app/agents.toml
+#   4. 設定 → 電池 → 為 Phantom Mesh 關閉電池最佳化
+#   5. MIUI 設定 → 應用程式 → 鎖定 Phantom Mesh (防止被清理)
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-haiku-4-5"
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+[cluster]
+node_name = "mipad"
+cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+peers = [
+  "http://100.x.x.MAC:7878",
+  "http://100.x.x.ORACLE:7878",
+  "http://100.x.x.Z13:7878",
+  "http://100.x.x.ACER:7878",
+  "http://100.x.x.AYANEO:7878",
+  "http://100.x.x.ROG6:7878",
+  "http://100.x.x.IPAD:7878",
+]
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent.master]
+provider = "gemini"
+model = "gemini-2.5-flash"
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """你是 Phantom Mesh 叢集中的 Android 平板工作節點 (Mi Pad)。
+接收並執行協調者指派的任務。使用 Gemini Flash 快速回應。
+回覆簡潔，專注任務執行。"""

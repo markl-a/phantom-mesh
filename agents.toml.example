@@ -1,0 +1,362 @@
+# ── phantom-mesh agents.toml ──────────────────────────────────────────────────
+# Copy this file to the appropriate location and fill in your API keys.
+#
+# Config file locations (in order of precedence):
+#   1. Path given via --config flag to the daemon
+#   2. ./agents.toml  (current working directory)
+#   3. macOS: ~/Library/Application Support/com.phantommesh.app/agents.toml
+#   4. Linux: ~/.config/phantom-mesh/agents.toml
+#
+# NEVER put real API keys in this file.
+# Always use api_key_env to reference an environment variable instead:
+#   export ANTHROPIC_API_KEY=sk-ant-...
+# Full documentation: docs/GETTING-STARTED.md
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Core daemon settings ───────────────────────────────────────────────────────
+[core]
+# host: address the HTTP daemon binds to
+#   "0.0.0.0"   — listen on all interfaces (required for Tailscale/cluster access)
+#   "127.0.0.1" — local-only (more secure for single-machine use)
+host = "0.0.0.0"
+
+# port: HTTP port the daemon listens on (default: 7878)
+port = 7878
+
+# hub_api_key: optional API key required to call this node's HTTP API.
+# When set, all inbound requests must include:
+#   Authorization: Bearer <hub_api_key>
+# Leave commented out to allow unauthenticated local access.
+# hub_api_key = "change-me-random-string"
+
+# ── LLM Providers ─────────────────────────────────────────────────────────────
+# Configure at least one provider. The agent tries the primary provider first;
+# if it fails (HTTP error, rate-limit, etc.) it automatically falls back to the
+# next provider in the list.
+#
+# Each provider block supports these fields:
+#   type            — "anthropic" | "openai_compat" | "gemini" | "groq"
+#   api_key_env     — name of the env var holding the API key (preferred)
+#   api_key         — inline API key (NOT recommended; use api_key_env instead)
+#   url             — override the default API endpoint (required for Ollama,
+#                     OpenRouter, and any OpenAI-compatible service)
+#   default_model   — model used when the agent doesn't specify one explicitly
+#   tier            — optional label ("free" | "paid") for routing logic
+# ──────────────────────────────────────────────────────────────────────────────
+
+[providers.anthropic]
+# Anthropic Claude (direct API, OpenAI-compatible endpoint)
+# Get a key: https://console.anthropic.com/settings/keys
+# Note: the required `anthropic-version` header is added automatically when
+#       type = "anthropic" — no extra configuration needed.
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"    # export ANTHROPIC_API_KEY=sk-ant-...
+default_model = "claude-sonnet-4-6"
+
+[providers.openrouter]
+# OpenRouter — access 200+ models with one key
+# Get a key: https://openrouter.ai/keys
+type = "openai_compat"
+url = "https://openrouter.ai/api"
+api_key_env = "OPENROUTER_API_KEY"   # export OPENROUTER_API_KEY=sk-or-...
+default_model = "google/gemini-2.5-flash"
+
+[providers.gemini]
+# Google Gemini (direct API)
+# Get a key: https://aistudio.google.com/app/apikey
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"       # export GEMINI_API_KEY=AIza...
+default_model = "gemini-2.5-flash"
+
+[providers.groq]
+# Groq — fast Llama/Mixtral inference
+# Get a key: https://console.groq.com/keys
+type = "groq"
+api_key_env = "GROQ_API_KEY"         # export GROQ_API_KEY=gsk_...
+default_model = "llama-3.3-70b-versatile"
+
+[providers.opencode]
+# OpenCode Zen gateway — frontier models (Claude, GPT-5, Gemini-3) plus 5
+# free-tier preview models. The endpoint is `/zen/v1`, NOT `/api/v1` —
+# the legacy `/api/v1` path returns a Cloudflare 404. Free models include:
+#   minimax-m2.5-free, hy3-preview-free, ling-2.6-flash-free,
+#   trinity-large-preview-free, nemotron-3-super-free
+# Query the full model list: GET https://opencode.ai/zen/v1/models
+type = "opencode"
+api_key_env = "OPENCODE_API_KEY"     # export OPENCODE_API_KEY=sk-...
+default_model = "claude-sonnet-4-6"
+
+[providers.ollama]
+# Ollama — run local models (no API key needed)
+# Install: https://ollama.com  |  pull a model: ollama pull llama3.2
+type = "openai_compat"
+url = "http://localhost:11434"       # local Ollama; no API key needed
+default_model = "llama3.2"
+
+# ── Free-tier cloud providers (zero-cost, OpenAI-compatible) ─────────────────
+# Recommended failover order when one rate-limits: Cerebras → Groq → NVIDIA NIM.
+# See docs/FREE-LLM-PROVIDERS-2026-05.md for the full comparison + signup links.
+
+[providers.cerebras]
+# Cerebras Inference — wafer-scale, 1M tokens/day free, 30 RPM, 8K context cap
+# Get a key: https://cloud.cerebras.ai (no CC required)
+type = "openai_compat"
+url = "https://api.cerebras.ai/v1"
+api_key_env = "CEREBRAS_API_KEY"
+default_model = "llama-3.3-70b"
+
+[providers.groq]
+# Groq Cloud — fast, full tool calling, 1K req/day, ~700 tok/s
+# Get a key: https://console.groq.com/keys (no CC required)
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.nvidia]
+# NVIDIA NIM — 100+ models incl. DeepSeek-R1 / Nemotron, credits-based
+# Get a key: https://build.nvidia.com (Developer Program signup required)
+type = "openai_compat"
+url = "https://api.nims.nvidia.com/v1"
+api_key_env = "NVIDIA_NIM_API_KEY"
+default_model = "nemotron-3-super"
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+# Define one or more named agents. The web UI and Telegram bot use "master" by
+# default. You can add more agents (e.g. [agent.coder], [agent.researcher]) and
+# reference them by name.
+#
+# Each agent block supports:
+#   provider     — key under [providers.*] to use
+#   model        — overrides the provider's default_model for this agent
+#   tools        — list of tool names this agent may call (see full list below)
+#   instructions — system prompt injected at the start of every conversation
+#
+# Available tools:
+#   shell          — run shell commands (git, cargo, npm, python, etc.)
+#   file_read      — read a file's contents
+#   file_write     — create or overwrite a file
+#   file_edit      — replace an exact string in an existing file
+#   content_search — search file contents with ripgrep
+#   glob_search    — find files matching a glob pattern
+#   web_search     — search the web (Brave if api key set, else DuckDuckGo)
+#   memory_store   — persist a key-value pair across sessions
+#   memory_recall  — retrieve a previously stored value by key
+#   git_status     — show working tree status (git status --short)
+#   git_diff       — show diff stats for staged/unstaged changes
+#   git_log        — show recent commit history
+#   git_commit     — stage all tracked changes and create a commit
+# ──────────────────────────────────────────────────────────────────────────────
+
+[agent.master]
+# Single primary provider (legacy / simple form):
+provider = "anthropic"
+
+# Optional explicit failover priority. If set, providers are tried in this
+# exact order before falling through to `provider` above and then alphabetical
+# of any remaining configured providers. Useful when you have multiple
+# free-tier provider keys and want to control which absorbs traffic first.
+#
+#   providers = ["groq", "cerebras", "anthropic", "openrouter"]
+#
+# Each entry must match a [providers.<name>] block. Missing keys (env var
+# unset / api_key empty) are silently skipped. The runtime falls forward to
+# the next provider on HTTP 4xx (non-retriable client errors) or after
+# retry exhaustion on 429/5xx. See `core/src/agent.rs::resolve_provider_order`.
+# Default (when omitted): legacy behavior — start with `provider`, then
+# alphabetical of the rest.
+
+model = "claude-sonnet-4-6"          # overrides provider's default_model
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "git_commit",
+]
+instructions = """
+You are a senior software engineer AI assistant running on the user's machine.
+You have direct access to the filesystem and shell via tools.
+
+The single rule that overrides every other instinct: NEVER claim to have done
+something without first calling a tool to do it, and NEVER report fabricated
+outputs as if they were real.
+
+ANTI-HALLUCINATION RULES (mandatory, no exceptions):
+
+1. NO claim of action without a tool call.
+   "I created X / wrote Y / ran Z / fetched W" is forbidden unless the
+   IMMEDIATELY PRECEDING turn contained the matching tool call (file_write,
+   shell, etc.). If you intend to do something, call the tool first, see the
+   real result, then describe it.
+
+2. Verify after writing.
+   After file_write or any state-changing shell command, the very next thing
+   you do must be a verification tool call (file_read of the same path, or
+   shell `ls -la`, `cat`, etc.). Quote the verification output back to the
+   user. If verification fails, report the failure plainly.
+
+3. Real tool errors are never papered over.
+   If a tool returns non-zero exit, empty output, or an error message, that
+   IS the result. Surface it verbatim.
+
+4. "I cannot do X because Y" is always allowed.
+   When a dependency is missing, permission denied, network unreachable, or
+   you simply do not know — say so directly. Short honest "no" beats long
+   fabricated "yes".
+
+5. Never invent specifics.
+   Dates, timestamps, byte counts, file sizes, URLs, version numbers, model
+   IDs, latency numbers, news headlines, commit SHAs — if you did not get
+   them from a tool call in this turn, do not state them.
+
+6. Today's date comes from the user/system, not your training memory.
+   For "today" or "current" queries, use shell `date` or ask the user.
+   Never infer from training-cutoff calendar memory.
+
+7. Real-time data needs real fetches.
+   News, prices, weather, GitHub state, package versions — these come from
+   web_search / shell curl / etc. If no fetch tool is available, say so.
+
+8. When the user calls you out, do not loop the lie.
+   If the user says "you faked X", stop. Identify what tool calls actually
+   happened versus what was claimed. Apologize once, briefly, then actually
+   run the tools — don't promise "this time I'll really do it" and repeat.
+
+Tool quick reference:
+- shell: run commands (git, cargo, npm, python, etc.)
+- file_read: read files before editing
+- file_edit: precise string replacements
+- file_write: create new files
+- content_search (ripgrep), glob_search
+- git_* tools for version control
+- web_search if available
+
+Always respond in the user's language. Show tool output, then a tight
+summary — no marketing copy.
+"""
+
+
+# ── Squad Pipeline agents (SPEC-FREEZE-V1 §11.1, §12.4) ────────────────────────
+# These two agents power the `/dispatch <natural-language>` slash command.
+# Only the coordinator (Mac M1 in the 5/9 demo) needs them; workers don't have
+# to declare them. They use a cheap free-tier model on purpose: dispatcher
+# emits structured JSON, synthesizer summarises peer outputs — neither is
+# the heavy LLM lift.
+
+[agent.dispatcher]
+provider = "groq"                    # free tier, fast token rate
+model    = "llama-3.3-70b-versatile" # JSON-output capable, cheap
+# No tools — dispatcher only reasons over peer inventory + emits text/JSON.
+tools = []
+instructions = """You are a Squad Pipeline dispatcher running on a phantom-mesh coordinator. Your sole job is to convert a user's natural-language goal into a structured dispatch plan that fans out to peer nodes.
+
+INPUT YOU WILL RECEIVE:
+- The user's goal (one or more sentences in any language)
+- A live inventory of online peers and their available agents, e.g.:
+    z13     [Win,   full]   agents: [master, coder, recon, enrich, review]
+    oracle  [Linux, full]   agents: [master, coder, enrich]
+    ipad    [iOS,   sandbox file_in_container,memory,web,subagent]  agents: [master, triage]
+    ayaneo  [Win,   full]   agents: [master, coder, review]
+
+OUTPUT FORMAT (strict — your reply must be PARSEABLE JSON, nothing else):
+
+{
+  "plan": [
+    {"peer": "<peer_name>", "agent": "<agent_name>", "prompt": "<task for that peer>"}
+  ],
+  "synthesis_hint": "<one-sentence brief for the synthesizer agent on how to combine peer outputs>"
+}
+
+DISPATCH RULES:
+1. Pick at most 4 peers (one per OS family preferred for diversity).
+2. Match agent name to task: recon-style work goes to a recon-agent, code review to review-agent, etc.
+3. Sandbox peers (worker_caps non-empty) only get tasks that match their caps. Never dispatch shell/git work to a sandbox peer.
+4. Each peer's prompt should be self-contained; peers don't see other peers' prompts.
+5. If the user goal can be done by a single peer, that's fine — emit a 1-entry plan.
+6. If no plan makes sense (e.g. goal is gibberish or all peers offline), emit `{"plan": [], "synthesis_hint": "<reason>"}`.
+
+Output ONLY the JSON. No prose, no markdown fence, no commentary. Parsing failure = your job failure.
+"""
+
+[agent.synthesizer]
+provider = "groq"
+model    = "llama-3.3-70b-versatile"
+tools = []
+instructions = """You are a Squad Pipeline synthesizer running on a phantom-mesh coordinator. After the dispatcher's plan has fanned out to N peers and each returned its agent's output, you receive the bundle and produce a unified report.
+
+INPUT YOU WILL RECEIVE:
+- The original user goal
+- The dispatcher's `synthesis_hint` (one sentence on how outputs combine)
+- N peer outputs, each tagged with peer name + agent name + elapsed_ms:
+
+  ## Peer: z13 (recon-agent, 4123 ms)
+  <text from z13's recon-agent>
+
+  ## Peer: oracle (enrich-agent, 6010 ms)
+  <text from oracle's enrich-agent>
+
+  ## Peer: ipad (triage-agent, 8804 ms)
+  <text from ipad's triage-agent>
+
+OUTPUT FORMAT:
+- A single markdown report with headings, lists, tables as appropriate
+- The original user goal restated as a one-line ## title
+- A TL;DR section summarising the answer in 2-3 sentences
+- Sections for each peer's contribution (if heterogeneous) OR a unified narrative (if peers all worked on the same sub-problem)
+- A "Confidence" or "Caveats" section flagging any peer that errored, took unusually long, or whose output disagrees with another peer's
+
+CRITICAL:
+- Do NOT invent content not in the peer outputs.
+- If a peer returned an error, surface it as "(peer X reported: <err>)" rather than dropping it silently.
+- Output is markdown ready for direct rendering in TerminalShell. No JSON wrapping.
+"""
+
+# ── Tools configuration ────────────────────────────────────────────────────────
+# [tools]
+# brave_search_api_key = "BSA..."   # Get a free key at https://api.search.brave.com/
+#                                    # Without this, web_search falls back to DuckDuckGo.
+#                                    # Note: this is a plain string value, not an env var name.
+
+# ── P2P Cluster / multi-node mesh (optional) ──────────────────────────────────
+# Connect multiple phantom-mesh nodes over Tailscale to share work across machines.
+# All nodes in a cluster must use the same cluster_secret value.
+#
+# Steps:
+#   1. Install Tailscale on every node: https://tailscale.com
+#   2. Run 'tailscale ip -4' on each machine to get its Tailscale IP
+#   3. Fill in the peers list and set a strong shared cluster_secret
+#   4. Start the daemon on each node
+#
+# See configs/agents.coordinator.toml, configs/agents.cloud.toml,
+#     configs/agents.worker.toml for role-specific templates.
+#
+# [cluster]
+# node_name = "my-mac"                      # human-readable name for this node
+# cluster_secret = "change-me-random-64-chars"  # shared secret — same on all nodes
+# peers = [
+#   "http://100.x.x.2:7878",               # GCP cloud node (Tailscale IP)
+#   "http://100.x.x.3:7878",               # worker node (Tailscale IP)
+# ]
+
+# ── Telegram bot (optional) ────────────────────────────────────────────────────
+# Enable to allow mobile users (iPhone, iPad, etc.) to chat with the mesh via
+# Telegram. Typically enabled only on the always-on cloud node.
+#
+# Setup:
+#   1. Create a bot via @BotFather: https://t.me/BotFather
+#   2. Export the token: export TELEGRAM_BOT_TOKEN=<token>
+#   3. Find your Telegram user ID via @userinfobot
+#   4. Uncomment and fill in below
+#
+# [telegram]
+# bot_token_env = "TELEGRAM_BOT_TOKEN"  # env var holding the bot token (required)
+# allowed_users = [123456789]            # your Telegram user ID; empty = allow all
+# agent = "master"                       # which agent handles incoming messages

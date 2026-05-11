@@ -1,0 +1,19 @@
+[Unit]
+Description=Phantom Mesh agent daemon (per-user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__PHANTOM_BIN__ serve
+WorkingDirectory=__WORK_DIR__
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:__LOG__
+StandardError=append:__LOG__
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=HOME=__HOME__
+__EXTRA_ENV__
+
+[Install]
+WantedBy=default.target

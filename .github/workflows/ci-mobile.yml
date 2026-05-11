@@ -1,0 +1,40 @@
+name: CI Mobile
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/ci-mobile.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+
+# Cancel superseded runs on the same branch/PR — saves CI minutes.
+# Note: as of 2026-05-06 there is no `mobile/` dir in the tree; this workflow
+# only fires when the mobile/ subtree comes back. The concurrency block is
+# defensive-in-depth for that future state.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-mobile:
+    name: Check mobile app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: mobile/phantom-mesh-worker
+        run: npm install
+
+      - name: TypeScript type check
+        working-directory: mobile/phantom-mesh-worker
+        run: npx tsc --noEmit

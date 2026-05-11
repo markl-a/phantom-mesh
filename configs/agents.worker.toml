@@ -1,0 +1,103 @@
+# Phantom Mesh — Worker Node Config
+# ====================================
+# For: Acer (Windows), AYANEO (Windows), or other Linux/Windows worker machines
+# Role: Local compute worker — runs local Ollama models for fast, private inference
+#
+# Worker nodes are CPU/GPU-constrained machines that handle specific subtasks
+# delegated by the coordinator. They do NOT run git tools or orchestrate jobs.
+# The Telegram bot runs on the cloud node, not here.
+#
+# Copy to:
+#   Windows: %USERPROFILE%\.phantom-mesh\agents.toml
+#   Linux:   ~/.phantom-mesh/agents.toml   (or ~/.config/phantom-mesh/config.toml)
+# (The binary searches: ./agents.toml → ./PHANTOM.toml → ~/.phantom-mesh/agents.toml
+#  → ~/.config/phantom-mesh/config.toml — see core/src/config.rs::find_and_load.)
+#
+# Then change node_name to identify this machine (e.g. "acer", "ayaneo", "linux-01").
+#
+# Required env vars:
+#   PHANTOM_CLUSTER_SECRET — shared secret matching all other nodes
+# Optional env vars:
+#   ANTHROPIC_API_KEY      — fallback when Ollama is unavailable or underpowered
+# ─────────────────────────────────────────────────────────────────────────────
+
+[core]
+# Listen on all interfaces so the coordinator and cloud node can reach this
+# worker via its Tailscale IP.
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Primary: local Ollama — fast, private inference, no API cost.
+# Fallback: Anthropic — used when Ollama is unavailable or the task needs
+#           more reasoning power. Leave ANTHROPIC_API_KEY unset to disable.
+
+[providers.ollama]
+# Ollama does not require an API key. Install: https://ollama.com
+# Pull a model first: ollama pull qwen2.5-coder:14b
+type = "openai_compat"
+url = "http://localhost:11434"        # local Ollama endpoint
+default_model = "qwen2.5-coder:14b"  # change to whichever model you have pulled
+
+[providers.anthropic]
+# Optional fallback — comment out if you want Ollama-only operation
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"     # export ANTHROPIC_API_KEY=sk-ant-... (optional)
+default_model = "claude-haiku-4-5"    # haiku is cost-efficient for worker fallback
+
+# ── Tool configuration ────────────────────────────────────────────────────────
+# Workers focus on shell and file operations; web search is optional.
+# No git tools — commit/push operations stay on the coordinator node.
+#
+# [tools]
+# brave_search_api_key = "BSA..."   # optional; improves web_search quality
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+# Register with the coordinator and cloud node so tasks can be delegated here.
+# Replace the Tailscale IPs with actual addresses from 'tailscale ip -4'.
+
+[cluster]
+node_name = "worker"    # CHANGE THIS: "acer" | "ayaneo" | "linux-01" | etc.
+# cluster_secret: shared HMAC key for inter-node RPC authentication.
+# Must match the value on every other node in the mesh.
+# Generate once with: openssl rand -hex 32
+cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
+peers = [
+  "http://100.x.x.1:7878",   # coordinator (Z13/Mac)   — replace with actual Tailscale IP
+  "http://100.x.x.5:7878",   # cloud node (Oracle VM)  — replace with actual Tailscale IP
+]
+
+# ── Telegram bot — disabled on worker nodes ───────────────────────────────────
+# Telegram bot runs on the cloud node only. Enable here only if you want this
+# worker to act as a secondary Telegram gateway (unusual).
+#
+# [telegram]
+# bot_token_env = "TELEGRAM_BOT_TOKEN"
+# allowed_users = []
+# agent = "master"
+
+# ── Master agent ───────────────────────────────────────────────────────────────
+
+[agent.master]
+provider = "ollama"
+model = "qwen2.5-coder:14b"   # local model — no API cost; change to match your pull
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """You are an AI assistant running as a worker node in the Phantom Mesh cluster. You specialise in local compute tasks: file operations, shell commands, and code analysis.
+
+Key behaviors:
+- Execute shell commands and file operations as instructed by the coordinator
+- Use local Ollama models for inference — fast, private, no API cost
+- Focus on the assigned subtask; do not try to orchestrate the full job
+- Report results back clearly so the coordinator can synthesize them
+- Always respond in the user's language
+- Be efficient: you are a compute worker, not a conversational agent
+"""

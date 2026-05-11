@@ -1,0 +1,48 @@
+/**
+ * Terminal-style UI tokens — shared across the 5 platforms (web, Tauri
+ * desktop, Tauri iOS, Tauri Android, future Termux Android). Defined as
+ * CSS custom properties so both Tailwind arbitrary values and plain
+ * styles can consume them without coupling to one styling system.
+ *
+ * Source of truth: docs/_planning-audit/MASTER-PLAN.md §1 of v1.5.
+ *
+ * Why no rounded corners / soft shadows: the terminal aesthetic is
+ * intentionally austere — every pixel reads as a cell, every cell aligns
+ * to the monospace grid. Decorations break that.
+ */
+
+:root {
+  /* Colour palette — matches the phantom Mac TUI defaults */
+  --term-bg:        #0a0e14;   /* near-black, slight cool tint, fine on OLED */
+  --term-fg:        #cbd5e1;   /* off-white, gentle on OLED + tolerable on LCD */
+  --term-prompt:    #7dd3fc;   /* cyan-300 — the `>` glyph + cursor */
+  --term-accent:    #a78bfa;   /* violet-400 — agent names, links */
+  --term-warn:      #f59e0b;   /* amber-500 — ⚠ truncation, degraded states */
+  --term-error:     #f87171;   /* red-400 — peer offline, auth fail, panic */
+  --term-ok:        #34d399;   /* emerald-400 — peer online, task done */
+  --term-dim:       #475569;   /* slate-600 — timestamps, meta, separators */
+
+  /* ANSI 16-colour table for ansi-to-css conversion. Dim variants share
+     the slate-600 ramp so accidental \e[2m doesn't flatten contrast. */
+  --term-ansi-black:   #1e293b;
+  --term-ansi-red:     var(--term-error);
+  --term-ansi-green:   var(--term-ok);
+  --term-ansi-yellow:  var(--term-warn);
+  --term-ansi-blue:    #60a5fa;
+  --term-ansi-magenta: var(--term-accent);
+  --term-ansi-cyan:    var(--term-prompt);
+  --term-ansi-white:   var(--term-fg);
+
+  /* Typography */
+  --term-mono:      "JetBrains Mono", "SF Mono", "Cascadia Code",
+                    "Menlo", "Consolas", monospace;
+  --term-cell-h:    1.4em;     /* line height — matches Mac ratatui default */
+  --term-fs:        14px;      /* desktop / web */
+  --term-fs-mobile: 13px;      /* iOS 4" / Android folded — fits more lines */
+
+  /* Geometry */
+  --term-radius:        0;     /* never round */
+  --term-pad-x:         0.75em;
+  --term-pad-y:         0.5em;
+  --term-prompt-glyph:  "▸";   /* > would also work; ▸ pops more on small screens */
+}

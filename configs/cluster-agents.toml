@@ -1,0 +1,137 @@
+# phantom-mesh cluster agents.toml
+# 複製到 ~/.phantom-mesh/agents.toml，修改 node_name 和所有 100.x.x.x IP
+#
+# 申請免費 API keys：
+#   Groq  : https://console.groq.com          (Llama 3.1 70B, 免費, 快)
+#   Gemini: https://aistudio.google.com       (Gemini 1.5 Pro, 免費, 長 context)
+#
+# 每個節點的 env 檔 (~/.phantom-mesh/env)：
+#   GROQ_API_KEY=gsk_...
+#   GEMINI_API_KEY=AIza...
+
+# ── 核心設定 ─────────────────────────────────────────────────────────────────
+
+[core]
+host    = "0.0.0.0"   # 監聽所有介面（Tailscale + localhost）
+port    = 7878
+max_rounds  = 30
+token_budget = 80000
+
+# ── 集群設定 ─────────────────────────────────────────────────────────────────
+
+[cluster]
+# 每台節點改成不同名字：mac-orchestrator / oracle / z13 / acer / ayaneo
+node_name      = "mac-orchestrator"
+cluster_secret = "REPLACE_WITH_RANDOM_SECRET"  # 所有節點一樣
+peers = [
+  "http://100.x.x.ORACLE:7878",   # Oracle Cloud VM
+  "http://100.x.x.Z13:7878",      # Z13 Windows (WSL2)
+  "http://100.x.x.ACER:7878",     # Acer A514 (WSL2)
+  "http://100.x.x.AYANEO:7878",   # AYANEO 2 (WSL2)
+]
+
+# ── Providers（模型路由，從上往下 fallback）──────────────────────────────────
+
+# Z13 本地 Ollama（零費用，最優先）
+# 只有在 Z13 上或能連到 Z13 時有效
+[providers.z13-ollama]
+base_url      = "http://100.x.x.Z13:11434/v1"
+api_key       = "ollama"
+default_model = "qwen2.5-coder:7b"
+
+# Groq 免費 API（速度最快，14400 req/day）
+[providers.groq]
+base_url      = "https://api.groq.com/openai/v1"
+api_key_env   = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+# Gemini 免費 API（長 context，文件撰寫）
+[providers.gemini]
+base_url      = "https://generativelanguage.googleapis.com/v1beta/openai"
+api_key_env   = "GEMINI_API_KEY"
+default_model = "gemini-1.5-pro"
+
+# OpenRouter 備援（有部分免費模型）
+[providers.openrouter]
+base_url      = "https://openrouter.ai/api/v1"
+api_key_env   = "OPENROUTER_API_KEY"
+default_model = "meta-llama/llama-3.1-8b-instruct:free"
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+
+# master：通用協調，預設用 Groq
+[agent.master]
+provider = "groq"
+model    = "llama-3.3-70b-versatile"
+tools    = [
+  "shell", "file_read", "file_write", "file_edit",
+  "content_search", "glob_search", "web_search",
+  "git_status", "git_diff", "git_commit",
+  "memory_store", "memory_recall",
+]
+instructions = """
+You are a capable AI coding assistant. Use tools proactively — never describe
+what you *would* do; just call the tool. Read before editing. Verify after changes.
+"""
+
+# coder：程式開發，優先用 Z13 本地模型
+[agent.coder]
+provider = "z13-ollama"
+model    = "qwen2.5-coder:7b"
+tools    = [
+  "shell", "file_read", "file_write", "file_edit",
+  "content_search", "glob_search",
+  "git_status", "git_diff", "git_commit",
+]
+instructions = """
+Expert software engineer. TypeScript, Python, Rust.
+Always: read the file before editing, run tests after changes, commit atomically.
+"""
+
+# trainer：模型訓練任務，用 Groq 70B
+[agent.trainer]
+provider = "groq"
+model    = "llama-3.3-70b-versatile"
+tools    = [
+  "shell", "file_read", "file_write", "file_edit",
+  "content_search", "glob_search", "web_search",
+]
+instructions = """
+ML engineer specializing in Python, PyTorch, model fine-tuning, data pipelines.
+Prefer reproducible scripts. Always check GPU/CPU availability before training.
+"""
+
+# writer：文件撰寫，用 Gemini 長 context
+[agent.writer]
+provider = "gemini"
+model    = "gemini-1.5-pro"
+tools    = [
+  "file_read", "file_write", "content_search", "glob_search", "web_search",
+]
+instructions = """
+Technical writer. Write clear, accurate documentation in Traditional Chinese (繁體中文).
+For code examples, use code blocks. Keep explanations concise and practical.
+"""
+
+# researcher：查資料，用 Gemini（最大 context window）
+[agent.researcher]
+provider = "gemini"
+model    = "gemini-1.5-pro"
+tools    = ["web_search", "file_read", "memory_store", "memory_recall"]
+instructions = """
+Research assistant. Search thoroughly, synthesize findings, cite sources.
+Output in Traditional Chinese unless instructed otherwise.
+"""
+
+# ── Tools 設定 ────────────────────────────────────────────────────────────────
+
+[tools]
+# 選填：Brave Search API（更好的搜尋品質，免費 2000 req/月）
+# brave_search_api_key = "BSA_..."
+
+# ── Telegram（選填）─────────────────────────────────────────────────────────
+
+# [telegram]
+# bot_token_env = "TELEGRAM_BOT_TOKEN"
+# allowed_users = [YOUR_TELEGRAM_USER_ID]
+# agent = "master"

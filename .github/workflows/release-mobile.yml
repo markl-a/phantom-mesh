@@ -1,0 +1,265 @@
+name: Release Mobile
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Distribution channel'
+        required: false
+        default: 'testers'
+
+env:
+  CARGO_TERM_COLOR: always
+  # Match the NDK version that Tauri's android backend auto-detects on
+  # the GitHub-hosted runner (it picks the newest one in $ANDROID_SDK_ROOT/ndk/).
+  # Mismatch here means our ranlib symlinks land in a different NDK and
+  # the OpenSSL build dies with `aarch64-linux-android-ranlib: Error 127`.
+  NDK_VERSION: '29.0.14206865'
+
+jobs:
+  # ─────────────────────────────────────────
+  # Android APK
+  # ─────────────────────────────────────────
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    # Promote optional-distribution secrets to job env so step `if:` can read them.
+    # (GitHub Actions does not allow `secrets.X` directly inside `if:` expressions.)
+    env:
+      FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "NDK_HOME=$NDK_HOME"               >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_HOME"       >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_HOME"       >> $GITHUB_ENV
+          # PATH the toolchain so OpenSSL's vendored build finds *-ranlib / *-ar by bare name.
+          echo "$NDK_BIN" >> $GITHUB_PATH
+
+          # Create ranlib / ar symlinks for OpenSSL vendored build (NDK ships only llvm-* names).
+          ln -sf $NDK_BIN/llvm-ranlib $NDK_BIN/aarch64-linux-android-ranlib
+          ln -sf $NDK_BIN/llvm-ar     $NDK_BIN/aarch64-linux-android-ar
+          ln -sf $NDK_BIN/llvm-ranlib $NDK_BIN/armv7-linux-androideabi-ranlib
+          ln -sf $NDK_BIN/llvm-ar     $NDK_BIN/armv7-linux-androideabi-ar
+          ln -sf $NDK_BIN/llvm-ranlib $NDK_BIN/i686-linux-android-ranlib
+          ln -sf $NDK_BIN/llvm-ar     $NDK_BIN/i686-linux-android-ar
+          ln -sf $NDK_BIN/llvm-ranlib $NDK_BIN/x86_64-linux-android-ranlib
+          ln -sf $NDK_BIN/llvm-ar     $NDK_BIN/x86_64-linux-android-ar
+
+      - name: Install Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install frontend dependencies
+        working-directory: app
+        # Repo .gitignore excludes package-lock.json, so `npm ci` (which
+        # requires the lock file) cannot work. Use `npm install` instead.
+        run: npm install
+
+      - name: Init Android project
+        working-directory: app
+        run: npm run tauri android init
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      # WebView fetch to http://127.0.0.1:<runtime port> is blocked unless the
+      # app manifest opts into cleartext. Tauri's android template emits
+      # `usesCleartextTraffic="${usesCleartextTraffic}"` — a Gradle manifest
+      # placeholder that resolves to "false" by default. Replacing the literal
+      # placeholder string with "true" eliminates the substitution and lands
+      # the value we want in the final APK.
+      - name: Allow cleartext in AndroidManifest
+        working-directory: app
+        run: |
+          set -e
+          MF=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          test -f "$MF"
+          echo "--- before:"
+          grep -n usesCleartextTraffic "$MF" || true
+          # Replace the Gradle placeholder with literal "true". Use \$ to be
+          # explicit that the dollar sign is literal in sed BRE.
+          sed -i 's|"\${usesCleartextTraffic}"|"true"|g' "$MF"
+          # Defensive: also flip a literal "false" if Tauri ever changes the
+          # template, and inject the attribute on <application if it's missing.
+          sed -i 's|android:usesCleartextTraffic="false"|android:usesCleartextTraffic="true"|g' "$MF"
+          if ! grep -q 'android:usesCleartextTraffic=' "$MF"; then
+            sed -i 's|<application |<application android:usesCleartextTraffic="true" |' "$MF"
+          fi
+          echo "--- after:"
+          grep -n usesCleartextTraffic "$MF"
+          # Hard-fail if we did not end up with the literal "true".
+          grep -q 'android:usesCleartextTraffic="true"' "$MF"
+
+      - name: Build APK
+        working-directory: app
+        run: npm run tauri android build -- --apk
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Sign APK
+        run: |
+          set -e
+          # Sanitize ref_name so branch slashes don't break the artifact filename.
+          REF="${{ github.ref_name }}"
+          REF_SAFE="${REF//\//-}"
+          UNSIGNED=app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "Signing with production keystore."
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/phantom-mesh.keystore
+            APK_NAME="phantom-mesh-$REF_SAFE.apk"
+            $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner sign \
+              --ks /tmp/phantom-mesh.keystore \
+              --ks-key-alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
+              --ks-pass pass:"${{ secrets.ANDROID_STORE_PASSWORD }}" \
+              --key-pass pass:"${{ secrets.ANDROID_KEY_PASSWORD }}" \
+              --out "$APK_NAME" "$UNSIGNED"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 secret not set — signing with a CI-generated debug keystore."
+            echo "::warning::This APK will NOT install over the production-signed version. Uninstall the old APK first, then sideload."
+            keytool -genkeypair -noprompt \
+              -keystore /tmp/debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey \
+              -dname "CN=Phantom Mesh Debug, OU=CI, O=Phantom Mesh, C=TW" \
+              -validity 10000 -keyalg RSA -keysize 2048
+            APK_NAME="phantom-mesh-$REF_SAFE-debug.apk"
+            $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner sign \
+              --ks /tmp/debug.keystore \
+              --ks-key-alias androiddebugkey \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --out "$APK_NAME" "$UNSIGNED"
+          fi
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
+          ls -la "$APK_NAME"
+
+      # Always uploaded — works for both tag pushes and workflow_dispatch.
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Tag-only: GitHub Release as a draft.
+      - name: Upload APK to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.APK_NAME }}
+          draft: true
+
+      - name: Upload APK to Firebase App Distribution
+        if: ${{ env.FIREBASE_APP_ID != '' }}
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ github.event.inputs.channel || 'testers' }}
+          file: ${{ env.APK_NAME }}
+          releaseNotes: |
+            版本 ${{ github.ref_name }}
+            ${{ github.event.head_commit.message }}
+
+  # ─────────────────────────────────────────
+  # iOS IPA
+  # ─────────────────────────────────────────
+  build-ios:
+    name: Build iOS IPA
+    runs-on: macos-latest
+    env:
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust + iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install frontend dependencies
+        working-directory: app
+        # Repo .gitignore excludes package-lock.json, so `npm ci` (which
+        # requires the lock file) cannot work. Use `npm install` instead.
+        run: npm install
+
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods
+
+      - name: Import Apple signing certificate
+        run: |
+          echo "${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}" | base64 -d > /tmp/cert.p12
+          security create-keychain -p "" build.keychain
+          security import /tmp/cert.p12 -k build.keychain -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -A
+          security list-keychains -s build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}" | base64 -d \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/phantom-mesh.mobileprovision
+
+      - name: Build IPA
+        working-directory: app
+        run: npm run tauri ios build -- --export-method app-store-connect
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Upload IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/src-tauri/gen/apple/build/arm64/*.ipa
+          draft: true
+
+      - name: Upload to TestFlight
+        if: ${{ env.APPLE_API_KEY_ID != '' }}
+        run: |
+          xcrun altool --upload-app \
+            --type ios \
+            --file "app/src-tauri/gen/apple/build/arm64/Phantom Mesh.ipa" \
+            --apiKey "${{ secrets.APPLE_API_KEY_ID }}" \
+            --apiIssuer "${{ secrets.APPLE_API_ISSUER }}"

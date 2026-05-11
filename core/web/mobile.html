@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0c0c10">
+  <title>phantom · mobile</title>
+  <link rel="stylesheet" href="/static/mobile.css">
+</head>
+<body>
+  <header class="mtop">
+    <span class="logo">◆</span>
+    <span class="brand">phantom</span>
+    <a class="mnav" href="/projects" title="6-project dashboard">projects ⇢</a>
+    <span class="dot" id="m-status" title="connecting…"></span>
+  </header>
+
+  <main class="mscreen" id="m-screen">
+    <div class="mwelcome" id="m-welcome">
+      <div class="mwelcome-glyph">◆</div>
+      <div class="mwelcome-title">phantom · mesh</div>
+      <div class="mwelcome-sub">tap below to start</div>
+    </div>
+  </main>
+
+  <div class="mmodbar" id="m-modbar">
+    <button data-insert="@" class="mmod">@</button>
+    <button data-insert="/" class="mmod">/</button>
+    <button data-key="Tab" class="mmod">⇥</button>
+    <button data-key="ArrowUp" class="mmod">↑</button>
+    <button data-key="ArrowDown" class="mmod">↓</button>
+    <button data-action="cancel" class="mmod mmod-stop" id="m-cancel" hidden>■</button>
+  </div>
+
+  <form class="mprompt" id="m-form">
+    <span class="mglyph">❯</span>
+    <textarea id="m-input"
+      rows="1"
+      placeholder="ask phantom anything…"
+      autocomplete="off"
+      autocapitalize="off"
+      autocorrect="off"
+      spellcheck="false"></textarea>
+    <button type="submit" id="m-send">send</button>
+  </form>
+
+  <script src="/static/mobile.js"></script>
+</body>
+</html>

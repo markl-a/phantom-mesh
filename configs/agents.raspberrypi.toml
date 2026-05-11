@@ -1,0 +1,83 @@
+# Phantom Mesh — Raspberry Pi Worker Node
+# ==========================================
+# 適用所有樹莓派型號（Pi 2 / 3 / 4 / 5）
+# 複製到每台 Pi 後修改 node_name 和 IP
+#
+# 建議角色依硬體分配：
+#
+#   Pi 5 (4/8GB)   → 主要 Worker，可跑 Ollama (gemma2:2b / phi3:mini)
+#   Pi 4 (4/8GB)   → Worker，可跑 Ollama 小模型
+#   Pi 4 (1/2GB)   → 輕量 Worker，純 API 呼叫
+#   Pi 3B/3B+      → 輕量 Worker，純 API 呼叫
+#   Pi 2           → 輕量 Worker，純 API 呼叫（效能有限）
+#
+# 複製到 Pi：
+#   scp agents.raspberrypi.toml pi@100.x.x.PI:~/.config/phantom-mesh/agents.toml
+#
+# 設定 systemd 服務後會在開機時自動加入叢集
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+# Pi 4/5 (4GB+)：可優先跑本地 Ollama，API 作 fallback
+# Pi 2/3：直接用 API，本機跑 Ollama 太慢
+
+# 本地 Ollama（Pi 4/5 建議，先執行: ollama pull gemma2:2b）
+[providers.ollama]
+type = "openai_compat"
+url = "http://localhost:11434"
+default_model = "gemma2:2b"  # 輕量但夠用，Pi 4 2GB+ 可跑
+
+# 雲端 fallback（API 免費額度）
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-haiku-4-5"
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+[cluster]
+node_name = "pi-1"   # ← 改成: pi-2, pi-3, pi4-8gb 等
+cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+peers = [
+  "http://100.x.x.MAC:7878",
+  "http://100.x.x.ORACLE:7878",
+  "http://100.x.x.Z13:7878",
+  "http://100.x.x.ACER:7878",
+  "http://100.x.x.AYANEO:7878",
+  "http://100.x.x.ROG6:7878",
+  "http://100.x.x.MIPAD:7878",
+  # 其他 Pi 節點也加進來
+  # "http://100.x.x.PI2:7878",
+  # "http://100.x.x.PI3:7878",
+]
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent.master]
+# Pi 4/5 (4GB+)：用 ollama；Pi 2/3：用 groq
+provider = "ollama"    # ← Pi 2/3 改成 "groq"
+model = "gemma2:2b"    # ← Pi 2/3 改成 "llama-3.3-70b-versatile"
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """你是 Phantom Mesh 叢集中的樹莓派工作節點。
+專注接收計算任務、檔案操作、和 shell 指令。
+回覆要簡潔，節省算力。"""

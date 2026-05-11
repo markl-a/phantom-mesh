@@ -1,0 +1,55 @@
+[package]
+name = "phantom-mesh-app"
+version = "0.4.0"
+edition = "2021"
+
+[[bin]]
+name = "phantom-mesh-app"
+path = "src/main.rs"
+
+[lib]
+name = "phantom_mesh_app_lib"
+crate-type = ["staticlib", "cdylib", "lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-store = "2"
+tauri-plugin-process = "2"
+tauri-plugin-deep-link = "2"
+phantom-mesh = { path = "../../core", features = ["desktop"] }
+axum = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
+anyhow = "1"
+dirs = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+sysinfo = "0.33"
+which = "7"
+jsonwebtoken = "9"
+base64 = "0.22"
+tiny_http = "0.12"
+sha2 = "0.10"
+open = "5"
+urlencoding = "2"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+toml = "1.1.0"
+tracing-appender = "0.2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }

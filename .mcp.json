@@ -1,0 +1,9 @@
+{
+  "_comment": "Project-local Claude Code MCP server registration. Auto-loaded when Claude Code starts in this directory; user is prompted once to trust the server, after which 50+ phantom-mesh tools (file_read, file_edit, shell, git_*, content_search, task, subagent, …) are available as mcp__phantom__* tools alongside Claude Code's built-ins. Equivalent of running: claude mcp add phantom $(which phantom) mcp",
+  "mcpServers": {
+    "phantom": {
+      "command": "phantom",
+      "args": ["mcp"]
+    }
+  }
+}

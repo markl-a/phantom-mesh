@@ -1,0 +1,26 @@
+# Scripted responses for the mock LLM server (lib/mock-llm-server.py).
+# First match wins. Match modes: substring (case-insensitive) OR regex.
+
+[[response]]
+prompt_match = "ping"
+text = "pong"
+
+[[response]]
+prompt_match = "reply with ok"
+text = "ok"
+
+[[response]]
+prompt_match = "what is your name"
+text = "I am MockBot, a deterministic test fixture."
+
+[[response]]
+prompt_regex = "(?i)\\b(2\\s*\\+\\s*2|two\\s+plus\\s+two)\\b"
+text = "4"
+delay_ms = 50
+
+[[response]]
+prompt_match = "list three colors"
+text = "red, green, blue"
+
+[default]
+text = "MOCK: no scripted response matched. Add one to fixtures/mock-responses.toml."

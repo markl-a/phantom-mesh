@@ -1,0 +1,66 @@
+# Phantom Mesh — iPad Pro 2018 Node
+# =====================================
+# 硬體: Apple iPad Pro 2018
+#   CPU: A12X Bionic (7nm), 8核心
+#   RAM: 4/6GB
+#
+# 角色: iOS 輕量工作節點
+#
+# ⚠️  iOS 限制：
+#   - App 在前景時：節點完全正常，HTTP server 運行
+#   - App 進入背景後：iOS 給約 30 秒，之後暫停
+#   - App 被強制關閉：節點離線
+#
+# 實際使用建議：
+#   - 當作「隨需」節點，需要時打開 App
+#   - 接上電源並開啟引導存取(Guided Access)保持螢幕常亮
+#   - 或用 Stage Manager 把 App 固定在畫面上
+#   - iPad 的角色更像「行動儀表板」+ 輕量計算
+#
+# 安裝步驟:
+#   1. 安裝 Tailscale (App Store)
+#   2. 透過 TestFlight 或 ios-deploy 安裝 Phantom Mesh IPA
+#   3. 設定 → 一般 → 背景 App 重新整理 → 開啟 (延長背景時間)
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-haiku-4-5"
+
+[providers.gemini]
+type = "gemini"
+api_key_env = "GEMINI_API_KEY"
+default_model = "gemini-2.5-flash"
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+[cluster]
+node_name = "ipadpro2018"
+cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+peers = [
+  "http://100.x.x.MAC:7878",
+  "http://100.x.x.ORACLE:7878",
+  "http://100.x.x.Z13:7878",
+  "http://100.x.x.ACER:7878",
+  "http://100.x.x.AYANEO:7878",
+  "http://100.x.x.ROG6:7878",
+  "http://100.x.x.MIPAD:7878",
+]
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent.master]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+tools = [
+  "file_read",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """你是 Phantom Mesh 叢集中的 iOS 輕量節點 (iPad Pro 2018)。
+由於 iOS 背景限制，你主要在 App 開啟時接收輕量任務。
+專注於查詢、搜尋、記憶類任務，避免長時間計算。"""

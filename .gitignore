@@ -1,28 +1,275 @@
-# OS
-.DS_Store
-Thumbs.db
-Desktop.ini
+# =============================================================================
+# .gitignore - LLM Cluster Project (Open Source)
+# =============================================================================
 
-# Editor
+# -----------------------------------------------------------------------------
+# Rust / clawtex-core (dir kept) / phantom-mesh
+# -----------------------------------------------------------------------------
+target/
+target*/
+clawtex-core/Cargo.lock
+clawtex-zeroclaw/
+
+# Stray repo-root junk that has bitten us before:
+#   /main      — Mach-O binary accidentally committed in 107a5c5
+#                (also conflicts with `main` branch name → makes git
+#                ambiguous about whether `main` means a ref or a path)
+#   /main.rs   — 5-line test file from the same accidental commit
+#   /~/        — literal "tilde" dir created when something quoted "~"
+#                in shell instead of letting it expand
+# Anchored with leading `/` so deeper main.rs files (core/src/main.rs,
+# app/src-tauri/src/main.rs) and any nested `main` are unaffected.
+/main
+/main.rs
+/~/
+
+# -----------------------------------------------------------------------------
+# iOS / mobile build artifacts (unzipped IPA contents)
+# -----------------------------------------------------------------------------
+Payload/
+ios-sandbox/
+*.app/
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+sdist/
+wheels/
+*.whl
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+develop-eggs/
+lib/
+!phantommesh-io/src/lib/
+!app/src/lib/
+!scripts/phantom-test/lib/
+lib64/
+parts/
+var/
+.installed.cfg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Type checking / linting
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.ruff_cache/
+
+# Testing / Coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# -----------------------------------------------------------------------------
+# IDE / Editors
+# -----------------------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
 
-# Build (for future open source release)
-/target/
-**/*.rs.bk
-
-# Environment / secrets
+# -----------------------------------------------------------------------------
+# Secrets / Credentials (CRITICAL - never commit these)
+# -----------------------------------------------------------------------------
 .env
-.env.local
-*.pem
+.env.*
+!.env.example
+credentials*
+secrets*
 *.key
+*.pem
+*.p12
+*.pfx
+*.crt
+agents.toml
 
+# -----------------------------------------------------------------------------
+# OpenClaw (contains API keys and auth tokens)
+# -----------------------------------------------------------------------------
+.openclaw/
+
+# Config files that embed secrets
+openclaw.json
+clawdbot.json
+clawdbot.json.bak
+
+# -----------------------------------------------------------------------------
+# Project-specific user data
+# -----------------------------------------------------------------------------
+.phantom-mesh/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Temp and output files
+tmp_*
+results_*
+*.output
+
+# Data logs
+data/logs/
+
+# ChromaDB local storage
+chroma/
+
+# LiteLLM
+litellm_traces.log
+
+# -----------------------------------------------------------------------------
+# Node.js / React Native / Expo
+# -----------------------------------------------------------------------------
+node_modules/
+package-lock.json
+yarn.lock
+.expo/
+.vite/
+
+# -----------------------------------------------------------------------------
 # Logs
+# -----------------------------------------------------------------------------
+*.log
+logs/
+
+# -----------------------------------------------------------------------------
+# OS generated files
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+ehthumbs_vista.db
+$RECYCLE.BIN/
+*.lnk
+
+# -----------------------------------------------------------------------------
+# Claude Code
+# -----------------------------------------------------------------------------
+.claude/
+
+# -----------------------------------------------------------------------------
+# Cluster-specific files (contain real IPs/paths)
+# -----------------------------------------------------------------------------
+scripts/test_cluster_live.py
+scripts/test_cluster.py
+scripts/remote_exec.py
+scripts/remote_dispatch.py
+scripts/remote_ai.py
+scripts/launch_distributed.py
+scripts/install_tools.py
+scripts/update_approvals.py
+scripts/distributed_dev.py
+tmp_*.json
+scripts/parallel_dispatch.py
+scripts/parallel_tasks.json
+distributed_results_*
+remote_results_*
+remote_v3_*
+
+# Cluster-specific docs (contain real IPs/paths)
+docs/setup-m1.md
+docs/setup-acer.md
+docs/setup-ayaneo.md
+docs/m1-setup-guide.md
+docs/mobile-setup.md
+docs/telegram-orchestration.md
+docs/telegram-commands.md
+
+# Personal dev files
+DEV-LOG.md
+FLYWHEEL-STRATEGY.md
+EXTERNAL-BRAIN-ARCHITECTURE.md
+archive/
+idea/
+
+# -----------------------------------------------------------------------------
+# Windows artifacts
+# -----------------------------------------------------------------------------
+nul
+nul'
+
+# Day 4 sprint additions — sensitive
+*.keystore
+cluster-secret*.txt
+phantom-mesh.key
+phantom-mesh.key.pub
+SPRINT.md
+
+# Distribution artifacts (use GitHub Releases instead)
+dist/
+
+# Test output / QA debris
+test-results/
+app/test-results/
+app/qa-screenshots/
+app/test_screenshots/
+app/screenshots/archived-debug/
+
+# Build logs
+scripts/*.log
 *.log
 
-# Temporary
-*.tmp
-*.temp
+# Tauri generated artifacts (regenerated by build pipeline)
+#   gen/android/ + gen/apple/  — full Tauri mobile projects
+#   gen/schemas/                — capability schemas (~1 MB total) re-derived
+#                                  from app/src-tauri/capabilities/*.json on
+#                                  every build. The hand-edited capabilities/
+#                                  files ARE tracked (see line ~145).
+#   tsconfig.tsbuildinfo        — TypeScript incremental compile cache;
+#                                  changes on every tsc invocation.
+app/src-tauri/gen/android/
+app/src-tauri/gen/apple/
+app/src-tauri/gen/schemas/
+app/tsconfig.tsbuildinfo
+
+# Internal planning (decide before public push — see _planning-audit/MASTER-PLAN.md §10)
+# _planning-audit/    # uncomment before public push
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Tauri sidecar binaries — populated by build.rs on each build
+app/src-tauri/binaries/*
+!app/src-tauri/binaries/.gitkeep
+
+# Git worktrees (parallel feature development)
+.worktrees/

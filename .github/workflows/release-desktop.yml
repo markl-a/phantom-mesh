@@ -1,0 +1,180 @@
+name: Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create as draft release'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            core-binary: phantom-mesh.exe
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            core-binary: phantom-mesh
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            core-binary: phantom-mesh
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            core-binary: phantom-mesh
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core -> target
+            app/src-tauri -> target
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            javascriptcoregtk-4.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      # Step 1: Build phantom-mesh daemon binary
+      - name: Build phantom-mesh (release)
+        run: cargo build --release -p phantom-mesh --target ${{ matrix.target }}
+
+      # Step 2: Copy sidecar binary with target triple suffix
+      - name: Copy sidecar binary (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          mkdir -p app/src-tauri/binaries
+          cp target/${{ matrix.target }}/release/${{ matrix.core-binary }} \
+             app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}
+
+      - name: Copy sidecar binary (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p app/src-tauri/binaries
+          cp target/${{ matrix.target }}/release/${{ matrix.core-binary }} \
+             app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}.exe
+
+      # Ad-hoc codesign the macOS sidecar BEFORE Tauri bundles it. cp into
+      # app/src-tauri/binaries strips the kernel-valid signature; if Tauri
+      # then nests the unsigned Mach-O into the .app, the kernel SIGKILLs
+      # the helper on first launch (exit 137, zero stdout/stderr — see
+      # commit 85c8377). `--force --sign -` is an ad-hoc signature; the
+      # outer .app is properly signed by tauri-action via its developer
+      # cert downstream, so this only affects the embedded sidecar.
+      - name: Ad-hoc codesign macOS sidecar
+        if: matrix.platform == 'macos-latest'
+        run: |
+          BIN="app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}"
+          codesign --force --sign - "$BIN"
+          codesign --verify --verbose "$BIN"
+          echo "✓ sidecar ad-hoc signed: $BIN"
+
+      # Step 3: Build Tauri app (includes sidecar)
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Phantom Mesh Desktop ${{ github.ref_name }}'
+          releaseBody: |
+            See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+          releaseDraft: ${{ github.event.inputs.draft || 'true' }}
+          prerelease: false
+
+  # Build universal macOS binary (optional, combines x86_64 + arm64)
+  build-macos-universal:
+    needs: build
+    runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Note
+        run: echo "Universal macOS build can be added later using lipo to combine x86_64 + arm64 binaries"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Generate latest.json (Tauri OTA updater manifest)
+  #
+  # tauri-action uploads the .app.tar.gz / .nsis.zip / .AppImage.tar.gz bundles
+  # AND their .sig signatures, but it does NOT produce the latest.json that
+  # plugin-updater fetches from `releases/latest/download/latest.json`.
+  # We assemble it here from the assets `tauri-action` just published.
+  # ────────────────────────────────────────────────────────────────────────────
+  publish-update-manifest:
+    name: Publish latest.json (OTA manifest)
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build latest.json from release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 scripts/build-update-manifest.py > latest.json
+          echo "── latest.json ──"
+          cat latest.json
+
+      - name: Upload latest.json to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" latest.json --clobber

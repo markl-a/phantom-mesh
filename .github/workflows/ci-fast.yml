@@ -1,0 +1,76 @@
+name: CI Fast
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-fast.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-fast.yml'
+
+# Cancel in-progress runs for the same branch/PR — only the tip commit
+# needs verifying. Big saver during rapid iteration on free-tier minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+jobs:
+  check-and-test:
+    name: Check + Clippy + Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cargo check
+        working-directory: core
+        run: cargo check --all-targets
+
+      - name: Cargo clippy
+        working-directory: core
+        run: cargo clippy -- -D warnings
+
+      - name: Cargo test (lib only)
+        working-directory: core
+        run: cargo test --lib
+
+  cargo-test:
+    name: Cargo Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Run unit tests
+        run: cargo test
+        working-directory: core

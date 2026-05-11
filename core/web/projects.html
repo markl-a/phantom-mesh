@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>phantom-mesh · projects</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --panel-hover: #1f2937;
+  --border: #30363d;
+  --fg: #c9d1d9;
+  --fg-dim: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --gray: #6e7681;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+header {
+  padding: 24px 32px 16px;
+  border-bottom: 1px solid var(--border);
+}
+header h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 600;
+}
+header .sub {
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.cluster-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.cluster-bar .label {
+  color: var(--fg-dim);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.node-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+.node-pill .dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--gray);
+}
+.node-pill.online  .dot { background: var(--green); }
+.node-pill.offline .dot { background: var(--red); }
+.node-pill.self    .dot { background: var(--accent); }
+.node-pill.self           { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 640px) {
+  .cluster-bar { font-size: 11px; padding: 6px 8px; gap: 6px; }
+  .node-pill { padding: 2px 8px; font-size: 10px; }
+}
+.activity {
+  margin: 16px 32px 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+}
+.activity h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.activity .pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.activity .row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 0;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  border-top: 1px solid rgba(48, 54, 61, 0.4);
+}
+.activity .row:first-of-type { border-top: none; }
+.activity .row .when    { color: var(--fg-dim); flex-shrink: 0; min-width: 80px; }
+.activity .row .badge2  { font-size: 10px; padding: 1px 6px; border-radius: 8px; flex-shrink: 0; }
+.activity .row .text    { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity .row .meta    { color: var(--fg-dim); flex-shrink: 0; font-size: 10px; }
+.row .badge2.green             { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.row .badge2.fixed             { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.row .badge2.queued-task-done  { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.row .badge2.queued-task-noop  { background: rgba(110, 118, 129, 0.2); color: var(--gray); }
+.row .badge2.skip              { background: rgba(110, 118, 129, 0.2); color: var(--gray); }
+.row .badge2.queued-task-skipped-dirty { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+.row .badge2.failed            { background: rgba(248, 81, 73, 0.15);  color: var(--red); }
+.row .badge2.queued-task-failed { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+.row .badge2.ok                { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.row .badge2.running           { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
+.row .badge2.error             { background: rgba(248, 81, 73, 0.15);  color: var(--red); }
+.row .badge2.timeout           { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+.activity .empty {
+  color: var(--fg-dim);
+  font-style: italic;
+  padding: 4px 0;
+}
+@media (max-width: 640px) {
+  .activity { margin: 8px; padding: 8px 12px; font-size: 11px; }
+  .activity .row .when { min-width: 60px; }
+  .activity .row .meta { display: none; }
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 24px 32px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+@media (max-width: 1024px) {
+  .grid { grid-template-columns: repeat(2, 1fr); padding: 16px; }
+}
+@media (max-width: 640px) {
+  .grid { grid-template-columns: 1fr; padding: 12px; gap: 12px; }
+  header { padding: 16px; }
+}
+.tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.tile:hover { border-color: var(--gray); background: var(--panel-hover); }
+.tile-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.tile h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+  word-break: break-word;
+}
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.badge.active { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+.badge.alpha  { background: rgba(210, 153, 34, 0.15); color: var(--yellow); }
+.badge.wip    { background: rgba(248, 81, 73, 0.15);  color: var(--red); }
+.tagline {
+  color: var(--fg-dim);
+  font-size: 13px;
+  margin: 0 0 12px;
+  flex-grow: 1;
+}
+.stack {
+  font-size: 11px;
+  color: var(--fg-dim);
+  margin-bottom: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.tile-actions {
+  display: flex;
+  gap: 8px;
+}
+button, .btn-link {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.15s, background 0.15s;
+}
+button:hover:not(:disabled), .btn-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+button.run {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+button.run:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--bg);
+}
+.output {
+  margin-top: 12px;
+  background: #010409;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--fg-dim);
+}
+.output.hidden { display: none; }
+.output .err { color: var(--red); }
+.output .ok  { color: var(--green); }
+footer {
+  text-align: center;
+  color: var(--fg-dim);
+  font-size: 11px;
+  padding: 24px 16px 32px;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+}
+footer a { color: var(--fg-dim); text-decoration: underline; }
+footer a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>phantom-mesh · projects</h1>
+  <div class="sub">6 pinned repos, accessible from any device on this Tailscale tailnet</div>
+  <div id="cluster-bar" class="cluster-bar">
+    <span class="label">cluster:</span>
+    <span class="node-pill"><span class="dot"></span>loading…</span>
+  </div>
+</header>
+<main>
+  <section id="activity" class="activity">
+    <h3><span class="pulse"></span> Recent activity</h3>
+    <div id="activity-rows"><div class="empty">loading…</div></div>
+  </section>
+  <div id="grid" class="grid"></div>
+</main>
+<footer>
+  Hub-and-spoke via <code>phantom serve</code>. Every demo runs on the host machine; this page is just the control surface.
+  &nbsp;·&nbsp; <a href="/">main dashboard</a>
+  &nbsp;·&nbsp; <a href="/m">mobile chat</a>
+</footer>
+<script>
+async function loadProjects() {
+  const grid = document.getElementById("grid");
+  try {
+    const res = await fetch("/api/projects");
+    const list = await res.json();
+    grid.innerHTML = "";
+    for (const p of list) grid.appendChild(renderTile(p));
+  } catch (e) {
+    grid.innerHTML = '<p style="color:var(--red);padding:20px">Failed to load /api/projects: ' + e + '</p>';
+  }
+}
+
+// Fetch cluster topology from the existing /rpc/peers RPC (returns
+// { peers: [...], self: {...} }) and render a horizontal status bar.
+// Each pill shows node name + an online/offline/self dot. Soft-fails
+// to a single "cluster info unavailable" pill so the dashboard still
+// loads even if the RPC errors. Refresh every 30s — gives the demo
+// video a "live" feel without hammering peers.
+async function loadCluster() {
+  const bar = document.getElementById("cluster-bar");
+  try {
+    const res = await fetch("/rpc/peers");
+    const data = await res.json();
+    const own = data.self || {};
+    const peers = data.peers || [];
+    const onlineCount = peers.filter(p => p.online).length + 1; // +self
+    const total = peers.length + 1;
+    const pills = [
+      `<span class="label">cluster:</span>`,
+      `<span class="label">${onlineCount}/${total} online</span>`,
+      `<span class="node-pill self"><span class="dot"></span>${escapeHTML(own.node_name || own.name || "self")}</span>`,
+    ];
+    for (const p of peers) {
+      const cls = p.online ? "online" : "offline";
+      const name = p.node_name || p.name || (p.url || "").replace(/^https?:\/\//, "");
+      pills.push(`<span class="node-pill ${cls}"><span class="dot"></span>${escapeHTML(name)}</span>`);
+    }
+    bar.innerHTML = pills.join("");
+  } catch (e) {
+    bar.innerHTML = `<span class="label">cluster:</span><span class="node-pill offline"><span class="dot"></span>info unavailable</span>`;
+  }
+}
+
+function renderTile(p) {
+  const el = document.createElement("div");
+  el.className = "tile";
+  const canRun = p.demo_cmd != null;
+  const isNotes = p.id === "my-ai-learning-notes";
+  el.innerHTML = `
+    <div class="tile-head">
+      <h2>${escapeHTML(p.name)}</h2>
+      <span class="badge ${p.status}">${p.status}</span>
+    </div>
+    <p class="tagline">${escapeHTML(p.tagline)}</p>
+    <div class="stack">${escapeHTML(p.stack)}</div>
+    <div class="tile-actions">
+      ${canRun
+        ? `<button class="run" data-id="${p.id}">▶ Run Demo</button>`
+        : isNotes
+          ? `<a class="btn-link" target="_blank" rel="noopener" href="${p.repo_url}/blob/main/examples/quick_demo.ipynb">📓 Open Notebook</a>`
+          : `<button disabled>Demo not yet wired</button>`}
+      <a class="btn-link" target="_blank" rel="noopener" href="${p.repo_url}">GitHub →</a>
+    </div>
+    <pre class="output hidden" id="out-${p.id}"></pre>
+  `;
+  const btn = el.querySelector("button.run");
+  if (btn) btn.addEventListener("click", () => runDemo(p.id, btn));
+  return el;
+}
+
+async function runDemo(id, btn) {
+  const out = document.getElementById("out-" + id);
+  btn.disabled = true;
+  btn.textContent = "⏳ running…";
+  out.classList.remove("hidden");
+  out.textContent = "";
+  try {
+    const res = await fetch("/api/projects/" + encodeURIComponent(id) + "/run", { method: "POST" });
+    const result = await res.json();
+    if (result.ok) {
+      out.innerHTML = `<span class="ok">[exit ${result.exit_code} · ${result.elapsed_secs.toFixed(1)}s]</span>\n\n` + escapeHTML(result.output);
+    } else {
+      out.innerHTML = `<span class="err">[error]</span> ${escapeHTML(result.error || "unknown")}`;
+    }
+  } catch (e) {
+    out.innerHTML = `<span class="err">[network error]</span> ${escapeHTML(String(e))}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "▶ Run Demo Again";
+  }
+}
+
+function escapeHTML(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+  }[c]));
+}
+
+// Render the last few autoevolve runs + subagent dispatches as a
+// scrollable strip above the project tiles. Every 15s we refetch so
+// the dashboard FEELS alive on the 5/20 demo video — recruiter sees
+// commits land while they watch.
+async function loadActivity() {
+  const rows = document.getElementById("activity-rows");
+  try {
+    const res = await fetch("/api/activity");
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0) {
+      rows.innerHTML = '<div class="empty">no recent activity — push something or run `phantom autoevolve --once`</div>';
+      return;
+    }
+    rows.innerHTML = items.map(renderActivityRow).join("");
+  } catch (e) {
+    rows.innerHTML = '<div class="empty">activity feed unavailable: ' + escapeHTML(String(e)) + '</div>';
+  }
+}
+
+function renderActivityRow(item) {
+  const when = item.ts_ms ? formatWhen(item.ts_ms) : "—";
+  const status = String(item.status || "—");
+  const safeStatus = status.replace(/[^a-z0-9-]/gi, "-");
+  const summary = String(item.summary || "—");
+  const elapsed = item.elapsed_secs != null
+    ? `${Number(item.elapsed_secs).toFixed(1)}s`
+    : "";
+  const commit = item.commit
+    ? `· <code style="color:var(--fg-dim)">${escapeHTML(String(item.commit).slice(0, 7))}</code>`
+    : "";
+  const kind = item.kind === "subagent" ? "▸ task" : "▸ evolve";
+  return `
+    <div class="row">
+      <span class="when">${escapeHTML(when)}</span>
+      <span class="badge2 ${escapeHTML(safeStatus)}">${escapeHTML(status)}</span>
+      <span class="text">${escapeHTML(kind)} · ${escapeHTML(summary)}</span>
+      <span class="meta">${elapsed} ${commit}</span>
+    </div>`;
+}
+
+function formatWhen(ms) {
+  const d = new Date(Number(ms));
+  const now = Date.now();
+  const ago = (now - d.getTime()) / 1000;
+  if (ago < 60)        return Math.floor(ago) + "s ago";
+  if (ago < 3600)      return Math.floor(ago / 60) + "m ago";
+  if (ago < 86400)     return Math.floor(ago / 3600) + "h ago";
+  return d.toLocaleDateString();
+}
+
+loadProjects();
+loadCluster();
+loadActivity();
+setInterval(loadCluster,  30000);  // refresh every 30s — keeps the demo video looking live
+setInterval(loadActivity, 15000);  // tighter cadence so commits / dispatches surface quickly
+</script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>phantom · mesh</title>
+  <link rel="stylesheet" href="/static/xterm.css">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <span class="name">phantom</span>
+      <span class="version" id="version">v0.1.0</span>
+    </div>
+    <div class="status" id="status-bar">
+      <span class="pill" id="provider-pill">— providers</span>
+      <span class="pill" id="cluster-pill">— cluster</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-title">nodes</div>
+        <ul class="node-list" id="node-list">
+          <li class="muted">loading…</li>
+        </ul>
+      </div>
+    </aside>
+
+    <main class="main">
+      <nav class="tabs">
+        <button class="tab active" data-tab="terminal">Terminal</button>
+        <button class="tab" data-tab="info">Info</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+
+      <section class="pane active" id="pane-terminal">
+        <div class="terminal-host" id="terminal-host"></div>
+        <form class="prompt-row" id="prompt-form">
+          <span class="prompt-glyph">◆</span>
+          <textarea
+            id="prompt-input"
+            placeholder="ask phantom anything…  (Shift+Enter for newline)"
+            rows="1"
+            autofocus
+          ></textarea>
+          <button type="submit" id="send-btn">send</button>
+        </form>
+      </section>
+
+      <section class="pane" id="pane-info">
+        <nav class="subtabs">
+          <button class="subtab active" data-subtab="todo">Todo</button>
+          <button class="subtab" data-subtab="sessions">Sessions</button>
+          <button class="subtab" data-subtab="tools">Tools</button>
+          <button class="subtab" data-subtab="cost">Cost</button>
+          <span class="subtab-spacer"></span>
+          <button class="subtab-refresh" id="info-refresh" title="Refresh">↻</button>
+        </nav>
+        <div class="info-body">
+          <div class="subpane active" id="subpane-todo">
+            <div class="info-empty muted">loading…</div>
+          </div>
+          <div class="subpane" id="subpane-sessions">
+            <div class="info-empty muted">loading…</div>
+          </div>
+          <div class="subpane" id="subpane-tools">
+            <div class="info-empty muted">loading…</div>
+          </div>
+          <div class="subpane" id="subpane-cost">
+            <div class="info-empty muted">loading…</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane" id="pane-settings">
+        <h2>Settings</h2>
+        <p class="muted">configure providers and cluster. saves to <code>~/.phantom-mesh/agents.toml</code>.</p>
+
+        <form id="settings-form" class="settings-form">
+          <div class="field">
+            <label for="groq-key">Groq API key</label>
+            <input id="groq-key" name="groq_api_key" type="password" placeholder="gsk_…" autocomplete="off">
+            <p class="hint">free at <a href="https://console.groq.com" target="_blank" rel="noopener">console.groq.com</a> — Llama 3.3 70B</p>
+          </div>
+
+          <div class="field">
+            <label for="gemini-key">Gemini API key</label>
+            <input id="gemini-key" name="gemini_api_key" type="password" placeholder="AIza…" autocomplete="off">
+            <p class="hint">free at <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> — long-context, daily quota</p>
+          </div>
+
+          <div class="field">
+            <label for="anthropic-key">Anthropic API key (optional)</label>
+            <input id="anthropic-key" name="anthropic_api_key" type="password" placeholder="sk-ant-…" autocomplete="off">
+            <p class="hint">paid; sk-ant-… for Claude models</p>
+          </div>
+
+          <div class="field">
+            <label for="cluster-secret">Cluster secret (optional)</label>
+            <input id="cluster-secret" name="cluster_secret" type="text" placeholder="shared-string-among-nodes" autocomplete="off">
+            <p class="hint">leave blank for standalone; set to join a mesh</p>
+          </div>
+
+          <button type="submit" class="primary" id="save-btn">save & reload</button>
+          <span class="form-status" id="settings-status"></span>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="palette-overlay" id="palette-overlay" hidden>
+    <div class="palette" role="dialog" aria-label="command palette">
+      <input
+        type="text"
+        id="palette-input"
+        class="palette-input"
+        placeholder="type a command…  (Enter to run, Esc to close)"
+        autocomplete="off"
+        spellcheck="false"
+      >
+      <ul class="palette-list" id="palette-list"></ul>
+      <div class="palette-help" id="palette-help" hidden>
+        <div class="palette-help-title">keybindings</div>
+        <div><kbd>Cmd/Ctrl</kbd>+<kbd>K</kbd> — open this palette</div>
+        <div><kbd>Esc</kbd> — close palette</div>
+        <div><kbd>↑</kbd> / <kbd>↓</kbd> — navigate</div>
+        <div><kbd>Enter</kbd> — run selected</div>
+        <div><kbd>Shift</kbd>+<kbd>Enter</kbd> — newline in prompt</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/xterm.js"></script>
+  <script src="/static/xterm-addon-fit.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

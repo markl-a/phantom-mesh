@@ -1,0 +1,91 @@
+name = "phantommesh-io"
+main = "src/index.ts"
+compatibility_date = "2026-04-28"
+compatibility_flags = ["nodejs_compat"]
+
+# Bound to the live phantommesh.io zone (NS already on Cloudflare per
+# DNS probe 2026-05-03). The Worker takes precedence over the existing
+# A/CNAME records pointing at the legacy GoDaddy hosting for any URL
+# matching the pattern below.
+routes = [
+  { pattern = "phantommesh.io/*", zone_name = "phantommesh.io" }
+]
+
+# ── D1 (users / devices / oauth_sessions / broker_tokens) ─────────────────
+[[d1_databases]]
+binding       = "DB"
+database_name = "phantommesh-prod"
+database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
+
+# ── KV (short-lived OAuth state) ──────────────────────────────────────────
+[[kv_namespaces]]
+binding = "SESSIONS"
+id      = "54738150373145229745d88f18a86a15"
+
+# ── R2 (signed binaries served by /dist/* and /install.ps1) ──────────────
+[[r2_buckets]]
+binding     = "BINARIES"
+bucket_name = "phantom-binaries"
+
+# ── Vars (non-secret) ─────────────────────────────────────────────────────
+[vars]
+APP_URL                = "https://phantommesh.io"
+GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.googleusercontent.com"
+BROKER_TOKEN_TTL_SECS  = "604800"      # 7 days
+BROKER_VERSION         = "0.1.3-multi-tenant-2026-05-05"
+
+# ── Secrets (set via `wrangler secret put`) ───────────────────────────────
+# wrangler secret put GOOGLE_CLIENT_SECRET
+# wrangler secret put BROKER_JWT_SECRET    # any 32+ random bytes
+
+# ─────────────────────────────────────────────────────────────────────────
+# STAGING ENV — for Mac local manual deploys, experiments, branch preview.
+# ─────────────────────────────────────────────────────────────────────────
+# Why this exists: prod (default env above, bound to phantommesh.io) is
+# CI-only via GitHub Actions. Mac dev does:
+#   npx wrangler deploy --env staging
+# → lands at https://phantommesh-io-staging.<account>.workers.dev
+#   (no public route, no zone binding → does NOT touch phantommesh.io).
+# Win + Mac can both freely deploy --env staging without racing prod.
+#
+# Bindings: same D1 / KV / R2 as prod by default — Mac sees real data
+# but its CODE changes don't go to phantommesh.io. To get FULL isolation
+# (own DB / own bucket), uncomment the [[env.staging.X]] overrides below
+# after creating new resources via:
+#   npx wrangler d1   create phantommesh-staging
+#   npx wrangler kv   namespace create SESSIONS_STAGING
+#   npx wrangler r2   bucket create phantom-binaries-staging
+# Then paste the returned ids into the overrides.
+#
+# Secrets are env-scoped — set via:
+#   npx wrangler secret put GOOGLE_CLIENT_SECRET --env staging
+# Initial setup needs the same 4 secrets the prod env has.
+
+[env.staging]
+name = "phantommesh-io-staging"
+# Explicit empty routes [] — wrangler v4 inherits top-level routes
+# unless we override here, which would have staging fight prod for
+# phantommesh.io/*.
+routes = []
+workers_dev = true
+
+[env.staging.vars]
+APP_URL                = "https://phantommesh-io-staging.workers.dev"
+GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.googleusercontent.com"
+BROKER_TOKEN_TTL_SECS  = "604800"
+BROKER_VERSION         = "0.1.2-staging"
+
+# Shared bindings — staging sees the same data as prod. Comment out + use
+# the create commands above for full isolation.
+[[env.staging.d1_databases]]
+binding       = "DB"
+database_name = "phantommesh-prod"
+database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
+
+[[env.staging.kv_namespaces]]
+binding = "SESSIONS"
+id      = "54738150373145229745d88f18a86a15"
+
+[[env.staging.r2_buckets]]
+binding     = "BINARIES"
+bucket_name = "phantom-binaries"

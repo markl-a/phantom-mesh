@@ -1,0 +1,3 @@
+[target.aarch64-linux-android]
+linker = "/path/to/android/sdk/ndk/<version>/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android35-clang"
+ar = "/path/to/android/sdk/ndk/<version>/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"

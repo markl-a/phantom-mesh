@@ -1,0 +1,103 @@
+name: CI Desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'app/**'
+      - '.github/workflows/ci-desktop.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'app/**'
+
+# Cancel superseded runs on the same branch/PR — saves CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-core:
+    name: Check phantom-mesh core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev
+      - name: cargo check
+        run: cargo check -p phantom-mesh
+      - name: cargo test
+        run: cargo test -p phantom-mesh -- --skip integration
+
+  check-desktop:
+    name: Check Tauri desktop app
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core -> target
+            app/src-tauri -> target
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            javascriptcoregtk-4.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install pnpm
+        run: npm install -g pnpm
+      - name: Install frontend deps
+        working-directory: app
+        run: pnpm install --frozen-lockfile || pnpm install
+      - name: Frontend type check
+        working-directory: app
+        run: npx tsc --noEmit
+      - name: Build phantom-mesh for sidecar
+        run: cargo build -p phantom-mesh
+      - name: Cargo check desktop
+        working-directory: app/src-tauri
+        run: cargo check
+      - name: Cargo test desktop
+        working-directory: app/src-tauri
+        run: cargo test
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev
+      - name: Clippy phantom-mesh
+        run: cargo clippy -p phantom-mesh -- -D warnings

@@ -1,0 +1,73 @@
+name: CI Medium
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'app/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-medium.yml'
+
+# Cancel superseded runs on the same PR — saves CI minutes during rapid push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Cargo build (release)
+        working-directory: core
+        run: cargo build --release
+
+      - name: Cargo test (lib)
+        working-directory: core
+        run: cargo test --lib
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Build daemon
+        run: cargo build --release
+        working-directory: core
+      - name: Run integration tests
+        run: |
+          cp core/target/release/phantom-mesh .
+          bash scripts/integration-test.sh
+        env:
+          BINARY: ./phantom-mesh

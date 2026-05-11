@@ -1,51 +1,84 @@
-# Contributing
+# Contributing to Phantom Mesh
 
-Phantom Mesh is in early access — the Rust core source isn't open yet
-(planned May 2026). What you CAN contribute right now:
+Thank you for your interest in contributing to Phantom Mesh!
 
-## What's accepted today
+Before making architecture or product-shaping changes, read:
 
-✓ **Bug reports** — see the [issue templates](.github/ISSUE_TEMPLATE/).
-   Especially welcome: install failures, TUI crashes, cluster RPC weirdness,
-   model-dispatch hallucinations.
+- `AGENTS.md`
+- `docs/ARCHITECTURE-FREEZE.md`
+- `docs/ACTIVE-STATUS.md`
 
-✓ **Doc fixes** — README typos, install instructions that don't match
-   reality, broken ecosystem links. PRs welcome.
+## Development Setup
 
-✓ **Issue triage / repro** — confirming someone else's bug on your platform
-   is actually a huge help.
+### Prerequisites
 
-✓ **Installer improvements** — `installers/install.ps1` and `installers/install.sh`
-   are open. Edge cases on weird Windows / non-zsh shells / corporate
-   proxies / etc. are valuable.
+- **Rust stable toolchain** (install via [rustup](https://rustup.rs/))
+- **SQLite** (bundled with the Rust crate, no external install needed)
+- **Optional**: [Ollama](https://ollama.ai) for local LLM testing
 
-## What's coming once the Rust core opens (May 2026)
+### Building
 
-- New tools (under `core/src/tools/`)
-- LLM provider integrations
-- Cluster RPC features
-- TUI improvements
+```bash
+cd core
+cargo build
+```
 
-Hold those PRs until the source lands; meanwhile, file feature requests
-so I know what to prioritize.
+### Running Tests
 
-## Repo conventions
+```bash
+cd core
+cargo test --lib          # Unit tests (~2,700 tests, ~55s)
+cargo test --lib -q       # Quiet mode
+cargo test --lib "module" # Run tests for a specific module
+```
 
-- Branch names: `fix/<short-desc>` or `feat/<short-desc>` for PRs
-- Commit messages: imperative mood, prefix with type
-  (`docs(readme): ...`, `fix(installer): ...`)
-- One topic per PR — easier to review, easier to revert if needed
+### Running the Daemon
 
-## Scope: what I won't merge
+```bash
+cd core
+cargo run -- health              # Check system health
+cargo run -- init                # First-time setup
+cargo run -- daemon              # Start daemon on port 7878
+cargo run -- run "hello world"   # Single prompt execution
+```
 
-- Adding telemetry / analytics beacons
-- Auto-update mechanisms beyond the existing `phantom cluster upgrade`
-- Bundling third-party LLM API keys into the installer
-- Anything that changes installer behavior without making it visible
-  in the script (no obfuscated steps)
+## Project Structure
 
-## Questions
+```
+phantom-mesh/
+├── core/                  # Rust daemon (main codebase)
+│   ├── src/
+│   │   ├── lib.rs         # Library entry point
+│   │   ├── main.rs        # CLI wrapper
+│   │   ├── runtime.rs     # PhantomMesh::init() API
+│   │   ├── agent_runtime.rs  # Multi-round tool-calling loop
+│   │   ├── events/        # DomainEvent spine + persistence
+│   │   ├── providers/     # LLM providers (Ollama, Claude, OpenAI, etc.)
+│   │   ├── tools/         # Agent tools (shell, file, web search, etc.)
+│   │   └── ...
+│   └── tests/             # Integration tests
+├── crates/
+│   └── pm-types/          # Shared type definitions
+├── app/                   # Tauri v2 desktop app (React)
+└── .github/workflows/     # CI pipelines
+```
 
-GitHub Discussions is the right channel for "is this a bug or am I
-holding it wrong?" type questions. Issues are for confirmed bugs +
-feature requests.
+## Code Style
+
+- Follow standard Rust conventions (`cargo clippy` must pass)
+- Unit tests go in the same file under `#[cfg(test)] mod tests`
+- Integration tests go in `core/tests/`
+- All public enums use `#[non_exhaustive]`
+
+## Pull Request Process
+
+1. Fork the repository
+2. Create a feature branch from `main`
+3. Make your changes with tests
+4. Ensure `cargo test --lib` passes
+5. Ensure `cargo clippy -- -D warnings` passes
+6. Submit a pull request with a clear description
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT OR Apache-2.0 license.

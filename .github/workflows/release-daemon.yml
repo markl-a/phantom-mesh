@@ -1,0 +1,261 @@
+name: Release Daemon Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: 'Create as draft release'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Linux targets (x86_64 + aarch64) — built with `cross` inside Docker
+  # ──────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            asset_name: phantom-mesh-x86_64-linux
+          - target: aarch64-unknown-linux-gnu
+            asset_name: phantom-mesh-aarch64-linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: linux-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: linux-${{ matrix.target }}-cargo-
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Build with cross
+        run: cross build --release --target ${{ matrix.target }} --manifest-path core/Cargo.toml
+
+      - name: Rename binary
+        run: |
+          cp target/${{ matrix.target }}/release/phantom-mesh ${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Windows x86_64 — cross-compiled with cross (mingw toolchain)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows x86_64
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-x86_64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: windows-x86_64-cargo-
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Build with cross
+        run: cross build --release --target x86_64-pc-windows-gnu --manifest-path core/Cargo.toml
+
+      - name: Rename binary
+        run: cp target/x86_64-pc-windows-gnu/release/phantom-mesh.exe phantom-mesh-x86_64-windows.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantom-mesh-x86_64-windows
+          path: phantom-mesh-x86_64-windows.exe
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # macOS — built natively on macos-latest (Apple Silicon runner)
+  # Both arm64 and x86_64 can be produced from the same runner via rustup
+  # ──────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS (${{ matrix.target }})
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            asset_name: phantom-mesh-aarch64-macos
+          - target: x86_64-apple-darwin
+            asset_name: phantom-mesh-x86_64-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: macos-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: macos-${{ matrix.target }}-cargo-
+
+      - name: Build
+        working-directory: core
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Rename binary
+        run: cp core/target/${{ matrix.target }}/release/phantom-mesh ${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Android aarch64 — built with the official NDK + cargo-ndk
+  # Termux/coordinator distribution: <coord>/dist/phantom-aarch64-linux-android
+  # (consumed by scripts/termux-setup.sh and docs/INSTALL-ANDROID.md §B.2)
+  # Only the `phantom` user-facing binary is shipped — `phantom-mesh` daemon
+  # is not exercised on Termux.
+  # ──────────────────────────────────────────────────────────────────────────
+  build-android:
+    name: Build Android aarch64
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: '28.2.13676358'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager "ndk;${NDK_VERSION}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$NDK_HOME"   >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_HOME"   >> "$GITHUB_ENV"
+
+      - name: Install Rust + aarch64-linux-android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: android-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: android-aarch64-cargo-
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build with cargo-ndk
+        working-directory: core
+        # API 21 matches package-android.sh; only build the `phantom` REPL bin.
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+
+      - name: Strip and rename binary
+        run: |
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          BIN="core/target/aarch64-linux-android/release/phantom"
+          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-aarch64-linux-android
+          ls -lh phantom-aarch64-linux-android
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: phantom-aarch64-linux-android
+          path: phantom-aarch64-linux-android
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Create GitHub Release and attach all binaries
+  # ──────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish GitHub Release
+    needs: [build-linux, build-windows, build-macos, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Flatten artifact directories
+        run: |
+          mkdir -p release-assets
+          find dist/ -type f | while read f; do
+            cp "$f" release-assets/
+          done
+          ls -lh release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: ${{ github.event.inputs.draft || 'true' }}
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

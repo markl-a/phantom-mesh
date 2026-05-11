@@ -1,0 +1,64 @@
+# Phantom Mesh — iPhone 13 Mini Node
+# =====================================
+# 硬體: Apple iPhone 13 Mini
+#   CPU: A15 Bionic (5nm) — 比 iPad Pro 2018 更新更快
+#   RAM: 4GB
+#
+# 角色: iOS 行動輕量節點 + 主要 Telegram 行動入口
+#
+# ⚠️  iOS 限制（同 iPad Pro）：
+#   - App 前景：正常運行
+#   - 背景：約 30 秒後暫停
+#
+# 這台的主要價值不是算力，而是：
+#   → 透過 Telegram Bot 隨時隨地跟叢集對話
+#   → App 開著時當輕量節點
+#
+# 安裝步驟:
+#   1. 安裝 Tailscale (App Store)
+#   2. 安裝 Telegram (已有)
+#   3. 透過 TestFlight 或 ios-deploy 安裝 Phantom Mesh IPA
+#   4. 設定 → 一般 → 背景 App 重新整理 → 開啟
+
+[core]
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+[providers.anthropic]
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"
+default_model = "claude-haiku-4-5"
+
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+default_model = "llama-3.3-70b-versatile"
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+[cluster]
+node_name = "iphone13mini"
+cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+peers = [
+  "http://100.x.x.MAC:7878",
+  "http://100.x.x.ORACLE:7878",
+  "http://100.x.x.Z13:7878",
+  "http://100.x.x.ACER:7878",
+  "http://100.x.x.AYANEO:7878",
+  "http://100.x.x.ROG6:7878",
+  "http://100.x.x.MIPAD:7878",
+  "http://100.x.x.IPAD:7878",
+]
+
+# ── Agent ─────────────────────────────────────────────────────────────────────
+[agent.master]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+tools = [
+  "web_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """你是 Phantom Mesh 叢集中的 iPhone 行動節點 (iPhone 13 Mini)。
+由於 iOS 背景限制，主要在 App 開啟時接收快速查詢類任務。
+用最短的回覆完成任務。"""

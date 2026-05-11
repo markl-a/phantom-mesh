@@ -1,0 +1,109 @@
+# Phantom Mesh — Cloud Node Config
+# ==================================
+# For: GCP VM (x86_64) or Oracle Cloud VM (ARM, aarch64) — 24/7 always-on node
+# Role: Permanent daemon, Telegram bot gateway, task relay for the mesh
+#
+# This node stays online continuously so mobile users can reach the mesh even
+# when coordinator/worker machines are asleep.
+#
+# ── Deployment ────────────────────────────────────────────────────────────────
+# 1. Copy this file to the VM:
+#      scp configs/agents.cloud.toml cloud-vm:~/.phantom-mesh/agents.toml
+#    (or let deploy-gcp.sh generate it automatically)
+# 2. Create an env file at /home/phantom/.phantom-mesh/env with:
+#      ANTHROPIC_API_KEY=sk-ant-...
+#      OPENROUTER_API_KEY=sk-or-...
+#      TELEGRAM_BOT_TOKEN=<token from @BotFather>
+#      PHANTOM_CLUSTER_SECRET=<same value as all other nodes>
+# 3. Reference it in the systemd unit: EnvironmentFile=/home/phantom/.phantom-mesh/env
+# 4. Enable the service: sudo systemctl enable --now phantom-mesh
+#
+# ── Tailscale setup (required for mesh networking) ────────────────────────────
+# 1. Install Tailscale: curl -fsSL https://tailscale.com/install.sh | sh
+# 2. Authenticate: sudo tailscale up
+# 3. Get this node's Tailscale IP: tailscale ip -4
+# 4. Replace MAC_TAILSCALE_IP in [cluster].peers below with your coordinator's IP
+#    (run 'tailscale ip -4' on the Mac/PC coordinator to find it)
+# 5. On the coordinator, add this cloud node's Tailscale IP to its peers[] list
+#
+# Required env vars (set in /home/phantom/.phantom-mesh/env):
+#   ANTHROPIC_API_KEY      — primary LLM provider
+#   OPENROUTER_API_KEY     — fallback LLM provider
+#   TELEGRAM_BOT_TOKEN     — from @BotFather on Telegram
+#   PHANTOM_CLUSTER_SECRET — shared secret matching all other nodes
+# ─────────────────────────────────────────────────────────────────────────────
+
+[core]
+# Must listen on all interfaces so Tailscale (100.x.x.x) and any other
+# network interfaces can reach the daemon.
+host = "0.0.0.0"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+
+[providers.anthropic]
+# Primary: cheaper Haiku model for 24/7 background relay and Telegram responses
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"    # set in env file — never inline keys
+default_model = "claude-haiku-4-5"   # cost-efficient for always-on relay
+
+[providers.openrouter]
+# Fallback: activates automatically if Anthropic is unavailable or rate-limited
+type = "openai_compat"
+url = "https://openrouter.ai/api"
+api_key_env = "OPENROUTER_API_KEY"   # set in env file — never inline keys
+default_model = "google/gemini-2.5-flash"
+
+# ── Tool configuration ────────────────────────────────────────────────────────
+# [tools]
+# brave_search_api_key = "BSA..."   # optional; set in env file if desired
+
+# ── Telegram bot ──────────────────────────────────────────────────────────────
+# The cloud node is the single Telegram bot gateway for the entire mesh.
+# Mobile users (iPhone, iPad, ROG Phone, MiPad) interact through this node.
+# Messages are relayed to worker/coordinator nodes as needed.
+
+[telegram]
+bot_token_env = "TELEGRAM_BOT_TOKEN"  # set in env file — token from @BotFather
+allowed_users = []                     # empty = allow all; or list Telegram user IDs, e.g. [123456789]
+agent = "master"                       # which agent handles incoming messages
+
+# ── Cluster ───────────────────────────────────────────────────────────────────
+# The Mac/PC coordinator is the primary peer; add workers once their Tailscale
+# IPs are known. Replace MAC_TAILSCALE_IP with the coordinator's 'tailscale ip -4' output.
+
+[cluster]
+node_name = "gcp-cloud"
+# cluster_secret: shared HMAC key that authenticates all inter-node RPC calls.
+# Must match the value on every other node in the mesh.
+# Generate once with: openssl rand -hex 32
+cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
+peers = [
+  "http://MAC_TAILSCALE_IP:7878",    # coordinator (Mac/PC) — replace with 'tailscale ip -4' output
+  # "http://100.x.x.2:7878",         # acer worker (add when Tailscale IP is known)
+  # "http://100.x.x.3:7878",         # ayaneo worker (add when Tailscale IP is known)
+]
+
+# ── Master agent ───────────────────────────────────────────────────────────────
+
+[agent.master]
+provider = "anthropic"
+model = "claude-haiku-4-5"   # cost-efficient for always-on 24/7 relay
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+]
+instructions = """You are an AI assistant running as a 24/7 cloud relay node. You are the Telegram bot gateway for the Phantom Mesh network.
+
+Key behaviors:
+- Receive tasks from mobile users via Telegram
+- Delegate heavy compute tasks (GPU inference, large file ops) to worker nodes in the cluster
+- Respond concisely — mobile users want short, clear answers
+- Always respond in the user's language
+- When the local coordinator is offline, handle tasks yourself using Anthropic API
+- You are always online: be the reliable backbone of the mesh
+"""

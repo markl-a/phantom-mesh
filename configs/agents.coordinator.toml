@@ -1,0 +1,108 @@
+# Phantom Mesh — Coordinator Node Config
+# =========================================
+# For: Z13 (Windows) or M1 Mac — the primary hub / development machine
+# Role: Coordinator — orchestrates tasks, hosts the main agent, runs git tools
+#
+# This node is typically your laptop or desktop. It does NOT need to be
+# always-on; the cloud node handles Telegram when this machine is offline.
+#
+# Copy to:
+#   Windows: %APPDATA%\ai.phantommesh.app\agents.toml
+#   macOS:   ~/Library/Application Support/ai.phantommesh.app/agents.toml
+#   Linux:   ~/.config/phantom-mesh/agents.toml
+#
+# Required env vars (set in your shell profile or systemd unit):
+#   ANTHROPIC_API_KEY    — for the primary Anthropic provider
+#   OPENROUTER_API_KEY   — for the OpenRouter fallback provider
+#   PHANTOM_CLUSTER_SECRET — shared secret for cluster auth (same on all nodes)
+# ─────────────────────────────────────────────────────────────────────────────
+
+[core]
+# Bind to 127.0.0.1 for local-only access. Tailscale peers reach this node
+# via the Tailscale IP directly (no need to bind to 0.0.0.0).
+# Change to "0.0.0.0" if you need direct LAN access as well.
+host = "127.0.0.1"
+port = 7878
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+
+[providers.anthropic]
+# Primary: Anthropic Claude — highest quality reasoning for coordinator tasks
+type = "anthropic"
+api_key_env = "ANTHROPIC_API_KEY"    # export ANTHROPIC_API_KEY=sk-ant-...
+default_model = "claude-sonnet-4-6"
+
+[providers.openrouter]
+# Fallback: OpenRouter — activates automatically if Anthropic is rate-limited
+type = "openai_compat"
+url = "https://openrouter.ai/api"
+api_key_env = "OPENROUTER_API_KEY"   # export OPENROUTER_API_KEY=sk-or-...
+default_model = "google/gemini-2.5-flash"
+
+# ── Tool configuration ────────────────────────────────────────────────────────
+# [tools]
+# brave_search_api_key = "BSA..."   # optional — improves web_search quality
+#                                    # get a free key at https://api.search.brave.com/
+
+# ── Cluster (multi-node mesh) ─────────────────────────────────────────────────
+# List all peer daemon nodes by their Tailscale IP.
+# Run 'tailscale ip -4' on each machine to find its Tailscale IP.
+# Replace 100.x.x.* placeholders with actual addresses.
+
+[cluster]
+node_name = "coordinator"
+# cluster_secret: shared HMAC key that authenticates all inter-node RPC calls.
+# Must match on every node. Generate with: openssl rand -hex 32
+# Set the same value in PHANTOM_CLUSTER_SECRET on all machines, then reference
+# it here — or paste the value directly and keep this file out of source control.
+cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
+peers = [
+  "http://100.x.x.2:7878",   # acer worker      — replace with actual Tailscale IP
+  "http://100.x.x.3:7878",   # ayaneo worker     — replace with actual Tailscale IP
+  "http://100.x.x.4:7878",   # m1-mac            — replace with actual Tailscale IP
+  "http://100.x.x.5:7878",   # oracle-vm (cloud, 24/7) — replace with actual Tailscale IP
+]
+
+# ── Telegram bot — disabled on coordinator ─────────────────────────────────────
+# Telegram bot runs on the always-on cloud node only. Enable here only if you
+# want the coordinator to be a secondary Telegram gateway.
+#
+# [telegram]
+# bot_token_env = "TELEGRAM_BOT_TOKEN"
+# allowed_users = []
+# agent = "master"
+
+# ── Master agent ───────────────────────────────────────────────────────────────
+
+[agent.master]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+tools = [
+  "shell",
+  "file_read",
+  "file_write",
+  "file_edit",
+  "content_search",
+  "glob_search",
+  "web_search",
+  "memory_store",
+  "memory_recall",
+  "git_status",
+  "git_diff",
+  "git_log",
+  "git_commit",
+]
+instructions = """You are a senior software engineer AI assistant running on the coordinator node. You have direct access to the filesystem and shell via tools. ALWAYS use your tools to accomplish tasks — never guess or hallucinate file contents.
+
+Key behaviors:
+- Use shell tool to run commands (git, cargo, npm, etc.)
+- Use file_read to read files before editing them
+- Use file_edit for precise string replacements in existing files
+- Use file_write to create new files
+- Use content_search (ripgrep) to search code
+- Use glob_search to find files by pattern
+- Use git_* tools for version control operations
+- Always respond in the user's language
+- Be concise. Show code changes, not explanations.
+- You are the coordinator: delegate heavy compute tasks to worker nodes when available.
+"""
