@@ -3,8 +3,10 @@
 **A self-hostable AI agent that runs everywhere — Mac, Linux, Windows, Android, iOS — and improves itself while you sleep.**
 
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue.svg)](core/Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](core/Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
+[![Platforms](https://img.shields.io/badge/platforms-Mac%20·%20Linux%20·%20Win%20·%20Android%20·%20iOS-success.svg)](docs/)
+[![Tests](https://img.shields.io/badge/tests-403%20unit%20+%2018%20feature-brightgreen.svg)](scripts/selftest.d/)
 
 ```bash
 git clone https://github.com/markl-a/phantom-mesh && \
@@ -19,6 +21,21 @@ That's the whole install. After it, your Mac (or Linux box / Windows
 desktop / Termux on ROG / sideloaded iPhone) is a self-evolving AI
 agent that keeps your repo green, runs 50 tools on demand, and
 talks to its peers over Tailscale.
+
+**Try this next** (30 seconds):
+
+```bash
+phantom serve &                              # start the local HTTP daemon
+open http://127.0.0.1:7878/projects          # 6-pinned-project dashboard
+phantom doctor --json | jq .status           # machine-readable health
+phantom autoevolve digest --since-hours 24   # what self-improved overnight
+```
+
+Or use it from Claude Code as an MCP server:
+
+```bash
+claude mcp add phantom $(which phantom) mcp  # 50+ tools via mcp__phantom__*
+```
 
 ---
 
