@@ -194,6 +194,8 @@ Cross-mesh dispatch then works: `mcp__phantom__subagent({node:
 
 ## Verify
 
+### 1. Quick health check
+
 ```bash
 phantom doctor
 ```
@@ -202,11 +204,58 @@ Expected: 9 sections, all ✓ (or yellow ⚠ for opt-in features you
 haven't enabled, like MLX or Spotlight indexing). 0 red ✗ in a
 working install.
 
+For machine-readable output (CI / monitoring / scripted checks):
+
 ```bash
-./scripts/test-mac.sh
+phantom doctor --json | jq '.status'        # → "ok" / "warn" / "fail"
+phantom doctor --json | jq '.permissions'   # rule parse status
+phantom doctor --json | jq '.autoevolve'    # queue + last run
 ```
 
-51 automated checks, ~30 s. Expects PASS 51 / FAIL 0 / SKIP ≤ 1.
+### 2. Run the test sweeps
+
+```bash
+./scripts/test-mac.sh        # 51 fast checks, ~30 s
+phantom selftest             # 22+ feature checks (TUI, MCP, doctor, dashboard…)
+phantom selftest --p0-only   # critical checks only, ~5 s
+```
+
+`test-mac.sh` expects PASS 51 / FAIL 0 / SKIP ≤ 1.
+`phantom selftest` expects 22+ pass / 0 fail.
+
+### 3. Open the dashboard
+
+```bash
+phantom serve &              # if not already running via launchd
+open http://127.0.0.1:7878/projects
+```
+
+You should see:
+- 6 pinned-project tiles with [Run Demo] buttons
+- A cluster status bar (single node when running solo, more pills
+  when peers are reachable via Tailscale)
+- A "Recent activity" strip showing autoevolve runs
+
+Tap any [Run Demo] — output streams live via Server-Sent Events.
+
+### 4. (Optional) wire into Claude Code
+
+`phantom-mesh` exposes its 50+ tools as an MCP server. To use them
+from Claude Code:
+
+```bash
+claude mcp add phantom $(which phantom) mcp
+```
+
+Or, if you're working *inside* the phantom-mesh repo, the project-
+local `.mcp.json` auto-registers — just trust the prompt on first
+Claude Code session start. After that, every tool surfaces as
+`mcp__phantom__file_read`, `mcp__phantom__shell`, etc.
+
+Smoke-test the MCP wire format:
+```bash
+./scripts/test-mcp-tools.sh   # 13 tool/call e2e checks
+```
 
 ---
 
