@@ -251,6 +251,8 @@ Authentication is SHA-256 HMAC on the request body with
 Per-platform docs:
 
 - [docs/INSTALL-MAC.md](docs/INSTALL-MAC.md) — every file phantom creates, perf baseline, uninstall recipe
+- [docs/INSTALL-LINUX.md](docs/INSTALL-LINUX.md) — apt/dnf prereqs, systemd --user unit, headless server (loginctl enable-linger)
+- [docs/INSTALL-WINDOWS.md](docs/INSTALL-WINDOWS.md) — winget prereqs, Scheduled Task setup, Defender firewall rule, cross-compile shortcut
 - [docs/INSTALL-ANDROID.md](docs/INSTALL-ANDROID.md) — Termux real worker + Tauri thin client + combining both
 - [docs/INSTALL-IOS.md](docs/INSTALL-IOS.md) — sandbox limits, sideload paths, 7-day re-sign loop
 - [docs/TROUBLESHOOTING-MAC.md](docs/TROUBLESHOOTING-MAC.md) — every macOS footgun we hit + fix
