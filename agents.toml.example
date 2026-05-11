@@ -319,6 +319,56 @@ CRITICAL:
 - Output is markdown ready for direct rendering in TerminalShell. No JSON wrapping.
 """
 
+# ── Tool permissions (Tool(specifier) DSL) ────────────────────────────────────
+# Phantom's permission engine gates tool execution per call. Three lists —
+# deny / ask / allow — composed with first-match-wins, deny > ask > allow.
+#
+# Tool names:                      Specifier shapes:
+#   Bash / Shell      → shell      Bash(npm run *) — glob on `command` arg
+#   Read              → file_read  Read(./.env)    — glob on `path` arg
+#   Write             → file_write
+#   Edit              → file_edit / file_write / multi_file_edit / apply_patch
+#                                  Edit(./src/**)  — covers the edit-family
+#   WebFetch          → web_fetch  WebFetch(domain:github.com)
+#   WebSearch         → web_search
+#   *                 → matches every tool name
+#
+# Bash hardening: any Allow rule matching a shell command that contains a
+# redirect (>, >>, |, <) or chain operator (;, &&, ||) is auto-downgraded
+# to Ask — closes the `cat * → cat secrets > /tmp/exfil` exfiltration hole.
+#
+# Numeric priority prefix overrides default action precedence:
+#   "100:Bash(git status)"  ← high priority — beats a generic Deny on Bash
+#
+# Empty (or missing) [permissions] block = legacy allow-all. Once any rule
+# is present, unmatched calls fall through to Ask. See docs/PERMISSIONS.md
+# for the full reference + 3 worked policy templates.
+# ──────────────────────────────────────────────────────────────────────────────
+
+# [permissions]
+# Uncomment the block + customize. Three example presets:
+#
+# ── Preset 1: "Personal dev mode" (most permissive) ──
+# deny  = ["Read(./.env)", "Read(./secrets/*)"]
+# allow = ["*"]
+#
+# ── Preset 2: "Production-careful" (ask before writes) ──
+# deny  = ["Read(./.env)", "Bash(rm -rf *)"]
+# ask   = ["Edit", "Write", "Bash"]
+# allow = [
+#   "Bash(git status)", "Bash(git diff)", "Bash(git log *)",
+#   "Bash(cargo check)", "Bash(cargo build)", "Bash(cargo test)",
+#   "Read(./*)",
+# ]
+#
+# ── Preset 3: "CI auto-deny shell" (tightest sandbox) ──
+# deny  = ["Bash"]
+# allow = ["Read(./*)", "Edit(./src/**)"]
+#
+# Verify with: phantom doctor                      (human-readable)
+#              phantom doctor --json | jq .permissions   (machine-readable)
+
+
 # ── Tools configuration ────────────────────────────────────────────────────────
 # [tools]
 # brave_search_api_key = "BSA..."   # Get a free key at https://api.search.brave.com/
