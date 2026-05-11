@@ -61,8 +61,9 @@ phantom-mesh ships in two editions sharing the same OSS core:
 - **Cloud / Enterprise Edition** *(planned)* — a managed broker on top of
   the OSS core for OAuth identity, cross-mesh routing, and per-seat
   billing. Self-hostable for Enterprise so the IP-sensitive deployments
-  never leave your perimeter. Tracking design at
-  [docs/COMMERCIAL-DESIGN.md](docs/COMMERCIAL-DESIGN.md).
+  never leave your perimeter. Design notes are private during the OSS-
+  first phase; will publish a high-level spec before any paid surface
+  ships.
 
 The OSS Edition is the only path you need to evaluate, install, or
 deploy phantom-mesh today. The Cloud Edition exists to make the OSS
@@ -237,9 +238,8 @@ Per-platform docs:
 - [docs/INSTALL-IOS.md](docs/INSTALL-IOS.md) — sandbox limits, sideload paths, 7-day re-sign loop
 - [docs/TROUBLESHOOTING-MAC.md](docs/TROUBLESHOOTING-MAC.md) — every macOS footgun we hit + fix
 - [docs/MLX-PROVIDER.md](docs/MLX-PROVIDER.md) — Apple Silicon local LLM, perf table by model size
-- [docs/MAC-DEEP-EXECUTION-PLAN.md](docs/MAC-DEEP-EXECUTION-PLAN.md) — 3-sprint Mac roadmap
 - [docs/SCENARIOS-MULTIAGENT.md](docs/SCENARIOS-MULTIAGENT.md) — 95 use-cases mapped to multi-agent commands
-- [docs/COMMERCIAL-DESIGN.md](docs/COMMERCIAL-DESIGN.md) — open-source + paid hybrid blueprint
+- [docs/PERMISSIONS.md](docs/PERMISSIONS.md) — Tool(specifier) DSL reference + worked policy examples
 
 ---
 
@@ -343,11 +343,11 @@ cargo ndk -t arm64-v8a build --release
 
 ## Contributing
 
-phantom is Apache 2.0; the future commercial layer is described in
-[docs/COMMERCIAL-DESIGN.md](docs/COMMERCIAL-DESIGN.md) and never
-gates the OSS binary. PRs welcome.
+phantom is Apache 2.0; a future commercial layer (managed Cloud /
+Enterprise broker) is planned but never gates the OSS binary. PRs
+welcome.
 
-Hard rules for contributors (see commercial design doc §2):
+Hard rules for contributors (the binding-forever list):
 
 1. Every shipped OSS feature stays Apache 2.0 forever.
 2. The OSS binary works fully without any cloud account.
