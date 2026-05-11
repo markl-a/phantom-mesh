@@ -372,6 +372,16 @@ async function runDemo(id, btn) {
   btn.textContent = "⏳ running…";
   out.classList.remove("hidden");
   out.textContent = "";
+
+  // Prefer SSE streaming when EventSource is available (every modern
+  // browser). Fall back to the original blocking POST if SSE is
+  // somehow unsupported. Streaming makes [Run Demo] feel instant on
+  // long-running demos — recruiter sees each `make demo-mock` line
+  // appear live instead of staring at a spinner for 90s.
+  if (typeof EventSource !== "undefined") {
+    return runDemoStreaming(id, btn, out);
+  }
+  // Legacy non-streaming path (kept for environments without SSE).
   try {
     const res = await fetch("/api/projects/" + encodeURIComponent(id) + "/run", { method: "POST" });
     const result = await res.json();
@@ -386,6 +396,67 @@ async function runDemo(id, btn) {
     btn.disabled = false;
     btn.textContent = "▶ Run Demo Again";
   }
+}
+
+function runDemoStreaming(id, btn, out) {
+  return new Promise((resolve) => {
+    const url = "/api/projects/" + encodeURIComponent(id) + "/run-stream";
+    const es = new EventSource(url);
+    const started = Date.now();
+    let lineCount = 0;
+    let bytes = 0;
+    const append = (html) => {
+      out.innerHTML += html;
+      // Auto-scroll to bottom of output panel so the latest line
+      // stays visible — important on mobile where the panel scrolls
+      // independently of the page.
+      out.scrollTop = out.scrollHeight;
+    };
+    es.addEventListener("line", (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        const cls = d.stream === "stderr" ? "err" : "";
+        const text = String(d.text || "");
+        bytes += text.length + 1;
+        lineCount++;
+        // Cap rendered lines to keep DOM size sane on chatty demos.
+        if (lineCount > 500) {
+          if (lineCount === 501) append(`<span class="err">[…clipping further output for browser perf]</span>\n`);
+          return;
+        }
+        append((cls ? `<span class="${cls}">` : "") + escapeHTML(text) + (cls ? `</span>` : "") + "\n");
+      } catch (e) {
+        // Swallow per-event parse errors — they shouldn't kill the whole stream.
+      }
+    });
+    es.addEventListener("done", (ev) => {
+      try {
+        const d = JSON.parse(ev.data);
+        if (d.error) {
+          append(`<span class="err">[error]</span> ${escapeHTML(d.error)}`);
+        } else {
+          const ec = d.exit_code;
+          const sec = (d.elapsed_secs ?? (Date.now() - started) / 1000).toFixed(1);
+          const tone = ec === 0 ? "ok" : "err";
+          append(`\n<span class="${tone}">[exit ${ec} · ${sec}s · ${lineCount} lines]</span>`);
+        }
+      } catch (e) { /* ignore */ }
+      es.close();
+      btn.disabled = false;
+      btn.textContent = "▶ Run Demo Again";
+      resolve();
+    });
+    es.onerror = (e) => {
+      // EventSource auto-reconnects by default; that's wrong for our
+      // one-shot demo runner. Close on first error + degrade
+      // gracefully so the user sees something.
+      append(`\n<span class="err">[stream interrupted]</span>`);
+      es.close();
+      btn.disabled = false;
+      btn.textContent = "▶ Run Demo Again";
+      resolve();
+    };
+  });
 }
 
 function escapeHTML(s) {

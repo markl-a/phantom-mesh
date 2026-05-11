@@ -146,7 +146,20 @@ print("OK")
     t_fail "/api/projects/<unknown>/run → clean error" "unexpected shape"
   fi
 
-  # ── 4. /api/activity feed ──────────────────────────────────────────────
+  # ── 4. /api/projects/<id>/run-stream → SSE format ──────────────────────
+  # We grab the first chunk and check it starts with SSE event syntax.
+  # The selftest HOME is a tempdir so the demo cwd won't exist — the
+  # supervisor emits a single `event: done` with an error payload.
+  # That's fine: either `event: line` (real demo) OR `event: done`
+  # (error or fast finish) proves the SSE protocol shape is correct.
+  out=$(curl -s -N --max-time 8 "http://127.0.0.1:$port/api/projects/phantom-mesh/run-stream" 2>&1 | head -10)
+  if echo "$out" | grep -qE "^event: (line|done)"; then
+    t_pass "/api/projects/<id>/run-stream → SSE events" ""
+  else
+    t_fail "/api/projects/<id>/run-stream → SSE events" "no SSE event lines in first 10 lines"
+  fi
+
+  # ── 5. /api/activity feed ──────────────────────────────────────────────
   out=$(curl -s "http://127.0.0.1:$port/api/activity")
   if echo "$out" | python3 -c '
 import json, sys
