@@ -1,4 +1,143 @@
-# 95 Scenarios → phantom multi-agent commands
+# Scenarios → phantom multi-agent commands
+
+> **Top 10 that work TODAY on phantom 0.4.0** are at the top of this
+> file (next section). The full 95-scenario brainstorm follows them as
+> a forward-looking roadmap — those need additional agent configs,
+> event hooks, or domain-specific tools that aren't shipped yet.
+
+---
+
+## 🎯 Top 10 — verified working on phantom 0.4.0 (2026-05-11)
+
+Each scenario is one paste-able command. All exit cleanly on a fresh
+install with no further setup (assuming you've run `phantom onboarding`
+and have at least one provider key in env).
+
+### T1. Morning standup — what shipped overnight
+```bash
+phantom autoevolve digest --since-hours 24
+```
+**Pattern**: D (scheduled / event-driven, you read the result).
+phantom autoevolve runs hourly via launchd; this reads the
+last 24 h of commits + queued tasks + failures.
+**Real output**: counts by status (green/fixed/failed), commit shas,
+queue depth. ~50 lines.
+
+### T2. 6-project dashboard, accessible from any device
+```bash
+phantom serve &
+open http://127.0.0.1:7878/projects
+```
+**Pattern**: A (single node hosts; every device on Tailscale connects).
+Recruiter / phone / iPad all hit one URL → see 6 tiles + cluster
+status + live activity feed. Tap [Run Demo] → SSE-streamed output.
+
+### T3. Read-only investigation across the codebase
+```bash
+phantom run --agent researcher "Find all callers of phantom_mesh::permission::Engine::evaluate. Cite files."
+```
+**Pattern**: A (one read-only sub-agent, no shared history).
+Uses content_search + file_read tools. Returns markdown bullets.
+~30 s wall-clock.
+
+### T4. Multi-step coding task (refactor / fix bug)
+```bash
+phantom run --agent coder "Add a unit test for permission::wildcard_match covering CJK whitespace edge case."
+```
+**Pattern**: A (single agent with file_edit + cargo_check tools).
+Writes the test, runs cargo, reports green or failures. ~1-2 min
+wall-clock on first run (cargo compile).
+
+### T5. Code review on the current diff
+```bash
+phantom run --agent reviewer "Review HEAD. Flag security issues, panic risks, dead code."
+```
+**Pattern**: A. Reviewer is read-only by design — won't modify code.
+Returns a structured markdown review with line:column references.
+
+### T6. Parallel research fan-out (single machine)
+```bash
+phantom run --agent master 'Run parallel_tasks for: [{agent:"researcher", prompt:"What does tokio CancellationToken actually do under the hood?"}, {agent:"coder", prompt:"Show a 10-line example of CancellationToken in select! with timeout"}]'
+```
+**Pattern**: B (single-machine fan-out via `parallel_tasks` tool).
+Both subagents run concurrently; results joined into one response.
+
+### T7. Cross-machine dispatch (Tailscale cluster)
+```bash
+phantom run --node yoyogood --agent coder "Build the project here and report the binary size"
+```
+**Pattern**: C (single peer dispatch via `subagent({node})`).
+Picks `yoyogood` from `agents.toml` `[cluster] peers`, ships the
+prompt via HMAC-auth'd /rpc/message, returns the peer's output
+with `[subagent: coder@yoyogood · remote · 4.2s]` header.
+
+### T8. Permission policy enforcement
+```bash
+# Add to ~/.phantom-mesh/agents.toml:
+#   [permissions]
+#   deny  = ["Read(./.env)", "Bash(rm -rf *)"]
+#   ask   = ["Bash"]
+#   allow = ["Bash(git status)", "Bash(cargo check)"]
+phantom doctor              # verify rules parsed
+phantom run --agent coder "What's in ./.env?"     # → denied
+```
+**Pattern**: A with permission engine in front.
+Recruiter sees the deny chain trip in real time. `phantom doctor`
+shows "4 rules parsed (2 deny, 1 ask, 1 allow); statically denied:
+web_fetch (will be hidden from LLM tool list)".
+
+### T9. Background self-improvement loop
+```bash
+echo "Add a docstring to permission::wildcard_match explaining the glob semantics" \
+  >> ~/.phantom-mesh/autoevolve.queue.txt
+phantom autoevolve schedule status     # confirm hourly cadence
+# (then walk away — checks back in via T1 tomorrow)
+```
+**Pattern**: D. Autoevolve picks up queued tasks when cargo is green,
+dispatches an evolve agent to do them, commits + pushes on success.
+
+### T10. MCP-bridged use from Claude Code
+```bash
+claude mcp add phantom $(which phantom) mcp
+# Then in a Claude Code session in any repo:
+#   "Use mcp__phantom__subagent to dispatch this PR review to the
+#    `reviewer` agent."
+```
+**Pattern**: A from Claude Code's perspective; phantom's 50+ tools
+appear as `mcp__phantom__*` alongside Claude Code's built-ins.
+
+---
+
+## 📌 Verified by
+
+```bash
+phantom selftest --feature mcp           # T10 path
+phantom selftest --feature projects-dashboard  # T2 path
+phantom selftest --feature cluster-rpc   # T7 path
+phantom selftest --feature permission-dsl  # T8 path
+phantom selftest --feature autoevolve-queue  # T9 path
+phantom selftest --feature digest        # T1 path
+./scripts/test-mcp-tools.sh              # T3-T6 paths
+```
+
+All 18 selftest features + 38 shell-test checks gate every push via CI
+(`.github/workflows/ci-shell-tests.yml`).
+
+---
+
+## 🔭 Forward-looking 95-scenario brainstorm
+
+Everything below this line is **future work + design space** — the
+broader vision the 10 above are seed-cases of. None are blocked by
+phantom 0.4.0 fundamentals; they need:
+- 8 additional agent roles (fetcher, synthesizer, standup, triage,
+  digestor, reporter, coach, local) — straightforward configs
+- Event hooks for "fires when X happens" (the [TODO: events]
+  markers below) — phantom-mesh roadmap item
+
+Read this as a roadmap, not a feature list.
+
+---
 
 > Companion to `_planning-audit/archived/misc-strategy/USE-SCENARIOS.md`.
 > Every scenario in that brainstorm gets a deterministic phantom
