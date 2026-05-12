@@ -54,6 +54,12 @@ use crate::session::ConversationStore;
 
 const AGENTS: &[&str] = &["master", "coder", "reviewer", "researcher"];
 const TUI_HISTORY_MAX: usize = 100;
+/// Per-entry byte cap when persisting. Without this, accidental paste-bombs
+/// (or fuzz tests that send 15 KB of random input) ride the history file
+/// and on the next Up-arrow recall the input box ballooned with multi-KB
+/// garbage, visually swallowing the prompt. The cap is generous enough for
+/// realistic prompts including pasted stack traces but bounds the worst case.
+const TUI_HISTORY_ENTRY_MAX_BYTES: usize = 4096;
 
 /// Path to ~/.phantom-mesh/tui-history (one prompt per line, oldest → newest).
 fn tui_history_path() -> Option<std::path::PathBuf> {
@@ -61,21 +67,39 @@ fn tui_history_path() -> Option<std::path::PathBuf> {
 }
 
 /// Read persisted history into the in-memory ring at TUI startup. Best-
-/// effort — missing file / parse errors yield an empty Vec.
+/// effort — missing file / parse errors yield an empty Vec. The result is
+/// capped at the last `TUI_HISTORY_MAX` entries so a bloated file (e.g. one
+/// that grew before compaction kicked in) doesn't push the cursor to garbage
+/// when the user presses Up.
+///
+/// Reads as bytes and lossy-decodes so a single invalid UTF-8 sequence
+/// somewhere in the file (paste of binary, ANSI escapes, fuzzed bytes) does
+/// not silently disable the entire history feature. `read_to_string` would
+/// have rejected the whole file in that case.
 fn load_tui_history() -> Vec<String> {
     let Some(path) = tui_history_path() else { return Vec::new(); };
-    let Ok(content) = std::fs::read_to_string(&path) else { return Vec::new(); };
-    content
+    let Ok(bytes) = std::fs::read(&path) else { return Vec::new(); };
+    let content = String::from_utf8_lossy(&bytes);
+    let all: Vec<String> = content
         .lines()
         .filter(|l| !l.trim().is_empty())
         // Decode the multi-line marker we encode on save.
         .map(|l| l.replace(" ⏎ ", "\n"))
-        .collect()
+        // Defensively drop entries that exceed the persist cap. Anything
+        // beyond this size is almost certainly bot-pasted noise — surfacing
+        // it as the "newest" recall entry just hides the real prompt.
+        .filter(|s| s.len() <= TUI_HISTORY_ENTRY_MAX_BYTES)
+        .collect();
+    if all.len() <= TUI_HISTORY_MAX { return all; }
+    let drop_n = all.len() - TUI_HISTORY_MAX;
+    all.into_iter().skip(drop_n).collect()
 }
 
 /// Append a single prompt to ~/.phantom-mesh/tui-history. Encodes newlines
 /// to " ⏎ " so each prompt stays one line. Atomic-ish (open append, write,
 /// close) — no .tmp+rename because a partial line is recoverable on next read.
+/// Entries exceeding `TUI_HISTORY_ENTRY_MAX_BYTES` after encoding are skipped
+/// rather than truncated — a half-prompt is worse than no record.
 fn append_tui_history(prompt: &str) {
     use std::io::Write;
     let Some(path) = tui_history_path() else { return; };
@@ -83,6 +107,7 @@ fn append_tui_history(prompt: &str) {
         let _ = std::fs::create_dir_all(dir);
     }
     let line = prompt.replace('\n', " ⏎ ");
+    if line.len() > TUI_HISTORY_ENTRY_MAX_BYTES { return; }
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "{}", line);
     }
@@ -93,7 +118,12 @@ fn append_tui_history(prompt: &str) {
 /// last TUI_HISTORY_MAX entries.
 fn maybe_compact_tui_history() {
     let Some(path) = tui_history_path() else { return; };
-    let Ok(content) = std::fs::read_to_string(&path) else { return; };
+    // Read as bytes + lossy decode so a paste-bomb containing invalid UTF-8
+    // doesn't permanently disable compaction. `read_to_string` rejects the
+    // whole file on the first bad sequence — that exact bug let a 20 MB
+    // file accumulate in the wild because compaction silently no-op'd.
+    let Ok(bytes) = std::fs::read(&path) else { return; };
+    let content = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = content.lines().collect();
     if lines.len() <= TUI_HISTORY_MAX * 2 {
         return;
@@ -293,6 +323,11 @@ pub async fn run_tui(
     // restarts. File is one-prompt-per-line, capped at MAX_HISTORY (100)
     // most-recent. Newlines inside multi-line prompts are encoded as " ⏎ "
     // (matches the REPL's own convention) so each entry stays one line.
+    // Also opportunistically compact on startup — the on-submit compaction
+    // never fires if the user quits without ever pressing Enter, so a file
+    // polluted by a fuzz run or accidental paste-bomb otherwise stays
+    // bloated forever.
+    maybe_compact_tui_history();
     let history_init = load_tui_history();
 
     // Mouse capture defaults ON so the wheel scrolls the transcript out of
@@ -3843,6 +3878,27 @@ mod tui_render_tests {
             text.contains("newest-recall-marker"),
             "Up arrow should bring the newest history entry into the input; got:\n{}", text,
         );
+    }
+
+    /// Drives the real `handle_key(Up)` path end-to-end so a regression
+    /// in cursor/history wiring fails here instead of only being seen in
+    /// the tmux selftest. Mirrors the selftest case: two history entries,
+    /// press Up twice, expect input == oldest of the two.
+    #[test]
+    fn handle_key_up_arrow_recalls_history_end_to_end() {
+        use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+        let mut state = fresh_state();
+        state.history.push("older-entry".into());
+        state.history.push("newer-entry".into());
+        let app = wrap(state);
+
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let _ = handle_key(&app, up);
+        assert_eq!(app.lock().unwrap().input, "newer-entry",
+            "first Up should pull the newest history entry into the input");
+        let _ = handle_key(&app, up);
+        assert_eq!(app.lock().unwrap().input, "older-entry",
+            "second Up should walk one entry further back");
     }
 
     #[test]

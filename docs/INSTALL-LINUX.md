@@ -132,20 +132,105 @@ curl http://<peer-tailscale-ip>:7878/healthz
 
 ## Verify
 
+### 1. Quick health check
+
 ```bash
-phantom doctor                  # 9 sections; all ✓ in a healthy install
-phantom doctor --json | jq      # JSON form; .status = "ok" / "warn" / "fail"
-phantom selftest                # 22+ feature checks
-./scripts/test-mac.sh           # actually works on Linux too (despite the name)
+phantom doctor
 ```
 
-Open the dashboard:
+`phantom doctor` runs 11 colour-coded sections on Linux
+(binary, config, permissions, provider keys, phantom serve,
+systemd, network, autoevolve, identity, diagnostics, tools).
+Every line should be `✓` green or `⚠` yellow. `⚠` is expected for
+features you haven't opted into (unused provider keys, autoevolve
+not yet run). Red `✗` lines need fixing.
+
+**Expected output on a healthy Linux install:**
+
+```
+phantom doctor 0.4.0
+
+binary
+  ✓ version: phantom 0.4.0 (093b1af4c8+, linux-x86_64, built 2026-05-11)
+  ✓ path: /home/you/.cargo/bin/phantom
+
+config
+  ✓ agents.toml: /home/you/.phantom-mesh/agents.toml
+  ✓ ~/.phantom-mesh: exists
+
+permissions
+  ⚠ [permissions]: no rules → allow all (legacy default).
+                    See docs/PERMISSIONS.md for the Tool(specifier) DSL.
+
+provider keys
+  ⚠ Anthropic: not in env or agents.toml
+  ✓ Groq: env (gsk_L1…)
+
+phantom serve
+  ✓ healthz: 200 OK on http://127.0.0.1:7878/healthz
+  ✓ systemd: phantom-serve.service active
+
+network
+  ✓ Tailscale: connected (100.x.x.x  your-host  …  linux  -)
+
+autoevolve
+  ⚠ history: no runs yet — `phantom autoevolve --once`
+  ⚠ schedule: not scheduled — `phantom autoevolve schedule install`
+
+identity
+  ✓ identity: local-only (broker not deployed yet — login becomes available
+              once phantommesh.io/healthz returns 200)
+
+diagnostics
+  ✓ crash logs: 0 (no panics recorded)
+  ✓ events log: /home/you/.phantom-mesh/events.jsonl (0 bytes)
+
+tools
+  ✓ tools: 54 total (52 built-in + 2 cluster RPC)
+
+done.
+```
+
+The **⚠ lines to watch for on first install** (normal, not errors):
+- `Anthropic: not in env` — you didn't choose it during onboarding;
+  add `ANTHROPIC_API_KEY` to env or `agents.toml` if needed
+- `autoevolve/history: no runs yet` — expected before first run;
+  fix with `phantom autoevolve --once`
+- `autoevolve/schedule: not scheduled` — normal if you skipped that step
+- `identity: local-only (broker not deployed)` — expected; the broker at
+  phantommesh.io isn't live yet, so login is not yet available
+
+**Red ✗ lines that need fixing:**
+- `agents.toml: not found` → run `phantom onboarding`
+- `healthz: unreachable` → run `phantom serve` or `systemctl --user start phantom-serve`
+- `systemd: no unit installed` → run `phantom service install`
+- `Tailscale: not in PATH or not connected` → `sudo tailscale up`
+
+For machine-readable output:
+
+```bash
+phantom doctor --json | jq '.status'       # "ok" / "warn" / "fail"
+phantom doctor --json | jq '.serve'         # port, running, status
+phantom doctor --json | jq '.autoevolve'   # queue + last run
+```
+
+### 2. Open the dashboard
+
 ```bash
 xdg-open http://127.0.0.1:7878/projects
 ```
 
 Should show 6 project tiles + cluster status bar + recent activity.
 Each [Run Demo] streams output live via SSE.
+
+### 3. Feature sweep
+
+```bash
+phantom selftest                # 22+ feature checks
+phantom selftest --p0-only       # critical checks only, ~3 s
+./scripts/test-mac.sh           # works on Linux too (51 checks)
+./scripts/test-mcp-tools.sh     # 13 MCP tool/call e2e checks
+```
 
 ---
 
@@ -190,15 +275,34 @@ cargo uninstall phantom-mesh
 
 ## Troubleshooting
 
+### `phantom doctor` quick triage
+
+Run `phantom doctor` and look for the failure in this order:
+
+| `phantom doctor` line | Cause | Fix |
+|---|---|---|
+| `✗ agents.toml: not found` | onboarding not run | `phantom onboarding` |
+| `✗ healthz: unreachable` | serve not running | `phantom serve &` or `systemctl --user start phantom-serve` |
+| `⚠ autoevolve/history: no runs yet` | first run never done | `phantom autoevolve --once` |
+| `⚠ autoevolve/schedule: not scheduled` | schedule not installed | `phantom autoevolve schedule install` |
+| `⚠ Tailscale: not in PATH` | Tailscale not installed | `curl -fsSL https://tailscale.com/install.sh \| sh` |
+| `⚠ Tailscale: not connected` | not logged in | `sudo tailscale up` |
+| `⚠ crash logs: N recorded` | a recent agent run crashed | `phantom debug last` to read the latest |
+| `⚠ identity: local-only` | expected (broker not deployed) | nothing to fix — this is normal |
+| `⚠ events.jsonl: 0 bytes` | expected on first run | nothing to fix — this is normal |
+| `✗ [permissions]: parse error` | syntax in `agents.toml [permissions]` block | check the DSL in docs/PERMISSIONS.md |
+
+### Other shell-level failures
+
 | Symptom | Fix |
 |---|---|
 | `cargo install` fails on `openssl-sys` | `apt install libssl-dev pkg-config` and retry |
-| `cargo install` fails on `link.exe` not found | You're on WSL accidentally — use `cargo build --target x86_64-unknown-linux-gnu` |
+| `cargo install` fails on `link.exe` not found | You're on WSL — use `cargo build --target x86_64-unknown-linux-gnu` instead |
 | `phantom: command not found` after install | `source ~/.cargo/env` or add `~/.cargo/bin` to PATH |
-| `systemctl --user start phantom-serve` says "Failed to connect to bus" | You're in an ssh session without lingering — `sudo loginctl enable-linger $USER` |
+| `systemctl --user start phantom-serve` says "Failed to connect to bus" | Not lingered — `sudo loginctl enable-linger $USER` then retry |
+| `phantom autoevolve --once` crashes with no API key | In `agents.toml`, set `api_key_env = "GROQ_API_KEY"` (or your provider), export the env var, retry |
 | Port 7878 already in use | Set `[core] port = 7879` in agents.toml |
-| `phantom doctor` shows tailscale not connected | `sudo tailscale up` (and check the Tailscale admin UI for an auth nag) |
-| `phantom autoevolve --once` crashes with no API key | Edit `agents.toml`, set `api_key_env = "ANTHROPIC_API_KEY"` (or whichever provider), export the env var, retry |
+| `phantom doctor` output is garbled (ANSI codes) | Pipe through `cat -v` or `less -R`; terminal may not support colour |
 
 ---
 

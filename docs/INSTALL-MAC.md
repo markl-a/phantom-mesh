@@ -10,13 +10,11 @@ deepest doctor diagnostics.
 ## TL;DR — 90 seconds
 
 ```bash
-# 1. Build / install the binary (one of):
-brew install markl-a/phantom-mesh/phantom              # (planned)
-curl -fsSL https://phantom-mesh.dev/install.sh | sh    # (planned)
+# 1. One-shot install (no sudo needed; ~/.cargo/bin goes on PATH automatically)
 git clone https://github.com/markl-a/phantom-mesh && \
-  cd phantom-mesh/core && cargo install --path .       # ✅ works today
+  cd phantom-mesh/core && cargo install --path .
 
-# 2. First-time setup — wizard writes ~/.phantom-mesh/agents.toml + runs doctor
+# 2. First-time setup — wizard writes agents.toml, runs doctor, prints next steps
 phantom onboarding
 
 # 3. Auto-start at every login (launchd LaunchAgent)
@@ -25,9 +23,8 @@ phantom service install
 # 4. (Optional) hourly self-improvement loop
 phantom autoevolve schedule install
 
-# 5. Verify
+# 5. Verify — expect 11 sections, all ✓ or ⚠ (⚠ is fine for opt-in features)
 phantom doctor
-./scripts/test-mac.sh        # 51 automated checks, takes ~30s
 ```
 
 After step 4, phantom serve runs every login, the agent fixes failing
@@ -200,16 +197,91 @@ Cross-mesh dispatch then works: `mcp__phantom__subagent({node:
 phantom doctor
 ```
 
-Expected: 9 sections, all ✓ (or yellow ⚠ for opt-in features you
-haven't enabled, like MLX or Spotlight indexing). 0 red ✗ in a
-working install.
+`phantom doctor` runs 11 colour-coded sections. In a healthy install
+every line is `✓` green or `⚠` yellow. `⚠` is expected for features
+you haven't opted into (MLX server, Spotlight indexing, unused API
+keys). Red `✗` lines mean something needs attention.
+
+**Expected output on a well-configured Mac** (your keys and node names
+will differ):
+
+```
+phantom doctor 0.4.0
+
+binary
+  ✓ version: phantom 0.4.0 (093b1af4c8+, macos-aarch64, built 2026-05-11)
+  ✓ path: /Users/you/.cargo/bin/phantom
+
+config
+  ✓ agents.toml: /Users/you/.phantom-mesh/agents.toml
+  ✓ ~/.phantom-mesh: exists
+
+permissions
+  ⚠ [permissions]: no rules → allow all (legacy default).
+                    See docs/PERMISSIONS.md for the Tool(specifier) DSL.
+
+provider keys
+  ⚠ Anthropic: not in env or agents.toml
+  ✓ Groq: env (gsk_L1…)
+  ✓ Gemini: agents.toml
+  ⚠ DeepSeek: not in env or agents.toml
+
+phantom serve
+  ✓ healthz: 200 OK on http://127.0.0.1:7878/healthz
+  ✓ launchd: registered (pid 61585)
+
+network
+  ✓ Tailscale: connected (100.x.x.x  your-host  userid:…  macOS  -)
+
+MLX local LLM
+  ✓ mlx_lm: importable (`pip install mlx-lm` available)
+  ⚠ server: not reachable — `phantom mlx serve`
+
+autoevolve
+  ✓ history: last run @ 2026-05-12 07:10 → green (140 total)
+  ✓ schedule: registered (LaunchAgent)
+
+identity
+  ✓ logged in: you@example.com (Your Name)  via Google  device xxxxxxxx
+
+diagnostics
+  ⚠ crash logs: 7 recorded — latest: …/crash-xxxxxxx.log
+               › read with: phantom debug last
+  ✓ events log: …/events.jsonl (513196 bytes)
+
+tools
+  ✓ tools: 54 total (52 built-in + 2 cluster RPC)
+
+macOS integrations
+  ✓ APFS snapshots: tmutil reachable (0 snapshots — `phantom snapshot create`)
+  ⚠ Spotlight: not indexing /Users/you/repos/phantom-mesh
+  ✓ Xcode CLT: installed (xcode_simctl tool ready)
+
+done.
+```
+
+The **⚠ lines to watch for on first install** (normal, not errors):
+- `Anthropic: not in env` — you didn't choose Anthropic during onboarding;
+  add `ANTHROPIC_API_KEY` to env or `agents.toml` if you want it
+- `MLX server: not reachable` — expected unless you ran `phantom mlx serve`
+- `Spotlight: not indexing …` — expected unless you add a Spotlight path
+  in `agents.toml [core].spotlight_paths`
+- `crash logs: N recorded` — may appear after a bad agent run; use
+  `phantom debug last` to inspect
+
+**Red ✗ lines that need fixing:**
+- `agents.toml: not found` → run `phantom onboarding`
+- `launchd: not installed` → run `phantom service install`
+- `healthz: unreachable` → run `phantom serve` or `phantom service install`
+- `Tailscale: not in PATH or not connected` → `tailscale up`
+- `systemd: no unit installed` → run `phantom service install`
 
 For machine-readable output (CI / monitoring / scripted checks):
 
 ```bash
-phantom doctor --json | jq '.status'        # → "ok" / "warn" / "fail"
-phantom doctor --json | jq '.permissions'   # rule parse status
-phantom doctor --json | jq '.autoevolve'    # queue + last run
+phantom doctor --json | jq '.status'       # → "ok" / "warn" / "fail"
+phantom doctor --json | jq '.serve'        # port, running, status code
+phantom doctor --json | jq '.autoevolve'   # queue + last run timestamp
 ```
 
 ### 2. Run the test sweeps
@@ -296,13 +368,38 @@ That's clean. No system-level state, no kexts, no daemons.
 ## Troubleshooting
 
 See `docs/TROUBLESHOOTING-MAC.md` for the full footgun catalogue
-(every issue we hit while building this gets one section). The
-single most common one is the macOS-26 TCC trap, fixed in 65338ab —
-but if you upgraded across that boundary, run `phantom service
-uninstall && phantom service install` once.
+(every issue we hit while building this gets one section).
 
-For quick triage, the script `./scripts/test-mac.sh` will tell you
-which of 51 checks is failing.
+### `phantom doctor` quick triage
+
+Run `phantom doctor` and look for the failure in this order:
+
+| `phantom doctor` line | Cause | Fix |
+|---|---|---|
+| `✗ agents.toml: not found` | onboarding not run | `phantom onboarding` |
+| `✗ healthz: unreachable` | serve not running | `phantom serve &` or `phantom service install` |
+| `✗ launchd: not installed` | service not set up | `phantom service install` |
+| `⚠ MLX server: not reachable` | not started | `phantom mlx serve` (first run ~5 min download) |
+| `⚠ Spotlight: not indexing …` | path not in config | Add paths to `agents.toml [core].spotlight_paths` |
+| `⚠ Tailscale: not in PATH or not connected` | not logged in | `tailscale up` |
+| `⚠ autoevolve/history: no runs yet` | first run never done | `phantom autoevolve --once` |
+| `⚠ autoevolve/schedule: not scheduled` | schedule not installed | `phantom autoevolve schedule install` |
+| `⚠ crash logs: N recorded` | a recent agent run crashed | `phantom debug last` to read the latest |
+| `⚠ identity: local-only` | expected (broker not deployed) | nothing to fix — this is normal |
+| `✗ [permissions]: parse error` | syntax in `agents.toml [permissions]` block | check the DSL in docs/PERMISSIONS.md |
+
+The single most common macOS-26-specific issue is the TCC trap, fixed
+in commit 65338ab — but if you upgraded across that boundary, run:
+
+```bash
+phantom service uninstall && phantom service install
+```
+
+For full automated triage of the 51 environment checks:
+
+```bash
+./scripts/test-mac.sh    # tells you exactly which check is failing
+```
 
 ---
 

@@ -50,7 +50,7 @@ fn html_to_text(html: &str) -> String {
         } else if in_tag && b == b'>' {
             in_tag = false;
         } else if !in_tag {
-            out.push(b as char);
+            out.push(char::from(b));
         }
         i += 1;
     }

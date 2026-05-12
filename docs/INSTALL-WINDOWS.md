@@ -180,16 +180,108 @@ Invoke-RestMethod http://100.87.93.58:7878/healthz
 
 ## Verify
 
-```powershell
-phantom doctor                          # 9 sections, all ✓
-phantom doctor --json | ConvertFrom-Json | Select-Object status
-phantom selftest                        # feature sweep
+### 1. Quick health check
 
-# Open the dashboard
+```powershell
+phantom doctor
+```
+
+`phantom doctor` runs 11 colour-coded sections on Windows
+(binary, config, permissions, provider keys, phantom serve,
+Scheduled Task, network, autoevolve, identity, diagnostics, tools).
+Every line should be `✓` green or `⚠` yellow. `⚠` is expected for
+features you haven't opted into (unused provider keys, autoevolve not
+yet run). Red `✗` lines need fixing.
+
+**Expected output on a healthy Windows install:**
+
+```
+phantom doctor 0.4.0
+
+binary
+  ✓ version: phantom 0.4.0 (093b1af4c8+, windows-x86_64, built 2026-05-11)
+  ✓ path: C:\Users\you\.cargo\bin\phantom.exe
+
+config
+  ✓ agents.toml: C:\Users\you\.phantom-mesh\agents.toml
+  ✓ ~/.phantom-mesh: exists
+
+permissions
+  ⚠ [permissions]: no rules → allow all (legacy default).
+                    See docs/PERMISSIONS.md for the Tool(specifier) DSL.
+
+provider keys
+  ⚠ Anthropic: not in env or agents.toml
+  ✓ Groq: env (gsk_L1…)
+  ✓ Gemini: agents.toml
+  ⚠ DeepSeek: not in env or agents.toml
+
+phantom serve
+  ✓ healthz: 200 OK on http://127.0.0.1:7878/healthz
+  ✓ Scheduled Task: registered (last run ?)
+
+network
+  ⚠ Tailscale: not in PATH or not connected — `tailscale up`
+
+autoevolve
+  ⚠ history: no runs yet — `phantom autoevolve --once`
+  ⚠ schedule: not scheduled — `phantom autoevolve schedule install`
+
+identity
+  ✓ identity: local-only (broker not deployed yet — login becomes available
+              once phantommesh.io/healthz returns 200)
+
+diagnostics
+  ✓ crash logs: 0 (no panics recorded)
+  ✓ events log: C:\Users\you\.phantom-mesh\events.jsonl (0 bytes)
+
+tools
+  ✓ tools: 54 total (52 built-in + 2 cluster RPC)
+
+done.
+```
+
+The **⚠ lines to watch for on first install** (normal, not errors):
+- `Anthropic: not in env` — you didn't choose it during onboarding;
+  add `ANTHROPIC_API_KEY` to env or `agents.toml` if needed
+- `Tailscale: not in PATH or not connected` — run `tailscale up`
+  from an elevated PowerShell
+- `autoevolve/history: no runs yet` — expected before first run;
+  fix with `phantom autoevolve --once`
+- `autoevolve/schedule: not scheduled` — normal if you skipped that step
+- `identity: local-only (broker not deployed)` — expected; broker
+  at phantommesh.io isn't live yet
+
+**Red ✗ lines that need fixing:**
+- `agents.toml: not found` → run `phantom onboarding`
+- `healthz: unreachable` → start phantom serve or check port 7878
+- `Scheduled Task: not installed` → run the Scheduled Task commands
+  in the install section above
+- `Tailscale: not in PATH or not connected` → `tailscale up`
+
+For machine-readable output:
+
+```powershell
+phantom doctor --json | ConvertFrom-Json | Select-Object status
+phantom doctor --json | ConvertFrom-Json | Select-Object -ExpandProperty serve
+phantom doctor --json | ConvertFrom-Json | Select-Object -ExpandProperty autoevolve
+```
+
+### 2. Open the dashboard
+
+```powershell
 Start-Process "http://127.0.0.1:7878/projects"
 ```
 
-You should see 6 project tiles + cluster status + recent activity.
+Should show 6 project tiles + cluster status + recent activity.
+Each [Run Demo] streams output live via SSE.
+
+### 3. Feature sweep
+
+```powershell
+phantom selftest                # 22+ feature checks
+phantom selftest --p0-only      # critical checks only, ~4 s
+```
 
 ---
 
@@ -231,15 +323,35 @@ Remove-Item -Recurse -Force $env:USERPROFILE\AppData\Local\Programs\phantom-mesh
 
 ## Troubleshooting
 
+### `phantom doctor` quick triage
+
+Run `phantom doctor` and look for the failure in this order:
+
+| `phantom doctor` line | Cause | Fix |
+|---|---|---|
+| `✗ agents.toml: not found` | onboarding not run | `phantom onboarding` |
+| `✗ healthz: unreachable` | serve not running | `Start-Process phantom -ArgumentList "serve" -WindowStyle Hidden` |
+| `⚠ autoevolve/history: no runs yet` | first run never done | `phantom autoevolve --once` |
+| `⚠ autoevolve/schedule: not scheduled` | schedule not installed | `phantom autoevolve schedule install` |
+| `⚠ Tailscale: not in PATH` | Tailscale not installed | `winget install tailscale.tailscale` |
+| `⚠ Tailscale: not connected` | not logged in | `tailscale up` from elevated PowerShell |
+| `⚠ crash logs: N recorded` | a recent agent run crashed | `phantom debug last` to read the latest |
+| `⚠ identity: local-only` | expected (broker not deployed) | nothing to fix — this is normal |
+| `⚠ events.jsonl: 0 bytes` | expected on first run | nothing to fix — this is normal |
+| `✗ [permissions]: parse error` | syntax in `agents.toml [permissions]` block | check the DSL in docs/PERMISSIONS.md |
+
+### Other PowerShell-level failures
+
 | Symptom | Fix |
 |---|---|
 | `cargo install` fails on `link.exe` not found | Install MSVC Build Tools: `winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` |
 | `phantom: command not found` after install | Reopen PowerShell — Rustup adds `~/.cargo/bin` only after restart |
 | Defender Firewall blocks port 7878 | Add inbound rule: `New-NetFirewallRule -DisplayName "phantom serve" -Direction Inbound -LocalPort 7878 -Protocol TCP -Action Allow` |
-| `Scheduled Task` won't start | Check Task Scheduler GUI → right-click task → Run; check "Last Run Result" |
-| `phantom autoevolve schedule install` says macOS + Windows only | This is the message you WANT — it means the path is taken; check `Get-ScheduledTask -TaskName "*phantom*"` |
+| `Scheduled Task` won't start | Task Scheduler GUI → right-click task → Run; check "Last Run Result" |
+| `phantom autoevolve schedule install` says "macOS + Windows only" | This is the message you WANT — check `Get-ScheduledTask -TaskName "*phantom*"` |
 | Tailscale GUI shows "Logged out" | Open Tailscale tray icon → Log In; or `tailscale up` from elevated PowerShell |
-| `git clone` fails with "Unable to find remote helper for 'https'" | `winget install Git.Git` — must be the official Git for Windows, not the WSL one |
+| `git clone` fails with "Unable to find remote helper for 'https'" | `winget install Git.Git` — must be the official Git for Windows, not WSL |
+| `phantom doctor` output is garbled (ANSI codes) | PowerShell 5.x doesn't render ANSI — upgrade to PowerShell 7 (`winget install Microsoft.PowerShell`) |
 
 ---
 
