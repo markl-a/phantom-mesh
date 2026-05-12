@@ -341,13 +341,12 @@ impl CostTracker {
     // -----------------------------------------------------------------------
 
     /// Format a USD amount for human display:
-    /// - < $0.001  → e.g. "$0.0001"   (4 decimal places)
-    /// - < $1.0    → e.g. "$0.0123"   (4 decimal places)
-    /// - >= $1.0   → e.g. "$1.23"     (2 decimal places)
+    /// - < $1.0   → e.g. "$0.0123"   (4 decimal places — needed for sub-cent
+    ///             precision on cheap streaming models)
+    /// - >= $1.0  → e.g. "$1.23"     (2 decimal places — full-dollar amounts
+    ///             don't benefit from the extra digits)
     pub fn format_cost(usd: f64) -> String {
-        if usd < 0.001 {
-            format!("${:.4}", usd)
-        } else if usd < 1.0 {
+        if usd < 1.0 {
             format!("${:.4}", usd)
         } else {
             format!("${:.2}", usd)

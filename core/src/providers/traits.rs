@@ -66,9 +66,18 @@ pub fn classify_error(status: u16, body: &str) -> ProviderError {
             }
         }
         400 => {
-            if body_lower.contains("context") && (body_lower.contains("too long") || body_lower.contains("length") || body_lower.contains("limit")) {
-                ProviderError::ContextTooLong
-            } else if body_lower.contains("max_tokens") || body_lower.contains("context_window") {
+            // Two distinct ways providers phrase context overflows: either
+            // "context too long / length / limit" (Anthropic, OpenAI flavor)
+            // or "max_tokens / context_window" (Groq, Together flavor).
+            // Both map to the same ProviderError; clippy flagged the doubled
+            // branches, collapsed into one OR.
+            let is_context_overflow = (body_lower.contains("context")
+                && (body_lower.contains("too long")
+                    || body_lower.contains("length")
+                    || body_lower.contains("limit")))
+                || body_lower.contains("max_tokens")
+                || body_lower.contains("context_window");
+            if is_context_overflow {
                 ProviderError::ContextTooLong
             } else {
                 ProviderError::Unknown(format!("HTTP 400: {}", crate::tools::floor_char_boundary(body, 200)))

@@ -646,9 +646,13 @@ async fn run_loop(
                         prompt.chars().take(60).collect::<String>()
                     ),
                 );
-                let history = conversations.get_history(&app.lock().unwrap().chat_id).await;
-                let agent_name = app.lock().unwrap().agent_name().to_string();
+                // Pull chat_id out first so the MutexGuard drops before the
+                // .await — otherwise the lock is held across the suspend
+                // point and any other task (render loop, input handler)
+                // touching `app` blocks until get_history returns.
                 let chat_id = app.lock().unwrap().chat_id.clone();
+                let history = conversations.get_history(&chat_id).await;
+                let agent_name = app.lock().unwrap().agent_name().to_string();
                 crate::diag::record(
                     "tui_redirect_chain",
                     format!("chained turn history len = {}", history.len()),
@@ -840,9 +844,11 @@ async fn run_loop(
                                 }
                             }
                             // No turn in flight: spawn a fresh one.
-                            let history = conversations.get_history(&app.lock().unwrap().chat_id).await;
-                            let agent_name = app.lock().unwrap().agent_name().to_string();
+                            // Read chat_id first so the MutexGuard drops
+                            // before the await (clippy await_holding_lock).
                             let chat_id = app.lock().unwrap().chat_id.clone();
+                            let history = conversations.get_history(&chat_id).await;
+                            let agent_name = app.lock().unwrap().agent_name().to_string();
                             {
                                 let mut s = app.lock().unwrap();
                                 s.transcript.push(TranscriptItem::User(prompt.clone()));

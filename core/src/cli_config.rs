@@ -144,18 +144,16 @@ pub fn auto_load_env() -> usize {
 // ── Mask helpers ─────────────────────────────────────────────────────────
 
 /// "sk-wrdrOfA..." → "sk-wrd…" so the user sees enough to identify a key
-/// without leaking the secret part.
+/// without leaking the secret part. The trailing ellipsis is intentionally
+/// preserved for short values too (e.g. `"abc" → "abc…"`) so the masked
+/// form has a consistent visual marker — the test suite pins this.
 pub fn mask_key(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return String::from("(empty)");
     }
     let prefix_chars = trimmed.chars().take(6).collect::<String>();
-    if trimmed.len() <= 6 {
-        format!("{}…", prefix_chars)
-    } else {
-        format!("{}…", prefix_chars)
-    }
+    format!("{}…", prefix_chars)
 }
 
 /// Lowercase provider name → conventional env var name.

@@ -1931,11 +1931,10 @@ async fn serve_script(
     for path in &candidates {
         if let Ok(content) = std::fs::read_to_string(path) {
             tracing::info!("Serving script {} from {}", filename, path.display());
-            let content_type = if filename.ends_with(".ps1") {
-                "text/plain; charset=utf-8" // browsers can render in plain
-            } else {
-                "text/plain; charset=utf-8"
-            };
+            // Always text/plain — .ps1 and the other script extensions all
+            // benefit from inline rendering in browsers; per-extension MIME
+            // tuning hasn't been needed in practice.
+            let content_type = "text/plain; charset=utf-8";
             return Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", content_type)
