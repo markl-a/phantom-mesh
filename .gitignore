@@ -273,3 +273,6 @@ app/src-tauri/binaries/*
 
 # Git worktrees (parallel feature development)
 .worktrees/
+
+# Cloudflare Workers local dev artifact (phantommesh-io)
+.wrangler/

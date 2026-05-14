@@ -814,11 +814,11 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
             // remote nodes have no access to this machine's filesystem.
             let remote_task = strip_local_paths(subtask, &cwd.to_string_lossy());
             match cluster.assign_task_to_peer(url, agent_name, &remote_task).await {
-                Some(job_id) => {
+                Ok(job_id) => {
                     eprintln!("  {} {} ({})", colored("→", 33), colored(url, 36), colored(&job_id, 90));
                     jobs.push((url.clone(), job_id));
                 }
-                None => eprintln!("  {} failed: {}", colored("✗", 31), url),
+                Err(e) => eprintln!("  {} {} ({})", colored("✗", 31), url, e),
             }
         } else {
             // Collect all local subtasks — combine them into one prompt.
@@ -897,11 +897,31 @@ async fn poll_all_jobs(
                 if let Ok(data) = resp.json::<serde_json::Value>().await {
                     let status = data["status"].as_str().unwrap_or("unknown");
                     if status == "done" || status == "completed" {
-                        let output = data["output"].as_str().unwrap_or("(no output)").to_string();
+                        // The output field is structured — surface a clear
+                        // marker when the peer reports done but no body,
+                        // rather than the previous silent "(no output)".
+                        let output = match data["output"].as_str() {
+                            Some(s) if !s.is_empty() => s.to_string(),
+                            _ => format!("(peer {peer_url} reported done with empty output)"),
+                        };
                         eprintln!("  {} peer {} job done", colored("✓", 32), colored(peer_url, 36));
                         results.push((peer_url.clone(), output));
                     } else if status == "error" {
-                        eprintln!("  {} peer {} job errored", colored("✗", 31), colored(peer_url, 36));
+                        // Surface the peer's error message instead of swallowing
+                        // it — pattern-match the cluster error shapes we know
+                        // about (missing agent, HMAC) so the user gets a hint.
+                        let err_text = data["error"].as_str().unwrap_or("(no error message)");
+                        let hint = if err_text.contains("No agent configuration") {
+                            " — peer is missing this agent in its agents.toml (DispatchError::AgentMissing)"
+                        } else if err_text.contains("unauthorized") {
+                            " — HMAC rejected (DispatchError::HMACMismatch)"
+                        } else {
+                            ""
+                        };
+                        eprintln!("  {} peer {} job errored: {}{}",
+                            colored("✗", 31), colored(peer_url, 36), err_text, hint);
+                        // Propagate so the synthesis stage sees the error too.
+                        results.push((peer_url.clone(), format!("[peer error] {err_text}")));
                     } else {
                         still_pending.push((peer_url.clone(), job_id.clone()));
                     }
@@ -1348,9 +1368,31 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
                     if p.active_tasks == 1 { "" } else { "s" });
             }
             match manager.assign_task_to_best_peer(&agent, &prompt).await {
-                Some(output) => println!("{}", output),
-                None => {
-                    eprintln!("{}", colored("Picked peer rejected the task. Maybe all_peers became offline mid-call (unlikely) or HTTP error during dispatch.", 31));
+                Ok(output) => println!("{}", output),
+                Err(e) => {
+                    use phantom_mesh::mesh::DispatchError;
+                    // Print structured diagnostics so the user knows which
+                    // remediation to take (rotate secret vs fix agents.toml
+                    // vs retry vs investigate upstream LLM).
+                    let msg = match &e {
+                        DispatchError::NoPeersAvailable =>
+                            "No online peers available to take the task.".to_string(),
+                        DispatchError::PeerUnreachable { url, source } =>
+                            format!("Peer {url} unreachable: {source}"),
+                        DispatchError::HMACMismatch { url } =>
+                            format!("HMAC auth rejected by {url} — check cluster_secret matches on both nodes."),
+                        DispatchError::AgentMissing { url, agent } =>
+                            format!("Peer {url} has no agent '{agent}' configured in its agents.toml."),
+                        DispatchError::PeerRejected { url, code, message } => {
+                            let code_part = code.as_deref().map(|c| format!(" [{c}]")).unwrap_or_default();
+                            format!("Peer {url} rejected the task{code_part}: {message}")
+                        }
+                        DispatchError::Timeout { url, elapsed } =>
+                            format!("Peer {url} timed out after {elapsed:?}."),
+                        DispatchError::Other(m) =>
+                            format!("Dispatch error: {m}"),
+                    };
+                    eprintln!("{}", colored(&msg, 31));
                     std::process::exit(1);
                 }
             }
@@ -1378,13 +1420,13 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
             }
             eprintln!("Dispatching async task (agent={})...", colored(&agent, 36));
             match manager.assign_task_async(&agent, &prompt).await {
-                Some(job_id) => {
+                Ok(job_id) => {
                     eprintln!("{}", colored("Task accepted.", 32));
                     println!("{}", job_id);
                     eprintln!("Poll: phantom peer poll <peer-url> {}", job_id);
                 }
-                None => {
-                    eprintln!("{}", colored("No available peers or dispatch failed.", 31));
+                Err(e) => {
+                    eprintln!("{} {}", colored("Dispatch failed:", 31), e);
                     std::process::exit(1);
                 }
             }
@@ -1505,11 +1547,14 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
     eprintln!("\n{}", colored("── Dispatching ──", 35));
     let mut jobs: Vec<(String, String)> = vec![];
     for peer_url in &online_peers {
-        if let Some(job_id) = cluster.assign_task_to_peer(peer_url, &agent_name, &prompt).await {
-            eprintln!("  {} → {} ({})", colored("→", 33), colored(peer_url, 36), colored(&job_id, 90));
-            jobs.push((peer_url.clone(), job_id));
-        } else {
-            eprintln!("  {} → {} (failed to dispatch)", colored("✗", 31), colored(peer_url, 36));
+        match cluster.assign_task_to_peer(peer_url, &agent_name, &prompt).await {
+            Ok(job_id) => {
+                eprintln!("  {} → {} ({})", colored("→", 33), colored(peer_url, 36), colored(&job_id, 90));
+                jobs.push((peer_url.clone(), job_id));
+            }
+            Err(e) => {
+                eprintln!("  {} → {} ({})", colored("✗", 31), colored(peer_url, 36), e);
+            }
         }
     }
 

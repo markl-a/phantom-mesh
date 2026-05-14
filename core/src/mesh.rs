@@ -22,6 +22,96 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use uuid::Uuid;
+
+// ── Dispatch error + response types ─────────────────────────────────────────
+//
+// `DispatchError` distinguishes failure modes of `assign_task_to_best_peer`
+// so the CLI can print a useful message instead of a blanket "rejected".
+//
+// `DispatchResponse` uses `#[serde(flatten)] extra` so new server-side
+// response fields (e.g. token counts, model name, trace id) don't require
+// editing this code — see SWARM-ARCHITECTURE §4–§6.
+//
+// We hand-roll `impl Display + Error` rather than pulling in `thiserror`
+// just for this module (thiserror is not currently a `core` crate dep).
+
+/// Structured failure modes for cluster task dispatch.
+#[derive(Debug)]
+pub enum DispatchError {
+    /// No online peer was available to take the task.
+    NoPeersAvailable,
+    /// HTTP-level failure reaching the peer (connection refused, DNS, timeout, ...).
+    PeerUnreachable { url: String, source: String },
+    /// HMAC authentication was rejected by the peer.
+    HMACMismatch { url: String },
+    /// Peer accepted the request but returned an `error` field.
+    PeerRejected { url: String, code: Option<String>, message: String },
+    /// Peer rejected because its local `agents.toml` has no such agent.
+    AgentMissing { url: String, agent: String },
+    /// Peer accepted the request but did not respond within `elapsed`.
+    Timeout { url: String, elapsed: std::time::Duration },
+    /// Fallback for anything we didn't model (malformed body, JSON decode error, ...).
+    Other(String),
+}
+
+impl std::fmt::Display for DispatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoPeersAvailable => write!(f, "no peers available"),
+            Self::PeerUnreachable { url, source } => {
+                write!(f, "peer {url} unreachable: {source}")
+            }
+            Self::HMACMismatch { url } => write!(f, "HMAC mismatch on peer {url}"),
+            Self::PeerRejected { url, code, message } => {
+                write!(f, "peer {url} rejected task: {message} (code: {code:?})")
+            }
+            Self::AgentMissing { url, agent } => {
+                write!(f, "peer {url} has no agent named '{agent}'")
+            }
+            Self::Timeout { url, elapsed } => {
+                write!(f, "peer {url} timed out after {elapsed:?}")
+            }
+            Self::Other(msg) => write!(f, "dispatch error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for DispatchError {}
+
+/// JSON envelope returned by `/rpc/message`.
+///
+/// `extra` swallows fields we don't recognize today so server-side additions
+/// remain backward compatible — clients only deserialize what they need.
+#[derive(Debug, Deserialize)]
+struct DispatchResponse {
+    output: Option<String>,
+    error: Option<String>,
+    error_code: Option<String>,
+    /// Set by /rpc/task/assign (async dispatch) — the just-created job id.
+    /// `None` for /rpc/message (synchronous) responses.
+    job_id: Option<String>,
+    #[allow(dead_code)] // reserved: future routing observability
+    dispatched_to: Option<String>,
+    #[serde(flatten)]
+    #[allow(dead_code)] // reserved: forward-compat envelope for future fields
+    extra: std::collections::HashMap<String, serde_json::Value>,
+}
+
+/// Parse a server-side "No agent configuration found (agent 'NAME')..."
+/// error into the missing agent name, if it matches.
+fn parse_missing_agent(msg: &str) -> Option<String> {
+    // Match the exact phrasing produced by `core/src/agent.rs` (`agent.rs:357`).
+    let needle = "No agent configuration";
+    if !msg.contains(needle) {
+        return None;
+    }
+    // Best-effort: extract NAME from "(agent 'NAME')".
+    let start = msg.find("(agent '")? + "(agent '".len();
+    let rest = &msg[start..];
+    let end = rest.find('\'')?;
+    Some(rest[..end].to_string())
+}
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -730,61 +820,169 @@ impl ClusterManager {
 
     /// Forward a task to the least-loaded online peer and return its output.
     /// Calls `/rpc/message` for a synchronous round-trip.
-    pub async fn assign_task_to_best_peer(&self, agent: &str, prompt: &str) -> Option<String> {
+    ///
+    /// Returns a structured `DispatchError` rather than `Option` so the CLI
+    /// can tell the user *why* the dispatch failed (HMAC mismatch vs missing
+    /// agent vs upstream LLM error vs unreachable peer).
+    pub async fn assign_task_to_best_peer(
+        &self,
+        agent: &str,
+        prompt: &str,
+    ) -> Result<String, DispatchError> {
         let peers = self.peer_infos().await;
         let best = peers
             .iter()
             .filter(|p| p.online)
-            .min_by_key(|p| p.active_tasks)?;
+            .min_by_key(|p| p.active_tasks)
+            .ok_or(DispatchError::NoPeersAvailable)?;
 
+        // `task_id` is a client-side stub for future server-side idempotency
+        // keys (SWARM-ARCHITECTURE §6). The server ignores it today; including
+        // it now lets us roll out server idempotency without a wire-format bump.
         let body = serde_json::json!({
             "message": prompt,
             "agent": agent,
+            "task_id": Uuid::new_v4().to_string(),
         })
         .to_string();
 
         let url = format!("{}/rpc/message", best.url.trim_end_matches('/'));
-        let resp = post_with_retry(&self.client, &url, body, None).await.ok()?;
-        let data: serde_json::Value = resp.json().await.ok()?;
-        data["output"].as_str().map(|s| s.to_string())
+        let resp = post_with_retry(&self.client, &url, body, None)
+            .await
+            .map_err(|source| DispatchError::PeerUnreachable {
+                url: url.clone(),
+                source,
+            })?;
+
+        let status = resp.status();
+        // HMAC failures surface as 401 on the server (auth middleware in
+        // `core/src/main.rs`); flag them distinctly so the user fixes the
+        // cluster_secret rather than blaming the agent.
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(DispatchError::HMACMismatch { url: url.clone() });
+        }
+
+        let data: DispatchResponse = resp.json().await.map_err(|e| {
+            DispatchError::Other(format!("decode response from {url}: {e}"))
+        })?;
+
+        if let Some(err_msg) = data.error {
+            // Classify by message content. Server doesn't yet emit machine-
+            // readable error codes; once it does, prefer `data.error_code`.
+            if let Some(missing) = parse_missing_agent(&err_msg) {
+                return Err(DispatchError::AgentMissing {
+                    url: url.clone(),
+                    agent: missing,
+                });
+            }
+            return Err(DispatchError::PeerRejected {
+                url: url.clone(),
+                code: data.error_code,
+                message: err_msg,
+            });
+        }
+
+        data.output.ok_or_else(|| {
+            DispatchError::Other(format!("peer {url} returned neither output nor error"))
+        })
     }
 
     /// Dispatch a task asynchronously to the least-loaded online peer.
     /// Returns the `job_id` for polling via `/rpc/task/status/:id`.
     /// The request is HMAC-auth'd when `cluster_secret` is configured.
-    pub async fn assign_task_async(&self, agent: &str, prompt: &str) -> Option<String> {
+    pub async fn assign_task_async(
+        &self,
+        agent: &str,
+        prompt: &str,
+    ) -> Result<String, DispatchError> {
         let peers = self.peer_infos().await;
         let best = peers
             .iter()
             .filter(|p| p.online)
-            .min_by_key(|p| p.active_tasks)?;
-
-        let body = serde_json::json!({ "agent": agent, "prompt": prompt }).to_string();
-        let auth_token = if self.config.cluster_secret.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
-            Some(self.make_auth_token(&body))
-        } else {
-            None
-        };
-
+            .min_by_key(|p| p.active_tasks)
+            .ok_or(DispatchError::NoPeersAvailable)?;
         let url = format!("{}/rpc/task/assign", best.url.trim_end_matches('/'));
-        let resp = post_with_retry(&self.client, &url, body, auth_token.as_deref()).await.ok()?;
-        let data: serde_json::Value = resp.json().await.ok()?;
-        data["job_id"].as_str().map(|s| s.to_string())
+        self.post_task_assign(&url, agent, prompt).await
     }
 
     /// Dispatch a task to a specific peer URL (with HMAC auth when configured).
-    /// Returns the `job_id` for polling, or None on failure.
-    pub async fn assign_task_to_peer(&self, peer_url: &str, agent: &str, prompt: &str) -> Option<String> {
-        let body = serde_json::json!({ "agent": agent, "prompt": prompt }).to_string();
-        let auth_token = if self.config.cluster_secret.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+    /// Returns the `job_id` for polling via `/rpc/task/status/:id`, or a
+    /// structured `DispatchError` if the peer was unreachable / rejected / etc.
+    ///
+    /// Mirrors the error classification done by `assign_task_to_best_peer` so
+    /// `phantom evolve --distributed` and `phantom peer send-async` surface
+    /// the same reasons (HMAC mismatch, missing agent, peer rejection) rather
+    /// than a blanket "failed to dispatch".
+    pub async fn assign_task_to_peer(
+        &self,
+        peer_url: &str,
+        agent: &str,
+        prompt: &str,
+    ) -> Result<String, DispatchError> {
+        let url = format!("{}/rpc/task/assign", peer_url.trim_end_matches('/'));
+        self.post_task_assign(&url, agent, prompt).await
+    }
+
+    /// Shared implementation: POST `/rpc/task/assign` with HMAC auth (when
+    /// configured), parse a `DispatchResponse`, and classify the failure mode.
+    /// `task_id` is included client-side per SWARM-ARCHITECTURE §6 — the
+    /// server ignores it today but the wire format won't need a bump when
+    /// idempotency keys land server-side.
+    async fn post_task_assign(
+        &self,
+        url: &str,
+        agent: &str,
+        prompt: &str,
+    ) -> Result<String, DispatchError> {
+        let body = serde_json::json!({
+            "agent": agent,
+            "prompt": prompt,
+            "task_id": Uuid::new_v4().to_string(),
+        })
+        .to_string();
+        let auth_token = if self
+            .config
+            .cluster_secret
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
             Some(self.make_auth_token(&body))
         } else {
             None
         };
-        let url = format!("{}/rpc/task/assign", peer_url.trim_end_matches('/'));
-        let resp = post_with_retry(&self.client, &url, body, auth_token.as_deref()).await.ok()?;
-        let data: serde_json::Value = resp.json().await.ok()?;
-        data["job_id"].as_str().map(|s| s.to_string())
+        let resp = post_with_retry(&self.client, url, body, auth_token.as_deref())
+            .await
+            .map_err(|source| DispatchError::PeerUnreachable {
+                url: url.to_string(),
+                source,
+            })?;
+
+        if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(DispatchError::HMACMismatch { url: url.to_string() });
+        }
+
+        let data: DispatchResponse = resp.json().await.map_err(|e| {
+            DispatchError::Other(format!("decode response from {url}: {e}"))
+        })?;
+
+        if let Some(err_msg) = data.error {
+            if let Some(missing) = parse_missing_agent(&err_msg) {
+                return Err(DispatchError::AgentMissing {
+                    url: url.to_string(),
+                    agent: missing,
+                });
+            }
+            return Err(DispatchError::PeerRejected {
+                url: url.to_string(),
+                code: data.error_code,
+                message: err_msg,
+            });
+        }
+
+        data.job_id.ok_or_else(|| {
+            DispatchError::Other(format!("peer {url} returned neither job_id nor error"))
+        })
     }
 
     /// Poll a job's result from the given peer.  Returns `(status, output)`.
@@ -917,6 +1115,70 @@ fn default_agent() -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn dispatch_response_missing_agent_classifies_correctly() {
+        // Server returns an error body shaped like `agent.rs:357` produces.
+        let body = json!({
+            "error": "No agent configuration found (agent 'master'). Check agents.toml."
+        });
+        let parsed: DispatchResponse = serde_json::from_value(body).expect("parse");
+        let err_msg = parsed.error.expect("has error");
+        let missing = parse_missing_agent(&err_msg).expect("matched missing-agent regex");
+        assert_eq!(missing, "master");
+
+        // And: the classifier itself, when wrapped into a DispatchError,
+        // round-trips through Display sensibly.
+        let de = DispatchError::AgentMissing {
+            url: "http://example:7878".into(),
+            agent: missing,
+        };
+        let rendered = format!("{de}");
+        assert!(rendered.contains("'master'"), "got {rendered}");
+        assert!(rendered.contains("example"), "got {rendered}");
+    }
+
+    #[test]
+    fn dispatch_response_parses_assign_task_error_path() {
+        // assign_task_to_peer's structured-error path: server returned an
+        // error envelope from /rpc/task/assign (e.g. missing agent on peer).
+        // Before this fix, the old `data["job_id"].as_str()` would silently
+        // return None and the caller printed a blanket "failed to dispatch".
+        // Now the error must round-trip into the structured DispatchError.
+        let body = json!({
+            "error": "No agent configuration found (agent 'reviewer'). Check agents.toml.",
+            "error_code": "agent_missing",
+        });
+        let parsed: DispatchResponse = serde_json::from_value(body).expect("parse");
+        assert!(parsed.job_id.is_none(), "error envelope must not contain job_id");
+        let err_msg = parsed.error.expect("has error");
+        assert_eq!(parse_missing_agent(&err_msg).as_deref(), Some("reviewer"));
+        assert_eq!(parsed.error_code.as_deref(), Some("agent_missing"));
+
+        // And the success path still extracts job_id correctly.
+        let ok_body = json!({ "job_id": "11111111-2222-3333-4444-555555555555" });
+        let ok: DispatchResponse = serde_json::from_value(ok_body).expect("parse");
+        assert_eq!(
+            ok.job_id.as_deref(),
+            Some("11111111-2222-3333-4444-555555555555"),
+        );
+        assert!(ok.error.is_none());
+    }
+
+    #[test]
+    fn dispatch_response_extra_fields_ignored() {
+        // Forward-compat: unknown server fields should not break decode.
+        let body = json!({
+            "output": "hello",
+            "future_field": { "anything": 1 },
+            "tokens_used": 42
+        });
+        let parsed: DispatchResponse = serde_json::from_value(body).expect("parse");
+        assert_eq!(parsed.output.as_deref(), Some("hello"));
+        assert!(parsed.error.is_none());
+        assert!(parsed.extra.contains_key("future_field"));
+        assert!(parsed.extra.contains_key("tokens_used"));
+    }
 
     #[test]
     fn extract_tailscale_peer_ips_filters_offline_and_ipv6() {
