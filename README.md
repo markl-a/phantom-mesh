@@ -1,41 +1,49 @@
 # Phantom Mesh
 
-**A self-hostable AI agent that runs everywhere — Mac, Linux, Windows, Android, iOS — and improves itself while you sleep.**
+**A self-hostable AI agent runtime that runs across your devices — Mac, Linux, Windows, Android, iOS — learns from each session, and lets you talk to it through CLI, chat channels, or the local web dashboard.**
 
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
-[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](core/Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue.svg)](core/Cargo.toml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platforms-Mac%20·%20Linux%20·%20Win%20·%20Android%20·%20iOS-success.svg)](docs/)
-[![Tests](https://img.shields.io/badge/tests-403%20unit%20+%2018%20feature-brightgreen.svg)](scripts/selftest.d/)
+[![Status](https://img.shields.io/badge/status-alpha-orange.svg)](RELEASE-NOTES.md)
+
+> ⚠️ **Alpha quality.** APIs, flags, and tool surface can change between releases. Don't run untrusted prompts against a production machine without sandboxing. The stable surfaces (Hermes core loop, anti-hallucination V1, ~30-tool catalog, 12-provider fallback, cluster RPC with cap-aware forwarding) are flagged in §What's new. Many features sit behind `experimental-*` cargo flags by design.
 
 ```bash
 git clone https://github.com/markl-a/phantom-mesh && \
   cd phantom-mesh/core && cargo install --path .
 phantom onboarding              # interactive wizard, ~90 s
 phantom service install         # auto-start at every login
-phantom autoevolve schedule install   # hourly self-improvement
-phantom doctor                  # 9-section health check
+phantom doctor                  # health check
 ```
 
-That's the whole install. After it, your Mac (or Linux box / Windows
-desktop / Termux on ROG / sideloaded iPhone) is a self-evolving AI
-agent that keeps your repo green, runs 50 tools on demand, and
-talks to its peers over Tailscale.
+That's the install. After it, your Mac (or Linux box / Windows desktop / Termux-on-Android / sideloaded iPhone) runs an agent that can talk to peers over Tailscale, route tasks by capability, and (behind the `experimental-hermes-*` flags) extract reusable skills from successful and failed sessions.
 
-**Try this next** (30 seconds):
+**Try this next**:
 
 ```bash
 phantom serve &                              # start the local HTTP daemon
-open http://127.0.0.1:7878/projects          # 6-pinned-project dashboard
+open http://127.0.0.1:7878/projects          # local web dashboard
 phantom doctor --json | jq .status           # machine-readable health
-phantom autoevolve digest --since-hours 24   # what self-improved overnight
 ```
 
 Or use it from Claude Code as an MCP server:
 
 ```bash
-claude mcp add phantom $(which phantom) mcp  # 50+ tools via mcp__phantom__*
+claude mcp add phantom $(which phantom) mcp  # ~30 tools via mcp__phantom__*
 ```
+
+## What's new in v0.5.0 (2026-05-17)
+
+- **Hermes self-improvement loop wired end-to-end** (behind `experimental-hermes-curator` + `experimental-hermes-memory`) — judge, extract Skill from success or failure, store in FTS5 memory, recall into agent context next time. Alpha; the loop runs, but operator visibility into the skill bank ships in v0.6.0.
+- **Cluster RPC with cap-aware forwarding** and **peer heartbeat with health-aware peer selection** (the heartbeat is behind `experimental-cluster-heartbeat`). Single-host two-port acceptance proven; multi-host real-mesh smoke targeted for v0.6.0.
+- **OpenClaw real channels** (behind `experimental-openclaw`) — operator-verified live Telegram round-trip, real Slack `chat.postMessage` + signing-secret HMAC + replay defense, WhatsApp adapter as stub awaiting Meta Business verification.
+- **30 Hermes tools** + **12 LLM providers** (Anthropic, Groq, OpenAI-compat, Mistral, xAI, Together, Fireworks, Cohere, Perplexity, AI21, NVIDIA NIM, `claude_cli`) with retry + rate-limit middleware.
+- **4 of 4 CRITICAL security findings closed** (Tauri CSP, OAuth state binding, install-script SHA256+HTTPS). **4 of 5 V8 Tauri HIGH findings closed** post-cut. Full audit set under [`docs/superpowers/audits/`](docs/superpowers/audits/).
+- **`cargo audit`**: 5 of 6 transitive RUSTSEC advisories cleared (teloxide upgrade). The 1 remaining (`rsa` Marvin Attack via the desktop OAuth path) is not reachable in our usage; rationale at `docs/superpowers/security/`.
+
+See [RELEASE-NOTES.md](RELEASE-NOTES.md) for the full diff vs v0.4.0.
 
 ---
 
