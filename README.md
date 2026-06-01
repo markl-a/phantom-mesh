@@ -21,3 +21,28 @@
   <img src="https://img.shields.io/badge/status-exploratory-orange.svg" alt="status: exploratory"> ·
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green.svg" alt="license">
 </p>
+
+---
+
+## 下載 / Download
+
+想先試玩可以裝來看看(仍在探索、不穩定)/ Optional, if you want to poke at it (exploratory, unstable):
+
+```powershell
+# Windows (PowerShell)
+iwr -useb https://phantommesh.io/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -fsSL https://phantommesh.io/install.sh | sh
+```
+
+## 大致規劃 / Rough direction
+
+- 單一 binary 的跨裝置 mesh:Mac · Linux · Windows · Android · iOS
+- 多模態的生活 / 工作記錄 + 每日教練回顧
+- 隨用隨學、會自我累積的 skill
+- 行動 app 與網頁控制台
+
+> 方向仍在探索,隨時可能調整。 / Direction is still exploratory and may change at any time.
