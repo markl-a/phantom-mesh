@@ -1,7 +1,60 @@
 [package]
 name = "phantom-mesh"
-version = "0.4.0"
+version = "0.6.0-rc.1"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# TODO(clippy-debt-2026-05-19): 68+ pre-existing clippy errors across the lib
+# and both binaries became hard errors when rustc 1.93.0 tightened `-D warnings`
+# defaults. CI was red on every PR (#260, #261, #262, all phantom-mesh
+# Dependabot bumps) because of this debt — not the PRs themselves. Each lint
+# below is real, fixable work; collectively a focused refactor (~3-6h, mostly
+# auto-fixable via `cargo clippy --fix --lib -p phantom-mesh --allow-no-vcs`
+# then a parallel `--bin phantom` + `--bin phantom-mesh` pass). When that
+# refactor lands, this whole table should delete cleanly — verify with
+# `cargo clippy --all-targets -- -D warnings`. Do NOT extend this list
+# without a tracking issue; new lints should be fixed at the call site.
+[lints.clippy]
+cmp_owned                         = "allow"
+collapsible_else_if               = "allow"
+collapsible_if                    = "allow"
+doc_lazy_continuation             = "allow"
+doc_overindented_list_items       = "allow"
+double_ended_iterator_last        = "allow"
+drain_collect                     = "allow"
+duplicated_attributes             = "allow"
+empty_line_after_doc_comments     = "allow"
+format_in_format_args             = "allow"
+if_same_then_else                 = "allow"
+implicit_saturating_sub           = "allow"
+io_other_error                    = "allow"
+iter_cloned_collect               = "allow"
+let_underscore_future             = "allow"
+manual_contains                   = "allow"
+manual_find                       = "allow"
+manual_is_multiple_of             = "allow"
+manual_pattern_char_comparison    = "allow"
+manual_split_once                 = "allow"
+manual_strip                      = "allow"
+needless_borrow                   = "allow"
+needless_borrows_for_generic_args = "allow"
+needless_match                    = "allow"
+needless_question_mark            = "allow"
+needless_range_loop               = "allow"
+needless_return                   = "allow"
+new_without_default               = "allow"
+obfuscated_if_else                = "allow"
+print_literal                     = "allow"
+ptr_arg                           = "allow"
+redundant_closure                 = "allow"
+single_char_add_str               = "allow"
+single_match                      = "allow"
+too_many_arguments                = "allow"
+unnecessary_lazy_evaluations      = "allow"
+unnecessary_map_or                = "allow"
+useless_conversion                = "allow"
+useless_format                    = "allow"
+while_let_loop                    = "allow"
 
 [[bin]]
 name = "phantom-mesh"
@@ -14,15 +67,111 @@ path = "src/bin/phantom.rs"
 [features]
 default = []
 desktop = []
+# H4 weekend push (2026-05-15): gates the new provider adapters.
+# Initial 4: mistral / xai / together / fireworks.
+# T51 (2026-05-16, v0.6.0 V1) adds 4 more: perplexity / ai21 / nvidia / cohere.
+# Default OFF — `cargo build` produces an identical binary to baseline.
+experimental-hermes-providers = []
+
+# H1 + H2 share this feature flag (weekend push 2026-05-15):
+# - H1 (§4): Hermes-style Curator skeleton + LLM-judge wired into `phantom evolve --judge`
+# - H2 (§5): Hermes Skill Document parser/schema (pulls in serde_yaml)
+# Default OFF — `cargo build` (no flags) must produce a binary that does NOT
+# pull in any hermes module code.
+experimental-hermes-curator = ["dep:serde_yaml"]
+
+# OpenClaw — Remote Control for your cluster (BIG-GOAL §P3 / spec E004).
+# Turns every chat channel you already use — Telegram, Slack, WhatsApp —
+# into a remote: one chat message = one cluster command; the bot's reply
+# is the agent's response to *the cluster doing the work*, not a
+# standalone conversation. The umbrella feature pulls in Telegram (O1) +
+# WhatsApp + Slack channel adapters plus the B9/T90 per-channel
+# rate-limit (dashmap + arc-swap) and B8/T89 media handler.
+# Original tracks: weekend-push 2026-05-15, spec §5 O2 + §6.1.
+# The Telegram sub-feature was unlocked by [B2/T83] (2026-05-16); enabling
+# it brings in the optional `teloxide` dependency and the new
+# openclaw::telegram launcher (phantom serve --openclaw-telegram).
+experimental-openclaw = [
+    "experimental-openclaw-telegram",
+    "experimental-openclaw-whatsapp",
+    "experimental-openclaw-slack",
+    "dep:dashmap",
+    "dep:arc-swap",
+]
+# OpenClaw Telegram channel adapter (track O1) — gates the new
+# openclaw::telegram module + its teloxide dependency, plus the B3/T84
+# webhook-secret validator (core/src/openclaw/webhook_auth.rs).
+# Default OFF: the production `cargo build` produces zero new bytes vs. baseline.
+experimental-openclaw-telegram = ["dep:teloxide"]
+# WhatsApp + Slack sub-features each pull in the B9/T90 token-bucket
+# limiter (dashmap + arc-swap) because the SlackStub / WhatsApp impls call
+# `PerChannelLimiter::check` from their `send_message`. Telegram's runtime
+# already pulls them in via the umbrella; the sub-feature stays minimal.
+experimental-openclaw-whatsapp = ["dep:dashmap", "dep:arc-swap"]
+experimental-openclaw-slack = ["dep:dashmap", "dep:arc-swap"]
+
+# H5 — Hermes tool catalog. Default OFF; enabling pulls in chrono + url
+# only for the catalog. Existing phantom tools never reach this code.
+# See docs/superpowers/specs/2026-05-15-weekend-multi-agent-push-design.md §5 H5.
+# T50 (v0.6.0 V1): catalog grew 20 → 30. New tools pull in serde_yaml only
+# when this flag is on; default cargo build still does not compile it.
+experimental-hermes-tools = ["dep:url", "dep:serde_yaml", "uuid/v7"]
+
+# H3 — Hermes long-term memory backend (SQLite FTS5). Off by default; when on,
+# enables core::hermes::memory and the 0007_hermes_fts5 schema. rusqlite is
+# already a non-optional dep (used by tasks::store), so this flag adds no
+# new transitive crates — purely a code-gating switch.
+experimental-hermes-memory = []
+
+# Umbrella feature: turns on every Hermes-style module at once.
+# Integration tests in core::hermes::integration require all three.
+# Default cargo build (no flags) remains a byte-identical baseline.
+experimental-hermes = [
+    "experimental-hermes-curator",
+    "experimental-hermes-memory",
+    "experimental-hermes-tools",
+]
+
+# T22 — Anti-hallucination V1 (Shape 1 only: file-creation claims with zero tool calls).
+# Default OFF. When OFF: no code from core::hallucination compiles, the AgentEvent::ConsistencyWarning
+# variant is absent, and the agent.rs hook is `#[cfg]`-stripped. `cargo build` (no flags) must
+# produce a binary byte-identical (modulo build-id) to baseline.
+# See docs/anti-hallucination-v1-design.md Phase 0 + docs/superpowers/plans/2026-05-15-track-t22-anti-halluc-v1.md.
+experimental-anti-hallucination = []
+
+# C4 (v0.6.0, 2026-05-17) — peer-heartbeat + health-aware peer selection.
+# Adds a background tokio task that periodically probes configured peers'
+# `/rpc/ping`, transitioning each peer's `PeerHealth` Healthy ↔ Unhealthy
+# based on the configurable failure threshold ([cluster] heartbeat_failure_threshold,
+# default 3) and interval ([cluster] heartbeat_interval_secs, default 30s).
+# `select_best_peer_with_caps` always honours the health tiers (Healthy first,
+# Unhealthy as fallback) — but when this flag is OFF, peers never flip
+# Unhealthy, so the tier-1 pick always wins and routing is byte-identical
+# to pre-C4 behaviour. Default OFF so v0.6.0 ships even if a subtle bug
+# surfaces in the heartbeat loop on long-running clusters.
+experimental-cluster-heartbeat = []
 
 [dependencies]
+# ── E004 Task 1 (2026-05-19): encrypted storage layer.
+# `age` is the file-encryption framework (ChaCha20-Poly1305 + X25519 / scrypt /
+# passphrase recipients). `bech32` is needed for age key serialisation
+# (AGE-SECRET-KEY-1… / age1…). `hkdf` + existing `sha2` derive the per-device
+# event encryption key from `~/.phantom-mesh/identity.key`. `zeroize` wipes
+# secret material on drop.
+age = { version = "0.10", default-features = false }
+bech32 = "0.11"
+hkdf = "0.12"
+zeroize = { version = "1", features = ["derive"] }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = { version = "0.9", optional = true }
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }   # CancellationToken — used by AgentRuntime interrupt handle
-axum = { version = "0.7", features = ["ws"] }
+axum = { version = "0.7", features = ["ws", "multipart"] }
 anyhow = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"], default-features = false }
 toml = "1.1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
@@ -33,24 +182,66 @@ sha2 = "0.10"
 base64 = "0.22"
 rand = "0.8"
 urlencoding = "2"
-dirs = "5"
+dirs = "6"   # bumped 5→6 in T57 (V6 audit): drops windows-sys 0.48 transitively
 unicode-width = "0.2"   # display-width-aware cursor + wrap math in tui.rs (CJK = 2 cells)
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 hex = "0.4"
 hmac = "0.12"
 shell-words = "1.1"
 subtle = "2.5"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 futures = "0.3"
-uuid = { version = "1", features = ["v4", "serde"] }
-rustyline = { version = "14", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "v7", "serde"] }  # v7 promoted to default (SPEC-16 §8 time-ordered ids: focus/food capture). Was experimental-hermes-tools-only.
+rustyline = { version = "14", features = ["derive"] }   # T57: NOT bumped — rustyline 15+ changed `Highlighter::highlight_char` signature (bool → CmdKind), which would require src/bin/phantom.rs source change. Deferred.
 regex = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 fnv = "1"
 pm-types = { path = "../crates/pm-types" }
 async-trait = "0.1"
-ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }   # for Paragraph::line_count() — see core/src/tui.rs::render_transcript
-crossterm = "0.28"
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }   # for Paragraph::line_count() — see core/src/tui.rs::render_transcript
+crossterm = "0.29"   # bumped 0.28→0.29 in T57 (V6 audit): aligns with ratatui-crossterm 0.1's crossterm 0.29
+
+# ── E002 Task 8 (2026-05-19): chrono is now required by life_node::storage
+# (EventMeta.timestamp = chrono::Utc::now().to_rfc3339()), so it's no longer
+# feature-gated. Previously only pulled in by `experimental-hermes-tools`.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+
+# ── SPEC-10 §7 wire types (added 2026-05-25, Stage 1 spec→code transition) ──
+# ts-rs emits TypeScript .d.ts files from #[derive(TS)] Rust types into
+# app/src/lib/generated/rpc/ so the frontend RPC client stays in lockstep with
+# the Rust source of truth. `serde-compat` keeps #[serde(...)] attributes
+# honoured; `chrono-impl` lets us emit DateTime<Utc> as `string` once Stage 2
+# switches `handled_at` from raw String to typed timestamp.
+ts-rs = { version = "10", features = ["serde-compat", "chrono-impl"] }
+
+# ── Phase D Stage 4 unlock (added 2026-05-25, after Wave 14 Phase C kickoff) ──
+# These five crates were flagged Stage 4 by the wire-module subagents (the
+# remaining Stage 4 markers like security-framework / jni / ort are intentionally
+# deferred to v0.7.0 — Apple/Android keystore + embedding model are bigger lifts).
+mdns-sd = "0.13"        # SPEC-11 mdns_wire: ServiceDaemon register / browse / TXT
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "rustls-tls", "builder", "tokio1-rustls-tls"] }   # SPEC-24 coach_delivery_wire: SMTP send
+cron = "0.15"           # SPEC-22 capture_habit_wire: Custom frequency cron parse
+phf = { version = "0.13", features = ["macros"] }   # SPEC-17/28 static catalog + FSM transition table
+
+# SPEC-12 identity_wire Linux keystore — secret-service moved into the existing
+# [target.'cfg(target_os = "linux")'.dependencies] block at line ~258 below to
+# avoid duplicate-key error.
+
+# ── Hermes tool catalog (feature-gated) ───────────────────────────────────────
+# Optional deps pulled in only when `experimental-hermes-tools` is enabled.
+# Default cargo build does not compile these.
+url = { version = "2", optional = true }
+
+# ── OpenClaw rate-limit (feature-gated) ───────────────────────────────────────
+# B9/T90: per-channel token-bucket limiter. Pulled in only when
+# `experimental-openclaw` is enabled — default cargo build skips both crates.
+dashmap = { version = "6", optional = true }
+arc-swap = { version = "1", optional = true }
+
+# ── OpenClaw Telegram (feature-gated, track O1) ───────────────────────────────
+# Only compiled when `experimental-openclaw-telegram` is enabled. rustls is
+# selected so we keep the existing TLS stack (no openssl pull-in).
+teloxide = { version = "0.17", default-features = false, features = ["macros", "ctrlc_handler", "rustls"], optional = true }
 
 # ── Platform-conditional deps ──────────────────────────────────────────────────
 # notify-rust: macOS/Windows/Linux desktop only.
@@ -65,7 +256,141 @@ notify-rust = "4"
 # 5.13, so adding the dep doesn't break older Linux targets.
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
+# SPEC-12 identity_wire Linux keystore — secret-service has zbus underneath
+# (D-Bus) which only compiles on Linux. macOS/Windows have their own native
+# keystore APIs via security-framework / windows crates respectively.
+# secret-service v5 requires an explicit runtime feature; pick tokio (matches
+# the async stack) + pure-Rust crypto (avoids an openssl system dep on CI).
+secret-service = { version = "5", features = ["rt-tokio-crypto-rust"] }
+
+# Windows-only: native screenshot (GDI BitBlt) + mouse/keyboard input
+# (SendInput) bindings for the computer-use MCP tools. Doc 28 §5 v0.6.0
+# gap: phantom can consume images but couldn't drive a GUI. The
+# `windows` crate is split-feature so we only pay for the modules we
+# touch. `png` is a tiny pure-Rust encoder used to serialise the
+# captured BGRA framebuffer to a file.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_HiDpi",
+] }
+png = "0.17"
 
 [dev-dependencies]
 tempfile = "3"
 wiremock = "0.6.5"
+jsonschema = "0.18"
+# T-EVAL-01 (2026-05-29): insta snapshot testing for fast wire-serialization
+# round-trip regression checks. JSON snapshots live next to the test file
+# under tests/snapshots/. Run with plain `cargo test`; `cargo insta review`
+# (cargo-insta binary, optional) gives interactive snapshot accept/reject.
+insta = { version = "1.47", features = ["json"] }
+# T5 / T7 (2026-05-15): in-test Router::oneshot for handler integration tests.
+# T7 codex audit needs HMAC + fail-closed regression tests. Upgraded to 0.5.
+tower = { version = "0.5", features = ["util"] }
+
+# T16 (2026-05-15): Criterion harness for perf baselines.
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+# ── T12 weekend-push 2026-05-15: user-facing examples for new flags ──────────
+[[example]]
+name = "experimental_hermes_curator_example"
+path = "examples/experimental_hermes_curator_example.rs"
+required-features = ["experimental-hermes-curator"]
+
+[[example]]
+name = "experimental_hermes_memory_example"
+path = "examples/experimental_hermes_memory_example.rs"
+required-features = ["experimental-hermes-memory"]
+
+[[example]]
+name = "experimental_hermes_tools_example"
+path = "examples/experimental_hermes_tools_example.rs"
+required-features = ["experimental-hermes-tools"]
+
+[[example]]
+name = "experimental_hermes_providers_example"
+path = "examples/experimental_hermes_providers_example.rs"
+required-features = ["experimental-hermes-providers"]
+
+[[example]]
+name = "experimental_openclaw_example"
+path = "examples/experimental_openclaw_example.rs"
+required-features = ["experimental-openclaw"]
+
+[[example]]
+name = "experimental_openclaw_telegram_example"
+path = "examples/experimental_openclaw_telegram_example.rs"
+required-features = ["experimental-openclaw-telegram"]
+
+[[example]]
+name = "anthropic_streaming_upgrades_example"
+path = "examples/anthropic_streaming_upgrades_example.rs"
+
+# ── DEMO-1 (2026-05-16): first full Hermes + OpenClaw closed-loop demo.
+# Requires umbrella Hermes feature + openclaw stubs. Hermetic — uses
+# wiremock + tempfile, makes zero real network calls.
+[[example]]
+name = "end_to_end_smoke"
+path = "examples/end_to_end_smoke.rs"
+required-features = ["experimental-hermes", "experimental-openclaw"]
+
+# ── DEMO-3 (2026-05-17): swap-providers-per-request via Phase 5
+# `AgentRuntime::with_resolver`. No features required — uses pure mock
+# providers, makes zero real network calls. Runnable without any API keys.
+[[example]]
+name = "demo3_swap_provider_per_request"
+path = "examples/demo3_swap_provider_per_request.rs"
+
+# ── T16 weekend-push baseline benches (2026-05-15) ────────────────────────
+[[bench]]
+name = "anthropic_cache"
+path = "benches/anthropic_cache.rs"
+harness = false
+
+[[bench]]
+name = "fts5_memory_insert"
+path = "benches/fts5_memory_insert.rs"
+harness = false
+required-features = ["experimental-hermes-memory"]
+
+[[bench]]
+name = "fts5_memory_query"
+path = "benches/fts5_memory_query.rs"
+harness = false
+required-features = ["experimental-hermes-memory"]
+
+[[bench]]
+name = "hermes_tool_lookup"
+path = "benches/hermes_tool_lookup.rs"
+harness = false
+required-features = ["experimental-hermes-tools"]
+
+[[bench]]
+name = "hermes_tool_dispatch"
+path = "benches/hermes_tool_dispatch.rs"
+harness = false
+required-features = ["experimental-hermes-tools"]
+
+# A7 / T95 (2026-05-16): Curator V2 consensus aggregation benches.
+# Pure-fn only — see benches/curator_v2_consensus.rs preamble. Never spawns
+# wiremock or constructs a JudgeProvider impl, so this bench has no HTTP
+# surface and no network dependency.
+[[bench]]
+name = "curator_v2_consensus"
+path = "benches/curator_v2_consensus.rs"
+harness = false
+required-features = ["experimental-hermes-curator"]
+
+# F004 (2026-05-17): cluster forwarding selection-latency bench.
+# Pure-fn only — measures the in-process slice of the E001 "cross-host
+# forwarding p99 < 500ms" budget. The full LAN p50/p95/p99 measurement
+# lives in scripts/phantom-test/scenarios/cross_host_perf.sh. No feature
+# flag — runs under default `cargo bench`.
+[[bench]]
+name = "cluster_forwarding"
+path = "benches/cluster_forwarding.rs"
+harness = false

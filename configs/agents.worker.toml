@@ -1,6 +1,6 @@
 # Phantom Mesh — Worker Node Config
 # ====================================
-# For: Acer (Windows), AYANEO (Windows), or other Linux/Windows worker machines
+# For: node-b (Windows), node-d (Windows), or other Linux/Windows worker machines
 # Role: Local compute worker — runs local Ollama models for fast, private inference
 #
 # Worker nodes are CPU/GPU-constrained machines that handle specific subtasks
@@ -13,7 +13,7 @@
 # (The binary searches: ./agents.toml → ./PHANTOM.toml → ~/.phantom-mesh/agents.toml
 #  → ~/.config/phantom-mesh/config.toml — see core/src/config.rs::find_and_load.)
 #
-# Then change node_name to identify this machine (e.g. "acer", "ayaneo", "linux-01").
+# Then change node_name to identify this machine (e.g. "node-b", "node-c", "linux-01").
 #
 # Required env vars:
 #   PHANTOM_CLUSTER_SECRET — shared secret matching all other nodes
@@ -57,14 +57,14 @@ default_model = "claude-haiku-4-5"    # haiku is cost-efficient for worker fallb
 # Replace the Tailscale IPs with actual addresses from 'tailscale ip -4'.
 
 [cluster]
-node_name = "worker"    # CHANGE THIS: "acer" | "ayaneo" | "linux-01" | etc.
+node_name = "worker"    # CHANGE THIS: "node-b" | "node-c" | "linux-01" | etc.
 # cluster_secret: shared HMAC key for inter-node RPC authentication.
 # Must match the value on every other node in the mesh.
 # Generate once with: openssl rand -hex 32
 cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
 peers = [
-  "http://100.x.x.1:7878",   # coordinator (Z13/Mac)   — replace with actual Tailscale IP
-  "http://100.x.x.5:7878",   # cloud node (Oracle VM)  — replace with actual Tailscale IP
+  "http://100.x.x.1:7878",   # coordinator             — replace with actual Tailscale IP
+  "http://100.x.x.5:7878",   # cloud node              — replace with actual Tailscale IP
 ]
 
 # ── Telegram bot — disabled on worker nodes ───────────────────────────────────

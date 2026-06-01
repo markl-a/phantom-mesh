@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPEC-02 phantom design tokens, mirrored from app/tailwind.config.js so the
+     native Material 3 chrome (splash window, status / navigation bars, system
+     dialogs) matches the WebView UI. Injected into gen/android by inject.sh. -->
+<resources>
+    <color name="phantom_bg">#0f0f1a</color>
+    <color name="phantom_card">#1a1a2e</color>
+    <color name="phantom_border">#2a2a3e</color>
+    <color name="phantom_primary">#8ab4f8</color>
+    <color name="phantom_secondary">#bb86fc</color>
+    <color name="phantom_success">#4caf50</color>
+    <color name="phantom_warning">#ff9800</color>
+    <color name="phantom_danger">#dc3545</color>
+    <color name="phantom_text">#e0e0e0</color>
+    <color name="phantom_muted">#8888aa</color>
+
+    <!-- Tauri scaffold defaults — kept so any generated reference still resolves. -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>

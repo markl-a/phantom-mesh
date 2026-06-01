@@ -2,10 +2,25 @@
 // PBKDF2 (Web Crypto, no extra deps).
 
 import type { Context } from "hono";
+import { getCookie, deleteCookie } from "hono/cookie";
 import type { Env, OAuthSession, CliPayload } from "../types";
 import { upsertUser, getUserByEmail, setEmailPassword, claimDevice, recordTokenIssue } from "../lib/db";
-import { mintBrokerJwt } from "../lib/oauth";
+import { mintBrokerJwt, verifyOAuthNonce, NONCE_COOKIE } from "../lib/oauth";
 import { setSessionCookie } from "./oauth";
+
+// B2 audit fix — same nonce binding the OAuth callback does. The
+// email tier consumes the same OAuthSession KV record (state was issued
+// by /auth/cli/start or /auth/web/start), so the same cookie-bound
+// proof-of-initiator applies. See docs/superpowers/audits/
+// 2026-05-15-broker-audit.md §2.2 B2.
+async function emailNonceBindingOk(
+  c: Context<{ Bindings: Env }>,
+  session: OAuthSession,
+): Promise<boolean> {
+  if (!session.nonce_hash) return false;
+  const cookieNonce = getCookie(c, NONCE_COOKIE) ?? "";
+  return verifyOAuthNonce(c.env.BROKER_JWT_SECRET, cookieNonce, session.nonce_hash);
+}
 
 const PBKDF2_ITERS = 100_000;
 const SALT_BYTES = 16;
@@ -22,7 +37,14 @@ export async function emailRegister(c: Context<{ Bindings: Env }>) {
   const raw = await c.env.SESSIONS.get(state);
   if (!raw) return c.text("session expired", 400);
   const session = JSON.parse(raw) as OAuthSession;
+  // B2: bind the caller to the originator browser before mutating
+  // anything (user creation, session deletion). Same generic error
+  // shape as missing-state.
+  if (!(await emailNonceBindingOk(c, session))) {
+    return c.text("session expired", 400);
+  }
   await c.env.SESSIONS.delete(state);
+  deleteCookie(c, NONCE_COOKIE, { path: "/" });
 
   const existing = await getUserByEmail(c.env, email);
   if (existing && existing.password_hash) {
@@ -46,7 +68,11 @@ export async function emailLogin(c: Context<{ Bindings: Env }>) {
   const raw = await c.env.SESSIONS.get(state);
   if (!raw) return c.text("session expired", 400);
   const session = JSON.parse(raw) as OAuthSession;
+  if (!(await emailNonceBindingOk(c, session))) {
+    return c.text("session expired", 400);
+  }
   await c.env.SESSIONS.delete(state);
+  deleteCookie(c, NONCE_COOKIE, { path: "/" });
 
   const user = await getUserByEmail(c.env, email);
   if (!user || !user.password_hash) return c.text("no such account", 401);

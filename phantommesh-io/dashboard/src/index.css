@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Local font stack only — CSP forbids googleapis.com / cdnjs links.
+   Fonts ship from dashboard/public/fonts/ when designers commit them;
+   until then we lean on the OS-native stack which Lighthouse scores
+   the same as a self-hosted webfont. */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}

@@ -1,15 +1,14 @@
-# Self-Test Suite
+# 自我測試套件（Self-Test Suite）
 
-A drop-in, registry-style test framework. **Every new feature ships with one
-file** under `scripts/selftest.d/`; the orchestrator (`scripts/selftest.sh`)
-auto-discovers it. Output is human-readable by default and machine-readable
-(JSON) on demand, so both a developer and an LLM agent (Claude Code, phantom
-itself, CI) can run it the same way.
+一套即插即用、登錄表（registry）風格的測試框架。**每個新功能都附帶一個位於
+`scripts/selftest.d/` 底下的檔案**；協調器（orchestrator，`scripts/selftest.sh`）
+會自動探索（auto-discover）到它。輸出預設為人類可讀格式，需要時也可輸出機器可讀
+（JSON）格式，因此開發者與 LLM 代理（agent，如 Claude Code、phantom 本身、CI）
+都能用同樣的方式執行它。
 
-## Run it
+## 執行它
 
-There are three entry points — they all do the same thing, pick whichever
-matches your context:
+共有三個進入點（entry point）——它們做的事完全相同，挑一個符合你情境的就好：
 
 ```bash
 # 1. Native subcommand (works anywhere phantom is on PATH)
@@ -34,42 +33,42 @@ PHANTOM_SELFTEST_SCRIPT=/abs/path/selftest.sh phantom selftest   # script overri
 PHANTOM_BASH=/path/to/bash.exe phantom selftest                  # bash override (Windows)
 ```
 
-## Platform support
+## 平台支援
 
-| Platform | Status |
+| 平台 | 狀態 |
 |---|---|
-| macOS    | ✅ first-class — bash + `python3` ship by default |
-| Linux    | ✅ first-class — bash + `python3` ship by default |
-| Windows + Git Bash | ✅ — `phantom selftest` auto-finds `bash.exe`. Pure-bash JSON builder runs when `python3` is missing, so no extra installs needed. `jq` is optional (only for consuming the JSON). |
-| Windows + WSL | ✅ — same first-class story as Linux |
-| Windows native (cmd / PowerShell, no Git/WSL) | ❌ — there is no bash. `phantom selftest` prints a one-shot install hint pointing at `https://git-scm.com/download/win`. |
+| macOS    | ✅ 一等公民（first-class）—— bash 與 `python3` 預設隨附 |
+| Linux    | ✅ 一等公民（first-class）—— bash 與 `python3` 預設隨附 |
+| Windows + Git Bash | ✅ —— `phantom selftest` 會自動尋得 `bash.exe`。當缺少 `python3` 時，純 bash 的 JSON 建構器會接手執行，因此無需額外安裝。`jq` 為選用（僅在消費 JSON 時需要）。 |
+| Windows + WSL | ✅ —— 與 Linux 相同的一等公民體驗 |
+| Windows native（cmd / PowerShell，無 Git/WSL） | ❌ —— 沒有 bash。`phantom selftest` 會印出一次性的安裝提示，指向 `https://git-scm.com/download/win`。 |
 
-The `phantom selftest` Rust shim probes for bash in this order on Windows:
+`phantom selftest` 這個 Rust shim（薄墊片）在 Windows 上會以下列順序探測 bash：
 
-1. `$PHANTOM_BASH` (if set; missing file → exit 2 with a clear error)
-2. `bash` / `bash.exe` on `$PATH`
+1. `$PHANTOM_BASH`（若已設定；檔案不存在 → 以清楚的錯誤訊息 exit 2）
+2. `$PATH` 上的 `bash` / `bash.exe`
 3. `C:\Program Files\Git\bin\bash.exe`
 4. `C:\Program Files (x86)\Git\bin\bash.exe`
-5. `%LOCALAPPDATA%\Programs\Git\bin\bash.exe` (per-user Git install)
+5. `%LOCALAPPDATA%\Programs\Git\bin\bash.exe`（每使用者的 Git 安裝）
 
-`phantom selftest` is a thin Rust shim: it locates `scripts/selftest.sh` in
-the repo (cwd → walk-up from cwd → walk-up from the binary →
-`~/.phantom-mesh/scripts/selftest.sh`) and execs bash with all your args
-forwarded. So an LLM agent driving phantom — or phantom driving itself
-through its own `shell` tool — only needs to know `phantom selftest`.
+`phantom selftest` 是一個輕薄的 Rust shim：它會在 repo 中定位 `scripts/selftest.sh`
+（cwd → 從 cwd 往上層尋找 → 從二進位檔往上層尋找 →
+`~/.phantom-mesh/scripts/selftest.sh`），然後 exec bash 並轉發你所有的引數。
+因此一個驅動 phantom 的 LLM 代理 —— 或 phantom 透過自己的 `shell` 工具驅動自己 ——
+只需要知道 `phantom selftest` 即可。
 
-## Exit codes
+## 結束碼（Exit codes）
 
-| code | meaning |
+| 代碼 | 意義 |
 |------|---------|
-| 0    | no P0 failure |
-| 1    | at least one P0 test failed |
-| 2    | orchestrator error (missing `selftest.d/`, bad arg) |
+| 0    | 無 P0 失敗 |
+| 1    | 至少一個 P0 測試失敗 |
+| 2    | 協調器錯誤（缺少 `selftest.d/`、引數錯誤） |
 
-## How an LLM agent should consume the output (self-debug loop)
+## LLM 代理應如何消費輸出（自我除錯迴圈）
 
-The suite is built so an agent — Claude Code, phantom itself, or CI — can
-run, diagnose, and fix without a human in the loop.
+本套件的設計讓代理 —— Claude Code、phantom 本身或 CI —— 能在沒有人類介入的情況下
+執行、診斷並修復。
 
 ```bash
 scripts/selftest.sh --json --out /tmp/r.json   # exit 0 = green / 1 = P0 red
@@ -95,9 +94,9 @@ scripts/selftest.sh --feature <feature-name>
 cat <artifact-path>          # contains: command, cwd, date, stdout+stderr, exit
 ```
 
-The JSON shape is stable. Failure rows always include `repro` and (for
-helpers `t_run`/`t_check` or any test that set `T_ARTIFACT`) an `artifact`.
-Each feature ships a `hints` array — paths the agent should grep first.
+JSON 的結構是穩定的。失敗的列總是包含 `repro`，並且（對於輔助函式
+`t_run`/`t_check` 或任何設定了 `T_ARTIFACT` 的測試）包含一個 `artifact`。
+每個功能都附帶一個 `hints` 陣列 —— 代理應該優先 grep 的路徑。
 
 ```json
 {
@@ -128,92 +127,92 @@ Each feature ships a `hints` array — paths the agent should grep first.
 }
 ```
 
-### Run artifacts directory
+### 執行產物（artifacts）目錄
 
-Each run creates `test-results/selftest-<utc-timestamp>/` containing:
+每次執行都會建立 `test-results/selftest-<utc-timestamp>/`，內含：
 
-- `selftest.log`  — TSV: `feature\tstatus\tname\tdetail\trepro\tartifact`
-- `<feature>/<test-slug>.log` — full stdout+stderr+exit for any check using
-  `t_run` / `t_check` or that set `T_ARTIFACT`. The header records command,
-  cwd, and timestamp so the agent can re-run faithfully.
+- `selftest.log`  —— TSV 格式：`feature\tstatus\tname\tdetail\trepro\tartifact`
+- `<feature>/<test-slug>.log` —— 任何使用 `t_run` / `t_check` 或設定了
+  `T_ARTIFACT` 的檢查的完整 stdout+stderr+exit。標頭（header）會記錄命令、
+  cwd 與時間戳記，因此代理可以忠實地重新執行。
 
-Old run dirs are pruned automatically (last 10 kept).
+舊的執行目錄會自動修剪（pruned，保留最近 10 個）。
 
-## Add a self-test for a new feature (60 seconds)
+## 為新功能新增一個自我測試（60 秒）
 
-1. Pick a number prefix and a short name. Convention:
-   - `00-09` bootstrap (binary, version)
-   - `10-29` core CLI (doctor, run, init)
-   - `30-49` network surfaces (serve, mcp, mesh)
-   - `50-69` platform integrations (snapshot-mac, launchd, systemd)
-   - `70-89` heavy / optional (mlx, autoevolve full cycle)
-   - `90+`   experimental
+1. 挑一個數字前綴與一個簡短名稱。慣例如下：
+   - `00-09` 啟動引導（bootstrap，binary、version）
+   - `10-29` 核心 CLI（doctor、run、init）
+   - `30-49` 網路介面（serve、mcp、mesh）
+   - `50-69` 平台整合（snapshot-mac、launchd、systemd）
+   - `70-89` 重量級 / 選用（mlx、autoevolve 完整週期）
+   - `90+`   實驗性
 
 2. `cp scripts/selftest.d/_template.sh scripts/selftest.d/35-myfeature.sh`
 
-3. Fill in `selftest_feature_meta` and `selftest_run`. Use only the helpers:
+3. 填入 `selftest_feature_meta` 與 `selftest_run`。只使用這些輔助函式（helper）：
 
-   | helper | use for |
+   | 輔助函式 | 用途 |
    |---|---|
-   | `t_pass <name> [detail]` | success |
-   | `t_fail <name> [detail]` | failure |
-   | `t_skip <name> [reason]` | known-irrelevant on this host |
-   | `t_run   <name> <argv...>` | run argv, full output → artifact, repro recorded |
-   | `t_check <name> "<shell>"` | run shell string, full output → artifact, repro = the string |
-   | `t_have <cmd>`           | predicate: command on PATH? |
-   | `t_http <url> [code]`    | predicate: HTTP returns expected code? |
+   | `t_pass <name> [detail]` | 成功 |
+   | `t_fail <name> [detail]` | 失敗 |
+   | `t_skip <name> [reason]` | 在此主機上已知無關 |
+   | `t_run   <name> <argv...>` | 執行 argv，完整輸出 → artifact，記錄 repro |
+   | `t_check <name> "<shell>"` | 執行 shell 字串，完整輸出 → artifact，repro = 該字串 |
+   | `t_have <cmd>`           | 述詞（predicate）：命令是否在 PATH 上？ |
+   | `t_http <url> [code]`    | 述詞（predicate）：HTTP 是否回傳預期的代碼？ |
 
-   **Always prefer `t_check` / `t_run` over manual `t_pass`/`t_fail`** when a
-   shell command is what's being tested. They auto-capture stdout+stderr to
-   `$SELFTEST_ARTIFACTS/<slug>.log` and store the command as the `repro`
-   field, which is what an LLM agent uses to re-run and debug just that check.
+   當被測試的對象是一個 shell 命令時，**永遠優先使用 `t_check` / `t_run` 而非手動的
+   `t_pass`/`t_fail`**。它們會自動把 stdout+stderr 擷取到
+   `$SELFTEST_ARTIFACTS/<slug>.log`，並把命令存進 `repro`
+   欄位，而這正是 LLM 代理用來重新執行並只除錯該檢查的依據。
 
-   For manual `t_pass`/`t_fail` (e.g. you computed a value), set
-   `T_REPRO=<cmd>` and/or `T_ARTIFACT=<path>` immediately before the call —
-   they're auto-cleared after.
+   若要手動使用 `t_pass`/`t_fail`（例如你計算出了一個值），請在呼叫前緊接著設定
+   `T_REPRO=<cmd>` 與／或 `T_ARTIFACT=<path>` ——
+   它們在呼叫後會被自動清除。
 
-7. **Add `hints=` to your feature meta** — space-separated source paths an
-   agent should grep first when this feature breaks. Example:
-   `hints=core/src/serve.rs core/src/main.rs`. These propagate into the JSON
-   report so an LLM has a starting set without guessing.
+7. **在你的功能 meta 中加上 `hints=`** —— 以空白分隔的來源路徑，當此功能損壞時
+   代理應優先 grep 這些路徑。範例：
+   `hints=core/src/serve.rs core/src/main.rs`。這些會傳播到 JSON
+   報告中，讓 LLM 有一組起始路徑而無需猜測。
 
-4. If your feature needs a precondition the orchestrator can't infer (daemon
-   running, model file present, peer reachable), define
-   `selftest_requires` — return non-zero with a one-line reason on stderr to
-   skip the whole feature cleanly.
+4. 若你的功能需要協調器無法推斷的前置條件（daemon（常駐服務）正在執行、
+   模型檔案存在、對等節點可達），請定義
+   `selftest_requires` —— 回傳非零值並在 stderr 上附一行原因，
+   即可乾淨地跳過整個功能。
 
-5. `chmod +x scripts/selftest.d/35-myfeature.sh && make selftest-list` to
-   confirm it's picked up, then `make selftest` to run.
+5. `chmod +x scripts/selftest.d/35-myfeature.sh && make selftest-list`
+   以確認它被偵測到，接著 `make selftest` 來執行。
 
-### Style rules
+### 風格規則
 
-- **No echo PASS/FAIL.** Always use `t_pass / t_fail / t_skip` so the JSON
-  report sees your row.
-- **One assertion per line.** Don't bundle "everything in feature X works"
-  into one giant test — five small assertions tell you _what_ broke.
-- **Idempotent and read-only by default.** A self-test must be safe to run
-  on the user's live machine. If a check writes state, undo it in the same
-  function or move it to a `requires=destructive` priority-P2 file gated by
-  an env var like `PHANTOM_SELFTEST_DESTRUCTIVE=1`.
-- **Cheap.** Aim for the whole suite to finish under 30 seconds on a warm
-  laptop. Move expensive checks (full evolve cycle, MLX inference) to P2 and
-  guard them with `selftest_requires`.
-- **Pick the right priority.** P0 = ship-blocker, P1 = expected-to-pass on
-  any healthy install, P2 = nice-to-have / environment-dependent.
+- **不要 echo PASS/FAIL。** 永遠使用 `t_pass / t_fail / t_skip`，這樣 JSON
+  報告才看得到你那一列。
+- **一行一個斷言（assertion）。** 不要把「功能 X 的所有東西都正常」綁成
+  一個巨大的測試 —— 五個小斷言能告訴你_是什麼_壞了。
+- **預設冪等（idempotent）且唯讀。** 自我測試必須能安全地在使用者的活機器上
+  執行。若某個檢查會寫入狀態，請在同一個函式內復原，或把它移到由
+  像 `PHANTOM_SELFTEST_DESTRUCTIVE=1` 這類環境變數把關的
+  `requires=destructive` 優先級 P2 檔案中。
+- **廉價。** 目標是整個套件在一台溫機（warm）筆電上於 30 秒內完成。把昂貴的
+  檢查（完整 evolve 週期、MLX 推論）移到 P2 並以
+  `selftest_requires` 守護它們。
+- **挑對優先級。** P0 = 出貨阻擋者（ship-blocker），P1 = 在任何健康安裝上
+  預期應通過，P2 = 有更好、視環境而定。
 
-### What goes in the suite vs. `cargo test`
+### 什麼該放進套件、什麼該用 `cargo test`
 
 | | self-test | cargo test |
 |---|---|---|
-| target | the **installed** `phantom` binary, the **running** daemon, real network | Rust units / integration |
-| run by | user, Claude, CI smoke job | dev loop, CI build job |
-| assertion style | exit code, HTTP, JSON keys, presence of section labels | `assert_eq!` |
+| 目標 | **已安裝的** `phantom` 二進位檔、**執行中的** daemon、真實網路 | Rust 單元 / 整合測試 |
+| 由誰執行 | 使用者、Claude、CI 煙霧測試（smoke）任務 | 開發迴圈、CI 建置任務 |
+| 斷言風格 | 結束碼、HTTP、JSON 鍵、是否存在區段標籤 | `assert_eq!` |
 
-If you're testing pure Rust logic, write a `cargo test`. If you're testing
-"does the installed binary still produce the right `phantom doctor` output",
-that's a self-test feature.
+如果你在測試純 Rust 邏輯，請寫 `cargo test`。如果你在測試
+「已安裝的二進位檔是否仍產生正確的 `phantom doctor` 輸出」，
+那就是一個自我測試功能。
 
-## Worked example: adding a self-test for the new `phantom backup` command
+## 實作範例：為新的 `phantom backup` 命令新增自我測試
 
 ```bash
 # scripts/selftest.d/45-backup.sh
@@ -243,5 +242,5 @@ selftest_run() {
 }
 ```
 
-That's the entire ritual: one file, two functions, automatically wired into
-`make selftest`, `make selftest-json`, the JSON report, and CI.
+這就是整套儀式：一個檔案、兩個函式，自動接入
+`make selftest`、`make selftest-json`、JSON 報告與 CI。

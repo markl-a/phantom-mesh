@@ -8,6 +8,8 @@ import {
   googleAuthUrl, exchangeGoogleCode,
   pkcePair, pkceChallenge, mintBrokerJwt,
   verifyCsrf,
+  generateOAuthNonce, hashOAuthNonce, verifyOAuthNonce,
+  NONCE_COOKIE,
 } from "../lib/oauth";
 import {
   upsertUser, claimDevice, recordTokenIssue, revokeBrokerToken,
@@ -26,6 +28,42 @@ const REDIRECT_RE =
 const UUID_RE     = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const SESSION_COOKIE = "phantom_session";
+
+/* ── Nonce cookie helpers (B2 audit fix) ────────────────────────────────── */
+//
+// authStart / webStart issue a fresh random nonce, store HMAC(nonce) in
+// the KV session, and set the nonce in an HttpOnly cookie. Every hop
+// that consumes the KV session re-verifies the cookie HMAC matches
+// before accepting `state`. An attacker who sniffs `state` from a URL
+// bar / Referer doesn't have the cookie. See docs/superpowers/audits/
+// 2026-05-15-broker-audit.md §2.2 B2.
+
+function setNonceCookie(c: Context<{ Bindings: Env }>, nonce: string): void {
+  setCookie(c, NONCE_COOKIE, nonce, {
+    httpOnly: true,
+    secure:   c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",  // Lax: needed because the OAuth callback redirect
+                      // is a cross-site GET back from accounts.google.com.
+                      // Strict would strip the cookie on that hop.
+    path:     "/",
+    maxAge:   600,    // 10 min — must outlive the KV record's 5-min TTL
+                      // by a comfortable margin (clock skew + user delay).
+  });
+}
+
+async function checkNonceBinding(
+  c: Context<{ Bindings: Env }>,
+  session: OAuthSession,
+): Promise<boolean> {
+  // Session records written before this commit have no `nonce_hash`
+  // field — those are KV entries from older versions of this worker.
+  // We refuse them outright (rather than silently passing) because the
+  // KV TTL is 5 min: by the time this code ships, every legacy record
+  // is gone, and accepting unbound records would defeat the audit fix.
+  if (!session.nonce_hash) return false;
+  const cookieNonce = getCookie(c, NONCE_COOKIE) ?? "";
+  return verifyOAuthNonce(c.env.BROKER_JWT_SECRET, cookieNonce, session.nonce_hash);
+}
 
 /* ── /auth/cli/start — entry point from phantom CLI's `login_broker` ────── */
 
@@ -47,6 +85,10 @@ export async function authStart(c: Context<{ Bindings: Env }>) {
 
   // Stash the loopback redirect in KV under a server-issued state.
   const state = crypto.randomUUID();
+  // B2: bind state to a fresh per-browser nonce so URL-bar / Referer
+  // leaks of `state` alone aren't enough to hijack the dance.
+  const nonce = generateOAuthNonce();
+  const nonce_hash = await hashOAuthNonce(c.env.BROKER_JWT_SECRET, nonce);
   const session: OAuthSession = {
     mode: "cli",
     device_id,
@@ -54,8 +96,10 @@ export async function authStart(c: Context<{ Bindings: Env }>) {
     code_verifier: "", // filled by provider start route
     provider: "",
     created_at: Date.now(),
+    nonce_hash,
   };
   await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 300 });
+  setNonceCookie(c, nonce);
 
   return c.redirect(`/login?state=${state}`);
 }
@@ -68,6 +112,10 @@ export async function authStart(c: Context<{ Bindings: Env }>) {
 
 export async function webStart(c: Context<{ Bindings: Env }>) {
   const state = crypto.randomUUID();
+  // B2: same nonce binding as authStart — browser-only login is the
+  // same threat shape (attacker captures `state`, races to /account).
+  const nonce = generateOAuthNonce();
+  const nonce_hash = await hashOAuthNonce(c.env.BROKER_JWT_SECRET, nonce);
   const session: OAuthSession = {
     mode: "web",
     device_id: "",
@@ -75,8 +123,10 @@ export async function webStart(c: Context<{ Bindings: Env }>) {
     code_verifier: "",
     provider: "",
     created_at: Date.now(),
+    nonce_hash,
   };
   await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 300 });
+  setNonceCookie(c, nonce);
   return c.redirect(`/login?state=${state}`);
 }
 
@@ -116,6 +166,14 @@ export async function googleStart(c: Context<{ Bindings: Env }>) {
   if (!raw) return c.text("session expired — start over from /login", 400);
   const session = JSON.parse(raw) as OAuthSession;
 
+  // B2: refuse to advance the dance if the caller doesn't own the
+  // browser that started it. Generic 400 — don't leak whether the
+  // failure is missing-cookie vs hash-mismatch (state-fixation
+  // enumeration).
+  if (!(await checkNonceBinding(c, session))) {
+    return c.text("session expired — start over from /login", 400);
+  }
+
   const verifier = pkcePair().verifier;
   const challenge = await pkceChallenge(verifier);
   session.code_verifier = verifier;
@@ -139,7 +197,19 @@ export async function googleCallback(c: Context<{ Bindings: Env }>) {
   const raw = await c.env.SESSIONS.get(state);
   if (!raw)  return c.text("session expired — try /login again", 400);
   const session = JSON.parse(raw) as OAuthSession;
+
+  // B2: verify the same browser that started the dance is finishing it
+  // BEFORE deleting the KV record. If the cookie is missing or
+  // tampered, leave the KV record in place — the legitimate user can
+  // retry within the 5-min TTL.
+  if (!(await checkNonceBinding(c, session))) {
+    return c.text("session expired — try /login again", 400);
+  }
+
+  // Single-use: only delete once we know the caller owns the dance.
   await c.env.SESSIONS.delete(state);
+  // Clear the nonce cookie now that the binding has been consumed.
+  deleteCookie(c, NONCE_COOKIE, { path: "/" });
 
   if (!code) return c.text("missing code", 400);
 

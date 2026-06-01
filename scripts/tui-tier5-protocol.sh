@@ -167,7 +167,7 @@ echo "$resp" | grep -qE '"text":"4' \
   || fail "shell tool handles pipes" "got: $(echo "$resp" | head -c 300)"
 
 # file_read on a known file (absolute path so the test is cwd-independent)
-README_ABS="/Users/marklight/Documents/workspace/hailmary/phantom-mesh/README.md"
+README_ABS="${PHANTOM_REPO:-$PWD}/README.md"
 req=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"%s"}}}' "$README_ABS")
 resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 6000)
 echo "$resp" | grep -qE 'Phantom Mesh|phantom-mesh' \

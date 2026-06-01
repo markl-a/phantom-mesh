@@ -83,7 +83,9 @@ impl BuiltinTool {
 
 #[async_trait]
 impl Tool for BuiltinTool {
-    fn name(&self) -> &str { &self.name }
+    fn name(&self) -> &str {
+        &self.name
+    }
 
     fn schema(&self) -> Option<Value> {
         super::schema(&self.name)
@@ -116,19 +118,25 @@ impl McpToolWrapper {
 
 #[async_trait]
 impl Tool for McpToolWrapper {
-    fn name(&self) -> &str { &self.prefixed_name }
+    fn name(&self) -> &str {
+        &self.prefixed_name
+    }
 
-    fn schema(&self) -> Option<Value> { Some(self.schema.clone()) }
+    fn schema(&self) -> Option<Value> {
+        Some(self.schema.clone())
+    }
 
     async fn call(&self, args: &Value, _ctx: &ToolContext<'_>) -> String {
         match crate::mcp_client::global() {
             Some(reg) => reg
                 .dispatch(&self.prefixed_name, args)
                 .await
-                .unwrap_or_else(|| format!(
-                    "[mcp] no client matched prefix for tool '{}'",
-                    self.prefixed_name
-                )),
+                .unwrap_or_else(|| {
+                    format!(
+                        "[mcp] no client matched prefix for tool '{}'",
+                        self.prefixed_name
+                    )
+                }),
             None => format!(
                 "[mcp] registry not initialised; cannot call '{}'",
                 self.prefixed_name

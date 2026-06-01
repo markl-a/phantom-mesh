@@ -1,5 +1,6 @@
-use serde_json::Value;
 use crate::tools::file::safe_path;
+use crate::tools::validate;
+use serde_json::Value;
 
 fn validate_search_path(path: &str) -> Result<(), String> {
     if path.contains("..") {
@@ -7,9 +8,38 @@ fn validate_search_path(path: &str) -> Result<(), String> {
     }
     for ch in [';', '|', '&', '$', '`', '>', '<'] {
         if path.contains(ch) {
-            return Err(format!("Error: invalid character '{}' in path argument", ch));
+            return Err(format!(
+                "Error: invalid character '{}' in path argument",
+                ch
+            ));
         }
     }
+    Ok(())
+}
+
+/// [T58 M-9] Validate a glob pattern doesn't contain a `..` directory
+/// segment. Pre-fix `glob_with_find` joined `clean_dir = ".."` onto the
+/// safe-path-resolved `base`, escaping the workspace boundary.
+///
+/// Splits the pattern on both `/` and `\` to catch Windows-style separators.
+/// A segment that equals literal `..` is rejected; segments like `..foo` or
+/// `foo..bar` are kept (they're substring globs, not parent-dir markers).
+pub(crate) fn validate_glob_pattern(pattern: &str) -> Result<(), String> {
+    if pattern.is_empty() {
+        return Err("Error: glob pattern is empty".into());
+    }
+    for segment in pattern.split(['/', '\\']) {
+        if segment == ".." {
+            return Err(format!(
+                "Error: glob pattern may not contain '..' directory segments: {:?}",
+                pattern
+            ));
+        }
+    }
+    // Shell metacharacters in a glob pattern would be a separate concern,
+    // but since the pattern is passed as a positional argv element (never
+    // through `sh -c`) we don't need to filter them. The `..` check is the
+    // sole new requirement here.
     Ok(())
 }
 
@@ -29,6 +59,13 @@ pub async fn content(args: &Value) -> String {
     };
     if pattern.len() > 500 {
         return "Error: search pattern too long (max 500 characters)".into();
+    }
+    // Audit M-8: reject patterns that start with `-`. Otherwise `rg`/`grep`
+    // happily interpret e.g. `--pre=/bin/sh` as a flag (preprocessor) →
+    // arbitrary command execution. The `--` separator added below is the
+    // primary defence; this is a clear-error backstop.
+    if let Err(e) = validate::validate_search_pattern(pattern) {
+        return e;
     }
 
     let raw_path = args["path"].as_str().unwrap_or(".");
@@ -53,8 +90,10 @@ pub async fn content(args: &Value) -> String {
         "--color=never",
         "-n",
         "--with-filename",
-        "-C", &context_str,
-        "--max-count", &max_count_str,
+        "-C",
+        &context_str,
+        "--max-count",
+        &max_count_str,
     ];
 
     if !case_sensitive {
@@ -69,6 +108,10 @@ pub async fn content(args: &Value) -> String {
         rg_args.push(ft.as_str());
     }
 
+    // `--` ends rg's option parsing, so the user-supplied `pattern` and
+    // `search_path` can never be misread as flags even if validation above
+    // is ever loosened. Defence-in-depth for audit M-8.
+    rg_args.push("--");
     rg_args.push(pattern);
     rg_args.push(&search_path);
 
@@ -86,13 +129,21 @@ pub async fn content(args: &Value) -> String {
             }
         }
         Err(_) => {
-            // rg not found — fall back to grep (no context/type filtering)
-            let mut grep_args = vec!["-rn"];
+            // rg not found — fall back to grep. grep also supports `-C N`, so
+            // the `context_lines` arg works even without ripgrep (minimal
+            // installs, or where `rg` is a shell shim rather than a real PATH
+            // binary). Type filtering (`-t`) stays rg-only.
+            let mut grep_args = vec!["-rn", "-C", context_str.as_str()];
             if !case_sensitive {
                 grep_args.push("-i");
             }
             grep_args.push("--include=*");
+            // `-e <pattern>` tells grep "this is the pattern, not a flag" —
+            // the canonical safe way to pass an untrusted regex. Audit M-8.
+            grep_args.push("-e");
             grep_args.push(pattern);
+            // `--` ends option parsing so `search_path` can't be misread.
+            grep_args.push("--");
             grep_args.push(&search_path);
 
             match tokio::process::Command::new("grep")
@@ -153,6 +204,16 @@ pub async fn glob(args: &Value) -> String {
     };
     if pattern.len() > 200 {
         return "Error: glob pattern too long (max 200 characters)".into();
+    }
+    // [T58 M-9] Reject `..` segments in the pattern itself. Pre-fix the
+    // `validate_search_path` guard only ran on the base `path` argument;
+    // a pattern like `../../../../etc/passwd*` slipped straight into
+    // `find_base = format!("{}/{}", base, clean_dir)` and escaped the
+    // workspace. We reject the pattern OR any path segment within it
+    // that equals literal "..". A bare `*..foo` (substring match, not
+    // a directory traversal segment) is allowed.
+    if let Err(e) = validate_glob_pattern(pattern) {
+        return e;
     }
 
     let raw_base = args["path"].as_str().unwrap_or(".");
@@ -217,9 +278,7 @@ async fn try_glob_with_rg(
 
     if !out.status.success() && out.stdout.is_empty() {
         // rg may exit non-zero when no files match; that is still a valid result
-        if out.stderr.is_empty()
-            || String::from_utf8_lossy(&out.stderr).contains("error")
-        {
+        if out.stderr.is_empty() || String::from_utf8_lossy(&out.stderr).contains("error") {
             // genuine rg error (e.g. unknown flag) — fall through to find
             return None;
         }
@@ -253,9 +312,15 @@ async fn glob_with_find(
         find_base.clone(),
         "-name".into(),
         name_pat,
-        "-not".into(), "-path".into(), "*/node_modules/*".into(),
-        "-not".into(), "-path".into(), "*/.git/*".into(),
-        "-not".into(), "-path".into(), "*/target/*".into(),
+        "-not".into(),
+        "-path".into(),
+        "*/node_modules/*".into(),
+        "-not".into(),
+        "-path".into(),
+        "*/.git/*".into(),
+        "-not".into(),
+        "-path".into(),
+        "*/target/*".into(),
     ];
 
     // Add user-supplied excludes as -not -path patterns
@@ -284,6 +349,107 @@ async fn glob_with_find(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Audit M-8 regression tests — rg / grep pattern option-injection.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod pattern_injection_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn content_rejects_pre_preprocessor_flag() {
+        // Pre-fix: pattern="--pre=/bin/sh" was passed to rg verbatim,
+        // making rg execute /bin/sh as a preprocessor for every input
+        // file → arbitrary command execution.
+        let result = content(&json!({"pattern": "--pre=/bin/sh", "path": "."})).await;
+        assert!(
+            result.starts_with("Error:") && result.contains("'-'"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn content_rejects_dash_e_flag() {
+        // `-e <pattern>` is grep/rg's "next arg is a pattern" flag. A
+        // pattern of literal "-e" would chain into the next user-supplied
+        // argument and shift positional parsing in unexpected ways.
+        let result = content(&json!({"pattern": "-e", "path": "."})).await;
+        assert!(result.starts_with("Error:"), "got: {}", result);
+    }
+
+    #[tokio::test]
+    async fn content_rejects_dash_f_file_read() {
+        // `-f <file>` makes grep/rg read patterns from a file, letting the
+        // model exfiltrate arbitrary file contents via the "pattern was
+        // unmatched, here's what was in your file" diagnostic.
+        let result = content(&json!({"pattern": "-f/etc/passwd", "path": "."})).await;
+        assert!(result.starts_with("Error:"), "got: {}", result);
+    }
+
+    #[tokio::test]
+    async fn content_accepts_normal_regex() {
+        let result = content(&json!({"pattern": "TODO", "path": "."})).await;
+        assert!(
+            !result.starts_with("Error:")
+                || result.starts_with("Search error:")  // env without rg/grep
+                || result.starts_with("No matches"),
+            "TODO should not be flagged as injection, got: {}",
+            result
+        );
+    }
+
+    // ── [T58 M-9] glob pattern '..' traversal regression tests ──────────
+
+    /// [T58 M-9] Pre-fix the pattern `../../../../etc/passwd*` got joined
+    /// onto the safe-path-resolved base via `format!("{}/{}", base, ..)`
+    /// and escaped the workspace. The pattern-level validator must reject
+    /// any `..` directory segment regardless of how it's positioned.
+    #[tokio::test]
+    async fn glob_rejects_parent_dir_in_pattern() {
+        for evil in &[
+            "../etc/passwd",
+            "../../../../etc/passwd*",
+            "src/../../../secret",
+            "src/../*.rs",
+            "..\\windows\\system32\\config\\sam", // Windows-style separator
+        ] {
+            let r = glob(&json!({"pattern": evil, "path": "."})).await;
+            assert!(
+                r.starts_with("Error:"),
+                "glob({}) should be rejected, got: {}",
+                evil,
+                r
+            );
+            assert!(
+                r.contains("..") || r.contains("traversal"),
+                "error should mention '..'; got: {}",
+                r
+            );
+        }
+    }
+
+    /// [T58 M-9] But legitimate globs with `..` in a FILE NAME segment
+    /// (not a directory segment) must still pass. e.g. a file literally
+    /// called `foo..bar.txt` is unusual but legal; rejecting it would be
+    /// a false positive. Likewise `*..js` (any name ending in `..js`).
+    #[tokio::test]
+    async fn glob_accepts_dotdot_inside_segment() {
+        // These should NOT trip the validator because no segment EQUALS "..".
+        for ok in &["*.rs", "src/**/*.ts", "foo..bar", "**/*..test.js"] {
+            let r = super::validate_glob_pattern(ok);
+            assert!(
+                r.is_ok(),
+                "pattern {:?} should be accepted, got: {:?}",
+                ok,
+                r
+            );
+        }
+    }
+}
+
 fn format_glob_results(raw: String, max_results: usize) -> String {
     if raw.trim().is_empty() {
         return "No files found".into();
@@ -302,7 +468,10 @@ fn format_glob_results(raw: String, max_results: usize) -> String {
 
     let mut result = files.join("\n");
     if truncated {
-        result.push_str(&format!("\n... ({} more files not shown)", total - max_results));
+        result.push_str(&format!(
+            "\n... ({} more files not shown)",
+            total - max_results
+        ));
     }
     result
 }

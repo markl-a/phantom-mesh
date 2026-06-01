@@ -13,5 +13,6 @@
     "esModuleInterop": true,
     "jsx": "preserve"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/__tests__/**"]
 }

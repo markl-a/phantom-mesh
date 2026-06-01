@@ -4,7 +4,6 @@ use std::time::Duration;
 
 const MAX_CHARS_DEFAULT: usize = 8_000;
 const MAX_CHARS_LIMIT: usize = 50_000;
-const MAX_URL_LEN: usize = 2_000;
 const TIMEOUT_DEFAULT_SECS: u64 = 15;
 
 pub async fn fetch_url(args: &Value) -> String {
@@ -30,17 +29,14 @@ pub async fn fetch_url(args: &Value) -> String {
         .and_then(|v| v.as_u64())
         .unwrap_or(TIMEOUT_DEFAULT_SECS);
 
-    let raw = args
-        .get("raw")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let raw = args.get("raw").and_then(|v| v.as_bool()).unwrap_or(false);
 
     let selector = args
         .get("selector")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    if let Err(e) = validate_url(&url) {
+    if let Err(e) = crate::tools::urlguard::validate_url(&url) {
         return format!("Error: {}", e);
     }
 
@@ -146,81 +142,7 @@ fn truncate_with_marker(s: String, max: usize) -> String {
 }
 
 // ── URL validation ────────────────────────────────────────────────────────────
-
-fn validate_url(url: &str) -> Result<(), String> {
-    if url.len() > MAX_URL_LEN {
-        return Err(format!("URL exceeds maximum length of {} characters", MAX_URL_LEN));
-    }
-    if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("URL must start with http:// or https://".to_string());
-    }
-
-    let after_scheme = if let Some(s) = url.strip_prefix("https://") {
-        s
-    } else {
-        &url["http://".len()..]
-    };
-
-    let host = after_scheme
-        .split('/')
-        .next()
-        .unwrap_or("")
-        .split('@')
-        .last()
-        .unwrap_or("")
-        .split(':')
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
-
-    let allow_local = std::env::var("PHANTOM_FETCH_ALLOW_LOCAL").as_deref() == Ok("1");
-
-    if !allow_local && (host == "localhost" || host == "::1") {
-        return Err("blocked: private/loopback host".to_string());
-    }
-
-    if !allow_local {
-        if let Some(msg) = is_private_ipv4(&host) {
-            return Err(msg);
-        }
-    }
-
-    Ok(())
-}
-
-fn is_private_ipv4(host: &str) -> Option<String> {
-    let parts: Vec<&str> = host.split('.').collect();
-    if parts.len() != 4 {
-        return None;
-    }
-    let octets: Vec<u8> = parts
-        .iter()
-        .filter_map(|p| p.parse::<u8>().ok())
-        .collect();
-    if octets.len() != 4 {
-        return None;
-    }
-    let (a, b, _c, _d) = (octets[0], octets[1], octets[2], octets[3]);
-    if a == 127 {
-        return Some("blocked: loopback address".to_string());
-    }
-    if a == 10 {
-        return Some("blocked: private IP range 10.x.x.x".to_string());
-    }
-    if a == 172 && (16..=31).contains(&b) {
-        return Some("blocked: private IP range 172.16-31.x.x".to_string());
-    }
-    if a == 192 && b == 168 {
-        return Some("blocked: private IP range 192.168.x.x".to_string());
-    }
-    if a == 169 && b == 254 {
-        return Some("blocked: link-local address".to_string());
-    }
-    if a == 0 {
-        return Some("blocked: reserved IP range 0.x.x.x".to_string());
-    }
-    None
-}
+// Moved to `crate::tools::urlguard` (T7b: shared with web_fetch + http_client).
 
 // ── HTML extraction ───────────────────────────────────────────────────────────
 
@@ -517,25 +439,8 @@ pub fn schema() -> serde_json::Value {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_validate_url_ok() {
-        assert!(validate_url("https://example.com/path?q=1").is_ok());
-        assert!(validate_url("http://example.com").is_ok());
-    }
-
-    #[test]
-    fn test_validate_url_no_scheme() {
-        assert!(validate_url("example.com").is_err());
-    }
-
-    #[test]
-    fn test_validate_url_private_ips() {
-        assert!(validate_url("http://127.0.0.1/").is_err());
-        assert!(validate_url("http://10.0.0.1/").is_err());
-        assert!(validate_url("http://172.16.0.1/").is_err());
-        assert!(validate_url("http://192.168.1.1/").is_err());
-        assert!(validate_url("http://localhost/").is_err());
-    }
+    // NOTE: validate_url + is_private_ipv4 tests moved to
+    // `crate::tools::urlguard::tests` (T7b shared SSRF guard).
 
     #[test]
     fn test_decode_entities() {
@@ -576,7 +481,8 @@ mod tests {
 
     #[test]
     fn test_remove_nav_footer_header() {
-        let html = "<header>site header</header><p>content</p><nav>menu</nav><footer>site footer</footer>";
+        let html =
+            "<header>site header</header><p>content</p><nav>menu</nav><footer>site footer</footer>";
         let result = remove_block_tags(html, &["nav", "footer", "header"]);
         assert!(!result.contains("site header"));
         assert!(!result.contains("menu"));

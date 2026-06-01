@@ -56,9 +56,7 @@ async fn start_json_mock(responses: Vec<serde_json::Value>) -> String {
     let addr = listener.local_addr().expect("local addr");
 
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("mock server error");
+        axum::serve(listener, app).await.expect("mock server error");
     });
 
     format!("http://127.0.0.1:{}", addr.port())

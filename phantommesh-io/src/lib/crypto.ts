@@ -1,4 +1,30 @@
-// At-rest encryption for the user_settings.env_json column.
+// ============================================================================
+// DEPRECATED — server-side at-rest encryption for user_settings.env_json.
+//
+// SPEC-15 (broker vault E2EE) RETIRES this entire module. Under true
+// end-to-end encryption the broker MUST NEVER hold a decryption key, derive
+// a per-user key, or return plaintext of any sealed value. The new dumb-
+// storage `/vault/*` routes store age-v1 ciphertext + an opaque client HMAC
+// and never decrypt. See:
+//   - docs/superpowers/specs/v060-deep-spec/SPEC-15-PROTOCOL-broker-vault-sync.md
+//   - docs/integration/2026-05-29-spec15-vault-verification.md
+//   - core/src/broker_vault_wire.rs (client-side seal/unseal + HMAC)
+//
+// Migration plan (do NOT skip a step):
+//   1. [this change] Stop the live decrypt path in getUserSettings (db.ts).
+//      decryptForUser is now reachable ONLY when the LEGACY_VAULT_DECRYPT
+//      flag is explicitly enabled (one-time data migration window).
+//   2. TODO(spec15-migration): run a one-shot migration that reads every
+//      "v1."-prefixed user_settings row with LEGACY_VAULT_DECRYPT enabled,
+//      re-seals the values client-side via the new /vault/set path, and
+//      clears the legacy env_json column.
+//   3. TODO(spec15-deploy): after migration completes, `wrangler secret
+//      delete ENV_VAULT_KEY` and drop the ENV_VAULT_KEY binding from
+//      wrangler.toml + types.ts. NO server route may decrypt thereafter.
+//
+// Until step 3 the functions below remain compilable so the build stays
+// green and the migration tooling has something to call.
+// ============================================================================
 //
 // Threat model — what this protects against:
 //   - A D1 dump or read leak (e.g. via a misconfigured wrangler token
@@ -101,9 +127,14 @@ export async function encryptForUser(
   return VERSION_PREFIX + btoa(bin);
 }
 
-/// Decrypt a value produced by encryptForUser. Returns null when the
-/// blob doesn't look like our format — caller is expected to fall back
-/// to plaintext-JSON parsing for legacy rows.
+/// DEPRECATED / LEGACY-MIGRATION-ONLY. Decrypt a value produced by
+/// encryptForUser. Returns null when the blob doesn't look like our format.
+///
+/// SPEC-15 forbids the broker from decrypting any user value on the live
+/// request path. This function is retained ONLY for the one-time data
+/// migration (gated by the LEGACY_VAULT_DECRYPT flag in getUserSettings)
+/// that re-seals legacy rows under the new E2EE /vault/* path. It MUST NOT
+/// be reintroduced into any request handler. See module banner.
 export async function decryptForUser(
   envKeyBase64: string,
   user_id: number,

@@ -109,16 +109,10 @@ pub async fn cargo_check(args: &Value) -> String {
             .collect();
 
         if errors.is_empty() {
-            crate::tools::truncate(
-                format!("cargo check failed:\n{}", output),
-                5000,
-            )
+            crate::tools::truncate(format!("cargo check failed:\n{}", output), 5000)
         } else {
             let summary = errors.join("\n");
-            crate::tools::truncate(
-                format!("cargo check failed:\n{}", summary),
-                5000,
-            )
+            crate::tools::truncate(format!("cargo check failed:\n{}", summary), 5000)
         }
     }
 }
@@ -226,18 +220,12 @@ pub async fn tsc_check(args: &Value) -> String {
     } else if success {
         format!("✓ TypeScript check passed\n{}", output.trim())
     } else {
-        let errors: Vec<&str> = output
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .collect();
+        let errors: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
 
         if errors.is_empty() {
             "TypeScript check failed (no output)".to_string()
         } else {
-            crate::tools::truncate(
-                format!("TypeScript errors:\n{}", errors.join("\n")),
-                5000,
-            )
+            crate::tools::truncate(format!("TypeScript errors:\n{}", errors.join("\n")), 5000)
         }
     }
 }

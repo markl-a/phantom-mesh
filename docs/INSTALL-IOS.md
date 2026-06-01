@@ -1,93 +1,72 @@
-# phantom on iOS — Install Guide
+# phantom 於 iOS — 安裝指南
 
-iOS is a **thin client only**. The phone runs the UI; all tools, LLM
-calls, and the agent loop run on a Mac/Linux/Windows phantom serve
-node it talks to over Tailscale. This is a hard limit of the iOS
-sandbox model — see SESSION_RESUME and the gap-analysis docs for
-details.
+iOS 僅為**精簡客戶端（thin client，輕量前端）**。手機只負責執行使用者介面（UI）；所有工具、大型語言模型（LLM）呼叫，以及代理迴圈（agent loop）都在它透過 Tailscale 連線的 Mac／Linux／Windows phantom serve 節點上執行。這是 iOS 沙盒（sandbox，隔離執行環境）模型的硬性限制 — 詳情請見 SESSION_RESUME 與 gap-analysis（落差分析）相關文件。
 
-If you want a real, on-device agent, use Android (Termux + phantom
-binary) or a desktop OS.
+如果你想要一個真正在裝置上執行的代理（on-device agent），請改用 Android（Termux + phantom 二進位檔）或桌面作業系統。
 
 ---
 
-## What you get
+## 你會得到什麼
 
-A signed `phantom-mesh-ios.ipa` (~7 MB, arm64) built from the same
-React thin-shell as the Android APK. On launch it asks for a
-coordinator host/port, then loads `<host>:<port>/m` (the mobile chat
-UI we ship in `core/web/mobile.html`).
+一個已簽署的 `phantom-mesh-ios.ipa`（約 7 MB，arm64），由與 Android APK 相同的 React 精簡外殼（thin-shell）建置而成。啟動時會詢問協調者（coordinator，協調節點）的主機／連接埠，接著載入 `<host>:<port>/m`（我們隨附於 `core/web/mobile.html` 的行動聊天介面）。
 
-The IPA is signed with a free Apple Development certificate — that
-means:
-- It works on phones already enrolled with your Apple ID
-- It expires after **7 days** (Apple policy for free dev certs)
-- You can sideload to up to **3 devices** per Apple ID
+此 IPA 以免費的 Apple Development 憑證簽署 — 這意味著：
+- 它可在已用你的 Apple ID 註冊過的手機上運作
+- 它在 **7 天**後過期（Apple 對免費開發憑證的政策）
+- 每個 Apple ID 最多可旁載（sideload，繞過官方商店安裝）至 **3 部裝置**
 
-For longer-lived install on more devices you'd need a paid Apple
-Developer account and re-sign with a `iPhone Distribution` cert; we
-do not ship that flow.
+若要在更多裝置上做更長效的安裝，你需要一個付費的 Apple Developer 帳號，並以 `iPhone Distribution` 憑證重新簽署；我們不提供該流程。
 
 ---
 
-## Prerequisites
+## 先決條件
 
-- Mac running Xcode (or just Apple Configurator 2)
-- Free Apple Developer account already registered with the same
-  Apple ID you sign into your iPhone with
-- iPhone or iPad on iOS 16+ connected to the same Tailscale tailnet
-  as the coordinator
-- USB-C / Lightning cable — the IPA is sideloaded via cable, not
-  over the air
+- 一台執行 Xcode 的 Mac（或僅需 Apple Configurator 2）
+- 一個免費的 Apple Developer 帳號，且已用你登入 iPhone 所使用的同一個 Apple ID 註冊
+- 一部執行 iOS 16+ 的 iPhone 或 iPad，且與協調者位於同一個 Tailscale 網域（tailnet）
+- 一條 USB-C／Lightning 傳輸線 — IPA 透過傳輸線旁載，而非透過空中傳輸（over the air）
 
 ---
 
-## Get the IPA
+## 取得 IPA
 
-On any device on the tailnet:
+在 tailnet 上的任何裝置：
 
 ```bash
-curl -O http://100.87.93.58:7878/dist/phantom-mesh-ios.ipa
+curl -O http://<mac-tailscale-ip>:7878/dist/phantom-mesh-ios.ipa
 ```
 
-(Replace the IP with your coordinator's Tailscale address.)
+（請將 IP 換成你協調者的 Tailscale 位址。）
 
-Or download via Safari — same URL, save to Files / Downloads.
-
----
-
-## Install — three options
-
-### Option A: Apple Configurator 2 (Mac App Store, free)
-
-The simplest path if your Mac already has Xcode installed (cert chain
-is already trusted).
-
-1. Open Apple Configurator 2 on the Mac
-2. Plug iPhone in via cable, unlock, "Trust this computer"
-3. Drag `phantom-mesh-ios.ipa` onto the device tile
-4. Wait ~30 s for installation
-5. On the iPhone: Settings → General → VPN & Device Management →
-   trust the developer profile (your Apple ID)
-
-### Option B: Sideloadly (third-party, free)
-
-If you don't want Configurator, [Sideloadly](https://sideloadly.io)
-does the same job through a friendlier UI. Drag-drop the IPA, sign
-with your Apple ID at install time, hit Start.
-
-### Option C: Xcode Devices window
-
-For developers who already have a project workspace open. Window →
-Devices and Simulators → drag IPA into the "Installed Apps" pane.
+或透過 Safari 下載 — 同一網址，存到 Files／Downloads。
 
 ---
 
-## First launch
+## 安裝 — 三種選項
 
-Tap the **Phantom Mesh** icon. You'll see a settings form (the same
-DOM-API form we ship to Android — fixed in 0a039ba so the Connect
-button doesn't dead-pixel under Tauri's CSP):
+### 選項 A：Apple Configurator 2（Mac App Store，免費）
+
+若你的 Mac 已安裝 Xcode（憑證鏈已受信任），這是最簡單的途徑。
+
+1. 在 Mac 上開啟 Apple Configurator 2
+2. 以傳輸線接上 iPhone、解鎖、「信任這部電腦」
+3. 將 `phantom-mesh-ios.ipa` 拖曳到裝置圖示上
+4. 等待約 30 秒完成安裝
+5. 在 iPhone 上：設定 → 一般 → VPN 與裝置管理 → 信任開發者描述檔（你的 Apple ID）
+
+### 選項 B：Sideloadly（第三方，免費）
+
+如果你不想用 Configurator，[Sideloadly](https://sideloadly.io) 透過更友善的介面完成相同的工作。拖放 IPA、在安裝時以你的 Apple ID 簽署，按下 Start。
+
+### 選項 C：Xcode Devices 視窗
+
+適合已開啟專案工作區的開發者。Window → Devices and Simulators → 將 IPA 拖入「Installed Apps」窗格。
+
+---
+
+## 首次啟動
+
+點按 **Phantom Mesh** 圖示。你會看到一個設定表單（與我們隨附給 Android 的 DOM-API 表單相同 — 已於 0a039ba 修正，使 Connect 按鈕不會在 Tauri 的 CSP 下變成壞像素）：
 
 ```
 Connect to phantom serve
@@ -96,77 +75,62 @@ Port:  7878
                           [Connect]
 ```
 
-Fill in the coordinator IP (`100.87.93.58` for the default reference
-deployment), tap **Connect**. The webview navigates to the mobile
-chat UI; subsequent launches go straight there.
+填入協調者 IP（預設參考部署為 `<mac-tailscale-ip>`），點按 **Connect**。網頁檢視（webview）會導覽至行動聊天介面；之後的啟動會直接進入該介面。
 
 ---
 
-## Renew before 7 days expire
+## 在 7 天到期前更新
 
-A free-cert IPA stops launching exactly 7 days after install. Two ways
-to refresh it:
+免費憑證簽署的 IPA 會在安裝後剛好 7 天停止啟動。有兩種方式可重新整理它：
 
-### One-time Xcode setup
+### Xcode 一次性設定
 
-Before the first rebuild, sign Xcode into the Apple ID that owns the
-dev cert:
+在首次重建之前，將 Xcode 登入擁有該開發憑證的 Apple ID：
 
-1. Open Xcode → Settings (⌘,) → Accounts
-2. Click `+` → Apple ID → sign in
-3. Confirm the team appears under "Manage Certificates…"
+1. 開啟 Xcode → Settings（⌘,）→ Accounts
+2. 點 `+` → Apple ID → 登入
+3. 確認該團隊出現在「Manage Certificates…」之下
 
-Without this, `make ios-rebuild` fails with "No profiles for
-'ai.phantommesh.app'". The keychain identity alone (visible in
-`security find-identity`) is not enough — automatic provisioning
-needs the live Apple ID session for Xcode to fetch profiles from
-developer.apple.com.
+若沒有這步，`make ios-rebuild` 會以「No profiles for 'ai.phantommesh.app'」失敗。光有鑰匙圈（keychain）身分（可在 `security find-identity` 中看到）並不足夠 — 自動佈建（automatic provisioning）需要即時的 Apple ID 工作階段，Xcode 才能從 developer.apple.com 取得描述檔。
 
-### Manual one-shot
+### 手動單次執行
 
 ```bash
 # On the coordinator (Mac):
 APPLE_TEAM_ID=YX7U4J39PX make ios-rebuild
 ```
 
-(Find your team id with
-`security find-identity -v -p codesigning | grep Apple` — it's the
-10-char string in parentheses.)
+（用 `security find-identity -v -p codesigning | grep Apple` 找出你的 team id — 它是括號內那個 10 字元的字串。）
 
-The fresh IPA lands at `dist/phantom-mesh-ios.ipa`. Sideload from a
-machine that has Apple Configurator:
+全新的 IPA 會產生於 `dist/phantom-mesh-ios.ipa`。從一台裝有 Apple Configurator 的機器旁載：
 
 ```bash
 curl -O http://<coord>:7878/dist/phantom-mesh-ios.ipa
 ```
 
-### Auto-rebuild every Sunday (recommended)
+### 每週日自動重建（建議）
 
-Install a per-user LaunchAgent that runs `make ios-rebuild` weekly:
+安裝一個每週執行 `make ios-rebuild` 的單一使用者 LaunchAgent：
 
 ```bash
 APPLE_TEAM_ID=YX7U4J39PX ./scripts/install-ios-rebuild-agent.sh
 ```
 
-Schedule: every Sunday 03:30. Logs at
-`~/Library/Logs/phantom-ios-rebuild.log`.
+排程：每週日 03:30。記錄檔位於 `~/Library/Logs/phantom-ios-rebuild.log`。
 
-Caveats:
-- The Mac must be awake at the scheduled time (or set up `pmset` to
-  wake for launchd jobs)
-- The login keychain must be unlocked when the job runs — otherwise
-  codesign can't read the cert's private key
-- Apple's automatic provisioning needs network access and a logged-in
-  Apple ID in Xcode preferences
+注意事項：
+- Mac 在排定時間必須是喚醒狀態（或設定 `pmset` 為 launchd 工作喚醒）
+- 工作執行時登入鑰匙圈必須是已解鎖的 — 否則 codesign 無法讀取憑證的私密金鑰
+- Apple 的自動佈建需要網路存取，以及 Xcode 偏好設定中已登入的 Apple ID
 
-Force a manual run (good first-time validation):
+強制手動執行一次（適合首次驗證）：
 
 ```bash
 launchctl kickstart -k gui/$(id -u)/ai.phantommesh.ios-rebuild
 tail -f ~/Library/Logs/phantom-ios-rebuild.log
 ```
 
-Uninstall:
+解除安裝：
 
 ```bash
 launchctl bootout gui/$(id -u)/ai.phantommesh.ios-rebuild
@@ -175,59 +139,37 @@ rm ~/Library/LaunchAgents/ai.phantommesh.ios-rebuild.plist
 
 ---
 
-## Troubleshooting
+## 疑難排解
 
-### "Untrusted Developer" — app won't launch
+### 「Untrusted Developer」— 應用程式無法啟動
 
-Settings → General → VPN & Device Management → tap the Apple ID
-under DEVELOPER APP → Trust.
+設定 → 一般 → VPN 與裝置管理 → 在 DEVELOPER APP 下點按該 Apple ID → 信任。
 
-### Connect button does nothing
+### Connect 按鈕沒有反應
 
-If you see this on a build older than 0a039ba (April 28, 2026), the
-inline event handler is being blocked by Tauri's default CSP. Pull
-the latest IPA — the fix replaces document.write + onclick with
-proper DOM API + addEventListener.
+如果你在早於 0a039ba（2026 年 4 月 28 日）的建置版本上看到這個情況，內嵌的事件處理常式正被 Tauri 的預設 CSP 封鎖。拉取最新的 IPA — 該修正以正規的 DOM API + addEventListener 取代了 document.write + onclick。
 
-### Settings form keeps reappearing after Connect
+### 按下 Connect 後設定表單一直重新出現
 
-The webview's localStorage write succeeded but failed to persist
-across the settings → loaded-coordinator transition. The 0a039ba fix
-also covers this — it navigates directly instead of relying on a
-reload to re-read localStorage.
+網頁檢視的 localStorage 寫入成功了，但在設定 → 已載入協調者的轉換過程中未能持久保存。0a039ba 的修正也涵蓋了這點 — 它直接導覽，而非依賴重新載入來重讀 localStorage。
 
-### "App could not be installed at this time"
+### 「App could not be installed at this time」
 
-The provisioning profile inside the IPA doesn't include this device's
-UUID. Either:
-- Open the IPA project in Xcode at least once with this iPhone
-  connected — Xcode auto-adds the device UDID to the dev profile
-- Or use a paid Apple Developer account with an explicit
-  provisioning profile
+IPA 內的佈建描述檔不包含此裝置的 UUID。請擇一處理：
+- 在這部 iPhone 連接的情況下，至少用 Xcode 開啟 IPA 專案一次 — Xcode 會自動將該裝置的 UDID 加入開發描述檔
+- 或使用付費的 Apple Developer 帳號搭配明確的佈建描述檔
 
-### Phantom serve unreachable in the app
+### 應用程式中無法連到 Phantom serve
 
-Same diagnostic as Android — see TROUBLESHOOTING-MAC.md
-"healthz unreachable" section. Most common: Tailscale not connected
-on the iPhone (Settings → Tailscale → Connect).
+與 Android 相同的診斷 — 請見 TROUBLESHOOTING-MAC.md 的「healthz unreachable」段落。最常見的原因：iPhone 上 Tailscale 未連線（設定 → Tailscale → Connect）。
 
 ---
 
-## What's next on iOS (roadmap)
+## iOS 接下來的計畫（roadmap，路線圖）
 
-- **In-app coordinator switcher** — change host without reinstalling
-- **Push notifications** when long-running tasks complete
-  (`@tauri-apps/plugin-notification` is already in package.json)
-- **Local LLM inference** via Apple Foundation Models framework
-  (macOS 26+ / iOS 26+) — phantom would talk to the on-device LLM
-  through a small Swift shim. Same idea as the planned MLX
-  integration on the Mac side.
-- **Truly local agent loop** — write a Swift native re-implementation
-  of the agent loop that runs in the iOS sandbox, with whatever tools
-  the sandbox allows (file_read/file_write within the app's container,
-  HTTPS fetch, no shell). This is a multi-week project and is **not**
-  on the demo path.
+- **應用程式內協調者切換器** — 無需重新安裝即可更換主機
+- **推播通知**，於長時間執行的任務完成時通知（`@tauri-apps/plugin-notification` 已在 package.json 中）
+- **本地 LLM 推論**，透過 Apple Foundation Models 框架（macOS 26+／iOS 26+）— phantom 會經由一個小型 Swift 墊片（shim）與裝置上的 LLM 溝通。與 Mac 端規劃中的 MLX 整合是相同概念。
+- **真正本地的代理迴圈** — 撰寫一個 Swift 原生重新實作的代理迴圈，使其在 iOS 沙盒內執行，並搭配沙盒允許的任何工具（在應用程式容器內的 file_read／file_write、HTTPS fetch、無 shell）。這是一個為期數週的專案，且**不在**展示路徑（demo path）上。
 
-For the foreseeable future, the Mac/Linux/Windows coordinator does
-all the real work and the iOS app is purely the UI that pretends to
-do it.
+在可預見的未來，Mac／Linux／Windows 協調者會完成所有實際工作，而 iOS 應用程式純粹是假裝在做事的使用者介面。

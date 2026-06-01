@@ -1,0 +1,75 @@
+name: PR Cross-Platform Build Matrix
+
+# Cross-platform compile gate for Windows native, macOS native, and iOS
+# cross-compile. Complements (does not duplicate):
+#   - ci-fast.yml      → Linux check + clippy + unit tests
+#   - ci-android.yml   → aarch64-linux-android compile + ELF sanity
+#   - ci-desktop.yml   → Tauri desktop on ubuntu
+#
+# Currently manual-only (workflow_dispatch). GitHub Actions billing is
+# exhausted as of 2026-05-17 (see docs/superpowers/runbooks/plan-a-local-crossbuild.md).
+# When billing is restored, uncomment the `pull_request:` block below to
+# make this a required PR gate.
+
+on:
+  workflow_dispatch:
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - 'core/**'
+  #     - 'crates/**'
+  #     - 'Cargo.lock'
+  #     - '.github/workflows/pr-build-matrix.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: build-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            native: true
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            native: true
+          - name: ios-arm64
+            os: macos-latest
+            target: aarch64-apple-ios
+            native: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust + target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: ${{ matrix.target }}
+
+      - name: Cargo build
+        working-directory: core
+        run: cargo build --target ${{ matrix.target }} --release
+
+      - name: Cargo test (native only)
+        if: matrix.native == true
+        working-directory: core
+        run: cargo test --target ${{ matrix.target }} --lib --release

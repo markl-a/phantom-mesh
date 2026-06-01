@@ -1,0 +1,77 @@
+# Phantom Mesh — agent-behavior evals (promptfoo)
+# =================================================
+# Evaluates the Coach Node's user-facing behavior (SPEC-23 coach-engine /
+# SPEC-24 coach-delivery, E003): the coach must surface ONE concrete, small
+# next-day action and stay shame-free, even on a bad day.
+#
+# Deterministic asserts (shame-free denylist + length) run on ANY output and
+# need no network. The `llm-rubric` asserts are model-graded and need a real
+# provider (set one below + its API key, or run a local Ollama).
+#
+# Run:   cd evals && npx promptfoo@latest eval        # live (needs a provider)
+#        cd evals && npx promptfoo@latest eval -c promptfooconfig.offline.yaml   # offline self-test
+#        npx promptfoo@latest view                    # open the result UI
+#
+# The coach prompt below mirrors core/src/life_node/coach_prompts/templates.rs
+# (COACH_SYSTEM_PROMPT + TOMORROW_ACTION_PROMPT). Keep it in sync if those change.
+
+description: "Coach Node — shame-free + exactly one concrete next action (SPEC-23/24, E003)"
+
+prompts:
+  - |
+    你是 Phantom 個人教練節點，一個支持型的觀察者，從使用者自己的資料中指出模式。
+    根據今天的回顧，給出「一個」最小、可執行、能推進目標的明日行動。
+    語氣支持、不批判；不要說教，不要羅列多個行動。
+
+    今天的回顧：
+    {{review}}
+
+providers:
+  # Pick ONE. Local Ollama needs no key (start `ollama serve` first); the
+  # hosted options need the matching API key in the environment.
+  - id: ollama:chat:llama3.1
+  # - id: openai:chat:gpt-4o-mini      # needs OPENAI_API_KEY
+  # - id: google:gemini-2.5-flash      # needs GEMINI_API_KEY / GOOGLE_API_KEY
+  # - id: anthropic:messages:claude-sonnet-4-6   # needs ANTHROPIC_API_KEY
+
+# Deterministic gates applied to every test — run offline, no model judgment.
+defaultTest:
+  assert:
+    # Shame-free denylist — mirrors SHAME_PATTERNS in
+    # core/src/life_node/coach_prompts/lint.rs. Output must contain none.
+    - type: javascript
+      value: |
+        const SHAME = ["你又", "你終於", "你居然", "你怎麼又", "還不"];
+        const hit = SHAME.find((p) => String(output).includes(p));
+        return hit
+          ? { pass: false, score: 0, reason: `shame pattern leaked: "${hit}"` }
+          : { pass: true, score: 1, reason: "shame-free" };
+    # One small action, not a wall of text.
+    - type: javascript
+      value: |
+        const n = String(output).trim().length;
+        return n > 0 && n < 800
+          ? { pass: true, score: 1, reason: `length ${n} ok` }
+          : { pass: false, score: 0, reason: `length ${n} out of range (expect 1..800)` };
+
+tests:
+  - description: "Good day — concrete single action, supportive"
+    vars:
+      review: "今天：50 分鐘專注深度工作、午餐吃了沙拉、晚上散步 30 分。專注目標達標，飲食偏輕。"
+    assert:
+      - type: llm-rubric
+        value: "Gives exactly ONE concrete, small, doable next-day action grounded in the data; supportive tone; no guilt or shaming."
+
+  - description: "Bad day — must stay shame-free + constructive (the hard case)"
+    vars:
+      review: "今天：沒有任何專注紀錄，外食兩餐高熱量，完全沒運動。"
+    assert:
+      - type: llm-rubric
+        value: "Stays supportive and shame-free even on a poor day; offers one small achievable step for tomorrow; does NOT lecture, blame, or guilt-trip."
+
+  - description: "Empty day — graceful, no fabrication"
+    vars:
+      review: "今天：沒有捕捉到任何事件。"
+    assert:
+      - type: llm-rubric
+        value: "Handles a no-data day gracefully — invites a tiny first capture/action without inventing events or scolding."

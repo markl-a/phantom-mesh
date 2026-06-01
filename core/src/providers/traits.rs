@@ -35,12 +35,12 @@ pub enum ProviderError {
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProviderError::RateLimit       => write!(f, "rate limit exceeded"),
-            ProviderError::AuthError       => write!(f, "authentication error"),
-            ProviderError::NetworkError    => write!(f, "network error"),
-            ProviderError::ModelNotFound   => write!(f, "model not found"),
-            ProviderError::ContextTooLong  => write!(f, "context too long"),
-            ProviderError::Unknown(msg)    => write!(f, "unknown error: {}", msg),
+            ProviderError::RateLimit => write!(f, "rate limit exceeded"),
+            ProviderError::AuthError => write!(f, "authentication error"),
+            ProviderError::NetworkError => write!(f, "network error"),
+            ProviderError::ModelNotFound => write!(f, "model not found"),
+            ProviderError::ContextTooLong => write!(f, "context too long"),
+            ProviderError::Unknown(msg) => write!(f, "unknown error: {}", msg),
         }
     }
 }
@@ -59,10 +59,15 @@ pub fn classify_error(status: u16, body: &str) -> ProviderError {
         401 | 403 => ProviderError::AuthError,
         404 => {
             // Distinguish "model not found" from generic 404.
-            if body_lower.contains("model") && (body_lower.contains("not found") || body_lower.contains("does not exist")) {
+            if body_lower.contains("model")
+                && (body_lower.contains("not found") || body_lower.contains("does not exist"))
+            {
                 ProviderError::ModelNotFound
             } else {
-                ProviderError::Unknown(format!("HTTP 404: {}", crate::tools::floor_char_boundary(body, 200)))
+                ProviderError::Unknown(format!(
+                    "HTTP 404: {}",
+                    crate::tools::floor_char_boundary(body, 200)
+                ))
             }
         }
         400 => {
@@ -80,10 +85,17 @@ pub fn classify_error(status: u16, body: &str) -> ProviderError {
             if is_context_overflow {
                 ProviderError::ContextTooLong
             } else {
-                ProviderError::Unknown(format!("HTTP 400: {}", crate::tools::floor_char_boundary(body, 200)))
+                ProviderError::Unknown(format!(
+                    "HTTP 400: {}",
+                    crate::tools::floor_char_boundary(body, 200)
+                ))
             }
         }
         0 => ProviderError::NetworkError,
-        _ => ProviderError::Unknown(format!("HTTP {}: {}", status, crate::tools::floor_char_boundary(body, 200))),
+        _ => ProviderError::Unknown(format!(
+            "HTTP {}: {}",
+            status,
+            crate::tools::floor_char_boundary(body, 200)
+        )),
     }
 }

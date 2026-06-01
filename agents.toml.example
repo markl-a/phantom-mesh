@@ -76,12 +76,23 @@ api_key_env = "GROQ_API_KEY"         # export GROQ_API_KEY=gsk_...
 default_model = "llama-3.3-70b-versatile"
 
 [providers.opencode]
-# OpenCode Zen gateway — frontier models (Claude, GPT-5, Gemini-3) plus 5
-# free-tier preview models. The endpoint is `/zen/v1`, NOT `/api/v1` —
-# the legacy `/api/v1` path returns a Cloudflare 404. Free models include:
-#   minimax-m2.5-free, hy3-preview-free, ling-2.6-flash-free,
-#   trinity-large-preview-free, nemotron-3-super-free
-# Query the full model list: GET https://opencode.ai/zen/v1/models
+# OpenCode Zen gateway — frontier models (Claude, GPT-5, Gemini-3) plus
+# 7 free-tier / stealth models. The endpoint is `/zen/v1`, NOT `/api/v1`
+# — the legacy `/api/v1` path returns a Cloudflare 404.
+#
+# Free / stealth models verified live 2026-05-15 via
+#   curl https://opencode.ai/zen/v1/models | jq
+# (re-verify before listing — Zen rotates free-tier models frequently):
+#   big-pickle                  (stealth, no `-free` suffix)
+#   deepseek-v4-flash-free
+#   minimax-m2.5-free
+#   nemotron-3-super-free
+#   qwen3.6-plus-free
+#   ring-2.6-1t-free            (was ling-2.6-flash-free, renamed)
+#   trinity-large-preview-free
+#
+# Note: hy3-preview-free is GONE; use trinity-large-preview-free or
+# big-pickle as the modern preview slot. See docs/positioning.md §6.
 type = "opencode"
 api_key_env = "OPENCODE_API_KEY"     # export OPENCODE_API_KEY=sk-...
 default_model = "claude-sonnet-4-6"
@@ -105,12 +116,7 @@ url = "https://api.cerebras.ai/v1"
 api_key_env = "CEREBRAS_API_KEY"
 default_model = "llama-3.3-70b"
 
-[providers.groq]
-# Groq Cloud — fast, full tool calling, 1K req/day, ~700 tok/s
-# Get a key: https://console.groq.com/keys (no CC required)
-type = "groq"
-api_key_env = "GROQ_API_KEY"
-default_model = "llama-3.3-70b-versatile"
+# (Groq is already configured above — duplicate block removed 2026-05-15.)
 
 [providers.nvidia]
 # NVIDIA NIM — 100+ models incl. DeepSeek-R1 / Nemotron, credits-based
@@ -261,10 +267,10 @@ instructions = """You are a Squad Pipeline dispatcher running on a phantom-mesh 
 INPUT YOU WILL RECEIVE:
 - The user's goal (one or more sentences in any language)
 - A live inventory of online peers and their available agents, e.g.:
-    z13     [Win,   full]   agents: [master, coder, recon, enrich, review]
-    oracle  [Linux, full]   agents: [master, coder, enrich]
-    ipad    [iOS,   sandbox file_in_container,memory,web,subagent]  agents: [master, triage]
-    ayaneo  [Win,   full]   agents: [master, coder, review]
+    node-a  [Win,   full]   agents: [master, coder, recon, enrich, review]
+    node-b  [Linux, full]   agents: [master, coder, enrich]
+    node-c  [iOS,   sandbox file_in_container,memory,web,subagent]  agents: [master, triage]
+    node-d  [Win,   full]   agents: [master, coder, review]
 
 OUTPUT FORMAT (strict — your reply must be PARSEABLE JSON, nothing else):
 
@@ -297,14 +303,14 @@ INPUT YOU WILL RECEIVE:
 - The dispatcher's `synthesis_hint` (one sentence on how outputs combine)
 - N peer outputs, each tagged with peer name + agent name + elapsed_ms:
 
-  ## Peer: z13 (recon-agent, 4123 ms)
-  <text from z13's recon-agent>
+  ## Peer: node-a (recon-agent, 4123 ms)
+  <text from node-a's recon-agent>
 
-  ## Peer: oracle (enrich-agent, 6010 ms)
-  <text from oracle's enrich-agent>
+  ## Peer: node-b (enrich-agent, 6010 ms)
+  <text from node-b's enrich-agent>
 
-  ## Peer: ipad (triage-agent, 8804 ms)
-  <text from ipad's triage-agent>
+  ## Peer: node-c (triage-agent, 8804 ms)
+  <text from node-c's triage-agent>
 
 OUTPUT FORMAT:
 - A single markdown report with headings, lists, tables as appropriate
@@ -395,10 +401,103 @@ CRITICAL:
 #   "http://100.x.x.2:7878",               # GCP cloud node (Tailscale IP)
 #   "http://100.x.x.3:7878",               # worker node (Tailscale IP)
 # ]
+#
+# capabilities: tags advertised to peers so the dispatcher can route tasks
+# whose `--required-caps` mention them. Different from `worker_caps` (below):
+# `capabilities` is a generic descriptor ("this box has a GPU"), `worker_caps`
+# is the sandbox/whitelist used to *reject* mismatched dispatch. For most
+# clusters set both to the same list; for the E001 cross-host smoke testbed
+# the two nodes use disjoint values so each task must forward:
+#   # workstation:
+#   capabilities = ["gpu"]
+#   # Pi 4 / vision box:
+#   capabilities = ["vision"]
+# Used by `core/src/mesh.rs::select_best_peer_with_caps`. See also
+# `docs/superpowers/runbooks/E001-testbed-setup.md`.
+# capabilities = []
+#
+# worker_caps: this node's worker capabilities — advertises what kinds of
+# tasks this node is willing to accept. Other peers can target this node via
+# `phantom peer assign --required-caps android,camera ...`; the dispatcher
+# (see `core/src/mesh.rs::select_best_peer_with_caps`) filters peers whose
+# advertised `worker_caps` is a superset of the task's `required_caps`. A
+# mismatch surfaces as `DispatchError::NoPeerSatisfiesCaps`.
+#
+# Default empty (`[]`) = this node accepts any task (acts as a "full" worker).
+# Set caps to filter, e.g.:
+#   worker_caps = ["android", "camera", "gps"]   # on a phone
+#   worker_caps = ["full"]                       # on a workstation
+# worker_caps = []
+#
+# C4 (v0.6.0): peer-heartbeat tuning. Only consulted by the daemon when
+# built with `--features experimental-cluster-heartbeat`. When that
+# feature is OFF (the v0.6.0 default), `select_best_peer_with_caps` never
+# tier-demotes peers and these knobs are inert. When ON, the heartbeat
+# task probes each peer's `/rpc/ping` every `heartbeat_interval_secs`
+# (default 30) and flips the peer Healthy → Unhealthy after
+# `heartbeat_failure_threshold` (default 3) consecutive failures.
+# Unhealthy peers are still pickable as a last-resort fallback when no
+# healthy peer satisfies the task's `required_caps`.
+# heartbeat_interval_secs = 30
+# heartbeat_failure_threshold = 3
 
-# ── Telegram bot (optional) ────────────────────────────────────────────────────
-# Enable to allow mobile users (iPhone, iPad, etc.) to chat with the mesh via
-# Telegram. Typically enabled only on the always-on cloud node.
+# ── External MCP servers (optional) ───────────────────────────────────────────
+# Phantom can spawn external Model-Context-Protocol (stdio) servers and surface
+# their tools to every agent under a `<server_name>_<tool_name>` prefix. The
+# child process is started on phantom-mesh startup and kept alive; it is killed
+# when the daemon exits.
+#
+# Each `[[mcp_servers]]` block accepts:
+#   name     — short tag used as the tool prefix (e.g. "secops_recon" →
+#              the server's `scan_target` tool is exposed as
+#              `secops_recon_scan_target` to the LLM)
+#   command  — absolute path or PATH-resolvable binary to spawn
+#   args     — argv list passed to the child
+#   env      — extra environment variables (merged onto inherited env)
+#
+# Tools added this way are appended to every agent's effective tool list, so
+# you do NOT have to enumerate them under `[agent.X].tools = [...]` (though
+# you can mention them in `instructions` to nudge the model).
+#
+# ── Example: wire in phantom-secops's three MCP servers (red-team recon, ───
+# ──          blue-team log scanner, and config self-audit) ────────────────
+# Prereq: clone https://github.com/marklight-dev/phantom-secops, then either
+#   (a) run `make mesh-mcp-config` over there and paste its output here, or
+#   (b) uncomment the blocks below and `export PHANTOM_SECOPS_ROOT=/abs/path`
+#       before starting phantom (the `cwd` field is silently ignored by
+#       phantom today, so the child inherits this process's CWD — set
+#       PYTHONPATH explicitly to make imports resolve).
+#
+# After the daemon starts, verify with the line REPL:
+#   phantom repl -c "/tools"            # shows external (mcp) section
+#   phantom repl -c "/mcp test secops_recon"   # re-pings the server
+#
+# Run a one-shot from the master agent:
+#   phantom exec --agent master "use secops_recon_scan_target to probe 127.0.0.1"
+#
+# [[mcp_servers]]
+# name    = "secops_recon"
+# command = "python3"
+# args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
+# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+#
+# [[mcp_servers]]
+# name    = "secops_log"
+# command = "python3"
+# args    = ["-m", "phantom_secops.mcp.secops_log_server"]
+# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+#
+# [[mcp_servers]]
+# name    = "secops_self_audit"
+# command = "python3"
+# args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
+# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+
+# ── Telegram Remote Control (optional) ───────────────────────────────────────
+# Turns Telegram into a remote for this cluster (BIG-GOAL §P3 / OpenClaw
+# epic E004): every Telegram message becomes a cluster command and the
+# bot's reply is the agent's response to the cluster doing the work — not
+# a standalone chatbot. Typically enabled only on the always-on cloud node.
 #
 # Setup:
 #   1. Create a bot via @BotFather: https://t.me/BotFather

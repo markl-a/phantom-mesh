@@ -31,8 +31,7 @@ pub fn session_path(workspace_id: &str, task_id: Uuid) -> PathBuf {
 /// Same as `session_path` but rooted under a caller-supplied directory. Used
 /// by tests to keep them hermetic without touching process env vars.
 pub fn session_path_at(root: &Path, workspace_id: &str, task_id: Uuid) -> PathBuf {
-    root.join(workspace_id)
-        .join(format!("{}.jsonl", task_id))
+    root.join(workspace_id).join(format!("{}.jsonl", task_id))
 }
 
 fn sessions_root() -> PathBuf {
@@ -168,7 +167,9 @@ pub fn repair(entries: Vec<SessionEntry>) -> RepairedSession {
 
     for e in entries.into_iter() {
         match &e {
-            SessionEntry::ToolCall { call_id, timestamp, .. } => {
+            SessionEntry::ToolCall {
+                call_id, timestamp, ..
+            } => {
                 open_calls.push((call_id.clone(), *timestamp));
             }
             SessionEntry::ToolResult { call_id, .. } => {
@@ -215,7 +216,10 @@ mod tests {
     #[test]
     fn repair_no_op_when_balanced() {
         let entries = vec![
-            SessionEntry::User { content: "hi".into(), timestamp: 1 },
+            SessionEntry::User {
+                content: "hi".into(),
+                timestamp: 1,
+            },
             SessionEntry::ToolCall {
                 call_id: "c1".into(),
                 name: "shell".into(),
@@ -228,7 +232,10 @@ mod tests {
                 synthetic: false,
                 timestamp: 3,
             },
-            SessionEntry::Assistant { content: "done".into(), timestamp: 4 },
+            SessionEntry::Assistant {
+                content: "done".into(),
+                timestamp: 4,
+            },
         ];
         let out = repair(entries.clone());
         assert_eq!(out.entries.len(), 4);
@@ -238,7 +245,10 @@ mod tests {
     #[test]
     fn repair_injects_synthetic_for_orphan_tool_call() {
         let entries = vec![
-            SessionEntry::User { content: "do thing".into(), timestamp: 1 },
+            SessionEntry::User {
+                content: "do thing".into(),
+                timestamp: 1,
+            },
             SessionEntry::ToolCall {
                 call_id: "c1".into(),
                 name: "shell".into(),
@@ -252,7 +262,12 @@ mod tests {
         assert_eq!(out.repaired_count, 1);
         let last = out.entries.last().unwrap();
         match last {
-            SessionEntry::ToolResult { call_id, synthetic, output, .. } => {
+            SessionEntry::ToolResult {
+                call_id,
+                synthetic,
+                output,
+                ..
+            } => {
                 assert_eq!(call_id, "c1");
                 assert!(*synthetic);
                 assert!(output.contains("interrupted"));
@@ -311,14 +326,22 @@ mod tests {
     async fn writer_appends_jsonl_lines() {
         let dir = tempfile::tempdir().unwrap();
         let task_id = Uuid::new_v4();
-        let writer = SessionWriter::open_at(dir.path(), "ws1", task_id).await.unwrap();
+        let writer = SessionWriter::open_at(dir.path(), "ws1", task_id)
+            .await
+            .unwrap();
 
         writer
-            .append(SessionEntry::User { content: "a".into(), timestamp: 1 })
+            .append(SessionEntry::User {
+                content: "a".into(),
+                timestamp: 1,
+            })
             .await
             .unwrap();
         writer
-            .append(SessionEntry::Assistant { content: "b".into(), timestamp: 2 })
+            .append(SessionEntry::Assistant {
+                content: "b".into(),
+                timestamp: 2,
+            })
             .await
             .unwrap();
         drop(writer);
@@ -327,7 +350,9 @@ mod tests {
         let contents = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(contents.lines().count(), 2);
 
-        let loaded = load_and_repair_at(dir.path(), "ws1", task_id).await.unwrap();
+        let loaded = load_and_repair_at(dir.path(), "ws1", task_id)
+            .await
+            .unwrap();
         assert_eq!(loaded.entries.len(), 2);
         assert_eq!(loaded.repaired_count, 0);
     }
@@ -335,7 +360,9 @@ mod tests {
     #[tokio::test]
     async fn load_missing_session_returns_empty() {
         let dir = tempfile::tempdir().unwrap();
-        let loaded = load_and_repair_at(dir.path(), "nosuch", Uuid::new_v4()).await.unwrap();
+        let loaded = load_and_repair_at(dir.path(), "nosuch", Uuid::new_v4())
+            .await
+            .unwrap();
         assert!(loaded.entries.is_empty());
     }
 
@@ -343,19 +370,36 @@ mod tests {
     async fn writer_then_repair_handles_orphan() {
         let dir = tempfile::tempdir().unwrap();
         let task_id = Uuid::new_v4();
-        let w = SessionWriter::open_at(dir.path(), "ws1", task_id).await.unwrap();
-        w.append(SessionEntry::User { content: "do".into(), timestamp: 1 }).await.unwrap();
+        let w = SessionWriter::open_at(dir.path(), "ws1", task_id)
+            .await
+            .unwrap();
+        w.append(SessionEntry::User {
+            content: "do".into(),
+            timestamp: 1,
+        })
+        .await
+        .unwrap();
         w.append(SessionEntry::ToolCall {
             call_id: "c1".into(),
             name: "shell".into(),
             args: json!({"cmd": "x"}),
             timestamp: 2,
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         // Crash before ToolResult.
         drop(w);
 
-        let r = load_and_repair_at(dir.path(), "ws1", task_id).await.unwrap();
+        let r = load_and_repair_at(dir.path(), "ws1", task_id)
+            .await
+            .unwrap();
         assert_eq!(r.repaired_count, 1);
-        assert!(matches!(r.entries.last().unwrap(), SessionEntry::ToolResult { synthetic: true, .. }));
+        assert!(matches!(
+            r.entries.last().unwrap(),
+            SessionEntry::ToolResult {
+                synthetic: true,
+                ..
+            }
+        ));
     }
 }

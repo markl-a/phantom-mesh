@@ -35,7 +35,7 @@ Values are stored as strings internally and cast by typed properties.
   "embed_model":          "nomic-embed-text",
   "db_path":              "C:/Users/you/.phantom-mesh/knowledge.db",
   "litellm_proxy_url":    "http://localhost:4000",
-  "cluster_nodes":        "m1=http://100.64.0.2:11434,acer=http://100.64.0.3:11434",
+  "cluster_nodes":        "node-c=http://100.64.0.2:11434,node-b=http://100.64.0.3:11434",
   "similarity_threshold": "0.8",
   "max_parallel_tasks":   "4"
 }
@@ -71,7 +71,7 @@ name=url,name=url
 ```
 
 ```bash
-export CLAWTEX_CLUSTER_NODES="m1=http://100.64.0.2:11434,acer=http://100.64.0.3:11434"
+export CLAWTEX_CLUSTER_NODES="node-c=http://100.64.0.2:11434,node-b=http://100.64.0.3:11434"
 ```
 
 If you omit the name, the hostname is extracted automatically:
@@ -84,7 +84,7 @@ http://100.64.0.2:11434,http://100.64.0.3:11434
 
 ```json
 {
-  "cluster_nodes": "[{\"name\":\"m1\",\"url\":\"http://100.64.0.2:11434\"},{\"name\":\"acer\",\"url\":\"http://100.64.0.3:11434\"}]"
+  "cluster_nodes": "[{\"name\":\"node-c\",\"url\":\"http://100.64.0.2:11434\"},{\"name\":\"node-b\",\"url\":\"http://100.64.0.3:11434\"}]"
 }
 ```
 

@@ -53,9 +53,9 @@ cluster_secret = "REPLACE_WITH_SHARED_SECRET"
 peers = [
   "http://100.x.x.MAC:7878",
   "http://100.x.x.ORACLE:7878",
-  "http://100.x.x.Z13:7878",
-  "http://100.x.x.ACER:7878",
-  "http://100.x.x.AYANEO:7878",
+  "http://100.x.x.node-a:7878",
+  "http://100.x.x.node-b:7878",
+  "http://100.x.x.node-d:7878",
   "http://100.x.x.ROG6:7878",
   "http://100.x.x.MIPAD:7878",
   # 其他 Pi 節點也加進來

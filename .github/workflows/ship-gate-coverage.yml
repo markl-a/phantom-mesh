@@ -1,0 +1,143 @@
+# SPEC-60 V2 ship-gate — Unit test line coverage ≥ 80% per spec module.
+#
+# Spec source: docs/superpowers/specs/v060-deep-spec/SPEC-60-TESTING-strategy.md §8.2
+# Reader guide: docs/superpowers/v2-coverage-gate.md
+# Plan:       docs/superpowers/PHASE-E-INTEGRATION-TEST-PLAN.md §3.2 (V2 row)
+#
+# What this gate does
+# -------------------
+# 1. Install cargo-llvm-cov (via taiki-e/install-action — pre-built binary, no
+#    compile-from-source cost) and the `llvm-tools-preview` rustup component.
+# 2. Run `cargo llvm-cov --workspace --lcov --output-path coverage.lcov` once.
+# 3. Also emit a JSON summary (`coverage.json`) so the per-spec parser does not
+#    have to re-walk LCOV record-by-record.
+# 4. Run the per-spec line-coverage parser (`scripts/ship-gate/v2-coverage-local.sh
+#    --ci`) which:
+#       a. reads `.github/workflows/ship-gate-coverage-exceptions.yaml`
+#       b. computes line-coverage per leaf-spec module map
+#       c. fails the job if any spec falls below 80% AND is not in the exception
+#          list (with non-expired `expires_at`).
+# 5. Upload `coverage.lcov`, `coverage.json`, and the per-spec report as
+#    workflow artifacts so operator can debug failures from the Actions tab.
+# 6. The job name `gate-v2-coverage` is the GitHub Status check name that the
+#    SPEC-60 ship-gate.yml orchestrator fan-in step looks for.
+#
+# Wall clock budget: ≤ 8 min p95 (SPEC-60 §8.2). First-run cold (~12 min) is OK
+# because cache is empty; warm runs hit ~3-5 min on ubuntu-latest.
+
+name: Ship-gate V2 — Coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ship-gate-coverage.yml'
+      - '.github/workflows/ship-gate-coverage-exceptions.yaml'
+      - 'scripts/ship-gate/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ship-gate-coverage.yml'
+      - '.github/workflows/ship-gate-coverage-exceptions.yaml'
+      - 'scripts/ship-gate/**'
+  workflow_dispatch:
+
+# Cancel superseded runs on the same PR / branch so we do not burn quota
+# when operator pushes a fix-up commit during a coverage debug session.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Coverage threshold (line) per leaf-spec module. SPEC-60 §8.2 locks 80%.
+  # Overrides for unsafe FFI shims live in
+  # `.github/workflows/ship-gate-coverage-exceptions.yaml`, not here.
+  PHANTOM_V2_COVERAGE_THRESHOLD: '80'
+
+jobs:
+  gate-v2-coverage:
+    name: gate-v2-coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable + llvm-tools-preview
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov (pre-built binary)
+        # taiki-e/install-action fetches a pre-built release binary from
+        # GitHub releases — no `cargo install` compile cost (~6 min saved).
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Cache cargo registry + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+          # Distinct cache key so this job does not collide with ci-fast.yml's
+          # non-instrumented cache (llvm-cov uses different RUSTFLAGS).
+          key: llvm-cov
+
+      - name: Install yq (YAML parser for the exception list)
+        # Used by scripts/ship-gate/v2-coverage-local.sh to read the exception
+        # YAML. ubuntu-latest already ships jq; yq we install ourselves.
+        run: |
+          set -euo pipefail
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+
+      - name: Run cargo llvm-cov (workspace, lcov + json)
+        working-directory: core
+        run: |
+          set -euo pipefail
+          # --workspace : every member crate
+          # --lcov / --output-path : machine-readable LCOV for downstream tools
+          #                          (e.g. Codecov in the future)
+          # We do NOT pass `--fail-under-lines 80` here because the threshold
+          # is per-spec, not workspace-wide; the exception list needs a
+          # per-module decision. The orchestrator script does that.
+          cargo llvm-cov --workspace \
+            --lcov --output-path ../coverage.lcov
+          # Emit JSON summary as well — easier for the parser to ingest than
+          # walking LCOV records line by line.
+          cargo llvm-cov report --json --output-path ../coverage.json
+          # Human-readable summary in the job log for quick triage.
+          cargo llvm-cov report --summary-only
+
+      - name: Enforce per-spec ≥ 80% line coverage (with exception list)
+        env:
+          PHANTOM_V2_COVERAGE_THRESHOLD: ${{ env.PHANTOM_V2_COVERAGE_THRESHOLD }}
+          PHANTOM_V2_COVERAGE_JSON: ${{ github.workspace }}/coverage.json
+          PHANTOM_V2_EXCEPTIONS_YAML: ${{ github.workspace }}/.github/workflows/ship-gate-coverage-exceptions.yaml
+          PHANTOM_V2_REPORT_OUT: ${{ github.workspace }}/coverage-per-spec-report.txt
+        run: |
+          bash scripts/ship-gate/v2-coverage-local.sh --ci
+
+      - name: Upload coverage artifacts
+        # `if: always()` so operator can pull the LCOV even when the gate fails
+        # (which is exactly when they most need it).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ship-gate-v2-coverage
+          path: |
+            coverage.lcov
+            coverage.json
+            coverage-per-spec-report.txt
+          if-no-files-found: warn
+          retention-days: 14

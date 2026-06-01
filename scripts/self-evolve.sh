@@ -3,7 +3,7 @@
 # Usage: ./scripts/self-evolve.sh [rounds]
 #
 # Uses single-node evolve (not --distributed) because cargo/Rust only
-# available on Mac and Z13 (Linux). Windows nodes (ayaneo, laptop) can't
+# available on Mac and node-a (Linux). Windows nodes (node-a, laptop) can't
 # run cargo tasks.
 set -euo pipefail
 

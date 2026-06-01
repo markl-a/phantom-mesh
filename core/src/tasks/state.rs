@@ -83,7 +83,9 @@ impl TaskQueue {
         turns_delta: u32,
         cost_delta: f64,
     ) -> Result<()> {
-        self.store.record_progress(task_id, turns_delta, cost_delta).await
+        self.store
+            .record_progress(task_id, turns_delta, cost_delta)
+            .await
     }
 
     pub async fn get(&self, task_id: Uuid) -> Result<Option<TaskRecord>> {
@@ -106,14 +108,27 @@ impl TaskQueue {
     /// Returns the number of tasks that were transitioned.
     pub async fn mark_interrupted(&self) -> Result<usize> {
         let mut count = 0;
-        for status in [TaskStatus::Pending, TaskStatus::AwaitingApproval, TaskStatus::Running] {
+        for status in [
+            TaskStatus::Pending,
+            TaskStatus::AwaitingApproval,
+            TaskStatus::Running,
+        ] {
             let stale = self.store.list(None, Some(status), 10_000).await?;
             for t in stale {
-                let _ = self
+                match self
                     .store
-                    .update_status(t.task_id, TaskStatus::Failed, Some("interrupted: daemon restart"))
-                    .await;
-                count += 1;
+                    .update_status(
+                        t.task_id,
+                        TaskStatus::Failed,
+                        Some("interrupted: daemon restart"),
+                    )
+                    .await
+                {
+                    Ok(_) => count += 1,
+                    Err(e) => {
+                        tracing::warn!(task_id = %t.task_id, "mark_interrupted: update_status failed (count not incremented): {}", e)
+                    }
+                }
             }
         }
         Ok(count)
@@ -155,11 +170,17 @@ mod tests {
         let t = q.create("ws1", "master", "hi").await.unwrap();
         assert_eq!(t.status, TaskStatus::Pending);
 
-        let running = q.transition(t.task_id, TaskStatus::Running, None).await.unwrap();
+        let running = q
+            .transition(t.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
         assert_eq!(running.status, TaskStatus::Running);
         assert!(running.started_at.is_some());
 
-        let done = q.transition(t.task_id, TaskStatus::Completed, None).await.unwrap();
+        let done = q
+            .transition(t.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
         assert_eq!(done.status, TaskStatus::Completed);
         assert!(done.finished_at.is_some());
     }
@@ -168,8 +189,12 @@ mod tests {
     async fn cannot_resurrect_terminal_task() {
         let (q, _d) = setup().await;
         let t = q.create("ws1", "master", "hi").await.unwrap();
-        q.transition(t.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(t.task_id, TaskStatus::Completed, None).await.unwrap();
+        q.transition(t.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(t.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
 
         let bad = q.transition(t.task_id, TaskStatus::Running, None).await;
         assert!(bad.is_err());
@@ -179,30 +204,46 @@ mod tests {
     async fn awaiting_approval_path() {
         let (q, _d) = setup().await;
         let t = q.create("ws1", "master", "risky").await.unwrap();
-        q.transition(t.task_id, TaskStatus::AwaitingApproval, None).await.unwrap();
+        q.transition(t.task_id, TaskStatus::AwaitingApproval, None)
+            .await
+            .unwrap();
 
         // approved → running
-        q.transition(t.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(t.task_id, TaskStatus::Completed, None).await.unwrap();
+        q.transition(t.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(t.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn rejected_approval_goes_to_failed() {
         let (q, _d) = setup().await;
         let t = q.create("ws1", "master", "risky").await.unwrap();
-        q.transition(t.task_id, TaskStatus::AwaitingApproval, None).await.unwrap();
-        q.transition(t.task_id, TaskStatus::Failed, Some("rejected by user")).await.unwrap();
+        q.transition(t.task_id, TaskStatus::AwaitingApproval, None)
+            .await
+            .unwrap();
+        q.transition(t.task_id, TaskStatus::Failed, Some("rejected by user"))
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn cancel_from_any_nonterminal_state() {
         let (q, _d) = setup().await;
         let t = q.create("ws1", "master", "hi").await.unwrap();
-        q.transition(t.task_id, TaskStatus::Cancelled, None).await.unwrap();
+        q.transition(t.task_id, TaskStatus::Cancelled, None)
+            .await
+            .unwrap();
 
         let t2 = q.create("ws1", "master", "hi2").await.unwrap();
-        q.transition(t2.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(t2.task_id, TaskStatus::Cancelled, None).await.unwrap();
+        q.transition(t2.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(t2.task_id, TaskStatus::Cancelled, None)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -211,9 +252,15 @@ mod tests {
         let a = q.create("ws1", "master", "running").await.unwrap();
         let _b = q.create("ws1", "master", "still pending").await.unwrap();
         let c = q.create("ws1", "master", "completed before").await.unwrap();
-        q.transition(a.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(c.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(c.task_id, TaskStatus::Completed, None).await.unwrap();
+        q.transition(a.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(c.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(c.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
 
         let n = q.mark_interrupted().await.unwrap();
         assert_eq!(n, 2); // a and b were nonterminal
@@ -235,14 +282,25 @@ mod tests {
         let a = q.create("ws1", "master", "a").await.unwrap();
         let b = q.create("ws1", "master", "b").await.unwrap();
         q.create("ws2", "master", "c").await.unwrap();
-        q.transition(a.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(a.task_id, TaskStatus::Completed, None).await.unwrap();
-        q.transition(b.task_id, TaskStatus::Running, None).await.unwrap();
-        q.transition(b.task_id, TaskStatus::Failed, Some("boom")).await.unwrap();
+        q.transition(a.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(a.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
+        q.transition(b.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
+        q.transition(b.task_id, TaskStatus::Failed, Some("boom"))
+            .await
+            .unwrap();
 
         let ws1_all = q.list(Some("ws1"), None, 100).await.unwrap();
         assert_eq!(ws1_all.len(), 2);
-        let ws1_failed = q.list(Some("ws1"), Some(TaskStatus::Failed), 100).await.unwrap();
+        let ws1_failed = q
+            .list(Some("ws1"), Some(TaskStatus::Failed), 100)
+            .await
+            .unwrap();
         assert_eq!(ws1_failed.len(), 1);
     }
 }

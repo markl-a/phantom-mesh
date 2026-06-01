@@ -10,10 +10,15 @@ import MobileClusterSettings from "./MobileClusterSettings";
 import MobileBrokerLogin from "./MobileBrokerLogin";
 import MobileLocalKeys from "./MobileLocalKeys";
 import MobileDiagnostics from "./MobileDiagnostics";
+import MobileNodeAdmin from "./MobileNodeAdmin";
+import MobilePermissions from "./MobilePermissions";
+import MobileHands from "./MobileHands";
+import MobileIdentity from "./MobileIdentity";
+import MobileMemory from "./MobileMemory";
 
-type Section = null | "broker" | "diag" | "localKeys" | "providers" | "agents" | "security" | "update" | "onboarding" | "cluster";
+type Section = null | "broker" | "diag" | "localKeys" | "providers" | "agents" | "security" | "update" | "onboarding" | "cluster" | "nodeAdmin" | "permissions" | "hands" | "identity" | "memory";
 
-const VALID_SECTIONS: Section[] = ["broker", "diag", "localKeys", "providers", "agents", "security", "update", "onboarding", "cluster"];
+const VALID_SECTIONS: Section[] = ["broker", "diag", "localKeys", "providers", "agents", "security", "update", "onboarding", "cluster", "nodeAdmin", "permissions", "hands", "identity", "memory"];
 
 const SECTIONS: { id: Exclude<Section, null>; title: string; subtitle: string }[] = [
   { id: "broker",     title: "登入 phantommesh.io", subtitle: "Google / Apple 登入 → broker_token 存進 app sandbox" },
@@ -21,9 +26,14 @@ const SECTIONS: { id: Exclude<Section, null>; title: string; subtitle: string }[
   { id: "localKeys",  title: "手動填 LLM API key", subtitle: "不想登入？直接貼 OPENAI / GROQ key — 馬上能用" },
   { id: "onboarding", title: "從 Mac 匯入設定", subtitle: "用 token 從電腦同步 cluster + API keys" },
   { id: "cluster",    title: "Cluster 派送",     subtitle: "讓 chat 訊息走協調者 → 任一節點執行" },
+  { id: "nodeAdmin",  title: "節點管理",         subtitle: "Broker token 輪換 / 手動加 peer / heartbeat 間隔" },
+  { id: "permissions",title: "權限與背景存活",   subtitle: "麥克風 / 相機 / 通知授權 · 小米背景白名單引導" },
   { id: "providers",  title: "Providers",       subtitle: "Groq / Gemini / Anthropic / OpenRouter" },
   { id: "agents",     title: "Agents",          subtitle: "master / coder / reviewer / researcher" },
+  { id: "hands",      title: "工作流",          subtitle: "叢集已註冊的 Hand / Pipeline 清單 (/hands)" },
+  { id: "memory",     title: "記憶",            subtitle: "瀏覽與搜尋 agent 的觀察記錄與 episodic memory" },
   { id: "security",   title: "Security",        subtitle: "cluster_secret / API key 檢查" },
+  { id: "identity",   title: "身分與隱私",       subtitle: "裝置身分指紋 · 加密誠實揭露 · Life Node 匯出 (P4)" },
   { id: "update",     title: "更新",            subtitle: "OTA 檢查與安裝" },
 ];
 
@@ -90,9 +100,14 @@ export default function MobileSettings() {
         {section === "localKeys"  && <MobileLocalKeys />}
         {section === "onboarding" && <MobileOnboarding />}
         {section === "cluster"    && <MobileClusterSettings />}
+        {section === "nodeAdmin"  && <MobileNodeAdmin />}
+        {section === "permissions" && <MobilePermissions />}
         {section === "providers"  && <ProvidersPanel />}
         {section === "agents"     && <AgentsPanel />}
+        {section === "hands"      && <MobileHands />}
+        {section === "memory"     && <MobileMemory />}
         {section === "security"   && <SecurityPanel />}
+        {section === "identity"   && <MobileIdentity />}
         {section === "update"     && <UpdatePanel />}
       </div>
     </div>

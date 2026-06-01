@@ -1,33 +1,41 @@
 pub mod ask_user;
 pub mod bash_bg;
+pub mod env_filter;
 pub mod trait_def;
-pub use trait_def::{Tool, ToolContext, BuiltinTool, McpToolWrapper, live_tools};
+pub use trait_def::{live_tools, BuiltinTool, McpToolWrapper, Tool, ToolContext};
 pub mod cluster;
-pub mod subagent;
+#[cfg(target_os = "windows")]
+pub mod computer_use_win;
 pub mod diag;
 pub mod diagnostic;
 pub mod diff_view;
 pub mod fetch;
 pub mod file;
-pub mod http_client;
 pub mod fs;
 pub mod git;
+pub mod http_client;
+pub mod image_gen;
 pub mod ls;
 pub mod memory;
 pub mod multi_edit;
+pub mod music_gen;
 pub mod patch;
 pub mod search;
 pub mod shell;
+#[cfg(target_os = "macos")]
+pub mod spotlight;
+pub mod subagent;
 pub mod todo;
+pub mod urlguard;
+pub mod validate;
+pub mod video_gen;
 pub mod web;
 pub mod web_fetch;
 #[cfg(target_os = "macos")]
-pub mod spotlight;
-#[cfg(target_os = "macos")]
 pub mod xcode;
 
-use serde_json::Value;
 use crate::config::ToolsConfig;
+use serde_json::Value;
 
 /// Largest prefix of `s` that fits within `max_bytes` and ends on a UTF-8
 /// char boundary. Safe for slicing arbitrary user/external input.
@@ -53,7 +61,9 @@ fn ceil_char_boundary(s: &str, start: usize) -> &str {
 }
 
 pub fn truncate(s: String, max_chars: usize) -> String {
-    if s.len() <= max_chars { return s; }
+    if s.len() <= max_chars {
+        return s;
+    }
     let half = max_chars / 2;
     format!(
         "{}\n\n[... {} chars truncated ...]\n\n{}",
@@ -79,6 +89,17 @@ pub fn all_tool_names() -> Vec<&'static str> {
         "glob_search",
         // web
         "web_search",
+        // media generation
+        "image_generate",
+        "video_generate",
+        "music_generate",
+        // computer use (Windows-only — drives the real desktop)
+        #[cfg(target_os = "windows")]
+        "screen_capture",
+        #[cfg(target_os = "windows")]
+        "mouse_click",
+        #[cfg(target_os = "windows")]
+        "keystroke",
         // memory
         "memory_store",
         "memory_recall",
@@ -175,98 +196,109 @@ pub async fn execute(name: &str, args: &Value, config: &ToolsConfig) -> String {
     match name {
         // ── core ─────────────────────────────────────────────────────────────
         #[cfg(not(target_os = "ios"))]
-        "shell"            => shell::run(args).await,
-        "file_read"        => file::read(args).await,
-        "file_write"       => file::write(args).await,
-        "file_edit"        => file::edit(args).await,
+        "shell" => shell::run(args).await,
+        "file_read" => file::read(args).await,
+        "file_write" => file::write(args).await,
+        "file_edit" => file::edit(args).await,
         // ── search ───────────────────────────────────────────────────────────
-        "content_search"   => search::content(args).await,
-        "glob_search"      => search::glob(args).await,
+        "content_search" => search::content(args).await,
+        "glob_search" => search::glob(args).await,
         // ── web ──────────────────────────────────────────────────────────────
-        "web_search"       => web::search(args, config).await,
+        "web_search" => web::search(args, config).await,
+        // ── media generation ─────────────────────────────────────────────────
+        "image_generate" => image_gen::generate(args).await,
+        "video_generate" => video_gen::generate(args).await,
+        "music_generate" => music_gen::generate(args).await,
+        // ── computer use (Windows-only) ──────────────────────────────────────
+        #[cfg(target_os = "windows")]
+        "screen_capture" => computer_use_win::screen_capture(args).await,
+        #[cfg(target_os = "windows")]
+        "mouse_click" => computer_use_win::mouse_click(args).await,
+        #[cfg(target_os = "windows")]
+        "keystroke" => computer_use_win::keystroke(args).await,
         // ── memory ───────────────────────────────────────────────────────────
-        "memory_store"     => memory::store(args).await,
-        "memory_recall"    => memory::recall(args).await,
-        "memory_list"      => memory::list(args).await,
-        "memory_delete"    => memory::delete(args).await,
-        "memory_search"    => memory::search(args).await,
+        "memory_store" => memory::store(args).await,
+        "memory_recall" => memory::recall(args).await,
+        "memory_list" => memory::list(args).await,
+        "memory_delete" => memory::delete(args).await,
+        "memory_search" => memory::search(args).await,
         // ── git (existing) — needs `git` binary, no-op on iOS sandbox ────────
         #[cfg(not(target_os = "ios"))]
-        "git_status"       => git::status(args).await,
+        "git_status" => git::status(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_diff"         => git::diff(args).await,
+        "git_diff" => git::diff(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_log"          => git::log(args).await,
+        "git_log" => git::log(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_commit"       => git::commit(args).await,
+        "git_commit" => git::commit(args).await,
         // ── git (new) ────────────────────────────────────────────────────────
         #[cfg(not(target_os = "ios"))]
-        "git_branch_list"  => git::git_branch_list(args).await,
+        "git_branch_list" => git::git_branch_list(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_checkout"     => git::git_checkout(args).await,
+        "git_checkout" => git::git_checkout(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_show"         => git::git_show(args).await,
+        "git_show" => git::git_show(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_blame"        => git::git_blame(args).await,
+        "git_blame" => git::git_blame(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_add"          => git::git_add(args).await,
+        "git_add" => git::git_add(args).await,
         #[cfg(not(target_os = "ios"))]
-        "git_stash_list"   => git::git_stash_list(args).await,
+        "git_stash_list" => git::git_stash_list(args).await,
         // ── ls ───────────────────────────────────────────────────────────────
-        "ls"               => ls::list(args).await,
-        "stat"             => ls::stat(args).await,
+        "ls" => ls::list(args).await,
+        "stat" => ls::stat(args).await,
         // ── patch ────────────────────────────────────────────────────────────
-        "apply_patch"      => patch::apply(args).await,
+        "apply_patch" => patch::apply(args).await,
         // ── diagnostics — toolchain not in iOS sandbox ──────────────────────
         #[cfg(not(target_os = "ios"))]
-        "cargo_check"      => diagnostic::cargo_check(args).await,
+        "cargo_check" => diagnostic::cargo_check(args).await,
         #[cfg(not(target_os = "ios"))]
-        "cargo_test"       => diagnostic::cargo_test(args).await,
+        "cargo_test" => diagnostic::cargo_test(args).await,
         #[cfg(not(target_os = "ios"))]
-        "tsc_check"        => diagnostic::tsc_check(args).await,
+        "tsc_check" => diagnostic::tsc_check(args).await,
         #[cfg(not(target_os = "ios"))]
-        "run_tests"        => diagnostic::run_tests(args).await,
+        "run_tests" => diagnostic::run_tests(args).await,
         // ── todos (in-agent TODO list) ───────────────────────────────────────
-        "todo_add"         => todo::add(args).await,
-        "todo_update"      => todo::update(args).await,
-        "todo_list"        => todo::list(args).await,
-        "todo_clear"       => todo::clear(args).await,
+        "todo_add" => todo::add(args).await,
+        "todo_update" => todo::update(args).await,
+        "todo_list" => todo::list(args).await,
+        "todo_clear" => todo::clear(args).await,
         // ── multi-edit ───────────────────────────────────────────────────────
-        "multi_file_edit"  => multi_edit::execute(args).await,
+        "multi_file_edit" => multi_edit::execute(args).await,
         // ── diff ─────────────────────────────────────────────────────────────
-        "diff_files"       => diff_view::diff_files(args).await,
-        "diff_strings"     => diff_view::diff_strings(args).await,
+        "diff_files" => diff_view::diff_files(args).await,
+        "diff_strings" => diff_view::diff_strings(args).await,
         // ── http ─────────────────────────────────────────────────────────────
-        "http_get"            => http_client::get(args).await,
-        "http_post"           => http_client::post(args).await,
+        "http_get" => http_client::get(args).await,
+        "http_post" => http_client::post(args).await,
         // ── web fetch (HTML→text) ────────────────────────────────────────────
-        "web_fetch"           => web_fetch::fetch(args).await,
+        "web_fetch" => web_fetch::fetch(args).await,
         // ── background bash — fork/exec forbidden in iOS sandbox ────────────
         #[cfg(not(target_os = "ios"))]
         "bash_run_background" => bash_bg::run_background(args).await,
         #[cfg(not(target_os = "ios"))]
-        "bash_output"         => bash_bg::output(args).await,
+        "bash_output" => bash_bg::output(args).await,
         #[cfg(not(target_os = "ios"))]
-        "bash_kill"           => bash_bg::kill(args).await,
+        "bash_kill" => bash_bg::kill(args).await,
         // ── interactive ──────────────────────────────────────────────────────
-        "ask_user"            => ask_user::ask(args).await,
+        "ask_user" => ask_user::ask(args).await,
         // ── subagent orchestration ───────────────────────────────────────────
-        "task" | "subagent"   => subagent::spawn(args).await,
-        "parallel_tasks"      => subagent::parallel(args).await,
+        "task" | "subagent" => subagent::spawn(args).await,
+        "parallel_tasks" => subagent::parallel(args).await,
         // ── cluster awareness ────────────────────────────────────────────────
-        "cluster_status"      => cluster::status(args).await,
-        "cluster_sessions"    => cluster::sessions(args).await,
-        "cluster_peers"       => cluster::peers(args).await,
+        "cluster_status" => cluster::status(args).await,
+        "cluster_sessions" => cluster::sessions(args).await,
+        "cluster_peers" => cluster::peers(args).await,
 
         // self-introspection — let the agent read its own diag state
-        "diag_read"           => diag::read(args).await,
+        "diag_read" => diag::read(args).await,
         // ── macOS-only: Spotlight + Xcode ────────────────────────────────────
         #[cfg(target_os = "macos")]
-        "spotlight_search"    => spotlight::search(args).await,
+        "spotlight_search" => spotlight::search(args).await,
         #[cfg(target_os = "macos")]
-        "xcode_simctl"        => xcode::simctl(args).await,
+        "xcode_simctl" => xcode::simctl(args).await,
         // ── unknown ──────────────────────────────────────────────────────────
-        other              => format!("Unknown tool: {}", other),
+        other => format!("Unknown tool: {}", other),
     }
 }
 
@@ -491,6 +523,119 @@ pub fn schema(name: &str) -> Option<Value> {
                         "query": {"type": "string", "description": "Search query string."}
                     },
                     "required": ["query"]
+                }
+            }
+        })),
+
+        // ── image_generate ────────────────────────────────────────────────────
+        "image_generate" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "image_generate",
+                "description": "Generate an image from a text prompt via an OpenAI-compatible /images/generations endpoint. Returns the local PNG file path(s). Configure with PHANTOM_IMAGE_GEN_API_KEY (or OPENAI_API_KEY) and optionally PHANTOM_IMAGE_GEN_BASE_URL + PHANTOM_IMAGE_GEN_MODEL.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Text description of the image to generate (max 3800 chars)."},
+                        "model":  {"type": "string", "description": "Provider model id. Default: dall-e-3 (or PHANTOM_IMAGE_GEN_MODEL)."},
+                        "size":   {"type": "string", "description": "Image size, e.g. '1024x1024'. Provider-specific."},
+                        "n":      {"type": "integer", "description": "Number of images to generate (1-4, default 1).", "minimum": 1, "maximum": 4},
+                        "style":  {"type": "string", "description": "Provider-specific style modifier (e.g. 'vivid' or 'natural' for DALL-E 3)."}
+                    },
+                    "required": ["prompt"]
+                }
+            }
+        })),
+
+        // ── video_generate ────────────────────────────────────────────────────
+        "video_generate" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "video_generate",
+                "description": "Generate a video from a text prompt (or text+starting frame for image-to-video) via an async-job provider. Supported via PHANTOM_VIDEO_GEN_PROVIDER: replicate (default, LTX-Video etc.), openai-sora, luma, fal. Returns the local mp4 file path. Polls until done; default timeout 600s (PHANTOM_VIDEO_GEN_TIMEOUT_SECS). Configure auth via PHANTOM_VIDEO_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / OPENAI_API_KEY / LUMA_API_KEY / FAL_KEY).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt":        {"type": "string", "description": "Text description of the video."},
+                        "model":         {"type": "string", "description": "Provider model id. Default depends on provider (Replicate: lightricks/ltx-video; Sora: sora-2; Luma: ray-2; Fal: fal-ai/ltx-video)."},
+                        "duration_secs": {"type": "integer", "description": "Clip length in seconds (1-10, default 5).", "minimum": 1, "maximum": 10},
+                        "aspect_ratio":  {"type": "string", "description": "Aspect ratio, e.g. '16:9' (default), '9:16', '1:1'. Provider-dependent."},
+                        "image":         {"type": "string", "description": "Optional starting frame for image-to-video. Either a local file path (encoded base64 inline) or an https URL. Not supported on luma provider."}
+                    },
+                    "required": ["prompt"]
+                }
+            }
+        })),
+
+        // ── music_generate ────────────────────────────────────────────────────
+        "music_generate" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "music_generate",
+                "description": "Generate music from a text prompt (genre / mood / instruments) via Replicate (default, instrumental MusicGen), Fal.ai (instrumental MusicGen), or ElevenLabs Music (with vocals + optional lyrics). Returns the local audio file path. Select via PHANTOM_MUSIC_GEN_PROVIDER ∈ {replicate, fal, elevenlabs}. Auth: PHANTOM_MUSIC_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / FAL_KEY / ELEVENLABS_API_KEY).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt":        {"type": "string", "description": "Text description of the music (genre, instruments, mood, tempo)."},
+                        "model":         {"type": "string", "description": "Provider model id. Default depends on provider (Replicate: meta/musicgen; Fal: fal-ai/musicgen-medium; ElevenLabs: server default)."},
+                        "duration_secs": {"type": "integer", "description": "Clip length in seconds (1-300, default 30). MusicGen caps at ~30s; ElevenLabs / Stable-Audio handle longer.", "minimum": 1, "maximum": 300},
+                        "lyrics":        {"type": "string", "description": "Optional lyrics. ONLY supported by elevenlabs provider; rejected by replicate/fal (instrumental-only)."}
+                    },
+                    "required": ["prompt"]
+                }
+            }
+        })),
+
+        // ── screen_capture (Windows) ──────────────────────────────────────────
+        #[cfg(target_os = "windows")]
+        "screen_capture" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "screen_capture",
+                "description": "Capture the primary monitor as a PNG file via Win32 GDI BitBlt. Returns the local file path. Use this to let a vision-capable LLM see the desktop on the next turn (@-attach the path).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string", "description": "Override output path. Default: ~/.phantom-mesh/captures/<unix-ts>.png"}
+                    }
+                }
+            }
+        })),
+
+        // ── mouse_click (Windows) ─────────────────────────────────────────────
+        #[cfg(target_os = "windows")]
+        "mouse_click" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "mouse_click",
+                "description": "Move the cursor to absolute screen coordinates (x, y in physical pixels on the primary monitor) and click. Used in tandem with screen_capture for GUI automation loops.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "x":      {"type": "integer", "description": "Horizontal pixel position (from left edge of primary monitor)."},
+                        "y":      {"type": "integer", "description": "Vertical pixel position (from top edge)."},
+                        "button": {"type": "string", "description": "Mouse button: left | right | middle. Default: left.", "enum": ["left","right","middle"]},
+                        "double": {"type": "boolean", "description": "If true, emit two click events 50ms apart (double-click). Default: false."}
+                    },
+                    "required": ["x","y"]
+                }
+            }
+        })),
+
+        // ── keystroke (Windows) ───────────────────────────────────────────────
+        #[cfg(target_os = "windows")]
+        "keystroke" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "keystroke",
+                "description": "Type Unicode text (every char sent as a Unicode keystroke, works for CJK / emoji) OR send a single named key (Enter/Tab/Escape/F1-F12/arrows/Home/End/etc.) with optional modifiers (ctrl/shift/alt/win). Provide either 'text' or 'key', not both.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "text":      {"type": "string",  "description": "Unicode text to type literally (every code point sent as one keystroke)."},
+                        "key":       {"type": "string",  "description": "Single named key: enter, tab, escape, space, backspace, delete, up, down, left, right, home, end, pageup, pagedown, f1-f12."},
+                        "modifiers": {"type": "array",   "items": {"type": "string", "enum": ["ctrl","shift","alt","win"]}, "description": "Modifiers held while pressing 'key'. Ignored when 'text' is used."}
+                    }
                 }
             }
         })),
@@ -1384,7 +1529,7 @@ pub fn schema(name: &str) -> Option<Value> {
                         },
                         "node": {
                             "type": "string",
-                            "description": "Optional mesh peer URL or substring (e.g. 'yoyogood', '100.87.70.65', or full 'http://100.87.70.65:7879'). When set, the subagent runs on that remote peer's phantom serve and only the result string is returned. Useful to offload heavy work to a specific cluster machine."
+                            "description": "Optional mesh peer URL or substring (e.g. 'peer-beta', '192.0.2.11', or full 'http://192.0.2.11:7879'). When set, the subagent runs on that remote peer's phantom serve and only the result string is returned. Useful to offload heavy work to a specific cluster machine."
                         },
                         "auto_snapshot": {
                             "type": "boolean",
@@ -1409,7 +1554,7 @@ pub fn schema(name: &str) -> Option<Value> {
                     Each task is {agent, prompt, node?}; budgets (max_rounds, max_secs, \
                     max_cost_usd) apply to every spawned subagent uniformly. Per-task `node` \
                     routes that ONE task to a cluster peer (full URL, host:port substring, or \
-                    unique prefix like 'mac1'/'yoyogood'); when omitted the task runs locally.\n\n\
+                    unique prefix like 'mac1'/'node-a'); when omitted the task runs locally.\n\n\
                     Example local: parallel_tasks({tasks: [\
                     {agent:'researcher', prompt:'how does tokio executor pin tasks?'}, \
                     {agent:'coder', prompt:'show a tokio::spawn example'}]})\n\n\
@@ -1426,7 +1571,7 @@ pub fn schema(name: &str) -> Option<Value> {
                                 "properties": {
                                     "agent":  {"type": "string"},
                                     "prompt": {"type": "string"},
-                                    "node":   {"type": "string", "description": "Optional cluster peer to dispatch this task to. Forms accepted: full URL ('http://100.x.x.x:7878'), host:port substring ('100.x.x.x:7878'), or any unique prefix ('mac1' / 'yoyogood'). Empty = run locally."}
+                                    "node":   {"type": "string", "description": "Optional cluster peer to dispatch this task to. Forms accepted: full URL ('http://100.x.x.x:7878'), host:port substring ('100.x.x.x:7878'), or any unique prefix ('mac1' / 'node-a'). Empty = run locally."}
                                 },
                                 "required": ["agent", "prompt"]
                             },

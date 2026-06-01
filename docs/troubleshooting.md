@@ -60,7 +60,7 @@ export CLAWTEX_EMBED_MODEL=nomic-embed-text
 ```bash
 curl http://<node-ip>:11434/api/tags                # test direct connectivity
 OLLAMA_HOST=0.0.0.0 ollama serve                    # bind to all interfaces on remote
-export CLAWTEX_CLUSTER_NODES="m1=http://100.64.0.2:11434,acer=http://100.64.0.3:11434"
+export CLAWTEX_CLUSTER_NODES="node-c=http://100.64.0.2:11434,node-b=http://100.64.0.3:11434"
 ```
 Nodes can also be set in `~/.phantom-mesh/config.json` under the `cluster_nodes` key.
 

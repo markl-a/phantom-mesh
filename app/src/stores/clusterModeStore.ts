@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 
 interface ClusterModeState {
   enabled: boolean;
-  coordinatorUrl: string; // e.g. http://100.87.93.58:7878
+  coordinatorUrl: string; // e.g. http://192.0.2.10:7878
   clusterSecret: string;  // shared HMAC key
   setEnabled: (v: boolean) => void;
   setCoordinatorUrl: (v: string) => void;
@@ -23,8 +23,13 @@ interface ClusterModeState {
 export const useClusterModeStore = create<ClusterModeState>()(
   persist(
     (set, get) => ({
+      // Defaults are intentionally empty: the user picks a mode in
+      // MobileFirstLaunch, then MobileJoinCluster (or MobileDemoMode)
+      // writes real values here. Pre-seeded values caused PII-class
+      // leaks (operator's personal Tailnet hostname + secret shipped
+      // in every IPA) — see spec/2026-05-23-mobile-redesign-v2.md §10.
       enabled: false,
-      coordinatorUrl: "http://100.87.93.58:7878", // Mac Tailscale default
+      coordinatorUrl: "",
       clusterSecret: "",
       setEnabled: (v) => set({ enabled: v }),
       setCoordinatorUrl: (v) => set({ coordinatorUrl: v.trim().replace(/\/$/, "") }),

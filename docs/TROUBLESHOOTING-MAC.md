@@ -1,76 +1,74 @@
-# phantom on macOS — Troubleshooting
+# phantom 在 macOS 上的疑難排解（Troubleshooting）
 
-If something is wrong, **start with `phantom doctor`** — it surfaces
-binary provenance, config location, provider keys, healthz, launchd
-state, Tailscale, tool count, tmutil, Spotlight, and Xcode CLT in one
-screen.
+如果有什麼出錯，**先從 `phantom doctor` 開始**——它會在同一個畫面上揭露
+二進位檔來源（binary provenance）、設定檔位置、provider 金鑰、healthz、launchd
+狀態、Tailscale、工具數量、tmutil、Spotlight，以及 Xcode CLT（命令列工具）。
 
 ```bash
 phantom doctor
 ```
 
-Anything below is "I ran doctor and it told me X — what now?"
+以下內容都是針對「我跑了 doctor，它告訴我 X——接下來怎麼辦？」的情境。
 
 ---
 
-## healthz unreachable on :7878
+## healthz 在 :7878 上無法連線
 
-**doctor row**: `⚠ healthz: unreachable on :7878`
+**doctor 列**：`⚠ healthz: unreachable on :7878`
 
-1. Check the daemon: `phantom service status`
-2. If `registered : no`, install it: `phantom service install`
-3. If `registered : yes` but `healthz : unreachable`, the launchd
-   process is alive but not listening. This is almost always one of
-   the two TCC traps below.
+1. 檢查 daemon（常駐程式）：`phantom service status`
+2. 如果顯示 `registered : no`，安裝它：`phantom service install`
+3. 如果顯示 `registered : yes` 但 `healthz : unreachable`，表示 launchd
+   程序還活著但沒有在監聽。這幾乎一定是下面兩個 TCC（透明度、同意與控制機制）
+   陷阱之一。
 
-### Trap #1 — binary under ~/Documents (TCC blocks dyld)
+### 陷阱 #1 — 二進位檔位於 ~/Documents 底下（TCC 封鎖 dyld）
 
-**Symptom**: `phantom service status` shows `registered: yes, pid: N`,
-but `lsof -nP -iTCP:7878` shows no LISTEN, and the log shows the
-banner up to "Registering Service ..." then nothing more.
+**症狀**：`phantom service status` 顯示 `registered: yes, pid: N`，
+但 `lsof -nP -iTCP:7878` 沒有顯示任何 LISTEN，且日誌只顯示
+橫幅（banner）到「Registering Service ...」之後就沒有後續了。
 
-**Cause**: macOS 26 (Sequoia / Tahoe) TCC blocks launchd-spawned
-processes from loading binaries that live under `~/Documents`,
-`~/Downloads`, `~/Desktop`. The dyld dynamic linker stalls in
-`__open` before `main()` is reached. `launchctl print` still reports
-`state = running` because the process did spawn — just hangs.
+**原因**：macOS 26（Sequoia / Tahoe）的 TCC 會封鎖 launchd 衍生的
+程序去載入位於 `~/Documents`、`~/Downloads`、`~/Desktop` 底下的二進位檔。
+dyld 動態連結器（dynamic linker）會卡在
+`__open`，在到達 `main()` 之前就停住。`launchctl print` 仍然回報
+`state = running`，因為程序確實有衍生——只是卡住了。
 
-**Fix**: `phantom service install` since 65338ab copies the binary
-into `~/Library/Application Support/phantom-mesh/bin/phantom` (TCC-
-unrestricted) and points the plist there. Re-run `install` to pick
-up that path:
+**修復**：自 65338ab 起，`phantom service install` 會把二進位檔複製
+到 `~/Library/Application Support/phantom-mesh/bin/phantom`（不受 TCC
+限制），並將 plist 指向那裡。重新執行 `install` 以採用
+該路徑：
 
 ```bash
 phantom service uninstall
 phantom service install
 ```
 
-### Trap #2 — cwd under ~/Documents (TCC blocks getcwd)
+### 陷阱 #2 — 工作目錄（cwd）位於 ~/Documents 底下（TCC 封鎖 getcwd）
 
-**Symptom**: same banner-and-stop pattern as Trap #1, but `lsof
--p <pid>` shows `cwd /Users/.../Documents/...`. `sample <pid>` shows
-the process stalled in `std::env::current_dir` from inside
-`find_config()`.
+**症狀**：與陷阱 #1 相同的「橫幅出現後就停住」模式，但 `lsof
+-p <pid>` 顯示 `cwd /Users/.../Documents/...`。`sample <pid>` 顯示
+程序卡在 `find_config()` 內部呼叫的
+`std::env::current_dir`。
 
-**Cause**: same TCC subsystem also blocks `getcwd()` on protected
-paths.
+**原因**：同一個 TCC 子系統也會在受保護的路徑上封鎖 `getcwd()`。
 
-**Fix**: same `phantom service install` since 65338ab also overrides
-the plist `WorkingDirectory` to `~/Library/Application Support/
-phantom-mesh` whenever install was run from inside `~/Documents`,
-`~/Downloads`, or `~/Desktop`.
+**修復**：自 65338ab 起，相同的 `phantom service install` 也會在 install
+是從 `~/Documents`、`~/Downloads` 或 `~/Desktop` 內部執行時，
+覆寫 plist 的 `WorkingDirectory` 為 `~/Library/Application Support/
+phantom-mesh`。
 
-### Trap #3 — port already bound
+### 陷阱 #3 — 連接埠已被佔用
 
-**Symptom**: launchd-spawned daemon doesn't listen, but a manual
-`phantom serve` run from a terminal does.
+**症狀**：launchd 衍生的 daemon 沒有監聽，但從終端機手動
+執行 `phantom serve` 卻可以。
 
-**Cause**: another phantom serve is already on :7878 (often a
-left-over from a prior interactive run). `axum::serve` does not
-panic on bind failure — it logs and continues, leaving the listener
-unattached.
+**原因**：另一個 phantom serve 已經佔用了 :7878（通常是
+先前互動式執行所留下的殘留程序）。`axum::serve` 在綁定（bind）失敗時不會
+panic（崩潰）——它只會記錄日誌並繼續，使得監聽器（listener）
+未被附掛。
 
-**Fix**:
+**修復**：
 ```bash
 pkill -f "phantom serve"
 launchctl kickstart -k gui/$(id -u)/ai.phantommesh.serve
@@ -78,46 +76,46 @@ launchctl kickstart -k gui/$(id -u)/ai.phantommesh.serve
 
 ---
 
-## launchd doesn't auto-start after reboot
+## launchd 在重開機後不會自動啟動
 
-**doctor row**: `⚠ launchd: not installed`
+**doctor 列**：`⚠ launchd: not installed`
 
 ```bash
 phantom service install
 ```
 
-If install succeeds but post-reboot it still doesn't come up:
+如果 install 成功，但重開機後仍然沒有啟動：
 
-1. `tail -50 ~/Library/Logs/phantom-serve.log` — look for the banner
-2. If no banner, the binary itself is failing to load — see Trap #1
-3. If the banner appears but stops, see Trap #2
-4. If the binary path no longer exists (e.g. you `cargo clean`'d the
-   target/release/), reinstall the service: `phantom service install`
-   refreshes the copied binary.
+1. `tail -50 ~/Library/Logs/phantom-serve.log`——尋找橫幅
+2. 如果沒有橫幅，表示二進位檔本身載入失敗——見陷阱 #1
+3. 如果橫幅出現後就停住，見陷阱 #2
+4. 如果二進位檔路徑不再存在（例如你對 target/release/ 執行了
+   `cargo clean`），重新安裝服務：`phantom service install`
+   會重新整理被複製的二進位檔。
 
 ---
 
-## ROG / Android worker unreachable
+## ROG / Android worker 無法連線
 
-**Doctor on the ROG** (in Termux):
+**在 ROG 上執行 doctor**（在 Termux 中）：
 
 ```bash
 ~/.phantom-mesh/bin/phantom doctor
 ```
 
-Common issues:
+常見問題：
 
-1. **Tailscale not connected on the phone** — open Tailscale app on
-   the device, log in to the same tailnet
-2. **Termux process killed in background** — Android battery
-   optimization kills phantom serve; in Settings → Apps → Termux,
-   set battery to "Unrestricted"
-3. **Coordinator URL wrong in agents.toml** — the install script
-   defaults to `http://100.87.93.58:7878` (the original Mac
-   coordinator). If your Mac TS IP changed, edit
-   `~/.phantom-mesh/agents.toml` and restart.
+1. **手機上的 Tailscale 未連線**——在裝置上開啟 Tailscale app，
+   登入到同一個 tailnet
+2. **Termux 程序在背景被殺掉**——Android 的電池
+   最佳化會殺掉 phantom serve；在「設定 → 應用程式 → Termux」中，
+   把電池設定為「不受限制」（Unrestricted）
+3. **agents.toml 中的 Coordinator URL 錯誤**——安裝腳本
+   預設為 `http://<mac-tailscale-ip>:7878`（原始的 Mac
+   coordinator，協調者）。如果你的 Mac TS IP 變更了，編輯
+   `~/.phantom-mesh/agents.toml` 並重新啟動。
 
-To re-bootstrap from the coordinator:
+要從 coordinator 重新引導（re-bootstrap）：
 
 ```bash
 COORD=http://<NEW-COORD-IP>:7878 \
@@ -126,84 +124,84 @@ COORD=http://<NEW-COORD-IP>:7878 \
 
 ---
 
-## phantom MCP unreachable from Claude Code / Codex
+## phantom MCP 從 Claude Code / Codex 無法連線
 
-**doctor doesn't expose this directly**, but if `mcp__phantom__*`
-tools fail in Claude Code or `codex mcp list` doesn't show phantom:
+**doctor 不會直接揭露這一項**，但如果 `mcp__phantom__*`
+工具在 Claude Code 中失敗，或 `codex mcp list` 沒有顯示 phantom：
 
-1. `cat ~/.claude.json | grep -A5 phantom` — must show stdio + path
-2. `cat ~/.codex/config.toml | grep -A2 phantom` — must show
+1. `cat ~/.claude.json | grep -A5 phantom`——必須顯示 stdio 與路徑
+2. `cat ~/.codex/config.toml | grep -A2 phantom`——必須顯示
    `[mcp_servers.phantom]`
-3. Re-register if missing:
+3. 如果缺少就重新註冊：
    ```bash
    claude mcp add phantom $(which phantom) mcp
    codex mcp add phantom -- $(which phantom) mcp
    ```
-4. Restart the Claude Code session — MCP servers are spawned at
-   session start and don't hot-reload when the binary changes
-5. Run `./scripts/validate-mcp.sh` to confirm the binary itself is
-   healthy
+4. 重新啟動 Claude Code 工作階段——MCP 伺服器是在
+   工作階段啟動時衍生的，當二進位檔變更時不會熱重載（hot-reload）
+5. 執行 `./scripts/validate-mcp.sh` 以確認二進位檔本身
+   是健康的
 
 ---
 
-## Provider keys not loaded
+## Provider 金鑰未載入
 
-**doctor row**: `⚠ Anthropic / OpenAI / Groq / Gemini: not in env`
+**doctor 列**：`⚠ Anthropic / OpenAI / Groq / Gemini: not in env`
 
-1. Confirm `~/.phantom-mesh/env` exists and has `KEY=value` lines
-2. Load it for the current shell:
+1. 確認 `~/.phantom-mesh/env` 存在且包含 `KEY=value` 行
+2. 為目前的 shell 載入它：
    ```bash
    set -a; source ~/.phantom-mesh/env; set +a
    ```
-3. Make it auto-load: append to `~/.zshrc` /
-   `~/.bashrc`:
+3. 讓它自動載入：附加到 `~/.zshrc` /
+   `~/.bashrc`：
    ```bash
    [ -f ~/.phantom-mesh/env ] && set -a && source ~/.phantom-mesh/env && set +a
    ```
-4. For the launchd-spawned daemon, the keys must be in the plist's
-   `EnvironmentVariables` block. The default install only injects
-   `PATH` and `HOME` — secrets are not included on purpose; configure
-   them via `~/.phantom-mesh/agents.toml` `[providers.*]` blocks
-   instead.
+4. 對於 launchd 衍生的 daemon，金鑰必須放在 plist 的
+   `EnvironmentVariables` 區塊中。預設安裝只注入
+   `PATH` 與 `HOME`——機密（secrets）刻意不被包含進去；請改以
+   `~/.phantom-mesh/agents.toml` 的 `[providers.*]` 區塊來設定
+   它們。
 
 ---
 
-## Spotlight `spotlight_search` returns nothing
+## Spotlight `spotlight_search` 沒有回傳任何結果
 
-**doctor row**: `⚠ Spotlight: not indexing /Users/.../phantom-mesh`
+**doctor 列**：`⚠ Spotlight: not indexing /Users/.../phantom-mesh`
 
 ```bash
-sudo mdutil -i on /Users/marklight/Documents/workspace/hailmary/phantom-mesh
-sudo mdutil -E /Users/marklight/Documents/workspace/hailmary/phantom-mesh
+sudo mdutil -i on /Users/<you>/path/to/phantom-mesh
+sudo mdutil -E /Users/<you>/path/to/phantom-mesh
 ```
 
-Wait ~30 s for the index rebuild, then re-run `spotlight_search`.
+等待約 30 秒讓索引重建，然後重新執行 `spotlight_search`。
 
-`spotlight_search` falls back gracefully — if no result, the tool
-prints a hint pointing at `mdutil`.
+`spotlight_search` 會優雅地降級（fall back）——如果沒有結果，工具
+會印出一個指向 `mdutil` 的提示。
 
 ---
 
-## Xcode tools (`xcode_simctl`) report missing
+## Xcode 工具（`xcode_simctl`）回報缺失
 
-**doctor row**: `⚠ Xcode CLT: missing`
+**doctor 列**：`⚠ Xcode CLT: missing`
 
 ```bash
 xcode-select --install
 ```
 
-Full Xcode is not required for `xcode_simctl` — only the
-command-line tools providing `xcrun simctl`. Once installed, run
-`phantom doctor` again.
+`xcode_simctl` 不需要完整的 Xcode——只需要提供
+`xcrun simctl` 的命令列工具。安裝完成後，再次執行
+`phantom doctor`。
 
 ---
 
-## Subagent / parallel_tasks return "runtime not initialised"
+## Subagent / parallel_tasks 回傳「runtime not initialised」
 
-**Cause**: you are running an old phantom binary (pre-48bb842) where
-the `phantom mcp` stdio path forgot to call `subagent::init_global()`.
+**原因**：你正在執行一個舊版的 phantom 二進位檔（早於 48bb842），其中
+`phantom mcp` 的 stdio 路徑忘了呼叫 `subagent::init_global()`。
 
-**Fix**: rebuild and reinstall:
+**修復**：重新建置（rebuild）並重新安裝：
 
 ```bash
 cd /path/to/phantom-mesh/core
@@ -212,32 +210,32 @@ phantom service uninstall
 phantom service install
 ```
 
-Then restart any Claude Code / Codex session that has the MCP server
-already spawned — they don't pick up new binaries on the fly.
+然後重新啟動任何已經衍生了 MCP 伺服器的 Claude Code / Codex
+工作階段——它們不會即時採用新的二進位檔。
 
 ---
 
-## subagent budget exceeded ridiculously
+## subagent 預算超支得離譜
 
-**Symptom**: you set `max_cost_usd: 0.10` and the task spent $0.98.
+**症狀**：你設定 `max_cost_usd: 0.10`，而任務卻花了 $0.98。
 
-**Cause**: pre-72b34f7 the budget was checked **post-hoc**, after
-the agent loop returned. Decorative.
+**原因**：早於 72b34f7 時，預算是在 agent 迴圈返回之後才**事後**
+檢查的。形同虛設。
 
-**Fix**: rebuild from a tree that includes 72b34f7 — the budget is
-now polled per round and breaks out at the next round boundary.
-Expected overrun is ~10% (the LLM completes one more round before
-the check lands), not 10×.
+**修復**：從包含 72b34f7 的程式樹重新建置——現在預算
+會在每一輪（round）輪詢，並在下一輪邊界處中斷退出。
+預期的超支約為 10%（LLM 在檢查落地前會多完成一輪），
+而不是 10 倍。
 
 ---
 
-## Re-validate after any of the above
+## 在以上任何操作之後重新驗證
 
 ```bash
 phantom doctor
 ./scripts/validate-mcp.sh
 ```
 
-Both should be all green. If something is still off, the relevant
-log is `~/Library/Logs/phantom-serve.log` for the daemon and `tail
--f` while you reproduce the issue.
+兩者都應該全綠。如果還是有什麼不對勁，相關的
+日誌是 daemon 的 `~/Library/Logs/phantom-serve.log`，並在重現問題時
+以 `tail -f` 監看。

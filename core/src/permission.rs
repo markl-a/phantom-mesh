@@ -174,8 +174,11 @@ impl Engine {
             // is what stops `Bash(cat *)` from green-lighting
             // `cat secrets > /tmp/exfil`.
             if rule.action == Action::Allow && tool == "shell" {
-                let cmd = args.get("cmd").or_else(|| args.get("command"))
-                    .and_then(|v| v.as_str()).unwrap_or("");
+                let cmd = args
+                    .get("cmd")
+                    .or_else(|| args.get("command"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
                 if bash_has_redirect_or_chain(cmd) {
                     return Decision::Ask;
                 }
@@ -245,18 +248,17 @@ pub fn parse_rule(s: &str, action: Action) -> Result<Vec<Rule>, String> {
     // Optional priority prefix: `100:Bash(...)` — keeps the common case
     // (no priority) syntactically clean while letting power users
     // override the default.
-    let (priority, rest) = match s.find(':').and_then(|i| {
-        s[..i].parse::<i32>().ok().map(|p| (p, &s[i + 1..]))
-    }) {
+    let (priority, rest) = match s
+        .find(':')
+        .and_then(|i| s[..i].parse::<i32>().ok().map(|p| (p, &s[i + 1..])))
+    {
         Some((p, r)) => (p, r),
         None => (0, s),
     };
     let rest = rest.trim();
     // Parse `Name(spec)` or `Name`.
     let (name, spec_str) = match rest.find('(') {
-        Some(i) if rest.ends_with(')') => {
-            (&rest[..i], Some(&rest[i + 1..rest.len() - 1]))
-        }
+        Some(i) if rest.ends_with(')') => (&rest[..i], Some(&rest[i + 1..rest.len() - 1])),
         Some(_) => return Err(format!("unterminated specifier in rule {:?}", s)),
         None => (rest, None),
     };
@@ -265,13 +267,16 @@ pub fn parse_rule(s: &str, action: Action) -> Result<Vec<Rule>, String> {
         None => None,
         Some(raw) => Some(parse_specifier(name.trim(), raw)?),
     };
-    Ok(canonical_names.into_iter().map(|tool| Rule {
-        action,
-        tool,
-        specifier: specifier.clone(),
-        priority,
-        source: String::new(),
-    }).collect())
+    Ok(canonical_names
+        .into_iter()
+        .map(|tool| Rule {
+            action,
+            tool,
+            specifier: specifier.clone(),
+            priority,
+            source: String::new(),
+        })
+        .collect())
 }
 
 fn parse_specifier(tool_name: &str, raw: &str) -> Result<Specifier, String> {
@@ -295,11 +300,16 @@ fn tool_matches(rule_tool: &str, actual_tool: &str) -> bool {
 }
 
 fn specifier_matches(spec: Option<&Specifier>, tool: &str, args: &Value) -> bool {
-    let Some(spec) = spec else { return true; };
+    let Some(spec) = spec else {
+        return true;
+    };
     match spec {
         Specifier::BashCommand(pat) => {
-            let cmd = args.get("cmd").or_else(|| args.get("command"))
-                .and_then(|v| v.as_str()).unwrap_or("");
+            let cmd = args
+                .get("cmd")
+                .or_else(|| args.get("command"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             // Match each segment so `Bash(git status)` permits
             // `git status && git diff` to pass *the git-status part*
             // (the chain itself separately triggers the redirect-or-
@@ -317,7 +327,9 @@ fn specifier_matches(spec: Option<&Specifier>, tool: &str, args: &Value) -> bool
         }
         Specifier::Generic(pat) => {
             // Try common arg names; fall back to JSON serialisation.
-            let s = args.get("path").and_then(|v| v.as_str())
+            let s = args
+                .get("path")
+                .and_then(|v| v.as_str())
                 .or_else(|| args.get("cmd").and_then(|v| v.as_str()))
                 .or_else(|| args.get("url").and_then(|v| v.as_str()))
                 .map(|s| s.to_string())
@@ -340,8 +352,12 @@ pub fn wildcard_match(pattern: &str, text: &str) -> bool {
             (None, Some(_)) => false,
             (Some('*'), _) => {
                 // Try matching zero, one, two, … chars from `t`.
-                if rec(&p[1..], t) { return true; }
-                if t.is_empty() { return false; }
+                if rec(&p[1..], t) {
+                    return true;
+                }
+                if t.is_empty() {
+                    return false;
+                }
                 rec(p, &t[1..])
             }
             (Some(_), None) => false,
@@ -366,8 +382,7 @@ fn host_matches(rule_host: &str, url: &str) -> bool {
         .split(':')
         .next()
         .unwrap_or("");
-    host_in_url == rule_host
-        || host_in_url.ends_with(&format!(".{}", rule_host))
+    host_in_url == rule_host || host_in_url.ends_with(&format!(".{}", rule_host))
 }
 
 /// Split a bash command into segments at top-level chain operators.
@@ -388,8 +403,18 @@ pub fn bash_segments(cmd: &str) -> Vec<String> {
             i += 2;
             continue;
         }
-        if !in_double && c == '\'' { in_single = !in_single; cur.push(c); i += 1; continue; }
-        if !in_single && c == '"'  { in_double = !in_double; cur.push(c); i += 1; continue; }
+        if !in_double && c == '\'' {
+            in_single = !in_single;
+            cur.push(c);
+            i += 1;
+            continue;
+        }
+        if !in_single && c == '"' {
+            in_double = !in_double;
+            cur.push(c);
+            i += 1;
+            continue;
+        }
         if !in_single && !in_double {
             // Two-char operators first.
             if i + 1 < chars.len() {
@@ -410,7 +435,10 @@ pub fn bash_segments(cmd: &str) -> Vec<String> {
         i += 1;
     }
     out.push(cur);
-    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    out.into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// `true` when the command contains a redirect (`>`, `>>`, `<`) or a
@@ -424,12 +452,27 @@ pub fn bash_has_redirect_or_chain(cmd: &str) -> bool {
     let mut in_double = false;
     while i < chars.len() {
         let c = chars[i];
-        if c == '\\' && i + 1 < chars.len() { i += 2; continue; }
-        if !in_double && c == '\'' { in_single = !in_single; i += 1; continue; }
-        if !in_single && c == '"'  { in_double = !in_double; i += 1; continue; }
+        if c == '\\' && i + 1 < chars.len() {
+            i += 2;
+            continue;
+        }
+        if !in_double && c == '\'' {
+            in_single = !in_single;
+            i += 1;
+            continue;
+        }
+        if !in_single && c == '"' {
+            in_double = !in_double;
+            i += 1;
+            continue;
+        }
         if !in_single && !in_double {
-            if matches!(c, '>' | '<' | '|' | ';') { return true; }
-            if c == '&' && i + 1 < chars.len() && chars[i + 1] == '&' { return true; }
+            if matches!(c, '>' | '<' | '|' | ';') {
+                return true;
+            }
+            if c == '&' && i + 1 < chars.len() && chars[i + 1] == '&' {
+                return true;
+            }
         }
         i += 1;
     }
@@ -525,7 +568,10 @@ mod tests {
     #[test]
     fn empty_engine_allows_everything() {
         let e = Engine::new(Vec::new());
-        assert_eq!(e.evaluate("shell", &json!({"cmd": "rm -rf /"})), Decision::Allow);
+        assert_eq!(
+            e.evaluate("shell", &json!({"cmd": "rm -rf /"})),
+            Decision::Allow
+        );
     }
 
     #[test]
@@ -539,9 +585,15 @@ mod tests {
     fn allow_specific_then_ask_fallback() {
         let e = engine(&[], &[], &["Bash(git status)"]);
         // Matched allow rule
-        assert_eq!(e.evaluate("shell", &json!({"cmd": "git status"})), Decision::Allow);
+        assert_eq!(
+            e.evaluate("shell", &json!({"cmd": "git status"})),
+            Decision::Allow
+        );
         // Non-matching command falls through to default Ask.
-        assert_eq!(e.evaluate("shell", &json!({"cmd": "rm -rf /"})), Decision::Ask);
+        assert_eq!(
+            e.evaluate("shell", &json!({"cmd": "rm -rf /"})),
+            Decision::Ask
+        );
     }
 
     #[test]
@@ -600,8 +652,11 @@ mod tests {
         let e = engine(&["Edit(./.git/*)"], &[], &[]);
         for tool in &["file_edit", "file_write", "multi_file_edit", "apply_patch"] {
             let dec = e.evaluate(tool, &json!({"path": "./.git/config"}));
-            assert!(matches!(dec, Decision::Deny(_)),
-                "{} should be denied for ./.git/* edit", tool);
+            assert!(
+                matches!(dec, Decision::Deny(_)),
+                "{} should be denied for ./.git/* edit",
+                tool
+            );
         }
     }
 
@@ -609,11 +664,17 @@ mod tests {
     fn statically_denied_lists_blanket_denies() {
         let e = engine(&["WebFetch", "Bash(rm *)"], &[], &[]);
         let denied = e.statically_denied_tools();
-        assert!(denied.contains("web_fetch"),
-            "blanket WebFetch deny should appear; got {:?}", denied);
+        assert!(
+            denied.contains("web_fetch"),
+            "blanket WebFetch deny should appear; got {:?}",
+            denied
+        );
         // Bash(rm *) is conditional on cmd — must NOT appear.
-        assert!(!denied.contains("shell"),
-            "conditional shell deny must not be listed; got {:?}", denied);
+        assert!(
+            !denied.contains("shell"),
+            "conditional shell deny must not be listed; got {:?}",
+            denied
+        );
     }
 
     #[test]
@@ -652,8 +713,8 @@ mod tests {
     //
     // Parser is allowed to return Err on bad input; that's expected. The
     // contract is just "no panic, no abort, no infinite loop".
-    use rand::{Rng, SeedableRng};
     use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     /// Generate a "weird-but-valid-UTF-8" string of length up to `max_len`.
     /// Mixes ASCII printable, ASCII control, multi-byte BMP, supplementary
@@ -672,11 +733,15 @@ mod tests {
                 char::from_u32(rng.gen_range(0x1F600u32..0x1F64Fu32)).unwrap()
             } else if r < 0.95 {
                 // weird whitespace + zero-widths
-                let zws = ['\u{a0}', '\u{2028}', '\u{2029}', '\u{200B}', '\u{FEFF}', '\u{3000}'];
+                let zws = [
+                    '\u{a0}', '\u{2028}', '\u{2029}', '\u{200B}', '\u{FEFF}', '\u{3000}',
+                ];
                 zws[rng.gen_range(0..zws.len())]
             } else {
                 // metacharacters + escapes the parser must handle
-                let meta = ['(', ')', '*', '?', ':', '\\', '"', '\'', '|', '>', '<', '&', ';'];
+                let meta = [
+                    '(', ')', '*', '?', ':', '\\', '"', '\'', '|', '>', '<', '&', ';',
+                ];
                 meta[rng.gen_range(0..meta.len())]
             };
             out.push(c);
@@ -706,7 +771,7 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(0xA77E47_DC57_u64);
         for _ in 0..10_000 {
             let pattern = fuzz_string(&mut rng, 30);
-            let text    = fuzz_string(&mut rng, 60);
+            let text = fuzz_string(&mut rng, 60);
             let _ = wildcard_match(&pattern, &text);
         }
     }
@@ -736,8 +801,17 @@ mod tests {
             &["Bash(git status)", "Read(./README.md)"],
         );
         let mut rng = StdRng::seed_from_u64(0xE_4A_70A7Eu64);
-        let tool_names = ["shell", "file_read", "file_write", "web_fetch", "git_status",
-                          "non_existent_tool", "", "weird name with spaces", "中文"];
+        let tool_names = [
+            "shell",
+            "file_read",
+            "file_write",
+            "web_fetch",
+            "git_status",
+            "non_existent_tool",
+            "",
+            "weird name with spaces",
+            "中文",
+        ];
         for _ in 0..2_000 {
             let tool = tool_names[rng.gen_range(0..tool_names.len())];
             // Build a random JSON value
@@ -751,7 +825,7 @@ mod tests {
                     "extra": rng.gen::<u32>(),
                     "nested": {"k": fuzz_string(&mut rng, 30)},
                 }),
-                _ => serde_json::Value::Null,  // exercise the null-args path
+                _ => serde_json::Value::Null, // exercise the null-args path
             };
             let _ = e.evaluate(tool, &args);
         }
@@ -765,7 +839,7 @@ mod tests {
         for _ in 0..200 {
             let n = rng.gen_range(0..6);
             let strs: Vec<String> = (0..n).map(|_| fuzz_string(&mut rng, 40)).collect();
-            let refs: Vec<&str>   = strs.iter().map(String::as_str).collect();
+            let refs: Vec<&str> = strs.iter().map(String::as_str).collect();
             let _ = Engine::from_lists(&refs, &[], &[]);
         }
     }

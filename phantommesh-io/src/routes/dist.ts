@@ -280,7 +280,7 @@ $cfgText = Get-Content $cfgPath -Raw -ErrorAction SilentlyContinue
 # TS eats the backslash, PowerShell sees '[providers.opencode]' as a
 # regex character class (matches any one of p,r,o,v,i,d,e,s,.,n,c)
 # which matches EVERY file -> -notmatch is always false -> block never
-# gets appended. That was the actual root cause for the acer machine.
+# gets appended. That was the actual root cause for the node-b machine.
 if ($cfgText -and $cfgText -notmatch '\\[providers\\.opencode\\]') {
     Write-Host '  appending [providers.opencode] block (was missing)'
     @'

@@ -35,7 +35,11 @@ async fn save_map(map: &serde_json::Map<String, Value>) {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
     let temp_path = path.with_extension("tmp");
-    let _ = tokio::fs::write(&temp_path, serde_json::to_string_pretty(map).unwrap_or_default()).await;
+    let _ = tokio::fs::write(
+        &temp_path,
+        serde_json::to_string_pretty(map).unwrap_or_default(),
+    )
+    .await;
     let _ = tokio::fs::rename(&temp_path, &path).await;
 }
 
@@ -88,7 +92,10 @@ pub async fn list(args: &Value) -> String {
 
     if entries.is_empty() {
         return match &prefix {
-            Some(p) => format!("No memory entries in namespace '{}'.", p.trim_end_matches('/')),
+            Some(p) => format!(
+                "No memory entries in namespace '{}'.",
+                p.trim_end_matches('/')
+            ),
             None => "No memory entries stored.".to_string(),
         };
     }
@@ -98,7 +105,10 @@ pub async fn list(args: &Value) -> String {
     let lines: Vec<String> = entries
         .iter()
         .map(|(k, v)| {
-            let raw = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+            let raw = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string());
             let truncated = if raw.chars().count() > 50 {
                 format!("{}…", raw.chars().take(50).collect::<String>())
             } else {
@@ -156,11 +166,17 @@ pub async fn search(args: &Value) -> String {
             if !in_ns {
                 return false;
             }
-            let val_str = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+            let val_str = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string());
             val_str.to_lowercase().contains(&query)
         })
         .map(|(k, v)| {
-            let val_str = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+            let val_str = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string());
             format!("{}: {}", k, val_str)
         })
         .collect();

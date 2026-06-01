@@ -4,7 +4,7 @@
 # 用法：
 #   ./scripts/cluster-install.sh                         # 互動模式
 #   ./scripts/cluster-install.sh --oracle ubuntu@100.x.x.x \
-#       --z13 user@100.x.x.x --acer user@100.x.x.x
+#       --node-a user@100.x.x.x --node-b user@100.x.x.x
 #
 # 前提：
 #   - 所有節點已裝 Tailscale，使用 100.x.x.x 互連
@@ -39,20 +39,20 @@ pick_binary() {
 
 # ── 解析參數 ──────────────────────────────────────────────────────────────────
 ORACLE_SSH=""
-Z13_SSH=""
-ACER_SSH=""
-AYANEO_SSH=""
+NODEA_SSH=""
+NODEB_SSH=""
+NODEA2_SSH=""
 EXTRA_NODES=()
 
 while [[ $# -gt 0 ]]; do
   case $1 in
     --oracle) ORACLE_SSH="$2"; shift 2 ;;
-    --z13)    Z13_SSH="$2";    shift 2 ;;
-    --acer)   ACER_SSH="$2";   shift 2 ;;
-    --ayaneo) AYANEO_SSH="$2"; shift 2 ;;
+    --node-a)  NODEA_SSH="$2";  shift 2 ;;
+    --node-b)  NODEB_SSH="$2";  shift 2 ;;
+    --node-a2) NODEA2_SSH="$2"; shift 2 ;;
     --node)   EXTRA_NODES+=("$2"); shift 2 ;;
     --help|-h)
-      echo "Usage: $0 [--oracle SSH] [--z13 SSH] [--acer SSH] [--ayaneo SSH] [--node SSH]"
+      echo "Usage: $0 [--oracle SSH] [--node-a SSH] [--node-b SSH] [--node-a2 SSH] [--node SSH]"
       echo "  SSH format: user@100.x.x.x"
       exit 0 ;;
     *) err "Unknown option: $1" ;;
@@ -60,12 +60,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── 互動模式（沒傳參數時問） ──────────────────────────────────────────────────
-if [[ -z "$ORACLE_SSH" && -z "$Z13_SSH" && -z "$ACER_SSH" ]]; then
+if [[ -z "$ORACLE_SSH" && -z "$NODEA_SSH" && -z "$NODEB_SSH" ]]; then
   echo "Enter SSH targets (user@100.x.x.x), press Enter to skip:"
   read -p "  Oracle VM:  " ORACLE_SSH
-  read -p "  Z13:        " Z13_SSH
-  read -p "  Acer:       " ACER_SSH
-  read -p "  AYANEO 2:   " AYANEO_SSH
+  read -p "  node-a:     " NODEA_SSH
+  read -p "  node-b:     " NODEB_SSH
+  read -p "  node-a2:    " NODEA2_SSH
 fi
 
 # ── 函數：部署到 Linux 節點 ───────────────────────────────────────────────────
@@ -246,9 +246,9 @@ LINUX_X86="$(pick_binary \
   "$REPO_ROOT/core/target/x86_64-unknown-linux-gnu/release/phantom-mesh")"
 
 [[ -z "$ORACLE_SSH" ]] || deploy_linux  "Oracle VM"  "$ORACLE_SSH"  "$LINUX_ARM64"
-[[ -z "$Z13_SSH" ]]    || deploy_windows_wsl "Z13"    "$Z13_SSH"    "$LINUX_X86"
-[[ -z "$ACER_SSH" ]]   || deploy_windows_wsl "Acer"   "$ACER_SSH"   "$LINUX_X86"
-[[ -z "$AYANEO_SSH" ]] || deploy_windows_wsl "AYANEO" "$AYANEO_SSH" "$LINUX_X86"
+[[ -z "$NODEA_SSH" ]]  || deploy_windows_wsl "node-a"  "$NODEA_SSH"  "$LINUX_X86"
+[[ -z "$NODEB_SSH" ]]  || deploy_windows_wsl "node-b"  "$NODEB_SSH"  "$LINUX_X86"
+[[ -z "$NODEA2_SSH" ]] || deploy_windows_wsl "node-a2" "$NODEA2_SSH" "$LINUX_X86"
 
 for node in "${EXTRA_NODES[@]}"; do
   deploy_linux "node:$node" "$node" "$LINUX_ARM64"
@@ -265,6 +265,6 @@ echo ""
 echo "  2. Add API keys on each node:"
 echo "       echo 'GROQ_API_KEY=gsk_...' >> ~/.phantom-mesh/env"
 echo ""
-echo "  3. Verify from Mac M1:"
+echo "  3. Verify from Mac node-c:"
 echo "       phantom peer list"
 echo "═══════════════════════════════════════════"

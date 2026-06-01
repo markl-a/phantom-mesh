@@ -45,12 +45,7 @@ pub fn is_enabled() -> bool {
 /// Protected path prefixes (relative to repo root). When sandbox is
 /// enabled, ANY path that resolves to a location under one of these
 /// is rejected.
-const PROTECTED_PREFIXES: &[&str] = &[
-    "core/",
-    "app/",
-    "templates/",
-    "scripts/",
-];
+const PROTECTED_PREFIXES: &[&str] = &["core/", "app/", "templates/", "scripts/"];
 
 /// Most explicitly sensitive sub-paths (per CO-EVOLUTION.md §107) —
 /// these get rejected with extra emphasis even with --allow-core-evolve
@@ -131,18 +126,26 @@ pub fn check<P: AsRef<Path>>(path: P) -> Verdict {
     Verdict::Denied(msg)
 }
 
+/// [C5/T74] Process-wide lock used by tests in OTHER modules (e.g.
+/// `tools::multi_edit`, `tools::patch`, `tools::fs`) to serialize their
+/// sandbox enable/disable around `check()` calls. SANDBOX_ENABLED is a
+/// process-global atomic, so any tests that flip it must hold this lock
+/// to avoid racing one another.
+#[cfg(test)]
+pub fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // SANDBOX_ENABLED is a process-global atomic — running these tests in
-    // parallel races (one test flips it back to false while another is
-    // mid-check). Serialize them with a Mutex.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_enabled<F: FnOnce()>(f: F) {
-        let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = test_lock();
         enable(true);
         f();
         enable(false);
@@ -150,7 +153,7 @@ mod tests {
 
     #[test]
     fn disabled_allows_everything() {
-        let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _g = test_lock();
         enable(false);
         assert!(matches!(check("core/src/serve.rs"), Verdict::Allowed));
         assert!(matches!(check("anywhere.rs"), Verdict::Allowed));
@@ -162,7 +165,10 @@ mod tests {
             assert!(matches!(check("core/src/serve.rs"), Verdict::Denied(_)));
             assert!(matches!(check("./core/src/main.rs"), Verdict::Denied(_)));
             assert!(matches!(check("app/src/index.tsx"), Verdict::Denied(_)));
-            assert!(matches!(check("templates/phantom-mesh.service.tmpl"), Verdict::Denied(_)));
+            assert!(matches!(
+                check("templates/phantom-mesh.service.tmpl"),
+                Verdict::Denied(_)
+            ));
             assert!(matches!(check("scripts/build-mac.sh"), Verdict::Denied(_)));
         });
     }
@@ -171,12 +177,18 @@ mod tests {
     fn enabled_allows_extensions_and_other_paths() {
         with_enabled(|| {
             // ~/.phantom-mesh/extensions/ is the intended Tier 1 path
-            assert!(matches!(check("/Users/me/.phantom-mesh/extensions/prompts/coder.md"), Verdict::Allowed));
+            assert!(matches!(
+                check("/Users/me/.phantom-mesh/extensions/prompts/coder.md"),
+                Verdict::Allowed
+            ));
             // /tmp / non-repo paths are fine
             assert!(matches!(check("/tmp/foo.txt"), Verdict::Allowed));
             // README at repo root is fine (only listed prefixes blocked)
             assert!(matches!(check("README.md"), Verdict::Allowed));
-            assert!(matches!(check("docs/CONTRIBUTOR-FUNNEL.md"), Verdict::Allowed));
+            assert!(matches!(
+                check("docs/CONTRIBUTOR-FUNNEL.md"),
+                Verdict::Allowed
+            ));
         });
     }
 
@@ -185,15 +197,19 @@ mod tests {
         with_enabled(|| {
             let v = check("core/src/keys.rs");
             match v {
-                Verdict::Denied(msg) => assert!(msg.contains("SENSITIVE"),
-                    "sensitive path should mention SENSITIVE list, got: {msg}"),
+                Verdict::Denied(msg) => assert!(
+                    msg.contains("SENSITIVE"),
+                    "sensitive path should mention SENSITIVE list, got: {msg}"
+                ),
                 Verdict::Allowed => panic!("must be denied"),
             }
             // Non-sensitive but protected — should not mention SENSITIVE
             let v = check("core/src/cost.rs");
             match v {
-                Verdict::Denied(msg) => assert!(!msg.contains("SENSITIVE"),
-                    "non-sensitive path should not flag SENSITIVE, got: {msg}"),
+                Verdict::Denied(msg) => assert!(
+                    !msg.contains("SENSITIVE"),
+                    "non-sensitive path should not flag SENSITIVE, got: {msg}"
+                ),
                 Verdict::Allowed => panic!("must be denied"),
             }
         });

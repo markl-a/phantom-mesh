@@ -16,6 +16,17 @@ PI_IP="${1:?請提供 Pi 的 Tailscale IP，例如: 100.64.0.10}"
 NODE_NAME="${2:?請提供節點名稱，例如: pi-01}"
 MODEL="${3:-pi4}"  # pi4, pi3, pi2
 
+# Sanitize NODE_NAME before remote shell interpolation (V10 HIGH-3 ssh injection fix).
+# Mirrors install-mac.sh:117 — restrict to [A-Za-z0-9_-], cap length at 40 chars.
+NODE_NAME_SAFE="$(printf '%s' "$NODE_NAME" | tr -c 'A-Za-z0-9_-' '_' | head -c 40)"
+if [ -z "$NODE_NAME_SAFE" ]; then
+  echo "錯誤：NODE_NAME 經過安全過濾後為空，請使用 [A-Za-z0-9_-] 字符" >&2
+  exit 1
+fi
+if [ "$NODE_NAME_SAFE" != "$NODE_NAME" ]; then
+  echo "  ⚠ NODE_NAME '$NODE_NAME' 已淨化為 '$NODE_NAME_SAFE' (僅允許 A-Za-z0-9_-，最長 40 字元)"
+fi
+
 PI_USER="${PI_USER:-pi}"   # Pi OS 預設使用者；Ubuntu Server 是 ubuntu
 SSH_KEY="${SSH_KEY:-}"     # 留空使用預設 SSH key
 
@@ -52,7 +63,7 @@ if [ ! -f "$BINARY" ]; then
   exit 1
 fi
 
-echo "==> 部署到 $NODE_NAME ($PI_IP)..."
+echo "==> 部署到 $NODE_NAME_SAFE ($PI_IP)..."
 
 # ─ 1. 傳送 binary ─────────────────────────────────────────────────────────────
 echo "  傳送 binary..."
@@ -64,8 +75,8 @@ echo "  傳送設定檔..."
 $SSH_CMD "$REMOTE" "mkdir -p ~/.config/phantom-mesh"
 $SCP_CMD "$ROOT/configs/agents.raspberrypi.toml" "$REMOTE:/tmp/agents.toml"
 $SSH_CMD "$REMOTE" "
-  # 替換 node_name
-  sed -i 's/node_name = \"pi-1\"/node_name = \"$NODE_NAME\"/' /tmp/agents.toml
+  # 替換 node_name (使用淨化後的 NODE_NAME_SAFE 避免 ssh 注入)
+  sed -i 's/node_name = \"pi-1\"/node_name = \"$NODE_NAME_SAFE\"/' /tmp/agents.toml
   mv /tmp/agents.toml ~/.config/phantom-mesh/agents.toml
 "
 
@@ -118,7 +129,7 @@ $SSH_CMD "$REMOTE" "
 "
 
 echo ""
-echo "✓ $NODE_NAME 部署完成！"
+echo "✓ $NODE_NAME_SAFE 部署完成！"
 echo ""
 echo "後續步驟："
 echo "  1. 編輯 config 填入真實 IP："

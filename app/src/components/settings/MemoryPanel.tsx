@@ -36,7 +36,7 @@ const NODE_TABS: { key: NodeMemoryTab; label: string; description: string }[] = 
 ];
 
 const MOCK_CLUSTER_ENTRIES: MemoryEntry[] = [
-  { id: "CM-001", content: "集群拓撲: Z13(Hub) + 7 Worker 節點", type: "topology", timestamp: "2026-03-21 10:00", relevance: 0.95 },
+  { id: "CM-001", content: "集群拓撲: node-a(Hub) + 7 Worker 節點", type: "topology", timestamp: "2026-03-21 10:00", relevance: 0.95 },
   { id: "CM-002", content: "4-Tier Provider 路由策略已生效", type: "config", timestamp: "2026-03-21 09:30", relevance: 0.88 },
   { id: "CM-003", content: "跨節點任務遷移協議 v2 啟用", type: "protocol", timestamp: "2026-03-20 22:15", relevance: 0.82 },
 ];

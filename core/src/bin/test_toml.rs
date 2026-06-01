@@ -7,14 +7,14 @@ host = "0.0.0.0"
 port = 7878
 
 [cluster]
-node_name      = "rog-phone"
-cluster_secret = "phantom-cluster-2026"
+node_name      = "android-phone"
+cluster_secret = "test-cluster-secret-not-real"
 capabilities   = ["web_fetch", "search", "analysis", "mobile"]
 peers = [
-  "http://100.87.93.58:7878",
-  "http://100.87.70.65:7879",
-  "http://100.107.205.98:7878",
-  "http://100.106.176.125:7878",
+  "http://192.0.2.10:7878",
+  "http://192.0.2.11:7879",
+  "http://192.0.2.12:7878",
+  "http://192.0.2.13:7878",
 ]
 
 [providers.groq]
@@ -35,9 +35,15 @@ instructions = "Mobile Android agent."
 "#;
     match toml::from_str::<AgentsConfig>(content) {
         Ok(cfg) => {
-            println!("Parse OK! providers: {:?}", cfg.providers.keys().collect::<Vec<_>>());
+            println!(
+                "Parse OK! providers: {:?}",
+                cfg.providers.keys().collect::<Vec<_>>()
+            );
             for (name, entry) in &cfg.providers {
-                println!("  {}: api_key={:?}, url={:?}", name, entry.api_key, entry.url);
+                println!(
+                    "  {}: api_key={:?}, url={:?}",
+                    name, entry.api_key, entry.url
+                );
             }
         }
         Err(e) => println!("Parse FAILED: {}", e),

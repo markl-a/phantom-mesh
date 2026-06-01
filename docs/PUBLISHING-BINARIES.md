@@ -89,7 +89,7 @@ app.get("/dist/:name",   distHandler);
 ### Step 1：build
 ```bash
 # Windows binary（在 Windows + Z13 / Windows VM）
-cd D:/Projects/phantom-mesh-private/.worktrees/deploy-tui/core
+cd D:/Projects/phantom-mesh/.worktrees/deploy-tui/core
 cargo build --release --bin phantom
 
 # 或 cross-compile from any platform 用 cross:

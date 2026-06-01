@@ -17,7 +17,7 @@ export default function MobileClusterSettings() {
         secret: cluster.clusterSecret,
         agent: "master",
         prompt: "say one word: OK",
-        maxWaitMs: 30000,
+        maxWaitMs: 120000,
       });
       if (r.ok) {
         setTestResult({ ok: true, msg: `回應：${r.output} (${r.elapsedMs}ms, job ${r.jobId?.slice(0, 8)})` });
@@ -44,7 +44,7 @@ export default function MobileClusterSettings() {
         </p>
         <p className="text-xs text-phantom-muted">
           開啟後，對話訊息會送到 coordinator <code className="bg-phantom-card px-1 rounded">/rpc/task/assign</code>
-          ，由協調者選一個最閒的 worker 跑（可能是這台、可能是 Mac、Z13、Ayaneo…）。
+          ，由協調者選一個最閒的 worker 跑（可能是這台、可能是任一台 worker 節點…）。
         </p>
       </div>
 
@@ -60,7 +60,7 @@ export default function MobileClusterSettings() {
             className="w-full bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary font-mono text-sm"
           />
           <span className="text-[10px] text-phantom-muted mt-1 block">
-            Mac coordinator 預設：<code>http://100.87.93.58:7878</code>
+            coordinator 範例：<code>http://192.0.2.1:7878</code>
           </span>
         </label>
 
@@ -117,6 +117,9 @@ export default function MobileClusterSettings() {
         <button
           onClick={() => cluster.setEnabled(!cluster.enabled)}
           disabled={!cluster.isConfigured()}
+          role="switch"
+          aria-checked={cluster.enabled}
+          aria-label="Cluster 模式"
           className={`relative w-12 h-6 rounded-full transition ${
             cluster.enabled ? "bg-phantom-success" : "bg-phantom-bg border border-phantom-border"
           } ${!cluster.isConfigured() ? "opacity-40" : ""}`}

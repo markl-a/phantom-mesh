@@ -199,7 +199,7 @@ export default function MobileBrokerLogin() {
               a phantom serve node; pick one and the WebView reloads to
               <peer.url>/m where the coordinator's mobile UI handles all
               chat (LLM calls run on coordinator, never on this device). */}
-          {phase.sync && phase.sync.peers.length > 0 && (
+          {phase.sync && Array.isArray(phase.sync.peers) && phase.sync.peers.length > 0 && (
             <div className="bg-phantom-card border border-phantom-border rounded-lg p-3 text-sm">
               <div className="text-phantom-muted text-xs">選協調者（Coordinator）</div>
               <div className="text-phantom-muted text-[11px] mt-0.5 mb-2">

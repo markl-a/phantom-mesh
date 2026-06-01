@@ -1,62 +1,62 @@
-# Android (Termux CLI binary) — Smoke Checklist
+# Android（Termux CLI 二進位檔）— 冒煙測試清單（smoke checklist，快速驗證清單）
 
-End-to-end validation procedure for the `phantom-aarch64-linux-android` CLI
-binary running as a cluster worker inside Termux on a real Android device.
+針對在真實 Android 裝置的 Termux 內，以叢集工作者（cluster worker，叢集中執行任務的節點）身分執行的
+`phantom-aarch64-linux-android` CLI 二進位檔，提供端對端（end-to-end，從頭到尾完整流程）驗證程序。
 
-**Coverage:** install · CLI subcommands · daemon · HTTP/RPC matrix · embedded
-web frontend · MCP stdio · HMAC enforcement · real LLM dispatch · cluster
-mesh integration · ratatui TUI · autoevolve · persistence (Termux:Boot) ·
-stress · failure modes · cleanup.
+**涵蓋範圍：** 安裝 · CLI 子命令 · 常駐程式（daemon，背景服務）· HTTP/RPC 矩陣 · 內嵌
+網頁前端 · MCP（Model Context Protocol，模型上下文協議）stdio · HMAC（雜湊訊息驗證碼）強制驗證 · 真實 LLM（大型語言模型）派工 · 叢集
+網狀整合（mesh integration）· ratatui TUI（終端機文字介面）· autoevolve（自動演化）· 持久化（Termux:Boot）·
+壓力測試 · 失效模式 · 清理。
 
-**Time budget:** first run ~60–90 min, regression run ~15 min.
+**時間預算：** 首次執行約 60–90 分鐘，回歸測試（regression run，重複驗證）約 15 分鐘。
 
-> Companion doc: [INSTALL-ANDROID.md](INSTALL-ANDROID.md) covers install only.
-> This doc assumes you've completed §B of that.
+> 配套文件：[INSTALL-ANDROID.md](INSTALL-ANDROID.md) 只涵蓋安裝。
+> 本文件假設你已完成該文件的 §B。
 
 ---
 
-## Phase 0 · Prerequisites (10 min)
+## Phase 0 · 先決條件（10 分鐘）
 
 ```
 [ ] Tailscale on phone — VPN icon in status bar, 100.x.y.z assigned
 [ ] Termux from F-Droid (NOT Play Store)
 [ ] Termux:Boot from F-Droid (optional; needed for Phase 12)
-[ ] Mac coordinator at 100.87.93.58:7878 with phantom serve running
+[ ] Mac coordinator at <mac-tailscale-ip>:7878 with phantom serve running
 [ ] One usable Groq API key (gsk_…) — Phase 8 needs it
 [ ] Out-of-band shell to phone — pick one:
-      - adb-tcp:  adb connect 100.84.223.59:38913
-      - SSH:      ssh -p 8022 u0_a187@100.84.223.59
+      - adb-tcp:  adb connect 100.64.0.10:38913
+      - SSH:      ssh -p 8022 u0_a187@100.64.0.10
                   (requires `pkg install openssh && sshd` in Termux)
 ```
 
-From phone Termux, both must succeed:
+在手機的 Termux 中，以下兩者都必須成功：
 ```bash
-ping -c 1 100.87.93.58
-curl -sS http://100.87.93.58:7878/healthz   # → ok
+ping -c 1 <mac-tailscale-ip>
+curl -sS http://<mac-tailscale-ip>:7878/healthz   # → ok
 ```
 
-**Pass if:** every checkbox ticked, both curls succeed.
+**通過條件：** 每個核取方塊都打勾，兩個 curl 都成功。
 
 ---
 
-## Phase 1 · Install via Termux (5 min)
+## Phase 1 · 透過 Termux 安裝（5 分鐘）
 
-In Termux on the phone:
+在手機的 Termux 中：
 
 ```bash
-COORD=http://100.87.93.58:7878
+COORD=http://<mac-tailscale-ip>:7878
 GROQ_KEY=gsk_yourkeyhere
 curl -fsSL "$COORD/scripts/termux-setup.sh" | sh
 ```
 
-What the script does:
-- `pkg install` curl/wget/git/termux-tools
-- pulls the latest `phantom-aarch64-linux-android` from `<COORD>/dist/`
-- writes `~/.phantom-mesh/agents.toml` with the cluster_secret + Groq key
-- starts `phantom serve --port 7879` in background
-- prints the 3-way menu (TUI / browser / cluster worker)
+該腳本會做的事：
+- 用 `pkg install` 安裝 curl/wget/git/termux-tools
+- 從 `<COORD>/dist/` 拉取最新的 `phantom-aarch64-linux-android`
+- 寫入帶有 cluster_secret 與 Groq key 的 `~/.phantom-mesh/agents.toml`
+- 在背景啟動 `phantom serve --port 7879`
+- 印出三選一選單（TUI / 瀏覽器 / 叢集工作者）
 
-**Pass if:**
+**通過條件：**
 ```bash
 which phantom                  # $PREFIX/bin/phantom
 file $(which phantom)          # ELF 64-bit ARM aarch64
@@ -66,7 +66,7 @@ curl -sS http://127.0.0.1:7879/healthz   # ok
 
 ---
 
-## Phase 2 · CLI sanity (5 min)
+## Phase 2 · CLI 健全性檢查（5 分鐘）
 
 ```bash
 phantom --version              # → phantom 0.4.0 (..., android-aarch64, …)
@@ -77,27 +77,27 @@ phantom autoevolve log         # "no runs yet" on first boot — fine
 phantom evolve goals list      # tries to load EVOLVE-GOALS.md; "not found" is fine
 ```
 
-Expected platform-gated failures (correct behaviour):
+預期會因平台限制而失敗（屬正確行為）：
 
 ```bash
 phantom service status         # ✗ not yet implemented on this platform
 phantom snapshot list          # ✗ macOS-only (uses tmutil)
 ```
 
-**Avoid these — known CLI bugs that hang the shell:**
+**避免這些 — 會讓 shell 卡住的已知 CLI bug：**
 ```bash
 # phantom serve --help     ← actually starts the daemon
 # phantom mcp --help       ← also broken; spawns the stdio server
 ```
 
-**Pass if:** doctor 8/9 ✓-or-⚠ (no ✗), the two platform-gated commands exit 1
-with the expected message.
+**通過條件：** doctor 顯示 8/9 為 ✓ 或 ⚠（沒有 ✗），上述兩個受平台限制的命令以
+退出碼 1 結束並顯示預期的訊息。
 
 ---
 
-## Phase 3 · Daemon (serve) verification
+## Phase 3 · 常駐程式（serve）驗證
 
-`termux-setup.sh` already started serve. Verify it's healthy:
+`termux-setup.sh` 已經啟動了 serve。確認它運作正常：
 
 ```bash
 PID=$(pgrep -f "phantom serve" | head -1)
@@ -108,12 +108,12 @@ grep -E 'VmRSS|Threads' /proc/$PID/status
 tail -20 ~/.phantom-mesh/data/phantom-serve.log
 ```
 
-**Pass if:** PID exists · port listening · banner in log · RSS < 50 MB · 0
-error/panic/fatal lines.
+**通過條件：** PID 存在 · 連接埠正在監聽 · log 中有啟動橫幅（banner）· RSS（常駐記憶體）< 50 MB · 0
+條 error/panic/fatal 訊息。
 
 ---
 
-## Phase 4 · HTTP / RPC endpoint matrix (10 min)
+## Phase 4 · HTTP / RPC 端點矩陣（10 分鐘）
 
 ```bash
 PORT=7879
@@ -123,67 +123,67 @@ for path in /healthz /rpc/ping /rpc/peers /api/sessions /api/cost /api/todos /ap
 done
 ```
 
-Expected — all `200`:
+預期 — 全部為 `200`：
 
-| Path | What |
+| 路徑 | 用途 |
 |---|---|
-| `/healthz` | health probe (`ok`) |
-| `/rpc/ping` | node identity JSON |
-| `/rpc/peers` | peer list JSON |
-| `/api/sessions` | session list (likely `[]`) |
-| `/api/cost` | cost summary |
-| `/api/todos` | todos |
-| `/api/nodes` | live peer ping |
-| `/` | desktop web frontend (HTML) |
-| `/m` | mobile chat UI (HTML) |
-| `/static/app.css` | embedded stylesheet |
-| `/static/xterm.css` | xterm.js stylesheet |
+| `/healthz` | 健康探測（`ok`） |
+| `/rpc/ping` | 節點身分 JSON |
+| `/rpc/peers` | 對等節點清單 JSON |
+| `/api/sessions` | 工作階段清單（很可能是 `[]`） |
+| `/api/cost` | 成本摘要 |
+| `/api/todos` | 待辦事項 |
+| `/api/nodes` | 即時對等節點 ping |
+| `/` | 桌面網頁前端（HTML） |
+| `/m` | 行動裝置聊天介面（HTML） |
+| `/static/app.css` | 內嵌樣式表 |
+| `/static/xterm.css` | xterm.js 樣式表 |
 
-Expected `404` (coordinator-only — workers don't register them):
-`/dist/<file>`, `/scripts/<file>`, `/api/onboarding/{token,config}`,
-`/api/health`, `/api/peers`, `/api/tools`.
+預期為 `404`（僅協調者才有 — 工作者不會註冊這些）：
+`/dist/<file>`、`/scripts/<file>`、`/api/onboarding/{token,config}`、
+`/api/health`、`/api/peers`、`/api/tools`。
 
-**Pass if:** the 11 endpoints above all return 200; the 404s come back as 404.
+**通過條件：** 上述 11 個端點全部回傳 200；那些 404 端點確實回傳 404。
 
 ---
 
-## Phase 5 · Web frontend in browser (5 min)
+## Phase 5 · 在瀏覽器中檢視網頁前端（5 分鐘）
 
-Open Chrome (or any browser) on the phone, navigate to:
+在手機上開啟 Chrome（或任何瀏覽器），前往：
 
 ```
 http://127.0.0.1:7879/
 ```
 
-**Expect:**
-- Title bar shows `phantom · mesh`
-- Cream / dark theme header
-- xterm.js terminal panel renders (dark)
-- Info tab visible with sub-tabs Sessions / Cost / Todo / Tools
-- Browser console has no red errors
+**預期：**
+- 標題列顯示 `phantom · mesh`
+- 奶油色 / 深色主題的標頭
+- xterm.js 終端機面板有正確渲染（深色）
+- 可看到 Info 分頁，內含子分頁 Sessions / Cost / Todo / Tools
+- 瀏覽器主控台（console）沒有紅色錯誤
 
 ```
 http://127.0.0.1:7879/m
 ```
 
-**Expect:** mobile chat UI with bottom navigation, input box at bottom.
+**預期：** 行動裝置聊天介面，底部有導覽列，底部有輸入框。
 
-**Pass if:** both pages render, no blank screens, no console errors.
+**通過條件：** 兩個頁面都正確渲染，沒有空白畫面，沒有主控台錯誤。
 
-> Tip: Chrome → ⋮ → "Add to Home screen" gives you a PWA-style icon.
+> 提示：Chrome → ⋮ →「加到主畫面」可取得 PWA（漸進式網頁應用程式）風格的圖示。
 
 ---
 
-## Phase 6 · MCP stdio JSON-RPC (10 min)
+## Phase 6 · MCP stdio JSON-RPC（10 分鐘）
 
-In Termux:
+在 Termux 中：
 
 ```bash
 echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}' \
   | phantom mcp 2>/dev/null
 ```
 
-**Expect:**
+**預期：**
 ```json
 {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2024-11-05","serverInfo":{"name":"phantom-mesh","version":"0.4.0"}}}
 ```
@@ -193,28 +193,28 @@ echo '{"jsonrpc":"2.0","method":"tools/list","id":2}' \
   | phantom mcp 2>/dev/null | head -c 1000
 ```
 
-**Expect:** tools array starting with shell / file_read / file_write / web_fetch / …
+**預期：** 工具陣列，開頭為 shell / file_read / file_write / web_fetch / …
 
-**Pass if:** both return valid JSON-RPC responses with the right shape.
+**通過條件：** 兩者都回傳形狀正確的有效 JSON-RPC 回應。
 
-**Advanced:** wire it into Claude Code on Mac/Win:
+**進階：** 把它接進 Mac/Win 上的 Claude Code：
 
 ```jsonc
 // ~/.claude.json
 "mcpServers": {
   "phantom-android": {
     "command": "ssh",
-    "args": ["-p", "8022", "u0_a187@100.84.223.59", "phantom mcp"]
+    "args": ["-p", "8022", "u0_a187@100.64.0.10", "phantom mcp"]
   }
 }
 ```
 
-After restarting Claude Code, `mcp__phantom-android__*` tools should appear
-in ToolSearch.
+重新啟動 Claude Code 後，`mcp__phantom-android__*` 工具應會出現在
+ToolSearch 中。
 
 ---
 
-## Phase 7 · HMAC enforcement (5 min)
+## Phase 7 · HMAC 強制驗證（5 分鐘）
 
 ```bash
 SECRET=$(grep cluster_secret ~/.phantom-mesh/agents.toml | sed 's/.*"\(.*\)"/\1/')
@@ -232,18 +232,18 @@ curl -sS -X POST http://127.0.0.1:$PORT/rpc/task/assign \
   -H "X-Cluster-Auth: $GOOD" -H 'Content-Type: application/json' -d "$BODY"
 ```
 
-**Pass if:** bad → `HTTP 401`; good → `{"job_id":"…"}`.
+**通過條件：** bad → `HTTP 401`；good → `{"job_id":"…"}`。
 
-> When `cluster_secret` is **not** configured (no agents.toml), the daemon
-> runs in dev / no-auth mode and accepts any request. Always configure
-> `[cluster].cluster_secret` for non-localhost deployments.
+> 當 `cluster_secret` **未**設定（沒有 agents.toml）時，常駐程式會以
+> 開發 / 免驗證（no-auth）模式執行，接受任何請求。對於非 localhost 的部署，
+> 請務必設定 `[cluster].cluster_secret`。
 
 ---
 
-## Phase 8 · Real LLM dispatch (5 min)
+## Phase 8 · 真實 LLM 派工（5 分鐘）
 
-Confirm `~/.phantom-mesh/agents.toml` has `[providers.groq].api_key = "gsk_…"`
-(real key, not the placeholder). If still placeholder:
+確認 `~/.phantom-mesh/agents.toml` 中有 `[providers.groq].api_key = "gsk_…"`
+（真實的 key，而非預留佔位字串）。若仍是佔位字串：
 
 ```bash
 nano ~/.phantom-mesh/agents.toml   # set api_key
@@ -252,7 +252,7 @@ nohup phantom serve > ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
 sleep 4
 ```
 
-Reuse `SECRET` and `GOOD` from Phase 7:
+沿用 Phase 7 的 `SECRET` 與 `GOOD`：
 
 ```bash
 RESP=$(curl -sS -X POST http://127.0.0.1:7879/rpc/task/assign \
@@ -262,28 +262,28 @@ sleep 8
 curl -sS http://127.0.0.1:7879/rpc/task/status/$JOB
 ```
 
-**Expect:**
+**預期：**
 ```json
 {"status":"done","output":"<llama text>","error":null,"job_id":"…"}
 ```
 
-**Pass if:** `status=done`, `output` non-empty, `error=null`.
+**通過條件：** `status=done`、`output` 非空、`error=null`。
 
-> Llama 3.3 70B's tool-use formatter sometimes returns 400 to Groq. Cleanest
-> single-shot prompt: `reply with at most 8 words`. To eliminate tool-use
-> entirely set `[agent.master].tools = []`.
+> Llama 3.3 70B 的工具使用（tool-use）格式器有時會對 Groq 回傳 400。最乾淨的
+> 單次（single-shot）提示為：`reply with at most 8 words`。若要完全消除工具使用，
+> 可設定 `[agent.master].tools = []`。
 
 ---
 
-## Phase 9 · Cluster mesh integration (10 min)
+## Phase 9 · 叢集網狀整合（10 分鐘）
 
-On the phone:
+在手機上：
 
 ```bash
 # Add Mac as peer
 nano ~/.phantom-mesh/agents.toml
 # under [cluster] add:
-#   peers = ["http://100.87.93.58:7878"]
+#   peers = ["http://<mac-tailscale-ip>:7878"]
 pkill phantom
 nohup phantom serve > ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
 sleep 4
@@ -293,7 +293,7 @@ PHONE_IP=$(tailscale ip -4 | head -1)
 echo "phone TS IP: $PHONE_IP"
 ```
 
-From the **Mac coordinator** terminal:
+從 **Mac 協調者** 的終端機：
 
 ```bash
 PHONE_IP=<value from above>
@@ -301,7 +301,8 @@ curl -sS http://$PHONE_IP:7879/healthz
 curl -sS http://$PHONE_IP:7879/rpc/ping
 
 # Mac → phone HMAC dispatch
-SECRET="phantom-cluster-2026"
+# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+SECRET="changeme-cluster-secret"
 BODY='{"agent":"master","prompt":"reply: hi from mac"}'
 AUTH=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
 RESP=$(curl -sS -X POST http://$PHONE_IP:7879/rpc/task/assign \
@@ -311,43 +312,43 @@ sleep 8
 curl -sS http://$PHONE_IP:7879/rpc/task/status/$JOB
 ```
 
-**Pass if:**
-- phone's `/rpc/peers` lists Mac
-- Mac's `curl http://$PHONE_IP:7879/healthz` returns `ok`
-- HMAC dispatch from Mac → phone returns `status: done`
-- Mac's `/api/nodes` shows phone in the online list
+**通過條件：**
+- 手機的 `/rpc/peers` 列出 Mac
+- Mac 的 `curl http://$PHONE_IP:7879/healthz` 回傳 `ok`
+- 從 Mac → 手機的 HMAC 派工回傳 `status: done`
+- Mac 的 `/api/nodes` 在上線清單中顯示手機
 
 ---
 
-## Phase 10 · TUI (interactive, 10 min)
+## Phase 10 · TUI（互動式，10 分鐘）
 
 ```bash
 phantom            # default = ratatui TUI
 ```
 
-Test:
-- `↑` / `↓` — input history
-- Tab — slash command / `@file` autocomplete
-- `/help` — list 22 slash commands
-- `/agents` — agents from agents.toml
-- `/tools` — 49 tools
+測試：
+- `↑` / `↓` — 輸入歷史
+- Tab — 斜線命令 / `@file` 自動完成
+- `/help` — 列出 22 個斜線命令
+- `/agents` — 來自 agents.toml 的代理
+- `/tools` — 49 個工具
 - `/density compact`
-- Enter a normal prompt (`hi`) — see streaming token-by-token reply
-- Ctrl-C to exit
+- 輸入一般提示（`hi`）— 看到逐 token（token-by-token）串流回應
+- Ctrl-C 退出
 
-**Pass if:** every keybinding responds, prompt streams real LLM output, Ctrl-C
-exits cleanly.
+**通過條件：** 每個按鍵綁定都有回應，提示會串流真實的 LLM 輸出，Ctrl-C
+乾淨退出。
 
-> Adb-shell-rendered TUI has minor wrapping / colour glitches but works. Prefer
-> a proper Termux session over adb shell for TUI testing.
+> 透過 adb shell 渲染的 TUI 有輕微的換行 / 顏色錯位，但仍可運作。測試 TUI 時，
+> 請優先使用正規的 Termux 工作階段，而非 adb shell。
 
 ---
 
-## Phase 11 · Autoevolve (10 min)
+## Phase 11 · Autoevolve（10 分鐘）
 
-> Autoevolve assumes the cwd has a Cargo.toml. On a fresh Termux without a
-> cloned phantom-mesh repo it will fail gracefully. Either git-clone first or
-> accept the no-target outcome.
+> Autoevolve 假設目前的工作目錄（cwd）有一個 Cargo.toml。在尚未複製（clone）
+> phantom-mesh 倉庫的全新 Termux 上，它會優雅地失敗（fail gracefully，安全地結束而不崩潰）。
+> 請先 git-clone，或接受無目標（no-target）的結果。
 
 ```bash
 cd ~
@@ -355,24 +356,24 @@ phantom autoevolve --once
 phantom autoevolve log --n 3
 ```
 
-**Expect:** one entry; status `no-target` or `cargo-missing` if no Cargo.toml.
+**預期：** 一筆紀錄；若無 Cargo.toml，狀態為 `no-target` 或 `cargo-missing`。
 
 ```bash
 phantom autoevolve schedule install
 phantom autoevolve schedule status
 ```
 
-**Expect:** `not yet implemented on this platform` (Android has no
-LaunchAgent / systemd) — correct behaviour.
+**預期：** `not yet implemented on this platform`（Android 沒有
+LaunchAgent / systemd）— 屬正確行為。
 
-**Pass if:** autoevolve runs once without panic; schedule install fails with
-the expected platform message.
+**通過條件：** autoevolve 執行一次而不崩潰（panic）；schedule install 以預期的
+平台訊息失敗。
 
 ---
 
-## Phase 12 · Termux:Boot persistence (15 min, includes phone reboot)
+## Phase 12 · Termux:Boot 持久化（15 分鐘，包含手機重開機）
 
-After installing Termux:Boot from F-Droid:
+從 F-Droid 安裝 Termux:Boot 後：
 
 ```bash
 mkdir -p ~/.termux/boot
@@ -383,7 +384,7 @@ EOF
 chmod +x ~/.termux/boot/phantom-serve
 ```
 
-**Reboot the phone**. After it wakes (give it 30 s):
+**重新啟動手機**。在它喚醒後（給它 30 秒）：
 
 ```bash
 # in Termux
@@ -391,11 +392,11 @@ pgrep phantom
 curl -sS http://127.0.0.1:7879/healthz
 ```
 
-**Pass if:** phantom is already running and healthz returns `ok`.
+**通過條件：** phantom 已自動執行中，且 healthz 回傳 `ok`。
 
 ---
 
-## Phase 13 · Stress / longevity (30 min)
+## Phase 13 · 壓力 / 耐久測試（30 分鐘）
 
 ```bash
 # 100 sequential healthz hits
@@ -409,7 +410,8 @@ END=$(date +%s%N)
 echo "$OK/100 OK, $(( (END-START)/1000000 ))ms total"
 
 # 10 concurrent dispatches (needs Groq key)
-SECRET="phantom-cluster-2026"
+# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+SECRET="changeme-cluster-secret"
 for i in $(seq 1 10); do
   BODY="{\"agent\":\"master\",\"prompt\":\"echo $i\"}"
   AUTH=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
@@ -426,31 +428,31 @@ grep VmRSS /proc/$PID/status
 ls /proc/$PID/fd | wc -l
 ```
 
-**Pass if:** 100/100 OK, ≥ 8/10 concurrent dispatches reach `done` (Groq may
-rate-limit on 1 GB E2.1.Micro-tier accounts), VmRSS growth after 1 h idle <
-5 MB, fd count < 50.
+**通過條件：** 100/100 OK，並行派工中 ≥ 8/10 達到 `done`（在 1 GB E2.1.Micro 等級的
+帳號上，Groq 可能會限速），閒置 1 小時後 VmRSS 增長 <
+5 MB，fd（檔案描述符）數量 < 50。
 
 ---
 
-## Phase 14 · Failure modes (20 min)
+## Phase 14 · 失效模式（20 分鐘）
 
-| # | Inject | Procedure | Expected |
+| # | 注入故障 | 程序 | 預期 |
 |---|---|---|---|
-| 1 | Bad provider key | edit toml, `api_key = "gsk_invalid"`, restart, dispatch | status=error, error contains 401 |
-| 2 | Network drop | `tailscale down`, dispatch | status=error, error contains timeout / connection refused |
-| 3 | OOM edge | 5 concurrent prompts on 1 GB phone | ≥ 3 done, no panic |
-| 4 | `kill -9` daemon | `pkill -9 phantom`, inspect log | log clean, socket released, no panic line |
-| 5 | Port collision | start a 2nd serve before 1st dies | 2nd exits 1 with `Address already in use` |
-| 6 | Broken agents.toml | `cluster_secret = ` (no value), restart | exit 1 with toml parse error before bind |
-| 7 | Disk full (Termux home) | `dd if=/dev/zero of=~/big bs=1M count=$(df ~ \| awk 'NR==2{print $4}')` | dispatch error logged, no panic |
-| 8 | Tailscale IP change | `tailscale down; tailscale up` | restart daemon → still reachable from Mac on new IP |
+| 1 | 錯誤的供應商 key | 編輯 toml，設 `api_key = "gsk_invalid"`，重啟，派工 | status=error，error 包含 401 |
+| 2 | 網路中斷 | `tailscale down`，派工 | status=error，error 包含 timeout / connection refused |
+| 3 | OOM（記憶體不足）邊界 | 在 1 GB 手機上 5 個並行提示 | ≥ 3 個 done，無崩潰 |
+| 4 | `kill -9` 常駐程式 | `pkill -9 phantom`，檢查 log | log 乾淨，socket 已釋放，無崩潰訊息 |
+| 5 | 連接埠衝突 | 在第 1 個尚未結束時啟動第 2 個 serve | 第 2 個以退出碼 1 結束並顯示 `Address already in use` |
+| 6 | 損壞的 agents.toml | `cluster_secret = `（無值），重啟 | 在綁定（bind）前以退出碼 1 結束並顯示 toml 解析錯誤 |
+| 7 | 磁碟滿（Termux home） | `dd if=/dev/zero of=~/big bs=1M count=$(df ~ \| awk 'NR==2{print $4}')` | 派工錯誤被記錄，無崩潰 |
+| 8 | Tailscale IP 變更 | `tailscale down; tailscale up` | 重啟常駐程式 → Mac 仍能以新 IP 連到它 |
 
-**Pass if:** every case fails *safely* — error message present, no panic, no
-zombie process, daemon survives or exits cleanly.
+**通過條件：** 每個情境都*安全地*失敗 — 有錯誤訊息、無崩潰、無
+殭屍程序（zombie process），常駐程式存活或乾淨退出。
 
 ---
 
-## Phase 15 · Cleanup (5 min)
+## Phase 15 · 清理（5 分鐘）
 
 ```bash
 pkill phantom
@@ -465,13 +467,13 @@ ls ~/.phantom-mesh 2>&1            # No such file or directory
 which phantom 2>&1                 # not found
 ```
 
-**Pass if:** phantom and its config directory are gone from the device.
+**通過條件：** phantom 及其設定目錄已從裝置上消失。
 
 ---
 
-## Result matrix
+## 結果矩陣
 
-Track Pass / Fail / Skipped per phase:
+逐 phase 追蹤 通過 / 失敗 / 略過：
 
 ```
 Phase  Title                              Result      Notes
@@ -496,16 +498,16 @@ Phase  Title                              Result      Notes
 
 ---
 
-## Known caveats (as of 2026-05-01)
+## 已知注意事項（截至 2026-05-01）
 
-- `phantom serve --help` and `phantom mcp --help` start the daemon instead of
-  printing usage. Avoid in foreground scripts.
-- `phantom serve --port <N>` is silently ignored; daemon uses the value from
-  `~/.phantom-mesh/agents.toml` `[core].port` (default 7878). Termux setup
-  picks 7879 via the toml.
-- `/api/health`, `/api/peers`, `/api/tools` return 404 on workers. Use the
-  `/rpc/*` equivalents.
-- `/dist/<…>`, `/scripts/<…>`, `/api/onboarding/*` are coordinator-only.
-- `VmPeak` shown in `/proc/<pid>/status` looks alarming (~12 GB virtual) — it's
-  tokio reserving worker stacks. `VmRSS` is the actual physical footprint
-  (~10 MB idle, < 50 MB busy).
+- `phantom serve --help` 與 `phantom mcp --help` 會啟動常駐程式，而非
+  印出用法說明。在前景腳本中請避免使用。
+- `phantom serve --port <N>` 會被靜默忽略；常駐程式使用
+  `~/.phantom-mesh/agents.toml` 中 `[core].port` 的值（預設 7878）。Termux 設定
+  透過該 toml 選用 7879。
+- `/api/health`、`/api/peers`、`/api/tools` 在工作者上回傳 404。請改用
+  對應的 `/rpc/*` 端點。
+- `/dist/<…>`、`/scripts/<…>`、`/api/onboarding/*` 僅協調者才有。
+- `/proc/<pid>/status` 中顯示的 `VmPeak` 看起來很驚人（約 12 GB 虛擬記憶體）— 這其實是
+  tokio 為工作者堆疊（worker stack）保留的空間。`VmRSS` 才是實際的實體記憶體佔用量
+  （閒置約 10 MB，忙碌時 < 50 MB）。

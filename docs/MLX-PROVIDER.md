@@ -1,24 +1,24 @@
-# MLX Local LLM on Apple Silicon
+# 在 Apple Silicon 上執行 MLX 本地 LLM
 
-Run large language models on-device via Apple's MLX framework. Zero
-per-token API cost, fully offline once the model is downloaded, fast
-enough for autoevolve / subagent flows on M1/M2/M3 Macs.
+透過 Apple 的 MLX 框架在裝置端執行大型語言模型（large language model，LLM）。零
+每個 token（權杖）的 API 成本，模型下載完成後即可完全離線，速度
+足以應付 M1/M2/M3 Mac 上的 autoevolve（自動演化）/ subagent（子代理）流程。
 
-phantom doesn't bundle MLX or download models — it orchestrates
-`mlx_lm.server` (which is OpenAI-compatible) and `huggingface-cli`.
+phantom 本身不會綑綁 MLX，也不會下載模型——它只負責協調
+`mlx_lm.server`（與 OpenAI 相容）以及 `huggingface-cli`。
 
 ---
 
-## Install once
+## 安裝（一次即可）
 
 ```bash
 pip3 install mlx-lm
 ```
 
-(Or use `uv tool install mlx-lm` / `pipx install mlx-lm`. Anything
-that puts `mlx_lm` on your default `python3` import path works.)
+（或使用 `uv tool install mlx-lm` / `pipx install mlx-lm`。任何
+能把 `mlx_lm` 放上你預設 `python3` import 路徑的方法都可以。）
 
-`phantom doctor` will then show:
+`phantom doctor` 接著會顯示：
 
 ```
 MLX local LLM
@@ -27,7 +27,7 @@ MLX local LLM
 
 ---
 
-## Pull a model
+## 拉取模型
 
 ```bash
 phantom mlx pull                         # default: Llama 3.1 8B 4-bit (~5 GB)
@@ -35,12 +35,12 @@ phantom mlx pull mlx-community/Llama-3.3-70B-Instruct-4bit   # ~38 GB, 32+ GB RA
 phantom mlx pull mlx-community/Qwen2.5-Coder-7B-Instruct-4bit  # ~4 GB, code-focused
 ```
 
-The default `Llama-3.1-8B-Instruct-4bit` runs cleanly on a 16 GB M1.
-70B variants need a 32+ GB Mac to avoid swapping.
+預設的 `Llama-3.1-8B-Instruct-4bit` 在 16 GB 的 M1 上可順暢執行。
+70B 變體需要 32+ GB 的 Mac 才能避免發生記憶體置換（swapping）。
 
 ---
 
-## Serve
+## 提供服務（Serve）
 
 ```bash
 phantom mlx serve                # foreground, default model + port 8080
@@ -48,12 +48,12 @@ phantom mlx serve --port 9090    # custom port
 phantom mlx serve --model mlx-community/Llama-3.3-70B-Instruct-4bit
 ```
 
-`mlx_lm.server` exposes an OpenAI-compatible endpoint at
-`http://127.0.0.1:<port>/v1`. Listens on 127.0.0.1 only — exposing it
-to the cluster is a follow-up (use a Tailscale-aware reverse proxy or
-`mlx_lm.server --host 0.0.0.0` if you trust your tailnet).
+`mlx_lm.server` 會在
+`http://127.0.0.1:<port>/v1` 暴露一個與 OpenAI 相容的端點（endpoint）。它只監聽 127.0.0.1——將其
+暴露給叢集（cluster）屬於後續工作（請使用具 Tailscale 感知的反向代理（reverse proxy），或在
+你信任自己的 tailnet（Tailscale 網路）時使用 `mlx_lm.server --host 0.0.0.0`）。
 
-While serving, doctor's MLX section turns green:
+服務執行期間，doctor 的 MLX 區段會轉為綠色：
 
 ```
 MLX local LLM
@@ -63,9 +63,9 @@ MLX local LLM
 
 ---
 
-## Wire into agents.toml
+## 接入 agents.toml
 
-Append to `~/.phantom-mesh/agents.toml`:
+附加到 `~/.phantom-mesh/agents.toml`：
 
 ```toml
 [providers.mlx-local]
@@ -81,7 +81,7 @@ instructions = "You are phantom-mesh's on-device agent running via MLX. Use tool
 tools        = ["shell", "file_read", "ls", "content_search"]
 ```
 
-Use it from anywhere:
+從任何地方使用它：
 
 ```bash
 # CLI
@@ -93,29 +93,29 @@ mcp__phantom__subagent({ agent: "local", prompt: "..." })
 # Web mobile UI agent dropdown will list 'local' alongside master/coder.
 ```
 
-`phantom autoevolve --agent local` runs the hourly self-improvement
-loop entirely on-device — autoevolve.log entries from a `local` agent
-have `cost: $0.000` after the next cost-pricing update.
+`phantom autoevolve --agent local` 會將每小時的自我改善
+迴圈完全在裝置端執行——在下一次成本定價更新後，來自 `local` 代理的 autoevolve.log 條目
+會顯示 `cost: $0.000`。
 
 ---
 
-## Performance notes (M1 16 GB baseline)
+## 效能說明（M1 16 GB 基準）
 
-| Model | Size | Cold load | Warm gen | Note |
+| 模型 | 大小 | 冷啟動載入 | 暖啟動生成 | 備註 |
 |---|---|---|---|---|
-| Llama-3.1-8B-Instruct-4bit | 4.2 GB | ~150 s | ~5-15 s for 50 tokens | default — fast, OK quality |
-| Llama-3.3-70B-Instruct-4bit | ~38 GB | swaps badly on 16 GB | n/a | wait for 32+ GB RAM |
-| Qwen2.5-Coder-7B-Instruct-4bit | 3.8 GB | ~120 s | ~5 s | better at tool schemas |
+| Llama-3.1-8B-Instruct-4bit | 4.2 GB | ~150 s | 50 個 token 約 ~5-15 s | 預設——快速、品質尚可 |
+| Llama-3.3-70B-Instruct-4bit | ~38 GB | 在 16 GB 上嚴重置換 | n/a | 請等 32+ GB RAM |
+| Qwen2.5-Coder-7B-Instruct-4bit | 3.8 GB | ~120 s | ~5 s | 在工具 schema（結構描述）上表現較佳 |
 
-Tool-calling quality on 8B 4-bit is hit-and-miss — the small models
-sometimes hallucinate phantom's tool schema. For evolve / autoevolve
-where tool fidelity matters, prefer **Qwen2.5-Coder-7B** or fall back
-to a paid Groq/Anthropic provider. For chat-only flows the 8B Llama
-is fine.
+8B 4-bit 的工具呼叫（tool-calling）品質時好時壞——這些小模型
+有時會幻覺出（hallucinate）phantom 的工具 schema。對於工具忠實度
+攸關重要的 evolve / autoevolve，建議優先使用 **Qwen2.5-Coder-7B**，或退回
+使用付費的 Groq/Anthropic 供應商。對於純聊天流程，8B Llama
+已經夠用。
 
 ---
 
-## Stop / restart
+## 停止 / 重啟
 
 ```bash
 phantom mlx stop                         # pkill -f mlx_lm.server
@@ -123,20 +123,19 @@ phantom mlx status                       # is it up?
 phantom mlx serve --model Qwen2.5-Coder…  # swap model
 ```
 
-The serve command is foreground. To run it as a background daemon,
-wrap with launchd (similar to `phantom service install`'s LaunchAgent
-template) — not yet shipped as a one-liner.
+serve 指令是前景（foreground）執行的。若要將它作為背景常駐服務（daemon）執行，
+請以 launchd 包裝（類似 `phantom service install` 的 LaunchAgent
+範本）——目前尚未以一行指令（one-liner）形式提供。
 
 ---
 
-## Why this matters
+## 為何這很重要
 
-- **Zero cost** for autoevolve's hourly fix attempts
-- **Fully offline** once the model is downloaded — phantom Mac keeps
-  fixing and committing on a flight, on a train, in a SCIF
-- **Latency** — Apple Silicon's GPU (or NPU on M3+) is faster than the
-  network round-trip to api.anthropic.com for prompts that don't need
-  Sonnet-class reasoning
-- **Privacy** — no token, prompt, or response leaves the machine
-- **No competing CLI agent has this** — OpenCode / Codex CLI / Gemini
-  CLI all assume an HTTPS round-trip to a vendor's cloud
+- **零成本**——適用於 autoevolve 每小時的修復嘗試
+- **完全離線**——模型下載後即可離線，phantom Mac 在飛機上、火車上、
+  或在 SCIF（敏感隔離資訊設施）中都能持續修復並提交
+- **延遲（Latency）**——對於不需要 Sonnet 級推理的提示（prompt），Apple Silicon 的
+  GPU（或 M3+ 上的 NPU）比往返 api.anthropic.com 的網路來回更快
+- **隱私**——沒有任何 token、提示或回應會離開這台機器
+- **沒有任何競品 CLI 代理具備此能力**——OpenCode / Codex CLI / Gemini
+  CLI 全都假設要與供應商雲端進行一次 HTTPS 來回

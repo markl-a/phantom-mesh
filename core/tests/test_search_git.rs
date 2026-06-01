@@ -1,12 +1,14 @@
-use phantom_mesh::tools::{search, git};
+use phantom_mesh::tools::{git, search};
 use serde_json::json;
-use tempfile::tempdir;
+
+mod common;
+use common::workspace_tempdir;
 
 // ── content_search ────────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn test_content_search_finds_match() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let file_path = dir.path().join("haystack.txt");
     std::fs::write(&file_path, "line one\nneedle_xyz is here\nline three\n").unwrap();
 
@@ -28,7 +30,7 @@ async fn test_content_search_finds_match() {
 
 #[tokio::test]
 async fn test_content_search_no_match() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     std::fs::write(dir.path().join("data.txt"), "foo bar baz\n").unwrap();
 
     let args = json!({
@@ -56,7 +58,7 @@ async fn test_content_search_missing_pattern() {
 
 #[tokio::test]
 async fn test_glob_finds_rs_files() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     std::fs::write(dir.path().join("a.rs"), "fn main() {}").unwrap();
     std::fs::write(dir.path().join("b.ts"), "export {}").unwrap();
 
@@ -78,7 +80,7 @@ async fn test_glob_finds_rs_files() {
 
 #[tokio::test]
 async fn test_glob_no_match() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     std::fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
 
     let args = json!({
@@ -103,10 +105,7 @@ async fn test_git_status_runs() {
 
     // Must be either "Working tree clean" or a status listing — never empty,
     // never a panic. We just assert it is a non-empty string.
-    assert!(
-        !result.is_empty(),
-        "expected a non-empty git status result"
-    );
+    assert!(!result.is_empty(), "expected a non-empty git status result");
 }
 
 #[tokio::test]
@@ -139,14 +138,12 @@ async fn test_git_log_returns_commits() {
 
     // `git log --oneline` lines start with a short hash (7+ hex chars).
     // We verify at least one such token is present.
-    let has_short_hash = result
-        .lines()
-        .any(|line| {
-            line.split_whitespace()
-                .next()
-                .map(|tok| tok.len() >= 7 && tok.chars().all(|c| c.is_ascii_hexdigit()))
-                .unwrap_or(false)
-        });
+    let has_short_hash = result.lines().any(|line| {
+        line.split_whitespace()
+            .next()
+            .map(|tok| tok.len() >= 7 && tok.chars().all(|c| c.is_ascii_hexdigit()))
+            .unwrap_or(false)
+    });
 
     assert!(
         has_short_hash,

@@ -29,8 +29,8 @@
 ```bash
 # 1. clone repo (如果還沒)
 cd ~/Projects
-git clone https://github.com/markl-a/phantom-mesh-private.git
-cd phantom-mesh-private/phantommesh-io
+git clone https://github.com/markl-a/phantom-mesh.git
+cd phantom-mesh/phantommesh-io
 
 # 2. 安裝 deps
 npm install
@@ -50,7 +50,7 @@ npx wrangler secret put ENV_VAULT_KEY        --env staging
 ### 日常 dev
 
 ```bash
-cd ~/Projects/phantom-mesh-private/phantommesh-io
+cd ~/Projects/phantom-mesh/phantommesh-io
 
 # 改檔...
 

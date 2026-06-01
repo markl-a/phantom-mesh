@@ -1,16 +1,16 @@
-# Permission DSL
+# 權限 DSL（領域特定語言）
 
-phantom-mesh ships a Claude-Code-style **Tool(specifier)** rule grammar
-for gating tool execution. Configured via `[permissions]` in
-`agents.toml`; enforced by the agent runtime's tool dispatch path.
+phantom-mesh 內建一套 Claude-Code 風格的 **Tool(specifier)**（工具（指定符））規則語法，
+用來把關工具執行。透過 `agents.toml` 裡的 `[permissions]` 設定；
+由代理執行期（agent runtime）的工具派發路徑強制執行。
 
-Source of truth: [`core/src/permission.rs`](../core/src/permission.rs).
-6 fuzz tests guard the parser + engine against panic-on-input
-(`fuzz_parse_rule_never_panics`, etc).
+真相來源（source of truth）：[`core/src/permission.rs`](../core/src/permission.rs)。
+6 個 fuzz（模糊測試）守護解析器（parser）與引擎，避免遭遇輸入時崩潰（panic-on-input）
+（`fuzz_parse_rule_never_panics` 等）。
 
 ---
 
-## Quick reference
+## 快速參考
 
 ```toml
 [permissions]
@@ -19,12 +19,12 @@ ask   = ["Bash", "Edit"]
 allow = ["Bash(git status)", "Bash(cargo check)", "Read(./README.md)", "100:Bash(git push origin feature/*)"]
 ```
 
-Three lists → three actions. Empty/missing block ⇒ allow-all (legacy
-default). Any rule present ⇒ unmatched calls fall through to **Ask**.
+三個清單 → 三種動作。區塊為空／缺失 ⇒ 全部允許（allow-all，沿用舊版
+預設）。只要有任一規則存在 ⇒ 未命中的呼叫一律落入 **Ask（詢問）**。
 
 ---
 
-## Syntax
+## 語法
 
 ```text
 RULE        := [PRIORITY ":"] TOOL [ "(" SPECIFIER ")" ]
@@ -33,68 +33,67 @@ TOOL        := PascalCase name | snake_case name | "*"
 SPECIFIER   := tool-specific glob/string (see below)
 ```
 
-| Form | Example | Effect |
+| 形式 | 範例 | 效果 |
 |---|---|---|
-| Bare tool name | `Bash` | Matches every shell call |
-| Tool + specifier | `Bash(npm run *)` | Matches shell calls whose `command` is glob-equal to `npm run *` |
-| Wildcard tool | `*` | Matches every tool call |
-| Priority prefix | `100:Bash(git status)` | Same matching as `Bash(git status)` but with priority=100 |
+| 純工具名稱 | `Bash` | 命中每一次 shell（命令列）呼叫 |
+| 工具 + 指定符 | `Bash(npm run *)` | 命中 `command` 與 `npm run *` 以 glob（萬用字元比對）相等的 shell 呼叫 |
+| 萬用工具 | `*` | 命中每一次工具呼叫 |
+| 優先級前綴 | `100:Bash(git status)` | 與 `Bash(git status)` 相同的比對，但 priority=100 |
 
-### Tool name aliases (Claude Code parity)
+### 工具名稱別名（與 Claude Code 對齊）
 
-| You write | phantom matches |
+| 你寫的 | phantom 命中的 |
 |---|---|
-| `Bash` or `Shell` | `shell` |
+| `Bash` 或 `Shell` | `shell` |
 | `Read` | `file_read` |
 | `Write` | `file_write` |
-| `Edit` | `file_edit`, `file_write`, `multi_file_edit`, `apply_patch` (edit-family collapse) |
+| `Edit` | `file_edit`、`file_write`、`multi_file_edit`、`apply_patch`（編輯家族合併） |
 | `WebFetch` | `web_fetch` |
 | `WebSearch` | `web_search` |
-| anything else | passes through verbatim — write `shell` directly if you prefer |
+| 其他任何名稱 | 原樣透傳——若你偏好可直接寫 `shell` |
 
-### Specifier shapes per tool
+### 各工具的指定符形狀
 
-| Tool | Specifier syntax | Matched against |
+| 工具 | 指定符語法 | 比對對象 |
 |---|---|---|
-| `Bash` / `Shell` | `cmd-pattern with *` | the `command` argument; `*` matches any chars |
-| `Read` / `Write` / `Edit` | `path-glob with *` | the `path` argument |
-| `WebFetch` | `domain:host.com` (or just `host.com`) | URL host (subdomain match: `github.com` ⇒ also `api.github.com`) |
-| anything else | fallback: substring on `path` / `cmd` / `url` / serialised args | first non-empty wins |
+| `Bash` / `Shell` | `cmd-pattern with *` | `command` 引數；`*` 命中任意字元 |
+| `Read` / `Write` / `Edit` | `path-glob with *` | `path` 引數 |
+| `WebFetch` | `domain:host.com`（或僅 `host.com`） | URL 主機（host）（子網域比對：`github.com` ⇒ 也包含 `api.github.com`） |
+| 其他任何名稱 | 後備（fallback）：對 `path` / `cmd` / `url` / 序列化後的引數做子字串比對 | 第一個非空者勝出 |
 
-Specifiers are **anchored** (must match the whole arg) — except for
-domain matching which is host-suffix-aware.
-
----
-
-## Evaluation order
-
-Rules are sorted **descending** by `(user_priority, action_precedence)`:
-
-1. **Higher numeric priority wins**. `100:Bash(git status)` beats
-   default-priority `Bash`.
-2. Among **same priority**: deny > ask > allow.
-3. **First match wins** — rule list is scanned top to bottom in the
-   sorted order; the first rule that matches the (tool, args) pair
-   produces the decision.
-4. **No match** ⇒ if the engine has any rules, fall through to
-   `Decision::Ask`. If the engine is empty, fall through to
-   `Decision::Allow` (preserves legacy `PHANTOM_PERM=allow`).
-
-This matches Claude Code's documented order (deny → ask → allow,
-first-match-wins) **plus** an escape-hatch via the priority field.
-Without priority you can't allow `git status` while denying every
-other shell call — phantom's engine adds priority specifically for
-this case.
+指定符是**錨定的（anchored）**（必須命中整個引數）——但網域比對例外，
+它會感知主機後綴（host-suffix-aware）。
 
 ---
 
-## Bash hardening: redirect/chain auto-downgrade
+## 評估順序
 
-Bash is the most dangerous tool surface — a single redirect (`>`,
-`>>`, `|`, `<`) or chain operator (`;`, `&&`, `||`) turns an "allowed"
-command into something that can leak files. phantom's engine
-**automatically downgrades** an `Allow` decision to `Ask` when the
-matched command contains any of those operators.
+規則依 `(user_priority, action_precedence)` **遞減**排序：
+
+1. **數值優先級較高者勝出**。`100:Bash(git status)` 勝過
+   預設優先級的 `Bash`。
+2. 在**相同優先級**之間：deny > ask > allow。
+3. **首次命中者勝出（first match wins）**——規則清單依排序後的順序由上而下
+   掃描；第一個命中該 (tool, args) 組合的規則
+   產生決策。
+4. **無命中** ⇒ 若引擎含有任何規則，則落入
+   `Decision::Ask`。若引擎為空，則落入
+   `Decision::Allow`（保留舊版 `PHANTOM_PERM=allow` 行為）。
+
+這與 Claude Code 文件記載的順序一致（deny → ask → allow，
+首次命中者勝出），**外加**透過優先級欄位提供的逃生口（escape-hatch）。
+沒有優先級你就無法在允許 `git status` 的同時封鎖其他每一個
+shell 呼叫——phantom 的引擎特別為此案例加入了優先級。
+
+---
+
+## Bash 加固：重導向／串接自動降級
+
+Bash 是最危險的工具介面——單一個重導向（`>`、
+`>>`、`|`、`<`）或串接運算子（`;`、`&&`、`||`）就能把一個「已允許」的
+命令變成可能洩漏檔案的東西。phantom 的引擎
+在命中的命令含有上述任一運算子時，會**自動把** `Allow` 決策
+降級為 `Ask`。
 
 ```toml
 [permissions]
@@ -109,53 +108,53 @@ allow = ["Bash(cat *)"]
 # DOWNGRADED: cat a; rm b           → Decision::Ask    (chain detected)
 ```
 
-Quoted operators are **respected** — `echo 'a > b'` doesn't trigger.
-Implementation: `bash_has_redirect_or_chain()` walks the command
-char-by-char honoring single + double quotes and backslash escapes.
+被引號包住的運算子會被**尊重**——`echo 'a > b'` 不會觸發。
+實作：`bash_has_redirect_or_chain()` 逐字元走訪命令，
+正確處理單引號、雙引號與反斜線轉義（backslash escapes）。
 
-If you intentionally want to allow redirects (e.g. `Bash(tee
-./logs/*.log)`), use a more specific pattern + raise priority:
+若你刻意想允許重導向（例如 `Bash(tee
+./logs/*.log)`），請使用更精確的樣式 + 提高優先級：
 ```toml
 allow = ["100:Bash(tee ./logs/*)"]
 ```
-The redirect-downgrade rule applies to the *matched* command, so
-exact patterns can opt back in at high priority.
+重導向降級規則只套用在*命中的*命令上，因此
+精確樣式能在高優先級下重新選擇加入（opt back in）。
 
 ---
 
-## Statically-denied tools
+## 靜態封鎖的工具
 
-A `Deny` rule with **no specifier** (e.g. `WebFetch`) means "this tool
-is blanket-denied — never callable in any args". The engine surfaces
-these via `Engine::statically_denied_tools()`. The agent runtime's
-`run_with_callbacks_gated()` filters them OUT of the LLM's tool-list
-schema, so the model never proposes a tool it can't run.
+一個**無指定符**的 `Deny` 規則（例如 `WebFetch`）表示「此工具
+被全面封鎖——在任何引數下都永不可呼叫」。引擎透過
+`Engine::statically_denied_tools()` 暴露這些工具。代理執行期的
+`run_with_callbacks_gated()` 會把它們從 LLM（大型語言模型）的工具清單
+結構（schema）中**過濾掉**，因此模型永遠不會提出一個它無法執行的工具。
 
 ```toml
 [permissions]
 deny = ["WebFetch", "WebSearch"]
 ```
-⇒ The LLM doesn't even know `web_fetch` and `web_search` exist. No
-"allow"+"deny" Lambo dance per turn — the model stays in scope.
+⇒ LLM 根本不知道 `web_fetch` 與 `web_search` 存在。不必每回合
+做「allow」+「deny」的拉鋸戲——模型維持在範圍內。
 
-Conditional denies (e.g. `Bash(rm -rf *)`) do **not** statically
-exclude `Bash` — they fire only on matching args, so the tool stays
-in the schema.
+條件式封鎖（例如 `Bash(rm -rf *)`）**不會**靜態
+排除 `Bash`——它們只在命中的引數上觸發，因此該工具仍留在
+結構（schema）中。
 
 ---
 
-## Examples — common policies
+## 範例——常見策略
 
-### "Personal dev mode" (most permissive)
+### 「個人開發模式」（最寬鬆）
 
 ```toml
 [permissions]
 deny = ["Read(./.env)", "Read(./secrets/*)"]
 allow = ["*"]
 ```
-Allow everything except touching secrets. No prompts.
+除了碰觸機密外允許一切。無任何提示。
 
-### "Production-careful" (always ask before writes)
+### 「生產謹慎」（寫入前一律詢問）
 
 ```toml
 [permissions]
@@ -167,10 +166,10 @@ allow = [
   "Read(./*)",
 ]
 ```
-Read-only operations + safe git/cargo commands run silently. Anything
-that mutates files or runs novel shell prompts.
+唯讀操作 + 安全的 git／cargo 命令靜默執行。任何
+會變更檔案或執行新穎 shell 的呼叫都會提示。
 
-### "CI auto-deny shell"
+### 「CI 自動封鎖 shell」
 
 ```toml
 [permissions]
@@ -178,17 +177,17 @@ deny  = ["Bash"]
 ask   = []
 allow = ["Read(./*)", "Edit(./src/**)"]
 ```
-Tightest sandbox: no shell at all, can read source, can edit only
-files under `./src/`.
+最緊的沙箱（sandbox）：完全沒有 shell，可讀取原始碼，僅能編輯
+`./src/` 底下的檔案。
 
 ---
 
-## Diagnostics
+## 診斷
 
-`phantom doctor` includes a `[permissions]` section showing:
-- Number of rules parsed
-- Static-deny tool list (the ones the LLM won't see)
-- Parse errors per rule (if any)
+`phantom doctor` 包含一個 `[permissions]` 區段，顯示：
+- 已解析的規則數量
+- 靜態封鎖的工具清單（那些 LLM 看不到的工具）
+- 每條規則的解析錯誤（若有）
 
 ```
 permissions
@@ -196,38 +195,38 @@ permissions
   ✓ statically denied: web_fetch (will be hidden from LLM tool list)
 ```
 
-If `phantom doctor` shows `parse error: unterminated specifier in rule
-"Bash(unclosed"` etc., the offending line is named verbatim so you can
-fix `agents.toml` and re-run.
+若 `phantom doctor` 顯示 `parse error: unterminated specifier in rule
+"Bash(unclosed"` 之類訊息，問題的那一行會被原樣指名，讓你能
+修正 `agents.toml` 後重跑。
 
 ---
 
-## Legacy `PHANTOM_PERM` env var
+## 舊版 `PHANTOM_PERM` 環境變數
 
-Pre-DSL behavior is preserved as a fallback when the engine returns
-`Decision::Ask` (no rule matched, default state):
+當引擎回傳 `Decision::Ask`（無規則命中，預設狀態）時，
+DSL 之前的行為被保留為後備（fallback）：
 
-| Env value | Effect |
+| 環境變數值 | 效果 |
 |---|---|
-| `allow` (default) | Engine `Ask` ⇒ allow |
-| `ask` | Engine `Ask` ⇒ interactive y/n prompt |
-| `deny` | Engine `Ask` ⇒ deny |
-| `diff` | Engine `Ask` ⇒ render unified diff for file_edit, then prompt |
+| `allow`（預設） | 引擎 `Ask` ⇒ 允許 |
+| `ask` | 引擎 `Ask` ⇒ 互動式 y/n 提示 |
+| `deny` | 引擎 `Ask` ⇒ 拒絕 |
+| `diff` | 引擎 `Ask` ⇒ 對 file_edit 渲染統一差異（unified diff），然後提示 |
 
-Once you've got `[permissions]` rules covering your real cases, set
-`PHANTOM_PERM=ask` so unmatched calls bring up the prompt instead of
-silently allowing — that's where new policy gaps surface.
+一旦你的 `[permissions]` 規則涵蓋了真實案例，就把
+`PHANTOM_PERM=ask` 設好，讓未命中的呼叫跳出提示而非
+靜默允許——那正是新策略漏洞浮現之處。
 
 ---
 
-## Implementation pointers
+## 實作指標
 
-- Parser: `permission::parse_rule(s, action)` → `Vec<Rule>` (multiple
-  rules per call when an alias expands, e.g. `Edit(...)` returns 4
-  rules for the 4 edit-family tools).
-- Engine: `permission::Engine::from_lists(deny, ask, allow)` →
-  `Engine`; sorts internally; `engine.evaluate(tool, args)` →
-  `Decision`.
-- Helpers: `wildcard_match(pat, text)`, `bash_segments(cmd)`,
-  `bash_has_redirect_or_chain(cmd)`, `host_matches(host, url)`.
-- Tests: 26 unit + 6 fuzz in `core/src/permission.rs`.
+- 解析器：`permission::parse_rule(s, action)` → `Vec<Rule>`（當別名
+  展開時一次回傳多條規則，例如 `Edit(...)` 為 4 個編輯家族工具
+  回傳 4 條規則）。
+- 引擎：`permission::Engine::from_lists(deny, ask, allow)` →
+  `Engine`；內部自行排序；`engine.evaluate(tool, args)` →
+  `Decision`。
+- 輔助函式：`wildcard_match(pat, text)`、`bash_segments(cmd)`、
+  `bash_has_redirect_or_chain(cmd)`、`host_matches(host, url)`。
+- 測試：`core/src/permission.rs` 中有 26 個單元測試 + 6 個 fuzz。

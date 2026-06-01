@@ -109,16 +109,16 @@ function runSlash(cmd: string, agent: string): CmdResult {
       // lands (task #36, 5/2). The mock matches the example in
       // SPEC-FREEZE-V1 §9.3 Act 2 step [3].
       const plan: SquadPanelData[] = [
-        { peer: "z13",    agent: "recon",   state: "pending", output: "" },
-        { peer: "oracle", agent: "enrich",  state: "pending", output: "" },
-        { peer: "ayaneo", agent: "review",  state: "pending", output: "" },
-        { peer: "ipad",   agent: "triage",  state: "pending", output: "" },
+        { peer: "worker-1", agent: "recon",   state: "pending", output: "" },
+        { peer: "worker-2", agent: "enrich",  state: "pending", output: "" },
+        { peer: "worker-3", agent: "review",  state: "pending", output: "" },
+        { peer: "worker-4", agent: "triage",  state: "pending", output: "" },
       ];
       return {
         lines: [
           mkLine("system", `▸ /dispatch  \x1b[35m${goal}\x1b[0m`),
           mkLine("output", "\x1b[2m  dispatcher agent emitting plan…\x1b[0m"),
-          mkLine("output", "\x1b[2m  4 peers selected: z13 (recon), oracle (enrich), ayaneo (review), ipad (triage)\x1b[0m"),
+          mkLine("output", "\x1b[2m  4 peers selected: worker-1 (recon), worker-2 (enrich), worker-3 (review), worker-4 (triage)\x1b[0m"),
           mkLine("output", "\x1b[2m  (mock dispatch — daemon wiring lands 5/2, real RPC fan-out follows)\x1b[0m"),
         ],
         startDispatch: plan,
@@ -137,8 +137,8 @@ interface PeerDot {
 }
 
 const DEMO_PEERS: PeerDot[] = [
-  { name: "mac",     status: "online" },
-  { name: "z13-win", status: "online" },
+  { name: "macos",   status: "online" },
+  { name: "windows", status: "online" },
   { name: "linux",   status: "warn" },
   { name: "ios",     status: "offline" },
   { name: "android", status: "offline" },
@@ -367,10 +367,12 @@ export default function TerminalShell({
   // mount. v0.1.0 ships with both modes side-by-side so demo can
   // toggle between mock + live without reload.
   const PEER_URL_MAP: Record<string, string> = {
-    z13: "http://100.87.70.65:7878",
-    oracle: "http://100.107.205.98:7878", // placeholder until Oracle Cloud A1 stood up
-    ayaneo: "http://100.107.205.98:7878",
-    ipad: "http://localhost:7878", // sandbox worker on same Tailscale, IP TBD
+    // Demo/prototype fallback URLs only — real mode resolves peer URLs from
+    // /api/status (cluster.peers). RFC 5737 TEST-NET placeholders; no real hosts/IPs.
+    "worker-1": "http://192.0.2.10:7878",
+    "worker-2": "http://192.0.2.20:7878", // placeholder until cloud worker stood up
+    "worker-3": "http://192.0.2.30:7878",
+    "worker-4": "http://localhost:7878", // local sandbox worker, address TBD
   };
 
   // Try real /rpc/squad/dispatch fan-out; fall back to mock on any

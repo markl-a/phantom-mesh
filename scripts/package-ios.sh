@@ -103,8 +103,27 @@ if $SIM_ONLY; then
   mkdir -p "$APPLE_DIR/Externals/arm64/debug"
   touch "$APPLE_DIR/Externals/arm64/debug/libapp.a"
 
+  # RE-RUN xcodegen now so project.yml's `path: Externals` recursive walk
+  # captures ONLY debug/libapp.a (release was wiped above at line 84).
+  # Without this, the initial xcodegen at script start (line ~65) baked
+  # BOTH debug + release paths into the .xcodeproj's CpResource rules
+  # (because BOTH dirs existed at that moment per the pre-xcodegen loop
+  # at line 58-60), and xcode dies on `CpResource
+  # Externals/arm64/release/libapp.a` (no such file). Stubbing the
+  # release file would instead trip "Multiple commands produce libapp.a"
+  # (both copy → same `.app/libapp.a` dest). Mirror of the device-path
+  # fix at line ~193.
+  if [[ -d "$APPLE_DIR" ]] && command -v xcodegen &>/dev/null; then
+    (cd "$APPLE_DIR" && xcodegen generate --spec project.yml --quiet 2>/dev/null) || true
+  fi
+
   cd "$APP_DIR"
-  npx tauri ios build --debug --target aarch64-sim --no-sign --ci \
+  # VITE_DEMO_MODE=1 (only honored by --sim builds) auto-bypasses the
+  # MobileOnboardingV2 gate + lands directly on /settings/cluster so QA
+  # / screenshot demos can reach the cluster UI without OAuth. App
+  # source checks `import.meta.env.VITE_DEMO_MODE === "1"`. Production
+  # IPA builds (the device path further down) do NOT set this var.
+  VITE_DEMO_MODE=1 npx tauri ios build --debug --target aarch64-sim --ci \
     --ignore-version-mismatches
 
   # Tauri places the built bundle under
@@ -190,11 +209,35 @@ rm -rf ~/Library/Developer/Xcode/DerivedData/phantom-mesh-app-*
 mkdir -p "$APPLE_DIR/Externals/arm64/release"
 touch "$APPLE_DIR/Externals/arm64/release/libapp.a"
 
+# RE-RUN xcodegen now so project.yml's `path: Externals` recursive walk
+# captures ONLY release/libapp.a (debug was wiped). Without this, the
+# initial xcodegen at script start (line ~65) baked BOTH debug + release
+# paths into the .xcodeproj's CpResource rules. Once both files exist,
+# xcodebuild fires "Multiple commands produce libapp.a" (both copy to
+# the same `.app/libapp.a`). When only release exists, it's "file not
+# found" for debug. Re-running xcodegen here flips the project to
+# release-only view.
+if [[ -d "$APPLE_DIR" ]] && command -v xcodegen &>/dev/null; then
+  (cd "$APPLE_DIR" && xcodegen generate --spec project.yml --quiet 2>/dev/null) || true
+fi
+
+# Export method:
+#   debugging        - development cert; install via xcrun devicectl (default,
+#                      requires devices to be paired/registered)
+#   app-store-connect - distribution cert; for TestFlight or App Store upload;
+#                      install via TestFlight app on any user's iOS device
+# Toggle via TESTFLIGHT=1 env: TESTFLIGHT=1 APPLE_TEAM_ID=... bash scripts/package-ios.sh
+EXPORT_METHOD="${EXPORT_METHOD:-debugging}"
+if [[ "${TESTFLIGHT:-0}" == "1" ]]; then
+  EXPORT_METHOD="app-store-connect"
+fi
+echo "◆ Export method: $EXPORT_METHOD"
+
 cd "$APP_DIR"
 DEVELOPMENT_TEAM="$TEAM" APPLE_TEAM_ID="$TEAM" \
   npx tauri ios build --target aarch64 --ci \
   --ignore-version-mismatches \
-  --export-method debugging
+  --export-method "$EXPORT_METHOD"
 
 # Tauri places the device IPA at:
 #   src-tauri/gen/apple/build/arm64/Phantom Mesh.ipa  (release config)
@@ -210,9 +253,19 @@ if [[ -n "$IPA" ]]; then
   echo ""
   echo "✓ IPA ready:"
   echo "  $DIST/phantom-mesh-ios.ipa  ($SIZE)"
+  echo "  Export method: $EXPORT_METHOD"
   echo ""
-  echo "Install on device:"
-  echo "  xcrun devicectl device install app --device <UDID> '$DIST/phantom-mesh-ios.ipa'"
+  if [[ "$EXPORT_METHOD" == "app-store-connect" ]]; then
+    echo "Upload to TestFlight (App Store Connect must already have the app record):"
+    echo "  xcrun altool --upload-app -f '$DIST/phantom-mesh-ios.ipa' \\"
+    echo "    --type ios --apiKey \$ASC_API_KEY_ID --apiIssuer \$ASC_API_KEY_ISSUER_ID"
+    echo ""
+    echo "Or via Xcode:"
+    echo "  open -a Xcode '$IPA' (Window → Organizer → Distribute App → App Store Connect → Upload)"
+  else
+    echo "Install on already-paired device:"
+    echo "  xcrun devicectl device install app --device <UDID> '$DIST/phantom-mesh-ios.ipa'"
+  fi
 else
   echo "❌  IPA not found under $APPLE_DIR — build may have failed."
   exit 1

@@ -1,0 +1,37 @@
+# Offline self-test of the eval harness — no network, no LLM.
+# Uses the local mock Coach provider so the DETERMINISTIC asserts (shame-free
+# denylist + length) run anywhere (CI, this WSL box). It does NOT exercise
+# model-graded (llm-rubric) checks — for those use promptfooconfig.yaml with a
+# real provider.
+#
+# Run:  cd evals && npx promptfoo@latest eval -c promptfooconfig.offline.yaml
+# Expect: all tests pass (the mock output is intentionally shame-free + concise).
+
+description: "Coach eval — offline harness self-test (deterministic asserts only)"
+
+prompts:
+  - "今天的回顧：{{review}}"
+
+providers:
+  - file://providers/coach-mock.js
+
+defaultTest:
+  assert:
+    - type: javascript
+      value: |
+        const SHAME = ["你又", "你終於", "你居然", "你怎麼又", "還不"];
+        const hit = SHAME.find((p) => String(output).includes(p));
+        return hit
+          ? { pass: false, score: 0, reason: `shame pattern leaked: "${hit}"` }
+          : { pass: true, score: 1, reason: "shame-free" };
+    - type: javascript
+      value: |
+        const n = String(output).trim().length;
+        return n > 0 && n < 800
+          ? { pass: true, score: 1, reason: `length ${n} ok` }
+          : { pass: false, score: 0, reason: `length ${n} out of range` };
+
+tests:
+  - vars: { review: "50 分鐘專注、沙拉午餐、散步 30 分。" }
+  - vars: { review: "沒有專注紀錄，外食兩餐，沒運動。" }
+  - vars: { review: "沒有捕捉到任何事件。" }

@@ -8,8 +8,13 @@ import MemoryPanel from "../components/settings/MemoryPanel";
 import ProvidersPanel from "../components/settings/ProvidersPanel";
 import ChannelsPanel from "../components/settings/ChannelsPanel";
 import SecurityPanel from "../components/settings/SecurityPanel";
+import IdentityPanel from "../components/settings/IdentityPanel";
 import LogsPanel from "../components/settings/LogsPanel";
 import UpdatePanel from "../components/settings/UpdatePanel";
+import ClusterStatusDashboard from "../screens/macos/ClusterStatusDashboard";
+import DispatchPlanner from "../screens/macos/DispatchPlanner";
+import CoachReviewList from "../screens/macos/CoachReviewList";
+import MeshPeerAddWizard from "../screens/macos/MeshPeerAddWizard";
 
 export default function SettingsPage() {
   return (
@@ -18,6 +23,10 @@ export default function SettingsPage() {
       <main className="flex-1 overflow-y-auto p-4 md:p-6">
         <Routes>
           <Route index element={<Navigate to="agents" replace />} />
+          <Route path="cluster" element={<ClusterStatusDashboard />} />
+          <Route path="cluster/add-peer" element={<MeshPeerAddWizard />} />
+          <Route path="dispatch" element={<DispatchPlanner />} />
+          <Route path="reviews" element={<CoachReviewList />} />
           <Route path="agents" element={<AgentsPanel />} />
           <Route path="hands" element={<HandsPanel />} />
           <Route path="tools" element={<ToolsPanel />} />
@@ -26,6 +35,7 @@ export default function SettingsPage() {
           <Route path="providers" element={<ProvidersPanel />} />
           <Route path="channels" element={<ChannelsPanel />} />
           <Route path="security" element={<SecurityPanel />} />
+          <Route path="identity" element={<IdentityPanel />} />
           <Route path="logs" element={<LogsPanel />} />
           <Route path="update" element={<UpdatePanel />} />
         </Routes>

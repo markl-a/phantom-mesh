@@ -212,10 +212,7 @@ async fn test_missing_command_null() {
 async fn test_output_truncated() {
     // Generate >20 000 chars with a single command (no pipes/operators so it uses
     // the direct-spawn path that calls truncate()).  python3 is always available on macOS.
-    let result = shell::run(
-        &json!({"command": "python3 -c \"print('a' * 25000)\""}),
-    )
-    .await;
+    let result = shell::run(&json!({"command": "python3 -c \"print('a' * 25000)\""})).await;
     assert!(
         result.contains("truncated") || result.contains("omitted"),
         "expected truncation notice in long output, got first 200 chars: {:?}",
@@ -240,19 +237,28 @@ async fn test_empty_command_string() {
 #[tokio::test]
 async fn test_blocked_bash_c_rm() {
     let result = shell::run(&json!({"command": "bash -c 'rm -rf /'"})).await;
-    assert!(result.starts_with("Error:"), "bash -c rm should be blocked: {result:?}");
+    assert!(
+        result.starts_with("Error:"),
+        "bash -c rm should be blocked: {result:?}"
+    );
 }
 
 #[tokio::test]
 async fn test_blocked_sh_c_sudo_rm() {
     let result = shell::run(&json!({"command": "sh -c 'sudo rm -rf /tmp'"})).await;
-    assert!(result.starts_with("Error:"), "sh -c sudo rm should be blocked: {result:?}");
+    assert!(
+        result.starts_with("Error:"),
+        "sh -c sudo rm should be blocked: {result:?}"
+    );
 }
 
 #[tokio::test]
 async fn test_bash_c_safe_allowed() {
     let result = shell::run(&json!({"command": "bash -c 'echo hello'"})).await;
-    assert!(result.contains("hello"), "safe bash -c should be allowed: {result:?}");
+    assert!(
+        result.contains("hello"),
+        "safe bash -c should be allowed: {result:?}"
+    );
 }
 
 // ── Security: shell quoting bypass prevention ─────────────────────────────
@@ -261,7 +267,10 @@ async fn test_bash_c_safe_allowed() {
 async fn test_blocked_quoted_rm_rf() {
     // Quoting shouldn't bypass blocklist — post-parse check catches this
     let result = shell::run(&json!({"command": "rm '-rf' '/'"})).await;
-    assert!(result.starts_with("Error:"), "quoted rm -rf / should be blocked: {result:?}");
+    assert!(
+        result.starts_with("Error:"),
+        "quoted rm -rf / should be blocked: {result:?}"
+    );
 }
 
 // ── Bonus: stdout and stderr both present ─────────────────────────────────
@@ -278,7 +287,16 @@ async fn test_stdout_and_stderr_combined() {
         .expect("write script");
     let path = f.path().to_str().unwrap().to_owned();
     let result = shell::run(&json!({"command": format!("python3 {path}")})).await;
-    assert!(result.contains("out"), "expected stdout in output, got: {result:?}");
-    assert!(result.contains("STDERR:"), "expected STDERR: prefix, got: {result:?}");
-    assert!(result.contains("err"), "expected stderr text, got: {result:?}");
+    assert!(
+        result.contains("out"),
+        "expected stdout in output, got: {result:?}"
+    );
+    assert!(
+        result.contains("STDERR:"),
+        "expected STDERR: prefix, got: {result:?}"
+    );
+    assert!(
+        result.contains("err"),
+        "expected stderr text, got: {result:?}"
+    );
 }

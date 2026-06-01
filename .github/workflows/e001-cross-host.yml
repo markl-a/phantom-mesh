@@ -1,0 +1,185 @@
+name: E001 Cross-host e2e (operator-triggered)
+
+# F006: operator-only cross-host e2e for E001 (F002 dispatch / F003 recovery).
+#
+# WHY workflow_dispatch ONLY (no push / no PR / no schedule):
+#   Per E001 risk register: "Tailscale flakiness in CI | Run the e2e only
+#   on operator-triggered workflow_dispatch; CI runs single-host
+#   integration only."
+#
+# The workflow assumes the operator's two-node testbed (per
+# `docs/superpowers/runbooks/E001-testbed-setup.md`, F005) is already up
+# and reachable from this runner. The ubuntu-latest runner acts as the
+# SSH controller — it does NOT host phantom serve. Both phantom nodes are
+# the operator's own machines (e.g. Windows+WSL2 ↔ Pi 4 over Tailscale).
+#
+# Secrets:
+#   `PHANTOM_CLUSTER_SECRET`  — repo secret, used as the cluster HMAC
+#     shared secret on both nodes. NEVER pass via workflow_dispatch input
+#     (input values are visible in run logs and the Run-workflow form).
+#   SSH targets / URLs are non-secret connection metadata and come from
+#     the operator-supplied workflow inputs.
+#
+# Spec: docs/superpowers/features/F006-ci-cross-host-workflow-dispatch.md
+# Scenarios: scripts/phantom-test/scenarios/cross_host_{dispatch,recovery}.sh
+#   (created by F002 / F003 — workflow tolerates them not existing yet)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Which E001 scenario to run'
+        required: true
+        type: choice
+        default: dispatch
+        options:
+          - dispatch
+          - recovery
+      node_a_ssh:
+        description: 'Node A SSH target (e.g. "ssh -i ~/.ssh/dev devbox@dev.tail.ts.net")'
+        required: true
+        type: string
+      node_b_ssh:
+        description: 'Node B SSH target (e.g. "ssh -i ~/.ssh/pi pi@pi.tail.ts.net")'
+        required: true
+        type: string
+      node_a_url:
+        description: 'Node A HTTP URL (e.g. "http://dev.tail.ts.net:7878")'
+        required: true
+        type: string
+      node_b_url:
+        description: 'Node B HTTP URL (e.g. "http://pi.tail.ts.net:7878")'
+        required: true
+        type: string
+      heartbeat_deadline_secs:
+        description: 'F003 only: max secs for peer-down detection (default 99)'
+        required: false
+        type: string
+        default: '99'
+
+# Operator's testbed is a singleton — never run two of these in parallel
+# or they will clobber each other's phantom serve processes.
+concurrency:
+  group: e001-cross-host
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  cross-host-e2e:
+    name: ${{ inputs.scenario }} scenario
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Defensive masking: even though `secrets.*` is auto-masked, mask
+      # again right at the top so any subsequent echo (defensive logging)
+      # cannot leak it. Cheap insurance.
+      - name: Mask cluster secret in logs
+        env:
+          PHANTOM_CLUSTER_SECRET: ${{ secrets.PHANTOM_CLUSTER_SECRET }}
+        run: |
+          if [ -z "${PHANTOM_CLUSTER_SECRET}" ]; then
+            echo "::error::Repo secret PHANTOM_CLUSTER_SECRET is not set. See docs/superpowers/runbooks/E001-testbed-setup.md (F005) for setup."
+            exit 1
+          fi
+          echo "::add-mask::${PHANTOM_CLUSTER_SECRET}"
+
+      - name: Resolve scenario script path
+        id: resolve
+        run: |
+          case "${{ inputs.scenario }}" in
+            dispatch)
+              script="scripts/phantom-test/scenarios/cross_host_dispatch.sh"
+              ;;
+            recovery)
+              script="scripts/phantom-test/scenarios/cross_host_recovery.sh"
+              ;;
+            *)
+              echo "::error::Unknown scenario: ${{ inputs.scenario }}"
+              exit 1
+              ;;
+          esac
+          echo "script=${script}" >> "$GITHUB_OUTPUT"
+          if [ ! -f "${script}" ]; then
+            echo "::warning::Scenario script ${script} does not exist on this ref. F002/F003 may not have landed yet; aborting cleanly."
+            echo "missing=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run E001 ${{ inputs.scenario }} scenario
+        if: steps.resolve.outputs.missing != '1'
+        id: run_scenario
+        env:
+          # Non-secret connection metadata from operator inputs.
+          PHANTOM_NODE_A_SSH: ${{ inputs.node_a_ssh }}
+          PHANTOM_NODE_B_SSH: ${{ inputs.node_b_ssh }}
+          PHANTOM_NODE_A_URL: ${{ inputs.node_a_url }}
+          PHANTOM_NODE_B_URL: ${{ inputs.node_b_url }}
+          PHANTOM_E001_HEARTBEAT_DEADLINE_SECS: ${{ inputs.heartbeat_deadline_secs }}
+          # Secret: HMAC shared secret. Comes from repo secret, never from
+          # workflow_dispatch input (those are visible in logs).
+          PHANTOM_CLUSTER_SECRET: ${{ secrets.PHANTOM_CLUSTER_SECRET }}
+          NO_COLOR: '1'
+        run: |
+          set -o pipefail
+          script="${{ steps.resolve.outputs.script }}"
+          echo "Running ${script}..."
+          # Tee to a log file so we can post failure context to the step
+          # summary without re-running. stderr merged into stdout for
+          # capture; the script itself is responsible for masking secrets
+          # in its own logging.
+          bash "${script}" 2>&1 | tee /tmp/e001-scenario.log
+
+      - name: Post step summary (success)
+        if: success() && steps.resolve.outputs.missing != '1'
+        run: |
+          {
+            echo "## E001 cross-host: ${{ inputs.scenario }} — PASS"
+            echo ""
+            echo "- Node A: \`${{ inputs.node_a_url }}\`"
+            echo "- Node B: \`${{ inputs.node_b_url }}\`"
+            echo "- Heartbeat deadline: ${{ inputs.heartbeat_deadline_secs }}s"
+            echo ""
+            echo "Spec: [F006](../blob/${{ github.sha }}/docs/superpowers/features/F006-ci-cross-host-workflow-dispatch.md)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post step summary (skipped — script missing)
+        if: steps.resolve.outputs.missing == '1'
+        run: |
+          {
+            echo "## E001 cross-host: ${{ inputs.scenario }} — SKIPPED"
+            echo ""
+            echo "Scenario script \`${{ steps.resolve.outputs.script }}\` does not exist on ref \`${{ github.sha }}\`."
+            echo "This workflow ran successfully but produced no test signal. F002 (dispatch) or F003 (recovery) needs to land first."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post step summary (failure) with last 50 log lines
+        if: failure() && steps.resolve.outputs.missing != '1'
+        run: |
+          {
+            echo "## E001 cross-host: ${{ inputs.scenario }} — FAIL"
+            echo ""
+            echo "Last 50 lines of scenario stdout/stderr (secrets pre-masked by runner):"
+            echo ""
+            echo '```'
+            tail -n 50 /tmp/e001-scenario.log 2>/dev/null || echo '(log file missing)'
+            echo '```'
+            echo ""
+            echo "Full log uploaded as workflow artifact \`e001-scenario-log\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload scenario log on failure
+        if: failure() && steps.resolve.outputs.missing != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e001-scenario-log
+          path: /tmp/e001-scenario.log
+          if-no-files-found: warn
+          retention-days: 14

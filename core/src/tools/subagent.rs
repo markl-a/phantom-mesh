@@ -68,9 +68,7 @@ impl SpawnAgentForkMode {
         match self {
             SpawnAgentForkMode::Empty => Vec::new(),
             SpawnAgentForkMode::FullHistory(h) => h.clone(),
-            SpawnAgentForkMode::LastNTurns { history, n } => {
-                truncate_history(history, *n)
-            }
+            SpawnAgentForkMode::LastNTurns { history, n } => truncate_history(history, *n),
         }
     }
 }
@@ -110,7 +108,7 @@ pub fn truncate_history(history: &[ChatMessage], n: usize) -> Vec<ChatMessage> {
 }
 
 static RUNTIME: OnceLock<AgentRuntime> = OnceLock::new();
-static COST:    OnceLock<CostTracker> = OnceLock::new();
+static COST: OnceLock<CostTracker> = OnceLock::new();
 
 /// One past-or-running subagent invocation. Captured by run_one() so the
 /// REPL's /tasks slash command can list them.
@@ -119,7 +117,7 @@ pub struct TaskRecord {
     pub n: usize,
     pub agent: String,
     pub prompt: String,
-    pub status: String,        // "running" | "ok" | "error" | "timeout"
+    pub status: String, // "running" | "ok" | "error" | "timeout"
     pub started_ms: i64,
     pub elapsed_secs: f64,
     pub cost_usd: f64,
@@ -179,9 +177,9 @@ pub enum OutputFormat {
 impl OutputFormat {
     fn parse(arg: Option<&str>) -> Self {
         match arg.unwrap_or("wrapped") {
-            "raw"  => OutputFormat::Raw,
+            "raw" => OutputFormat::Raw,
             "json" => OutputFormat::Json,
-            _      => OutputFormat::Wrapped,
+            _ => OutputFormat::Wrapped,
         }
     }
 }
@@ -197,7 +195,9 @@ pub async fn spawn(args: &Value) -> String {
     // Accept both `agent` (phantom native) and `subagent_type` (Claude
     // Code Agent tool name). Whichever is present wins; if both, `agent`
     // takes precedence (phantom's namespace is the source of truth here).
-    let agent = match args.get("agent").and_then(|v| v.as_str())
+    let agent = match args
+        .get("agent")
+        .and_then(|v| v.as_str())
         .or_else(|| args.get("subagent_type").and_then(|v| v.as_str()))
     {
         Some(s) if !s.is_empty() => s.to_string(),
@@ -211,10 +211,13 @@ pub async fn spawn(args: &Value) -> String {
     // schema parity but not behaviorally significant in phantom v1.
     // Future use: surface as the task log's display label for /tasks UI.
     let _description: Option<&str> = args.get("description").and_then(|v| v.as_str());
-    let max_rounds: Option<usize> = args.get("max_rounds").and_then(|v| v.as_u64()).map(|n| n as usize);
-    let max_secs:   Option<u64>   = args.get("max_secs").and_then(|v| v.as_u64());
-    let max_cost:   Option<f64>   = args.get("max_cost_usd").and_then(|v| v.as_f64());
-    let node:       Option<String> = args.get("node").and_then(|v| v.as_str()).map(String::from);
+    let max_rounds: Option<usize> = args
+        .get("max_rounds")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize);
+    let max_secs: Option<u64> = args.get("max_secs").and_then(|v| v.as_u64());
+    let max_cost: Option<f64> = args.get("max_cost_usd").and_then(|v| v.as_f64());
+    let node: Option<String> = args.get("node").and_then(|v| v.as_str()).map(String::from);
     let auto_snapshot: bool = args
         .get("auto_snapshot")
         .and_then(|v| v.as_bool())
@@ -230,7 +233,11 @@ pub async fn spawn(args: &Value) -> String {
         #[cfg(target_os = "macos")]
         {
             if auto_snapshot {
-                let label = format!("subagent:{}:{}", agent, prompt.chars().take(40).collect::<String>());
+                let label = format!(
+                    "subagent:{}:{}",
+                    agent,
+                    prompt.chars().take(40).collect::<String>()
+                );
                 match crate::snapshot::create(Some(&label)).await {
                     Ok(info) => format!("[snapshot pinned: {}]\n", info.id),
                     Err(e) => format!("[snapshot skip: {}]\n", e),
@@ -261,10 +268,16 @@ pub async fn spawn(args: &Value) -> String {
 
 /// Cross-mesh task — route the subagent run to a configured peer.
 /// `node` may be:
-///   - exact peer URL (`http://100.87.70.65:7879`)
-///   - host:port substring (`100.87.70.65:7879` or `:7879`)
-///   - shorter prefix (e.g. `100.87.70.65` if unique)
-async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>, format: OutputFormat) -> String {
+///   - exact peer URL (`http://192.0.2.11:7879`)
+///   - host:port substring (`192.0.2.11:7879` or `:7879`)
+///   - shorter prefix (e.g. `192.0.2.11` if unique)
+async fn run_remote(
+    agent: &str,
+    prompt: &str,
+    node: &str,
+    max_secs: Option<u64>,
+    format: OutputFormat,
+) -> String {
     let Some(runtime) = RUNTIME.get() else {
         return "[task error] runtime not initialised".to_string();
     };
@@ -274,16 +287,29 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
 
     let matches: Vec<&String> = peers.iter().filter(|p| p.contains(node)).collect();
     let target = match matches.len() {
-        0 => return format!("[task error] no peer matches '{}'.  configured peers: {:?}", node, peers),
+        0 => {
+            return format!(
+                "[task error] no peer matches '{}'.  configured peers: {:?}",
+                node, peers
+            )
+        }
         1 => matches[0].clone(),
-        _ => return format!("[task error] '{}' is ambiguous — matches {} peers: {:?}", node, matches.len(), matches),
+        _ => {
+            return format!(
+                "[task error] '{}' is ambiguous — matches {} peers: {:?}",
+                node,
+                matches.len(),
+                matches
+            )
+        }
     };
 
     let log_idx = {
         let mut l = log().lock().unwrap();
         let n = l.len() + 1;
         l.push(TaskRecord {
-            n, agent: format!("{}@{}", agent, node),
+            n,
+            agent: format!("{}@{}", agent, node),
             prompt: prompt.chars().take(120).collect(),
             status: "running".into(),
             started_ms: now_ms(),
@@ -292,7 +318,10 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
             rounds: 0,
             output_preview: String::new(),
         });
-        if l.len() > 100 { let drop_n = l.len() - 100; l.drain(0..drop_n); }
+        if l.len() > 100 {
+            let drop_n = l.len() - 100;
+            l.drain(0..drop_n);
+        }
         l.len() - 1
     };
 
@@ -321,13 +350,20 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
         Ok(r) if r.status().is_success() => {
             let v: Value = match r.json().await {
                 Ok(v) => v,
-                Err(e) => { update_log("error", &e.to_string()); return format!("[remote task error] decode: {}", e); }
+                Err(e) => {
+                    update_log("error", &e.to_string());
+                    return format!("[remote task error] decode: {}", e);
+                }
             };
             if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
                 update_log("error", err);
                 return format!("[remote task error: {}@{}] {}", agent, node, err);
             }
-            let out = v.get("output").and_then(|o| o.as_str()).unwrap_or("").to_string();
+            let out = v
+                .get("output")
+                .and_then(|o| o.as_str())
+                .unwrap_or("")
+                .to_string();
             update_log("ok", &out);
             match format {
                 OutputFormat::Raw => out,
@@ -338,7 +374,8 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
                     "elapsed_secs": elapsed,
                     "output": out,
                     "status": "ok",
-                })).unwrap_or_else(|_| out.clone()),
+                }))
+                .unwrap_or_else(|_| out.clone()),
                 OutputFormat::Wrapped => format!(
                     "[subagent: {}@{} · remote · {:.1}s]\n\n{}",
                     agent, node, elapsed, out,
@@ -354,8 +391,12 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
                 OutputFormat::Json => serde_json::to_string(&serde_json::json!({
                     "agent": agent, "node": node, "remote": true,
                     "status": "error", "error": format!("HTTP {}: {}", code, body),
-                })).unwrap_or_default(),
-                OutputFormat::Wrapped => format!("[remote task error: {}@{}] HTTP {}: {}", agent, node, code, body),
+                }))
+                .unwrap_or_default(),
+                OutputFormat::Wrapped => format!(
+                    "[remote task error: {}@{}] HTTP {}: {}",
+                    agent, node, code, body
+                ),
             }
         }
         Err(e) => {
@@ -365,7 +406,8 @@ async fn run_remote(agent: &str, prompt: &str, node: &str, max_secs: Option<u64>
                 OutputFormat::Json => serde_json::to_string(&serde_json::json!({
                     "agent": agent, "node": node, "remote": true,
                     "status": "error", "error": e.to_string(),
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
                 OutputFormat::Wrapped => format!("[remote task error: {}@{}] {}", agent, node, e),
             }
         }
@@ -386,8 +428,8 @@ pub async fn run_with_fork(
     prompt: &str,
     fork: SpawnAgentForkMode,
     max_rounds: Option<usize>,
-    max_secs:   Option<u64>,
-    max_cost:   Option<f64>,
+    max_secs: Option<u64>,
+    max_cost: Option<f64>,
 ) -> anyhow::Result<crate::agent::AgentResult> {
     let runtime = RUNTIME
         .get()
@@ -396,7 +438,9 @@ pub async fn run_with_fork(
     if !cfg.agent.contains_key(agent) {
         let names: Vec<String> = cfg.agent.keys().cloned().collect();
         return Err(anyhow::anyhow!(
-            "unknown agent '{}'. configured: {}", agent, names.join(", ")
+            "unknown agent '{}'. configured: {}",
+            agent,
+            names.join(", ")
         ));
     }
     drop(cfg);
@@ -408,27 +452,18 @@ pub async fn run_with_fork(
 
     let history = fork.resolved_history();
 
-    // Same env-var-based max_rounds escape hatch as `run_one`.
-    let mut prev_env: Option<String> = None;
-    if let Some(mr) = max_rounds {
-        prev_env = std::env::var("PHANTOM_MAX_ROUNDS").ok();
-        std::env::set_var("PHANTOM_MAX_ROUNDS", mr.to_string());
-    }
-
+    // Same task-local override as `run_one` (audit C-3 fix). See the
+    // comment block there for the full rationale; in short: each
+    // concurrent fork sees its own scoped override, no mutation of
+    // process-global state.
     let run_fut = runtime.run_tracked(agent, prompt, &history, None, &cost);
+    let scoped_run = crate::agent::MAX_ROUNDS_OVERRIDE.scope(max_rounds, run_fut);
     let outcome = match max_secs {
-        Some(s) => tokio::time::timeout(std::time::Duration::from_secs(s), run_fut)
+        Some(s) => tokio::time::timeout(std::time::Duration::from_secs(s), scoped_run)
             .await
             .map_err(|_| anyhow::anyhow!("subagent exceeded max_secs={}", s))?,
-        None => run_fut.await,
+        None => scoped_run.await,
     };
-
-    if max_rounds.is_some() {
-        match prev_env {
-            Some(v) => std::env::set_var("PHANTOM_MAX_ROUNDS", v),
-            None    => std::env::remove_var("PHANTOM_MAX_ROUNDS"),
-        }
-    }
 
     outcome
 }
@@ -438,18 +473,23 @@ async fn run_one(
     agent: &str,
     prompt: &str,
     max_rounds: Option<usize>,
-    max_secs:   Option<u64>,
-    max_cost:   Option<f64>,
-    format:     OutputFormat,
+    max_secs: Option<u64>,
+    max_cost: Option<f64>,
+    format: OutputFormat,
 ) -> String {
     let Some(runtime) = RUNTIME.get() else {
-        return "[task error] runtime not initialised — subagent::init_global() was never called".to_string();
+        return "[task error] runtime not initialised — subagent::init_global() was never called"
+            .to_string();
     };
 
     let cfg = runtime.config();
     if !cfg.agent.contains_key(agent) {
         let names: Vec<String> = cfg.agent.keys().cloned().collect();
-        return format!("[task error] unknown agent '{}'. configured: {}", agent, names.join(", "));
+        return format!(
+            "[task error] unknown agent '{}'. configured: {}",
+            agent,
+            names.join(", ")
+        );
     }
     drop(cfg);
 
@@ -464,7 +504,8 @@ async fn run_one(
         let mut l = log().lock().unwrap();
         let n = l.len() + 1;
         l.push(TaskRecord {
-            n, agent: agent.to_string(),
+            n,
+            agent: agent.to_string(),
             prompt: prompt.chars().take(120).collect(),
             status: "running".into(),
             started_ms: now_ms(),
@@ -474,36 +515,32 @@ async fn run_one(
             output_preview: String::new(),
         });
         // Keep last 100
-        if l.len() > 100 { let drop = l.len() - 100; l.drain(0..drop); }
-        l.len() - 1  // 0-based index of just-pushed entry
+        if l.len() > 100 {
+            let drop = l.len() - 100;
+            l.drain(0..drop);
+        }
+        l.len() - 1 // 0-based index of just-pushed entry
     };
 
-    // Apply per-call max_rounds via env var (cleared after).
-    let mut prev_env: Option<String> = None;
-    if let Some(mr) = max_rounds {
-        prev_env = std::env::var("PHANTOM_MAX_ROUNDS").ok();
-        std::env::set_var("PHANTOM_MAX_ROUNDS", mr.to_string());
-    }
-
-    // Run with optional wall-clock budget.
+    // Apply per-call max_rounds via a tokio task-local scope (audit
+    // C-3 fix). Replaces the old `std::env::set_var("PHANTOM_MAX_ROUNDS")`
+    // dance, which mutated process-global state from concurrent async
+    // tasks — it raced (last-writer-wins) AND triggered the
+    // `setenv()` thread-safety hazard on Linux. The task-local lives
+    // for the duration of the run future and is dropped when this
+    // function returns; no cleanup needed.
     let started = std::time::Instant::now();
     let run_fut = runtime.run_tracked(agent, prompt, &[], None, &cost);
+    let scoped_run = crate::agent::MAX_ROUNDS_OVERRIDE.scope(max_rounds, run_fut);
     let outcome = match max_secs {
         Some(s) => {
-            match tokio::time::timeout(std::time::Duration::from_secs(s), run_fut).await {
+            match tokio::time::timeout(std::time::Duration::from_secs(s), scoped_run).await {
                 Ok(r) => Ok(r),
                 Err(_) => Err(()),
             }
         }
-        None => Ok(run_fut.await),
+        None => Ok(scoped_run.await),
     };
-
-    if max_rounds.is_some() {
-        match prev_env {
-            Some(v) => std::env::set_var("PHANTOM_MAX_ROUNDS", v),
-            None    => std::env::remove_var("PHANTOM_MAX_ROUNDS"),
-        }
-    }
 
     let elapsed = started.elapsed().as_secs_f64();
 
@@ -523,12 +560,17 @@ async fn run_one(
         Ok(r) => r,
         Err(()) => {
             update_log("timeout", 0, 0.0, "");
-            let msg = format!("exceeded max_secs={} (elapsed {:.1}s)", max_secs.unwrap_or(0), elapsed);
+            let msg = format!(
+                "exceeded max_secs={} (elapsed {:.1}s)",
+                max_secs.unwrap_or(0),
+                elapsed
+            );
             return match format {
                 OutputFormat::Raw => msg,
                 OutputFormat::Json => serde_json::to_string(&serde_json::json!({
                     "agent": agent, "status": "timeout", "elapsed_secs": elapsed, "error": msg,
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
                 OutputFormat::Wrapped => format!("[task aborted: {}] {}", agent, msg),
             };
         }
@@ -562,7 +604,8 @@ async fn run_one(
                     "agent": agent, "status": "ok",
                     "rounds": r.turns, "cost_usd": r.cost_delta_usd, "elapsed_secs": elapsed,
                     "output": r.output,
-                })).unwrap_or_else(|_| r.output.clone()),
+                }))
+                .unwrap_or_else(|_| r.output.clone()),
                 OutputFormat::Wrapped => format!(
                     "[subagent: {} · {} rounds · ${:.4} · {:.1}s]\n\n{}",
                     agent, r.turns, r.cost_delta_usd, elapsed, r.output,
@@ -575,7 +618,8 @@ async fn run_one(
                 OutputFormat::Raw => e.to_string(),
                 OutputFormat::Json => serde_json::to_string(&serde_json::json!({
                     "agent": agent, "status": "error", "error": e.to_string(),
-                })).unwrap_or_default(),
+                }))
+                .unwrap_or_default(),
                 OutputFormat::Wrapped => format!("[task error: {}] {}", agent, e),
             }
         }
@@ -597,12 +641,18 @@ async fn run_one(
 pub async fn parallel(args: &Value) -> String {
     let tasks = match args.get("tasks").and_then(|v| v.as_array()) {
         Some(arr) if !arr.is_empty() => arr.clone(),
-        _ => return "[parallel_tasks error] 'tasks' must be a non-empty array of {agent, prompt}".to_string(),
+        _ => {
+            return "[parallel_tasks error] 'tasks' must be a non-empty array of {agent, prompt}"
+                .to_string()
+        }
     };
 
-    let max_rounds: Option<usize> = args.get("max_rounds").and_then(|v| v.as_u64()).map(|n| n as usize);
-    let max_secs:   Option<u64>   = args.get("max_secs").and_then(|v| v.as_u64());
-    let max_cost:   Option<f64>   = args.get("max_cost_usd").and_then(|v| v.as_f64());
+    let max_rounds: Option<usize> = args
+        .get("max_rounds")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize);
+    let max_secs: Option<u64> = args.get("max_secs").and_then(|v| v.as_u64());
+    let max_cost: Option<f64> = args.get("max_cost_usd").and_then(|v| v.as_f64());
     let format: OutputFormat = OutputFormat::parse(args.get("format").and_then(|v| v.as_str()));
 
     // Internal per-subagent format: when caller asked for `Json` at the
@@ -611,25 +661,42 @@ pub async fn parallel(args: &Value) -> String {
     // we let each subagent inherit the same outer choice.
     let inner_format = match format {
         OutputFormat::Json => OutputFormat::Json,
-        OutputFormat::Raw  => OutputFormat::Raw,
+        OutputFormat::Raw => OutputFormat::Raw,
         OutputFormat::Wrapped => OutputFormat::Wrapped,
     };
 
     let futures = tasks.iter().enumerate().map(|(i, t)| {
         // Accept both `agent` and `subagent_type` per the parity plan.
-        let agent  = t.get("agent").and_then(|v| v.as_str())
+        let agent = t
+            .get("agent")
+            .and_then(|v| v.as_str())
             .or_else(|| t.get("subagent_type").and_then(|v| v.as_str()))
-            .unwrap_or("master").to_string();
-        let prompt = t.get("prompt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            .unwrap_or("master")
+            .to_string();
+        let prompt = t
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let node = t.get("node").and_then(|v| v.as_str()).map(String::from);
         let label = match &node {
             Some(n) => format!("[#{}] {}@{}", i + 1, agent, n),
-            None    => format!("[#{}] {}", i + 1, agent),
+            None => format!("[#{}] {}", i + 1, agent),
         };
         async move {
             let out = match node {
                 Some(n) => run_remote(&agent, &prompt, &n, max_secs, inner_format).await,
-                None    => run_one(&agent, &prompt, max_rounds, max_secs, max_cost, inner_format).await,
+                None => {
+                    run_one(
+                        &agent,
+                        &prompt,
+                        max_rounds,
+                        max_secs,
+                        max_cost,
+                        inner_format,
+                    )
+                    .await
+                }
             };
             (label, agent, out)
         }
@@ -648,7 +715,8 @@ pub async fn parallel(args: &Value) -> String {
         }
         OutputFormat::Raw => {
             // Drop labels; just concatenate outputs with separator.
-            results.iter()
+            results
+                .iter()
                 .map(|(_, _, out)| out.as_str())
                 .collect::<Vec<&str>>()
                 .join("\n\n")
@@ -657,23 +725,27 @@ pub async fn parallel(args: &Value) -> String {
             // Each subagent's `out` is already a JSON object string; merge
             // into an array. If parsing fails (e.g. legacy mismatch), fall
             // through to a stringified form so the caller still gets data.
-            let array: Vec<Value> = results.into_iter().map(|(label, agent, out)| {
-                match serde_json::from_str::<Value>(&out) {
-                    Ok(mut v) => {
-                        if let Some(obj) = v.as_object_mut() {
-                            obj.insert("label".to_string(), Value::String(label));
-                            // Ensure `agent` is set even if remote path didn't.
-                            obj.entry("agent".to_string()).or_insert(Value::String(agent));
+            let array: Vec<Value> = results
+                .into_iter()
+                .map(|(label, agent, out)| {
+                    match serde_json::from_str::<Value>(&out) {
+                        Ok(mut v) => {
+                            if let Some(obj) = v.as_object_mut() {
+                                obj.insert("label".to_string(), Value::String(label));
+                                // Ensure `agent` is set even if remote path didn't.
+                                obj.entry("agent".to_string())
+                                    .or_insert(Value::String(agent));
+                            }
+                            v
                         }
-                        v
+                        Err(_) => serde_json::json!({
+                            "label": label,
+                            "agent": agent,
+                            "output": out,
+                        }),
                     }
-                    Err(_) => serde_json::json!({
-                        "label": label,
-                        "agent": agent,
-                        "output": out,
-                    }),
-                }
-            }).collect();
+                })
+                .collect();
             serde_json::to_string(&array).unwrap_or_else(|_| String::from("[]"))
         }
     }
@@ -744,8 +816,10 @@ mod tests {
             msg("assistant", "R2"),
         ];
         let out = truncate_history(&h, 1);
-        assert_eq!(out.iter().map(|m| m.role.as_str()).collect::<Vec<_>>(),
-                   vec!["user", "tool", "tool", "assistant"]);
+        assert_eq!(
+            out.iter().map(|m| m.role.as_str()).collect::<Vec<_>>(),
+            vec!["user", "tool", "tool", "assistant"]
+        );
         assert_eq!(out[0].content, "T2");
     }
 
@@ -759,12 +833,134 @@ mod tests {
         ];
         assert!(SpawnAgentForkMode::Empty.resolved_history().is_empty());
         assert_eq!(
-            SpawnAgentForkMode::FullHistory(h.clone()).resolved_history().len(),
+            SpawnAgentForkMode::FullHistory(h.clone())
+                .resolved_history()
+                .len(),
             4
         );
-        let last1 = SpawnAgentForkMode::LastNTurns { history: h.clone(), n: 1 }
-            .resolved_history();
+        let last1 = SpawnAgentForkMode::LastNTurns {
+            history: h.clone(),
+            n: 1,
+        }
+        .resolved_history();
         assert_eq!(last1.len(), 2);
         assert_eq!(last1[0].content, "T2");
+    }
+
+    // ── Audit C-3 (2026-05-15 tools-audit): max_rounds task-local ──────
+    //
+    // The previous implementation used `std::env::set_var("PHANTOM_MAX_ROUNDS",
+    // …)` which is process-global and not thread-safe in async contexts.
+    // These tests verify the new task-local mechanism: each concurrent
+    // subagent invocation gets its own scoped value, no shared mutation.
+    //
+    // We can't easily fire up real `AgentRuntime` instances in unit
+    // tests (they need a live provider), so we exercise the task-local
+    // scope mechanism directly via `current_max_rounds_override()` —
+    // the same accessor `agent::run_inner` reads.
+
+    use crate::agent::{current_max_rounds_override, MAX_ROUNDS_OVERRIDE};
+
+    #[tokio::test]
+    async fn max_rounds_override_scope_propagates_into_inner_future() {
+        // Outside any scope: None.
+        assert_eq!(current_max_rounds_override(), None);
+
+        // Inside a scope with Some(5): the inner future sees 5.
+        let observed = MAX_ROUNDS_OVERRIDE
+            .scope(Some(5usize), async { current_max_rounds_override() })
+            .await;
+        assert_eq!(observed, Some(5));
+
+        // After the scope returns: back to None.
+        assert_eq!(current_max_rounds_override(), None);
+    }
+
+    #[tokio::test]
+    async fn max_rounds_override_concurrent_tasks_do_not_race() {
+        // The whole point of C-3: two parallel "subagents" must each
+        // see their own override, not stomp on each other's. With the
+        // old `set_var` implementation this test would fail
+        // intermittently because the set/restore dance is not atomic
+        // across tokio tasks.
+        let a = MAX_ROUNDS_OVERRIDE.scope(Some(7usize), async {
+            // Yield once to give task B a chance to interleave its
+            // own scope mutation. Under the old set_var impl this
+            // is exactly when the race manifested.
+            tokio::task::yield_now().await;
+            current_max_rounds_override()
+        });
+        let b = MAX_ROUNDS_OVERRIDE.scope(Some(13usize), async {
+            tokio::task::yield_now().await;
+            current_max_rounds_override()
+        });
+        let c = MAX_ROUNDS_OVERRIDE.scope(Some(31usize), async {
+            tokio::task::yield_now().await;
+            current_max_rounds_override()
+        });
+        let (ra, rb, rc) = tokio::join!(a, b, c);
+        // Each future sees its OWN scoped value, not the others'.
+        assert_eq!(ra, Some(7));
+        assert_eq!(rb, Some(13));
+        assert_eq!(rc, Some(31));
+    }
+
+    #[tokio::test]
+    async fn max_rounds_override_none_means_use_runtime_default() {
+        // Callers that pass `max_rounds = None` to `run_one` /
+        // `run_with_fork` get a `MAX_ROUNDS_OVERRIDE.scope(None, …)`,
+        // and `current_max_rounds_override()` returns None — which
+        // `agent::run_inner` interprets as "use self.config.max_rounds".
+        let observed = MAX_ROUNDS_OVERRIDE
+            .scope(None::<usize>, async { current_max_rounds_override() })
+            .await;
+        assert_eq!(observed, None);
+    }
+
+    #[test]
+    fn max_rounds_override_no_setvar_in_subagent_path() {
+        // Regression guard (audit C-3): if anyone reintroduces
+        // set_var on PHANTOM_MAX_ROUNDS inside subagent.rs, this
+        // grep trips. Catches the bug at compile-test time before
+        // any concurrency hazard surfaces in production.
+        //
+        // file!() returns the path relative to the crate root in a
+        // form like "src/tools/subagent.rs". CARGO_MANIFEST_DIR is
+        // the crate root (the `core/` dir). Together they reach the
+        // source on disk regardless of where `cargo test` was
+        // invoked from.
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(file!());
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+        // Search needle is built at runtime so this very assertion line
+        // does NOT itself match the textual grep — it would trip its
+        // own check otherwise. (The literal `set` + `_var` substring is
+        // exactly what we're banning, so we assemble it from parts.)
+        let banned = format!("std::env::{}_var(\"PHANTOM_MAX_ROUNDS\"", "set");
+        let bad: Vec<(usize, String)> = src
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| {
+                // Skip rustdoc / block comments / line comments — the
+                // file has prose explaining the audit fix that
+                // legitimately quotes the banned pattern.
+                let trimmed = l.trim_start();
+                if trimmed.starts_with("//")
+                    || trimmed.starts_with("/*")
+                    || trimmed.starts_with("*")
+                    || trimmed.starts_with("///")
+                {
+                    return false;
+                }
+                l.contains(&banned)
+            })
+            .map(|(n, l)| (n + 1, l.to_string()))
+            .collect();
+        assert!(
+            bad.is_empty(),
+            "subagent.rs must not mutate PHANTOM_MAX_ROUNDS via process-global env — use \
+             MAX_ROUNDS_OVERRIDE.scope() instead. Offending lines: {:?}",
+            bad,
+        );
     }
 }

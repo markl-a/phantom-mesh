@@ -1,3 +1,28 @@
+//! Agent workspace context and conversation-state container.
+//!
+//! This module captures the *ambient state* an agent needs to reason about its
+//! environment, and keeps that state within the model's context-window budget.
+//! It has two responsibilities:
+//!
+//! * **Conversation compaction** — [`compact_conversation`] shrinks a growing
+//!   message history with a sliding-window strategy: system messages and the
+//!   most recent turns are preserved verbatim while older turns are collapsed
+//!   into a single summary and stale tool outputs are trimmed. The amount of
+//!   work done is reported via [`CompactionStats`].
+//!
+//! * **Workspace introspection** — [`WorkspaceContext`] gathers facts about the
+//!   current working directory (git branch/status, project-config files,
+//!   detected dependencies and framework, recent git changes) so they can be
+//!   injected into the agent's system prompt. Capture it with
+//!   [`WorkspaceContext::capture`] and render it with
+//!   [`WorkspaceContext::to_system_context`] (full) or
+//!   [`WorkspaceContext::to_system_context_brief`] (token-tight contexts).
+//!
+//! Dependency and framework detection are best-effort: helpers such as
+//! [`detect_dependencies`] and [`detect_framework`] parse common manifest files
+//! (`Cargo.toml`, `package.json`, `pyproject.toml`, `requirements.txt`,
+//! `go.mod`) and return empty/`None` results rather than failing.
+
 use std::path::Path;
 
 use crate::providers::traits::ChatMessage;
@@ -123,7 +148,9 @@ pub fn compact_conversation(messages: &mut Vec<ChatMessage>) -> CompactionStats 
                                     .map(|s| s.to_string())
                             })
                             .collect();
-                        if !names.is_empty() { return Some(names); }
+                        if !names.is_empty() {
+                            return Some(names);
+                        }
                     }
                 }
                 None
@@ -166,9 +193,7 @@ pub fn compact_conversation(messages: &mut Vec<ChatMessage>) -> CompactionStats 
     };
 
     // Trim tool outputs in recent turns that fall outside KEEP_TOOL_OUTPUT_TURNS.
-    let recent_trim_boundary = recent_turns
-        .len()
-        .saturating_sub(KEEP_TOOL_OUTPUT_TURNS);
+    let recent_trim_boundary = recent_turns.len().saturating_sub(KEEP_TOOL_OUTPUT_TURNS);
 
     let mut recent_processed: Vec<ChatMessage> = Vec::new();
     for (i, turn) in recent_turns.iter().enumerate() {
@@ -400,13 +425,7 @@ fn parse_requirements_txt(content: &str, limit: usize) -> Vec<String> {
         // Strip version specifiers.
         let name = trimmed
             .split(|c: char| {
-                c == '>'
-                    || c == '<'
-                    || c == '~'
-                    || c == '!'
-                    || c == '='
-                    || c == '^'
-                    || c == '['
+                c == '>' || c == '<' || c == '~' || c == '!' || c == '=' || c == '^' || c == '['
             })
             .next()
             .unwrap_or(trimmed)
@@ -602,7 +621,9 @@ pub fn recent_git_changes(cwd: &Path) -> Option<String> {
         .ok()
         .filter(|o| o.status.success())?;
 
-    let log = String::from_utf8_lossy(&log_output.stdout).trim().to_string();
+    let log = String::from_utf8_lossy(&log_output.stdout)
+        .trim()
+        .to_string();
     if log.is_empty() {
         return None;
     }
@@ -629,16 +650,27 @@ pub fn recent_git_changes(cwd: &Path) -> Option<String> {
 /// Workspace context injected into the agent's system prompt at startup.
 /// Tells the agent where it is and what the repo looks like.
 pub struct WorkspaceContext {
+    /// Absolute path of the directory the agent was started in.
     pub cwd: std::path::PathBuf,
+    /// Current git branch name, or `None` if not a repo / detached HEAD.
     pub git_branch: Option<String>,
+    /// `git status --short` output, or `None` when the tree is clean / no repo.
     pub git_status: Option<String>,
+    /// Contents of the first project-config file found (e.g. `PHANTOM.md`),
+    /// truncated to 50 KB; `None` if none present.
     pub project_config: Option<String>,
+    /// Dependency names detected from the project's manifest (up to 20).
     pub dependencies: Vec<String>,
+    /// Human-readable primary framework/stack, if one could be inferred.
     pub framework: Option<String>,
+    /// Compact summary of recent git commits and the unstaged diff stat.
     pub recent_changes: Option<String>,
 }
 
 impl WorkspaceContext {
+    /// Capture the current workspace state by inspecting `cwd`, running git,
+    /// and parsing project-config and manifest files. Each field degrades
+    /// gracefully to `None`/empty when the corresponding source is unavailable.
     pub fn capture() -> Self {
         let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
 
@@ -705,6 +737,10 @@ impl WorkspaceContext {
         parts.join("; ")
     }
 
+    /// Render the full workspace context as a multi-line string for injection
+    /// into the agent's system prompt. Includes cwd, git branch/status,
+    /// dependencies, framework, and recent changes; any present project-config
+    /// is wrapped in a `<project-config>` block at the front.
     pub fn to_system_context(&self) -> String {
         let mut lines = vec![format!("Working directory: {}", self.cwd.display())];
 

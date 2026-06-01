@@ -1,20 +1,124 @@
 use serde_json::Value;
+use std::path::PathBuf;
 
-pub fn safe_path(raw: &str) -> anyhow::Result<std::path::PathBuf> {
-    let p = std::path::PathBuf::from(raw);
-    if p.exists() {
-        Ok(p.canonicalize()?)
+/// T7 fix (codex audit 2026-05-15): canonicalise the requested path
+/// and confine it to a known-good roots set. Before this fix `safe_path`
+/// would happily return `/etc/passwd` because canonicalisation alone
+/// doesn't bound the result.
+///
+/// Allowed roots (recomputed every call so tests that `set_current_dir`
+/// or flip env vars are observed):
+///   - process CWD at call time (canonicalised)
+///   - `$HOME/.phantom-mesh/` — phantom's own state dir
+///   - any path listed in `PHANTOM_EXTRA_ALLOWED_ROOTS` (split on `:`
+///     on Unix, `;` on Windows) — for test scaffolds + advanced users
+///     who really need broader scope
+///
+/// Behaviour:
+///   - existing path → canonicalised, then must live inside an allowed root
+///   - non-existent path → its closest existing ancestor must canonicalise
+///     inside an allowed root (so `file_write` can still create new files)
+///   - relative path → resolved against CWD before the boundary check
+///   - `..` segments are resolved by canonicalisation; if the result
+///     escapes every allowed root, `Err` is returned with a clear hint
+pub fn safe_path(raw: &str) -> anyhow::Result<PathBuf> {
+    let p = PathBuf::from(raw);
+    let candidate = if p.exists() {
+        p.canonicalize()?
     } else {
-        let parent = p.parent().unwrap_or(&p);
-        let canon_parent = if parent.as_os_str().is_empty() {
-            std::path::PathBuf::from(".")
-        } else if parent.exists() {
-            parent.canonicalize()?
-        } else {
-            std::path::PathBuf::from(parent)
-        };
-        Ok(canon_parent.join(p.file_name().unwrap_or_default()))
+        // Walk up to the closest existing ancestor, canonicalise it,
+        // then rebuild the path by appending the missing tail. This
+        // handles both `dir_that_exists/new_file.txt` (parent exists)
+        // and `new/nested/path/leaf.txt` (only an ancestor exists).
+        let mut tail: Vec<std::ffi::OsString> = Vec::new();
+        let mut cursor: PathBuf = p.clone();
+        loop {
+            if cursor.as_os_str().is_empty() {
+                // Pure relative path — anchor on CWD.
+                let cwd = std::env::current_dir()?;
+                let mut acc = cwd;
+                while let Some(seg) = tail.pop() {
+                    acc.push(seg);
+                }
+                break acc;
+            }
+            if cursor.exists() {
+                let mut acc = cursor.canonicalize()?;
+                while let Some(seg) = tail.pop() {
+                    acc.push(seg);
+                }
+                break acc;
+            }
+            match cursor.file_name() {
+                Some(name) => tail.push(name.to_os_string()),
+                None => {
+                    // No file_name (e.g. ends in `..` or `/`). Bail.
+                    return Err(anyhow::anyhow!(
+                        "cannot resolve path: {} (no existing ancestor)",
+                        p.display()
+                    ));
+                }
+            }
+            if !cursor.pop() {
+                // Already at root and still no existing ancestor → bail.
+                return Err(anyhow::anyhow!(
+                    "cannot resolve path: {} (no existing ancestor)",
+                    p.display()
+                ));
+            }
+        }
+    };
+
+    let roots = allowed_roots();
+    if roots.iter().any(|r| candidate.starts_with(r)) {
+        return Ok(candidate);
     }
+    Err(anyhow::anyhow!(
+        "path outside workspace: {} (allowed roots: {})",
+        candidate.display(),
+        roots
+            .iter()
+            .map(|r| r.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ))
+}
+
+/// Compute the allowed-roots set fresh on every call. Cheap — at most
+/// 3 paths + a few canonicalises. Doing it per-call keeps tests that
+/// flip env vars / cwd correct without `OnceCell` invalidation pain.
+fn allowed_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Ok(c) = cwd.canonicalize() {
+            roots.push(c);
+        } else {
+            roots.push(cwd);
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        let phantom_dir = home.join(".phantom-mesh");
+        if let Ok(c) = phantom_dir.canonicalize() {
+            roots.push(c);
+        } else {
+            roots.push(phantom_dir);
+        }
+    }
+    if let Ok(extra) = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS") {
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for piece in extra.split(sep) {
+            if piece.is_empty() {
+                continue;
+            }
+            let pb = PathBuf::from(piece);
+            if let Ok(c) = pb.canonicalize() {
+                roots.push(c);
+            } else {
+                roots.push(pb);
+            }
+        }
+    }
+    roots
 }
 
 /// Detect binary content by checking for null bytes in the first 512 bytes.
@@ -119,13 +223,7 @@ pub async fn read(args: &Value) -> String {
             .map(|(i, l)| format!("{}: {}", start + i + 1, l))
             .collect::<Vec<_>>()
             .join("\n");
-        return format!(
-            "[Lines {}-{} of {}]\n{}",
-            start + 1,
-            end,
-            total,
-            numbered
-        );
+        return format!("[Lines {}-{} of {}]\n{}", start + 1, end, total, numbered);
     }
 
     if start_line.is_some() || end_line.is_some() {
@@ -268,7 +366,7 @@ pub async fn edit(args: &Value) -> String {
             // on the owned string. We'll use a different approach: build indices.
             // Store offset for reassembly.
             drop(scoped); // not used directly
-            // Return the slice of the original &str between those byte positions.
+                          // Return the slice of the original &str between those byte positions.
             let byte_end: usize = full_content
                 .lines()
                 .take(end)
@@ -304,18 +402,19 @@ pub async fn edit(args: &Value) -> String {
     }
 
     if replace_all {
-        let updated = if range_offset_bytes == 0 && line_range_start.is_none() && line_range_end.is_none() {
-            full_content.replace(old, new)
-        } else {
-            // Replace within the scoped region, reassemble.
-            let replaced_scope = search_content.replace(old, new);
-            format!(
-                "{}{}{}",
-                &full_content[..range_offset_bytes],
-                replaced_scope,
-                &full_content[range_offset_bytes + search_content.len()..]
-            )
-        };
+        let updated =
+            if range_offset_bytes == 0 && line_range_start.is_none() && line_range_end.is_none() {
+                full_content.replace(old, new)
+            } else {
+                // Replace within the scoped region, reassemble.
+                let replaced_scope = search_content.replace(old, new);
+                format!(
+                    "{}{}{}",
+                    &full_content[..range_offset_bytes],
+                    replaced_scope,
+                    &full_content[range_offset_bytes + search_content.len()..]
+                )
+            };
         match tokio::fs::write(&path, &updated).await {
             Ok(_) => format!(
                 "Edited {} ({} occurrence(s) replaced).",
@@ -346,17 +445,18 @@ pub async fn edit(args: &Value) -> String {
         }
 
         // Exactly one match — do the replacement.
-        let updated = if range_offset_bytes == 0 && line_range_start.is_none() && line_range_end.is_none() {
-            full_content.replacen(old, new, 1)
-        } else {
-            let replaced_scope = search_content.replacen(old, new, 1);
-            format!(
-                "{}{}{}",
-                &full_content[..range_offset_bytes],
-                replaced_scope,
-                &full_content[range_offset_bytes + search_content.len()..]
-            )
-        };
+        let updated =
+            if range_offset_bytes == 0 && line_range_start.is_none() && line_range_end.is_none() {
+                full_content.replacen(old, new, 1)
+            } else {
+                let replaced_scope = search_content.replacen(old, new, 1);
+                format!(
+                    "{}{}{}",
+                    &full_content[..range_offset_bytes],
+                    replaced_scope,
+                    &full_content[range_offset_bytes + search_content.len()..]
+                )
+            };
 
         match tokio::fs::write(&path, &updated).await {
             Ok(_) => {

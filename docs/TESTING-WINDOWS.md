@@ -1,194 +1,193 @@
-# Testing the Windows binary end-to-end
+# Windows 二進位檔的端對端測試
 
-How to verify a fresh `phantom.exe` doesn't regress any of the 18 fixes
-from the 2026-05-01 Z13 hardening sweep. The full suite lives in
-`scripts/test-windows.ps1` — this doc explains what each phase covers,
-what passing looks like, and how to decode failures.
+如何驗證全新建置的 `phantom.exe` 沒有讓 2026-05-01 node-a 強化整修（hardening sweep）所修的 18 個修正出現任何回歸（regression，舊功能再度故障）。完整測試套件位於
+`scripts/test-windows.ps1` — 本文件說明每個階段（phase）涵蓋什麼、
+通過時應該長什麼樣，以及如何解讀失敗訊息。
 
-## TL;DR
+## TL;DR（重點摘要）
 
 ```powershell
 $env:OPENROUTER_API_KEY = 'sk-or-v1-...'
 .\scripts\test-windows.ps1
 ```
 
-Output ends with one of:
+輸出結尾會是下列其中之一：
 
 ```
 ALL CLEAR    -> exit 0, ship it
 FAILED       -> exit code = number of failed phases, investigate
 ```
 
-Per-phase: `[PASS]` (green), `[SKIP]` (yellow — environment limitation
-or `-Skip*` flag), `[FAIL]` (red — actual regression).
+每個階段：`[PASS]`（綠色）、`[SKIP]`（黃色 — 環境限制
+或加了 `-Skip*` 旗標）、`[FAIL]`（紅色 — 真正的回歸）。
 
-### Known runner caveats (Windows PowerShell 5.1)
+### 已知的執行器（runner）注意事項（Windows PowerShell 5.1）
 
-The test runner is best-effort on PS 5.1 because of two well-known
-quirks the language won't let us cleanly avoid:
+這個測試執行器在 PS 5.1 上只能做到盡力而為（best-effort），因為有兩個眾所周知、
+語言本身無法讓我們乾淨地避開的怪異行為（quirk）：
 
-1. **OpenRouter free-tier rate limits.** Phase 3 fires two consecutive
-   real LLM calls. If you've been hammering the same key from another
-   shell, the second call may 429 and the assertion misses
-   `$0.0000`. Wait 60 seconds and re-run with `-Phase 3`.
-2. **`cmd /c` quote nesting.** Anything with embedded double quotes in
-   the prompt has to be passed as a single shell-escaped string.
-   The runner uses single-word prompts (`hi`, `hello`) for that
-   reason. Don't change them to multi-word phrases.
-3. **`evolve` cwd dependency.** Phase 6 cd's into `core/` before
-   invoking `phantom evolve` because the agent runs `cargo test`
-   through the shell tool with relative paths and needs `Cargo.toml`
-   one level up. Without this, evolve ends with `stopped after N
-   rounds` instead of `EVOLVE_DONE`.
+1. **OpenRouter 免費方案（free-tier）的速率限制。** 階段 3 會連續發出兩次
+   真實的 LLM（大型語言模型）呼叫。如果你一直用同一把金鑰（key）從另一個
+   shell 猛打，第二次呼叫可能會回 429，斷言（assertion）就會抓不到
+   `$0.0000`。等 60 秒後用 `-Phase 3` 重跑。
+2. **`cmd /c` 引號巢狀（quote nesting）。** 任何在提示詞（prompt）裡內嵌雙引號的內容
+   都必須以單一個經過 shell 跳脫（shell-escaped）的字串傳入。
+   執行器因此使用單字提示詞（`hi`、`hello`）。
+   不要把它們改成多字片語。
+3. **`evolve` 的工作目錄（cwd）相依性。** 階段 6 會先 cd 進 `core/` 再
+   呼叫 `phantom evolve`，因為代理人（agent）是透過 shell 工具以相對路徑
+   執行 `cargo test`，而它需要上一層目錄裡的 `Cargo.toml`。
+   少了這步，evolve 會以 `stopped after N
+   rounds` 結束，而不是 `EVOLVE_DONE`。
 
-If a phase intermittently fails despite a manually-verified clean
-binary, treat the runner output as a smoke signal, not a verdict —
-the manual flow in the rest of this doc is the canonical truth.
+如果某個階段在你已手動驗證過的乾淨二進位檔上仍間歇性失敗，
+請把執行器輸出當成煙霧訊號（smoke signal，初步警示）而非最終判決 —
+本文件其餘部分的手動流程才是權威的真相來源。
 
-## Pre-requisites
+## 先決條件（Pre-requisites）
 
-| Item | How to check |
+| 項目 | 如何檢查 |
 |---|---|
-| `phantom` on PATH | `Get-Command phantom` resolves to `~\.local\bin\phantom.exe` |
-| Latest binary deployed | `phantom --version` matches `git log -1 --format='%h'` (with `+` if dirty) |
-| OpenRouter env var set | `$env:OPENROUTER_API_KEY` is non-empty (phases 3, 6 need it) |
-| No `phantom serve` already running | The runner kills + restarts on its own port |
-| Admin orphan `PhantomServe` task removed | See [§4.1 below](#41-admin-orphan-blocks-phase-4) — only matters for phase 4 |
+| `phantom` 在 PATH 上 | `Get-Command phantom` 解析到 `~\.local\bin\phantom.exe` |
+| 已部署最新二進位檔 | `phantom --version` 與 `git log -1 --format='%h'` 相符（若有未提交變更則帶 `+`） |
+| 已設定 OpenRouter 環境變數 | `$env:OPENROUTER_API_KEY` 非空（階段 3、6 需要） |
+| 沒有 `phantom serve` 已在執行 | 執行器會自行用自己的連接埠 kill 並重啟 |
+| 已移除管理員遺留的 `PhantomServe` 工作 | 見[下方 §4.1](#41-管理員遺留工作會擋住階段-4) — 僅影響階段 4 |
 
-## The 8 phases
+## 八個階段
 
-### Phase 1 — Pre-flight setup
+### 階段 1 — 起飛前準備（Pre-flight setup）
 
-Stops any stray `phantom.exe`, confirms PATH, checks `OPENROUTER_API_KEY`.
-Quick. If this fails, nothing else will work.
+停掉任何殘留的 `phantom.exe`、確認 PATH、檢查 `OPENROUTER_API_KEY`。
+很快。如果這步失敗，後面全部都跑不動。
 
-### Phase 2 — Read-only smoke
+### 階段 2 — 唯讀煙霧測試（Read-only smoke）
 
-Touches every non-mutating top-level surface:
+碰觸每一個不會變更狀態的頂層介面：
 
-- `phantom --version` → expect `phantom 0.4.0 (<sha>+, windows-x86_64, ...)`
-- `phantom doctor` → expect `configured port` line + `OpenRouter` listed in `provider keys`
-- `phantom mcp` initialize + tools/list → expect ≥40 tools (currently 49)
-- `phantom self-update --dry-run` → expect `phantom-x86_64-pc-windows.exe` target
-- `phantom mlx status` / `phantom snapshot apply` → expect graceful Apple-only rejection
+- `phantom --version` → 預期 `phantom 0.4.0 (<sha>+, windows-x86_64, ...)`
+- `phantom doctor` → 預期出現 `configured port` 那一行，且 `provider keys` 中列出 `OpenRouter`
+- `phantom mcp` initialize + tools/list → 預期 ≥40 個工具（目前 49 個）
+- `phantom self-update --dry-run` → 預期目標為 `phantom-x86_64-pc-windows.exe`
+- `phantom mlx status` / `phantom snapshot apply` → 預期出現優雅的「僅限 Apple」拒絕訊息
 
-If `doctor` says `OpenRouter: not in env or agents.toml`, your shell didn't
-see the env var — restart PowerShell or set the User-scope registry value.
+如果 `doctor` 顯示 `OpenRouter: not in env or agents.toml`，表示你的 shell 沒有
+看到環境變數 — 請重啟 PowerShell 或設定 User 範圍（User-scope）的登錄檔（registry）值。
 
-### Phase 3 — LLM round-trips (master + coder via OpenRouter)
+### 階段 3 — LLM 往返（master + coder 經由 OpenRouter）
 
-Real network calls to `openrouter.ai`. Free Llama tier, so cost is `$0.0000`.
+對 `openrouter.ai` 的真實網路呼叫。使用免費 Llama 方案，所以成本是 `$0.0000`。
 
-- `phantom -c "..."` master agent → expect `$0.0000` in output banner.
-- `phantom -c --agent coder "..."` coder agent → same.
-- MCP `tools/call shell { cwd: "~" }` regression test → expect `home_test\r\n[exit code: 0]`, **no** `cwd '~' does not exist` error. This was the tilde-expansion bug fixed in commit `7752330`.
+- `phantom -c "..."` master 代理人 → 預期輸出橫幅（banner）中出現 `$0.0000`。
+- `phantom -c --agent coder "..."` coder 代理人 → 同上。
+- MCP `tools/call shell { cwd: "~" }` 回歸測試 → 預期 `home_test\r\n[exit code: 0]`，且**不**出現 `cwd '~' does not exist` 錯誤。這是 commit `7752330` 修掉的波浪號展開（tilde-expansion）錯誤。
 
-If LLM calls fail with `404 model … not found`, your `agents.toml` provider is misrouted (model name belongs to a different provider). Phase 2's `doctor` `provider keys` section should already have caught this.
+如果 LLM 呼叫以 `404 model … not found` 失敗，表示你的 `agents.toml` 供應商（provider）路由錯誤（模型名稱屬於另一個供應商）。階段 2 的 `doctor` `provider keys` 區段應該已經抓到這個問題。
 
-### Phase 4 — `phantom service install/status/uninstall`
+### 階段 4 — `phantom service install/status/uninstall`
 
-Round-trips the **PhantomServe** Scheduled Task:
+對 **PhantomServe** 排程工作（Scheduled Task）做往返測試：
 
-- install via `Register-ScheduledTask -AtLogOn -User $env:USERNAME` (PowerShell, not `schtasks /SC ONLOGON` — see commit `8259330`).
-- Adds Defender firewall rule for the configured port (best-effort — needs admin).
-- status reports `registered: yes`, `last run: <timestamp>`, `last state: running` once phantom serve is up.
-- uninstall removes the task + kills phantom.exe + drops firewall rule.
+- 透過 `Register-ScheduledTask -AtLogOn -User $env:USERNAME` 安裝（用 PowerShell，而非 `schtasks /SC ONLOGON` — 見 commit `8259330`）。
+- 為設定的連接埠加上 Defender 防火牆規則（盡力而為 — 需要管理員權限）。
+- 一旦 phantom serve 啟動，status 會回報 `registered: yes`、`last run: <timestamp>`、`last state: running`。
+- uninstall 會移除工作 + 殺掉 phantom.exe + 刪掉防火牆規則。
 
-#### 4.1 Admin orphan blocks phase 4
+#### 4.1 管理員遺留工作會擋住階段 4
 
-If a previous **elevated** install left a `PhantomServe` task around, your
-user-level `phantom service install` returns:
+如果先前某次**提權（elevated）**安裝留下了 `PhantomServe` 工作，你的
+使用者層級（user-level）`phantom service install` 會回傳：
 
 ```
 PermissionDenied (HRESULT 0x80070005): Register-ScheduledTask
 ```
 
-Phase 4 detects this and **skips** with a clear next step. To clear:
+階段 4 會偵測到這個狀況並**跳過（skip）**，附上清楚的下一步。要清除：
 
 ```powershell
 # from an elevated (admin) PowerShell
 Unregister-ScheduledTask -TaskName 'PhantomServe' -Confirm:$false
 ```
 
-If even that returns Access Denied:
+如果連這樣都回傳 Access Denied：
 
 ```powershell
 schtasks /Delete /TN "PhantomServe" /F          # admin cmd / PowerShell
 ```
 
-Or open `taskschd.msc` → Task Scheduler Library → right-click `PhantomServe` → Delete.
+或開啟 `taskschd.msc` → Task Scheduler Library → 在 `PhantomServe` 上按右鍵 → Delete。
 
-Re-run phase 4 from your normal (non-admin) shell:
+再從你正常的（非管理員）shell 重跑階段 4：
 
 ```powershell
 .\scripts\test-windows.ps1 -Phase 4
 ```
 
-### Phase 5 — `phantom autoevolve schedule install/status/uninstall`
+### 階段 5 — `phantom autoevolve schedule install/status/uninstall`
 
-Round-trips the **PhantomAutoevolve** task.  Different name from PhantomServe, so admin orphans are not a concern. Confirms:
+對 **PhantomAutoevolve** 工作做往返測試。名稱與 PhantomServe 不同，所以不必擔心管理員遺留問題。確認：
 
-- Interval renders as ISO 8601 (`PT1H`) from XML, not localized strings.
-- `last state: never run` shows up correctly (Windows pre-2000 placeholder filtered server-side — commit `8259330` then refined).
+- 間隔（interval）從 XML 算出後呈現為 ISO 8601（`PT1H`），而非在地化（localized）字串。
+- `last state: never run` 正確顯示（Windows pre-2000 佔位符已在伺服器端過濾掉 — commit `8259330`，之後再精修）。
 
-### Phase 6 — `autoevolve --once` + `evolve --max-rounds 1`
+### 階段 6 — `autoevolve --once` + `evolve --max-rounds 1`
 
-Real cargo pipeline + real LLM:
+真實的 cargo 流程（pipeline）+ 真實的 LLM：
 
-- `autoevolve --once --target check` should print `cargo check green — nothing to evolve.` This proves the `CARGO_TARGET_DIR=~/.phantom-mesh/autoevolve-target` isolation + AV-lock detection from commit `4d3f78d` work — without this, Defender-locked `build-script-build.exe` would falsely trigger the LLM and we got the `main.rs` 1330→8-byte overwrite incident on 2026-05-01 12:38–12:57.
-- `evolve --max-rounds 1 --target check` should walk one round and print `EVOLVE_DONE: all tests pass` at `$0.0000`.
+- `autoevolve --once --target check` 應印出 `cargo check green — nothing to evolve.`。這證明 commit `4d3f78d` 的 `CARGO_TARGET_DIR=~/.phantom-mesh/autoevolve-target` 隔離 + 防毒鎖定（AV-lock）偵測有運作 — 少了這個，被 Defender 鎖住的 `build-script-build.exe` 會錯誤地觸發 LLM，我們就在 2026-05-01 12:38–12:57 遇到 `main.rs` 從 1330 位元組被覆寫成 8 位元組的事故。
+- `evolve --max-rounds 1 --target check` 應走完一個回合（round），並在 `$0.0000` 下印出 `EVOLVE_DONE: all tests pass`。
 
-### Phase 7 — `phantom serve` concurrent load
+### 階段 7 — `phantom serve` 並行負載
 
-Boots `phantom serve --port <ServePort>` in a background job, then:
+在背景作業（background job）中啟動 `phantom serve --port <ServePort>`，然後：
 
-- 16-way parallel `/healthz` probe → all 16 must return `200`.
-- `/api/version` → expect `version`, `commit`, `target=windows`, `wire_version`.
-- `/rpc/ping` → expect `wire_version`, `core_sha`, `phantom_version` (post-macos-merge contract from commit `2680ff6`).
-- Stop-Process clean shutdown.
+- 16 路並行（16-way parallel）的 `/healthz` 探測 → 16 個全部都必須回傳 `200`。
+- `/api/version` → 預期出現 `version`、`commit`、`target=windows`、`wire_version`。
+- `/rpc/ping` → 預期出現 `wire_version`、`core_sha`、`phantom_version`（macOS 合併後的契約，來自 commit `2680ff6`）。
+- Stop-Process 乾淨關閉。
 
-Known: 30+ mixed concurrent (`/healthz` + `/api/version` + `/api/status`) is slow because `/api/status` has a global lock — see [§7.1 Known perf issues](#71-known-perf-issues).
+已知：30 個以上的混合並行（`/healthz` + `/api/version` + `/api/status`）會很慢，因為 `/api/status` 有一個全域鎖（global lock）— 見[§7.1 已知效能問題](#71-已知效能問題)。
 
-### Phase 8 — Tilde edge cases + broken-pipe panic suppression
+### 階段 8 — 波浪號邊界案例（edge cases）+ broken-pipe（管線中斷）panic 抑制
 
-Last sanity check:
+最後的健全性檢查（sanity check）：
 
-- `cwd: "~/"` (tilde with trailing slash) → expands to `$HOME`.
-- Pipe-close: `phantom doctor | Select-Object -First 1` must exit 0 with no new entry in `~/.phantom-mesh/crashes/`. Pre-fix this leaked one crash log per piped invocation; commit `f0ec83b` installs the panic-hook filter.
+- `cwd: "~/"`（帶尾端斜線的波浪號）→ 展開為 `$HOME`。
+- 管線關閉（Pipe-close）：`phantom doctor | Select-Object -First 1` 必須以 0 結束，且 `~/.phantom-mesh/crashes/` 中沒有新增條目。修正前，每次經過管線的呼叫都會洩漏一筆當機記錄（crash log）；commit `f0ec83b` 安裝了 panic-hook 過濾器。
 
-## Phase mapping → commits
+## 階段對應 → commits
 
-| Phase | Verifies commit |
+| 階段 | 驗證的 commit |
 |---|---|
 | 2 doctor `OpenRouter` | `68d02d3` |
 | 2 doctor `configured port` | `b50621a` |
-| 3 cwd:'~' regression | `7752330` |
-| 4 service install (PhantomServe + PowerShell) | `8259330`, `6f9344f` |
-| 4 firewall rule auto-install | `b50621a` |
-| 4 status `last state` decoding | `eec7a12` |
+| 3 cwd:'~' 回歸 | `7752330` |
+| 4 service install（PhantomServe + PowerShell） | `8259330`、`6f9344f` |
+| 4 防火牆規則自動安裝 | `b50621a` |
+| 4 status `last state` 解碼 | `eec7a12` |
 | 5 schedule install/status/uninstall | `3efbed2` |
-| 5 schedule status XML interval | `8259330` |
-| 6 autoevolve AV-lock detection | `4d3f78d` |
-| 7 wire_version on /rpc/ping | merged from macos `2680ff6` |
-| 7 `--port` flag honored | `eec7a12` |
-| 8 broken-pipe panic suppression | `f0ec83b` |
-| 8 cwd:'~/foo' expansion | `7752330` |
+| 5 schedule status XML 間隔 | `8259330` |
+| 6 autoevolve 防毒鎖定偵測 | `4d3f78d` |
+| 7 /rpc/ping 上的 wire_version | 從 macOS 合併 `2680ff6` |
+| 7 `--port` 旗標被遵守 | `eec7a12` |
+| 8 broken-pipe panic 抑制 | `f0ec83b` |
+| 8 cwd:'~/foo' 展開 | `7752330` |
 
-## §7.1 Known perf issues
+## §7.1 已知效能問題
 
-`/api/status` has a global mutex that serialises requests. 30 concurrent
-mixed hits take ~25s. Single-request and 4-concurrent are fine. Filed as
-non-blocking — fix is to scope the read-side cluster snapshot to a
-finer-grained lock.
+`/api/status` 有一個會把請求序列化（serialise）的全域互斥鎖（mutex）。30 個並行
+混合命中（hit）約需 ~25 秒。單一請求與 4 並行則沒問題。已歸檔為
+非阻塞（non-blocking）— 修法是把讀取側的叢集快照（cluster snapshot）縮小到
+更細粒度的鎖（finer-grained lock）。
 
-## Re-deploy + re-test loop
+## 重新部署 + 重新測試迴圈
 
-After any code change to `core/`:
+對 `core/` 做任何程式碼變更後：
 
 ```powershell
 .\scripts\build-windows.ps1 -Deploy        # rebuild + cp to ~/.phantom-mesh/bin + ~/.local/bin
 .\scripts\test-windows.ps1                 # full E2E sweep
 ```
 
-If only doc / config changed, skip the rebuild — the deployed binary
-hasn't moved.
+如果只改了文件 / 設定，可以略過重新建置 — 已部署的二進位檔
+沒有變動。

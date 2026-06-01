@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { safeInvoke as invoke } from '../../lib/tauri-compat';
 import type { HardwareScanResult, DiscoveredProvider, DaemonStatus, UserIdentity } from './types';
 import { ONBOARDED_KEY } from './types';
+// Wire helper around the Wave H1.1 Tauri commands `onboarding_advance`
+// + `onboarding_rollback` (registered in src-tauri/src/lib.rs:572-573).
+import { advanceUntil } from '../../lib/onboardingFsm';
+import { loadIdentityStatus, type IdentityStatus } from '../../lib/identity';
 
 interface Props {
   onComplete: () => void;
@@ -107,6 +111,13 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginName, setLoginName] = useState('');
 
+  // ── Real on-device cryptographic identity (P4) — distinct from the cosmetic
+  //    email profile above. Surfaces the actual identity.key fingerprint. ──
+  const [idStatus, setIdStatus] = useState<IdentityStatus | null>(null);
+  useEffect(() => {
+    void loadIdentityStatus().then(setIdStatus).catch(() => setIdStatus(null));
+  }, []);
+
   const handleQuickLogin = () => {
     if (!loginEmail.trim()) return;
     setIdentity({
@@ -128,27 +139,17 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
     const oauthUrl = `${DAEMON}/oauth/${provider}`;
 
     try {
-      // Open system browser — try multiple methods
+      // Open system browser. We removed the shell:* capabilities in
+      // V8-HIGH triage, so the shell-plugin path is gone — prefer the
+      // Rust command (validated allow-list), fall back to window.open
+      // for non-Tauri (browser mode) contexts.
       let opened = false;
 
-      // Method 1: Tauri shell plugin (most reliable for opening system browser)
-      if (!opened) {
-        try {
-          const { open } = await import('@tauri-apps/plugin-shell');
-          await open(oauthUrl);
-          opened = true;
-        } catch { /* not in Tauri or plugin not available */ }
-      }
+      try {
+        await invoke('open_external_url', { url: oauthUrl });
+        opened = true;
+      } catch { /* not in Tauri context or URL rejected by validator */ }
 
-      // Method 2: Tauri invoke command
-      if (!opened) {
-        try {
-          await invoke('open_external_url', { url: oauthUrl });
-          opened = true;
-        } catch { /* command failed */ }
-      }
-
-      // Method 3: window.open fallback (browser mode)
       if (!opened) {
         window.open(oauthUrl, '_blank');
       }
@@ -275,8 +276,21 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
         // (runtime may still be initializing in background)
       }
 
-      // 3. Done!
+      // 3. Done — drive the SPEC-28 FSM to its terminal state. The
+      // provider_slug is derived/sanitised (just the provider name, not
+      // any API key material) so it is safe per §7.5. We swallow
+      // advance errors here: the user already has a working runtime,
+      // FSM bookkeeping should never roll that back.
       localStorage.setItem(ONBOARDED_KEY, 'true');
+      try {
+        await advanceUntil('first_reply_received', {
+          providerSlug: effectiveProvider,
+          identityFingerprint: identity?.sub ?? null,
+        });
+      } catch (advErr) {
+        // eslint-disable-next-line no-console
+        console.warn('[OnboardingQuickStart] FSM advance failed (non-fatal)', advErr);
+      }
       setPhase('success');
     } catch (e) {
       setError(String(e));
@@ -335,6 +349,13 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
             {/* Account Login */}
             <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 mb-4">
               <div className="text-sm text-phantom-text mb-3">帳號登入</div>
+              {idStatus?.hasIdentity && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg bg-phantom-primary/10 border border-phantom-primary/30 px-3 py-2">
+                  <span className="text-phantom-primary text-xs flex-shrink-0">🔑 本機身分</span>
+                  <code className="text-xs text-phantom-text font-mono truncate">{idStatus.fingerprint}</code>
+                  <span className="text-[10px] text-phantom-muted flex-shrink-0 ml-auto">建立於 {idStatus.createdAt} · {idStatus.keystore.split(' ')[0]}</span>
+                </div>
+              )}
               {identity ? (
                 <div className="flex items-center gap-3 py-1">
                   {identity.avatar_url && (
@@ -449,7 +470,7 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
                 )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-phantom-muted">RAM</span>
-                  <span className="text-phantom-text">{(hw.ram_mb / 1024).toFixed(0)} GB</span>
+                  <span className="text-phantom-text">{hw.ram_mb > 0 ? `${(hw.ram_mb / 1024).toFixed(0)} GB` : '未偵測到'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-phantom-muted">Ollama</span>
@@ -545,8 +566,16 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
               啟動 Phantom Mesh
             </button>
             <button
-              onClick={() => {
+              onClick={async () => {
                 localStorage.setItem(ONBOARDED_KEY, 'true');
+                try {
+                  await advanceUntil('first_reply_received', {
+                    identityFingerprint: identity?.sub ?? null,
+                  });
+                } catch (e) {
+                  // eslint-disable-next-line no-console
+                  console.warn('[OnboardingQuickStart] skip advance failed', e);
+                }
                 onComplete();
               }}
               className="w-full mt-2 text-phantom-muted text-sm py-2 hover:text-phantom-text transition"
@@ -595,8 +624,16 @@ export default function OnboardingQuickStart({ onComplete }: Props) {
                 重試
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   localStorage.setItem(ONBOARDED_KEY, 'true');
+                  try {
+                    await advanceUntil('first_reply_received', {
+                      identityFingerprint: identity?.sub ?? null,
+                    });
+                  } catch (advErr) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[OnboardingQuickStart] skip-after-error advance failed', advErr);
+                  }
                   onComplete();
                 }}
                 className="bg-phantom-card text-phantom-muted px-4 py-1.5 rounded text-xs hover:text-phantom-text transition"

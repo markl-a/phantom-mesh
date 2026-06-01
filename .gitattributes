@@ -1,0 +1,52 @@
+# Enforce LF line endings for scripts that must run on Windows + WSL + macOS + Linux
+# without CRLF conversion. Without this, Windows git's autocrlf converts LF → CRLF on
+# checkout, breaking shell scripts when run from WSL bash. 2026-05-26 root cause of
+# the node-a verify-tools.sh failure post-bundle-catch-up.
+
+# Shell scripts — always LF
+*.sh           text eol=lf
+*.bash         text eol=lf
+
+# PowerShell — let Windows tools manage (CRLF is fine for native pwsh)
+*.ps1          text eol=crlf
+*.psm1         text eol=crlf
+
+# Cross-platform source code — LF
+*.rs           text eol=lf
+*.toml         text eol=lf
+*.md           text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.json         text eol=lf
+*.ts           text eol=lf
+*.tsx          text eol=lf
+*.js           text eol=lf
+*.jsx          text eol=lf
+*.css          text eol=lf
+*.svelte       text eol=lf
+*.html         text eol=lf
+
+# Cargo + npm lockfiles — LF (canonical)
+Cargo.lock     text eol=lf
+package-lock.json text eol=lf
+
+# Binary files — no conversion
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.pdf          binary
+*.bundle       binary
+*.zip          binary
+*.tar.gz       binary
+*.dmg          binary
+*.exe          binary
+*.dll          binary
+*.so           binary
+*.dylib        binary
+*.bin          binary
+*.cast         binary
+
+# Asciinema casts (treat as binary so they don't get line-ending munged)
+*.cast         binary

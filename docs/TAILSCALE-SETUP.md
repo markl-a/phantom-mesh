@@ -1,39 +1,39 @@
-# Tailscale Setup for Phantom Mesh
+# Phantom Mesh 的 Tailscale 設定
 
-This guide connects multiple devices running the phantom-mesh daemon into a single compute mesh over Tailscale.
-
----
-
-## Overview
-
-Tailscale creates a WireGuard-based VPN mesh between your devices. Each device gets a stable `100.x.x.x` IP that works regardless of NAT, firewalls, or network changes. Phantom Mesh uses these IPs so that daemon nodes can call each other's HTTP APIs directly.
-
-**Why Tailscale and not a plain VPN or port forwarding?**
-
-- No port forwarding required on home routers or cloud providers
-- Stable IPs survive network changes (laptop moving between Wi-Fi networks, phone switching to LTE)
-- Free for up to 100 devices on a single account
-- Encrypted transport at the network layer — phantom-mesh HMAC auth adds an application-level second factor
+本指南教你把多台執行 phantom-mesh daemon（背景服務程式）的裝置，透過 Tailscale 連成單一的運算 mesh（網狀叢集）。
 
 ---
 
-## Topology Options
+## 概觀
 
-Choose the setup that matches your hardware:
+Tailscale 會在你的各裝置之間建立一個以 WireGuard 為基礎的 VPN（虛擬私人網路）mesh。每台裝置都會取得一個穩定的 `100.x.x.x` IP，無論 NAT（網路位址轉換）、防火牆或網路變動如何都能運作。Phantom Mesh 使用這些 IP，讓 daemon 節點能直接呼叫彼此的 HTTP API。
 
-| Topology | Devices | What you get |
+**為什麼用 Tailscale，而不是普通 VPN 或連接埠轉發（port forwarding）？**
+
+- 不需要在家用路由器或雲端供應商上設定連接埠轉發
+- IP 在網路變動時依然穩定（筆電在不同 Wi-Fi 網路間移動、手機切換到 LTE）
+- 單一帳號可免費連接最多 100 台裝置
+- 在網路層提供加密傳輸 —— phantom-mesh 的 HMAC（雜湊訊息驗證碼）驗證再加上一道應用層的第二因素
+
+---
+
+## 拓樸選項
+
+選擇符合你硬體的設定方式：
+
+| 拓樸 | 裝置 | 你能得到什麼 |
 |----------|---------|--------------|
-| **Minimal** | Mac + GCP/Oracle Linux VM | Dev machine + cloud node; 24/7 uptime via cloud |
-| **Mobile access** | Mac + cloud VM + iPhone | Telegram bot on cloud; control mesh from phone |
-| **Full mesh** | All devices | Distribute tasks to any node; full resilience |
+| **最小化** | Mac + GCP/Oracle Linux VM | 開發機 + 雲端節點；透過雲端達成 24/7 不間斷運行 |
+| **行動存取** | Mac + 雲端 VM + iPhone | Telegram bot 跑在雲端；用手機控制 mesh |
+| **完整 mesh** | 所有裝置 | 把任務分派到任一節點；完整的容錯能力 |
 
-The steps below cover the most common case: one Mac as coordinator, one Linux cloud VM as the always-on node, and optionally iPhone via Telegram.
+以下步驟涵蓋最常見的情境：一台 Mac 作為 coordinator（協調者），一台 Linux 雲端 VM 作為永遠開機的節點，並可選擇透過 Telegram 加入 iPhone。
 
 ---
 
-## Step 1: Install Tailscale on All Devices
+## 步驟 1：在所有裝置上安裝 Tailscale
 
-**macOS:**
+**macOS：**
 ```bash
 brew install tailscale
 # or download the app from https://tailscale.com/download
@@ -41,54 +41,54 @@ sudo tailscaled &   # if installed via brew
 tailscale up
 ```
 
-**Linux (GCP / Oracle Cloud / any Debian-based distro):**
+**Linux（GCP / Oracle Cloud / 任何以 Debian 為基礎的發行版）：**
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-**iOS / Android:**
-Install the Tailscale app from the App Store or Google Play, sign in with the same account.
+**iOS / Android：**
+從 App Store 或 Google Play 安裝 Tailscale app，並用同一個帳號登入。
 
-Sign in to the same Tailscale account on every device. All devices on the same account form a single network.
+在每台裝置上登入同一個 Tailscale 帳號。同一帳號下的所有裝置會組成單一網路。
 
 ---
 
-## Step 2: Get Tailscale IPs
+## 步驟 2：取得 Tailscale IP
 
-On each device after running `tailscale up`:
+在每台裝置執行完 `tailscale up` 之後：
 
 ```bash
 tailscale ip -4
 ```
 
-Or list all devices in your network:
+或列出你網路中的所有裝置：
 
 ```bash
 tailscale status
 ```
 
-Note the `100.x.x.x` address for each machine — you will put these into `agents.toml`.
+記下每台機器的 `100.x.x.x` 位址 —— 你之後會把這些填進 `agents.toml`。
 
-Example output:
+範例輸出：
 ```
-100.101.1.1   mac-coordinator  markl@  macOS   -
-100.101.1.2   gcp-worker       markl@  linux   -
+100.64.0.10   mac-coordinator  you@  macOS   -
+100.64.0.11   gcp-worker       you@  linux   -
 ```
 
 ---
 
-## Step 3: Configure agents.toml on Each Node
+## 步驟 3：在每個節點上設定 agents.toml
 
-Each node needs a `[cluster]` section that lists the Tailscale IPs of its peers and a shared secret for authentication.
+每個節點都需要一個 `[cluster]` 區段，列出其 peer（對等節點）的 Tailscale IP，以及一個用於驗證的共享密鑰（shared secret）。
 
-First, generate a strong shared secret (run this once, use the same value on all nodes):
+首先，產生一個高強度的共享密鑰（只跑一次，所有節點都用同一個值）：
 
 ```bash
 openssl rand -hex 32
 ```
 
-**Mac coordinator** (`~/Library/Application Support/ai.phantommesh.app/agents.toml` on macOS, or `~/.config/phantom-mesh/agents.toml` on Linux):
+**Mac coordinator**（macOS 上為 `~/Library/Application Support/ai.phantommesh.app/agents.toml`，Linux 上為 `~/.config/phantom-mesh/agents.toml`）：
 
 ```toml
 [core]
@@ -115,7 +115,7 @@ tools = ["shell", "file_read", "file_write", "file_edit", "content_search",
 instructions = "You are a senior software engineer AI assistant. ALWAYS use tools to accomplish tasks."
 ```
 
-**GCP / cloud worker** (`~/.config/phantom-mesh/agents.toml`):
+**GCP / 雲端 worker**（`~/.config/phantom-mesh/agents.toml`）：
 
 ```toml
 [core]
@@ -145,28 +145,28 @@ tools = ["shell", "file_read", "file_write", "web_search", "memory_store", "memo
 instructions = "You are an AI assistant on a 24/7 cloud node. Respond concisely for mobile users."
 ```
 
-A ready-to-use coordinator template is in `configs/agents.coordinator.toml` and a cloud template is in `configs/agents.cloud.toml`.
+一份可直接使用的 coordinator 範本在 `configs/agents.coordinator.toml`，雲端範本則在 `configs/agents.cloud.toml`。
 
-**Important:** Set `host = "0.0.0.0"` on any node that needs to accept incoming connections from peers. The default `127.0.0.1` only accepts local connections.
+**重要：** 在任何需要接受來自 peer 之傳入連線的節點上，都要設定 `host = "0.0.0.0"`。預設的 `127.0.0.1` 只接受本機連線。
 
 ---
 
-## Step 4: Start Both Daemons
+## 步驟 4：啟動兩個 daemon
 
-**On the Mac:**
+**在 Mac 上：**
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 phantom-mesh daemon
 ```
 
-**On the GCP VM:**
+**在 GCP VM 上：**
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 export TELEGRAM_BOT_TOKEN=123456789:ABCdef...
 phantom-mesh daemon
 ```
 
-Verify health on each node:
+在每個節點上驗證健康狀態：
 
 ```bash
 # from your Mac, check the GCP node
@@ -180,11 +180,11 @@ curl http://<MAC_TAILSCALE_IP>:7878/health
 
 ---
 
-## Step 5: Test a Cross-Node Task
+## 步驟 5：測試跨節點任務
 
-Phantom Mesh uses SHA-256 HMAC to authenticate RPC calls between nodes. The `X-Cluster-Auth` header carries the auth token.
+Phantom Mesh 使用 SHA-256 HMAC 來驗證節點之間的 RPC（遠端程序呼叫）。`X-Cluster-Auth` 標頭攜帶驗證 token（權杖）。
 
-Submit a task to the Mac coordinator and have it run on the GCP worker:
+提交一個任務給 Mac coordinator，並讓它在 GCP worker 上執行：
 
 ```bash
 # Compute the HMAC token
@@ -203,7 +203,7 @@ curl -X POST http://<GCP_TAILSCALE_IP>:7878/rpc/task/assign \
 curl http://<GCP_TAILSCALE_IP>:7878/rpc/task/status/<job_id>
 ```
 
-Or submit to the coordinator and let it delegate:
+或者提交給 coordinator，讓它自行委派：
 
 ```bash
 curl -X POST http://localhost:7878/agent/master/run \
@@ -213,33 +213,33 @@ curl -X POST http://localhost:7878/agent/master/run \
 
 ---
 
-## Step 6: Add Telegram for Mobile Access
+## 步驟 6：加入 Telegram 以支援行動存取
 
-The Telegram bot lets you control the mesh from any phone without opening a laptop.
+Telegram bot 讓你不必打開筆電，就能用任何手機控制 mesh。
 
-1. Open Telegram and message `@BotFather`. Send `/newbot` and follow the prompts to choose a name and username.
+1. 打開 Telegram 並傳訊給 `@BotFather`。傳送 `/newbot`，依照提示選擇名稱與使用者名稱。
 
-2. BotFather gives you a token like `123456789:ABCdef...`.
+2. BotFather 會給你一個像 `123456789:ABCdef...` 的 token。
 
-3. Set it on the always-on cloud node:
+3. 在永遠開機的雲端節點上設定它：
    ```bash
    export TELEGRAM_BOT_TOKEN=123456789:ABCdef...
    ```
-   For a persistent daemon, add it to `/etc/phantom-mesh.env` and reference it in your systemd unit.
+   若要讓 daemon 持續運行，可把它加進 `/etc/phantom-mesh.env`，並在你的 systemd unit（系統服務單元）中引用它。
 
-4. Add the `[telegram]` block to the cloud node's `agents.toml` (already shown in step 3 above).
+4. 把 `[telegram]` 區塊加進雲端節點的 `agents.toml`（上面步驟 3 已示範）。
 
-5. Get your Telegram user ID by messaging `@userinfobot`. Set it in `allowed_users` to make the bot private.
+5. 傳訊給 `@userinfobot` 取得你的 Telegram 使用者 ID。把它填進 `allowed_users`，讓這個 bot 變成私有。
 
-6. Restart the daemon on the cloud node. Open Telegram, find your bot by username, and send it a message.
+6. 重新啟動雲端節點上的 daemon。打開 Telegram，依使用者名稱找到你的 bot，並傳訊給它。
 
-The cloud node handles the Telegram polling and forwards tasks into the mesh. The Mac does not need to be online for Telegram to work.
+雲端節點負責處理 Telegram 的輪詢（polling），並把任務轉發進 mesh。Telegram 要能運作，Mac 不需要保持上線。
 
 ---
 
-## Troubleshooting
+## 疑難排解
 
-### Nodes cannot reach each other
+### 節點無法互相連線
 
 ```bash
 # Check all devices appear in your Tailscale network
@@ -249,16 +249,16 @@ tailscale status
 tailscale ping gcp-worker    # replace with device name from tailscale status
 ```
 
-If `tailscale ping` succeeds but port 7878 is unreachable:
+如果 `tailscale ping` 成功但連接埠 7878 無法連通：
 
-- **Cloud provider firewall:** add a TCP ingress rule for port 7878.
-  - GCP: VPC network > Firewall > add rule for TCP 7878
-  - Oracle Cloud: Networking > VCN > Security Lists > add Ingress Rule for TCP 7878
-- **Daemon listening on wrong interface:** ensure `host = "0.0.0.0"` in `[core]` on the node receiving connections.
+- **雲端供應商防火牆：** 為連接埠 7878 新增一條 TCP 傳入（ingress）規則。
+  - GCP：VPC network > Firewall > 為 TCP 7878 新增規則
+  - Oracle Cloud：Networking > VCN > Security Lists > 為 TCP 7878 新增 Ingress Rule
+- **Daemon 監聽在錯誤的介面上：** 在接收連線的節點上，確認 `[core]` 中設定了 `host = "0.0.0.0"`。
 
-### Tailscale ACLs blocking traffic
+### Tailscale ACL 阻擋了流量
 
-If your Tailscale account has custom ACLs, add a rule to allow traffic on port 7878:
+如果你的 Tailscale 帳號有自訂 ACL（存取控制清單），請新增一條規則來放行連接埠 7878 的流量：
 
 ```json
 {
@@ -268,14 +268,14 @@ If your Tailscale account has custom ACLs, add a rule to allow traffic on port 7
 }
 ```
 
-Edit ACLs at [login.tailscale.com/admin/acls](https://login.tailscale.com/admin/acls).
+在 [login.tailscale.com/admin/acls](https://login.tailscale.com/admin/acls) 編輯 ACL。
 
-### Cluster auth errors (401 / 403)
+### 叢集驗證錯誤（401 / 403）
 
-- Verify `cluster_secret` is identical on every node — copy-paste the `openssl rand -hex 32` output exactly.
-- Check there are no trailing spaces or newlines in the secret value.
+- 確認 `cluster_secret` 在每個節點上都完全相同 —— 把 `openssl rand -hex 32` 的輸出原封不動地複製貼上。
+- 檢查密鑰值中沒有多餘的尾端空格或換行符。
 
-### Tailscale not running
+### Tailscale 沒有在執行
 
 ```bash
 # Linux
@@ -288,7 +288,7 @@ sudo tailscaled &
 tailscale up
 ```
 
-### Daemon won't start on cloud VM
+### Daemon 在雲端 VM 上無法啟動
 
 ```bash
 # Run interactively to see errors
@@ -300,7 +300,7 @@ tailscale up
 # - "address already in use" → port 7878 taken: lsof -i :7878
 ```
 
-### Telegram bot not responding
+### Telegram bot 沒有回應
 
 ```bash
 # Verify the daemon is running on the cloud node
@@ -315,9 +315,9 @@ journalctl -u phantom-mesh -f   # if running under systemd
 
 ---
 
-## Running as a systemd Service (Cloud Node)
+## 以 systemd 服務的方式運行（雲端節點）
 
-To keep the daemon running after logout and across reboots:
+要讓 daemon 在登出後與重新開機後仍持續運行：
 
 ```bash
 sudo tee /etc/phantom-mesh.env > /dev/null <<EOF
@@ -349,4 +349,4 @@ sudo systemctl enable --now phantom-mesh
 
 ---
 
-For the full multi-node deployment walkthrough (coordinator, local workers, cloud VM), see [DEPLOYMENT.md](DEPLOYMENT.md).
+關於完整的多節點部署逐步說明（coordinator、本地 worker、雲端 VM），請見 [DEPLOYMENT.md](DEPLOYMENT.md)。

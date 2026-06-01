@@ -365,6 +365,42 @@ pub fn spawn_watchdog(app: tauri::AppHandle) {
     });
 }
 
+/// Restart the daemon in the background (SPEC-41 S1 menu-bar "重新啟動精靈").
+/// Kills the current child then respawns it, mirroring the watchdog's
+/// kill→spawn path. Fire-and-forget: the tray click returns immediately while
+/// the respawn + health-wait happen on the async runtime. Re-enables the
+/// watchdog so a crash after the manual restart still auto-recovers.
+pub fn restart_in_background(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<DaemonState>();
+        state.kill();
+        // Let the port free before respawning.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        let binary = state.find_binary();
+        let port = state.port;
+        let config_path = app
+            .path()
+            .app_config_dir()
+            .ok()
+            .map(|d| d.join("agents.toml"));
+
+        match spawn_daemon(&binary, port, config_path.as_ref()) {
+            Ok(child) => {
+                let pid = child.id();
+                {
+                    let mut guard = state.process.lock().unwrap_or_else(|e| e.into_inner());
+                    *guard = Some(child);
+                }
+                state.watchdog_enabled.store(true, Ordering::Relaxed);
+                state.restart_count.store(0, Ordering::Relaxed);
+                tracing::info!("Tray: daemon restarted (PID {})", pid);
+            }
+            Err(e) => tracing::error!("Tray: daemon restart failed: {}", e),
+        }
+    });
+}
+
 // ─── Tauri Commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]

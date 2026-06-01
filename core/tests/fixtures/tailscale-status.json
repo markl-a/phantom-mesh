@@ -1,0 +1,31 @@
+{
+  "Version": "1.78.0",
+  "BackendState": "Running",
+  "Self": {
+    "ID": "self-id",
+    "HostName": "host-self",
+    "Online": true,
+    "TailscaleIPs": ["100.64.0.1", "fd7a:115c:a1e0::1"]
+  },
+  "Peer": {
+    "node-a": {
+      "HostName": "node-a",
+      "Online": true,
+      "TailscaleIPs": ["100.64.0.10", "fd7a:115c:a1e0::a"]
+    },
+    "node-mac": {
+      "HostName": "mac-mini",
+      "Online": true,
+      "TailscaleIPs": ["100.64.0.20"]
+    },
+    "node-b-offline": {
+      "HostName": "node-b",
+      "Online": false,
+      "TailscaleIPs": ["100.64.0.30"]
+    },
+    "node-no-hostname": {
+      "Online": true,
+      "TailscaleIPs": ["100.64.0.40"]
+    }
+  }
+}

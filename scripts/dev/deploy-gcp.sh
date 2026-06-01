@@ -65,6 +65,22 @@ echo "    Then: tailscale ip -4   (note this GCP node's Tailscale IP)"
 echo "    On your Mac coordinator, add this IP to peers[] in agents.toml"
 echo ""
 
+# Load the SHA256 + HTTPS verification helper.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd 2>/dev/null || echo "")"
+VERIFY_HELPER=""
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/../_verify-download.sh" ]; then
+    VERIFY_HELPER="$SCRIPT_DIR/../_verify-download.sh"
+else
+    VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX)"
+    HELPER_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/_verify-download.sh"
+    if ! curl -fsSL --max-time 10 "$HELPER_URL" -o "$VERIFY_HELPER"; then
+        echo "ERROR: Could not load $HELPER_URL — refusing to install unverified binary" >&2
+        exit 1
+    fi
+fi
+# shellcheck disable=SC1090
+. "$VERIFY_HELPER"
+
 # Download latest release binary
 LATEST=$(curl -s "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
   | grep "browser_download_url.*$BINARY_SUFFIX" | cut -d'"' -f4)
@@ -75,9 +91,19 @@ if [[ -z "$LATEST" ]]; then
   exit 1
 fi
 
+# Enforce HTTPS + SHA256-verify the binary BEFORE chmod +x.
+require_https "$LATEST" || exit 1
+
 echo "==> Downloading binary from $LATEST"
-sudo curl -L "$LATEST" -o "$INSTALL_DIR/phantom-mesh"
-sudo chmod +x "$INSTALL_DIR/phantom-mesh"
+# Download to a user-writable tmp first so verify_sha256 can rm-on-mismatch
+# without needing sudo. Move into place only after verification succeeds.
+TMP_BIN="$(mktemp -t phantom-mesh.XXXXXX)"
+trap 'rm -f "$TMP_BIN" "${VERIFY_HELPER:-}"' EXIT
+curl -fsSL "$LATEST" -o "$TMP_BIN"
+verify_sha256 "$TMP_BIN" "$LATEST"
+sudo install -m 0755 "$TMP_BIN" "$INSTALL_DIR/phantom-mesh"
+rm -f "$TMP_BIN"
+trap - EXIT
 
 # Create config
 if [[ ! -f "/home/$SERVICE_USER/.phantom-mesh/agents.toml" ]]; then

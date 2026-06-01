@@ -2,6 +2,46 @@ pub mod claude_cli;
 pub mod credential_scanner;
 pub mod traits;
 
+// ── DEMO-1 gap 1 (2026-05-17): LlmProvider trait + DefaultProviderResolver.
+// Phase 1 introduces the trait surface (no call-site changes); Phase 2 adds
+// the resolver + 4 passthrough impls. See
+// `docs/superpowers/specs/2026-05-17-demo1-gap1-llmprovider-design.md`.
+pub mod llm_provider;
+pub mod resolver;
+pub use llm_provider::{BuildRequestOpts, BuildRequestParts, LlmProvider};
+pub use resolver::DefaultProviderResolver;
+
+// ── H4 weekend push (2026-05-15): experimental new provider adapters ─────
+// All four are OpenAI-compat chat-completions; modules own only metadata,
+// default URLs/models, and bearer-auth header construction. Wire format
+// is the existing OpenAI streaming codepath in `streaming.rs`.
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod fireworks;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod mistral;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod together;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod xai;
+
+// ── T51 (2026-05-16): v0.6.0 V1 push — 4 more provider adapters ──────────
+// Bring the Hermes provider count from 8 → 12. Same feature gate so
+// default `cargo build` stays byte-identical. Three are OpenAI-compat;
+// `cohere` is the lone outlier (own request shape + X-API-Key header).
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod ai21;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod cohere;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod nvidia;
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod perplexity;
+
+// T11 (2026-05-15): retry + backoff middleware for the H4 providers.
+// Same feature gate so default `cargo build` stays byte-identical.
+#[cfg(feature = "experimental-hermes-providers")]
+pub mod retry;
+
 use serde::{Deserialize, Serialize};
 
 use crate::config::ProviderEntry;
@@ -32,13 +72,13 @@ pub struct DiscoveredProviderInfo {
 /// ```
 pub fn resolve_model_alias(model: &str) -> &str {
     match model {
-        "sonnet"    => "claude-sonnet-4-5-20251022",
-        "opus"      => "claude-opus-4-5",
-        "haiku"     => "claude-haiku-4-5-20251001",
-        "gpt4"      => "gpt-4o",
-        "gpt4mini"  => "gpt-4o-mini",
-        "gemini"    => "gemini-2.0-flash",
-        other       => other,
+        "sonnet" => "claude-sonnet-4-5-20251022",
+        "opus" => "claude-opus-4-5",
+        "haiku" => "claude-haiku-4-5-20251001",
+        "gpt4" => "gpt-4o",
+        "gpt4mini" => "gpt-4o-mini",
+        "gemini" => "gemini-2.0-flash",
+        other => other,
     }
 }
 
@@ -64,10 +104,24 @@ pub fn display_name(provider: &ProviderEntry) -> String {
 
     match provider.provider_type.as_str() {
         "anthropic" => "Claude (Anthropic)".into(),
-        "openai"    => "GPT-4o (OpenAI)".into(),
-        "gemini"    => "Gemini (Google)".into(),
-        "groq"      => "Groq".into(),
-        "opencode"  => "OpenCode".into(),
+        "openai" => "GPT-4o (OpenAI)".into(),
+        "gemini" => "Gemini (Google)".into(),
+        "groq" => "Groq".into(),
+        "opencode" => "OpenCode".into(),
+        // ── H4 weekend push (2026-05-15): friendly labels for new adapters.
+        // These match arms are unconditional (no feature gate) — they're cheap
+        // string literals and harmless when the modules aren't compiled in.
+        "mistral" => "Mistral AI".into(),
+        "xai" => "xAI Grok".into(),
+        "together" => "Together AI".into(),
+        "fireworks" => "Fireworks AI".into(),
+        // ── T51 (2026-05-16): v0.6.0 V1 — 4 more friendly labels ─────────
+        // Same shape as the H4 push above: cheap string literals, no feature
+        // gate, harmless when the modules aren't compiled in.
+        "perplexity" => "Perplexity".into(),
+        "ai21" => "AI21 Labs".into(),
+        "nvidia" => "NVIDIA NIM".into(),
+        "cohere" => "Cohere".into(),
         _ => {
             // Fall back to URL-based detection for unknown types.
             if url.contains("anthropic.com") {
@@ -79,11 +133,40 @@ pub fn display_name(provider: &ProviderEntry) -> String {
             if url.contains("googleapis.com") || url.contains("gemini") {
                 return "Gemini (Google)".into();
             }
+            if url.contains("mistral.ai") {
+                return "Mistral AI".into();
+            }
+            if url.contains("api.x.ai") {
+                return "xAI Grok".into();
+            }
+            if url.contains("together.xyz") {
+                return "Together AI".into();
+            }
+            if url.contains("fireworks.ai") {
+                return "Fireworks AI".into();
+            }
             if url.contains("groq.com") {
                 return "Groq".into();
             }
             if url.contains("openrouter.ai") {
                 return "OpenRouter".into();
+            }
+            // ── T51 (2026-05-16): URL-fallback labels for the v0.6.0 V1
+            // additions. Match on canonical hostnames documented at the
+            // provider; subdomains like `integrate.api.nvidia.com` still
+            // contain the substring `nvidia.com`, so the same `.contains`
+            // check works for the integrate-prefixed NVIDIA endpoint.
+            if url.contains("perplexity.ai") {
+                return "Perplexity".into();
+            }
+            if url.contains("ai21.com") {
+                return "AI21 Labs".into();
+            }
+            if url.contains("nvidia.com") {
+                return "NVIDIA NIM".into();
+            }
+            if url.contains("cohere.com") {
+                return "Cohere".into();
             }
             // Generic fallback: title-case the provider_type string.
             let t = &provider.provider_type;
@@ -112,28 +195,87 @@ pub fn display_name(provider: &ProviderEntry) -> String {
 pub async fn health_check(provider: &ProviderEntry, client: &reqwest::Client) -> bool {
     use std::time::Duration;
 
-    let api_key = provider.api_key.clone()
-        .or_else(|| {
-            provider.api_key_env.as_ref()
-                .and_then(|env| std::env::var(env).ok())
-        });
+    let api_key = provider.api_key.clone().or_else(|| {
+        provider
+            .api_key_env
+            .as_ref()
+            .and_then(|env| std::env::var(env).ok())
+    });
 
     let Some(key) = api_key.filter(|k| !k.is_empty()) else {
         tracing::debug!("health_check: no API key configured for provider");
         return false;
     };
 
-    let is_anthropic = provider.provider_type == "anthropic"
-        || provider.url.as_deref().unwrap_or("").contains("anthropic.com");
+    // T11 (2026-05-15): per-provider retry-enabled dispatch. Each H4 module
+    // owns its own RETRY_ENABLED const + health_check_with_retry helper so
+    // we don't centralise routing logic — adding a 5th retry-enabled
+    // provider is one match-arm + that provider's own commit.
+    #[cfg(feature = "experimental-hermes-providers")]
+    {
+        if mistral::RETRY_ENABLED && provider.provider_type == mistral::PROVIDER_ID {
+            return mistral::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+        if xai::RETRY_ENABLED && provider.provider_type == xai::PROVIDER_ID {
+            return xai::health_check_with_retry(provider, &key).await.is_ok();
+        }
+        if together::RETRY_ENABLED && provider.provider_type == together::PROVIDER_ID {
+            return together::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+        if fireworks::RETRY_ENABLED && provider.provider_type == fireworks::PROVIDER_ID {
+            return fireworks::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+        // ── T51 (2026-05-16): v0.6.0 V1 dispatch ─────────────────────────
+        if perplexity::RETRY_ENABLED && provider.provider_type == perplexity::PROVIDER_ID {
+            return perplexity::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+        if ai21::RETRY_ENABLED && provider.provider_type == ai21::PROVIDER_ID {
+            return ai21::health_check_with_retry(provider, &key).await.is_ok();
+        }
+        if nvidia::RETRY_ENABLED && provider.provider_type == nvidia::PROVIDER_ID {
+            return nvidia::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+        if cohere::RETRY_ENABLED && provider.provider_type == cohere::PROVIDER_ID {
+            return cohere::health_check_with_retry(provider, &key)
+                .await
+                .is_ok();
+        }
+    }
 
-    let model = provider.default_model.as_deref()
-        .unwrap_or(if is_anthropic { "claude-haiku-4-5-20251001" } else { "gpt-4o-mini" });
+    let is_anthropic = provider.provider_type == "anthropic"
+        || provider
+            .url
+            .as_deref()
+            .unwrap_or("")
+            .contains("anthropic.com");
+
+    let model = provider
+        .default_model
+        .as_deref()
+        .unwrap_or(if is_anthropic {
+            "claude-haiku-4-5-20251001"
+        } else {
+            "gpt-4o-mini"
+        });
 
     let timeout = Duration::from_secs(5);
 
     if is_anthropic {
         let url = {
-            let base = provider.url.as_deref().unwrap_or("https://api.anthropic.com");
+            let base = provider
+                .url
+                .as_deref()
+                .unwrap_or("https://api.anthropic.com");
             let base = base.trim_end_matches('/');
             // Normalise: strip any trailing path and append the messages endpoint.
             let base = base
@@ -175,8 +317,7 @@ pub async fn health_check(provider: &ProviderEntry, client: &reqwest::Client) ->
     } else {
         // OpenAI-compatible endpoint.
         let url = {
-            let base = provider.url.as_deref()
-                .unwrap_or("https://api.openai.com");
+            let base = provider.url.as_deref().unwrap_or("https://api.openai.com");
             let base = base.trim_end_matches('/');
             if base.ends_with("/chat/completions") {
                 base.to_string()
@@ -258,7 +399,10 @@ mod tests {
 
     #[test]
     fn alias_passthrough() {
-        assert_eq!(resolve_model_alias("my-custom-model-v1"), "my-custom-model-v1");
+        assert_eq!(
+            resolve_model_alias("my-custom-model-v1"),
+            "my-custom-model-v1"
+        );
         assert_eq!(resolve_model_alias("gpt-4-turbo"), "gpt-4-turbo");
     }
 
@@ -310,8 +454,11 @@ mod tests {
 
     #[test]
     fn display_title_case_unknown() {
-        let p = make_provider("mistral", None);
-        assert_eq!(display_name(&p), "Mistral");
+        // H4 (2026-05-15): "mistral" is now a known provider returning
+        // "Mistral AI"; use a different unknown string to test the
+        // title-case fallback path.
+        let p = make_provider("anthropicxyz", None);
+        assert_eq!(display_name(&p), "Anthropicxyz");
     }
 
     #[test]
@@ -320,18 +467,177 @@ mod tests {
         assert_eq!(display_name(&p), "Unknown Provider");
     }
 
+    // ── H4 weekend push: display_name for the 4 new providers ────────────
+
+    #[test]
+    fn display_mistral() {
+        let p = make_provider("mistral", None);
+        assert_eq!(display_name(&p), "Mistral AI");
+    }
+
+    #[test]
+    fn display_xai() {
+        let p = make_provider("xai", None);
+        assert_eq!(display_name(&p), "xAI Grok");
+    }
+
+    #[test]
+    fn display_together() {
+        let p = make_provider("together", None);
+        assert_eq!(display_name(&p), "Together AI");
+    }
+
+    #[test]
+    fn display_fireworks() {
+        let p = make_provider("fireworks", None);
+        assert_eq!(display_name(&p), "Fireworks AI");
+    }
+
+    #[test]
+    fn display_url_fallback_mistral() {
+        let p = make_provider("custom", Some("https://api.mistral.ai/v1/chat/completions"));
+        assert_eq!(display_name(&p), "Mistral AI");
+    }
+
+    #[test]
+    fn display_url_fallback_xai() {
+        let p = make_provider("custom", Some("https://api.x.ai/v1/chat/completions"));
+        assert_eq!(display_name(&p), "xAI Grok");
+    }
+
+    #[test]
+    fn display_url_fallback_together() {
+        let p = make_provider(
+            "custom",
+            Some("https://api.together.xyz/v1/chat/completions"),
+        );
+        assert_eq!(display_name(&p), "Together AI");
+    }
+
+    #[test]
+    fn display_url_fallback_fireworks() {
+        let p = make_provider(
+            "custom",
+            Some("https://api.fireworks.ai/inference/v1/chat/completions"),
+        );
+        assert_eq!(display_name(&p), "Fireworks AI");
+    }
+
+    // ── T51 (2026-05-16): display_name for the 4 new providers ───────────
+
+    #[test]
+    fn display_perplexity() {
+        let p = make_provider("perplexity", None);
+        assert_eq!(display_name(&p), "Perplexity");
+    }
+
+    #[test]
+    fn display_ai21() {
+        let p = make_provider("ai21", None);
+        assert_eq!(display_name(&p), "AI21 Labs");
+    }
+
+    #[test]
+    fn display_nvidia() {
+        let p = make_provider("nvidia", None);
+        assert_eq!(display_name(&p), "NVIDIA NIM");
+    }
+
+    #[test]
+    fn display_cohere() {
+        let p = make_provider("cohere", None);
+        assert_eq!(display_name(&p), "Cohere");
+    }
+
+    #[test]
+    fn display_url_fallback_perplexity() {
+        let p = make_provider("custom", Some("https://api.perplexity.ai/chat/completions"));
+        assert_eq!(display_name(&p), "Perplexity");
+    }
+
+    #[test]
+    fn display_url_fallback_ai21() {
+        let p = make_provider(
+            "custom",
+            Some("https://api.ai21.com/studio/v1/chat/completions"),
+        );
+        assert_eq!(display_name(&p), "AI21 Labs");
+    }
+
+    #[test]
+    fn display_url_fallback_nvidia() {
+        // NVIDIA's hosted endpoint lives under integrate.api.nvidia.com — the
+        // substring `nvidia.com` still matches, which is what we want.
+        let p = make_provider(
+            "custom",
+            Some("https://integrate.api.nvidia.com/v1/chat/completions"),
+        );
+        assert_eq!(display_name(&p), "NVIDIA NIM");
+    }
+
+    #[test]
+    fn display_url_fallback_cohere() {
+        let p = make_provider("custom", Some("https://api.cohere.com/v1/chat"));
+        assert_eq!(display_name(&p), "Cohere");
+    }
+
+    /// V1 P0 — pins the public list of 12 first-party provider types
+    /// that the dispatcher must understand at startup. Asserts each
+    /// type resolves to its branded label (NOT the type-name title-case
+    /// fallback that the catch-all arm emits). A regression that
+    /// dropped one of the H4 (Mistral/xAI/Together/Fireworks) or T51
+    /// (Perplexity/AI21/NVIDIA/Cohere) labels would fail this test
+    /// before the silent rename hit prod.
+    #[test]
+    fn all_12_providers_register_at_startup() {
+        let canonical: &[(&str, &str)] = &[
+            ("anthropic", "Claude (Anthropic)"),
+            ("openai", "GPT-4o (OpenAI)"),
+            ("gemini", "Gemini (Google)"),
+            ("groq", "Groq"),
+            ("mistral", "Mistral AI"),
+            ("xai", "xAI Grok"),
+            ("together", "Together AI"),
+            ("fireworks", "Fireworks AI"),
+            ("perplexity", "Perplexity"),
+            ("ai21", "AI21 Labs"),
+            ("nvidia", "NVIDIA NIM"),
+            ("cohere", "Cohere"),
+        ];
+        assert_eq!(
+            canonical.len(),
+            12,
+            "V1 commits to exactly 12 first-party providers",
+        );
+
+        for (ty, want_label) in canonical {
+            let p = make_provider(ty, None);
+            assert_eq!(
+                display_name(&p),
+                *want_label,
+                "provider {ty} must register with its branded label, not a title-case fallback",
+            );
+        }
+    }
+
     // ── classify_error ────────────────────────────────────────────────────
 
     use crate::providers::traits::{classify_error, ProviderError};
 
     #[test]
     fn classify_rate_limit() {
-        assert_eq!(classify_error(429, "Too Many Requests"), ProviderError::RateLimit);
+        assert_eq!(
+            classify_error(429, "Too Many Requests"),
+            ProviderError::RateLimit
+        );
     }
 
     #[test]
     fn classify_auth_401() {
-        assert_eq!(classify_error(401, "Unauthorized"), ProviderError::AuthError);
+        assert_eq!(
+            classify_error(401, "Unauthorized"),
+            ProviderError::AuthError
+        );
     }
 
     #[test]
@@ -349,7 +655,10 @@ mod tests {
 
     #[test]
     fn classify_generic_404() {
-        assert!(matches!(classify_error(404, "page not found"), ProviderError::Unknown(_)));
+        assert!(matches!(
+            classify_error(404, "page not found"),
+            ProviderError::Unknown(_)
+        ));
     }
 
     #[test]
@@ -367,6 +676,39 @@ mod tests {
 
     #[test]
     fn classify_unknown_500() {
-        assert!(matches!(classify_error(500, "internal server error"), ProviderError::Unknown(_)));
+        assert!(matches!(
+            classify_error(500, "internal server error"),
+            ProviderError::Unknown(_)
+        ));
+    }
+
+    #[cfg(feature = "experimental-hermes-providers")]
+    #[tokio::test]
+    async fn health_check_dispatches_to_mistral_retry() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        // First call: 429. Second call: 200. If retry is wired, this returns true.
+        let mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(429))
+            .up_to_n_times(1)
+            .mount(&mock)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&mock)
+            .await;
+
+        let mut provider = ProviderEntry::default();
+        provider.provider_type = "mistral".into();
+        provider.url = Some(mock.uri());
+        provider.api_key = Some("k-test".into());
+
+        let client = reqwest::Client::new();
+        assert!(
+            health_check(&provider, &client).await,
+            "health_check should retry through mistral::health_check_with_retry"
+        );
     }
 }

@@ -1,44 +1,104 @@
-# Multi-Device Coordination Protocol
+# 多裝置協調協議（Multi-Device Coordination Protocol）
 
-**This document is the canonical working agreement for any Claude / Cursor /
-human session that's developing phantom-mesh on more than one machine
-in parallel.** Every session — Mac, Z13 Windows, Linux box, iOS, Android —
-reads this first. New session opening on a fresh machine? **Start here.**
+> **狀態 2026-05-28**：v2 取代 v1（下方 Rules 1-9）。
+> v2 = phantom-coord skill + SPEC-80 + SPEC-81 多 CLI 編排（multi-CLI orchestration）出貨。
+> v1 = 歷史性的 platform/<os> 分支模型（Rules 1-9）。下方各節
+> 保留作為存檔價值；**操作指引以 v2 為準**。
 
-The goal: **let 5 platforms develop simultaneously without the codebase or
-the deployed mesh fragmenting.** Phantom-mesh's design lets the binary
-self-modify; that's only safe if the humans+agents working across machines
-agree on a coordination protocol. This document IS that agreement.
+## v2 — phantom-coord skill 模型（自 2026-05-27 起為正式版本）
+
+**唯一來源連結：**
+- [`MASTER.md`](superpowers/MASTER.md) §9 4-Machine 並行開發模式（進入點）
+- [`ARCH-EXECUTION-ENTITIES.md`](superpowers/ARCH-EXECUTION-ENTITIES.md) §4 Stack C phantom-coord 詳圖
+- [`SPEC-80-INFRA-mode-b-collab-dev`](superpowers/specs/v060-deep-spec/SPEC-80-INFRA-mode-b-collab-dev.md) — git-based message bus（基於 git 的訊息匯流排）設計
+- [`SPEC-81-INFRA-multi-cli-orchestration`](superpowers/specs/v060-deep-spec/SPEC-81-INFRA-multi-cli-orchestration.md) — Gateway（閘道）routing（路由）6 個 backend CLI（後端命令列工具）+ Phase A→D self-dev arc（自我開發歷程）
+- [`configs/README.md`](../configs/README.md) — 每台機器拷哪份 agents.toml
+
+**3 條核心紀律（取代 v1 Rules 1-9 大部分）**：
+
+1. **1 canonical repo, 1 main branch（單一正式倉庫、單一主分支）** ── 4 台機器各自 clone，main 只接 merge commit / fast-forward
+2. **每台只 push `wip/<own-host>/<task-uuid>`** ── 不准動別 host 的分支；別 host 的 wip 視為 read-only（唯讀）
+3. **Per-task brief + frontmatter（每任務簡報 + 前置中繼資料）** ── `.ai-shared/queue/<host>/<uuid>.brief.md` 含 `scope_files / depends_on / preferred_tool / budget_usd`，phantom-coord follower（跟隨者）自動 claim（認領）+ verify（驗證）+ done（完成）
+
+**4 個 host 角色（依 SPEC-81 + `cluster_nodes.md`）**：
+
+| Host | Platform 工作 | Config | Bootstrap |
+|---|---|---|---|
+| **mac** (this) | Apple 相關 + Rust core + spec authority（規格權威） | `configs/agents.coordinator.toml` | ✅ cron 5/27 已裝 |
+| **node-a** ThinkPad **Windows 11** + WSL2 | **Windows 主力**: MSI / codesign / .NET + WSL Linux + heavy Rust + overnight | `configs/agents.coordinator.toml` | `follower-windows.ps1 -InstallScheduledTask` (admin PS) |
+| **node-b** Windows | Android 主力: APK / AVD + Win 副手 | `configs/agents.worker.toml` | `follower-windows.ps1 -InstallScheduledTask` |
+| **node-d** Windows | Win 副手 + demo | `configs/agents.worker.toml` | 同 node-b |
+
+**iPhone / iPad / Android = runtime peer（執行期對等節點）**（裝 phantom-mesh app、加入 cluster、收 task；**不寫 code**）。Mobile execution model（行動裝置執行模型）詳見 SPEC-30 §6.5 / SPEC-33 §6.5（embedded-core-no-serve 決議）。
+
+**衝突解決自動化（不靠人手協調）**：
+
+| 場景 | 自動處理 |
+|---|---|
+| 兩 task 想改同檔 | SPEC-81 P2 `scope_files` lock → 後到 task 等 |
+| Task A `depends_on: [B]`，B 未完 | P2 dep check → A 拒 claim |
+| 兩 host 同時 `git push main` | atomic race（原子競爭）→ 輸的 rebase 重推 |
+| Host 死了帶走 in-progress | 5 min heartbeat（心跳）過期 → `reclaim-dead-host.sh` 撿回 |
+| Tool 預算用爆 | P3 budget gate（預算閘門）→ 自動 fallback 到下個 tool |
+
+**Per-machine bootstrap 一行**：
+```bash
+curl -sSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/ai/coord/bootstrap-remote.sh \
+  | bash -s -- --host <node-a|node-b|node-d|mac> [--leader]
+```
+
+**Per-task dispatch（手動 / 替代 cron）**：
+```bash
+bash scripts/ai/coord/dispatch-router.sh .ai-shared/queue/<host>/<uuid>.brief.md
+```
 
 ---
 
-## TL;DR — six rules
+## v1（存檔，2026 年 5 月）— 原始的 platform/<os> 分支模型
 
-1. **One canonical repo, one main branch.** Sessions work on
-   `platform/<os>` branches. Cross-platform / `core/` edits go through a
-   shared integration branch and PR to main.
-2. **Each session has a scope.** It owns one branch, owns specific paths,
-   reads everything else, never silently edits another session's
-   territory.
-3. **Binary distribution is via GitHub release tags, not local cargo
-   build.** Tag triggers cross-platform CI matrix; every machine pulls
-   its release artifact. Local builds are for dev only.
-4. **Configuration is split: base (committed) + local (per-machine).**
-   `agents.base.toml` in repo. `~/.phantom-mesh/local.toml` holds node
-   name + cluster secret, never committed.
-5. **Wire-protocol versioning is explicit.** Every RPC response carries
-   `wire_version`; stale peers reject incompatible neighbours with a
-   clear error rather than silently failing handshake.
-6. **Verification is daily, automated, and one command.**
-   `phantom doctor --mesh` is the green/red light for "are all 5 talking
-   to each other right now."
-
-The rest of this document spells out each rule, gives the conflict-
-resolution process, and lists what's not yet implemented.
+> 以下 Rules 1-9 是 5/1 寫的最早協議、保留作 audit。實際運作以上面 v2 為準。
+> v1 中提到的 `platform/<os>` 分支、`agents.base.toml` split、`phantom-core-lock.json` 
+> 都被 v2 phantom-coord 模型取代。`phantom doctor --mesh` v1 提到的概念在 v2 透過
+> `.ai-shared/heartbeat/<host>-last.txt` 達成同樣目的。
 
 ---
 
-## Rule 1 — Branch & merge protocol
+**本文件是任何 Claude / Cursor / 人類 session（工作階段）在一台以上機器
+並行開發 phantom-mesh 時的正式工作協定。** 每個 session — Mac、node-a Windows、
+Linux 機器、iOS、Android — 都先讀這份。在全新機器上開啟新 session 嗎？**從這裡開始。**
+
+目標：**讓 5 個平台同時開發，而不讓程式碼庫或部署的 mesh（網狀網路）碎裂。**
+Phantom Mesh 的設計讓二進位檔可以自我修改；那唯有在跨機器工作的人類 + agent
+都同意一套協調協議時才安全。本文件就是那份協定。
+
+---
+
+## TL;DR — 六條規則
+
+1. **單一正式倉庫、單一 main 分支。** Session 在
+   `platform/<os>` 分支上工作。跨平台 / `core/` 編輯走一條
+   共享 integration branch（整合分支）再 PR 進 main。
+2. **每個 session 都有 scope（範圍）。** 它擁有一條分支、擁有特定路徑，
+   其他一切只讀，永不靜默編輯別 session 的
+   領地。
+3. **二進位檔散佈經由 GitHub release tag，而非本地 cargo
+   build。** Tag 觸發跨平台 CI matrix（持續整合矩陣）；每台機器拉
+   自己的 release artifact（發行產物）。本地 build 僅供開發用。
+4. **設定拆分：base（已提交）+ local（每機器）。**
+   `agents.base.toml` 放在倉庫裡。`~/.phantom-mesh/local.toml` 存放 node
+   name + cluster secret（叢集密鑰），永不提交。
+5. **Wire-protocol（線路協議）版本管理是明確的。** 每個 RPC 回應都帶
+   `wire_version`；過時的 peer（對等節點）以清楚的錯誤拒絕不相容的鄰居，
+   而非靜默握手失敗。
+6. **驗證是每日的、自動化的、一個命令。**
+   `phantom doctor --mesh` 是「5 台現在是否都互相通訊」的綠燈/紅燈。
+
+本文件其餘部分逐條說明每條規則、給出衝突
+解決流程，並列出尚未實作的部分。
+
+---
+
+## Rule 1 — 分支與合併協議
 
 ```
 main  ────────────────────────────────────────────────────▶ (protected)
@@ -48,8 +108,8 @@ main  ────────────────────────�
    │                                "what's everyone working on" trunk)
    │
    ├─ platform/macos     ── Mac session work: core/, app/src-tauri/{macos,ios}/
-   ├─ platform/windows   ── Z13 session work: scripts/build-windows.sh, app/src-tauri/win/
-   │                        ALIAS: feat/windows is currently used by Z13 as the
+   ├─ platform/windows   ── node-a session work: scripts/build-windows.sh, app/src-tauri/win/
+   │                        ALIAS: feat/windows is currently used by node-a as the
    │                        live working branch (commit f670ab1+). Treated as
    │                        equivalent to platform/windows during the v0.1.0
    │                        freeze. Renames to platform/windows on 5/15 unfreeze
@@ -58,27 +118,27 @@ main  ────────────────────────�
    │                        Currently no live branch — Oracle Cloud A1 session
    │                        will create it per SESSION-ONBOARDING.md §3.2.
    ├─ platform/ios       ── iOS-specific Tauri work (lives on Mac)
-   └─ platform/android   ── Android Tauri work + phantom-mobile (lives on Z13)
-                            ALIAS: feat/android is currently Z13's live
+   └─ platform/android   ── Android Tauri work + phantom-mobile (lives on node-a)
+                            ALIAS: feat/android is currently node-a's live
                             working branch (commit 963c3fe). Same equivalence
                             + rename schedule as feat/windows.
 ```
 
-### Daily flow
+### 每日流程
 
-1. **Session start:** `git fetch && git rebase origin/main` on this
-   session's `platform/*` branch. If conflicts: see Rule 7.
-2. **During session:** commit freely to your `platform/*` branch.
-   Push every 30-60 min so other sessions see your activity.
-3. **Session end:** if you touched anything outside your owned paths,
-   open a PR from `platform/<os>` → `phase1-r1-foundations`. Tag with
-   `multi-session` so other sessions see it.
-4. **Weekly:** `phase1-r1-foundations` → `main` PR after green CI on
-   all 5 platform builds. **Only main is what release tags come from.**
+1. **Session 開始：** 在本 session 的 `platform/*` 分支上執行
+   `git fetch && git rebase origin/main`。若有衝突：見 Rule 7。
+2. **Session 進行中：** 自由 commit 到你的 `platform/*` 分支。
+   每 30-60 分鐘 push 一次，讓其他 session 看到你的活動。
+3. **Session 結束：** 若你動到自己擁有路徑以外的任何東西，
+   從 `platform/<os>` → `phase1-r1-foundations` 開一個 PR。標上
+   `multi-session` 讓其他 session 看到。
+4. **每週：** 在所有 5 個平台 build 都 CI 綠燈後，
+   `phase1-r1-foundations` → `main` PR。**只有 main 才是 release tag 的來源。**
 
-### Commit message scope tag
+### Commit 訊息的 scope 標籤
 
-Every commit message starts with a scope prefix:
+每個 commit 訊息以一個 scope 前綴開頭：
 ```
 [mac]    fix(tui): cursor position with combining diacritics
 [win]    feat(scheduled-task): bootout race fix in restart logic
@@ -86,37 +146,37 @@ Every commit message starts with a scope prefix:
 [shared] docs: update CO-EVOLUTION roadmap for Phase 4 land
 ```
 
-`[core]` and `[shared]` commits draw extra attention at PR review time
-because they affect every session.
+`[core]` 和 `[shared]` commit 在 PR review 時會吸引額外注意，
+因為它們影響每個 session。
 
 ---
 
-## Rule 2 — Scope discipline
+## Rule 2 — Scope 紀律
 
-Each session is given a 3-tier permission.
+每個 session 被賦予 3 層權限。
 
-| Session | Owns (free edit) | Reads (context only) | Coordinates (announce first) |
+| Session | 擁有（可自由編輯） | 讀取（僅作 context） | 協調（須先公告） |
 |---|---|---|---|
-| **Mac M1 (MacBook Air)** | `core/` (default), `app/src-tauri/`, `templates/`, `docs/`, `.github/workflows/`, `scripts/build-mac.sh`, `app/src-tauri/ios/` | everything | `core/src/mesh.rs`, `core/src/serve.rs::rpc_*`, `core/src/keys.rs` (others depend) |
-| **Z13 Win** | `scripts/build-windows.sh`, `.github/workflows/release-windows.yml`, `app/src-tauri/android/`, anything under `app/src-tauri/gen/android/` | everything | `core/` is read-only by default |
-| **Linux** | `scripts/build-linux.sh`, `templates/phantom-mesh.service.tmpl` (additions), `dist/linux*` | everything | `core/` is read-only by default |
-| **iOS** | `app/src-tauri/ios/`, signing config files | everything | nothing — runs on Mac, isolates to iOS-only paths |
-| **Android** | `phantom-mobile/` repo, `app/src-tauri/android/` (when Z13 also runs Android session) | everything | nothing |
+| **node-c (Mac)** | `core/`（預設）、`app/src-tauri/`、`templates/`、`docs/`、`.github/workflows/`、`scripts/build-mac.sh`、`app/src-tauri/ios/` | 一切 | `core/src/mesh.rs`、`core/src/serve.rs::rpc_*`、`core/src/keys.rs`（其他人依賴） |
+| **node-a Win** | `scripts/build-windows.sh`、`.github/workflows/release-windows.yml`、`app/src-tauri/android/`、`app/src-tauri/gen/android/` 底下任何東西 | 一切 | `core/` 預設唯讀 |
+| **Linux** | `scripts/build-linux.sh`、`templates/phantom-mesh.service.tmpl`（新增）、`dist/linux*` | 一切 | `core/` 預設唯讀 |
+| **iOS** | `app/src-tauri/ios/`、signing config（簽章設定）檔案 | 一切 | 無 — 跑在 Mac 上，隔離到僅 iOS 的路徑 |
+| **Android** | `phantom-mobile/` 倉庫、`app/src-tauri/android/`（當 node-a 也跑 Android session 時） | 一切 | 無 |
 
-**"Coordinates"** means: before editing one of those paths, leave a note
-in `EVOLVE-GOALS.md` or open a draft PR. Don't silently push `mesh.rs` —
-it breaks every other session's `core-sha`.
+**「協調」** 意指：在編輯那些路徑之一前，先在
+`EVOLVE-GOALS.md` 留個註記或開一個 draft PR（草稿 PR）。不要靜默 push `mesh.rs` —
+它會破壞每個其他 session 的 `core-sha`。
 
-### What "owns" really means
+### 「擁有」真正的意思
 
-If session A owns a path, session B sees changes there appear in main but
-**must not edit them**. If B believes a change is needed, B opens an
-issue / EVOLVE-GOAL describing the desired change, A acts on it. This
-prevents the "two sessions both fix the Win path bug differently" race.
+若 session A 擁有某路徑，session B 會看到那裡的變更出現在 main 但
+**不得編輯它們**。若 B 認為需要某項變更，B 開一個
+issue / EVOLVE-GOAL 描述所欲變更，由 A 處理。這
+防止「兩個 session 各自用不同方式修同一個 Win 路徑 bug」的競爭。
 
 ---
 
-## Rule 3 — Single binary truth: GitHub release tags
+## Rule 3 — 單一二進位真相：GitHub release tag
 
 ```
 [trigger]                       [process]                    [distribution]
@@ -135,19 +195,19 @@ git push --tags             ├─ macos-arm64   build      phantom-macos-arm64.
                                   → restart healthcheck
 ```
 
-**No local `cargo build && cp` for production deploys.** That was the
-all-day pattern that introduced the codesign SIGKILL bug (see commit
-`85c8377`). Local cargo build stays — but only for development /
-testing the change you're about to PR. **The mesh runs binaries from
-release tags.**
+**正式部署不用本地 `cargo build && cp`。** 那正是
+引入 codesign SIGKILL bug 的整日模式（見 commit
+`85c8377`）。本地 cargo build 保留 — 但僅供開發 /
+測試你即將 PR 的變更。**Mesh 跑的是來自
+release tag 的二進位檔。**
 
-**Tag cadence:** at minimum once per coordinated multi-session sprint.
-A `v0.1.x-multidevice-N` series is fine for the rapid pre-launch phase;
-proper semver after 5/15.
+**Tag 節奏：** 至少每個協調好的多 session 衝刺一次。
+`v0.1.x-multidevice-N` 系列在快速的發佈前階段沒問題；
+5/15 之後採用正式 semver（語意化版本）。
 
 ---
 
-## Rule 4 — Configuration as code, secrets out-of-band
+## Rule 4 — 設定即程式碼、密鑰走頻外
 
 ```
 [committed]                           [per-machine, .gitignore]
@@ -161,64 +221,64 @@ agents.base.toml                      ~/.phantom-mesh/local.toml
                                             via service install — see commit dfadc9d)
 ```
 
-`AgentsConfig::load()` reads `agents.base.toml`, then deep-merges
-`~/.phantom-mesh/local.toml` on top. Any field present in local
-overrides base.
+`AgentsConfig::load()` 讀取 `agents.base.toml`，然後將
+`~/.phantom-mesh/local.toml` 深度合併在其上。local 中存在的任何欄位都
+覆蓋 base。
 
-**Cluster secret distribution.** Generated once on Mac M1 (MacBook Air):
+**Cluster secret 散佈。** 在 node-c (Mac) 上一次性產生：
 ```
 $ phantom keys generate-cluster-secret
    Wrote ~/.phantom-mesh/local.toml with cluster_secret=<16 random bytes>
    Now: copy that line to the local.toml on every other machine.
 ```
 
-Out-of-band: 1Password shared item, encrypted gist, signed message via
-ssh. The secret never appears in commits.
+頻外（out-of-band）：1Password 共享項目、加密 gist、經由
+ssh 的簽章訊息。密鑰永不出現在 commit 中。
 
-**Per-machine api_key**: rely on `phantom service install` to copy
-shell env → plist EnvironmentVariables (commit `dfadc9d`). The keys
-never live in any committed file.
+**Per-machine api_key**：依靠 `phantom service install` 將
+shell env → plist EnvironmentVariables（commit `dfadc9d`）。金鑰
+永不存在於任何已提交的檔案中。
 
 ---
 
-## Rule 5 — Wire-protocol versioning
+## Rule 5 — Wire-protocol 版本管理
 
-The schema for `EvolveCheckpoint`, mesh handoff payload, RPC bodies, etc.
-will change. We need old peers to refuse new payloads with a clear
-error rather than crash on a `serde::de::Error`.
+`EvolveCheckpoint`、mesh handoff payload（交接酬載）、RPC body 等的 schema（結構描述）
+會改變。我們需要舊 peer 以清楚的
+錯誤拒絕新酬載，而非在 `serde::de::Error` 上崩潰。
 
-### What we add
+### 我們加什麼
 
-Every RPC response includes `wire_version: u32`:
+每個 RPC 回應都包含 `wire_version: u32`：
 ```json
 { "ok": true, "wire_version": 3, "data": {...} }
 ```
 
-`/rpc/ping` becomes the canonical compatibility check:
+`/rpc/ping` 成為正式的相容性檢查：
 ```json
 GET /rpc/ping
 → { "wire_version": 3, "phantom_version": "0.1.4", "core_sha": "7a3f2b1" }
 ```
 
-A peer with `wire_version` lower than this binary's: **degraded warning**,
-but RPCs still flow (best-effort backward compat). Higher: **refuse**,
-explicit error: "peer is wire v4, this binary is v3, run `phantom upgrade`".
+`wire_version` 比本二進位低的 peer：**降級警告**，
+但 RPC 仍照走（盡力向後相容）。較高：**拒絕**，
+明確錯誤：「peer is wire v4, this binary is v3, run `phantom upgrade`」。
 
-### When to bump
+### 何時提升版本
 
-- Add a field to existing schema: **no bump** (forward-compatible)
-- Remove a field: **bump**
-- Change a field's type or semantics: **bump**
-- Add a new RPC endpoint: **no bump** (callers expect 404 for unknown)
+- 在既有 schema 加一個欄位：**不提升**（向前相容）
+- 移除一個欄位：**提升**
+- 改變一個欄位的型別或語意：**提升**
+- 加一個新的 RPC endpoint（端點）：**不提升**（呼叫者對未知者預期 404）
 
-Single integer kept in `core/src/lib.rs::WIRE_VERSION`.
+單一整數保存在 `core/src/lib.rs::WIRE_VERSION`。
 
 ---
 
-## Rule 6 — Daily verification: `phantom doctor --mesh`
+## Rule 6 — 每日驗證：`phantom doctor --mesh`
 
-This is the green/red light. Open every session, every workday, before
-any other work:
+這是綠燈/紅燈。每個 session、每個工作日、在
+任何其他工作之前開啟：
 
 ```
 $ phantom doctor --mesh
@@ -231,47 +291,47 @@ $ phantom doctor --mesh
         └── upstream tag
 
 Peers (configured):
-  ✓ mac-coordinator    100.87.93.58:7878    wire 3   ↔  same
-  ✓ z13-windows        100.87.70.65:7879    wire 3   ↔  same
-  ✗ linux-arm          100.106.176.125:7878  unreachable (no response 5s)
+  ✓ mac-coordinator    <mac-tailscale-ip>:7878    wire 3   ↔  same
+  ✓ node-a-windows        100.64.0.10:7879    wire 3   ↔  same
+  ✗ linux-arm          100.64.0.11:7878  unreachable (no response 5s)
   ⚠ ios-iphone         100.108.x.x:7878     wire 2   ⚠ stale, run phantom upgrade
   ○ android-pixel      100.103.x.x:7878     wire 3   ↔  same  (not currently configured as peer)
 
 Cross-checks:
   ✓ all peers' agents.base.toml SHA matches mine
-  ✗ z13-windows local.toml.cluster_secret SHA differs — HMAC will fail!
+  ✗ node-a-windows local.toml.cluster_secret SHA differs — HMAC will fail!
   ✓ EvolveCheckpoint schema_version matches across all peers
 
-Summary: 3/5 peers fully aligned. Issues: linux-arm unreachable, z13 secret drift.
+Summary: 3/5 peers fully aligned. Issues: linux-arm unreachable, node-a secret drift.
 ```
 
-Three exit codes:
-- `0` — all peers green
-- `1` — degraded (one or more peers warn)
-- `2` — broken (one or more peers can't HMAC or schema-mismatch)
+三個 exit code（離開碼）：
+- `0` — 所有 peer 綠燈
+- `1` — 降級（一個以上 peer 警告）
+- `2` — 故障（一個以上 peer 無法 HMAC 或 schema 不符）
 
-`phantom doctor --mesh --fix` for the auto-fixable cases (rotate
-secret, prompt for `phantom upgrade`, etc).
+`phantom doctor --mesh --fix` 用於可自動修復的情況（輪替
+密鑰、提示 `phantom upgrade` 等）。
 
 ---
 
-## Rule 7 — Conflict resolution
+## Rule 7 — 衝突解決
 
-### Same file, different sessions
+### 同檔、不同 session
 
-1. Whoever pulls / rebases first wins. Second session hits conflict.
-2. Try `git mergetool`. If trivial, resolve and force-push to your
-   `platform/*` branch.
-3. If conflict involves business logic (not whitespace / format), **stop**.
-   Open a draft PR with both diffs side-by-side. Ping the other session
-   in commit message body: `Resolve in coordination with @session-zwin`.
-4. Use `git rerere` enabled by default — repeating mechanical conflicts
-   auto-resolve after first.
+1. 誰先 pull / rebase 誰贏。第二個 session 撞上衝突。
+2. 試 `git mergetool`。若是瑣碎的，解決並 force-push 到你的
+   `platform/*` 分支。
+3. 若衝突涉及業務邏輯（非空白 / 格式），**停。**
+   開一個 draft PR，兩份 diff 並排。在 commit 訊息正文中 ping 另一個 session：
+   `Resolve in coordination with @session-zwin`。
+4. 預設啟用 `git rerere` — 重複的機械式衝突
+   在第一次之後自動解決。
 
-### Concurrent edits to `core/`
+### 對 `core/` 的並行編輯
 
-Strict rule: **no two sessions edit `core/` at the same time without
-explicit hand-off**. Use a "lock file" pattern:
+嚴格規則：**沒有明確交接時，不得有兩個 session 同時編輯 `core/`**。
+使用「lock file（鎖檔）」模式：
 
 ```
 ~/.phantom-mesh/core-lock.json — committed, in repo root as `.phantom-core-lock.json`
@@ -283,108 +343,114 @@ explicit hand-off**. Use a "lock file" pattern:
 }
 ```
 
-A session takes the lock by editing this file in its first commit, releases
-by deleting it in the last. Lock auto-expires after 1 hour. Sessions
-poll-on-fetch: if the lock file exists and isn't yours, work on `app/`
-or platform-specific paths instead.
+一個 session 透過在其第一個 commit 編輯此檔來取得鎖，透過
+在最後一個 commit 刪除它來釋放。鎖在 1 小時後自動過期。Session
+on-fetch 時輪詢：若 lock 檔存在且不是你的，改去做 `app/`
+或平台特定路徑的工作。
 
-**Yes this is informal.** It's good enough for 5 humans+agents who can
-talk to each other; we don't need a real lock service. If it scales
-beyond that, replace with GitHub branch protection + required reviewer.
+**是的這很非正式。** 對能彼此交談的 5 個人類 + agent 來說夠用了；
+我們不需要真正的 lock service（鎖服務）。若規模
+超過那個，就改用 GitHub branch protection（分支保護）+ 必要審查者。
 
 ---
 
-## Rule 8 — What sessions MUST run before pushing
+## Rule 8 — Session 在 push 前必跑什麼
 
-Pre-push checklist (each session enforces locally):
+Pre-push 檢查清單（每個 session 在本地執行）：
 
-| Check | When | Command |
+| 檢查 | 何時 | 命令 |
 |---|---|---|
-| `cargo fmt --check` | always | already in pre-commit |
-| `cargo clippy -D warnings` | always (per platform) | makes platform-specific bugs visible |
-| `cargo test --lib` | always | catches breakage in shared code |
-| `cargo build --release --target <platform>` | platform-specific | proves the platform still compiles |
-| `phantom doctor --mesh` | before merging to main | proves runtime mesh still works |
+| `cargo fmt --check` | 總是 | 已在 pre-commit |
+| `cargo clippy -D warnings` | 總是（每平台） | 讓平台特定的 bug 可見 |
+| `cargo test --lib` | 總是 | 抓共享程式碼的破壞 |
+| `cargo build --release --target <platform>` | 平台特定 | 證明該平台仍能編譯 |
+| `phantom doctor --mesh` | 合併進 main 前 | 證明執行期 mesh 仍可運作 |
 
-Failed checks → don't push. Open a draft PR documenting the failure
-and ping for help.
+檢查失敗 → 不要 push。開一個 draft PR 記錄失敗
+並 ping 求助。
 
 ---
 
-## Rule 9 — Audit trail
+## Rule 9 — 稽核軌跡
 
-Every commit is reviewable later by `git log` alone. The new things
-this protocol adds:
+每個 commit 日後僅靠 `git log` 即可審查。本協議
+新增的東西：
 
-- **Scope prefix** (`[mac]`, `[win]`, `[core]`, `[shared]`) — searchable
-- **Co-Authored-By: Claude Opus 4.7 (1M context)** trailer — already
-  established convention (memory `feedback_commit_attribution.md`)
-- **`[Session: <name>]`** trailer when push comes from a non-default
-  session, e.g.:
+- **Scope 前綴**（`[mac]`、`[win]`、`[core]`、`[shared]`）— 可搜尋
+- **Co-Authored-By: Claude Opus 4.7 (1M context)** trailer（結尾標記）— 已
+  建立的慣例（memory `feedback_commit_attribution.md`）
+- **`[Session: <name>]`** trailer，當 push 來自非預設
+  session 時，例如：
   ```
   [win] feat(scheduled-task): bootout race fix
-  
+
   Add 300ms sleep between bootout and binary copy so launchd
   releases the binary mapping before we overwrite. Reproduces on
   Win10/Win11 alike.
-  
+
   Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-  Session: z13-windows
+  Session: node-a-windows
   ```
 
-`git log --grep '\[Session: z13-windows\]'` shows everything that
-session ever did.
+`git log --grep '\[Session: node-a-windows\]'` 顯示該
+session 曾做過的一切。
 
 ---
 
-## Onboarding a new session
+## 上線一個新 session
 
-When you (Claude / human / etc) open a session on a new machine:
+當你（Claude / 人類 / 等）在新機器上開啟一個 session 時：
 
-1. **Read this file end-to-end.** No skipping.
-2. **Read `EVOLVE-GOALS.md`** — see what's in flight, what's blocked.
-3. **`git pull origin main && git checkout -b platform/<your-os>`** if
-   one doesn't exist; otherwise `git checkout platform/<your-os>` and
-   rebase.
-4. **`phantom doctor --mesh`** — see who else is up.
-5. **State your scope in your first commit** so others see you appeared:
+1. **從頭到尾讀完本檔。** 不可跳過。
+2. **讀 `EVOLVE-GOALS.md`** — 看什麼在進行中、什麼被卡住。
+3. **`git pull origin main && git checkout -b platform/<your-os>`**，若
+   尚不存在；否則 `git checkout platform/<your-os>` 並
+   rebase。
+4. **`phantom doctor --mesh`** — 看還有誰在線上。
+5. **在你的第一個 commit 中陳述你的 scope**，讓別人看到你出現了：
    ```
    [scope] add session: linux-arm joining the mesh
 
    Scope:    Linux platform binary, systemd template, /etc/phantom-mesh
    Reads:    everything
    Coordinates: nothing currently
-   
+
    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
    Session: linux-arm
    ```
 
 ---
 
-## What's NOT yet implemented (gaps + mitigation)
+## 尚未實作的部分（缺口 + 緩解）
 
-| Gap | Impact today | Mitigation until shipped |
+> **狀態更新 2026-05-28**：v1 的 6 個缺口中有 5 個現已由 v2 phantom-coord skill 涵蓋。
+> 下表保留作 audit；目前有意義的缺口位於 SPEC-81 §10
+> 遷移計畫（P5/Phase B-D）內。
+
+| 缺口 | 狀態 (2026-05-28) | 替代方案 |
 |---|---|---|
-| ~~`wire_version` on RPC~~ | ✅ Shipped 2026-05-01 — `WIRE_VERSION = 1` in `core/src/lib.rs`, every peer-facing RPC carries the field, mismatches return HTTP 400 with `phantom upgrade` hint | — |
-| `phantom doctor --mesh` | No one-command health check (now has `wire_version`/`core_sha` on `/rpc/ping` to consume) | Manual `curl /healthz` to each peer |
-| `phantom upgrade` | Each machine must `cargo build` itself | Use the redeploy bash from earlier sessions; codesign step is critical (see commit 85c8377) |
-| GitHub Actions release matrix | No central binary truth | Builds happen per-machine; verify md5 manually |
-| `agents.toml` split | Drift risk on cluster_secret | Manual sync; check via `sha256sum agents.toml` across boxes |
-| `.phantom-core-lock.json` | Multi-session core/ edit unprotected | Verbal coordination via commit messages |
+| ~~RPC 上的 `wire_version`~~ | ✅ 2026-05-01 出貨 | — |
+| ~~`phantom doctor --mesh` 一個命令健檢~~ | ⚠️ v2 用 `.ai-shared/heartbeat/<host>-last.txt` + `scripts/ai/coord/reclaim-dead-host.sh --dry-run` 取代 | SPEC-81 §6.2.4 heartbeat protocol |
+| `phantom upgrade` 各機自動拉 binary | ❌ 仍要 `curl install.sh \| sh` 重跑 | install.sh 5/27 驗 Mac arm64 OK；其他 OS 404 |
+| ~~GitHub Actions 5-OS release matrix~~ | ⏳ 設計階段 — T3 brief `.ai-shared/queue/node-a/task-2026052703.brief.md` 已 ship | 等 node-a bootstrap 後 claim |
+| ~~`agents.toml` split drift~~ | ✅ `configs/` 9 個 per-role 範本 + `configs/README.md` 對照表 + `cluster_secret` 走 env var | `.env` 各機獨立、`agents.toml` gitignored |
+| ~~`.phantom-core-lock.json` multi-session 保護~~ | ✅ 替換為 SPEC-81 P2 `.ai-shared/conflicts/<file>.lock` (檔案級 scope lock) | `acquire-scope-locks.sh` + `release-scope-locks.sh` |
 
-These are tracked as goals in `EVOLVE-GOALS.md` (the multi-device
-coordination block). Implementing them is the natural extension of
-this protocol from "agreement we read" to "agreement enforced by code."
+**v2 gaps 待補（per SPEC-81 §10）**：
 
-Phase target: ALL 6 gaps closed by 5/8 (one day before interview).
-That's tight but possible if the platform sessions don't compete with
-the core sessions too much.
+| Phase | 內容 | ETA |
+|---|---|---|
+| P4 node-a/node-b/node-d 真實 bootstrap | follower-windows.ps1 寫完 + 4 機都 cron active | 6/1 |
+| P5 multi-CLI 真用（codex/agy 各 task 分派）| 5/27 T1 codex 已驗 ship；剩 T2-T6 待 exercise | 6/3 |
+| Phase B `/rpc/swarm` 取代 git push race | 待 G1 Tailscale (✅ stub shipped 087cf12) + G2 swarm-bridge | v0.6.0+ |
+| Phase C phantom 自寫 brief（health check loop）| — | v0.7.0 |
+| Phase D 閉環 self-improvement | — | v0.8.0+ |
 
 ---
 
-## Quick reference card
+## 快速參考卡
 
-Pin this on every session:
+把這個釘在每個 session 上：
 
 ```
 1. git rebase origin/main          ← session start

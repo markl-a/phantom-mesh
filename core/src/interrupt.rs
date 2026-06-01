@@ -74,7 +74,10 @@ mod tests {
         let h = InterruptHandle::new();
         h.interrupt(Some("redirect to do X instead".into()));
         assert!(h.is_cancelled());
-        assert_eq!(h.take_message().as_deref(), Some("redirect to do X instead"));
+        assert_eq!(
+            h.take_message().as_deref(),
+            Some("redirect to do X instead")
+        );
         // Message is one-shot.
         assert!(h.take_message().is_none());
     }
@@ -108,12 +111,11 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             h2.interrupt(None);
         });
-        let cancelled = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            h.cancelled(),
-        )
-        .await;
-        assert!(cancelled.is_ok(), "cancelled() did not resolve after interrupt()");
+        let cancelled =
+            tokio::time::timeout(std::time::Duration::from_secs(1), h.cancelled()).await;
+        assert!(
+            cancelled.is_ok(),
+            "cancelled() did not resolve after interrupt()"
+        );
     }
 }
-

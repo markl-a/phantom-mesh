@@ -56,7 +56,7 @@ const MOCK_ADAPTATIONS: AdaptationEntry[] = [
   { time: "10:30", type: "AdjustScaling", action: "+2 SubAgents", level: "Safe", status: "已套用" },
   { time: "09:15", type: "ReorderProviderTier", action: "Ollama → 第一", level: "Safe", status: "已套用" },
   { time: "08:00", type: "InstallCapability", action: "image_generation", level: "Normal", status: "待確認" },
-  { time: "昨天", type: "RemoveNode", action: "acer-01", level: "Dangerous", status: "已拒絕" },
+  { time: "昨天", type: "RemoveNode", action: "node-b-01", level: "Dangerous", status: "已拒絕" },
 ];
 
 export default function EvolutionPanel() {

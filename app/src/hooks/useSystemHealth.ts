@@ -50,10 +50,13 @@ export function useSystemHealth() {
       : "degraded";
 
   const runCheck = useCallback(async () => {
-    // Step 1: Runtime health — only check /health, no LLM test on startup
+    // Step 1: Runtime health — probe /api/status (returns JSON, 200 when the
+    // daemon is up; no LLM test on startup). NB: the daemon has no /health
+    // route (404) — the liveness route is /healthz (plain "ok", not JSON) and
+    // /api/status is the JSON status endpoint httpGet can parse.
     setChecks(c => ({ ...c, runtime: { status: "checking", message: "檢查 Runtime..." } }));
     try {
-      await httpGet("/health");
+      await httpGet("/api/status");
       setChecks(c => ({ ...c, runtime: { status: "pass", message: "Runtime 運行中" } }));
     } catch {
       setChecks(c => ({

@@ -77,7 +77,7 @@ echo "$resp" | grep -qE 'content|result' \
   || fail "git_log returns result" "got: $(echo "$resp" | head -c 200)"
 
 # content_search (ripgrep)
-ABS_REPO="/Users/marklight/Documents/workspace/hailmary/phantom-mesh"
+ABS_REPO="${PHANTOM_REPO:-$PWD}"
 resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"content_search\",\"arguments\":{\"pattern\":\"phantom-mesh\",\"path\":\"$ABS_REPO/README.md\"}}}")
 echo "$resp" | grep -qiE 'phantom-mesh|content' \
   && ok "content_search ripgrep hits in README" "" \

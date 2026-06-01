@@ -5,7 +5,7 @@
 #   curl -fsSL http://<COORD-HOST>:7878/scripts/termux-setup.sh | sh
 #
 # Or with explicit coordinator + Groq key:
-#   COORD=http://100.87.93.58:7878 GROQ_KEY=gsk_… \
+#   COORD=http://localhost:7878 GROQ_KEY=gsk_… \
 #     curl -fsSL "$COORD/scripts/termux-setup.sh" | sh
 #
 # Pulls the phantom binary directly from the coordinator (avoids the
@@ -17,10 +17,10 @@ set -e
 echo "[phantom] Setting up on Android/Termux..."
 
 # ── tunable env ──────────────────────────────────────────────────────────────
-COORD="${COORD:-http://100.87.93.58:7878}"
+COORD="${COORD:-http://localhost:7878}"
 PORT="${PORT:-7879}"
-NODE_NAME="${NODE_NAME:-rog-phone}"
-SECRET="${SECRET:-phantom-cluster-2026}"
+NODE_NAME="${NODE_NAME:-android-phone}"
+SECRET="${SECRET:-changeme-cluster-secret}"
 PHANTOM_URL="${PHANTOM_URL:-${COORD}/dist/phantom-aarch64-linux-android}"
 
 # Basic packages
@@ -31,9 +31,25 @@ pkg install -y curl wget git termux-tools
 mkdir -p ~/.phantom-mesh/bin
 mkdir -p ~/.phantom-mesh/data
 
+# ── Load shared SHA256 + HTTPS verification helpers ──────────────────────────
+# We trust the coordinator just enough to fetch the helper, then use the
+# helper to enforce HTTPS + SHA256 on the actual binary download.
+VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX 2>/dev/null || echo /tmp/phantom-verify.$$)"
+trap 'rm -f "$VERIFY_HELPER"' EXIT
+if ! curl -fsSL --max-time 10 "$COORD/scripts/_verify-download.sh" -o "$VERIFY_HELPER"; then
+  echo "[phantom] ✗ Could not load $COORD/scripts/_verify-download.sh"
+  echo "[phantom]   Refusing to download a binary without the verifier."
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "$VERIFY_HELPER"
+
 # Download phantom binary from coordinator (or override URL)
 echo "[phantom] Downloading from $PHANTOM_URL ..."
+require_https "$PHANTOM_URL" || exit 1
 curl -fsSL "$PHANTOM_URL" -o ~/.phantom-mesh/bin/phantom
+# Fail-closed verification BEFORE chmod +x. On mismatch the binary is deleted.
+verify_sha256 ~/.phantom-mesh/bin/phantom "$PHANTOM_URL"
 chmod +x ~/.phantom-mesh/bin/phantom
 
 # Add to PATH

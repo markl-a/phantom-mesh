@@ -22,8 +22,8 @@ const ALLOWED_ACTIONS: &[&str] = &[
     "launch",
     "terminate",
     "openurl",
-    "io",          // screenshot / video record (we expose just screenshot below)
-    "screenshot",  // alias for `simctl io booted screenshot <path>`
+    "io",         // screenshot / video record (we expose just screenshot below)
+    "screenshot", // alias for `simctl io booted screenshot <path>`
 ];
 
 /// `xcode_simctl({action, args})`

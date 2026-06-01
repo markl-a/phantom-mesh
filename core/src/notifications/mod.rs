@@ -15,6 +15,4 @@ pub mod channels;
 pub mod dispatcher;
 
 pub use dispatcher::NotificationDispatcher;
-pub use pm_types::{
-    classify_priority, Notification, NotificationAction, NotificationPriority,
-};
+pub use pm_types::{classify_priority, Notification, NotificationAction, NotificationPriority};

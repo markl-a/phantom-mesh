@@ -18,7 +18,9 @@ export default function PageViewer() {
   const fetchPages = useCallback(async () => {
     try {
       const result = await invoke<PageInfo[]>("list_pages");
-      setPages(result);
+      // Guard: the browser/web fallback has no list_pages case and resolves
+      // undefined, which would crash `pages.map`. Coerce to an array.
+      setPages(Array.isArray(result) ? result : []);
     } catch {
       setPages([]);
     }

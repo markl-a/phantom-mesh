@@ -73,7 +73,11 @@ impl NotificationDispatcher {
 
     pub async fn channel_names(&self) -> Vec<String> {
         let inner = self.inner.lock().await;
-        inner.channels.iter().map(|c| c.name().to_string()).collect()
+        inner
+            .channels
+            .iter()
+            .map(|c| c.name().to_string())
+            .collect()
     }
 
     /// Dispatch a notification. P0 goes out immediately via every channel
@@ -177,7 +181,10 @@ impl NotificationDispatcher {
 
     async fn record_failure(&self, ch_name: &str, err: &anyhow::Error) {
         let mut inner = self.inner.lock().await;
-        let counter = inner.consecutive_failures.entry(ch_name.to_string()).or_insert(0);
+        let counter = inner
+            .consecutive_failures
+            .entry(ch_name.to_string())
+            .or_insert(0);
         *counter += 1;
         let count = *counter;
         drop(inner);
@@ -217,7 +224,9 @@ mod tests {
 
     #[async_trait]
     impl NotificationChannel for CountingChannel {
-        fn name(&self) -> &str { self.name }
+        fn name(&self) -> &str {
+            self.name
+        }
         async fn send(&self, _n: &Notification) -> anyhow::Result<()> {
             if self.fail {
                 return Err(anyhow::anyhow!("simulated failure"));
@@ -269,7 +278,8 @@ mod tests {
         disp.add_channel(ch1).await;
         disp.add_channel(ch2).await;
 
-        disp.notify(mk_notification("k1", NotificationPriority::P0)).await;
+        disp.notify(mk_notification("k1", NotificationPriority::P0))
+            .await;
         // wait for spawned sends
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(s1.load(Ordering::SeqCst), 1);
@@ -283,7 +293,8 @@ mod tests {
         disp.add_channel(ch).await;
 
         for _ in 0..3 {
-            disp.notify(mk_notification("k", NotificationPriority::P1)).await;
+            disp.notify(mk_notification("k", NotificationPriority::P1))
+                .await;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
         // nothing sent yet
@@ -302,7 +313,8 @@ mod tests {
         let disp = NotificationDispatcher::new();
         let (ch, sent, _) = counting("a");
         disp.add_channel(ch).await;
-        disp.notify(mk_notification("k", NotificationPriority::P2)).await;
+        disp.notify(mk_notification("k", NotificationPriority::P2))
+            .await;
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert_eq!(sent.load(Ordering::SeqCst), 0);
     }
@@ -334,7 +346,8 @@ mod tests {
         disp.add_channel(good).await;
         disp.add_channel(failing).await;
 
-        disp.notify(mk_notification("k", NotificationPriority::P0)).await;
+        disp.notify(mk_notification("k", NotificationPriority::P0))
+            .await;
         tokio::time::sleep(Duration::from_millis(50)).await;
         // good channel got the message even though bad failed
         assert_eq!(good_sent.load(Ordering::SeqCst), 1);

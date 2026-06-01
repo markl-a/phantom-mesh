@@ -15,6 +15,9 @@ import {
   type BrokerLoginFinishResponse,
   type BrokerSyncResponse,
 } from "../../lib/brokerLogin";
+// Wire helper around the Wave H1.1 Tauri commands `onboarding_advance`
+// + `onboarding_rollback` (registered in src-tauri/src/lib.rs:572-573).
+import { advanceUntil } from "../../lib/onboardingFsm";
 
 type Phase =
   | { kind: "checking" }
@@ -30,6 +33,26 @@ interface Props {
 
 export default function MobileOnboardingV2({ onReady }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: "checking" });
+  const [advanceWarning, setAdvanceWarning] = useState<string | null>(null);
+
+  // Drive the SPEC-28 FSM forward up to `first_reply_received` (terminal
+  // state) and then signal the parent it can swap to the main chat UI.
+  // We swallow real backend errors here too (best-effort): once the user
+  // has reached the "ready" point in V2 there is no UI affordance to
+  // recover an FSM advance failure — surfacing it would only confuse.
+  // The helper itself already silences the `not_yet_wired` stage-3 path.
+  const completeOnboarding = async (
+    ctxPatch: Parameters<typeof advanceUntil>[1] = {},
+  ) => {
+    try {
+      await advanceUntil("first_reply_received", ctxPatch);
+    } catch (e) {
+      setAdvanceWarning(e instanceof Error ? e.message : String(e));
+      // eslint-disable-next-line no-console
+      console.warn("[MobileOnboardingV2] advanceUntil failed (non-fatal)", e);
+    }
+    onReady();
+  };
 
   // Step 1: on mount, check if user already has a working AuthState.
   useEffect(() => {
@@ -39,7 +62,8 @@ export default function MobileOnboardingV2({ onReady }: Props) {
         if (cancelled) return;
         if (status && status.broker_token_expires_at_ms > Date.now()) {
           // Already logged in + token still valid → fast-forward.
-          onReady();
+          // Mark provider as broker-vault sourced so downstream knows.
+          void completeOnboarding({ providerSlug: "broker_vault" });
         } else {
           setPhase({ kind: "needs-login" });
         }
@@ -49,6 +73,7 @@ export default function MobileOnboardingV2({ onReady }: Props) {
         setPhase({ kind: "needs-login" });
       });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onReady]);
 
   // Step 2: subscribe to deep-link OAuth callback so the screen advances
@@ -64,19 +89,24 @@ export default function MobileOnboardingV2({ onReady }: Props) {
       if (result.sync) {
         setPhase({ kind: "complete", identity: result.identity, sync: result.sync });
         // Auto-advance to chat after a brief "✓ done" pause.
-        setTimeout(() => onReady(), 1500);
+        setTimeout(() => {
+          void completeOnboarding({ providerSlug: "broker_vault" });
+        }, 1500);
       } else {
         setPhase({ kind: "syncing", identity: result.identity });
         try {
           const sync = await syncFromVault();
           setPhase({ kind: "complete", identity: result.identity, sync });
-          setTimeout(() => onReady(), 1500);
+          setTimeout(() => {
+            void completeOnboarding({ providerSlug: "broker_vault" });
+          }, 1500);
         } catch (e) {
           setPhase({ kind: "error", message: `vault sync failed: ${String(e)}` });
         }
       }
     });
     return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onReady]);
 
   const handleSignIn = async () => {
@@ -112,7 +142,7 @@ export default function MobileOnboardingV2({ onReady }: Props) {
               以 phantommesh.io 登入（Google / Apple）
             </button>
             <button
-              onClick={onReady}
+              onClick={() => { void completeOnboarding(); }}
               className="w-full text-phantom-muted text-xs underline mt-2"
             >
               先不登入 — 稍後再從設定填 API key
@@ -163,7 +193,7 @@ export default function MobileOnboardingV2({ onReady }: Props) {
               重試
             </button>
             <button
-              onClick={onReady}
+              onClick={() => { void completeOnboarding(); }}
               className="text-xs text-phantom-muted underline"
             >
               跳過登入，手動填 key
@@ -171,6 +201,12 @@ export default function MobileOnboardingV2({ onReady }: Props) {
           </div>
         )}
       </div>
+
+      {advanceWarning && (
+        <div className="mt-4 w-full max-w-sm p-2 bg-amber-500/10 border border-amber-500/30 rounded text-amber-300 text-[11px] break-words">
+          狀態同步警告：{advanceWarning}
+        </div>
+      )}
 
       <div className="text-[10px] text-phantom-muted mt-12 text-center max-w-sm">
         ◆ phantom mesh — 你的多裝置 AI agent

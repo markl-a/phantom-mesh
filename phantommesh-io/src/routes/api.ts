@@ -117,16 +117,38 @@ export async function getSettings(c: Context<{ Bindings: Env }>) {
   });
 }
 
-/// GET /api/me/settings/raw — same as above but returns ACTUAL values.
-/// Used by `phantom config pull`. Never shown in the browser; the only
-/// caller is the CLI with a Bearer broker_token.
+/// GET /api/me/settings/raw — RETIRED (SPEC-15 broker vault E2EE).
+///
+/// This endpoint used to return ACTUAL plaintext secret values to the CLI
+/// (`phantom config pull`). Under true end-to-end encryption the broker
+/// MUST NEVER emit plaintext of any sealed value, so this plaintext-returning
+/// route is permanently disabled. Clients fetch sealed ciphertext via the new
+/// dumb-storage GET /vault/get route and unseal locally with the device-held
+/// VaultSealKey. See SPEC-15 §4 + docs/integration/2026-05-29-spec15-vault-
+/// verification.md.
+///
+/// The handler is kept (returns 410 Gone) so the route registration in
+/// index.ts still resolves during the migration window. It deliberately does
+/// NOT call getUserSettings and can never leak plaintext.
+///
+/// TODO(spec15-deploy): delete the `app.get("/api/me/settings/raw", ...)`
+/// registration in src/index.ts and remove this handler once all clients
+/// have migrated to GET /vault/get.
 export async function getSettingsRaw(c: Context<{ Bindings: Env }>) {
+  // Authenticate so we don't reveal route behavior to anonymous callers,
+  // but NEVER read or return any stored value.
   const ok = await authnSettings(c);
   if (!ok) {
-    return c.json({ error: c.res.status === 403 ? "forbidden" : "unauthenticated" });
+    return c.json({ error: c.res.status === 403 ? "forbidden" : "unauthenticated" }, c.res.status === 403 ? 403 : 401);
   }
-  const settings = await getUserSettings(c.env, ok.userId);
-  return c.json({ env: settings.env, updated_at: settings.updated_at });
+  return c.json(
+    {
+      error: "gone",
+      message:
+        "GET /api/me/settings/raw is retired under SPEC-15 E2EE. Fetch sealed ciphertext via GET /vault/get and unseal locally.",
+    },
+    410,
+  );
 }
 
 /// PUT /api/me/settings — full replace. Body: {env: {KEY: "value", ...}}.

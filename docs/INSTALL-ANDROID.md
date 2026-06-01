@@ -1,48 +1,46 @@
-# phantom on Android — Install Guide
+# phantom 在 Android 上 — 安裝指南
 
-Two flavors, you can run **both on the same device**:
+兩種型態（flavor），你可以在**同一台裝置上同時執行兩者**：
 
-| Flavor | What it gives you | Install time |
+| 型態 | 它能給你什麼 | 安裝時間 |
 |---|---|---|
-| **Tauri APK (thin client)** | Native app icon on the home screen, opens a webview that talks to your Mac/Linux phantom serve. Touch-friendly chat UI. | ~30 s |
-| **Termux worker (headless or TUI)** | Real `phantom serve` daemon on the phone. Joins the cluster, accepts dispatched tasks, and gives you the same ratatui TUI you have on Mac. | ~2 min |
+| **Tauri APK（精簡客戶端 thin client）** | 在主畫面放一個原生 app 圖示，點開後是一個 webview（網頁檢視容器），用來和你的 Mac/Linux 上的 phantom serve 對話。觸控友善的聊天介面。 | 約 30 秒 |
+| **Termux worker（無介面 headless 或 TUI）** | 在手機上跑一個真正的 `phantom serve` 常駐程式（daemon）。它會加入叢集（cluster）、接受派發的任務，並提供和你在 Mac 上一樣的 ratatui TUI（文字使用者介面）。 | 約 2 分鐘 |
 
-> Prerequisites for both: phone connected to the same Tailscale tailnet as
-> the coordinator, and the coordinator (a Mac/Linux running
-> `phantom serve`) reachable on its Tailscale IP. From the phone:
-> `ping <coord-ts-ip>` should succeed.
+> 兩者的前置需求（prerequisites）：手機要連到與協調者（coordinator）相同的
+> Tailscale tailnet（虛擬區網），而協調者（一台執行
+> `phantom serve` 的 Mac/Linux）要能透過它的 Tailscale IP 連到。從手機上：
+> `ping <coord-ts-ip>` 應該要成功。
 
 ---
 
-## A. Tauri APK — native thin client
+## A. Tauri APK — 原生精簡客戶端
 
-Use this when you want a **home-screen icon** that opens directly to the
-phantom mobile UI. Best for the "I just want to chat with my cluster"
-experience.
+當你想要一個**主畫面圖示**、點開後直接進入 phantom 行動版介面時，就用這個。最適合「我只想跟我的叢集聊天」這種使用情境。
 
-### A.1. Download the APK
+### A.1. 下載 APK
 
-In the phone's browser (Chrome / Firefox / Samsung Internet — anything):
+在手機的瀏覽器（Chrome / Firefox / Samsung Internet — 任何一個都行）中開啟：
 
 ```
 http://<COORDINATOR-TS-IP>:7878/dist/phantom-mesh-android.apk
 ```
 
-Replace `<COORDINATOR-TS-IP>` with your Mac/Linux node's Tailscale IP
-(e.g. `100.87.93.58`). The APK is ~96 MB (universal: arm64-v8a + armv7
-+ x86 + x86_64 in one bundle, signed, v2/v3 schemes).
+把 `<COORDINATOR-TS-IP>` 換成你的 Mac/Linux 節點的 Tailscale IP
+（例如 `<mac-tailscale-ip>`）。這個 APK 約 96 MB（通用版 universal：arm64-v8a + armv7
++ x86 + x86_64 全部打包在一起、已簽章、採用 v2/v3 簽章方案）。
 
-### A.2. Install
+### A.2. 安裝
 
-Tap the downloaded APK. Android will show "For your security, your phone
-isn't allowed to install unknown apps from this source" — tap **Settings
-→ Allow from this source → back → Install**.
+點一下下載好的 APK。Android 會顯示「為了你的安全，你的手機
+不允許從這個來源安裝未知的應用程式」— 點 **設定
+→ 允許來自這個來源 → 返回 → 安裝**。
 
-You only have to do this once per browser.
+每個瀏覽器你只需要做一次。
 
-### A.3. First launch
+### A.3. 首次啟動
 
-Tap the new **Phantom Mesh** icon. You'll see a settings form:
+點一下新出現的 **Phantom Mesh** 圖示。你會看到一個設定表單：
 
 ```
 Connect to phantom serve
@@ -52,91 +50,90 @@ Port:  7878
                           [Connect]
 ```
 
-Fill in the coordinator IP, leave the port at `7878`, tap **Connect**.
-The app remembers this in localStorage; subsequent launches go straight
-to the chat UI.
+填入協調者的 IP，連接埠（port）維持 `7878`，點 **Connect**。
+app 會把這個設定記在 localStorage（瀏覽器本機儲存）裡；之後再啟動就會直接
+進到聊天介面。
 
-### A.4. What you see
+### A.4. 你會看到什麼
 
-The same dark-cream mobile chat UI shipped at `/m` on the coordinator:
-ANSI-colored streams, modifier bar (`@` `/` `⇥` `↑` `↓` `■`),
-collapsible tool calls, and live SSE token streams.
+和協調者上 `/m` 所提供的那個深色奶油（dark-cream）行動聊天介面一模一樣：
+ANSI 著色的串流、修飾鍵列（`@` `/` `⇥` `↑` `↓` `■`）、
+可摺疊的工具呼叫（tool call），以及即時的 SSE（伺服器推送事件 Server-Sent Events）token 串流。
 
-### A.5. Switching coordinators later
+### A.5. 之後切換協調者
 
-Open Chrome → `phantom://localhost:1430` is **not** how — Tauri's
-WebView doesn't expose its localStorage from outside. Instead, just
-**uninstall and reinstall** the APK to reset, or use the upcoming
-`/Settings` route in the mobile UI (see roadmap below).
+開 Chrome → `phantom://localhost:1430` 這招**行不通** — Tauri 的
+WebView（網頁檢視）不會從外部暴露它的 localStorage。正確做法是直接
+**解除安裝再重新安裝** APK 來重置，或使用行動版介面中即將推出的
+`/Settings` 路由（見下方 roadmap）。
 
 ---
 
-## B. Termux worker — real `phantom serve` on the phone
+## B. Termux worker — 在手機上跑真正的 `phantom serve`
 
-Use this when you want the **phone to be an actual cluster member** —
-the Mac (or any peer) can dispatch `subagent({node: "<phone-ts-ip>:7879"})`
-tasks to it. Also gives you the **ratatui TUI** identical to the Mac
-version, just inside Termux.
+當你想讓**手機成為一個真正的叢集成員**時就用這個 —
+Mac（或任何對等節點 peer）都可以把 `subagent({node: "<phone-ts-ip>:7879"})`
+任務派發給它。它同時也提供和 Mac 版一模一樣的 **ratatui TUI**，只是跑在 Termux 裡面。
 
-### B.1. Install Termux from F-Droid
+### B.1. 從 F-Droid 安裝 Termux
 
-**Important**: install [Termux from F-Droid](https://f-droid.org/en/packages/com.termux/),
-**not** from the Play Store. The Play Store version stopped receiving
-updates in 2020 and lacks current packages.
+**重要**：請從 [F-Droid 安裝 Termux](https://f-droid.org/en/packages/com.termux/)，
+**不要**從 Play Store 安裝。Play Store 版本自 2020 年起就不再更新，
+也缺少現行的套件。
 
-### B.2. Run the bootstrap script
+### B.2. 執行 bootstrap 啟動腳本
 
-Open Termux, paste this **one line** (replace the Groq key with your
-own from `~/.phantom-mesh/env` on the coordinator):
+開啟 Termux，貼上這**一行**（把 Groq key 換成你自己的，
+可從協調者上的 `~/.phantom-mesh/env` 取得）：
 
 ```bash
-COORD=http://100.87.93.58:7878 \
+COORD=http://<mac-tailscale-ip>:7878 \
 GROQ_KEY=gsk_your_groq_key_here \
   curl -fsSL "$COORD/scripts/termux-setup.sh" | sh
 ```
 
-What the script does (~2 min):
-- `pkg install` curl/wget/git/termux-tools
-- pulls the latest `phantom-aarch64-linux-android` from
-  `<COORD>/dist/...`
-- writes `~/.phantom-mesh/agents.toml` with the cluster_secret +
-  coordinator URL
-- starts `phantom serve --port 7879` in the background and verifies
-  healthz
-- prints a 3-way menu (TUI / browser / cluster worker) so you know
-  what to do next
+這個腳本會做的事（約 2 分鐘）：
+- `pkg install` 安裝 curl/wget/git/termux-tools
+- 從 `<COORD>/dist/...` 拉取最新的
+  `phantom-aarch64-linux-android`
+- 寫入 `~/.phantom-mesh/agents.toml`，內含 cluster_secret（叢集密鑰）+
+  協調者 URL
+- 在背景啟動 `phantom serve --port 7879` 並驗證
+  healthz（健康檢查端點）
+- 印出一個三選一選單（TUI / 瀏覽器 / 叢集 worker），讓你知道
+  接下來該做什麼
 
-### B.3. Three ways to use it
+### B.3. 三種使用方式
 
-After the script finishes:
+腳本跑完後：
 
-**1) ratatui TUI** — the full-screen interactive UI, identical to Mac:
+**1) ratatui TUI** — 全螢幕的互動介面，和 Mac 上完全相同：
 ```bash
 phantom
 ```
-This blocks the Termux session. Open a second Termux session if you
-want the worker to keep running while you use the TUI.
+這會佔住（block）整個 Termux 工作階段（session）。如果你想讓 worker
+在你使用 TUI 的同時繼續執行，請另外開一個 Termux 工作階段。
 
-**2) Browser / PWA** — chat-style UI:
+**2) 瀏覽器 / PWA**（漸進式網頁應用程式 Progressive Web App）— 聊天式介面：
 ```
 http://<phone-ts-ip>:7879/    ← this device's serve
 http://<coord-ts-ip>:7878/m   ← Mac coordinator's mobile UI
 ```
-Add to home screen for a PWA-style icon.
+加到主畫面就會有一個 PWA 風格的圖示。
 
-**3) Stay headless (worker only)** — Mac dispatches tasks to it:
+**3) 維持無介面（只當 worker）** — 由 Mac 派發任務給它：
 ```ts
 mcp__phantom__subagent({
   agent: "master",
-  prompt: "echo hello from rog",
+  prompt: "echo hello from node-a",
   node: "<phone-ts-ip>:7879",
 })
 ```
 
-### B.4. Auto-start on Termux boot (optional)
+### B.4. Termux 開機時自動啟動（選用）
 
-Install [Termux:Boot](https://f-droid.org/packages/com.termux.boot/),
-then create the boot script:
+安裝 [Termux:Boot](https://f-droid.org/packages/com.termux.boot/)，
+然後建立開機腳本：
 
 ```bash
 mkdir -p ~/.termux/boot
@@ -147,32 +144,32 @@ EOF
 chmod +x ~/.termux/boot/phantom-serve
 ```
 
-After a phone reboot, Termux:Boot launches the worker silently.
+手機重新開機後，Termux:Boot 會在背景靜默啟動 worker。
 
 ---
 
-## Combining A and B on the same device
+## 在同一台裝置上結合 A 與 B
 
-There's no conflict — A is a webview client, B is a daemon. Common
-setup on the ROG:
+兩者不衝突 — A 是一個 webview 客戶端，B 是一個常駐程式（daemon）。node-a 上常見的
+設定方式：
 
-- **B running headless** → 100.84.223.59:7879 is a true worker the
-  cluster can dispatch to.
-- **A on the home screen** → tapping it opens the chat UI (pointed at
-  either the Mac at `:7878` or its own local serve at `:7879`).
+- **B 以無介面方式執行** → 100.64.0.10:7879 就是一個叢集可以派發任務的
+  真正 worker。
+- **A 放在主畫面** → 點它就會打開聊天介面（指向
+  Mac 的 `:7878`，或它自己本機 serve 的 `:7879` 都可以）。
 
-If you point A at the **phone's own** serve (`localhost:7879`), the
-phone runs both the UI and its own LLM calls — fully offline-capable
-(once provider keys are filled in).
+如果你把 A 指向**手機自己的** serve（`localhost:7879`），
+手機就同時跑介面和它自己的 LLM（大型語言模型）呼叫 — 完全可離線運作
+（只要填好供應商 provider 的金鑰）。
 
 ---
 
-## Troubleshooting
+## 疑難排解
 
-### "App not installed as package appears to be invalid"
+### 「App not installed as package appears to be invalid」（應用程式未安裝，套件似乎無效）
 
-The APK was downloaded over a flaky connection and is corrupt. Re-download
-and verify:
+APK 是在不穩定的連線下載的，檔案毀損了。重新下載
+並驗證：
 
 ```bash
 # On the phone after download:
@@ -180,16 +177,16 @@ curl -I http://<coord>:7878/dist/phantom-mesh-android.apk
 # Content-Length should be ≥ 90 MB. If not, re-download.
 ```
 
-### Tauri app shows "Connection refused"
+### Tauri app 顯示「Connection refused」（連線被拒）
 
-The coordinator's `phantom serve` is not reachable from the phone:
+協調者的 `phantom serve` 從手機這邊連不到：
 
-1. Phone Tailscale on? (notification-bar VPN icon)
-2. Coordinator `phantom doctor` shows healthz OK?
-3. macOS firewall not blocking :7878 outbound? System Settings →
-   Network → Firewall → Allow phantom
+1. 手機的 Tailscale 開了嗎？（通知列上的 VPN 圖示）
+2. 協調者的 `phantom doctor` 顯示 healthz OK 嗎？
+3. macOS 防火牆有沒有擋住 :7878 的對外連線？系統設定 →
+   網路 → 防火牆 → 允許 phantom
 
-### Termux script fails on `pkg install`
+### Termux 腳本在 `pkg install` 階段失敗
 
 ```bash
 pkg upgrade -y
@@ -197,36 +194,36 @@ pkg install -y curl wget git termux-tools
 # then re-run the bootstrap line
 ```
 
-### Phone keeps killing the worker (especially Xiaomi/Vivo)
+### 手機一直把 worker 砍掉（尤其是 Xiaomi/Vivo）
 
-OEM battery-optimization quirks. Settings → Apps → Termux → Battery →
-**Unrestricted**. On Xiaomi MIUI you may also need:
-Settings → Apps → Termux → Other permissions → Autostart **on**.
+這是 OEM（原始裝置製造商）電池最佳化的怪癖。設定 → 應用程式 → Termux → 電池 →
+**不受限制（Unrestricted）**。在小米 MIUI 上你可能還需要：
+設定 → 應用程式 → Termux → 其他權限 → 自動啟動（Autostart）**開啟**。
 
-### `phantom doctor` row "APFS snapshots: tmutil reachable" looks weird
+### `phantom doctor` 中「APFS snapshots: tmutil reachable」這一列看起來很怪
 
-That row is macOS-only. The Android phantom binary doesn't have the
-APFS snapshot tooling (it's `#[cfg(target_os = "macos")]`-gated). On
-Android `phantom doctor` simply omits the macOS-integrations section.
+那一列是 macOS 專用的。Android 版的 phantom 二進位檔沒有
+APFS 快照（snapshot）工具（它被 `#[cfg(target_os = "macos")]` 條件編譯擋住了）。在
+Android 上 `phantom doctor` 會直接省略 macOS 整合那一段。
 
-### Worker started but Mac can't dispatch — `node` not found
+### Worker 已啟動但 Mac 無法派發 — 找不到 `node`
 
-The phone's TS IP may have changed:
+手機的 TS IP 可能變了：
 
 ```bash
 # In Termux:
 ip -4 addr show | awk '/100\./ {print $2}' | cut -d/ -f1
 ```
 
-Update the `node:` argument in your subagent call (or your
-`agents.toml` `[cluster].peers`) accordingly.
+依此更新你 subagent 呼叫中的 `node:` 參數（或你
+`agents.toml` 中的 `[cluster].peers`）。
 
 ---
 
-## Verify the round trip
+## 驗證來回往返（round trip）
 
-From the Mac (with both phantom serve running on the Mac and the worker
-running on the phone):
+從 Mac 上執行（Mac 上跑著 phantom serve、手機上跑著 worker
+時）：
 
 ```bash
 # 1. Phone reachable on its Tailscale IP from the Mac:
@@ -234,7 +231,8 @@ curl -fsS http://<phone-ts-ip>:7879/healthz
 # Expect: ok
 
 # 2. HMAC dispatch through cluster RPC:
-SECRET="phantom-cluster-2026"
+# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+SECRET="changeme-cluster-secret"
 BODY='{"agent":"master","prompt":"reply: OK from android"}'
 AUTH=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
 RESP=$(curl -s -X POST "http://<phone-ts-ip>:7879/rpc/task/assign" \
@@ -245,22 +243,22 @@ curl -s "http://<phone-ts-ip>:7879/rpc/task/status/$JOB"
 # Expect: {"status":"done","output":"OK from android",...}
 ```
 
-If both pass, the ROG (or any Android device) is a fully functional
-cluster worker.
+如果兩項都通過，node-a（或任何 Android 裝置）就是一個功能完整的
+叢集 worker。
 
-For a deeper end-to-end validation (15 phases covering CLI / daemon /
-endpoint matrix / web / MCP stdio / HMAC / real LLM / cluster /
-TUI / autoevolve / Termux:Boot / stress / failure modes / cleanup),
-see [`SMOKE-ANDROID.md`](SMOKE-ANDROID.md).
+若要進行更深入的端對端（end-to-end）驗證（15 個階段，涵蓋 CLI / 常駐程式 /
+端點矩陣 / web / MCP stdio / HMAC / 真實 LLM / 叢集 /
+TUI / autoevolve / Termux:Boot / 壓力測試 / 失效模式 / 清理），
+請見 [`SMOKE-ANDROID.md`](SMOKE-ANDROID.md)。
 
 ---
 
-## Roadmap (not yet shipped)
+## 發展藍圖（Roadmap，尚未推出）
 
-- **Inline coordinator switcher** — change host/port from inside the
-  app without uninstall/reinstall
-- **Foreground Service** in the APK — keep the worker alive even when
-  Android wants to kill background apps
-- **GitHub Releases** as the canonical APK source — `phantom serve`
-  will pull from there instead of needing a peer to host the binary
-- **Push notifications** when a long-running task completes
+- **內建協調者切換器** — 不必解除安裝/重新安裝，直接在 app 內部
+  變更主機/連接埠
+- **APK 內的前景服務（Foreground Service）** — 即使 Android 想砍掉背景
+  app，也能讓 worker 保持存活
+- **以 GitHub Releases 作為 APK 的正式來源** — 屆時 `phantom serve`
+  會直接從那裡拉取，不再需要某個對等節點來代管二進位檔
+- **推播通知（Push notifications）** — 當長時間執行的任務完成時通知你

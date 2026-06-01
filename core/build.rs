@@ -15,8 +15,8 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 fn main() {
-    let git_hash = run("git", &["rev-parse", "--short=10", "HEAD"])
-        .unwrap_or_else(|| "unknown".into());
+    let git_hash =
+        run("git", &["rev-parse", "--short=10", "HEAD"]).unwrap_or_else(|| "unknown".into());
     let git_dirty = run("git", &["status", "--porcelain"])
         .map(|s| if s.is_empty() { "" } else { "+" })
         .unwrap_or("");

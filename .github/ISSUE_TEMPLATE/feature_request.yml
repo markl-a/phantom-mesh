@@ -1,26 +1,44 @@
-name: Feature request
-description: New capability, UX change, or "I wish phantom could ..."
-title: "[feat] "
-labels: ["enhancement"]
+name: ✨ 功能建議（Feature request）
+description: 提出新功能或改善構想
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝你的構想！為了讓功能與專案的核心目標（BIG-GOAL 四大支柱：跨裝置 Mesh／多模態理解／進化網 EvolveMesh／加密為先）對齊，請說明動機與情境。
   - type: textarea
     id: problem
     attributes:
-      label: The problem you're hitting
-      description: What are you trying to do? Why doesn't the current phantom let you do it?
+      label: 想解決的問題（What problem does this solve?）
+      description: 你遇到的痛點是什麼？這個功能要服務哪個使用情境？
+      placeholder: 當我嘗試 ... 時，目前無法 ...，導致 ...
     validations:
       required: true
   - type: textarea
-    id: idea
+    id: proposal
     attributes:
-      label: Your proposed solution (optional)
-      description: How you imagine it could work — slash command, CLI flag, TUI element, etc.
+      label: 建議的做法（Proposed solution）
+      description: 你希望它如何運作？若有 CLI 指令、畫面或 API 草案可一併附上。
     validations:
-      required: false
+      required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives you've considered
-      description: e.g. "I'm currently using `phantom dispatch --to X` in a loop, would be nicer if..."
+      label: 替代方案（Alternatives considered）
+      description: 你想過哪些其他做法？為什麼這個比較好？
     validations:
       required: false
+  - type: dropdown
+    id: pillar
+    attributes:
+      label: 對齊的支柱（Aligned pillar）
+      description: 此功能主要服務哪個 BIG-GOAL 支柱？
+      options:
+        - P1 跨裝置 Mesh（cross-device mesh）
+        - P2 多模態理解（multimodal understanding）
+        - P3 進化網 EvolveMesh（self-evolution）
+        - P4 加密為先（encryption-first）
+        - 跨多個支柱 / 不確定
+    validations:
+      required: true

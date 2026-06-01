@@ -1,10 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { safeInvoke as invoke, isTauri } from "../../lib/tauri-compat";
-import { Play, RefreshCw, Trash2 } from "lucide-react";
+import { Play, RefreshCw, Trash2, Square, Zap } from "lucide-react";
 import type { Message, AgentEvent, DaemonInfo, ToolCall } from "../../lib/types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import ConversationSelector from "./ConversationSelector";
+import {
+  selectProvider,
+  streamComplete,
+  buildRequest,
+  describeError,
+  type ProviderMessage,
+  type StreamHandle,
+} from "../../lib/providers";
 
 // Safe listen: no-op in browser mode
 async function safeListen(event: string, handler: (e: { payload: unknown }) => void) {
@@ -76,6 +84,15 @@ export default function ConversationView() {
   const [goalSet, setGoalSet] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // ── SPEC-14 providers wire path (raw mode) ───────────────────────────────────
+  // When `providerMode` is true, send() bypasses the agent send_message
+  // endpoint and routes directly through `providers_complete_streaming`,
+  // giving the user un-filtered access to whatever provider the SPEC-14
+  // resolver picks for ("commodity", "interactive").
+  const [providerMode, setProviderMode] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const streamRef = useRef<StreamHandle | null>(null);
 
   // ── Load history whenever chatId changes ─────────────────────────────────────
   const loadHistory = (id: string) => {
@@ -152,6 +169,117 @@ export default function ConversationView() {
     }
   };
 
+  // ── Provider mode: resolve a slug when toggled on ────────────────────────────
+  // Run once on toggle so the header label updates even before the first
+  // message. Failures degrade gracefully — we still let the user try to send,
+  // because the resolver re-runs server-side per request anyway.
+  useEffect(() => {
+    if (!providerMode) {
+      setActiveProvider(null);
+      return;
+    }
+    selectProvider("commodity", "interactive")
+      .then(setActiveProvider)
+      .catch((e) => {
+        setActiveProvider(null);
+        setError(`Provider 解析失敗：${describeError(String(e))}`);
+      });
+  }, [providerMode]);
+
+  // ── Send via SPEC-14 providers wire ──────────────────────────────────────────
+  // Builds a `ProviderRequest` from the current message history, picks a
+  // provider via `select_provider`, then streams the response through the
+  // `providers_complete_event` event bus. Cancellation: we keep the
+  // StreamHandle in a ref so the user's Stop button can detach the listener.
+  const sendViaProvider = async (msg: string) => {
+    const priorMessages = messages.filter(m => !(m.role === "assistant" && m.content === ""));
+
+    // Build the ProviderRequest message array — system prompt is hoisted so
+    // adapters (e.g. Anthropic) can place it out-of-band per SPEC-14 §7.1.
+    const providerMessages: ProviderMessage[] = [
+      ...priorMessages.map(m => ({ role: m.role, content: m.content, images: [] })),
+      { role: "user" as const, content: msg, images: [] },
+    ];
+
+    let resolvedProvider = activeProvider;
+    try {
+      if (!resolvedProvider) {
+        resolvedProvider = await selectProvider("commodity", "interactive");
+        setActiveProvider(resolvedProvider);
+      }
+    } catch (e) {
+      setError(`Provider 解析失敗：${describeError(String(e))}`);
+      setLoading(false);
+      setMessages(prev => prev.slice(0, -1));
+      return;
+    }
+
+    // The wire requires a non-empty `model`. We let the resolver pick the
+    // default by passing the provider slug — the backend reads
+    // `default_model` from agents.toml. If that round-trips empty we surface
+    // the upstream `provider.model_not_found` error rather than guessing.
+    const req = buildRequest({
+      model: resolvedProvider ?? "",
+      messages: providerMessages,
+      temperature: 0.7,
+    });
+
+    const handle = await streamComplete(req, {
+      onToken: (token) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const idx = updated.length - 1;
+          if (updated[idx]?.role === "assistant") {
+            // The backend currently emits the whole text in one `done` event,
+            // so this is effectively a replace. Once core grows real per-token
+            // streaming this naturally becomes append.
+            updated[idx] = { ...updated[idx], content: token };
+          }
+          return updated;
+        });
+      },
+      onDone: (response) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const idx = updated.length - 1;
+          if (updated[idx]?.role === "assistant") {
+            updated[idx] = {
+              ...updated[idx],
+              content: response.text,
+              provider: resolvedProvider ?? undefined,
+              model: response.modelUsed,
+            };
+          }
+          return updated;
+        });
+        setLoading(false);
+        streamRef.current = null;
+      },
+      onError: (err) => {
+        setError(describeError(err));
+        setMessages(prev => prev.slice(0, -1));
+        setLoading(false);
+        streamRef.current = null;
+      },
+    });
+    streamRef.current = handle;
+  };
+
+  // ── Stop / cancel in-flight stream (provider mode) ───────────────────────────
+  const stop = () => {
+    streamRef.current?.cancel();
+    streamRef.current = null;
+    setLoading(false);
+    setMessages(prev => {
+      const updated = [...prev];
+      const idx = updated.length - 1;
+      if (updated[idx]?.role === "assistant" && !updated[idx].content) {
+        updated[idx] = { ...updated[idx], content: "_(已中斷)_" };
+      }
+      return updated;
+    });
+  };
+
   // ── Send message ──────────────────────────────────────────────────────────────
   const send = async (text?: string | unknown) => {
     const msg = (typeof text === "string" ? text : input).trim();
@@ -164,6 +292,18 @@ export default function ConversationView() {
     setMessages(prev => [...prev, { role: "user", content: msg }]);
     setLoading(true);
     setMessages(prev => [...prev, { role: "assistant", content: "", tool_calls: [] }]);
+
+    // Branch: raw provider mode skips the agent loop entirely.
+    if (providerMode) {
+      try {
+        await sendViaProvider(msg);
+      } catch (e) {
+        setError(describeError(String(e)));
+        setMessages(prev => prev.slice(0, -1));
+        setLoading(false);
+      }
+      return;
+    }
 
     let streamReceived = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -299,8 +439,36 @@ export default function ConversationView() {
         {/* Spacer */}
         <div className="flex-1" />
 
+        {/* SPEC-14 provider mode toggle — bypasses agent loop, hits providers wire directly */}
+        <button
+          onClick={() => setProviderMode(m => !m)}
+          disabled={loading}
+          title={providerMode
+            ? `Provider 直連模式（${activeProvider ?? "解析中"}）— 點擊切回 Agent`
+            : "切換到 Provider 直連模式（跳過 agent loop）"}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition disabled:opacity-40 ${
+            providerMode
+              ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
+              : "border-phantom-border text-phantom-muted hover:text-phantom-text"
+          }`}
+        >
+          <Zap size={12} />
+          {providerMode ? `Provider: ${activeProvider ?? "…"}` : "Provider"}
+        </button>
+
         {/* Conversation session selector */}
         <ConversationSelector activeChatId={chatId} onSelect={setChatId} />
+
+        {/* Stop button (only when streaming in provider mode) */}
+        {providerMode && loading && (
+          <button
+            onClick={stop}
+            title="中斷目前的回應"
+            className="p-1.5 text-phantom-danger hover:opacity-80 transition rounded"
+          >
+            <Square size={14} fill="currentColor" />
+          </button>
+        )}
 
         {/* Reset button */}
         <button

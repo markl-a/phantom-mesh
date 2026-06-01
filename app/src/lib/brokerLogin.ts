@@ -15,24 +15,27 @@
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
-// On iOS Tauri the shell plugin's `open(url)` hits a sandbox "Operation
-// not permitted" (os error 1). We bypass it by navigating the webview
-// itself to the URL — phantom://oauth/callback redirects on the broker
-// side still get routed to tauri-plugin-deep-link's onOpenUrl handler
-// because iOS recognises the registered URL scheme.
+// Opens an external URL via the Rust `open_external_url` command
+// (validated allow-list: https://* or http://localhost). The Rust side
+// uses the `open` crate, which respects the user's default browser on
+// desktop. On iOS the Rust command may fail due to sandbox; in that
+// case we fall back to navigating the current webview — phantom://
+// oauth/callback redirects on the broker side still get routed back
+// via tauri-plugin-deep-link's onOpenUrl handler because iOS
+// recognises the registered URL scheme.
+//
+// We deliberately do NOT use `@tauri-apps/plugin-shell` here: the
+// shell:* capabilities were removed in V8-HIGH triage to shrink the
+// Tauri attack surface (no shell-spawn/kill exposure to JS).
 async function openExternal(url: string): Promise<void> {
-  // Try shell plugin first for desktop (where it works fine + opens
-  // user's actual default browser). On iOS this throws, fall through to
-  // webview navigation.
   try {
-    const { open: shellOpen } = await import("@tauri-apps/plugin-shell");
-    await shellOpen(url);
+    await invoke("open_external_url", { url });
     return;
   } catch (_e) {
-    // Sandbox-blocked → navigate the current webview instead. Note this
-    // unmounts the React tree; the deep-link callback is what brings us
-    // back. Onboarding state is reconstructed on next launch from
-    // AuthState (already saved by broker_login_finish).
+    // iOS sandbox or non-Tauri context → navigate the webview. This
+    // unmounts the React tree; the deep-link callback brings us back.
+    // Onboarding state is reconstructed on next launch from AuthState
+    // (already saved by broker_login_finish).
     window.location.href = url;
   }
 }

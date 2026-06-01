@@ -3,6 +3,7 @@ import { RefreshCw } from "lucide-react";
 import TasksPanel from "../components/dashboard/TasksPanel";
 import CostPanel from "../components/dashboard/CostPanel";
 import NodeInfoPanel from "../components/dashboard/NodeInfoPanel";
+import LifeStatsPanel from "../components/dashboard/LifeStatsPanel";
 
 export default function Dashboard() {
   // Incrementing key forces child panels to re-mount (fresh fetch)
@@ -51,6 +52,14 @@ export default function Dashboard() {
               成本
             </h2>
             <CostPanel key={`cost-${refreshKey}`} />
+          </div>
+
+          {/* Life-log stats (P2 Life Track) */}
+          <div className="bg-phantom-card border border-phantom-border rounded-xl p-4 overflow-y-auto">
+            <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wider mb-4">
+              生活紀錄
+            </h2>
+            <LifeStatsPanel key={`lifestats-${refreshKey}`} />
           </div>
         </div>
       </div>

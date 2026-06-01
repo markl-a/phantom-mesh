@@ -18,7 +18,7 @@
 
 #![cfg(target_os = "macos")]
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -36,10 +36,7 @@ pub struct SnapshotInfo {
 
 /// Take a fresh local snapshot. Returns the new snapshot's id.
 pub async fn create(label: Option<&str>) -> Result<SnapshotInfo> {
-    let out = Command::new("tmutil")
-        .arg("localsnapshot")
-        .output()
-        .await?;
+    let out = Command::new("tmutil").arg("localsnapshot").output().await?;
     if !out.status.success() {
         return Err(anyhow!(
             "tmutil localsnapshot failed: {}",
@@ -148,19 +145,22 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
     use std::process::Command;
 
     if !target.is_absolute() {
-        return Err(anyhow!("target path must be absolute: {}", target.display()));
+        return Err(anyhow!(
+            "target path must be absolute: {}",
+            target.display()
+        ));
     }
 
     // Verify the snapshot exists.
     let snaps = list().await?;
     if !snaps.iter().any(|s| s.id == id) {
         return Err(anyhow!(
-            "snapshot {} not found — `phantom snapshot list` for ids", id
+            "snapshot {} not found — `phantom snapshot list` for ids",
+            id
         ));
     }
 
-    let mount_pt = std::path::PathBuf::from("/tmp")
-        .join(format!("phantom-snapshot-{}", id));
+    let mount_pt = std::path::PathBuf::from("/tmp").join(format!("phantom-snapshot-{}", id));
     let snap_name = format!("com.apple.TimeMachine.{}.local", id);
 
     // The snapshot is mounted at `mount_pt`; the target's content lives at
@@ -171,28 +171,32 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
         .unwrap_or_else(|_| target.to_path_buf());
     let src_path = mount_pt.join(&target_rel);
 
-    let mkdir = format!("sudo mkdir -p {}", mount_pt.display());
-    let mount = format!(
-        "sudo mount_apfs -o nobrowse,rdonly -s {} / {}",
-        snap_name,
-        mount_pt.display()
-    );
-    let rsync = format!(
-        "sudo rsync -aHAX --delete --info=stats1 {}/ {}/",
-        src_path.display(),
-        target.display()
-    );
-    let umount = format!("sudo umount {}", mount_pt.display());
-    let rmdir = format!("sudo rmdir {}", mount_pt.display());
+    // T7 fix (codex audit 2026-05-15): every step is an argv-list call to
+    // `sudo <tool>`. The shell never sees `target.display()` so paths
+    // containing `;`, `$(...)`, `&&`, or other metacharacters cannot
+    // result in command injection. Previously these were `format!`-built
+    // strings passed through `sh -c`, which interpreted shell metachars.
+    let mut src_with_slash = src_path.clone().into_os_string();
+    src_with_slash.push("/");
+    let mut tgt_with_slash = target.to_path_buf().into_os_string();
+    tgt_with_slash.push("/");
 
     if dry_run {
         println!("# Dry run — these are the commands that would execute.");
         println!("# Pass --execute to actually run them.");
-        println!("{}", mkdir);
-        println!("{}", mount);
-        println!("{}", rsync);
-        println!("{}", umount);
-        println!("{}", rmdir);
+        println!("sudo mkdir -p {}", mount_pt.display());
+        println!(
+            "sudo mount_apfs -o nobrowse,rdonly -s {} / {}",
+            snap_name,
+            mount_pt.display()
+        );
+        println!(
+            "sudo rsync -aHAX --delete --info=stats1 {} {}",
+            std::path::Path::new(&src_with_slash).display(),
+            std::path::Path::new(&tgt_with_slash).display(),
+        );
+        println!("sudo umount {}", mount_pt.display());
+        println!("sudo rmdir {}", mount_pt.display());
         return Ok(());
     }
 
@@ -201,26 +205,95 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
         target.display(), id, mount_pt.display(),
     );
 
-    let steps: &[(&str, &str)] = &[
-        ("mkdir mount point", &mkdir),
-        ("mount snapshot",    &mount),
-        ("rsync from snapshot", &rsync),
-        ("unmount",            &umount),
-        ("cleanup mount point", &rmdir),
-    ];
-    for (label, cmd) in steps {
-        eprintln!("→ {}", cmd);
-        let s = Command::new("sh").args(["-c", cmd]).status()?;
-        if !s.success() {
-            // Try to clean up if mount succeeded but a later step failed.
-            if *label == "rsync from snapshot" {
-                let _ = Command::new("sh").args(["-c", &umount]).status();
-                let _ = Command::new("sh").args(["-c", &rmdir]).status();
-            }
-            return Err(anyhow!("{} failed", label));
-        }
+    // mkdir mount point
+    let s = Command::new("sudo")
+        .arg("mkdir")
+        .arg("-p")
+        .arg(&mount_pt)
+        .status()
+        .with_context(|| {
+            format!(
+                "failed to launch `sudo mkdir -p {}` — is `sudo` on PATH and are you on a terminal that can prompt for a password?",
+                mount_pt.display()
+            )
+        })?;
+    if !s.success() {
+        return Err(anyhow!(
+            "mkdir mount point {} failed (sudo denied or path unwritable)",
+            mount_pt.display()
+        ));
     }
-    eprintln!("✓ Restore complete: {} now matches snapshot {}", target.display(), id);
+
+    // mount snapshot
+    let s = Command::new("sudo")
+        .arg("mount_apfs")
+        .args(["-o", "nobrowse,rdonly", "-s"])
+        .arg(&snap_name)
+        .arg("/")
+        .arg(&mount_pt)
+        .status()
+        .with_context(|| {
+            format!("failed to launch `sudo mount_apfs` for snapshot {id} — `mount_apfs` is macOS-only and requires sudo")
+        })?;
+    if !s.success() {
+        return Err(anyhow!(
+            "mount snapshot {id} failed — the snapshot may have been purged by macOS; run `phantom snapshot list` to confirm it still exists"
+        ));
+    }
+
+    // rsync from snapshot — argv-list so user-supplied paths cannot be
+    // interpreted as shell metacharacters.
+    let rsync_status = Command::new("sudo")
+        .arg("rsync")
+        .args(["-aHAX", "--delete", "--info=stats1"])
+        .arg(&src_with_slash)
+        .arg(&tgt_with_slash)
+        .status()
+        .with_context(|| "failed to launch `sudo rsync` — is `rsync` installed and on PATH?")?;
+    if !rsync_status.success() {
+        // Best-effort cleanup if mount succeeded but rsync failed.
+        if let Err(e) = Command::new("sudo").arg("umount").arg(&mount_pt).status() {
+            tracing::warn!(mount_pt = %mount_pt.display(), "snapshot cleanup: umount failed (mount point may remain): {}", e);
+        }
+        if let Err(e) = Command::new("sudo").arg("rmdir").arg(&mount_pt).status() {
+            tracing::warn!(mount_pt = %mount_pt.display(), "snapshot cleanup: rmdir failed: {}", e);
+        }
+        return Err(anyhow!("rsync from snapshot failed"));
+    }
+
+    // unmount
+    let s = Command::new("sudo")
+        .arg("umount")
+        .arg(&mount_pt)
+        .status()
+        .with_context(|| format!("failed to launch `sudo umount {}`", mount_pt.display()))?;
+    if !s.success() {
+        return Err(anyhow!(
+            "unmount of {} failed — the restore copied successfully but the read-only snapshot mount is still attached; run `sudo umount {}` manually",
+            mount_pt.display(),
+            mount_pt.display()
+        ));
+    }
+
+    // cleanup mount point
+    let s = Command::new("sudo")
+        .arg("rmdir")
+        .arg(&mount_pt)
+        .status()
+        .with_context(|| format!("failed to launch `sudo rmdir {}`", mount_pt.display()))?;
+    if !s.success() {
+        return Err(anyhow!(
+            "could not remove leftover mount point {} — restore succeeded; remove it with `sudo rmdir {}`",
+            mount_pt.display(),
+            mount_pt.display()
+        ));
+    }
+
+    eprintln!(
+        "✓ Restore complete: {} now matches snapshot {}",
+        target.display(),
+        id
+    );
     Ok(())
 }
 
@@ -314,5 +387,173 @@ mod tests {
         assert!(h.contains("2026-04-28-101535"));
         assert!(h.contains("mount_apfs"));
         assert!(h.contains("rsync"));
+    }
+
+    /// MAC P0 — calling `manual_rollback_hint` twice with the same id
+    /// must produce identical output. The function is documented as
+    /// pure (no I/O, no clock reads), so referential transparency is
+    /// the contract.
+    #[test]
+    fn rollback_idempotent() {
+        let id = "2026-04-28-101535";
+        let a = manual_rollback_hint(id);
+        let b = manual_rollback_hint(id);
+        let c = manual_rollback_hint(id);
+        assert_eq!(a, b, "rollback hint not idempotent (call 1 vs 2)");
+        assert_eq!(b, c, "rollback hint not idempotent (call 2 vs 3)");
+
+        // Different id → different hint (sanity: the function actually
+        // uses its argument, isn't just returning a constant).
+        let d = manual_rollback_hint("2026-05-18-090000");
+        assert_ne!(
+            a, d,
+            "different ids produced identical hints — function ignores arg?"
+        );
+    }
+
+    /// MAC P0 — `apply(id, cwd, dry_run=true)` against a real snapshot
+    /// id must succeed (i.e., the id-existence check + path-building +
+    /// dry-run print path all work). Doesn't actually mount or rsync —
+    /// the executing variant requires sudo and we keep this test
+    /// hermetic. Side effect: creates one purgeable APFS snapshot
+    /// (same as other snapshot tests, auto-pruned by macOS).
+    #[tokio::test]
+    async fn apply_with_cwd_path_succeeds() {
+        let snap = create(Some("phantom-tdd-apply-with-cwd-path-succeeds"))
+            .await
+            .expect("tmutil localsnapshot");
+
+        // dry_run = true: function must NOT exec sudo; only print the
+        // would-execute recipe and return Ok.
+        let cwd = std::env::current_dir().expect("cwd");
+        let result = apply(&snap.id, &cwd, true).await;
+        assert!(
+            result.is_ok(),
+            "apply(<existing-id>, cwd, dry_run=true) should succeed; got {:?}",
+            result
+        );
+
+        // Negative path: a bogus id (not in `list()`) must error with a
+        // clear message that mentions the id. Catches the regression
+        // where apply silently no-ops on missing snapshots.
+        let bogus = "0000-00-00-000000";
+        let err = apply(bogus, &cwd, true).await.unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains(bogus),
+            "error for bogus id should mention the id; got: {}",
+            msg
+        );
+
+        // Non-absolute path must be rejected (security: argv-list still
+        // requires the caller commit to an explicit absolute target).
+        let rel = std::path::PathBuf::from("relative/path");
+        let err = apply(&snap.id, &rel, true).await.unwrap_err();
+        assert!(
+            format!("{}", err).contains("absolute"),
+            "relative-path rejection should mention `absolute`; got: {}",
+            err
+        );
+    }
+
+    /// MAC P0 — create a snapshot then assert it appears in `list()`.
+    /// Exercises the round-trip across two tmutil subcommands
+    /// (`localsnapshot` → `listlocalsnapshots /`) and the parser
+    /// distinguishing our id format from tmutil's wrapped form
+    /// `com.apple.TimeMachine.<id>.local`.
+    #[tokio::test]
+    async fn list_includes_newly_created() {
+        let snap = create(Some("phantom-tdd-list-includes-newly-created"))
+            .await
+            .expect("tmutil localsnapshot should succeed on a Mac dev host");
+
+        let all = list()
+            .await
+            .expect("tmutil listlocalsnapshots / should succeed");
+        assert!(
+            !all.is_empty(),
+            "list() returned empty right after a successful create() — \
+             parser likely failed on `com.apple.TimeMachine.<id>.local` lines"
+        );
+
+        let found = all.iter().any(|s| s.id == snap.id);
+        assert!(
+            found,
+            "snapshot id `{}` not found in list() ({} entries: {:?})",
+            snap.id,
+            all.len(),
+            all.iter().take(3).map(|s| &s.id).collect::<Vec<_>>()
+        );
+
+        // list() is sorted newest first — the just-created snapshot
+        // should be at (or very near) the head. Allow a small skew in
+        // case another snapshot landed in the same second.
+        let head_idx = all
+            .iter()
+            .position(|s| s.id == snap.id)
+            .expect("found, asserted above");
+        assert!(
+            head_idx < 3,
+            "newly-created snapshot at index {} (should be near 0); \
+             list order broken — first 3: {:?}",
+            head_idx,
+            all.iter().take(3).map(|s| &s.id).collect::<Vec<_>>()
+        );
+    }
+
+    /// MAC P0 — calls `tmutil localsnapshot` for real (sudo-free, ~1 s).
+    /// macOS auto-prunes purgeable snapshots so this isn't a disk leak;
+    /// the assertion shape is the public contract: `id` must be the
+    /// canonical `YYYY-MM-DD-HHMMSS` 17-char form, parseable into a
+    /// recent epoch ms.
+    #[tokio::test]
+    async fn create_returns_unique_id() {
+        let snap = match create(Some("phantom-tdd-create-returns-unique-id")).await {
+            Ok(s) => s,
+            // tmutil errors only on a non-APFS boot volume, sudo
+            // denial (not applicable for `localsnapshot`), or a
+            // container without `/dev/disk*` — none should occur on a
+            // standard dev Mac, and the assertion failure is more
+            // informative than `?`.
+            Err(e) => panic!(
+                "create() failed — is this an APFS-backed boot volume? \
+                 error: {}",
+                e
+            ),
+        };
+
+        // Canonical id shape: YYYY-MM-DD-HHMMSS (17 chars, two `-`s).
+        assert_eq!(
+            snap.id.len(),
+            17,
+            "snapshot id should be 17 chars (YYYY-MM-DD-HHMMSS); got `{}`",
+            snap.id
+        );
+        let chars: Vec<char> = snap.id.chars().collect();
+        assert_eq!(chars[4], '-', "char 4 should be `-`: {}", snap.id);
+        assert_eq!(chars[7], '-', "char 7 should be `-`: {}", snap.id);
+        assert_eq!(chars[10], '-', "char 10 should be `-`: {}", snap.id);
+
+        // created_at_ms must be within 5 min of now (loose to absorb
+        // CI clock drift + slow tmutil response).
+        let now = now_ms();
+        let drift = (now - snap.created_at_ms).abs();
+        assert!(
+            drift < 5 * 60 * 1000,
+            "snapshot timestamp drift {} ms exceeds 5 min — \
+             id={} parsed_ms={} now_ms={}",
+            drift,
+            snap.id,
+            snap.created_at_ms,
+            now
+        );
+
+        // Label round-trips through SnapshotInfo verbatim (the field
+        // is informational; tmutil doesn't store labels itself, but
+        // SnapshotInfo callers rely on it being preserved).
+        assert_eq!(
+            snap.label.as_deref(),
+            Some("phantom-tdd-create-returns-unique-id")
+        );
     }
 }

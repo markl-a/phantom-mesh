@@ -1,3 +1,22 @@
+//! Per-model cost accounting for LLM API usage.
+//!
+//! This module owns two things:
+//!
+//! 1. **The pricing tables** ([`price_per_million`]) — the canonical
+//!    per-model USD rates, expressed as `(input_price_per_million,
+//!    output_price_per_million)` for one million tokens. A default
+//!    fallback estimate is returned for unknown models so spend is never
+//!    silently undercounted.
+//! 2. **The token/cost accounting struct** ([`CostTracker`]) — accumulates
+//!    prompt/completion token counts and derives `cost_usd` from the
+//!    pricing tables. It tracks lifetime totals (persisted to
+//!    `~/.phantom-mesh/costs.json`), a resettable global session, named
+//!    per-session buckets, and optional lifetime/task-scoped budget caps.
+//!
+//! Costs are computed automatically inside [`CostTracker::record`]: callers
+//! supply only the model name and token counts, and the tracker looks up
+//! the rates and updates every relevant total under a single lock.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -99,6 +118,11 @@ impl Default for CostTrackerInner {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Thread-safe accumulator for LLM token usage and derived USD cost.
+///
+/// Cloning is cheap: clones share the same underlying state via an
+/// [`Arc`]-wrapped mutex, so all handles observe the same running totals.
+/// Lifetime totals are persisted to `~/.phantom-mesh/costs.json`.
 #[derive(Clone)]
 pub struct CostTracker {
     inner: Arc<tokio::sync::Mutex<CostTrackerInner>>,
@@ -106,8 +130,12 @@ pub struct CostTracker {
 }
 
 impl CostTracker {
+    /// Create a tracker, loading lifetime totals from
+    /// `~/.phantom-mesh/costs.json` if the file exists. Session-scoped and
+    /// per-model state always starts empty; a missing or unreadable ledger
+    /// falls back to zeroed totals.
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
         let path = std::path::PathBuf::from(home)
             .join(".phantom-mesh")
             .join("costs.json");
@@ -228,9 +256,13 @@ impl CostTracker {
         // Write off the runtime so a slow disk doesn't stall request handling.
         tokio::task::spawn_blocking(move || {
             if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    tracing::warn!(path = %parent.display(), "cost ledger mkdir failed: {}", e);
+                }
             }
-            let _ = std::fs::write(&path, json);
+            if let Err(e) = std::fs::write(&path, json) {
+                tracing::warn!(path = %path.display(), "cost ledger write failed (in-memory total may drift from disk): {}", e);
+            }
         });
     }
 
@@ -266,6 +298,9 @@ impl CostTracker {
     // Summaries
     // -----------------------------------------------------------------------
 
+    /// Return a JSON snapshot of lifetime and global-session totals,
+    /// including the per-model breakdown and current budget state. USD
+    /// figures are rounded to four decimal places for display.
     pub async fn summary(&self) -> serde_json::Value {
         let inner = self.inner.lock().await;
         serde_json::json!({
@@ -368,7 +403,9 @@ impl CostTracker {
             "prompt_tokens": inner.total_prompt_tokens,
             "completion_tokens": inner.total_completion_tokens,
         });
-        let _ = std::fs::write(&self.path, json.to_string());
+        if let Err(e) = std::fs::write(&self.path, json.to_string()) {
+            tracing::warn!(path = %self.path.display(), "cost ledger write failed (in-memory total may drift from disk): {}", e);
+        }
     }
 }
 
@@ -391,5 +428,57 @@ impl serde::Serialize for SessionData {
         map.serialize_entry("completion_tokens", &self.completion_tokens)?;
         map.serialize_entry("by_model", &self.by_model)?;
         map.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::price_per_million;
+
+    /// V1 P0 — pins the public pricing table so silent edits (e.g. a
+    /// swapped pair of input/output rates) trip CI before a paying
+    /// user gets billed wrong. Covers one representative model per
+    /// provider the dispatcher knows about; default-fallback path is
+    /// also asserted so unknown models don't return 0.
+    #[test]
+    fn per_provider_cost_calc_uses_correct_rates() {
+        // (model substring, expected (input_per_million, output_per_million))
+        let canonical: &[(&str, (f64, f64))] = &[
+            ("claude-sonnet-4-6", (3.0, 15.0)),
+            ("claude-haiku-4-5", (0.25, 1.25)),
+            ("claude-opus-4-7", (15.0, 75.0)),
+            ("gpt-4o-mini", (0.15, 0.60)),
+            ("gpt-4o", (2.5, 10.0)),
+            ("gpt-4.1", (2.0, 8.0)),
+            ("gemini-2.5-pro", (1.25, 10.0)),
+            ("gemini-2.0-flash", (0.075, 0.30)),
+            ("groq-llama-3.3-70b", (0.05, 0.08)),
+            ("llama-3.1-8b-instruct", (0.05, 0.08)),
+        ];
+
+        for (model, (want_in, want_out)) in canonical {
+            let (got_in, got_out) = price_per_million(model);
+            assert!(
+                (got_in - want_in).abs() < 1e-9,
+                "input rate mismatch for {model}: got {got_in}, want {want_in}",
+            );
+            assert!(
+                (got_out - want_out).abs() < 1e-9,
+                "output rate mismatch for {model}: got {got_out}, want {want_out}",
+            );
+            // Universal invariant: output ≥ input. Catches future
+            // accidental swaps (output should always cost ≥ input).
+            assert!(
+                got_out >= got_in,
+                "output rate < input rate for {model} ({got_out} < {got_in}) — \
+                 likely an input/output swap in the pricing table",
+            );
+        }
+
+        // Unknown model → default fallback (must NOT be (0.0, 0.0),
+        // otherwise budget tracking silently undercounts spend).
+        let (fb_in, fb_out) = price_per_million("totally-fictional-model-7");
+        assert!(fb_in > 0.0 && fb_out > 0.0, "fallback rates must be > 0");
+        assert!(fb_out >= fb_in, "fallback output ≥ input");
     }
 }

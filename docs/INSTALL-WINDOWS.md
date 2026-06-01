@@ -1,16 +1,16 @@
-# Installing phantom-mesh on Windows 11
+# 在 Windows 11 上安裝 phantom-mesh
 
-Tested on **Windows 11 23H2 + 24H2**, native (not WSL). PowerShell 7
-recommended over the bundled 5.1 because some scripts use `?.`
-operator and structured-error parsing.
+已在 **Windows 11 23H2 + 24H2** 上原生測試（非 WSL）。建議使用 PowerShell 7
+而非內建的 5.1，因為部分腳本會用到 `?.`
+運算子（operator，運算子）以及結構化錯誤解析（structured-error parsing）。
 
-For WSL2: install via the [Linux guide](INSTALL-LINUX.md) — phantom
-runs natively in WSL, you just lose the `phantom service install` →
-Scheduled Task path (WSL doesn't have Windows Task Scheduler access).
+若要用 WSL2：請改依[Linux 指南](INSTALL-LINUX.md)安裝 —— phantom
+在 WSL 內可原生執行，你只會失去 `phantom service install` →
+排程工作（Scheduled Task）這條路徑（WSL 無法存取 Windows 工作排程器）。
 
 ---
 
-## TL;DR — 90 seconds (native Win)
+## 懶人包 —— 90 秒（原生 Windows）
 
 ```powershell
 # In an elevated PowerShell (Run as Administrator) for the install step,
@@ -42,13 +42,13 @@ Start-Process "http://127.0.0.1:7878/projects"
 
 ---
 
-## Shortcut: cross-compiled binary (skip the cargo build)
+## 捷徑：跨平台編譯的執行檔（cross-compiled binary，跳過 cargo build）
 
-If you have a Mac/Linux machine with the source, you can
-**cross-compile** the Windows binary there (faster than building on
-Windows for the first time):
+如果你有一台帶原始碼的 Mac/Linux 機器，可以在那台機器上
+**跨平台編譯**（cross-compile）出 Windows 執行檔（比第一次在
+Windows 上建置更快）：
 
-On Mac:
+在 Mac 上：
 ```bash
 brew install mingw-w64
 rustup target add x86_64-pc-windows-gnu
@@ -57,35 +57,35 @@ cargo build --release --target x86_64-pc-windows-gnu --bin phantom
 # produces target/x86_64-pc-windows-gnu/release/phantom.exe (~33 MB)
 ```
 
-Then transfer the `.exe` to Windows (SCP / SMB / `python -m http.server`)
-and place at `$env:USERPROFILE\AppData\Local\Programs\phantom-mesh\phantom.exe`.
+接著把該 `.exe` 傳到 Windows（SCP / SMB / `python -m http.server`）
+並放到 `$env:USERPROFILE\AppData\Local\Programs\phantom-mesh\phantom.exe`。
 
-The `scripts/setup-z13.ps1` script in this repo automates this whole
-flow — see comments at the top.
+本倉庫裡的 `scripts/setup-node-a.ps1` 腳本會把整套流程自動化
+—— 詳見檔案頂端的註解。
 
 ---
 
-## Prereqs
+## 前置需求（Prereqs）
 
-| Component | Why | How |
+| 元件 | 用途 | 安裝方式 |
 |---|---|---|
-| Rust toolchain ≥ 1.80 | Build phantom | `winget install Rustlang.Rustup` |
-| `git`                 | Clone the repo | `winget install Git.Git` |
-| Tailscale (optional)  | Cross-machine cluster + mobile access | `winget install tailscale.tailscale` |
-| PowerShell 7 (recommended) | Some scripts use modern syntax | `winget install Microsoft.PowerShell` |
+| Rust 工具鏈 ≥ 1.80 | 建置 phantom | `winget install Rustlang.Rustup` |
+| `git`                 | 複製（clone）倉庫 | `winget install Git.Git` |
+| Tailscale（可選）  | 跨機叢集（cluster）＋手機存取 | `winget install tailscale.tailscale` |
+| PowerShell 7（建議） | 部分腳本使用較新語法 | `winget install Microsoft.PowerShell` |
 
 ---
 
-## Detailed install
+## 詳細安裝步驟
 
-### 1. Open PowerShell (elevated for installs, normal for usage)
+### 1. 開啟 PowerShell（安裝時用系統管理員權限，日常使用用一般權限）
 
 ```powershell
 # Start menu → search "PowerShell" → "Run as Administrator"
 $PSVersionTable.PSVersion   # confirm 7.x
 ```
 
-### 2. winget installs
+### 2. winget 安裝
 
 ```powershell
 winget install --silent Git.Git
@@ -96,7 +96,7 @@ winget install --silent --id Microsoft.PowerShell
 # Close + reopen PowerShell so PATH is fresh
 ```
 
-### 3. Build phantom
+### 3. 建置 phantom
 
 ```powershell
 cd $env:USERPROFILE\Documents
@@ -106,29 +106,29 @@ cargo install --path . --locked
 phantom --version
 ```
 
-`cargo install` puts `phantom.exe` at
-`$env:USERPROFILE\.cargo\bin\phantom.exe`. The Rustup installer adds
-this to PATH; reopen PowerShell if not.
+`cargo install` 會把 `phantom.exe` 放在
+`$env:USERPROFILE\.cargo\bin\phantom.exe`。Rustup 安裝程式會把
+這個路徑加進 PATH；若沒有，請重新開啟 PowerShell。
 
-### 4. First-time onboarding
+### 4. 首次導引（onboarding）
 
 ```powershell
 phantom onboarding
 ```
 
-90 s interactive wizard. Writes `$env:USERPROFILE\.phantom-mesh\agents.toml`.
+90 秒互動式精靈（wizard）。會寫出 `$env:USERPROFILE\.phantom-mesh\agents.toml`。
 
-### 5. Start phantom serve
+### 5. 啟動 phantom serve
 
-phantom doesn't yet have a native Windows Service installer (planned).
-For now, two options:
+phantom 目前還沒有原生的 Windows 服務安裝器（已規劃中）。
+現階段有兩個選擇：
 
-**Option A: Background process (manual restart on reboot)**
+**選項 A：背景行程（重開機後需手動重啟）**
 ```powershell
 Start-Process phantom -ArgumentList "serve" -WindowStyle Hidden
 ```
 
-**Option B: Scheduled Task at logon** (auto-start)
+**選項 B：登入時排程工作（Scheduled Task at logon，自動啟動）**
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "phantom" -Argument "serve"
 $trigger = New-ScheduledTaskTrigger -AtLogon
@@ -137,63 +137,63 @@ Register-ScheduledTask -TaskName "phantom-serve" -Action $action -Trigger $trigg
 Start-ScheduledTask -TaskName "phantom-serve"
 ```
 
-To stop:
+要停止：
 ```powershell
 Get-Process phantom | Stop-Process
 Unregister-ScheduledTask -TaskName "phantom-serve" -Confirm:$false
 ```
 
-### 6. (Optional) hourly autoevolve
+### 6.（可選）每小時自動演化（autoevolve）
 
 ```powershell
 phantom autoevolve schedule install --interval 3600
 ```
 
-If the message says "macOS + Windows only" then it's set; if it errors,
-fall back to a manual Scheduled Task:
+如果訊息顯示 "macOS + Windows only" 就表示設定成功；如果報錯，
+就退而求其次手動建立排程工作：
 ```powershell
 $action  = New-ScheduledTaskAction -Execute "phantom" -Argument "autoevolve --once"
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Hours 1)
 Register-ScheduledTask -TaskName "phantom-autoevolve" -Action $action -Trigger $trigger
 ```
 
-### 7. (Optional) cluster
+### 7.（可選）叢集（cluster）
 
-Edit `$env:USERPROFILE\.phantom-mesh\agents.toml`:
+編輯 `$env:USERPROFILE\.phantom-mesh\agents.toml`：
 
 ```toml
 [cluster]
 node_name      = "win-1"
 cluster_secret = "<same secret across nodes>"
 peers = [
-  "http://100.87.93.58:7878",      # mac (over Tailscale)
-  "http://100.107.205.98:7878",    # other windows
+  "http://<mac-tailscale-ip>:7878",      # mac (over Tailscale)
+  "http://100.64.0.10:7878",    # other windows
 ]
 ```
 
-Then `tailscale up` and verify:
+接著執行 `tailscale up` 並驗證：
 ```powershell
-Invoke-RestMethod http://100.87.93.58:7878/healthz
+Invoke-RestMethod http://<mac-tailscale-ip>:7878/healthz
 ```
 
 ---
 
-## Verify
+## 驗證
 
-### 1. Quick health check
+### 1. 快速健康檢查
 
 ```powershell
 phantom doctor
 ```
 
-`phantom doctor` runs 11 colour-coded sections on Windows
-(binary, config, permissions, provider keys, phantom serve,
-Scheduled Task, network, autoevolve, identity, diagnostics, tools).
-Every line should be `✓` green or `⚠` yellow. `⚠` is expected for
-features you haven't opted into (unused provider keys, autoevolve not
-yet run). Red `✗` lines need fixing.
+`phantom doctor` 在 Windows 上會跑 11 個彩色分區
+（binary、config、permissions、provider keys、phantom serve、
+Scheduled Task、network、autoevolve、identity、diagnostics、tools）。
+每一行都應該是綠色的 `✓` 或黃色的 `⚠`。對於你尚未啟用的
+功能，出現 `⚠` 是正常的（未使用的供應商金鑰、尚未執行的
+autoevolve）。紅色的 `✗` 行才需要修正。
 
-**Expected output on a healthy Windows install:**
+**健康的 Windows 安裝預期輸出：**
 
 ```
 phantom doctor 0.4.0
@@ -241,25 +241,25 @@ tools
 done.
 ```
 
-The **⚠ lines to watch for on first install** (normal, not errors):
-- `Anthropic: not in env` — you didn't choose it during onboarding;
-  add `ANTHROPIC_API_KEY` to env or `agents.toml` if needed
-- `Tailscale: not in PATH or not connected` — run `tailscale up`
-  from an elevated PowerShell
-- `autoevolve/history: no runs yet` — expected before first run;
-  fix with `phantom autoevolve --once`
-- `autoevolve/schedule: not scheduled` — normal if you skipped that step
-- `identity: local-only (broker not deployed)` — expected; broker
-  at phantommesh.io isn't live yet
+**首次安裝時需留意的 ⚠ 行**（正常，不是錯誤）：
+- `Anthropic: not in env` —— 你在導引時沒有選用它；
+  如有需要，把 `ANTHROPIC_API_KEY` 加進環境變數或 `agents.toml`
+- `Tailscale: not in PATH or not connected` —— 從具系統管理員權限的
+  PowerShell 執行 `tailscale up`
+- `autoevolve/history: no runs yet` —— 首次執行前屬正常；
+  用 `phantom autoevolve --once` 修正
+- `autoevolve/schedule: not scheduled` —— 若你略過該步驟則屬正常
+- `identity: local-only (broker not deployed)` —— 屬正常；
+  位於 phantommesh.io 的 broker（中介伺服器）尚未上線
 
-**Red ✗ lines that need fixing:**
-- `agents.toml: not found` → run `phantom onboarding`
-- `healthz: unreachable` → start phantom serve or check port 7878
-- `Scheduled Task: not installed` → run the Scheduled Task commands
-  in the install section above
+**需要修正的紅色 ✗ 行：**
+- `agents.toml: not found` → 執行 `phantom onboarding`
+- `healthz: unreachable` → 啟動 phantom serve 或檢查 7878 連接埠
+- `Scheduled Task: not installed` → 執行上面安裝章節中的
+  排程工作（Scheduled Task）指令
 - `Tailscale: not in PATH or not connected` → `tailscale up`
 
-For machine-readable output:
+若要取得機器可讀的輸出：
 
 ```powershell
 phantom doctor --json | ConvertFrom-Json | Select-Object status
@@ -267,16 +267,16 @@ phantom doctor --json | ConvertFrom-Json | Select-Object -ExpandProperty serve
 phantom doctor --json | ConvertFrom-Json | Select-Object -ExpandProperty autoevolve
 ```
 
-### 2. Open the dashboard
+### 2. 開啟儀表板（dashboard）
 
 ```powershell
 Start-Process "http://127.0.0.1:7878/projects"
 ```
 
-Should show 6 project tiles + cluster status + recent activity.
-Each [Run Demo] streams output live via SSE.
+應該會顯示 6 個專案磚（project tiles）＋叢集狀態＋最近活動。
+每個 [Run Demo] 都會透過 SSE（Server-Sent Events，伺服器推送事件）即時串流輸出。
 
-### 3. Feature sweep
+### 3. 功能掃描（feature sweep）
 
 ```powershell
 phantom selftest                # 22+ feature checks
@@ -285,17 +285,17 @@ phantom selftest --p0-only      # critical checks only, ~4 s
 
 ---
 
-## MCP integration with Claude Code
+## 與 Claude Code 的 MCP 整合
 
 ```powershell
 claude mcp add phantom (Get-Command phantom).Source mcp
 ```
 
-After this, Claude Code's tool palette gains `mcp__phantom__*` tools.
+完成後，Claude Code 的工具面板（tool palette）會新增 `mcp__phantom__*` 工具。
 
 ---
 
-## Updating
+## 更新
 
 ```powershell
 cd $env:USERPROFILE\Documents\phantom-mesh
@@ -308,7 +308,7 @@ Start-ScheduledTask -TaskName "phantom-serve"
 
 ---
 
-## Uninstall
+## 解除安裝
 
 ```powershell
 Unregister-ScheduledTask -TaskName "phantom-autoevolve" -Confirm:$false -ErrorAction SilentlyContinue
@@ -321,71 +321,71 @@ Remove-Item -Recurse -Force $env:USERPROFILE\AppData\Local\Programs\phantom-mesh
 
 ---
 
-## Troubleshooting
+## 疑難排解（Troubleshooting）
 
-### `phantom doctor` quick triage
+### `phantom doctor` 快速分流
 
-Run `phantom doctor` and look for the failure in this order:
+執行 `phantom doctor`，並依以下順序找出失敗點：
 
-| `phantom doctor` line | Cause | Fix |
+| `phantom doctor` 行 | 原因 | 修正方式 |
 |---|---|---|
-| `✗ agents.toml: not found` | onboarding not run | `phantom onboarding` |
-| `✗ healthz: unreachable` | serve not running | `Start-Process phantom -ArgumentList "serve" -WindowStyle Hidden` |
-| `⚠ autoevolve/history: no runs yet` | first run never done | `phantom autoevolve --once` |
-| `⚠ autoevolve/schedule: not scheduled` | schedule not installed | `phantom autoevolve schedule install` |
-| `⚠ Tailscale: not in PATH` | Tailscale not installed | `winget install tailscale.tailscale` |
-| `⚠ Tailscale: not connected` | not logged in | `tailscale up` from elevated PowerShell |
-| `⚠ crash logs: N recorded` | a recent agent run crashed | `phantom debug last` to read the latest |
-| `⚠ identity: local-only` | expected (broker not deployed) | nothing to fix — this is normal |
-| `⚠ events.jsonl: 0 bytes` | expected on first run | nothing to fix — this is normal |
-| `✗ [permissions]: parse error` | syntax in `agents.toml [permissions]` block | check the DSL in docs/PERMISSIONS.md |
+| `✗ agents.toml: not found` | 尚未執行導引 | `phantom onboarding` |
+| `✗ healthz: unreachable` | serve 沒有在執行 | `Start-Process phantom -ArgumentList "serve" -WindowStyle Hidden` |
+| `⚠ autoevolve/history: no runs yet` | 從未跑過第一次 | `phantom autoevolve --once` |
+| `⚠ autoevolve/schedule: not scheduled` | 尚未安裝排程 | `phantom autoevolve schedule install` |
+| `⚠ Tailscale: not in PATH` | Tailscale 未安裝 | `winget install tailscale.tailscale` |
+| `⚠ Tailscale: not connected` | 尚未登入 | 從具系統管理員權限的 PowerShell 執行 `tailscale up` |
+| `⚠ crash logs: N recorded` | 最近有一次代理（agent）執行崩潰 | `phantom debug last` 讀取最新一筆 |
+| `⚠ identity: local-only` | 屬正常（broker 尚未部署） | 無需修正 —— 這是正常狀態 |
+| `⚠ events.jsonl: 0 bytes` | 首次執行屬正常 | 無需修正 —— 這是正常狀態 |
+| `✗ [permissions]: parse error` | `agents.toml [permissions]` 區塊有語法錯誤 | 檢查 docs/PERMISSIONS.md 中的 DSL |
 
-### Other PowerShell-level failures
+### 其他 PowerShell 層級的失敗
 
-| Symptom | Fix |
+| 症狀 | 修正方式 |
 |---|---|
-| `cargo install` fails on `link.exe` not found | Install MSVC Build Tools: `winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` |
-| `phantom: command not found` after install | Reopen PowerShell — Rustup adds `~/.cargo/bin` only after restart |
-| Defender Firewall blocks port 7878 | Add inbound rule: `New-NetFirewallRule -DisplayName "phantom serve" -Direction Inbound -LocalPort 7878 -Protocol TCP -Action Allow` |
-| `Scheduled Task` won't start | Task Scheduler GUI → right-click task → Run; check "Last Run Result" |
-| `phantom autoevolve schedule install` says "macOS + Windows only" | This is the message you WANT — check `Get-ScheduledTask -TaskName "*phantom*"` |
-| Tailscale GUI shows "Logged out" | Open Tailscale tray icon → Log In; or `tailscale up` from elevated PowerShell |
-| `git clone` fails with "Unable to find remote helper for 'https'" | `winget install Git.Git` — must be the official Git for Windows, not WSL |
-| `phantom doctor` output is garbled (ANSI codes) | PowerShell 5.x doesn't render ANSI — upgrade to PowerShell 7 (`winget install Microsoft.PowerShell`) |
+| `cargo install` 因找不到 `link.exe` 而失敗 | 安裝 MSVC Build Tools：`winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"` |
+| 安裝後出現 `phantom: command not found` | 重新開啟 PowerShell —— Rustup 要在重啟後才會加入 `~/.cargo/bin` |
+| Defender 防火牆封鎖 7878 連接埠 | 新增輸入規則：`New-NetFirewallRule -DisplayName "phantom serve" -Direction Inbound -LocalPort 7878 -Protocol TCP -Action Allow` |
+| `Scheduled Task` 無法啟動 | 工作排程器 GUI → 在工作上按右鍵 → 執行；檢查「上次執行結果」（Last Run Result） |
+| `phantom autoevolve schedule install` 顯示 "macOS + Windows only" | 這正是你想看到的訊息 —— 用 `Get-ScheduledTask -TaskName "*phantom*"` 確認 |
+| Tailscale GUI 顯示 "Logged out" | 開啟 Tailscale 系統匣（tray）圖示 → Log In；或從具系統管理員權限的 PowerShell 執行 `tailscale up` |
+| `git clone` 失敗並出現 "Unable to find remote helper for 'https'" | `winget install Git.Git` —— 必須是官方的 Git for Windows，而非 WSL 版 |
+| `phantom doctor` 輸出亂碼（ANSI 碼） | PowerShell 5.x 無法渲染 ANSI —— 升級到 PowerShell 7（`winget install Microsoft.PowerShell`） |
 
 ---
 
-## Performance baseline (Z13 Flow, i9-13900H, 32 GB RAM, Win 11 24H2)
+## 效能基準（參考機 node-a：i9-13900H，32 GB RAM，Win 11 24H2）
 
-| Operation | Time |
+| 操作 | 時間 |
 |---|---|
-| Fresh `cargo install --path .` (first build) | ~3-4 min |
-| Incremental rebuild after 1-file edit | 3-6 s |
-| Cross-compiled .exe download (from a Mac via Tailscale 100 Mb/s) | ~3 s for 33 MB |
-| `phantom doctor` cold | ~1 s |
-| `phantom selftest --p0-only` | ~4 s |
-| HTTP `/api/projects` cold | < 60 ms |
+| 全新 `cargo install --path .`（首次建置） | ~3-4 分鐘 |
+| 改動 1 個檔案後的增量重建 | 3-6 秒 |
+| 下載跨平台編譯的 .exe（從 Mac 經 Tailscale 100 Mb/s） | 33 MB 約 ~3 秒 |
+| `phantom doctor` 冷啟動 | ~1 秒 |
+| `phantom selftest --p0-only` | ~4 秒 |
+| HTTP `/api/projects` 冷啟動 | < 60 ms |
 
 ---
 
-## Companion: `scripts/setup-z13.ps1`
+## 配套腳本：`scripts/setup-node-a.ps1`
 
-For a hands-off bootstrap of a fresh Win 11 box as a cluster node,
-the repo ships `scripts/setup-z13.ps1`. It:
+若要將一台全新的 Win 11 機器免手動地引導（bootstrap）為叢集節點，
+本倉庫附帶 `scripts/setup-node-a.ps1`。它會：
 
-1. Verifies Tailscale is connected
-2. Pulls phantom.exe (from a local path or HTTP URL)
-3. Writes a sensible `agents.toml` with peers preconfigured
-4. Clones all 6 ecosystem repos
-5. (Optional) installs streamlit for Data-Analysis demo
-6. Schedules autoevolve hourly
-7. Starts phantom serve in the background
+1. 驗證 Tailscale 已連線
+2. 拉取 phantom.exe（從本機路徑或 HTTP URL）
+3. 寫出一份合理的 `agents.toml`，並預先設定好 peers
+4. 複製全部 6 個生態系倉庫
+5.（可選）為資料分析（Data-Analysis）示範安裝 streamlit
+6. 每小時排程 autoevolve
+7. 在背景啟動 phantom serve
 
-Usage:
+用法：
 ```powershell
 cd phantom-mesh\scripts
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-.\setup-z13.ps1 -PhantomBinarySource C:\path\to\phantom.exe -NodeName mywin
+.\setup-node-a.ps1 -PhantomBinarySource C:\path\to\phantom.exe -NodeName mywin
 ```
 
-See the script's docstring for all params.
+所有參數請見腳本的 docstring。

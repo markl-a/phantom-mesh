@@ -1,6 +1,34 @@
 use phantom_mesh::tools::file;
 use serde_json::json;
+use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
+
+// T7 fix (codex audit 2026-05-15): safe_path now confines results to a
+// workspace-roots set (CWD + ~/.phantom-mesh + PHANTOM_EXTRA_ALLOWED_ROOTS).
+// All file::{read,write,edit} tests below operate on tempdirs that are
+// nowhere near CWD or $HOME, so we have to whitelist each tempdir before
+// touching it. Env vars are process-global; the mutex below serialises
+// access so parallel tests don't clobber each other's whitelist.
+fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+}
+
+/// Append `td.path()` to `PHANTOM_EXTRA_ALLOWED_ROOTS`. Caller must hold an
+/// `env_lock()` guard for the duration of the test.
+fn allow_tempdir(td: &tempfile::TempDir) {
+    let p = td.path().to_string_lossy().to_string();
+    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").unwrap_or_default();
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let merged = if prev.is_empty() {
+        p
+    } else {
+        format!("{prev}{sep}{p}")
+    };
+    std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", merged);
+}
 
 // ---------------------------------------------------------------------------
 // safe_path
@@ -8,7 +36,9 @@ use tempfile::tempdir;
 
 #[test]
 fn test_safe_path_existing() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("exists.txt");
     std::fs::write(&file_path, "hi").unwrap();
 
@@ -18,11 +48,14 @@ fn test_safe_path_existing() {
     // file name and actually point to an existing path.
     assert_eq!(result.file_name().unwrap(), "exists.txt");
     assert!(result.is_absolute());
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 #[test]
 fn test_safe_path_new_file() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("new_file.txt");
 
     // File does not exist yet — safe_path should still return a valid path.
@@ -31,6 +64,7 @@ fn test_safe_path_new_file() {
     assert_eq!(result.file_name().unwrap(), "new_file.txt");
     // The parent directory (tempdir) must exist.
     assert!(result.parent().unwrap().exists());
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +73,9 @@ fn test_safe_path_new_file() {
 
 #[tokio::test]
 async fn test_write_then_read() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("hello.txt");
     let path_str = file_path.to_str().unwrap();
 
@@ -55,6 +91,7 @@ async fn test_write_then_read() {
 
     let read_result = file::read(&json!({ "path": path_str })).await;
     assert_eq!(read_result, "hello world");
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +100,9 @@ async fn test_write_then_read() {
 
 #[tokio::test]
 async fn test_write_creates_parents() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let nested = dir.path().join("nested").join("path").join("file.txt");
     let path_str = nested.to_str().unwrap();
 
@@ -79,6 +118,7 @@ async fn test_write_creates_parents() {
     );
     assert!(nested.exists(), "file should have been created");
     assert_eq!(std::fs::read_to_string(&nested).unwrap(), "deep content");
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +127,9 @@ async fn test_write_creates_parents() {
 
 #[tokio::test]
 async fn test_edit_replaces_once() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("edit_me.txt");
     let path_str = file_path.to_str().unwrap();
 
@@ -107,11 +149,14 @@ async fn test_edit_replaces_once() {
 
     let content = std::fs::read_to_string(&file_path).unwrap();
     assert_eq!(content, "foo qux baz");
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
 async fn test_edit_not_found() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("no_match.txt");
     let path_str = file_path.to_str().unwrap();
 
@@ -128,11 +173,14 @@ async fn test_edit_not_found() {
         result.contains("not found"),
         "expected 'not found' error but got: {result}"
     );
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
 async fn test_edit_ambiguous() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let file_path = dir.path().join("ambiguous.txt");
     let path_str = file_path.to_str().unwrap();
 
@@ -150,6 +198,7 @@ async fn test_edit_ambiguous() {
         result.contains("3 times"),
         "expected ambiguity error mentioning '3 times' but got: {result}"
     );
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +207,9 @@ async fn test_edit_ambiguous() {
 
 #[tokio::test]
 async fn test_read_nonexistent() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let missing = dir.path().join("does_not_exist.txt");
     let path_str = missing.to_str().unwrap();
 
@@ -168,11 +219,14 @@ async fn test_read_nonexistent() {
         result.starts_with("Error"),
         "expected an error string but got: {result}"
     );
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
 async fn test_read_large_file() {
+    let _g = env_lock();
     let dir = tempdir().unwrap();
+    allow_tempdir(&dir);
     let big_file = dir.path().join("large.txt");
     let path_str = big_file.to_str().unwrap();
 
@@ -192,6 +246,7 @@ async fn test_read_large_file() {
         result.len() < big_content.len(),
         "truncated output should be shorter than the original"
     );
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -200,20 +255,23 @@ async fn test_read_large_file() {
 
 #[test]
 fn test_no_path_traversal() {
-    // A naively resolved "../../etc/passwd" from some CWD could reach /etc/passwd.
-    // safe_path must not return /etc/passwd.
+    let _g = env_lock();
+    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    // T7 fix (codex audit 2026-05-15): safe_path MUST reject ../../etc/passwd.
     let result = file::safe_path("../../etc/passwd");
 
-    match result {
-        Ok(p) => {
-            // If it returns Ok, the resolved path must NOT be /etc/passwd.
-            assert_ne!(
-                p,
-                std::path::PathBuf::from("/etc/passwd"),
-                "safe_path resolved to /etc/passwd — path traversal possible!"
-            );
-        }
-        // An Err is also an acceptable response (e.g., parent doesn't exist).
-        Err(_) => {}
+    if let Ok(p) = &result {
+        assert_ne!(
+            p,
+            &std::path::PathBuf::from("/etc/passwd"),
+            "safe_path resolved to /etc/passwd — path traversal possible!"
+        );
+        // Stricter: result must be inside CWD (or another allowed root).
+        let cwd = std::env::current_dir().unwrap();
+        let cwd = cwd.canonicalize().unwrap_or(cwd);
+        assert!(
+            p.starts_with(&cwd) || p.to_string_lossy().contains(".phantom-mesh"),
+            "safe_path returned {p:?} which is outside CWD {cwd:?} and not in .phantom-mesh"
+        );
     }
 }

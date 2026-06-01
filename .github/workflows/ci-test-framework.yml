@@ -1,0 +1,89 @@
+name: Test Framework (Manual)
+
+# Manually triggered only — GH Actions billing was exhausted on 2026-05-17.
+# When billing is restored:
+#   1. uncomment the `pull_request` trigger below
+#   2. add a real cargo-cache strategy (currently fresh build = 8-12 min)
+#   3. wire selftest --p0-only here once a CI-friendly LLM key is available
+#
+# Until then: developers run locally before opening PR. This workflow
+# exists so we can fire it manually to validate the scaffolding when needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tracer_tests:
+        description: "Run tracer unit tests"
+        type: boolean
+        default: true
+      run_script_checks:
+        description: "Lint verify-binary scripts"
+        type: boolean
+        default: true
+  # pull_request:
+  #   branches: [main]
+  #   paths:
+  #     - 'core/src/tracing/**'
+  #     - 'core/tests/fixtures/**'
+  #     - 'tests-e2e/**'
+  #     - 'scripts/verify-binary.*'
+  #     - '.github/workflows/ci-test-framework.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  tracer-unit-tests:
+    if: ${{ inputs.run_tracer_tests }}
+    name: Tracer unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('core/Cargo.lock') }}-tracer
+
+      - name: cargo test tracing
+        working-directory: core
+        run: cargo test --lib tracing:: -- --nocapture
+
+  script-checks:
+    if: ${{ inputs.run_script_checks }}
+    name: verify-binary script linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: shellcheck bash version
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
+        with:
+          scandir: ./scripts
+          severity: warning
+
+      - name: PSScriptAnalyzer (pwsh)
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          $issues = Invoke-ScriptAnalyzer -Path ./scripts/verify-binary.ps1 -Severity Warning,Error
+          if ($issues) {
+            $issues | Format-Table
+            throw "PSScriptAnalyzer found $($issues.Count) issue(s)"
+          }
+
+      - name: Smoke-run verify-binary.sh --help-style (no real binary)
+        run: |
+          # the script exits 2 with usage when no binary path given — we
+          # just confirm it doesn't blow up at parse time
+          bash scripts/verify-binary.sh 2>&1 | head -5
+          [ $? -eq 2 ] || (echo "expected exit 2 (usage error)"; exit 1)

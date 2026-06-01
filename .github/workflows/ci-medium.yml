@@ -1,3 +1,10 @@
+# COST WORKAROUND 2026-05-17: macOS/Windows auto-trigger removed from the
+# PR build matrix to stop burning the GitHub Actions monthly quota
+# (macOS = 10x Linux, Windows = 2x Linux). PRs now only build on
+# ubuntu-latest. To run the full ubuntu+windows+macos matrix on demand,
+# trigger this workflow manually via `gh workflow run ci-medium.yml` or
+# the Actions tab. Revert when the billing cycle resets or a self-hosted
+# runner is available.
 name: CI Medium
 
 on:
@@ -8,6 +15,7 @@ on:
       - 'app/**'
       - 'Cargo.lock'
       - '.github/workflows/ci-medium.yml'
+  workflow_dispatch:
 
 # Cancel superseded runs on the same PR — saves CI minutes during rapid push.
 concurrency:
@@ -26,7 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # COST WORKAROUND 2026-05-17: PRs build ubuntu-only. Full matrix
+        # (incl. windows-latest + macos-latest) runs on workflow_dispatch.
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest", "windows-latest", "macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +61,8 @@ jobs:
 
       - name: Cargo test (lib)
         working-directory: core
-        run: cargo test --lib
+        # Serial: unit tests share process-global env vars (see ci-fast.yml).
+        run: cargo test --lib -- --test-threads=1
 
   integration-test:
     name: Integration Tests

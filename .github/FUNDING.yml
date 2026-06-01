@@ -1,0 +1,8 @@
+# GitHub「贊助（Sponsor）」按鈕設定（選填）。
+# 取消註解並填入你的帳號即可在 repo 頁面顯示贊助按鈕。
+# 文件：https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+# github: [your-username]          # GitHub Sponsors 使用者或組織名
+# ko_fi: your-username             # Ko-fi
+# open_collective: phantom-mesh    # Open Collective
+# custom: ["https://your-donate-url"]

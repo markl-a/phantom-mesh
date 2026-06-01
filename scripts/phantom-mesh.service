@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=phantom
 WorkingDirectory=/home/phantom
-ExecStart=/opt/phantom-mesh/phantom-mesh daemon --host 0.0.0.0 --port 7878
+ExecStart=/usr/bin/phantom serve --host 0.0.0.0 --port 7878
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -15,5 +15,28 @@ StandardError=journal
 Environment=HOME=/home/phantom
 EnvironmentFile=-/home/phantom/.phantom-mesh/env
 
+# Hardening (2026-05-29 audit). ProtectSystem=full keeps /usr /boot /etc
+# read-only while leaving /home/phantom + /opt writable for the daemon's data
+# + binary; the rest are no-cost confinement that the daemon does not need to
+# violate. Tighten to ProtectSystem=strict + explicit ReadWritePaths later.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+
 [Install]
 WantedBy=multi-user.target
+# SPEC-44 reconcile (T-WL-05): this is the v0.5.0 **system** (VPS / cloud) unit —
+# its canonical name stays `phantom-mesh.service` (INSTALL-OCI + existing installs
+# depend on it). SPEC-44 §G1/§G5 also name a **user** desktop unit `phantom.service`
+# (at ~/.config/systemd/user/, started with `systemctl --user`) — that one is a
+# separate, still-unbuilt unit. The Alias below lets `systemctl start phantom`
+# resolve to this system unit too (on `systemctl enable` it creates a
+# phantom.service → phantom-mesh.service symlink), reconciling the spec's short
+# name without breaking the established `phantom-mesh.service` name.
+Alias=phantom.service

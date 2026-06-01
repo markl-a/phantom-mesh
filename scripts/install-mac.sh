@@ -33,6 +33,23 @@ fi
 # Strip trailing slash for clean concatenation.
 COORD="${COORD%/}"
 
+# ── Load shared SHA256 + HTTPS verification helpers ────────────────────
+# When piped via `curl | bash` we don't have a local scripts/ dir, so fetch
+# the helper from the same coordinator we're already trusting for the binary.
+# Fail-closed if it can't be loaded; --skip-verify still requires the helper
+# (it just changes the helper's behaviour).
+VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX)"
+trap 'rm -f "$VERIFY_HELPER"' EXIT
+if [ -f "$(dirname "$0")/_verify-download.sh" ]; then
+  cp "$(dirname "$0")/_verify-download.sh" "$VERIFY_HELPER"
+elif ! curl -fsSL --max-time 10 "$COORD/scripts/_verify-download.sh" -o "$VERIFY_HELPER"; then
+  echo "✗ Could not load $COORD/scripts/_verify-download.sh"
+  echo "  Refusing to download a binary without the verifier."
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "$VERIFY_HELPER"
+
 # ── Banner ──────────────────────────────────────────────────────────────
 echo
 echo "  ◆ phantom-mesh installer — macOS"
@@ -75,17 +92,30 @@ mkdir -p \
 
 # ── Download binary ─────────────────────────────────────────────────────
 echo "  [2/6] Downloading phantom ($ARCH)..."
+BIN_URL="$COORD/dist/phantom-$ARCH"
+# Enforce HTTPS unless the operator opts out via PHANTOM_ALLOW_INSECURE=1.
+# require_https writes the rationale to stderr if it refuses.
+require_https "$BIN_URL" || exit 1
+
 TMP_BIN="$(mktemp -t phantom.XXXXXX)"
-trap 'rm -f "$TMP_BIN"' EXIT
-if ! curl -fsSL --max-time 60 "$COORD/dist/phantom-$ARCH" -o "$TMP_BIN"; then
+# Extend the EXIT trap (already set above for VERIFY_HELPER) to also clean
+# up TMP_BIN. We rebuild the trap rather than overwrite to keep both cleanups.
+trap 'rm -f "$VERIFY_HELPER" "$TMP_BIN"' EXIT
+if ! curl -fsSL --max-time 60 "$BIN_URL" -o "$TMP_BIN"; then
   echo "    ✗ download failed — coordinator may not have a Mac binary in dist/"
   echo "      run on coordinator:  cd phantom-mesh && cargo build --release --bin phantom"
   echo "      then:                cp core/target/release/phantom dist/phantom-$ARCH"
   exit 1
 fi
+
+# Verify the SHA256 BEFORE chmod +x or moving into PATH. verify_sha256 will
+# delete TMP_BIN on mismatch and return non-zero so `set -e` aborts us.
+verify_sha256 "$TMP_BIN" "$BIN_URL"
+
 chmod +x "$TMP_BIN"
 mv "$TMP_BIN" "$HOME/.cargo/bin/phantom"
-trap - EXIT
+# Restore the original trap (drops TMP_BIN cleanup since it has been moved).
+trap 'rm -f "$VERIFY_HELPER"' EXIT
 # TCC-safe copy (mirrors the launchd path used by `phantom service install`)
 cp "$HOME/.cargo/bin/phantom" "$HOME/Library/Application Support/phantom-mesh/bin/phantom"
 

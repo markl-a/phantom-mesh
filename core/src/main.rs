@@ -1,10 +1,15 @@
 use std::path::PathBuf;
 
-use axum::{extract::{Query, State}, response::{IntoResponse, Redirect}, routing::{get, post}, Json, Router};
 use axum::http::{HeaderValue, Method};
+use axum::{
+    extract::{Query, State},
+    response::{IntoResponse, Redirect},
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{json, Value};
-use tower_http::cors::CorsLayer;
 use std::collections::HashMap;
+use tower_http::cors::CorsLayer;
 
 use phantom_mesh::channels::telegram::TelegramBot;
 
@@ -12,7 +17,11 @@ use phantom_mesh::channels::telegram::TelegramBot;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().init();
 
-    let args: Vec<String> = std::env::args().collect();
+    // D28: lossily decode argv (args_os) so a stray non-UTF8 byte degrades to
+    // U+FFFD instead of panicking the daemon (`std::env::args()` unwraps).
+    let args: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
 
     let mut host = "0.0.0.0".to_string();
     let mut port: u16 = 7878;
@@ -22,10 +31,22 @@ async fn main() -> anyhow::Result<()> {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--host" => { i += 1; host = args.get(i).cloned().unwrap_or(host); }
-            "--port" => { i += 1; port = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(port); }
-            "--config" => { i += 1; config_path = args.get(i).map(PathBuf::from); }
-            "--session" => { i += 1; session_id = args.get(i).cloned().unwrap_or(session_id); }
+            "--host" => {
+                i += 1;
+                host = args.get(i).cloned().unwrap_or(host);
+            }
+            "--port" => {
+                i += 1;
+                port = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(port);
+            }
+            "--config" => {
+                i += 1;
+                config_path = args.get(i).map(PathBuf::from);
+            }
+            "--session" => {
+                i += 1;
+                session_id = args.get(i).cloned().unwrap_or(session_id);
+            }
             "daemon" => {}
             _ => {}
         }
@@ -35,8 +56,10 @@ async fn main() -> anyhow::Result<()> {
     std::env::set_var("PHANTOM_SESSION", &session_id);
 
     let config_path = config_path.unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".phantom-mesh").join("agents.toml")
+        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
+        PathBuf::from(home)
+            .join(".phantom-mesh")
+            .join("agents.toml")
     });
 
     let mut app_state = phantom_mesh::AppState::new();
@@ -128,7 +151,10 @@ async fn main() -> anyhow::Result<()> {
                     (notify_chat_id, app_state.notifier.clone())
                 {
                     let ch = std::sync::Arc::new(
-                        phantom_mesh::notifications::channels::TelegramChannel::new(bot.clone(), chat_id),
+                        phantom_mesh::notifications::channels::TelegramChannel::new(
+                            bot.clone(),
+                            chat_id,
+                        ),
                     );
                     notifier.add_channel(ch).await;
                     tracing::info!(
@@ -148,18 +174,26 @@ async fn main() -> anyhow::Result<()> {
                                         offset = offset.max(update_id + 1);
                                         continue;
                                     }
-                                    let history = conversations.get_history(&format!("tg:{}", chat_id)).await;
-                                    let extra = format!("You are responding via Telegram. Be concise.");
-                                    let result = runtime.run_tracked(
-                                        &agent_name, &text, &history,
-                                        Some(&extra),
-                                        &cost_tracker,
-                                    ).await;
+                                    let history =
+                                        conversations.get_history(&format!("tg:{}", chat_id)).await;
+                                    let extra =
+                                        format!("You are responding via Telegram. Be concise.");
+                                    let result = runtime
+                                        .run_tracked(
+                                            &agent_name,
+                                            &text,
+                                            &history,
+                                            Some(&extra),
+                                            &cost_tracker,
+                                        )
+                                        .await;
                                     let reply = match result {
                                         Ok(r) => r.output,
                                         Err(e) => format!("Error: {}", e),
                                     };
-                                    let _ = bot_poll.send_message(chat_id, &reply).await;
+                                    if let Err(e) = bot_poll.send_message(chat_id, &reply).await {
+                                        tracing::warn!(chat_id = chat_id, "Telegram send_message failed (user sees no reply): {}", e);
+                                    }
                                     offset = offset.max(update_id + 1);
                                 }
                             }
@@ -202,7 +236,10 @@ fn build_router(state: phantom_mesh::AppState, cors: CorsLayer) -> Router {
         .route("/agent/:name/run-async", post(agent_run_async))
         .route("/conversations/history", get(conversation_history))
         .route("/conversations/list", get(conversations_list))
-        .route("/conversations/:chat_id/history", get(conversation_history_by_id))
+        .route(
+            "/conversations/:chat_id/history",
+            get(conversation_history_by_id),
+        )
         .route("/conversations/:chat_id/reset", post(conversation_reset))
         .route("/scan/hardware", get(scan_hardware))
         .route("/scan/credentials", get(scan_credentials))
@@ -277,15 +314,27 @@ async fn cluster_status(State(state): State<phantom_mesh::AppState>) -> Json<Val
     }))
 }
 
-async fn cluster_workers() -> Json<Value> { Json(json!({ "workers": [] })) }
-async fn cluster_scores() -> Json<Value> { Json(json!({ "scores": [] })) }
+async fn cluster_workers() -> Json<Value> {
+    Json(json!({ "workers": [] }))
+}
+async fn cluster_scores() -> Json<Value> {
+    Json(json!({ "scores": [] }))
+}
 async fn costs(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
     Json(state.cost_tracker.summary().await)
 }
-async fn task_history() -> Json<Value> { Json(json!({ "tasks": [] })) }
-async fn memory_observations() -> Json<Value> { Json(json!({ "observations": [] })) }
-async fn memory_stats() -> Json<Value> { Json(json!({ "total_observations": 0 })) }
-async fn audit_log() -> Json<Value> { Json(json!({ "entries": [] })) }
+async fn task_history() -> Json<Value> {
+    Json(json!({ "tasks": [] }))
+}
+async fn memory_observations() -> Json<Value> {
+    Json(json!({ "observations": [] }))
+}
+async fn memory_stats() -> Json<Value> {
+    Json(json!({ "total_observations": 0 }))
+}
+async fn audit_log() -> Json<Value> {
+    Json(json!({ "entries": [] }))
+}
 
 async fn tools_list(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
     Json(json!({ "tools": state.tool_registry.names() }))
@@ -299,16 +348,19 @@ async fn hands_list(State(state): State<phantom_mesh::AppState>) -> Json<Value> 
 
 async fn conversation_history(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
     let history = state.conversations.get_history("daemon").await;
-    let messages: Vec<Value> = history.iter().map(|m| {
-        serde_json::json!({ "role": m.role, "content": m.content })
-    }).collect();
+    let messages: Vec<Value> = history
+        .iter()
+        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+        .collect();
     Json(json!({ "messages": messages }))
 }
 
 async fn conversations_list(_state: State<phantom_mesh::AppState>) -> Json<Value> {
     // Enumerate .jsonl files on disk — each file is one conversation
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let dir = std::path::PathBuf::from(home).join(".phantom-mesh").join("conversations");
+    let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
+    let dir = std::path::PathBuf::from(home)
+        .join(".phantom-mesh")
+        .join("conversations");
     let ids: Vec<String> = std::fs::read_dir(&dir)
         .map(|entries| {
             entries
@@ -328,25 +380,42 @@ async fn conversation_history_by_id(
     axum::extract::Path(chat_id): axum::extract::Path<String>,
 ) -> Json<Value> {
     let history = state.conversations.get_history(&chat_id).await;
-    let messages: Vec<Value> = history.iter().map(|m| {
-        json!({ "role": m.role, "content": m.content })
-    }).collect();
+    let messages: Vec<Value> = history
+        .iter()
+        .map(|m| json!({ "role": m.role, "content": m.content }))
+        .collect();
     Json(json!({ "chat_id": chat_id, "messages": messages }))
 }
 
 async fn conversation_reset(
-    _state: State<phantom_mesh::AppState>,
+    State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(chat_id): axum::extract::Path<String>,
-) -> Json<Value> {
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 follow-up: HMAC gate.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
     // Delete the conversation file directly
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
     let path = std::path::PathBuf::from(home)
-        .join(".phantom-mesh").join("conversations")
-        .join(format!("{}.jsonl", chat_id.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != ':', "_")));
+        .join(".phantom-mesh")
+        .join("conversations")
+        .join(format!(
+            "{}.jsonl",
+            chat_id.replace(
+                |c: char| !c.is_alphanumeric() && c != '-' && c != '_' && c != ':',
+                "_"
+            )
+        ));
     let deleted = path.exists();
     let _ = std::fs::remove_file(&path);
     // In-memory cache will be stale until the process restarts; disk is source of truth on reload.
-    Json(json!({ "chat_id": chat_id, "reset": deleted }))
+    Json(json!({ "chat_id": chat_id, "reset": deleted })).into_response()
 }
 
 // ── Hardware Scan ──────────────────────────────────────────────────────────
@@ -405,7 +474,8 @@ async fn oauth_callback(Query(params): Query<HashMap<String, String>>) -> impl I
              <h2>登入失敗</h2><p>{}</p>\
              <a href='http://localhost:5173' style='color:#6c63ff'>← 返回</a></body></html>",
             error
-        )).into_response();
+        ))
+        .into_response();
     }
 
     match phantom_mesh::oauth::handle_callback(&code, &state).await {
@@ -415,7 +485,8 @@ async fn oauth_callback(Query(params): Query<HashMap<String, String>>) -> impl I
              <h2>登入失敗</h2><p>{}</p>\
              <a href='http://localhost:5173' style='color:#6c63ff'>← 返回</a></body></html>",
             e
-        )).into_response(),
+        ))
+        .into_response(),
     }
 }
 
@@ -432,11 +503,32 @@ async fn oauth_result() -> Json<Value> {
 async fn agent_run(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(name): axum::extract::Path<String>,
-    Json(body): Json<Value>,
-) -> Json<Value> {
-    let prompt = body["prompt"].as_str().unwrap_or("").to_string();
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 CRITICAL: HMAC gate on daemon /agent/:name/run.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let prompt = parsed["prompt"].as_str().unwrap_or("").to_string();
     let default_session = std::env::var("PHANTOM_SESSION").unwrap_or_else(|_| "daemon".into());
-    let chat_id = body["chat_id"].as_str().unwrap_or(&default_session).to_string();
+    let chat_id = parsed["chat_id"]
+        .as_str()
+        .unwrap_or(&default_session)
+        .to_string();
 
     let (task_id, workspace_id) = create_agent_task(&state, &name, &prompt).await;
     let run_outcome = run_and_finalize_agent_task(&state, &name, &prompt, &chat_id, task_id).await;
@@ -451,11 +543,13 @@ async fn agent_run(
             "elapsed": result.elapsed_secs,
             "task_id": task_id.map(|u| u.to_string()),
             "workspace_id": workspace_id,
-        })),
+        }))
+        .into_response(),
         Err(err_str) => Json(json!({
             "error": err_str,
             "task_id": task_id.map(|u| u.to_string()),
-        })),
+        }))
+        .into_response(),
     }
 }
 
@@ -467,11 +561,32 @@ async fn agent_run(
 async fn agent_run_async(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(name): axum::extract::Path<String>,
-    Json(body): Json<Value>,
-) -> impl axum::response::IntoResponse {
-    let prompt = body["prompt"].as_str().unwrap_or("").to_string();
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 CRITICAL: HMAC gate on daemon /agent/:name/run-async.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let prompt = parsed["prompt"].as_str().unwrap_or("").to_string();
     let default_session = std::env::var("PHANTOM_SESSION").unwrap_or_else(|_| "daemon".into());
-    let chat_id = body["chat_id"].as_str().unwrap_or(&default_session).to_string();
+    let chat_id = parsed["chat_id"]
+        .as_str()
+        .unwrap_or(&default_session)
+        .to_string();
 
     let (task_id, workspace_id) = create_agent_task(&state, &name, &prompt).await;
 
@@ -486,14 +601,9 @@ async fn agent_run_async(
     let spawn_state = state.clone();
     let spawn_name = name.clone();
     tokio::spawn(async move {
-        let _ = run_and_finalize_agent_task(
-            &spawn_state,
-            &spawn_name,
-            &prompt,
-            &chat_id,
-            Some(tid),
-        )
-        .await;
+        let _ =
+            run_and_finalize_agent_task(&spawn_state, &spawn_name, &prompt, &chat_id, Some(tid))
+                .await;
     });
 
     (
@@ -528,9 +638,12 @@ async fn create_agent_task(
     let task_id = if let Some(queue) = &state.task_queue {
         match queue.create(&workspace_id, agent_name, prompt).await {
             Ok(t) => {
-                let _ = queue
+                if let Err(e) = queue
                     .transition(t.task_id, pm_types::TaskStatus::Running, None)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(task_id = %t.task_id, "task transition to Running failed: {}", e);
+                }
                 Some(t.task_id)
             }
             Err(e) => {
@@ -573,14 +686,7 @@ async fn run_and_finalize_agent_task(
     let run_res = if let Some(w) = writer.as_ref() {
         state
             .agent_runtime
-            .run_tracked_with_session(
-                agent_name,
-                prompt,
-                &history,
-                None,
-                &state.cost_tracker,
-                w,
-            )
+            .run_tracked_with_session(agent_name, prompt, &history, None, &state.cost_tracker, w)
             .await
     } else {
         state
@@ -602,15 +708,24 @@ async fn run_and_finalize_agent_task(
                 content: result.output.clone(),
                 tool_calls: None,
             };
-            state.conversations.append(chat_id, user_msg, asst_msg).await;
+            state
+                .conversations
+                .append(chat_id, user_msg, asst_msg)
+                .await;
 
             if let (Some(queue), Some(tid)) = (&state.task_queue, task_id) {
-                let _ = queue
+                if let Err(e) = queue
                     .record_progress(tid, result.turns, result.cost_delta_usd)
-                    .await;
-                let _ = queue
+                    .await
+                {
+                    tracing::warn!(task_id = %tid, "task record_progress failed: {}", e);
+                }
+                if let Err(e) = queue
                     .transition(tid, pm_types::TaskStatus::Completed, None)
-                    .await;
+                    .await
+                {
+                    tracing::warn!(task_id = %tid, "task transition to Completed failed: {}", e);
+                }
             }
             notify_task_transition(
                 state,
@@ -626,9 +741,12 @@ async fn run_and_finalize_agent_task(
         Err(e) => {
             let err_str = e.to_string();
             if let (Some(queue), Some(tid)) = (&state.task_queue, task_id) {
-                let _ = queue
+                if let Err(qe) = queue
                     .transition(tid, pm_types::TaskStatus::Failed, Some(&err_str))
-                    .await;
+                    .await
+                {
+                    tracing::warn!(task_id = %tid, "task transition to Failed failed: {}", qe);
+                }
             }
             notify_task_transition(
                 state,
@@ -654,8 +772,12 @@ async fn notify_task_transition(
     status: pm_types::TaskStatus,
     detail: Option<&str>,
 ) {
-    let Some(notifier) = &state.notifier else { return; };
-    let Some(tid) = task_id else { return; };
+    let Some(notifier) = &state.notifier else {
+        return;
+    };
+    let Some(tid) = task_id else {
+        return;
+    };
     let workspace_id = state
         .task_queue
         .as_ref()
@@ -694,8 +816,12 @@ async fn notify_task_transition(
 
 /// POST /rpc/ping — return this node's own PeerInfo (used by other nodes to ping us).
 async fn rpc_ping(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
-    let node_name = state.cluster_manager.config.node_name
-        .as_deref().unwrap_or("phantom-mesh-node");
+    let node_name = state
+        .cluster_manager
+        .config
+        .node_name
+        .as_deref()
+        .unwrap_or("phantom-mesh-node");
     Json(json!({
         "name": node_name,
         "version": env!("CARGO_PKG_VERSION"),
@@ -742,16 +868,20 @@ async fn rpc_task_assign(
         return (
             axum::http::StatusCode::UNAUTHORIZED,
             Json(json!({ "error": "invalid or missing X-Cluster-Auth" })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     // Parse request body
     let req: phantom_mesh::mesh::TaskAssignRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
-        Err(e) => return (
-            axum::http::StatusCode::BAD_REQUEST,
-            Json(json!({ "error": format!("invalid request body: {}", e) })),
-        ).into_response(),
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("invalid request body: {}", e) })),
+            )
+                .into_response()
+        }
     };
 
     // Create a persistent TaskRecord; the task_id doubles as the external job_id.
@@ -759,7 +889,8 @@ async fn rpc_task_assign(
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "task queue unavailable" })),
-        ).into_response();
+        )
+            .into_response();
     };
     let workspace_id = match (&state.workspace_resolver, std::env::current_dir()) {
         (Some(resolver), Ok(cwd)) => resolver
@@ -776,11 +907,17 @@ async fn rpc_task_assign(
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
     let job_id = task.task_id.to_string();
-    let _ = queue.transition(task.task_id, pm_types::TaskStatus::Running, None).await;
+    if let Err(e) = queue
+        .transition(task.task_id, pm_types::TaskStatus::Running, None)
+        .await
+    {
+        tracing::warn!(task_id = %task.task_id, "task queue transition to Running failed: {}", e);
+    }
 
     // Spawn the agent run in the background so the HTTP thread is not blocked.
     let runtime = state.agent_runtime.clone();
@@ -791,19 +928,32 @@ async fn rpc_task_assign(
     let task_id = task.task_id;
     tokio::spawn(async move {
         let history = conversations.get_history("rpc").await;
-        let result = runtime.run_tracked(
-            &req.agent, &req.prompt, &history,
-            None,
-            &cost_tracker,
-        ).await;
+        let result = runtime
+            .run_tracked(&req.agent, &req.prompt, &history, None, &cost_tracker)
+            .await;
         match result {
             Ok(r) => {
-                let _ = queue.record_progress(task_id, r.turns, r.cost_delta_usd).await;
-                let _ = queue.transition(task_id, pm_types::TaskStatus::Completed, None).await;
+                if let Err(e) = queue
+                    .record_progress(task_id, r.turns, r.cost_delta_usd)
+                    .await
+                {
+                    tracing::warn!(%task_id, "task queue record_progress failed: {}", e);
+                }
+                if let Err(e) = queue
+                    .transition(task_id, pm_types::TaskStatus::Completed, None)
+                    .await
+                {
+                    tracing::warn!(%task_id, "task queue transition to Completed failed: {}", e);
+                }
             }
             Err(e) => {
                 let err = e.to_string();
-                let _ = queue.transition(task_id, pm_types::TaskStatus::Failed, Some(&err)).await;
+                if let Err(te) = queue
+                    .transition(task_id, pm_types::TaskStatus::Failed, Some(&err))
+                    .await
+                {
+                    tracing::warn!(%task_id, "task queue transition to Failed failed: {}", te);
+                }
             }
         }
     });
@@ -811,7 +961,8 @@ async fn rpc_task_assign(
     (
         axum::http::StatusCode::ACCEPTED,
         Json(json!({ "job_id": job_id })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /rpc/task/status/:job_id — poll the status of an async task.
@@ -826,13 +977,15 @@ async fn rpc_task_status(
         return (
             axum::http::StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({ "error": "task queue unavailable" })),
-        ).into_response();
+        )
+            .into_response();
     };
     let Ok(uuid) = uuid::Uuid::parse_str(&job_id) else {
         return (
             axum::http::StatusCode::NOT_FOUND,
             Json(json!({ "error": "job not found" })),
-        ).into_response();
+        )
+            .into_response();
     };
     match queue.get(uuid).await {
         Ok(Some(t)) => {
@@ -849,16 +1002,19 @@ async fn rpc_task_status(
                 "error": t.error,
                 "turns": t.turns,
                 "cost_usd": t.cost_usd,
-            })).into_response()
+            }))
+            .into_response()
         }
         Ok(None) => (
             axum::http::StatusCode::NOT_FOUND,
             Json(json!({ "error": "job not found" })),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": e.to_string() })),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 
@@ -920,13 +1076,31 @@ struct NameReq {
 async fn workspaces_rename(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(body): Json<NameReq>,
-) -> impl axum::response::IntoResponse {
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 follow-up: HMAC gate.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
+    let parsed: NameReq = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response();
+        }
+    };
     let Some(resolver) = state.workspace_resolver else {
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let ws_id = pm_types::WorkspaceId(id);
-    match resolver.registry().rename(&ws_id, body.name).await {
+    match resolver.registry().rename(&ws_id, parsed.name).await {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -944,13 +1118,31 @@ struct TagReq {
 async fn workspaces_add_tag(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Json(body): Json<TagReq>,
-) -> impl axum::response::IntoResponse {
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 follow-up: HMAC gate.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
+    let parsed: TagReq = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response();
+        }
+    };
     let Some(resolver) = state.workspace_resolver else {
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let ws_id = pm_types::WorkspaceId(id);
-    match resolver.registry().add_tag(&ws_id, &body.tag).await {
+    match resolver.registry().add_tag(&ws_id, &parsed.tag).await {
         Ok(()) => Json(json!({ "ok": true })).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -978,7 +1170,10 @@ async fn tasks_list(
     };
     let status_filter = q.status.as_deref().and_then(pm_types::TaskStatus::from_str);
     let limit = q.limit.unwrap_or(50);
-    match queue.list(q.workspace_id.as_deref(), status_filter, limit).await {
+    match queue
+        .list(q.workspace_id.as_deref(), status_filter, limit)
+        .await
+    {
         Ok(tasks) => Json(json!({ "tasks": tasks })).into_response(),
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
@@ -1043,7 +1238,12 @@ async fn tasks_stream(
     // Unfold-based poll loop. State carries the previous snapshot so we only
     // emit when something changed.
     let stream = stream::unfold(
-        (queue, uuid, None::<(String, u32, f64, Option<String>)>, false),
+        (
+            queue,
+            uuid,
+            None::<(String, u32, f64, Option<String>)>,
+            false,
+        ),
         |(queue, uuid, last_key, done)| async move {
             if done {
                 return None;
@@ -1054,7 +1254,10 @@ async fn tasks_stream(
                 let ev = Event::default()
                     .event("error")
                     .data(r#"{"error":"task not found"}"#);
-                return Some((Ok::<_, std::convert::Infallible>(ev), (queue, uuid, last_key, true)));
+                return Some((
+                    Ok::<_, std::convert::Infallible>(ev),
+                    (queue, uuid, last_key, true),
+                ));
             };
 
             let is_terminal = t.status.is_terminal();
@@ -1076,9 +1279,7 @@ async fn tasks_stream(
                     "error": t.error,
                     "finished_at": t.finished_at,
                 });
-                let ev = Event::default()
-                    .event("update")
-                    .data(payload.to_string());
+                let ev = Event::default().event("update").data(payload.to_string());
                 let next_done = is_terminal;
                 return Some((Ok(ev), (queue, uuid, Some(key), next_done)));
             }
@@ -1102,7 +1303,16 @@ async fn tasks_stream(
 async fn tasks_resume(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl axum::response::IntoResponse {
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 follow-up: HMAC gate.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
     let Some(queue) = state.task_queue.clone() else {
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
@@ -1110,7 +1320,8 @@ async fn tasks_resume(
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(json!({ "error": "invalid uuid" })),
-        ).into_response();
+        )
+            .into_response();
     };
     let parent = match queue.get(parent_uuid).await {
         Ok(Some(t)) => t,
@@ -1118,28 +1329,30 @@ async fn tasks_resume(
             return (
                 axum::http::StatusCode::NOT_FOUND,
                 Json(json!({ "error": "task not found" })),
-            ).into_response();
+            )
+                .into_response();
         }
         Err(e) => {
             return (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({ "error": e.to_string() })),
-            ).into_response();
+            )
+                .into_response();
         }
     };
 
     // Replay + repair the prior session. Empty session is allowed (fresh fork).
-    let repaired = match phantom_mesh::tasks::load_and_repair(&parent.workspace_id, parent_uuid)
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("session load: {}", e) })),
-            ).into_response();
-        }
-    };
+    let repaired =
+        match phantom_mesh::tasks::load_and_repair(&parent.workspace_id, parent_uuid).await {
+            Ok(r) => r,
+            Err(e) => {
+                return (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": format!("session load: {}", e) })),
+                )
+                    .into_response();
+            }
+        };
 
     // Materialise the repaired session as a ChatMessage history that the agent
     // loop can consume. Tool calls / results are flattened to text turns
@@ -1173,8 +1386,14 @@ async fn tasks_resume(
                     tool_calls: None,
                 });
             }
-            pm_types::SessionEntry::ToolResult { output, synthetic, .. } => {
-                let prefix = if *synthetic { "[tool_result, synthetic]" } else { "[tool_result]" };
+            pm_types::SessionEntry::ToolResult {
+                output, synthetic, ..
+            } => {
+                let prefix = if *synthetic {
+                    "[tool_result, synthetic]"
+                } else {
+                    "[tool_result]"
+                };
                 history.push(ChatMessage {
                     role: "tool".into(),
                     content: format!("{} {}", prefix, output),
@@ -1207,23 +1426,31 @@ async fn tasks_resume(
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("create child: {}", e) })),
-        ).into_response();
+        )
+            .into_response();
     }
-    let _ = queue
+    if let Err(e) = queue
         .transition(child.task_id, pm_types::TaskStatus::Running, None)
-        .await;
+        .await
+    {
+        tracing::warn!(task_id = %child.task_id, "child task transition to Running failed: {}", e);
+    }
 
     let child_id = child.task_id;
     let spawn_state = state.clone();
     let spawn_history = history.clone();
     tokio::spawn(async move {
-        let result = match (&spawn_state.task_queue, spawn_state.workspace_resolver.is_some()) {
+        let result = match (
+            &spawn_state.task_queue,
+            spawn_state.workspace_resolver.is_some(),
+        ) {
             (Some(queue), _) => match queue.get(child_id).await {
                 Ok(Some(record)) => {
-                    let writer = phantom_mesh::tasks::SessionWriter::open(&record.workspace_id, child_id)
-                        .await
-                        .map_err(|e| tracing::warn!("session writer: {}", e))
-                        .ok();
+                    let writer =
+                        phantom_mesh::tasks::SessionWriter::open(&record.workspace_id, child_id)
+                            .await
+                            .map_err(|e| tracing::warn!("session writer: {}", e))
+                            .ok();
                     if let Some(w) = writer.as_ref() {
                         spawn_state
                             .agent_runtime
@@ -1257,25 +1484,61 @@ async fn tasks_resume(
         if let Some(queue) = &spawn_state.task_queue {
             match result {
                 Ok(r) => {
-                    let _ = queue.record_progress(child_id, r.turns, r.cost_delta_usd).await;
-                    let _ = queue.transition(child_id, pm_types::TaskStatus::Completed, None).await;
+                    if let Err(e) = queue
+                        .record_progress(child_id, r.turns, r.cost_delta_usd)
+                        .await
+                    {
+                        tracing::warn!(%child_id, "child task record_progress failed: {}", e);
+                    }
+                    if let Err(e) = queue
+                        .transition(child_id, pm_types::TaskStatus::Completed, None)
+                        .await
+                    {
+                        tracing::warn!(%child_id, "child task transition to Completed failed: {}", e);
+                    }
                     notify_task_transition(
-                        &spawn_state, Some(child_id), &agent_name, &prompt,
-                        pm_types::TaskStatus::Completed, Some(&r.output),
-                    ).await;
-                    spawn_state.conversations.append(
-                        &chat_id,
-                        ChatMessage { role: "user".into(), content: prompt.clone(), tool_calls: None },
-                        ChatMessage { role: "assistant".into(), content: r.output, tool_calls: None },
-                    ).await;
+                        &spawn_state,
+                        Some(child_id),
+                        &agent_name,
+                        &prompt,
+                        pm_types::TaskStatus::Completed,
+                        Some(&r.output),
+                    )
+                    .await;
+                    spawn_state
+                        .conversations
+                        .append(
+                            &chat_id,
+                            ChatMessage {
+                                role: "user".into(),
+                                content: prompt.clone(),
+                                tool_calls: None,
+                            },
+                            ChatMessage {
+                                role: "assistant".into(),
+                                content: r.output,
+                                tool_calls: None,
+                            },
+                        )
+                        .await;
                 }
                 Err(e) => {
                     let err = e.to_string();
-                    let _ = queue.transition(child_id, pm_types::TaskStatus::Failed, Some(&err)).await;
+                    if let Err(te) = queue
+                        .transition(child_id, pm_types::TaskStatus::Failed, Some(&err))
+                        .await
+                    {
+                        tracing::warn!(%child_id, "child task transition to Failed failed: {}", te);
+                    }
                     notify_task_transition(
-                        &spawn_state, Some(child_id), &agent_name, &prompt,
-                        pm_types::TaskStatus::Failed, Some(&err),
-                    ).await;
+                        &spawn_state,
+                        Some(child_id),
+                        &agent_name,
+                        &prompt,
+                        pm_types::TaskStatus::Failed,
+                        Some(&err),
+                    )
+                    .await;
                 }
             }
         }
@@ -1291,13 +1554,23 @@ async fn tasks_resume(
             "synthetic_repairs": repaired.repaired_count,
             "stream_url": format!("/tasks/{}/stream", child_id),
         })),
-    ).into_response()
+    )
+        .into_response()
 }
 
 async fn tasks_cancel(
     State(state): State<phantom_mesh::AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
-) -> impl axum::response::IntoResponse {
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    // T7b T13-N1 follow-up: HMAC gate.
+    if let Err((code, json)) =
+        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+    {
+        return (code, json).into_response();
+    }
     let Some(queue) = state.task_queue.clone() else {
         return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
@@ -1308,7 +1581,10 @@ async fn tasks_cancel(
         )
             .into_response();
     };
-    match queue.transition(uuid, pm_types::TaskStatus::Cancelled, None).await {
+    match queue
+        .transition(uuid, pm_types::TaskStatus::Cancelled, None)
+        .await
+    {
         Ok(t) => {
             notify_task_transition(
                 &state,

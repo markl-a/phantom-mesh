@@ -1,71 +1,72 @@
-name: Bug report
-description: Something broke — installer, TUI, cluster RPC, model dispatch, anything
-title: "[bug] "
-labels: ["bug"]
+name: 🐛 Bug 回報（Bug report）
+description: 回報缺陷，協助我們改善 Phantom Mesh
+title: "[Bug]: "
+labels: ["bug", "triage"]
 body:
-  - type: input
-    id: phantom-version
+  - type: markdown
     attributes:
-      label: phantom version
-      description: Output of `phantom --version` (or "didn't get that far" if the installer crashed)
-      placeholder: phantom 0.4.0 (abc1234, windows-x86_64, built 2026-05-04)
+      value: |
+        感謝你花時間回報問題！請盡量填寫下列欄位，資訊越完整，越快能重現與修復。
+        > ⚠️ 請勿在內容中貼上任何密鑰（secret）、API key、私有 Tailscale IP、主機名或個人路徑。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 發生了什麼？（What happened?）
+      description: 清楚描述問題，以及你預期的正確行為。
+      placeholder: 我執行 X，預期 Y，實際卻發生 Z。
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 重現步驟（Steps to reproduce）
+      description: 可複製即測的步驟（實際指令或點擊路徑）。
+      placeholder: |
+        1. 執行 `phantom ...`
+        2. 點選 ...
+        3. 觀察到 ...
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: 介面（Surface）
+      description: 問題出現在哪個介面？
+      options:
+        - CLI
+        - App（桌面 / Desktop）
+        - App（手機 / Mobile）
+        - serve（常駐服務 / daemon）
+        - MCP
+        - 其他 / 不確定
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本（Version）
+      description: "`phantom --version` 的輸出。"
+      placeholder: phantom 0.6.0
     validations:
       required: true
   - type: dropdown
     id: os
     attributes:
-      label: OS / platform
+      label: 作業系統（OS）
+      multiple: true
       options:
-        - Windows 10
-        - Windows 11
-        - macOS (Apple Silicon)
-        - macOS (Intel)
-        - Linux (x86_64)
-        - Other
-    validations:
-      required: true
-  - type: textarea
-    id: steps
-    attributes:
-      label: Steps to reproduce
-      description: What did you run / type? Paste exact commands.
-      placeholder: |
-        1. iwr -useb https://phantommesh.io/install.ps1 | iex
-        2. phantom
-        3. typed `/sidebar`
-        4. ...
-    validations:
-      required: true
-  - type: textarea
-    id: expected
-    attributes:
-      label: What you expected to happen
-    validations:
-      required: false
-  - type: textarea
-    id: actual
-    attributes:
-      label: What actually happened
-      description: Error message, screenshot, screen freeze, wrong output, etc.
+        - macOS
+        - Linux
+        - Windows
+        - Android
+        - iOS
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Relevant logs (if any)
-      description: |
-        Look in `~/.phantom-mesh/`:
-          - events.jsonl     (last few entries — `tail -50`)
-          - stderr.log
-          - phantom-restart.log (if cluster upgrade related)
-        Paste only what's relevant. Strip API keys / OAuth tokens.
-      render: text
-    validations:
-      required: false
-  - type: textarea
-    id: extra
-    attributes:
-      label: Anything else
-      description: Network setup (Tailscale? VPN?), other phantom peers, custom agents.toml, etc.
+      label: 相關日誌（Relevant log output）
+      description: 貼上 `phantom logs --tail` 或主控台輸出（請先移除密鑰／個資）。會自動以程式碼格式呈現。
+      render: shell
     validations:
       required: false

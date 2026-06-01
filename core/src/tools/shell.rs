@@ -1,4 +1,5 @@
 use crate::platform;
+use crate::tools::validate;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -13,21 +14,52 @@ fn job_registry() -> &'static Mutex<HashMap<u32, String>> {
 // ── Security lists ─────────────────────────────────────────────────────────
 
 const BLOCKED: &[&str] = &[
-    "rm -rf /", "rm -rf ~", "rm -rf $HOME",
-    "sudo rm", "sudo dd", "sudo mkfs",
+    "rm -rf /",
+    "rm -rf ~",
+    "rm -rf $HOME",
+    "sudo rm",
+    "sudo dd",
+    "sudo mkfs",
     ":(){:|:&};:",
-    "chmod -R 777 /", "chmod 777 /",
-    "> /etc/", ">> /etc/", "tee /etc/",
-    "curl | sh", "curl|sh", "wget -O- | sh", "wget -O- |sh",
-    "mkfs", "dd if=/dev/zero of=/dev/",
+    "chmod -r 777 /",
+    "chmod 777 /",
+    "> /etc/",
+    ">> /etc/",
+    "tee /etc/",
+    "curl | sh",
+    "curl|sh",
+    "wget -o- | sh",
+    "wget -o- |sh",
+    "mkfs",
+    "dd if=/dev/zero of=/dev/",
 ];
 
+/// Public accessor for the shell-blocklist used by `bash_bg::run_background`
+/// so background jobs share the exact same deny-list as foreground `shell`.
+/// Patterns must already be in the lowercase-collapsed form that
+/// `validate::match_blocklist` produces from raw input.
+pub fn blocked_patterns() -> &'static [&'static str] {
+    BLOCKED
+}
+
 const REQUIRES_CONFIRM: &[&str] = &[
-    "rm ", "sudo ", "kill ", "pkill ", "killall ",
-    "git reset --hard", "git clean ",
-    "chmod ", "chown ",
-    "DROP TABLE", "DROP DATABASE", "TRUNCATE ",
-    "curl ", "wget ", "nc ", "netcat ", "cp ",
+    "rm ",
+    "sudo ",
+    "kill ",
+    "pkill ",
+    "killall ",
+    "git reset --hard",
+    "git clean ",
+    "chmod ",
+    "chown ",
+    "DROP TABLE",
+    "DROP DATABASE",
+    "TRUNCATE ",
+    "curl ",
+    "wget ",
+    "nc ",
+    "netcat ",
+    "cp ",
 ];
 
 pub fn requires_confirmation(cmd: &str) -> Option<&'static str> {
@@ -75,6 +107,42 @@ pub async fn run_bg(args: &Value) -> String {
         _ => return "Error: missing 'command' argument".into(),
     };
     let label = args["label"].as_str().unwrap_or(cmd).to_string();
+
+    // Audit C-1: enforce the same control-char + blocklist gate as `run`.
+    // Pre-fix, `run_bg` accepted arbitrary commands with zero validation —
+    // a model could sidestep the entire approval pipeline by saying
+    // `shell` with `mode=bg` instead of the synchronous form.
+    if let Err(e) = validate::reject_dangerous_chars(cmd) {
+        return e;
+    }
+    if let Some(pat) = validate::match_blocklist(cmd, BLOCKED) {
+        return format!("Error: blocked command pattern '{}'", pat);
+    }
+    if cmd.contains("$(") || cmd.contains('`') {
+        return "Error: subshell / backtick substitution is not allowed".into();
+    }
+
+    // [C7/T76] V9 H-3: enforce the same `requires_confirmation` gate as
+    // `shell::run`. Pre-fix, the background path skipped this check, so a
+    // model could route destructive commands through `mode=bg` to bypass
+    // approval. Honors `PHANTOM_AUTO_APPROVE=1` like the foreground path.
+    // Returns a formatted string (not JSON) to match this entry point's
+    // existing return shape — by design distinct from `bash_run_background`
+    // which returns JSON.
+    if let Some(reason) = requires_confirmation(cmd) {
+        if !auto_approve_enabled() {
+            return format!(
+                "APPROVAL_REQUIRED: command '{}' matches pattern '{}'.\n\
+                 To allow this command, the caller must set PHANTOM_AUTO_APPROVE=1 or explicitly confirm.\n\
+                 Re-run with confirmation to proceed.",
+                cmd, reason
+            );
+        }
+        tracing::warn!(
+            "PHANTOM_AUTO_APPROVE is active — shell::run_bg executing potentially dangerous command: '{}'",
+            cmd
+        );
+    }
 
     let argv = match shell_words::split(cmd) {
         Ok(v) if !v.is_empty() => v,
@@ -128,7 +196,11 @@ pub async fn check_bg(args: &Value) -> String {
     } else {
         let jobs: Vec<(u32, String)> = job_registry()
             .lock()
-            .map(|reg| reg.iter().map(|(&pid, label)| (pid, label.clone())).collect())
+            .map(|reg| {
+                reg.iter()
+                    .map(|(&pid, label)| (pid, label.clone()))
+                    .collect()
+            })
             .unwrap_or_default();
 
         if jobs.is_empty() {
@@ -154,7 +226,11 @@ fn process_status(pid: u32) -> &'static str {
         match out {
             Ok(o) => {
                 let s = String::from_utf8_lossy(&o.stdout);
-                if s.contains(&pid.to_string()) { "running" } else { "finished" }
+                if s.contains(&pid.to_string()) {
+                    "running"
+                } else {
+                    "finished"
+                }
             }
             _ => "unknown",
         }
@@ -223,11 +299,18 @@ pub async fn run(args: &Value) -> String {
         None => return "Error: missing 'command' argument".into(),
     };
 
-    // Pre-parse blocklist check
-    for pat in BLOCKED {
-        if cmd.contains(pat) {
-            return format!("Error: blocked command pattern '{}'", pat);
-        }
+    // Reject control / zero-width / bidi characters outright. Per audit C-1,
+    // newline-line-continuations (`rm \<newline>-rf /`) and Unicode
+    // zero-width joiners are common bypasses for substring blocklists.
+    if let Err(e) = validate::reject_dangerous_chars(cmd) {
+        return e;
+    }
+
+    // Pre-parse blocklist check (Unicode-normalised + multi-space collapsed,
+    // see validate::match_blocklist). Catches `rm  -rf  /`, `rm\u{2010}rf /`,
+    // `rm\u{00A0}-rf /` etc.
+    if let Some(pat) = validate::match_blocklist(cmd, BLOCKED) {
+        return format!("Error: blocked command pattern '{}'", pat);
     }
     if cmd.contains("$(") {
         return "Error: subshell substitution $(...) is not allowed".into();
@@ -273,6 +356,15 @@ pub async fn run(args: &Value) -> String {
         })
         .unwrap_or_default();
 
+    // Audit C-2 (2026-05-15 tools-audit): block known env-injection
+    // vectors (LD_PRELOAD, DYLD_*, PATH, GIT_SSH_COMMAND, …) BEFORE
+    // they ever reach `Command::env()`. Applies to all dispatch paths
+    // below — direct argv, native shell, and compound runner all share
+    // this `extra_env` map, so guarding once here covers them all.
+    if let Err(reason) = crate::tools::env_filter::validate_extra_env(&extra_env) {
+        return format!("Error: {}", reason);
+    }
+
     // Optional stdin text
     let stdin_text: Option<String> = args["stdin"].as_str().map(|s| s.to_string());
 
@@ -286,8 +378,14 @@ pub async fn run(args: &Value) -> String {
         let mut found = false;
         while i < bytes.len() {
             match bytes[i] {
-                b'|' if bytes.get(i + 1) != Some(&b'|') => { found = true; break; }
-                b'>' | b'<' => { found = true; break; }
+                b'|' if bytes.get(i + 1) != Some(&b'|') => {
+                    found = true;
+                    break;
+                }
+                b'>' | b'<' => {
+                    found = true;
+                    break;
+                }
                 _ => {}
             }
             i += 1;
@@ -298,19 +396,37 @@ pub async fn run(args: &Value) -> String {
     // Commands with pipe/redirect need a real shell; bypass the custom compound
     // parser and hand them directly to sh/cmd.
     if needs_shell {
-        return run_via_native_shell(cmd, timeout_secs, cwd.as_deref(), &extra_env, stdin_text.as_deref()).await;
+        return run_via_native_shell(
+            cmd,
+            timeout_secs,
+            cwd.as_deref(),
+            &extra_env,
+            stdin_text.as_deref(),
+        )
+        .await;
     }
 
     let has_operators = cmd.contains(" && ") || cmd.contains(" || ") || cmd.contains(';');
     if has_operators {
-        let part_count = cmd.split(';')
+        let part_count = cmd
+            .split(';')
             .flat_map(|p| p.split(" && ").flat_map(|q| q.split(" || ")))
             .filter(|p| !p.trim().is_empty())
             .count();
         if part_count > 10 {
-            return format!("Error: too many command parts ({}), maximum is 10", part_count);
+            return format!(
+                "Error: too many command parts ({}), maximum is 10",
+                part_count
+            );
         }
-        return run_compound(cmd, timeout_secs, cwd.as_deref(), &extra_env, stdin_text.as_deref()).await;
+        return run_compound(
+            cmd,
+            timeout_secs,
+            cwd.as_deref(),
+            &extra_env,
+            stdin_text.as_deref(),
+        )
+        .await;
     }
 
     let argv = match shell_words::split(cmd) {
@@ -320,10 +436,8 @@ pub async fn run(args: &Value) -> String {
 
     // Post-parse blocklist check: catches quoted bypasses like rm '-rf' '/'
     let rejoined = argv.join(" ");
-    for pat in BLOCKED {
-        if rejoined.contains(pat) {
-            return format!("Error: blocked command pattern '{}'", pat);
-        }
+    if let Some(pat) = validate::match_blocklist(&rejoined, BLOCKED) {
+        return format!("Error: blocked command pattern '{}'", pat);
     }
 
     // Approval gate runs AFTER blocklist — hard-blocked commands are always
@@ -403,12 +517,7 @@ pub async fn run(args: &Value) -> String {
     });
 
     // Race between process completion and timeout
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        child.wait(),
-    )
-    .await
-    {
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), child.wait()).await {
         Ok(Ok(status)) => {
             let (stdout_bytes, stderr_bytes) = collect_handle.await.unwrap_or_default();
             let out = std::process::Output {
@@ -425,11 +534,8 @@ pub async fn run(args: &Value) -> String {
         Err(_) => {
             // Timeout: kill the process then harvest any buffered output
             kill_pid(child_pid);
-            let partial_result = tokio::time::timeout(
-                std::time::Duration::from_millis(200),
-                collect_handle,
-            )
-            .await;
+            let partial_result =
+                tokio::time::timeout(std::time::Duration::from_millis(200), collect_handle).await;
             let (partial_out, partial_err) = match partial_result {
                 Ok(Ok((stdout_bytes, stderr_bytes))) => (stdout_bytes, stderr_bytes),
                 _ => (Vec::new(), Vec::new()),
@@ -480,10 +586,9 @@ async fn run_via_native_shell(
         command.stdin(std::process::Stdio::null());
     }
 
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        async { command.output().await },
-    )
+    match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
+        command.output().await
+    })
     .await
     {
         Ok(Ok(out)) => {
@@ -491,17 +596,25 @@ async fn run_via_native_shell(
             let stderr = String::from_utf8_lossy(&out.stderr);
             let exit = out.status.code().unwrap_or(-1);
             let mut result = String::new();
-            if !stdout.is_empty() { result.push_str(&stdout); }
+            if !stdout.is_empty() {
+                result.push_str(&stdout);
+            }
             if !stderr.is_empty() {
-                if !result.is_empty() && !result.ends_with('\n') { result.push('\n'); }
+                if !result.is_empty() && !result.ends_with('\n') {
+                    result.push('\n');
+                }
                 result.push_str("STDERR:\n");
                 result.push_str(&stderr);
             }
             if exit != 0 {
-                if !result.is_empty() && !result.ends_with('\n') { result.push('\n'); }
+                if !result.is_empty() && !result.ends_with('\n') {
+                    result.push('\n');
+                }
                 result.push_str(&format!("[exit code: {}]", exit));
             }
-            if result.is_empty() { result.push_str(&format!("[exit code: {}]", exit)); }
+            if result.is_empty() {
+                result.push_str(&format!("[exit code: {}]", exit));
+            }
             result
         }
         Ok(Err(e)) => format!("Error: failed to run shell: {}", e),
@@ -589,14 +702,12 @@ async fn run_compound(
     for (op, part) in &parts {
         match op {
             Op::And if last_exit != 0 => continue,
-            Op::Or  if last_exit == 0 => continue,
+            Op::Or if last_exit == 0 => continue,
             _ => {}
         }
 
-        for pat in BLOCKED {
-            if part.contains(pat) {
-                return format!("Error: blocked command pattern '{}' in '{}'", pat, part);
-            }
+        if let Some(pat) = validate::match_blocklist(part, BLOCKED) {
+            return format!("Error: blocked command pattern '{}' in '{}'", pat, part);
         }
         let argv = match shell_words::split(part) {
             Ok(v) if !v.is_empty() => v,
@@ -621,12 +732,9 @@ async fn run_compound(
             command.stdin(std::process::Stdio::null());
         }
 
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            async {
-                command.output().await
-            },
-        )
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), async {
+            command.output().await
+        })
         .await
         {
             Ok(Ok(out)) => {
@@ -634,10 +742,14 @@ async fn run_compound(
                 let stderr = String::from_utf8_lossy(&out.stderr);
                 let have_out = !stdout.is_empty();
                 let have_err = !stderr.is_empty();
-                if have_out { combined.push_str(&stdout); }
+                if have_out {
+                    combined.push_str(&stdout);
+                }
                 if have_err {
                     if have_out {
-                        if !combined.ends_with('\n') { combined.push('\n'); }
+                        if !combined.ends_with('\n') {
+                            combined.push('\n');
+                        }
                         combined.push_str("STDERR:\n");
                     } else {
                         combined.push_str("STDERR:\n");
@@ -669,7 +781,9 @@ async fn run_compound(
     if combined.is_empty() {
         format!("[exit code: {}]", last_exit)
     } else {
-        if !combined.ends_with('\n') { combined.push('\n'); }
+        if !combined.ends_with('\n') {
+            combined.push('\n');
+        }
         combined.push_str(&format!("[exit code: {}]", last_exit));
         crate::tools::truncate(combined, 20_000)
     }
@@ -689,7 +803,9 @@ fn format_separated_output(stdout_bytes: &[u8], stderr_bytes: &[u8]) -> String {
             let mut s = String::with_capacity(stdout.len() + stderr.len() + 20);
             s.push_str("STDOUT:\n");
             s.push_str(&stdout);
-            if !s.ends_with('\n') { s.push('\n'); }
+            if !s.ends_with('\n') {
+                s.push('\n');
+            }
             s.push_str("STDERR:\n");
             s.push_str(&stderr);
             s
@@ -713,7 +829,9 @@ fn format_output(out: &std::process::Output, _timeout_secs: u64) -> String {
         format!("[exit code: {}]", exit_code)
     } else {
         let mut result = body;
-        if !result.ends_with('\n') { result.push('\n'); }
+        if !result.ends_with('\n') {
+            result.push('\n');
+        }
         result.push_str(&format!("[exit code: {}]", exit_code));
         crate::tools::truncate(result, 20_000)
     }
@@ -723,9 +841,12 @@ fn kill_pid(pid: Option<u32>) {
     if let Some(p) = pid {
         #[cfg(windows)]
         let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/PID", &p.to_string()]).output();
+            .args(["/F", "/PID", &p.to_string()])
+            .output();
         #[cfg(not(windows))]
-        let _ = std::process::Command::new("kill").args(["-9", &p.to_string()]).output();
+        let _ = std::process::Command::new("kill")
+            .args(["-9", &p.to_string()])
+            .output();
     }
 }
 
@@ -734,11 +855,6 @@ fn kill_pid(pid: Option<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn env_lock() -> &'static tokio::sync::Mutex<()> {
-        static LOCK: std::sync::OnceLock<tokio::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-    }
 
     // ---- parse_compound tests ----
 
@@ -798,7 +914,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_approval_gate_blocks_without_env() {
-        let _g = env_lock().lock().await;
+        let _g = crate::sandbox::test_lock();
         std::env::remove_var("PHANTOM_AUTO_APPROVE");
         let args = serde_json::json!({"command": "rm somefile"});
         let result = run(&args).await;
@@ -807,7 +923,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_approval_gate_allows_with_env() {
-        let _g = env_lock().lock().await;
+        let _g = crate::sandbox::test_lock();
         std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
         let args = serde_json::json!({"command": "rm /tmp/__phantom_test_nonexistent_file__"});
         let result = run(&args).await;
@@ -822,6 +938,125 @@ mod tests {
         let args = serde_json::json!({"command": "rm -rf /"});
         let result = run(&args).await;
         assert!(result.starts_with("Error: blocked"), "got: {}", result);
+    }
+
+    // ---- Audit C-1: blocklist bypass regressions ----
+    //
+    // Each of these would have succeeded pre-fix because the previous
+    // implementation used raw `cmd.contains("rm -rf /")` substring matching
+    // and never normalised whitespace or Unicode dashes.
+
+    #[tokio::test]
+    async fn test_blocked_rm_rf_double_space() {
+        let args = serde_json::json!({"command": "rm  -rf  /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked"),
+            "double-space bypass should be caught, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_rm_rf_tab() {
+        let args = serde_json::json!({"command": "rm\t-rf\t/"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked"),
+            "tab-separator bypass should be caught, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_rm_rf_unicode_hyphen() {
+        // U+2010 Unicode hyphen — visually identical to ASCII '-'.
+        let args = serde_json::json!({"command": "rm \u{2010}rf /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error:"),
+            "Unicode-hyphen bypass should be caught, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_rm_rf_non_breaking_space() {
+        // U+00A0 non-breaking space.
+        let args = serde_json::json!({"command": "rm\u{00A0}-rf /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error:"),
+            "non-breaking-space bypass should be caught, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_newline_bypass() {
+        // The audit calls out `rm \<newline>-rf /` as a bypass via line
+        // continuation. We reject newlines outright now.
+        let args = serde_json::json!({"command": "rm \\\n-rf /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error:"),
+            "newline injection should be rejected, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_zero_width_joiner() {
+        // U+200B zero-width space embedded inside the command.
+        let args = serde_json::json!({"command": "rm\u{200B} -rf /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error:"),
+            "zero-width joiner should be rejected, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blocked_via_native_shell_pipe() {
+        // Audit C-1 (the trickiest bypass): commands with pipes/redirects
+        // route through `run_via_native_shell` straight to `sh -c`, bypassing
+        // the post-parse re-check. The pre-parse check at the top of `run`
+        // must still catch the blocklist on this path.
+        let args = serde_json::json!({"command": "echo x | rm -rf /"});
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked"),
+            "native-shell route must apply blocklist, got: {}",
+            result
+        );
+    }
+
+    // ---- Legitimate commands must still work ----
+
+    #[tokio::test]
+    async fn test_legit_echo_still_works() {
+        let args = serde_json::json!({"command": "echo hello"});
+        let result = run(&args).await;
+        assert!(
+            !result.starts_with("Error:"),
+            "echo should not be blocked, got: {}",
+            result
+        );
+        assert!(result.contains("hello"), "got: {}", result);
+    }
+
+    #[tokio::test]
+    async fn test_legit_command_with_dash_arg() {
+        // The blocklist must not false-positive on legitimate uses of `-`
+        // or short flags. `ls -la` is the canonical example.
+        let args = serde_json::json!({"command": "ls -la /tmp"});
+        let result = run(&args).await;
+        assert!(
+            !result.starts_with("Error:"),
+            "ls -la should not be blocked, got: {}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -851,9 +1086,62 @@ mod tests {
     async fn test_run_bg_returns_pid() {
         let args = serde_json::json!({"command": "sleep 60", "label": "test_sleep"});
         let result = run_bg(&args).await;
-        assert!(result.contains("PID="), "expected PID in output, got: {}", result);
-        assert!(result.contains("test_sleep"), "expected label in output, got: {}", result);
+        assert!(
+            result.contains("PID="),
+            "expected PID in output, got: {}",
+            result
+        );
+        assert!(
+            result.contains("test_sleep"),
+            "expected label in output, got: {}",
+            result
+        );
         // Clean up: extract PID and kill it
+        if let Some(pid_str) = result
+            .split("PID=")
+            .nth(1)
+            .and_then(|s| s.split_whitespace().next())
+        {
+            if let Ok(pid) = pid_str.parse::<u32>() {
+                kill_pid(Some(pid));
+            }
+        }
+    }
+
+    // ── [C7/T76] V9 H-3 approval-gate parity tests for run_bg ────────────
+
+    /// V9 H-3 regression: `shell::run_bg` must refuse `requires_confirmation`
+    /// matches without `PHANTOM_AUTO_APPROVE`. Pre-fix the background entry
+    /// point spawned anything not on the hard blocklist — letting `sudo …`
+    /// or `kill …` slip past the approval gate that `run` enforces.
+    #[tokio::test]
+    async fn test_run_bg_requires_confirmation_blocks_sudo() {
+        let _g = crate::sandbox::test_lock();
+        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        let args = serde_json::json!({"command": "sudo systemctl restart sshd"});
+        let result = run_bg(&args).await;
+        assert!(
+            result.starts_with("APPROVAL_REQUIRED:"),
+            "expected APPROVAL_REQUIRED prefix, got: {}",
+            result
+        );
+    }
+
+    /// V9 H-3 regression: harmless commands must still launch.
+    #[tokio::test]
+    async fn test_run_bg_safe_command_still_launches() {
+        let _g = crate::sandbox::test_lock();
+        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        // Use a long-running command so we get a real PID before exit.
+        let args = serde_json::json!({"command": "sleep 60", "label": "c7_t76_safe"});
+        let result = run_bg(&args).await;
+        assert!(
+            !result.starts_with("APPROVAL_REQUIRED:") && !result.starts_with("Error:"),
+            "safe command should not be gated, got: {}",
+            result
+        );
+        assert!(result.contains("PID="), "expected PID, got: {}", result);
+        // Cleanup.
         if let Some(pid_str) = result
             .split("PID=")
             .nth(1)
@@ -888,7 +1176,11 @@ mod tests {
     async fn test_cwd_valid() {
         let args = serde_json::json!({"command": "pwd", "cwd": "/tmp"});
         let result = run(&args).await;
-        assert!(result.contains("/tmp") || result.contains("exit code: 0"), "got: {}", result);
+        assert!(
+            result.contains("/tmp") || result.contains("exit code: 0"),
+            "got: {}",
+            result
+        );
     }
 
     #[tokio::test]
@@ -912,7 +1204,35 @@ mod tests {
             "tilde-only cwd should expand, got: {}",
             result
         );
-        assert!(result.contains("home") || result.contains("exit code: 0"), "got: {}", result);
+        assert!(
+            result.contains("home") || result.contains("exit code: 0"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cwd_tilde_slash_variants_expand_to_home() {
+        // The prefix forms must also expand: `~/` (POSIX) and `~\` (the
+        // Windows form an LLM emits on Windows). Both strip to an empty
+        // remainder, so they resolve to home itself. The "~\\" branch is
+        // Windows-specific and was previously untested.
+        for cwd in ["~/", "~\\"] {
+            let args = serde_json::json!({"command": "echo home", "cwd": cwd});
+            let result = run(&args).await;
+            assert!(
+                !result.starts_with("Error: cwd"),
+                "cwd '{}' should expand to home, got: {}",
+                cwd,
+                result
+            );
+            assert!(
+                result.contains("home") || result.contains("exit code: 0"),
+                "cwd '{}' got: {}",
+                cwd,
+                result
+            );
+        }
     }
 
     #[tokio::test]
@@ -922,7 +1242,141 @@ mod tests {
             "env": {"PHANTOM_TEST_VAR": "hello_from_phantom"}
         });
         let result = run(&args).await;
-        assert!(result.contains("PHANTOM_TEST_VAR=hello_from_phantom"), "got: {}", result);
+        assert!(
+            result.contains("PHANTOM_TEST_VAR=hello_from_phantom"),
+            "got: {}",
+            result
+        );
+    }
+
+    // Audit C-2 (2026-05-15 tools-audit): the `env` parameter must NOT
+    // accept dynamic-loader / config-redirect / SSL trust hijacks. The
+    // detailed rule list lives in `tools::env_filter` — these
+    // integration tests just confirm the wiring blocks the attack at
+    // the `shell::run` boundary BEFORE the child is spawned (i.e. no
+    // process is even created with `LD_PRELOAD` set).
+
+    #[tokio::test]
+    async fn env_injection_ld_preload_is_blocked() {
+        let args = serde_json::json!({
+            "command": "echo hello",
+            "env": {"LD_PRELOAD": "/tmp/evil.so"}
+        });
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked env var 'LD_PRELOAD'"),
+            "LD_PRELOAD must be rejected, got: {}",
+            result,
+        );
+        // Must NOT have actually run the command (no exit code line).
+        assert!(
+            !result.contains("[exit code:"),
+            "command should not have spawned, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn env_injection_dyld_insert_libraries_is_blocked() {
+        let args = serde_json::json!({
+            "command": "echo hello",
+            "env": {"DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib"}
+        });
+        let result = run(&args).await;
+        assert!(
+            result.contains("DYLD_INSERT_LIBRARIES"),
+            "DYLD_INSERT_LIBRARIES must be rejected, got: {}",
+            result,
+        );
+        assert!(
+            result.starts_with("Error: blocked env var"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn env_injection_path_override_is_blocked() {
+        let args = serde_json::json!({
+            "command": "echo hello",
+            "env": {"PATH": "/tmp/evil:/usr/bin"}
+        });
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked env var 'PATH'"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn env_injection_git_ssh_command_is_blocked() {
+        // GIT_SSH_COMMAND is the canonical "exec arbitrary code on
+        // every git push/pull" knob — must be blocked even though it
+        // looks innocuous (a string, not a binary path).
+        let args = serde_json::json!({
+            "command": "git --version",
+            "env": {"GIT_SSH_COMMAND": "/tmp/evil-ssh"}
+        });
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked env var 'GIT_SSH_COMMAND'"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn env_injection_does_not_leak_into_subprocess() {
+        // End-to-end guarantee: even with the var in the request, the
+        // child process must NOT see it. We can't easily inspect what
+        // the (rejected) child would have seen, so we verify the
+        // command never ran by asserting no exit code in the output.
+        let args = serde_json::json!({
+            "command": "env",
+            "env": {"LD_LIBRARY_PATH": "/tmp/evil"}
+        });
+        let result = run(&args).await;
+        assert!(
+            result.starts_with("Error: blocked env var"),
+            "got: {}",
+            result
+        );
+        assert!(
+            !result.contains("LD_LIBRARY_PATH=/tmp/evil"),
+            "leaked into child: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn env_injection_safe_vars_still_pass_through() {
+        // Regression guard: blocking LD_PRELOAD must NOT block legit
+        // app-config vars. RUST_LOG / PYTHONUNBUFFERED / RUST_BACKTRACE
+        // are routinely set by real workflows.
+        let args = serde_json::json!({
+            "command": "env",
+            "env": {
+                "RUST_LOG": "debug",
+                "PYTHONUNBUFFERED": "1",
+                "PHANTOM_TEST_SAFE": "yes"
+            }
+        });
+        let result = run(&args).await;
+        assert!(
+            !result.starts_with("Error: blocked"),
+            "safe vars should pass, got: {}",
+            result
+        );
+        // At least one of the vars should make it through to env(1)'s output
+        // (running on Windows/macOS/Linux all emit the K=V format).
+        assert!(
+            result.contains("PHANTOM_TEST_SAFE=yes")
+                || result.contains("RUST_LOG=debug")
+                || result.contains("PYTHONUNBUFFERED=1"),
+            "expected one of the safe vars to reach the child, got: {}",
+            result,
+        );
     }
 
     #[tokio::test]

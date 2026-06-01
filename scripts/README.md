@@ -18,6 +18,8 @@
 | `phantom-mesh.service` | systemd unit file |
 | `smoke-test.sh` | 基本煙霧測試 |
 | `integration-test.sh` | 整合測試 |
+| `verify-binary.sh` | 跨平台 binary 健康檢查(bash;Linux/Mac/WSL/Git Bash 用)— 詳見 `VERIFY-BINARY.md` |
+| `verify-binary.ps1` | 同上(PowerShell;Windows 用)— 詳見 `VERIFY-BINARY.md` |
 | `update-daemon.sh` | daemon 自動更新 |
 | `self-evolve.sh` | 自我演化迴圈觸發 |
 | `clean-history.sh` | log/history 清理 |

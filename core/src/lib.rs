@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod capabilities;
 pub mod cli_config;
 pub mod models_cache;
 pub mod platform;
@@ -24,49 +25,122 @@ pub mod env_lock {
     }
 }
 pub mod channels;
-pub mod runtime;
+// `openclaw` is exposed when ANY of the openclaw sub-features (or the
+// umbrella) is enabled. Without this, enabling just
+// `experimental-openclaw-telegram` or `experimental-openclaw-slack` would
+// compile `openclaw/mod.rs` (via the inner sub-feature gates) but leave the
+// module path invisible to dependents like `bin/phantom.rs`. The B3/T84
+// webhook-secret validator (openclaw::webhook_auth) is reachable via the
+// standalone telegram sub-feature; the B5/T86 real Slack adapter
+// (openclaw::slack) is reachable via the standalone slack sub-feature.
+// The inner `pub mod telegram/whatsapp/slack/persona` declarations each
+// carry their own `#[cfg]`, so this widening adds zero extra compile units
+// to a default build. Fixed by [B2/T83] (2026-05-16), extended by [B5/T86].
+pub mod approval;
+pub mod auth;
+pub mod auth_gate;
 pub mod config;
 pub mod context;
 pub mod cost;
-pub mod diff_render;
-pub mod goals_push;
 pub mod diag;
+pub mod diff_render;
+pub mod i18n;
 pub mod evolve_checkpoint;
 pub mod evolve_goals;
 pub mod extensions;
+pub mod goals_push;
+#[cfg(feature = "experimental-anti-hallucination")]
+pub mod hallucination;
 pub mod hardware;
-pub mod approval;
+pub mod hermes;
+pub mod http_client;
 pub mod identity;
 pub mod interrupt;
-pub mod permission;
-pub mod projects;
 pub mod keys;
+pub mod life_node;
 pub mod mcp;
 pub mod mcp_client;
 pub mod mesh;
 pub mod multimodal;
 pub mod notifications;
 pub mod oauth;
+#[cfg(any(
+    feature = "experimental-openclaw",
+    feature = "experimental-openclaw-telegram",
+    feature = "experimental-openclaw-whatsapp",
+    feature = "experimental-openclaw-slack",
+))]
+pub mod openclaw;
+pub mod permission;
+pub mod process_sandbox;
 pub mod project_context;
+pub mod projects;
 pub mod providers;
 pub mod recipe;
+pub mod runtime;
 pub mod sandbox;
 pub mod scaffold;
 pub mod serve;
+#[cfg(feature = "experimental-hermes-memory")]
+pub mod serve_hermes;
+pub mod service;
 pub mod session;
 pub mod streaming;
+pub mod swarm;
 pub mod tasks;
 pub mod tools;
-pub mod workspace;
-pub mod http_client;
+pub mod tracing;
 pub mod tui;
-pub mod auth;
+pub mod util;
+pub mod vault;
+pub mod worker_installer;
+pub mod workspace;
+// SPEC-10 §7 wire types (Stage 2: pseudocode HMAC stubs + ts-rs).
+pub mod rpc_wire;
+// SPEC-12 §7 identity-keypair wire types (Stage 1: types + ts-rs + stubs).
+pub mod identity_wire;
+// SPEC-13 §7 encryption (age v1) wire types (Stage 1).
+pub mod encryption_wire;
+// SPEC-16 §7 event-storage wire types (Stage 1).
+pub mod event_storage_wire;
+// SPEC-23 / SPEC-41 #3 — Daily Review reader wire (app surface of /review).
+pub mod daily_review_wire;
+// SPEC-11 §7 mDNS discovery wire types (Stage 1).
+pub mod mdns_wire;
+// SPEC-14 §7 LLM providers wire types (Stage 1).
+pub mod providers_wire;
+// SPEC-17 §7+§9 Tauri bridge wire types (Stage 1).
+pub mod tauri_wire;
+// SPEC-20 §7 capture-food wire types (Stage 1).
+pub mod capture_food_wire;
+// SPEC-21 §7 capture-focus wire types (Stage 1).
+pub mod capture_focus_wire;
+// SPEC-22 §7 capture-habit wire types (Stage 1).
+pub mod capture_habit_wire;
+// SPEC-23 §7 coach-engine wire types (Stage 1).
+pub mod coach_wire;
+// SPEC-15 §7 broker-vault-sync wire types (Stage 1).
+pub mod broker_vault_wire;
+// SPEC-24 §7 coach-delivery wire types (Stage 1).
+pub mod coach_delivery_wire;
+// SPEC-25 §7 skill-extraction (Hermes) wire types (Stage 1).
+pub mod skill_wire;
+// SPEC-26 §7 cluster-dispatch wire types (Stage 1).
+pub mod cluster_dispatch_wire;
+// SPEC-27 §7 smart-task-decompose wire types (Stage 1).
+pub mod smart_decompose_wire;
+// SPEC-28 §7 onboarding (30s-hello FSM) wire types (Stage 1).
+pub mod onboarding_wire;
+// SPEC-29 §7 release-pipeline wire types (Stage 1).
+pub mod release_pipeline_wire;
 
 #[cfg(target_os = "macos")]
 pub mod snapshot;
 
 pub use agent::{AgentEvent, AgentResult, AgentRuntime};
-pub use config::{AgentsConfig, AgentEntry, CoreConfig, ProviderEntry, ToolsConfig, WorkspaceConfig};
+pub use config::{
+    AgentEntry, AgentsConfig, CoreConfig, ProviderEntry, ToolsConfig, WorkspaceConfig,
+};
 pub use cost::CostTracker;
 pub use notifications::NotificationDispatcher;
 pub use session::ConversationStore;
@@ -117,6 +191,12 @@ pub struct AppState {
     pub workspace_resolver: Option<WorkspaceResolver>,
     pub task_queue: Option<TaskQueue>,
     pub notifier: Option<NotificationDispatcher>,
+    /// F400 — Hermes skill bank, exposed by the `/api/hermes/skills*`
+    /// endpoints in `serve_hermes`. Field is feature-gated (and `Option`)
+    /// so the default cargo build and existing deployments (which never
+    /// open a hermes DB) carry no observable change.
+    #[cfg(feature = "experimental-hermes-memory")]
+    pub hermes_memory: Option<crate::hermes::memory::HermesMemory>,
 }
 
 impl AppState {
@@ -136,6 +216,8 @@ impl AppState {
             workspace_resolver: None,
             task_queue: None,
             notifier: None,
+            #[cfg(feature = "experimental-hermes-memory")]
+            hermes_memory: None,
         }
     }
 
@@ -144,8 +226,10 @@ impl AppState {
             // Resolve ${ENV_VAR} in provider strings before anything
             // (validation, key checks, AgentRuntime build) reads them.
             config.resolve_env_vars();
-            let providers: Vec<ProviderHealthSummary> = config.providers.iter().map(|(name, entry)| {
-                ProviderHealthSummary {
+            let providers: Vec<ProviderHealthSummary> = config
+                .providers
+                .iter()
+                .map(|(name, entry)| ProviderHealthSummary {
                     provider_name: name.clone(),
                     is_available: entry.api_key.is_some() || entry.api_key_env.is_some(),
                     circuit_state: "closed".into(),
@@ -153,13 +237,17 @@ impl AppState {
                     request_count: 0,
                     avg_latency_ms: 0.0,
                     last_error: None,
-                }
-            }).collect();
-            self.llm_router = LLMRouter { inner: Arc::new(LLMRouterInner { providers }) };
+                })
+                .collect();
+            self.llm_router = LLMRouter {
+                inner: Arc::new(LLMRouterInner { providers }),
+            };
 
             if let Some(master) = config.agent.get("master") {
                 if !master.tools.is_empty() {
-                    self.tool_registry = ToolRegistry { tools: Arc::new(master.tools.clone()) };
+                    self.tool_registry = ToolRegistry {
+                        tools: Arc::new(master.tools.clone()),
+                    };
                 }
             }
 
@@ -169,11 +257,15 @@ impl AppState {
         }
     }
 
-    pub fn app_state(&self) -> &Self { self }
+    pub fn app_state(&self) -> &Self {
+        self
+    }
 }
 
 impl Default for AppState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ── ToolRegistry ──────────────────────────────────────────────────────────
@@ -185,17 +277,28 @@ pub struct ToolRegistry {
 
 impl Default for ToolRegistry {
     fn default() -> Self {
-        Self { tools: Arc::new(vec![
-            "shell".into(), "file_read".into(), "file_write".into(),
-            "file_edit".into(), "content_search".into(), "glob_search".into(),
-            "web_search".into(), "git_status".into(), "git_diff".into(),
-            "git_log".into(), "git_commit".into(),
-        ]) }
+        Self {
+            tools: Arc::new(vec![
+                "shell".into(),
+                "file_read".into(),
+                "file_write".into(),
+                "file_edit".into(),
+                "content_search".into(),
+                "glob_search".into(),
+                "web_search".into(),
+                "git_status".into(),
+                "git_diff".into(),
+                "git_log".into(),
+                "git_commit".into(),
+            ]),
+        }
     }
 }
 
 impl ToolRegistry {
-    pub fn names(&self) -> Vec<String> { self.tools.as_ref().clone() }
+    pub fn names(&self) -> Vec<String> {
+        self.tools.as_ref().clone()
+    }
 }
 
 // ── HandRegistry ──────────────────────────────────────────────────────────
@@ -207,12 +310,16 @@ pub struct HandRegistry {
 
 impl Default for HandRegistry {
     fn default() -> Self {
-        Self { hands: Arc::new(vec!["master".into(), "coder".into(), "researcher".into()]) }
+        Self {
+            hands: Arc::new(vec!["master".into(), "coder".into(), "researcher".into()]),
+        }
     }
 }
 
 impl HandRegistry {
-    pub fn names(&self) -> Vec<String> { self.hands.as_ref().clone() }
+    pub fn names(&self) -> Vec<String> {
+        self.hands.as_ref().clone()
+    }
 }
 
 // ── LLMRouter ────────────────────────────────────────────────────────────
@@ -223,7 +330,9 @@ pub struct LLMRouter {
 }
 
 impl LLMRouter {
-    pub fn inner(&self) -> &LLMRouterInner { &self.inner }
+    pub fn inner(&self) -> &LLMRouterInner {
+        &self.inner
+    }
 }
 
 #[derive(Default)]
@@ -298,15 +407,13 @@ pub struct TelegramConfig {
     pub notification_chat_id: Option<i64>,
 }
 
-fn default_telegram_agent() -> String { "master".into() }
+fn default_telegram_agent() -> String {
+    "master".into()
+}
 
 // ── HTTP Server ───────────────────────────────────────────────────────────
 
-pub async fn start_http_server(
-    host: &str,
-    port: u16,
-    router: axum::Router,
-) -> anyhow::Result<()> {
+pub async fn start_http_server(host: &str, port: u16, router: axum::Router) -> anyhow::Result<()> {
     let addr: std::net::SocketAddr = format!("{}:{}", host, port).parse()?;
     // SO_REUSEADDR + retry. Two failure modes this handles:
     //   1. Previous serve was force-killed (e.g. by cluster upgrade
@@ -334,23 +441,38 @@ pub async fn start_http_server(
             // "rebind a TIME_WAIT port" use case works on both).
             socket.set_reuseaddr(true)?;
             match socket.bind(addr).and_then(|()| socket.listen(1024)) {
-                Ok(l) => { listener = Some(l); break; }
+                Ok(l) => {
+                    listener = Some(l);
+                    break;
+                }
                 Err(e) => {
                     let in_use = e.kind() == std::io::ErrorKind::AddrInUse
                         || e.raw_os_error() == Some(10048); // WSAEADDRINUSE on Windows
                     last_err = Some(e);
-                    if !in_use { break; }
+                    if !in_use {
+                        break;
+                    }
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 }
             }
         }
-        listener.ok_or_else(|| anyhow::anyhow!(
-            "bind {} failed after 15s: {}",
-            addr,
-            last_err.map(|e| e.to_string()).unwrap_or_default()
-        ))?
+        listener.ok_or_else(|| {
+            anyhow::anyhow!(
+                "bind {} failed after 15s: {}",
+                addr,
+                last_err.map(|e| e.to_string()).unwrap_or_default()
+            )
+        })?
     };
-    axum::serve(listener, router).await?;
+    // `into_make_service_with_connect_info` exposes the peer socket address to
+    // handlers via `axum::extract::ConnectInfo<SocketAddr>` (used by `/api/chat`
+    // for the SPEC-46 I3 loopback exemption). Backward-compatible: handlers that
+    // do not extract ConnectInfo are unaffected.
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -364,7 +486,10 @@ mod tests {
     fn appstate_default_tools() {
         let state = AppState::new();
         assert!(state.tool_registry.names().contains(&"shell".to_string()));
-        assert!(state.tool_registry.names().contains(&"file_read".to_string()));
+        assert!(state
+            .tool_registry
+            .names()
+            .contains(&"file_read".to_string()));
         // Verify that the version string is not empty
         assert!(!env!("CARGO_PKG_VERSION").is_empty());
     }
@@ -376,7 +501,10 @@ mod tests {
         // without git metadata.
         assert!(WIRE_VERSION >= 1, "WIRE_VERSION should start at 1");
         let sha = core_sha();
-        assert!(!sha.is_empty(), "core_sha() must be non-empty (got '{sha}')");
+        assert!(
+            !sha.is_empty(),
+            "core_sha() must be non-empty (got '{sha}')"
+        );
     }
 
     #[tokio::test]
@@ -384,8 +512,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
         use providers::traits::ChatMessage;
-        let user = ChatMessage { role: "user".into(), content: "hello".into(), tool_calls: None };
-        let asst = ChatMessage { role: "assistant".into(), content: "hi".into(), tool_calls: None };
+        let user = ChatMessage {
+            role: "user".into(),
+            content: "hello".into(),
+            tool_calls: None,
+        };
+        let asst = ChatMessage {
+            role: "assistant".into(),
+            content: "hi".into(),
+            tool_calls: None,
+        };
         store.append("test", user, asst).await;
         let history = store.get_history("test").await;
         assert_eq!(history.len(), 2);

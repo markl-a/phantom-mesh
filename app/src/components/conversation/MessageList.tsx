@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../../lib/types";
 import ToolCallDisplay from "./ToolCallDisplay";
+import { reducedMotionScrollBehavior } from "../../lib/motion";
 
 interface MessageListProps {
   messages: Message[];
@@ -29,7 +30,7 @@ export default function MessageList({ messages, loading }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: reducedMotionScrollBehavior() });
   }, [messages, loading]);
 
   // Determine whether the last assistant message is still streaming (empty content + loading)
@@ -60,6 +61,14 @@ export default function MessageList({ messages, loading }: MessageListProps) {
 
             {msg.tool_calls && msg.tool_calls.length > 0 && (
               <ToolCallDisplay toolCalls={msg.tool_calls} />
+            )}
+
+            {msg.role === "assistant" && (msg.provider || msg.model) && (
+              <p className="mt-1.5 text-[10px] text-phantom-muted font-mono select-none">
+                {msg.provider}
+                {msg.provider && msg.model ? " · " : ""}
+                {msg.model}
+              </p>
             )}
           </div>
         );

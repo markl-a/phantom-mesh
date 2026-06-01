@@ -5,9 +5,9 @@ import { Download, CheckCircle, AlertCircle } from "lucide-react";
 type Status = "idle" | "fetching" | "writing" | "ok" | "error";
 
 export default function MobileOnboarding() {
-  const [host, setHost] = useState("100.87.93.58");  // Mac Tailscale IP default
+  const [host, setHost] = useState("");  // Mac Tailscale IP (e.g. 100.x.x.x) — left blank; user fills in
   const [token, setToken] = useState("");
-  const [nodeName, setNodeName] = useState("rog-phone");
+  const [nodeName, setNodeName] = useState("android-phone");
   const [status, setStatus] = useState<Status>("idle");
   const [errMsg, setErrMsg] = useState("");
 
@@ -75,7 +75,7 @@ export default function MobileOnboarding() {
             type="text"
             value={nodeName}
             onChange={(e) => setNodeName(e.target.value)}
-            placeholder="例: rog-phone"
+            placeholder="例: android-phone"
             style={{ fontSize: "16px" }}
             className="w-full bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
           />

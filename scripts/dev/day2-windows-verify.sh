@@ -3,15 +3,15 @@
 #
 # Usage:
 #   scripts/day2-windows-verify.sh \
-#     --secret 'phantom-cluster-2026' \
-#     100.87.70.65:7879 100.106.176.125:7878 100.107.205.98:7878
+#     --secret "$CLUSTER_SECRET" \
+#     192.0.2.11:7879 192.0.2.13:7878 192.0.2.12:7878
 #
 # Or let it read cluster_secret from ~/.phantom-mesh/agents.toml:
-#   scripts/day2-windows-verify.sh 100.87.70.65:7879
+#   scripts/day2-windows-verify.sh 192.0.2.11:7879
 
 set -euo pipefail
 
-SECRET=""
+SECRET="${CLUSTER_SECRET:-}"
 PROMPT='hostname; uname -a'
 POLL_SECS=2
 POLL_COUNT=3

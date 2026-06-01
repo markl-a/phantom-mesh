@@ -17,12 +17,12 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthState {
-    pub provider: String,        // "email" | "google" | "apple"
+    pub provider: String, // "email" | "google" | "apple"
     pub email: String,
     pub display_name: Option<String>,
-    pub sub: Option<String>,     // OAuth subject (google id / apple sub)
+    pub sub: Option<String>, // OAuth subject (google id / apple sub)
     pub avatar_url: Option<String>,
-    pub device_id: String,       // uuid v4 — stable across logins on same machine
+    pub device_id: String, // uuid v4 — stable across logins on same machine
     pub created_at_ms: i64,
     pub last_login_ms: i64,
 
@@ -155,9 +155,13 @@ pub fn human_summary(state: &AuthState) -> String {
     } else {
         format!(" ({})", dn)
     };
-    format!("{}{}  via {}  device {}",
-        state.email, dn_part, prov,
-        &state.device_id[..8.min(state.device_id.len())])
+    format!(
+        "{}{}  via {}  device {}",
+        state.email,
+        dn_part,
+        prov,
+        &state.device_id[..8.min(state.device_id.len())]
+    )
 }
 
 #[cfg(test)]

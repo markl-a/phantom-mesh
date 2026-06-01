@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { safeInvoke as invoke } from "../../lib/tauri-compat";
 import { Wifi, WifiOff, RefreshCw, Activity } from "lucide-react";
+import HabitChipQuickCapture from "./HabitChipQuickCapture";
 
 interface Peer {
   name: string;
@@ -78,6 +79,9 @@ export default function MobileDashboard() {
       </div>
 
       <div className="p-3 space-y-4">
+        {/* SPEC-22 in-app habit quick-capture */}
+        <HabitChipQuickCapture />
+
         {/* Providers */}
         <section>
           <h2 className="text-xs font-semibold text-phantom-muted uppercase tracking-wide px-1 mb-2">

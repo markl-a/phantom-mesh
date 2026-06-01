@@ -1,0 +1,52 @@
+{
+  "tool": "service",
+  "scenarios": [
+    {
+      "id": "status-when-not-installed",
+      "platform": "any",
+      "input": { "action": "status" },
+      "expected": {
+        "ok": true,
+        "subset_match": {
+          "installed": false
+        }
+      },
+      "notes": "Calling status on a clean machine should return ok=true with installed=false (not an error)."
+    },
+    {
+      "id": "install-windows-scheduled-task",
+      "platform": "windows",
+      "input": { "action": "install" },
+      "expected": {
+        "ok": true,
+        "subset_match": {
+          "task_name": "PhantomMesh",
+          "platform": "windows"
+        }
+      },
+      "notes": "Requires admin shell. PF-2a ships this on Windows. Linux/macOS are PF-2b/PF-2c."
+    },
+    {
+      "id": "install-then-status-shows-installed",
+      "platform": "windows",
+      "sequence": [
+        { "input": { "action": "install" } },
+        { "input": { "action": "status" }, "expected": { "subset_match": { "installed": true } } }
+      ],
+      "notes": "Verify install -> status round-trip on Windows."
+    },
+    {
+      "id": "uninstall-when-not-installed-is-noop",
+      "platform": "any",
+      "input": { "action": "uninstall" },
+      "expected": {
+        "ok": true,
+        "subset_match": {
+          "uninstalled": false,
+          "message_contains": "not installed"
+        }
+      },
+      "notes": "Uninstalling on a clean machine should be idempotent, not error."
+    }
+  ]
+}

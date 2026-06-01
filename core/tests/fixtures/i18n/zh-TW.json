@@ -1,0 +1,12 @@
+{
+  "chat.send_button": "傳送",
+  "chat.placeholder": "輸入訊息…",
+  "coach.greeting": "你好 {name}，今天感覺如何？",
+  "coach.daily_diff": "今天比昨天多 {count} 餐",
+  "coach.streak": "你已經連續 {days} 天記錄了",
+  "settings.title": "設定",
+  "settings.locale_label": "顯示語言",
+  "error.network": "網路連線中斷，請稍後再試",
+  "error.auth_failed": "登入失敗：{reason}",
+  "onboarding.welcome": "歡迎使用 phantom-mesh"
+}

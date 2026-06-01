@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useSystemHealth, CheckStatus } from "../hooks/useSystemHealth";
 import { clearSession } from "./onboarding/OnboardingQuickStart";
 
@@ -24,19 +24,23 @@ function StatusIcon({ status }: { status: CheckStatus }) {
 
 export default function StartupCheck({ onPass, onResetOnboarding }: Props) {
   const { checks, overallStatus, runCheck } = useSystemHealth();
-  const [autoAdvanced, setAutoAdvanced] = useState(false);
+  const advancedRef = useRef(false);
 
   useEffect(() => {
     runCheck();
   }, [runCheck]);
 
   useEffect(() => {
-    if (overallStatus === "healthy" && !autoAdvanced) {
-      setAutoAdvanced(true);
+    // Auto-advance once when healthy. Guard with a ref (NOT state): a state
+    // guard puts itself in the dep array, so flipping it re-runs this effect
+    // and the cleanup clears the 800ms timer before onPass ever fires —
+    // leaving the user stuck on the "正在進入..." screen.
+    if (overallStatus === "healthy" && !advancedRef.current) {
+      advancedRef.current = true;
       const timer = setTimeout(() => { onPass(); }, 800);
       return () => clearTimeout(timer);
     }
-  }, [overallStatus, autoAdvanced]); // exclude onPass from deps to avoid stale closure issues
+  }, [overallStatus, onPass]);
 
   const hasFail = checks.runtime.status === "fail" || checks.providers.status === "fail" || checks.llm.status === "fail";
 

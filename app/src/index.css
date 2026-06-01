@@ -25,3 +25,18 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #5a5a7e;
 }
+
+/* SPEC-31 §3.2(D) HIG — Reduced Motion. Honor the OS "reduce motion"
+   accessibility setting (iOS Settings → Accessibility → Motion) by
+   near-disabling animations/transitions for users prone to motion sickness.
+   Applies app-wide so every screen complies without per-component work. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

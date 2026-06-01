@@ -73,15 +73,15 @@ agent = "master"                       # which agent handles incoming messages
 # IPs are known. Replace MAC_TAILSCALE_IP with the coordinator's 'tailscale ip -4' output.
 
 [cluster]
-node_name = "gcp-cloud"
+node_name = "cloud-node"
 # cluster_secret: shared HMAC key that authenticates all inter-node RPC calls.
 # Must match the value on every other node in the mesh.
 # Generate once with: openssl rand -hex 32
 cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
 peers = [
-  "http://MAC_TAILSCALE_IP:7878",    # coordinator (Mac/PC) — replace with 'tailscale ip -4' output
-  # "http://100.x.x.2:7878",         # acer worker (add when Tailscale IP is known)
-  # "http://100.x.x.3:7878",         # ayaneo worker (add when Tailscale IP is known)
+  "http://<coordinator-tailscale-ip>:7878",  # coordinator — replace with 'tailscale ip -4' output
+  # "http://100.x.x.2:7878",         # node-b worker (add when Tailscale IP is known)
+  # "http://100.x.x.3:7878",         # node-c worker (add when Tailscale IP is known)
 ]
 
 # ── Master agent ───────────────────────────────────────────────────────────────

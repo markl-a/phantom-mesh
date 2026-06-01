@@ -1,3 +1,11 @@
+# COST WORKAROUND 2026-05-17: macOS (10x) and Windows (2x) matrix entries
+# only run on workflow_dispatch — tag pushes still build the Linux desktop
+# bundle (cheap ubuntu-22.04) but skip macOS + Windows to stop burning the
+# GitHub Actions monthly quota. To produce macOS + Windows desktop bundles,
+# run manually after the tag push:
+#   gh workflow run release-desktop.yml -f draft=true
+# The build-macos-universal job is similarly gated below.
+# Revert when the billing cycle resets or a self-hosted runner is online.
 name: Release Desktop App
 
 on:
@@ -23,19 +31,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            core-binary: phantom-mesh.exe
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            core-binary: phantom-mesh
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            core-binary: phantom-mesh
-          - platform: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            core-binary: phantom-mesh
+        # COST WORKAROUND 2026-05-17: macOS + Windows entries appear only
+        # when this workflow is run via workflow_dispatch. Tag pushes build
+        # ubuntu-22.04 only.
+        include: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","core-binary":"phantom-mesh.exe"},{"platform":"macos-latest","target":"aarch64-apple-darwin","core-binary":"phantom-mesh"},{"platform":"macos-latest","target":"x86_64-apple-darwin","core-binary":"phantom-mesh"},{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"phantom-mesh"}]') || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"phantom-mesh"}]') }}
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -116,7 +115,7 @@ jobs:
 
       # Step 3: Build Tauri app (includes sidecar)
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -135,7 +134,9 @@ jobs:
   build-macos-universal:
     needs: build
     runs-on: macos-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    # COST WORKAROUND 2026-05-17: macos-latest is 10x Linux cost. Universal
+    # binary skipped on tag push; run via `gh workflow run release-desktop.yml`.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Note
         run: echo "Universal macOS build can be added later using lipo to combine x86_64 + arm64 binaries"

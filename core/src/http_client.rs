@@ -1,3 +1,36 @@
+//! Shared async HTTP client wrapper built on [`reqwest`].
+//!
+//! Provides [`HttpClient`], a thin convenience layer over [`reqwest::Client`]
+//! that adds automatic retry-with-backoff for transient failures and JSON
+//! request/response handling for typed `GET`/`POST` calls.
+//!
+//! # Behavior
+//!
+//! - **Retries**: governed by [`RetryPolicy`]. Only *transient* errors are
+//!   retried — connection failures, timeouts, and `5xx` server responses.
+//!   Non-transient errors (e.g. `4xx` client errors) are returned immediately
+//!   without retrying.
+//! - **Backoff**: delays grow exponentially from
+//!   [`RetryPolicy::base_delay`] by [`RetryPolicy::backoff_factor`], capped at
+//!   [`RetryPolicy::max_delay`].
+//! - **Timeouts / default headers**: inherited from the underlying
+//!   [`reqwest::Client`]. The default constructor uses `reqwest`'s defaults;
+//!   callers needing custom timeouts or headers can extend this wrapper.
+//! - **Serialization**: responses are deserialized from JSON into any
+//!   [`serde::de::DeserializeOwned`] type; `POST` bodies are serialized as JSON.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct Item { value: i32 }
+//!
+//! let client = HttpClient::new();
+//! let item: Item = client.get("https://example.com/api/item").await?;
+//! ```
+
 use reqwest::{Client, Error};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -116,19 +149,24 @@ impl HttpClient {
 
             // If we've exhausted retries, return the last error.
             if attempt >= policy.max_attempts - 1 {
-                eprintln!("HTTP client: exhausted retries after {} attempts", attempt + 1);
+                eprintln!(
+                    "HTTP client: exhausted retries after {} attempts",
+                    attempt + 1
+                );
                 return Err(err);
             }
 
-            eprintln!("HTTP client: attempt {} failed with status {}, retrying in {:?}", attempt + 1, status, delay);
+            eprintln!(
+                "HTTP client: attempt {} failed with status {}, retrying in {:?}",
+                attempt + 1,
+                status,
+                delay
+            );
             // Wait before retrying.
             sleep(delay).await;
             attempt += 1;
             // Exponential backoff with cap.
-            delay = std::cmp::min(
-                delay.mul_f64(policy.backoff_factor),
-                policy.max_delay,
-            );
+            delay = std::cmp::min(delay.mul_f64(policy.backoff_factor), policy.max_delay);
         }
     }
 }
@@ -189,10 +227,7 @@ mod tests {
             base_delay: Duration::from_millis(10),
             ..Default::default()
         });
-        let resp: FlakyResponse = client
-            .get(&format!("{}/flaky", mock.uri()))
-            .await
-            .unwrap();
+        let resp: FlakyResponse = client.get(&format!("{}/flaky", mock.uri())).await.unwrap();
         assert!(resp.ok);
     }
 

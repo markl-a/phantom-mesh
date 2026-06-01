@@ -24,7 +24,13 @@ selftest_run() {
     return
   fi
 
-  for sec in binary config "provider keys" "phantom serve" network tools autoevolve identity diagnostics; do
+  # Stable structural markers in the current `phantom doctor` line-label output
+  # (the older "binary"/"provider keys"/"network"/"diagnostics" section HEADERS
+  # were never emitted by this format — doctor uses per-line labels). Each marker
+  # below is state-independent: version (always), Anthropic (always in the
+  # known-provider list, set or not), healthz (serve reachability, up or down),
+  # crash logs (always checked). A regression that drops one fails loudly.
+  for sec in version config Anthropic "phantom serve" healthz tools autoevolve identity "crash logs"; do
     if grep -qF "$sec" "$out"; then
       t_pass "section: $sec" ""
     else

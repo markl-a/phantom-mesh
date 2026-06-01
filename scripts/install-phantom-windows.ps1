@@ -1,22 +1,23 @@
-# Phantom Mesh — Windows worker install
+# Phantom Mesh -- Windows worker install
 #
 # One-liner from a regular PowerShell window (no admin required for the
 # user-mode Scheduled Task path):
 #
-#   $env:COORD = "http://100.87.93.58:7878"
-#   $env:OPENROUTER_API_KEY = "sk-or-v1-..."   # optional — fill agents.toml later
+#   $env:COORD = "https://your-coordinator:7878"   # https; plain http needs PHANTOM_ALLOW_INSECURE=1 (trusted tailnet)
+#   $env:SECRET = "<cluster shared secret>"         # REQUIRED -- no insecure default; node can't join without it
+#   $env:OPENROUTER_API_KEY = "sk-or-v1-..."        # optional -- fill agents.toml later
 #   iex (iwr "$env:COORD/scripts/install-phantom-windows.ps1").Content
 #
 # What it does (~2 min):
 #   1. Download phantom.exe from the coordinator into ~/.phantom-mesh/bin/
-#      (the same path docs/SESSION-ONBOARDING.md §3.1 expects, and the
+#      (the same path docs/SESSION-ONBOARDING.md Sec.3.1 expects, and the
 #      same path `phantom service install` registers with the Scheduled
-#      Task — three sources, one location.)
+#      Task -- three sources, one location.)
 #   2. Write a minimal agents.toml using OpenRouter (free Llama tier);
 #      api_key_env points at OPENROUTER_API_KEY so the secret never
 #      lands inside agents.toml itself.
 #   3. Open Defender Firewall inbound rule (Tailscale-only) on the
-#      configured port — defaults to 7878, override with $env:PORT.
+#      configured port -- defaults to 7878, override with $env:PORT.
 #   4. Register the "PhantomServe" Scheduled Task via the binary's own
 #      `phantom service install` (which uses PowerShell's
 #      Register-ScheduledTask under the hood, so it works without admin
@@ -27,10 +28,11 @@
 
 $ErrorActionPreference = 'Stop'
 
-$COORD     = if ($env:COORD)     { $env:COORD }     else { 'http://100.87.93.58:7878' }
+$COORD     = if ($env:COORD)     { $env:COORD }     else { 'http://localhost:7878' }
 $PORT      = if ($env:PORT)      { $env:PORT }      else { '7878' }
+if ($PORT -notmatch '^\d+$') { throw "PORT must be an integer (got '$PORT') -- agents.toml writes it unquoted." }
 $NODE_NAME = if ($env:NODE_NAME) { $env:NODE_NAME } else { $env:COMPUTERNAME }
-$SECRET    = if ($env:SECRET)    { $env:SECRET }    else { 'phantom-cluster-2026' }
+$SECRET    = if ($env:SECRET)    { $env:SECRET }    else { throw "Set `$env:SECRET to the cluster shared secret before installing. The previous hardcoded default let anyone who read this repo impersonate cluster nodes (no insecure default)." }
 
 # Both the binary itself and the SESSION-ONBOARDING doc agree the install
 # location is ~/.phantom-mesh/bin/phantom.exe, not %LOCALAPPDATA%/PhantomMesh.
@@ -49,7 +51,59 @@ Write-Host "  config     : $CFG"
 Write-Host "  serve port : $PORT"
 Write-Host ""
 
-# ── 1. Download binary ───────────────────────────────────────────────────────
+# -- 0. SHA256 + HTTPS verification helpers (INLINED) -------------------------
+# These were previously fetched + dot-sourced from $COORD/scripts/_verify-download.ps1,
+# but (a) the serve's /scripts/ allowlist does NOT serve that file (404 "script
+# not in allowlist") so the install one-liner broke at this step on every node,
+# and (b) fetching the verifier over a plain-http $COORD was itself a root-of-trust
+# MITM surface. Inlining makes the installer self-contained: nothing extra to
+# fetch, and the verifier travels with the (https-gated) install script itself.
+# Keep these byte-for-byte in sync with scripts/_verify-download.ps1.
+function Require-Https {
+    param([Parameter(Mandatory)][string]$Url)
+    if ($Url -like 'https://*') { return }
+    if ($Url -like 'http://*') {
+        if ($env:PHANTOM_ALLOW_INSECURE -eq '1') {
+            Write-Warning "PHANTOM_ALLOW_INSECURE=1 - accepting plain http:// URL ($Url). THIS DISABLES MITM PROTECTION."
+            return
+        }
+        throw "Refusing to download over plain http://`n  URL: $Url`n  Use https://, or set `$env:PHANTOM_ALLOW_INSECURE='1' (only safe on a trusted tailnet)."
+    }
+    throw "Unsupported URL scheme: $Url"
+}
+function Get-Sha256Local {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path $Path)) { throw "Get-Sha256Local: file not found: $Path" }
+    (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
+}
+function Verify-Sha256 {
+    param([Parameter(Mandatory)][string]$BinaryPath, [Parameter(Mandatory)][string]$DownloadUrl)
+    if ($env:PHANTOM_SKIP_VERIFY -eq '1') {
+        Write-Warning "PHANTOM_SKIP_VERIFY=1 - SKIPPING SHA256 verification of $BinaryPath (a MITM/compromised mirror could swap the binary)."
+        return
+    }
+    if (-not (Test-Path $BinaryPath)) { throw "Verify-Sha256: local binary not found: $BinaryPath" }
+    $sumsUrl = "$DownloadUrl.sha256"
+    Require-Https -Url $sumsUrl
+    $sumsFile = [System.IO.Path]::GetTempFileName()
+    try {
+        try {
+            Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsFile -UseBasicParsing -TimeoutSec 30 -Headers @{ 'User-Agent' = 'phantom-installer/1.0' } | Out-Null
+        } catch {
+            Remove-Item -Force $BinaryPath -ErrorAction SilentlyContinue
+            throw "Could not fetch SHA256 sidecar at $sumsUrl ($_). Refusing to install an unverified binary. Set `$env:PHANTOM_SKIP_VERIFY='1' to bypass (NOT recommended)."
+        }
+        $lines = @(Get-Content $sumsFile | Where-Object { $_.Trim() -ne '' })
+        if ($lines.Count -eq 0) { Remove-Item -Force $BinaryPath -ErrorAction SilentlyContinue; throw "SHA256 sidecar at $sumsUrl is empty." }
+        $expected = (([string]$lines[0]) -split '\s+', 2)[0].ToLowerInvariant()
+        if ($expected -notmatch '^[0-9a-f]{64}$') { Remove-Item -Force $BinaryPath -ErrorAction SilentlyContinue; throw "SHA256 sidecar at $sumsUrl is malformed (got: '$expected')." }
+        $actual = Get-Sha256Local -Path $BinaryPath
+        if ($expected -ne $actual) { Remove-Item -Force $BinaryPath -ErrorAction SilentlyContinue; throw "SHA256 mismatch for ${BinaryPath}: expected $expected actual $actual (binary deleted)." }
+        Write-Host "  sha256 verified ($expected)" -ForegroundColor Green
+    } finally { Remove-Item -Force $sumsFile -ErrorAction SilentlyContinue }
+}
+
+# -- 1. Download binary -------------------------------------------------------
 Write-Host "[1/5] Downloading phantom.exe ..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force $INSTALL_DIR | Out-Null
 New-Item -ItemType Directory -Force $CFG_DIR     | Out-Null
@@ -60,12 +114,22 @@ New-Item -ItemType Directory -Force $LOG_DIR     | Out-Null
 Get-Process phantom -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $exeUrl = "$COORD/dist/phantom-x86_64-pc-windows.exe"
-Invoke-WebRequest -Uri $exeUrl -OutFile $BIN -UseBasicParsing
+Require-Https -Url $exeUrl
+Invoke-WebRequest -Uri $exeUrl `
+                  -OutFile $BIN `
+                  -UseBasicParsing `
+                  -Headers @{ 'User-Agent' = 'phantom-installer/1.0' }
 if (-not (Test-Path $BIN)) { throw "Download failed: $exeUrl" }
+
+# Verify SHA256 BEFORE Unblock-File / Scheduled Task wiring. Verify-Sha256
+# deletes $BIN on mismatch and throws.
+Verify-Sha256 -BinaryPath $BIN -DownloadUrl $exeUrl
+Unblock-File -Path $BIN -ErrorAction SilentlyContinue
+
 $size = (Get-Item $BIN).Length
 Write-Host "  -> $BIN ($([math]::Round($size/1MB, 1)) MB)" -ForegroundColor Green
 
-# ── 2. agents.toml ───────────────────────────────────────────────────────────
+# -- 2. agents.toml -----------------------------------------------------------
 Write-Host "[2/5] Writing agents.toml ..." -ForegroundColor Cyan
 $cfgContent = @"
 [core]
@@ -78,7 +142,7 @@ cluster_secret = "$SECRET"
 capabilities   = ["build", "test", "shell", "windows"]
 peers = ["$COORD"]
 
-# Provider keys read from environment variables — never written here.
+# Provider keys read from environment variables -- never written here.
 # Set these before running the binary:
 #   PowerShell:  [Environment]::SetEnvironmentVariable('OPENROUTER_API_KEY', 'sk-or-v1-...', 'User')
 [providers.openrouter]
@@ -92,10 +156,12 @@ provider = "openrouter"
 model    = "meta-llama/llama-3.3-70b-instruct"
 tools    = ["shell", "file_read", "file_write", "content_search", "git_status"]
 "@
-Set-Content -Path $CFG -Value $cfgContent -Encoding UTF8
+# Write UTF-8 WITHOUT BOM: PowerShell 5.1's `-Encoding UTF8` prepends a BOM,
+# which some TOML parsers (incl. strict Rust ones) reject at the file head.
+[System.IO.File]::WriteAllText($CFG, $cfgContent, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "  -> $CFG" -ForegroundColor Green
 
-# ── 3. Defender firewall rule (Tailscale subnet only) ────────────────────────
+# -- 3. Defender firewall rule (Tailscale subnet only) ------------------------
 Write-Host "[3/5] Opening firewall for TCP $PORT (Tailscale 100.64.0.0/10) ..." -ForegroundColor Cyan
 try {
     Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue |
@@ -116,14 +182,14 @@ try {
     Write-Host "    `phantom service install` from admin shell also installs the rule." -ForegroundColor Yellow
 }
 
-# ── 4. Register Scheduled Task via the binary itself ─────────────────────────
+# -- 4. Register Scheduled Task via the binary itself -------------------------
 Write-Host "[4/5] Registering Scheduled Task 'PhantomServe' ..." -ForegroundColor Cyan
 & $BIN service install
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  ! phantom service install returned $LASTEXITCODE - check output above" -ForegroundColor Yellow
 }
 
-# ── 5. Verify ────────────────────────────────────────────────────────────────
+# -- 5. Verify ----------------------------------------------------------------
 Write-Host "[5/5] Verifying ..." -ForegroundColor Cyan
 Start-Sleep -Seconds 4
 try {

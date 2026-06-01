@@ -1,18 +1,71 @@
+//! Conversation / session model — per-chat message history with on-disk persistence.
+//!
+//! Each session is identified by a `chat_id` and stored as a newline-delimited
+//! JSON ([JSONL](https://jsonlines.org/)) file under
+//! `~/.phantom-mesh/conversations/<chat_id>.jsonl`, one [`ChatMessage`] per line.
+//! An in-memory LRU-style cache fronts the disk so repeated reads avoid I/O,
+//! while every mutation is also flushed to disk so history survives restarts.
+//!
+//! (Note: the project README refers to this as "SQLite-backed" history; the
+//! current implementation uses the simpler append-only JSONL layout described
+//! above. Same conceptual model — durable per-session conversation history —
+//! with no extra dependency.)
+//!
+//! # What this module provides
+//!
+//! - [`ConversationStore`] — the central handle. Clone-cheap (`Arc`-wrapped
+//!   state), safe to share across async tasks. Supports append, read, search,
+//!   fork, rename, delete, export-to-Markdown, and titling.
+//! - [`SessionInfo`] — lightweight metadata (id, message count, byte size,
+//!   last-modified timestamp) for listing sessions.
+//! - [`compact_via_llm`] — free-standing helper that summarizes the older part
+//!   of a session via an LLM call and rewrites the on-disk history.
+//!
+//! # Compaction
+//!
+//! Two mechanisms keep history bounded:
+//!
+//! 1. **Hard cap** — once a cached history exceeds [`MAX_HISTORY`] messages, the
+//!    oldest [`COMPACTION_DROP`] are dropped (see [`ConversationStore::maybe_compact`]).
+//! 2. **LLM summary** — [`compact_via_llm`] / [`ConversationStore::replace_with_summary`]
+//!    collapse the older portion into a single summary message, keeping the most
+//!    recent N verbatim. The on-disk JSONL is rewritten atomically (write `.tmp`
+//!    then rename) so a crash mid-rewrite never corrupts the file.
+//!
+//! # Concurrency
+//!
+//! Disk writes for a given `chat_id` are serialized through a per-id mutex so
+//! two concurrent appends to the same session cannot interleave lines.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::providers::traits::ChatMessage;
 
+/// Maximum number of messages kept in a cached history before the hard-cap
+/// compaction in [`ConversationStore::maybe_compact`] trims the oldest ones.
 const MAX_HISTORY: usize = 200;
+/// Number of oldest messages dropped when [`MAX_HISTORY`] is exceeded.
 const COMPACTION_DROP: usize = 50;
 
+/// Lightweight metadata about a single stored session, returned by
+/// [`ConversationStore::session_info`] and [`ConversationStore::list_with_info`].
 pub struct SessionInfo {
+    /// The session's `chat_id`.
     pub id: String,
+    /// Number of messages currently in the session.
     pub message_count: usize,
+    /// Size of the on-disk JSONL file in bytes (0 if not yet written).
     pub size_bytes: u64,
+    /// Last-modified timestamp of the JSONL file, formatted as
+    /// `YYYY-MM-DD HH:MM:SS UTC` (or `"unknown"` if unavailable).
     pub last_modified: String,
 }
 
+/// Durable, cache-fronted store for per-session conversation history.
+///
+/// Cheap to clone (all state is behind `Arc`); share freely across async tasks.
+/// See the [module docs](self) for the storage layout and compaction rules.
 #[derive(Clone)]
 pub struct ConversationStore {
     cache: Arc<tokio::sync::Mutex<HashMap<String, Vec<ChatMessage>>>>,
@@ -21,13 +74,19 @@ pub struct ConversationStore {
 }
 
 impl Default for ConversationStore {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConversationStore {
+    /// Create a store rooted at `~/.phantom-mesh/conversations` (falling back to
+    /// `./conversations` if `$HOME` is unset). Creates the directory if missing.
     pub fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        let base_dir = std::path::PathBuf::from(home).join(".phantom-mesh").join("conversations");
+        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
+        let base_dir = std::path::PathBuf::from(home)
+            .join(".phantom-mesh")
+            .join("conversations");
         std::fs::create_dir_all(&base_dir).ok();
         Self {
             cache: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -36,6 +95,8 @@ impl ConversationStore {
         }
     }
 
+    /// Create a store rooted at an explicit directory. Useful for tests and for
+    /// callers that want a non-default location. Creates the directory if missing.
     pub fn new_with_dir(base_dir: std::path::PathBuf) -> Self {
         std::fs::create_dir_all(&base_dir).ok();
         Self {
@@ -46,20 +107,30 @@ impl ConversationStore {
     }
 
     fn chat_file(&self, chat_id: &str) -> std::path::PathBuf {
-        let safe_id: String = chat_id.chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' || c == ':' { c } else { '_' })
+        let safe_id: String = chat_id
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' || c == ':' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         self.base_dir.join(format!("{}.jsonl", safe_id))
     }
 
     fn load_from_disk(&self, chat_id: &str) -> Vec<ChatMessage> {
         let path = self.chat_file(chat_id);
-        if !path.exists() { return Vec::new(); }
+        if !path.exists() {
+            return Vec::new();
+        }
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(_) => return Vec::new(),
         };
-        content.lines()
+        content
+            .lines()
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect()
@@ -68,16 +139,30 @@ impl ConversationStore {
     fn write_to_file(&self, chat_id: &str, user_msg: &ChatMessage, asst_msg: &ChatMessage) {
         use std::io::Write;
         let path = self.chat_file(chat_id);
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
-            if let Ok(line) = serde_json::to_string(user_msg) { let _ = writeln!(f, "{}", line); }
-            if let Ok(line) = serde_json::to_string(asst_msg) { let _ = writeln!(f, "{}", line); }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            if let Ok(line) = serde_json::to_string(user_msg) {
+                let _ = writeln!(f, "{}", line);
+            }
+            if let Ok(line) = serde_json::to_string(asst_msg) {
+                let _ = writeln!(f, "{}", line);
+            }
         }
     }
 
-    async fn append_to_disk_safe(&self, chat_id: &str, user_msg: &ChatMessage, asst_msg: &ChatMessage) {
+    async fn append_to_disk_safe(
+        &self,
+        chat_id: &str,
+        user_msg: &ChatMessage,
+        asst_msg: &ChatMessage,
+    ) {
         let lock = {
             let mut locks = self.write_locks.lock().await;
-            locks.entry(chat_id.to_string())
+            locks
+                .entry(chat_id.to_string())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
@@ -92,6 +177,8 @@ impl ConversationStore {
         }
     }
 
+    /// Return the full message history for `chat_id`, loading from disk into the
+    /// cache on first access. Returns an empty vec for an unknown session.
     pub async fn get_history(&self, chat_id: &str) -> Vec<ChatMessage> {
         let mut cache = self.cache.lock().await;
         if !cache.contains_key(chat_id) {
@@ -101,8 +188,11 @@ impl ConversationStore {
         cache.get(chat_id).cloned().unwrap_or_default()
     }
 
+    /// Append a user/assistant message pair to `chat_id`, persisting to disk
+    /// (serialized per id) and updating the cache. Applies hard-cap compaction.
     pub async fn append(&self, chat_id: &str, user_msg: ChatMessage, asst_msg: ChatMessage) {
-        self.append_to_disk_safe(chat_id, &user_msg, &asst_msg).await;
+        self.append_to_disk_safe(chat_id, &user_msg, &asst_msg)
+            .await;
         let mut cache = self.cache.lock().await;
         let entry = cache.entry(chat_id.to_string()).or_default();
         entry.push(user_msg);
@@ -125,7 +215,8 @@ impl ConversationStore {
     ) -> std::io::Result<usize> {
         let lock = {
             let mut locks = self.write_locks.lock().await;
-            locks.entry(chat_id.to_string())
+            locks
+                .entry(chat_id.to_string())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
                 .clone()
         };
@@ -176,13 +267,20 @@ impl ConversationStore {
     /// REPL to decide when to auto-trigger LLM-summarized compaction. The
     /// LLM token cost is roughly chars / 4 across model families.
     pub async fn total_chars(&self, chat_id: &str) -> usize {
-        self.get_history(chat_id).await.iter().map(|m| m.content.len()).sum()
+        self.get_history(chat_id)
+            .await
+            .iter()
+            .map(|m| m.content.len())
+            .sum()
     }
 
+    /// Number of sessions currently warm in the cache (clamped to at least 1).
     pub async fn active_count(&self) -> usize {
         self.cache.lock().await.len().max(1)
     }
 
+    /// Drop `chat_id` from the in-memory cache. The on-disk file is left intact;
+    /// a later read will reload it.
     pub async fn evict(&self, chat_id: &str) {
         self.cache.lock().await.remove(chat_id);
     }
@@ -210,9 +308,13 @@ impl ConversationStore {
         Ok(count)
     }
 
+    /// Return all known session ids (union of on-disk `.jsonl` files and cached
+    /// sessions), sorted lexicographically.
     pub async fn list(&self) -> Vec<String> {
         let mut ids: std::collections::HashSet<String> = std::fs::read_dir(&self.base_dir)
-            .ok().into_iter().flatten()
+            .ok()
+            .into_iter()
+            .flatten()
             .filter_map(|e| e.ok())
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
@@ -226,6 +328,7 @@ impl ConversationStore {
         result
     }
 
+    /// Gather [`SessionInfo`] metadata for a single session.
     pub async fn session_info(&self, chat_id: &str) -> SessionInfo {
         let history = self.get_history(chat_id).await;
         let path = self.chat_file(chat_id);
@@ -233,7 +336,10 @@ impl ConversationStore {
         let last_modified = std::fs::metadata(&path)
             .and_then(|m| m.modified())
             .map(|t| {
-                let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+                let secs = t
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 // Format as ISO-8601-ish: YYYY-MM-DD HH:MM:SS UTC
                 let s = secs;
                 let days_since_epoch = s / 86400;
@@ -245,7 +351,10 @@ impl ConversationStore {
                 let hh = time_of_day / 3600;
                 let mm = (time_of_day % 3600) / 60;
                 let ss = time_of_day % 60;
-                format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC", year, month, day, hh, mm, ss)
+                format!(
+                    "{:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+                    year, month, day, hh, mm, ss
+                )
             })
             .unwrap_or_else(|_| "unknown".to_string());
         SessionInfo {
@@ -266,23 +375,40 @@ impl ConversationStore {
         result
     }
 
+    /// Derive a short title for the session from the first 60 chars of `message`
+    /// and persist it to a sibling `.title` file. Failures are logged, not fatal.
     pub async fn auto_title(&self, chat_id: &str, message: &str) {
         let title: String = message.chars().take(60).collect();
         let title_path = self.base_dir.join(format!("{}.title", chat_id));
-        let _ = std::fs::write(title_path, title.trim());
+        if let Err(e) = std::fs::write(&title_path, title.trim()) {
+            tracing::warn!(path = %title_path.display(), chat_id = chat_id, "session auto_title write failed: {}", e);
+        }
     }
 
+    /// Read the persisted title for the session, if any (None when absent/empty).
     pub async fn get_title(&self, chat_id: &str) -> Option<String> {
         let title_path = self.base_dir.join(format!("{}.title", chat_id));
-        std::fs::read_to_string(title_path).ok().filter(|s| !s.trim().is_empty())
+        std::fs::read_to_string(title_path)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
     }
 
+    /// Delete a session's `.jsonl` (and `.title`) files and evict it from cache.
+    /// Returns `true` if the chat file existed before deletion.
     pub async fn delete(&self, chat_id: &str) -> bool {
         let file = self.chat_file(chat_id);
         let existed = file.exists();
-        let _ = std::fs::remove_file(&file);
+        if existed {
+            if let Err(e) = std::fs::remove_file(&file) {
+                tracing::warn!(path = %file.display(), chat_id = chat_id, "session delete: chat file remove failed (disk/memory drift): {}", e);
+            }
+        }
         let title_path = self.base_dir.join(format!("{}.title", chat_id));
-        let _ = std::fs::remove_file(title_path);
+        if title_path.exists() {
+            if let Err(e) = std::fs::remove_file(&title_path) {
+                tracing::warn!(path = %title_path.display(), chat_id = chat_id, "session delete: title file remove failed: {}", e);
+            }
+        }
         self.cache.lock().await.remove(chat_id);
         existed
     }
@@ -298,7 +424,10 @@ impl ConversationStore {
         let mut matching = Vec::new();
         for id in ids {
             let history = self.get_history(&id).await;
-            if history.iter().any(|m| m.content.to_lowercase().contains(&query_lower)) {
+            if history
+                .iter()
+                .any(|m| m.content.to_lowercase().contains(&query_lower))
+            {
                 matching.push(id);
             }
         }
@@ -309,7 +438,8 @@ impl ConversationStore {
     pub async fn search_in_session(&self, session_id: &str, query: &str) -> Vec<String> {
         let history = self.get_history(session_id).await;
         let query_lower = query.to_lowercase();
-        history.into_iter()
+        history
+            .into_iter()
             .filter(|m| m.content.to_lowercase().contains(&query_lower))
             .map(|m| m.content)
             .collect()
@@ -424,7 +554,8 @@ pub async fn compact_via_llm(
         return Ok((0, 0));
     }
     let head = &history[..history.len() - keep_recent];
-    let convo_text: String = head.iter()
+    let convo_text: String = head
+        .iter()
         .map(|m| {
             let body = if m.content.len() > 4000 {
                 let prefix: String = m.content.chars().take(4000).collect();
@@ -445,18 +576,22 @@ pub async fn compact_via_llm(
         convo_text,
     );
 
-    let result = runtime.run_with_callbacks(
-        agent_name,
-        &prompt,
-        &[],
-        Some("You are a precise conversation summarizer. Output only the requested summary."),
-        cost_tracker,
-        |_ev| {},
-    ).await?;
+    let result = runtime
+        .run_with_callbacks(
+            agent_name,
+            &prompt,
+            &[],
+            Some("You are a precise conversation summarizer. Output only the requested summary."),
+            cost_tracker,
+            |_ev| {},
+        )
+        .await?;
 
     let summary = result.output.trim().to_string();
     let summary_chars = summary.chars().count();
-    let dropped = conversations.replace_with_summary(chat_id, &summary, keep_recent).await?;
+    let dropped = conversations
+        .replace_with_summary(chat_id, &summary, keep_recent)
+        .await?;
     Ok((dropped, summary_chars))
 }
 
@@ -505,12 +640,25 @@ fn years_to_days(year: u64) -> u64 {
     let y = year - 1;
     let leap_years = y / 4 - y / 100 + y / 400;
     let _non_leap = y - 1970 + (1970 / 4 - 1970 / 100 + 1970 / 400); // relative to 1970 (unused, kept for readability)
-    // Days from Unix epoch (1970-01-01) to start of `year`
+                                                                     // Days from Unix epoch (1970-01-01) to start of `year`
     (year - 1970) * 365 + (leap_years - (1969 / 4 - 1969 / 100 + 1969 / 400))
 }
 
 fn day_of_year_to_month_day(year: u64, day_of_year: u64) -> (u64, u64) {
-    let months = [31u64, if is_leap(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let months = [
+        31u64,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut remaining = day_of_year;
     for (i, &days) in months.iter().enumerate() {
         if remaining < days {
@@ -526,7 +674,11 @@ mod tests {
     use super::*;
 
     fn msg(role: &str, body: &str) -> ChatMessage {
-        ChatMessage { role: role.into(), content: body.into(), tool_calls: None }
+        ChatMessage {
+            role: role.into(),
+            content: body.into(),
+            tool_calls: None,
+        }
     }
 
     fn temp_store() -> (ConversationStore, tempfile::TempDir) {
@@ -541,22 +693,29 @@ mod tests {
         let chat = "compact-test";
         // Seed 10 turns (20 messages alternating user/assistant).
         for i in 0..10 {
-            store.append(
-                chat,
-                msg("user", &format!("user turn {}", i)),
-                msg("assistant", &format!("assistant turn {}", i)),
-            ).await;
+            store
+                .append(
+                    chat,
+                    msg("user", &format!("user turn {}", i)),
+                    msg("assistant", &format!("assistant turn {}", i)),
+                )
+                .await;
         }
         assert_eq!(store.get_history(chat).await.len(), 20);
 
-        let dropped = store.replace_with_summary(chat, "the gist of turns 0..7", 6).await
+        let dropped = store
+            .replace_with_summary(chat, "the gist of turns 0..7", 6)
+            .await
             .expect("replace ok");
         assert_eq!(dropped, 14);
 
         let after = store.get_history(chat).await;
         assert_eq!(after.len(), 7, "1 summary + 6 recent");
-        assert!(after[0].content.contains("Conversation summary"),
-            "first message is the synthesized summary, got: {:?}", after[0].content);
+        assert!(
+            after[0].content.contains("Conversation summary"),
+            "first message is the synthesized summary, got: {:?}",
+            after[0].content
+        );
         assert!(after[0].content.contains("the gist of turns 0..7"));
         // Last 6 messages preserved verbatim — they are turns 7,7 / 8,8 / 9,9.
         assert_eq!(after[1].content, "user turn 7");
@@ -568,9 +727,18 @@ mod tests {
         let (store, _dir) = temp_store();
         let chat = "short";
         for i in 0..2 {
-            store.append(chat, msg("user", &format!("u{}", i)), msg("assistant", &format!("a{}", i))).await;
+            store
+                .append(
+                    chat,
+                    msg("user", &format!("u{}", i)),
+                    msg("assistant", &format!("a{}", i)),
+                )
+                .await;
         }
-        let dropped = store.replace_with_summary(chat, "summary", 10).await.unwrap();
+        let dropped = store
+            .replace_with_summary(chat, "summary", 10)
+            .await
+            .unwrap();
         assert_eq!(dropped, 0);
         assert_eq!(store.get_history(chat).await.len(), 4);
     }
@@ -580,9 +748,18 @@ mod tests {
         let (store, dir) = temp_store();
         let chat = "persist";
         for i in 0..8 {
-            store.append(chat, msg("user", &format!("u{}", i)), msg("assistant", &format!("a{}", i))).await;
+            store
+                .append(
+                    chat,
+                    msg("user", &format!("u{}", i)),
+                    msg("assistant", &format!("a{}", i)),
+                )
+                .await;
         }
-        store.replace_with_summary(chat, "synthesized summary text", 4).await.unwrap();
+        store
+            .replace_with_summary(chat, "synthesized summary text", 4)
+            .await
+            .unwrap();
 
         // Build a fresh store at the same dir; loading from disk should
         // see the rewritten history, not the pre-compact 16 messages.
@@ -596,7 +773,12 @@ mod tests {
     async fn total_chars_sums_message_bodies() {
         let (store, _dir) = temp_store();
         let chat = "chars";
-        store.append(chat, msg("user", "hello"), msg("assistant", "world!")).await;
-        assert_eq!(store.total_chars(chat).await, "hello".len() + "world!".len());
+        store
+            .append(chat, msg("user", "hello"), msg("assistant", "world!"))
+            .await;
+        assert_eq!(
+            store.total_chars(chat).await,
+            "hello".len() + "world!".len()
+        );
     }
 }

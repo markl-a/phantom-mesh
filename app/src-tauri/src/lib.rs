@@ -1,4 +1,6 @@
-mod commands;
+// pub so integration tests under app/src-tauri/tests/ can reach the
+// validators + parsers (e.g. dispatch_commands.rs).
+pub mod commands;
 #[cfg(desktop)]
 mod daemon;
 mod runtime_state;
@@ -25,6 +27,83 @@ fn get_debug_info() -> String {
 use commands::settings::AppConfigState;
 use runtime_state::RuntimeState;
 use tauri::Manager;
+
+// iOS-only: native URLSession bridge from native/ios_fetch.m (compiled
+// by build.rs via cc crate so the symbol lives in our dylib). Used because
+// tauri-plugin-http (reqwest) silently times out fetching Tailscale magic
+// hostnames + private IPs from physical iOS devices.
+#[cfg(target_os = "ios")]
+unsafe extern "C" {
+    fn phantom_ios_fetch(
+        url:          *const std::os::raw::c_char,
+        method:       *const std::os::raw::c_char,
+        body:         *const u8,
+        body_len:     std::os::raw::c_long,
+        auth_header:  *const std::os::raw::c_char,
+        result_buf:   *mut u8,
+        result_buf_len: *mut std::os::raw::c_long,
+        status_out:   *mut std::os::raw::c_long,
+        max_result_len: std::os::raw::c_long,
+    );
+}
+
+#[derive(serde::Serialize)]
+struct SwiftFetchResult {
+    status: i64,
+    body:   String,
+}
+
+/// `swift_cluster_fetch` — Tauri command bridging JS → Swift URLSession.
+/// On non-iOS targets, returns an error explaining the fallback. On iOS,
+/// invokes the @_cdecl Swift wrapper with a 64 KiB response buffer.
+#[tauri::command]
+async fn swift_cluster_fetch(
+    url:    String,
+    method: String,
+    body:   String,
+    auth:   String,
+) -> Result<SwiftFetchResult, String> {
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (url, method, body, auth);
+        return Err("swift_cluster_fetch is iOS-only; use fetch() on other platforms".into());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        use std::ffi::CString;
+        let url_c    = CString::new(url).map_err(|e| e.to_string())?;
+        let method_c = CString::new(method).map_err(|e| e.to_string())?;
+        let auth_c   = CString::new(auth).map_err(|e| e.to_string())?;
+        let body_bytes = body.into_bytes();
+
+        // 64 KiB response buffer. Cluster RPC responses are JSON, well under.
+        const MAX: std::os::raw::c_long = 64 * 1024;
+        let mut buf:    Vec<u8> = vec![0; MAX as usize];
+        let mut buf_len: std::os::raw::c_long = 0;
+        let mut status:  std::os::raw::c_long = 0;
+
+        // SAFETY: native/ios_fetch.m writes at most `max_result_len` bytes
+        // into the buffer and updates result_buf_len / status_out. The
+        // synchronous DispatchSemaphore inside ObjC bounds the wait at 35s.
+        unsafe {
+            phantom_ios_fetch(
+                url_c.as_ptr(),
+                method_c.as_ptr(),
+                body_bytes.as_ptr(),
+                body_bytes.len() as std::os::raw::c_long,
+                auth_c.as_ptr(),
+                buf.as_mut_ptr(),
+                &mut buf_len as *mut std::os::raw::c_long,
+                &mut status as *mut std::os::raw::c_long,
+                MAX,
+            );
+        }
+
+        let blen = (buf_len as usize).min(buf.len());
+        let body_str = String::from_utf8_lossy(&buf[..blen]).to_string();
+        Ok(SwiftFetchResult { status: status as i64, body: body_str })
+    }
+}
 
 #[cfg(desktop)]
 use daemon::DaemonState;
@@ -82,13 +161,25 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
+        // tauri-plugin-opener: opens external URLs in the system browser. On iOS
+        // this uses UIApplication.openURL: — the `open` crate fails in the iOS
+        // sandbox, which forced open_external_url to fall back to in-webview nav,
+        // so Google rejected the broker OAuth flow (disallowed_useragent). Opening
+        // Safari lets the callback return via the phantom://oauth/callback deep-link.
+        .plugin(tauri_plugin_opener::init())
         // tauri-plugin-deep-link receives the OAuth-callback URL the broker
         // redirects to (`phantom://oauth/callback?p=<base64-payload>`) and
         // routes it to on_open_url(). Required on iOS where the sandbox
         // blocks the loopback HTTP server pattern that desktop uses, and
         // also useful on macOS for the same scheme. Info.plist
         // (CFBundleURLSchemes) registers the `phantom` scheme on iOS.
-        .plugin(tauri_plugin_deep_link::init());
+        .plugin(tauri_plugin_deep_link::init())
+        // tauri-plugin-http: native reqwest-based fetch that bypasses
+        // WKWebView's CORS + Mixed Content policies. Required on iOS
+        // where the webview origin is https://tauri.localhost — fetching
+        // any http:// URL (e.g. cluster coordinator) is mixed content
+        // and silently blocked by WebKit even with ATS arbitrary loads.
+        .plugin(tauri_plugin_http::init());
 
     #[cfg(desktop)]
     {
@@ -103,7 +194,31 @@ pub fn run() {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.set_focus();
                 }
-            }));
+            }))
+            // SPEC-41 F2/F3 — global shortcuts. The handler emits a frontend
+            // event; the React app (App.tsx) routes it to the chip quick-log /
+            // focus-start surface. Cmd+Shift+H → habit chip, Cmd+Shift+F →
+            // focus. (Registration happens in setup(); macOS needs Accessibility
+            // permission for the OS to actually deliver the keystroke.)
+            .plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(|app, shortcut, event| {
+                        use tauri::Emitter as _;
+                        use tauri_plugin_global_shortcut::{Code, ShortcutState};
+                        if event.state == ShortcutState::Pressed {
+                            match shortcut.key {
+                                Code::KeyH => {
+                                    let _ = app.emit("shortcut://chip", ());
+                                }
+                                Code::KeyF => {
+                                    let _ = app.emit("shortcut://focus", ());
+                                }
+                                _ => {}
+                            }
+                        }
+                    })
+                    .build(),
+            );
     }
 
     // DeepLinkExt — exposes app.deep_link() / on_open_url helpers.
@@ -111,8 +226,43 @@ pub fn run() {
     use tauri_plugin_deep_link::DeepLinkExt as _;
     use tauri::Emitter as _;
 
+    // E2E native-window automation (macOS WKWebView has no system WebDriver).
+    // Gated behind BOTH the opt-in `e2e-webdriver` cargo feature AND
+    // debug_assertions+desktop — so the in-app W3C WebDriver HTTP server (and the
+    // plugin crate itself) is entirely absent from default and release builds.
+    // Enable for the E2E binary with `cargo build --features e2e-webdriver`.
+    #[cfg(all(feature = "e2e-webdriver", debug_assertions, desktop))]
+    {
+        builder = builder.plugin(tauri_plugin_webdriver_automation::init());
+    }
+
     builder
         .setup(move |app| {
+            // iOS Local Network permission trigger.
+            //
+            // tauri-plugin-http (reqwest) makes HTTP requests via low-level
+            // sockets that DO NOT trigger iOS 14+'s local-network permission
+            // flow. The result: silent timeouts when the app tries to reach
+            // any private IP (Tailscale 100.x, LAN 192.168.x, etc) — iOS
+            // never shows the "this app wants to use your local network"
+            // dialog, and there's no toggle in Settings > Phantom Mesh.
+            //
+            // Fix: kick a one-shot mDNS browse on startup. The act of
+            // binding a multicast UDP socket on the local network triggers
+            // iOS's permission dialog, after which reqwest is allowed.
+            // Browse for our own service type so if peers ARE advertising,
+            // we discover them as a bonus.
+            std::thread::spawn(|| {
+                use mdns_sd::ServiceDaemon;
+                if let Ok(daemon) = ServiceDaemon::new() {
+                    let _ = daemon.browse("_phantom-mesh._tcp.local.");
+                    // Keep the browse alive for 30s so the iOS prompt has
+                    // time to surface and the user has time to tap Allow.
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    let _ = daemon.shutdown();
+                }
+            });
+
             // Deep-link handler — fires when the OS hands us a phantom://
             // URL (typically the OAuth callback the broker meta-refreshes
             // to). We hand the raw URL to the JS layer via a Tauri event
@@ -127,8 +277,98 @@ pub fn run() {
                 app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
                         let url_str = url.to_string();
-                        tracing::info!(target: "phantom-app", "deep-link received: {}", url_str);
-                        let _ = app_handle.emit("deep-link://oauth-callback", url_str);
+                        // V8-HIGH-5: filter at the Rust layer so only valid
+                        // phantom://oauth/callback?p=<b64url> URLs reach the
+                        // JS deep-link listener. The OS routes EVERY
+                        // phantom:// URL here (the scheme registration is
+                        // path-blind), so without this filter an attacker
+                        // who can route a `phantom://anything?…` URL to the
+                        // app could deliver crafted payloads to whatever
+                        // front-end listeners happen to be attached. The
+                        // state-binding check in broker_login_finish is the
+                        // primary defense; this is defense-in-depth.
+
+                        // Allowlist for non-OAuth deep links. Currently:
+                        //   phantom://demo-mode  → QA/demo entry point that
+                        //   lets the JS layer pre-seed onboarding flags and
+                        //   land directly on /settings/cluster. Carries NO
+                        //   credentials, sets NO server state — purely a
+                        //   navigation signal — so it's safe to forward.
+                        if url_str.starts_with("phantom://demo-mode") {
+                            tracing::info!(
+                                target: "phantom-app",
+                                "deep-link demo-mode accepted"
+                            );
+                            let _ = app_handle.emit("deep-link://demo-mode", url_str);
+                            continue;
+                        }
+
+                        match commands::broker_login::validate_oauth_callback_url(&url_str) {
+                            Ok(_parsed) => {
+                                tracing::info!(
+                                    target: "phantom-app",
+                                    "deep-link OAuth callback accepted (len={})",
+                                    url_str.len(),
+                                );
+                                let _ = app_handle
+                                    .emit("deep-link://oauth-callback", url_str);
+                            }
+                            Err(reason) => {
+                                // Not an OAuth callback — try the generic
+                                // navigation dispatcher. core::dispatch_deep_link
+                                // enforces the SPEC-17 §8/§11.2 allowlist +
+                                // path-traversal rejection + OAuth-token
+                                // sanitization, so only well-formed phantom://
+                                // URLs survive. We forward ONLY credential-free,
+                                // state-free navigation hosts (chat/settings/mesh)
+                                // to the webview; oauth/demo-mode are handled
+                                // above, and anything else is dropped. §13: log
+                                // length + reason only, never the raw URL.
+                                match phantom_mesh::tauri_wire::dispatch_deep_link(&url_str) {
+                                    Ok(route)
+                                        if matches!(
+                                            route.host.as_str(),
+                                            "chat" | "settings" | "mesh"
+                                        ) =>
+                                    {
+                                        tracing::info!(
+                                            target: "phantom-app",
+                                            "deep-link navigate host={} (len={})",
+                                            route.host,
+                                            url_str.len(),
+                                        );
+                                        let _ = app_handle
+                                            .emit("deep-link://navigate", &route);
+                                    }
+                                    Ok(route) => {
+                                        // Parsed + allowlisted but not a
+                                        // forwardable nav host (e.g. onboarding)
+                                        // — drop without navigating.
+                                        tracing::warn!(
+                                            target: "phantom-app",
+                                            "deep-link dropped: non-nav host={} (len={})",
+                                            route.host,
+                                            url_str.len(),
+                                        );
+                                    }
+                                    Err(dl_err) => {
+                                        // Failed the §8/§11.2 allowlist (and
+                                        // wasn't an OAuth callback). Log the
+                                        // dispatcher's snake_case code only —
+                                        // never the raw URL (§13 privacy). The
+                                        // earlier OAuth-validation reason was
+                                        // `{reason}`.
+                                        tracing::warn!(
+                                            target: "phantom-app",
+                                            "deep-link rejected: {} (oauth-check={}, len={})",
+                                            dl_err.code,
+                                            reason,
+                                            url_str.len(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -147,6 +387,27 @@ pub fn run() {
                 // dirs::home_dir().join(".phantom-mesh") resolves inside the app's sandbox.
                 {
                     let _ = std::env::set_var("HOME", &config_dir);
+                }
+
+                // Mobile-only: ensure a device-local EventKey so ENCRYPTED capture
+                // (habit check-ins → SPEC-16 EventStore) works for a not-logged-in
+                // consumer. A fresh wizard install has no broker-provisioned
+                // identity.key, and the P4 fix made habit writes hard-require
+                // encryption → habit.store (「寫入失敗」). Desktop has its own
+                // identity flow, so this is gated to mobile. See
+                // encryption_wire::ensure_local_event_key (operator-authorized
+                // 2026-05-30; cross-device key reconciliation is a flagged follow-up).
+                #[cfg(any(target_os = "android", target_os = "ios"))]
+                {
+                    let phantom_dir = config_dir.join(".phantom-mesh");
+                    match phantom_mesh::encryption_wire::ensure_local_event_key(&phantom_dir) {
+                        Ok(()) => tracing::info!(target: "phantom-app", "local EventKey ready"),
+                        Err(e) => tracing::warn!(
+                            target: "phantom-app",
+                            "ensure_local_event_key failed: {:?}",
+                            e
+                        ),
+                    }
                 }
 
                 // Load ~/.phantom-mesh/env (KEY=VALUE per line, written by
@@ -314,12 +575,47 @@ pub fn run() {
             // Desktop-only: system tray
             #[cfg(desktop)]
             {
-                use tauri::menu::{Menu, MenuItem};
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+                use tauri::Emitter as _;
+                // SPEC-41 S1 §10.2 — disabled header row showing app identity +
+                // version (the live "N peer alive" health line is a follow-up
+                // that needs dynamic menu rebuild; a static version is honest now).
+                let header = MenuItem::with_id(
+                    app,
+                    "header",
+                    format!("Phantom Mesh v{}", env!("CARGO_PKG_VERSION")),
+                    false,
+                    None::<&str>,
+                )?;
                 let open = MenuItem::with_id(app, "open", "開啟主介面", true, None::<&str>)?;
-                let pause = MenuItem::with_id(app, "pause", "暫停 Agent", true, None::<&str>)?;
+                // SPEC-41 F4 — Life-Track quick actions in the menu bar. These
+                // reuse the same shortcut://* events the global shortcuts emit,
+                // so the frontend routes them identically. Unlike the global
+                // shortcuts, menu clicks need no Accessibility permission.
+                let focus = MenuItem::with_id(app, "focus", "開始專注 (Cmd+Shift+F)", true, None::<&str>)?;
+                let chip = MenuItem::with_id(app, "chip", "記錄習慣 (Cmd+Shift+H)", true, None::<&str>)?;
+                let review = MenuItem::with_id(app, "review", "今日回顧", true, None::<&str>)?;
+                let sep = PredefinedMenuItem::separator(app)?;
+                let settings = MenuItem::with_id(app, "settings", "開啟設定…", true, None::<&str>)?;
+                // SPEC-41 S1 §10.2 "↻ Restart daemon" — replaces the previous
+                // "暫停 Agent" item, which had no on_menu_event arm (dead click).
+                let restart = MenuItem::with_id(app, "restart", "重新啟動精靈", true, None::<&str>)?;
+                let sep2 = PredefinedMenuItem::separator(app)?;
                 let quit = MenuItem::with_id(app, "quit", "結束", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&open, &pause, &quit])?;
+                let menu = Menu::with_items(
+                    app,
+                    &[&header, &open, &focus, &chip, &review, &sep, &settings, &restart, &sep2, &quit],
+                )?;
+                // Show the main window, then emit a route event the React app
+                // listens for (App.tsx). Used by the focus / chip / review items.
+                fn show_and_route<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str) {
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.show();
+                        let _ = w.set_focus();
+                    }
+                    let _ = app.emit(event, ());
+                }
                 let _tray = TrayIconBuilder::new()
                     .menu(&menu)
                     .tooltip("Phantom Mesh")
@@ -330,6 +626,11 @@ pub fn run() {
                                 let _ = w.set_focus();
                             }
                         }
+                        "focus" => show_and_route(app, "shortcut://focus"),
+                        "chip" => show_and_route(app, "shortcut://chip"),
+                        "review" => show_and_route(app, "shortcut://review"),
+                        "settings" => show_and_route(app, "tray://settings"),
+                        "restart" => daemon::restart_in_background(app.clone()),
                         "quit" => {
                             app.state::<DaemonState>().kill();
                             app.exit(0);
@@ -352,9 +653,30 @@ pub fn run() {
                     .build(app)?;
             }
 
+            // SPEC-41 F2/F3 — register the global shortcuts (handler is wired on
+            // the plugin in the builder). register() can fail if macOS
+            // Accessibility permission isn't granted; log + continue, never crash.
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                let mods = Modifiers::SUPER | Modifiers::SHIFT;
+                for (code, label) in [
+                    (Code::KeyH, "Cmd+Shift+H (habit chip)"),
+                    (Code::KeyF, "Cmd+Shift+F (focus start)"),
+                ] {
+                    if let Err(e) = app.global_shortcut().register(Shortcut::new(Some(mods), code)) {
+                        eprintln!(
+                            "global-shortcut: could not register {label}: {e} \
+                             (grant Accessibility permission in System Settings → Privacy)"
+                        );
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            swift_cluster_fetch,
             commands::broker_login::broker_login_start,
             commands::broker_login::broker_login_finish,
             commands::broker_login::broker_login_status,
@@ -372,6 +694,30 @@ pub fn run() {
             commands::cluster::get_cluster_status,
             commands::cluster::get_cluster_workers,
             commands::cluster::get_cluster_scores,
+            // F100: cluster peers + events (E002 mobile cluster screen).
+            // get_cluster_peers / subscribe_cluster_events / set_this_device_label
+            // route through validate_daemon_url (V8-HIGH-2 pattern) so the
+            // F101 React UI never builds RPC URLs from JS-side strings.
+            commands::cluster_peers::get_cluster_peers,
+            commands::cluster_peers::subscribe_cluster_events,
+            commands::cluster_peers::set_this_device_label,
+            // F102: dispatch + token-stream channel (E002 mobile dispatch).
+            // dispatch_task / cancel_dispatch / list_dispatch_providers
+            // validate prompt/caps/provider/broker URL in Rust before any
+            // POST goes out, and require a saved broker token (E002 sec gate).
+            commands::dispatch::dispatch_task,
+            commands::dispatch::cancel_dispatch,
+            commands::dispatch::list_dispatch_providers,
+            // F105: mobile settings extensions (E002 §"Settings screen").
+            // get_broker_token_preview / rotate_broker_token /
+            // get_heartbeat_interval / set_heartbeat_interval / add_cluster_peer.
+            // All inputs validated in Rust against the V8-HIGH-2 allow-list
+            // and write back to ~/.phantom-mesh/agents.toml or auth.json.
+            commands::mobile_settings::get_broker_token_preview,
+            commands::mobile_settings::rotate_broker_token,
+            commands::mobile_settings::get_heartbeat_interval,
+            commands::mobile_settings::set_heartbeat_interval,
+            commands::mobile_settings::add_cluster_peer,
             commands::agent::run_agent,
             commands::agent::run_hand,
             commands::agent::send_message,
@@ -406,6 +752,44 @@ pub fn run() {
             commands::onboarding::read_gcloud_adc,
             commands::onboarding::read_claude_cli_token,
             commands::onboarding::open_external_url,
+            commands::onboarding_wire::onboarding_advance,
+            commands::onboarding_wire::onboarding_rollback,
+            commands::onboarding_wire::onboarding_compute_ttfr,
+            commands::onboarding_wire::onboarding_should_fallback_to_demo_relay,
+            commands::onboarding_wire::onboarding_start_demo_relay_handoff,
+            commands::capture_focus_wire::focus_start_session,
+            commands::capture_focus_wire::focus_record_interruption,
+            commands::capture_focus_wire::focus_complete_session,
+            commands::capture_focus_wire::focus_analyze_session,
+            commands::capture_focus_wire::focus_status,
+            commands::capture_habit_wire::habit_create,
+            commands::capture_habit_wire::habit_checkin,
+            commands::capture_habit_wire::habit_list,
+            commands::capture_habit_wire::habit_streak,
+            commands::capture_food_wire::food_analyze,
+            commands::capture_food_wire::food_validate_image,
+            commands::cluster_dispatch_wire::dispatch_plan,
+            commands::cluster_dispatch_wire::dispatch_score_peer,
+            commands::event_storage_wire::events_query,
+            commands::event_detail::event_show,
+            commands::event_storage_wire::events_search,
+            commands::daily_review_wire::daily_review_load,
+            commands::miui::miui_guide_check_should_show,
+            commands::miui::miui_guide_dismiss,
+            commands::miui::miui_guide_open_autostart,
+            commands::miui::miui_guide_open_battery_optimization,
+            commands::daily_review_wire::daily_review_generate,
+            commands::identity_status::identity_status,
+            commands::recall_wire::recall_search,
+            commands::life_stats::life_stats,
+            commands::life_stats::data_export,
+            commands::life_stats::open_exports_folder,
+            commands::life_stats::event_delete,
+            commands::note_wire::note_capture,
+            commands::providers_wire::providers_select_provider,
+            commands::providers_wire::providers_validate_config,
+            commands::providers_wire::providers_complete,
+            commands::providers_wire::providers_complete_streaming,
             commands::oauth::oauth_sign_in,
             commands::supabase::supabase_sign_in,
             commands::supabase::supabase_get_session,

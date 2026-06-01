@@ -2,6 +2,9 @@ name = "phantommesh-io"
 main = "src/index.ts"
 compatibility_date = "2026-04-28"
 compatibility_flags = ["nodejs_compat"]
+# Cloudflare account this Worker deploys into. Replace with your account id
+# (dash.cloudflare.com → any zone → right sidebar "Account ID").
+account_id = "__CF_ACCOUNT_ID__"
 
 # Bound to the live phantommesh.io zone (NS already on Cloudflare per
 # DNS probe 2026-05-03). The Worker takes precedence over the existing
@@ -15,17 +18,35 @@ routes = [
 [[d1_databases]]
 binding       = "DB"
 database_name = "phantommesh-prod"
-database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
+database_id   = "__D1_ID__"
 
 # ── KV (short-lived OAuth state) ──────────────────────────────────────────
 [[kv_namespaces]]
 binding = "SESSIONS"
-id      = "54738150373145229745d88f18a86a15"
+id      = "__KV_ID__"
 
 # ── R2 (signed binaries served by /dist/* and /install.ps1) ──────────────
 [[r2_buckets]]
 binding     = "BINARIES"
-bucket_name = "phantom-binaries"
+bucket_name = "__R2_BUCKET__"
+
+# ── Durable Objects ──────────────────────────────────────────────────────
+# F205: DispatchStream is one DO instance per dispatch job_id. It mirrors
+# SSE chunks the SPA pushes to /api/me/dispatch/stream/:job_id (POST mode)
+# so any number of additional browser tabs subscribing to the same job_id
+# (GET-as-SSE) receive identical chunks. The Durable Object auto-evicts
+# after 60s of inactivity past `done` to free worker memory; the final
+# transcript persists in the dispatches D1 table.
+[[durable_objects.bindings]]
+name       = "DISPATCH_STREAM"
+class_name = "DispatchStream"
+
+# DO classes need a `[[migrations]]` block. Bumping the class signature in
+# a backwards-incompatible way requires a NEW class_name (e.g. DispatchStreamV2)
+# at a clean release boundary — see F205 risk register row 7.
+[[migrations]]
+tag          = "v1-dispatch-stream"
+new_classes  = ["DispatchStream"]
 
 # ── Vars (non-secret) ─────────────────────────────────────────────────────
 [vars]
@@ -33,6 +54,11 @@ APP_URL                = "https://phantommesh.io"
 GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.googleusercontent.com"
 BROKER_TOKEN_TTL_SECS  = "604800"      # 7 days
 BROKER_VERSION         = "0.1.3-multi-tenant-2026-05-05"
+# Cloudflare Web Analytics beacon token — leave empty to disable.
+# Get one at: dash.cloudflare.com → Web Analytics → Add a site →
+# select "Manual setup" → copy the data-cf-beacon "token" value.
+# Token is public (gets embedded in served HTML), so [vars] not [secret].
+CF_ANALYTICS_TOKEN     = ""
 
 # ── Secrets (set via `wrangler secret put`) ───────────────────────────────
 # wrangler secret put GOOGLE_CLIENT_SECRET
@@ -44,14 +70,13 @@ BROKER_VERSION         = "0.1.3-multi-tenant-2026-05-05"
 # Why this exists: prod (default env above, bound to phantommesh.io) is
 # CI-only via GitHub Actions. Mac dev does:
 #   npx wrangler deploy --env staging
-# → lands at https://phantommesh-io-staging.<account>.workers.dev
+# → lands at https://phantommesh-io-staging.<your-account>.workers.dev
 #   (no public route, no zone binding → does NOT touch phantommesh.io).
 # Win + Mac can both freely deploy --env staging without racing prod.
 #
-# Bindings: same D1 / KV / R2 as prod by default — Mac sees real data
-# but its CODE changes don't go to phantommesh.io. To get FULL isolation
-# (own DB / own bucket), uncomment the [[env.staging.X]] overrides below
-# after creating new resources via:
+# Bindings: staging uses its OWN D1 / KV / R2 (the [[env.staging.X]]
+# overrides below), so a staging deploy never reads or mutates prod data.
+# Create the staging resources and fill in the placeholder ids via:
 #   npx wrangler d1   create phantommesh-staging
 #   npx wrangler kv   namespace create SESSIONS_STAGING
 #   npx wrangler r2   bucket create phantom-binaries-staging
@@ -75,17 +100,25 @@ GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.goo
 BROKER_TOKEN_TTL_SECS  = "604800"
 BROKER_VERSION         = "0.1.2-staging"
 
-# Shared bindings — staging sees the same data as prod. Comment out + use
-# the create commands above for full isolation.
+# Isolated staging bindings — staging gets its OWN D1 / KV / R2 so a
+# `wrangler deploy --env staging` never reads or mutates prod data. Create
+# the resources (see commands above) and paste the returned ids in place of
+# the placeholders below.
 [[env.staging.d1_databases]]
 binding       = "DB"
-database_name = "phantommesh-prod"
-database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
+database_name = "phantommesh-staging"
+database_id   = "__D1_STAGING_ID__"
 
 [[env.staging.kv_namespaces]]
 binding = "SESSIONS"
-id      = "54738150373145229745d88f18a86a15"
+id      = "__KV_STAGING_ID__"
 
 [[env.staging.r2_buckets]]
 binding     = "BINARIES"
-bucket_name = "phantom-binaries"
+bucket_name = "__R2_STAGING_BUCKET__"
+
+# Staging mirrors prod's DispatchStream binding so Mac dev can exercise
+# the SSE fan-out path against a workers.dev URL without touching prod.
+[[env.staging.durable_objects.bindings]]
+name       = "DISPATCH_STREAM"
+class_name = "DispatchStream"

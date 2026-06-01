@@ -1,0 +1,13 @@
+{
+  "name": "phantom-mesh-evals",
+  "private": true,
+  "description": "promptfoo agent-behavior evals for phantom-mesh (Coach Node, SPEC-23/24)",
+  "scripts": {
+    "eval": "promptfoo eval",
+    "eval:offline": "promptfoo eval -c promptfooconfig.offline.yaml",
+    "view": "promptfoo view"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.118.0"
+  }
+}

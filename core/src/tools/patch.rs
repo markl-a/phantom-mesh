@@ -71,7 +71,10 @@ fn parse_patch(patch_text: &str) -> Vec<FilePatch> {
                         current_hunks.push(h);
                     }
                     if !current_hunks.is_empty() {
-                        result.push(FilePatch { path, hunks: current_hunks.drain(..).collect() });
+                        result.push(FilePatch {
+                            path,
+                            hunks: current_hunks.drain(..).collect(),
+                        });
                     }
                 }
 
@@ -121,7 +124,10 @@ fn parse_patch(patch_text: &str) -> Vec<FilePatch> {
             current_hunks.push(h);
         }
         if !current_hunks.is_empty() {
-            result.push(FilePatch { path, hunks: current_hunks });
+            result.push(FilePatch {
+                path,
+                hunks: current_hunks,
+            });
         }
     }
 
@@ -236,11 +242,44 @@ pub async fn apply(args: &Value) -> String {
     let mut modified_files: Vec<String> = Vec::new();
 
     for fp in &file_patches {
-        let file_path: PathBuf = if Path::new(&fp.path).is_absolute() {
+        // T7 fix (codex audit 2026-05-15): every patch target must pass the
+        // workspace boundary check in tools::file::safe_path. Absolute paths
+        // and `..`-traversal targets that escape the allowed roots are
+        // rejected here.
+        let raw_path: PathBuf = if Path::new(&fp.path).is_absolute() {
             PathBuf::from(&fp.path)
         } else {
             base_dir.join(&fp.path)
         };
+        let raw_str = match raw_path.to_str() {
+            Some(s) => s,
+            None => {
+                results.push(format!(
+                    "Error: non-UTF-8 patch target path: {}",
+                    raw_path.display()
+                ));
+                continue;
+            }
+        };
+        let file_path: PathBuf = match crate::tools::file::safe_path(raw_str) {
+            Ok(p) => p,
+            Err(e) => {
+                results.push(format!(
+                    "Error: patch target rejected by workspace boundary check: {} ({})",
+                    raw_path.display(),
+                    e
+                ));
+                continue;
+            }
+        };
+
+        // [C5/T74 V9 H-1] CO-EVO Phase 1 sandbox guard (SPEC-FREEZE-V1.1 §4.1-d).
+        // Without this check, apply_patch could mutate sandboxed paths (e.g.
+        // `core/src/*`) even when `file_write`/`file_edit` would refuse.
+        if let crate::sandbox::Verdict::Denied(msg) = crate::sandbox::check(&file_path) {
+            results.push(format!("Error: {}", msg));
+            continue;
+        }
 
         if dry_run {
             let hunk_descs: Vec<String> = fp.hunks.iter().map(describe_hunk).collect();
@@ -258,11 +297,7 @@ pub async fn apply(args: &Value) -> String {
         let content = match tokio::fs::read_to_string(&file_path).await {
             Ok(c) => c,
             Err(e) => {
-                results.push(format!(
-                    "Error reading {}: {}",
-                    file_path.display(),
-                    e
-                ));
+                results.push(format!("Error reading {}: {}", file_path.display(), e));
                 continue;
             }
         };
@@ -274,7 +309,11 @@ pub async fn apply(args: &Value) -> String {
         let mut file_ok = true;
         for hunk in &fp.hunks {
             if let Err(e) = apply_hunk(&mut file_lines, hunk) {
-                results.push(format!("Error applying hunk to {}: {}", file_path.display(), e));
+                results.push(format!(
+                    "Error applying hunk to {}: {}",
+                    file_path.display(),
+                    e
+                ));
                 file_ok = false;
                 break;
             }
@@ -331,4 +370,104 @@ pub async fn apply(args: &Value) -> String {
     let per_file = results.join("\n");
 
     format!("{}{}\n\n{}", prefix, detail, per_file)
+}
+
+#[cfg(test)]
+mod sandbox_guard_tests {
+    //! [C5/T74 V9 H-1] Regression tests for the sandbox guard wired into
+    //! `apply_patch` (this module's `apply` function). Without this guard,
+    //! a unified diff targeting `core/src/*.rs` would be applied even when
+    //! `file_write`/`file_edit` would refuse the same path.
+    use super::*;
+    use serde_json::json;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    async fn fresh_temp_in_phantom(initial: &str) -> PathBuf {
+        let home = dirs::home_dir().expect("HOME");
+        let dir = home.join(".phantom-mesh").join("test-c5-sandbox-patch");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let path = dir.join(format!("c5-{}-{}.txt", std::process::id(), n));
+        tokio::fs::write(&path, initial).await.expect("seed");
+        path
+    }
+
+    fn one_line_patch(target: &str, old: &str, new: &str) -> String {
+        format!(
+            "--- a/{t}\n+++ b/{t}\n@@ -1,1 +1,1 @@\n-{o}\n+{n}\n",
+            t = target,
+            o = old,
+            n = new,
+        )
+    }
+
+    #[tokio::test]
+    async fn sandbox_denies_apply_patch_into_protected_prefix() {
+        let _g = crate::sandbox::test_lock();
+        crate::sandbox::enable(true);
+
+        let patch_text = one_line_patch("core/src/x.rs", "old line", "new line");
+        let result = apply(&json!({
+            "patch": patch_text,
+            "base_dir": ".",
+        }))
+        .await;
+
+        crate::sandbox::enable(false);
+
+        assert!(
+            result.contains("sandbox guard"),
+            "apply_patch must surface sandbox refusal, got: {}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn sandbox_allows_apply_patch_in_phantom_mesh_dir() {
+        // Build a real file we can validly patch.
+        let path = fresh_temp_in_phantom("alpha\n").await;
+        let rel = path.file_name().unwrap().to_string_lossy().to_string();
+        let base = path.parent().unwrap().to_path_buf();
+
+        let _g = crate::sandbox::test_lock();
+        crate::sandbox::enable(true);
+
+        let patch_text = one_line_patch(&rel, "alpha", "beta");
+        let result = apply(&json!({
+            "patch": patch_text,
+            "base_dir": base.to_string_lossy(),
+        }))
+        .await;
+
+        crate::sandbox::enable(false);
+
+        assert!(
+            result.starts_with("Applied"),
+            "apply_patch on ~/.phantom-mesh/ should succeed under sandbox, got: {}",
+            result
+        );
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn sandbox_disabled_back_compat_apply_patch() {
+        let path = fresh_temp_in_phantom("seed\n").await;
+        let rel = path.file_name().unwrap().to_string_lossy().to_string();
+        let base = path.parent().unwrap().to_path_buf();
+
+        let _g = crate::sandbox::test_lock();
+        crate::sandbox::enable(false);
+
+        let patch_text = one_line_patch(&rel, "seed", "grown");
+        let result = apply(&json!({
+            "patch": patch_text,
+            "base_dir": base.to_string_lossy(),
+        }))
+        .await;
+
+        assert!(result.starts_with("Applied"), "got: {}", result);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
 }

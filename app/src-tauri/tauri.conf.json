@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Phantom Mesh",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "identifier": "ai.phantommesh.app",
   "build": {
     "frontendDist": "../dist",
@@ -23,7 +23,23 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http: https: ws: wss:; img-src 'self' data: https:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://*:7878 https://api.telegram.org https://phantommesh.io https://*.phantommesh.io https://*.ts.net; img-src 'self' data: https: asset: http://asset.localhost",
+      "assetProtocol": {
+        "enable": false,
+        "scope": {
+          "allow": [
+            "$HOME/.phantom-mesh/screenshots/**"
+          ],
+          "deny": [
+            "$HOME/.phantom-mesh/auth.json",
+            "$HOME/.phantom-mesh/env",
+            "$HOME/.phantom-mesh/agents.toml",
+            "$HOME/.phantom-mesh/**/.env",
+            "$HOME/.phantom-mesh/**/auth.json"
+          ],
+          "requireLiteralLeadingDot": false
+        }
+      }
     },
     "trayIcon": {
       "tooltip": "Phantom Mesh",
@@ -64,7 +80,7 @@
         "language": ["en-US"]
       },
       "nsis": {
-        "installMode": "perUser",
+        "installMode": "currentUser",
         "languages": ["English"],
         "displayLanguageSelector": false
       },

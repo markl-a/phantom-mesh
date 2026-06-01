@@ -1,0 +1,20 @@
+# Known-unregistered #[tauri::command] fns (SPEC-17 T-WL-06 baseline, 2026-05-29).
+#
+# These are command-annotated fns NOT in lib.rs `generate_handler![...]` — so they
+# are currently unreachable from the frontend. They are baselined here so the
+# check-tauri-commands.sh drift-gate passes on existing code while still FAILING on
+# any NEW unregistered command. TODO: for each, either register it in
+# generate_handler! or drop the #[tauri::command] attribute (they look like real
+# features — daemon control, auto-update, recent-projects — that were wired in the
+# backend but never exposed; needs an owner decision, tracked as a follow-up).
+#
+# One bare command name per line; blank lines and #-comments are ignored.
+add_recent_project
+check_for_updates
+daemon_status
+get_project_info
+install_update
+list_recent_projects
+set_project_cwd
+start_daemon
+stop_daemon

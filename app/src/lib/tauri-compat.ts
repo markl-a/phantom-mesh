@@ -28,9 +28,19 @@ async function httpFallback(cmd: string, args?: Record<string, unknown>): Promis
     // ── Conversation ──
     case "send_message": {
       const agent = (args?.agent as string) || "master";
-      const body: Record<string, unknown> = { prompt: args?.prompt };
+      // Accept the legacy `message` arg as an alias for `prompt` (tauri-compat
+      // parity): older callers pass { message }, current ones pass { prompt }.
+      const prompt = args?.prompt ?? args?.message;
+      const body: Record<string, unknown> = { prompt };
       if (args?.chat_id) body.chat_id = args.chat_id;
       const resp = await post(`/agent/${agent}/run`, body);
+      // Response parity: the daemon returns { result, ... }; app callers expect
+      // { output, ... }. Rename result -> output (dropping result) and pass the
+      // rest (agent, tool_calls, elapsed, ...) through unchanged.
+      if (resp && typeof resp === "object" && "result" in resp) {
+        const { result, ...rest } = resp as Record<string, unknown>;
+        return { ...rest, output: result };
+      }
       return resp;
     }
     case "get_conversations":
@@ -45,7 +55,12 @@ async function httpFallback(cmd: string, args?: Record<string, unknown>): Promis
     // ── Health / Status ──
     case "get_health":
     case "daemon_status":
-      return get("/health").then((h: Record<string, unknown>) => ({ ...h, healthy: h["status"] === "ok" }));
+      // /health 404s — the daemon's JSON status route is /api/status. Any 200
+      // there means the daemon is up; fall back to healthy:false (never throw,
+      // so callers like ConversationView don't crash on an unhandled reject).
+      return get("/api/status")
+        .then((h: Record<string, unknown>) => ({ ...h, healthy: true }))
+        .catch(() => ({ healthy: false }));
     case "get_version":
       return get("/api/version").catch(() => ({ version: "unknown", commit: "" }));
     case "get_peers":
@@ -216,10 +231,58 @@ async function post(path: string, body: unknown): Promise<any> {
   return resp.json();
 }
 
+// The Tauri invoke bridge serializes args with JSON.stringify, which throws
+// on BigInt. ts-rs maps every Rust u64/i64 to a JS BigInt, so ANY command
+// whose args carry such a field (ms timestamps, durations, counts, ids) would
+// crash before reaching the backend — e.g. the onboarding FSM snapshot's
+// enteredAtMs once hard-blocked the entire mode picker. Coerce BigInt ->
+// Number at the bridge boundary so call sites don't each have to remember.
+// Number holds integers exactly up to 2^53; our u64 args (wall-clock ms, ms
+// durations) are far below that.
+export function coerceBigInts(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) {
+      // eslint-disable-next-line no-console
+      console.warn("[tauri-compat] BigInt exceeds Number safe range; left as bigint (no silent truncation):", value.toString());
+      // Leave out-of-range BigInts untouched: silently truncating to Number
+      // would corrupt a u64 id/timestamp. Downstream fails loudly instead.
+      return value;
+    }
+    return Number(value);
+  }
+  if (Array.isArray(value)) return value.map(coerceBigInts);
+  // Only recurse into PLAIN objects. Date / Map / Set / Uint8Array / RegExp
+  // etc. must pass through untouched — rebuilding them via Object.entries
+  // corrupts them (a Uint8Array key/blob would become {"0":x,"1":y,...} and
+  // crash a command expecting a binary buffer).
+  if (value !== null && typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        // defineProperty (not `out[k] = …`) so a malicious own "__proto__" key
+        // becomes a normal own property instead of reassigning out's prototype
+        // (prototype-pollution guard).
+        Object.defineProperty(out, k, {
+          value: coerceBigInts(v),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+      return out;
+    }
+  }
+  return value;
+}
+
 export async function safeInvoke<T = unknown>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
   const fn = await getInvoke();
-  return fn!(command, args) as Promise<T>;
+  const safeArgs = args
+    ? (coerceBigInts(args) as Record<string, unknown>)
+    : args;
+  return fn!(command, safeArgs) as Promise<T>;
 }

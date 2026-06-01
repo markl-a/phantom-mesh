@@ -12,8 +12,8 @@
 
 CREATE TABLE IF NOT EXISTS user_cluster_peers (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name       TEXT    NOT NULL,             -- node identity, e.g. "ayaneo"
-    url        TEXT    NOT NULL,             -- Tailscale URL, e.g. "http://100.107.205.98:7878"
+    name       TEXT    NOT NULL,             -- node identity, e.g. "node-a"
+    url        TEXT    NOT NULL,             -- Tailscale URL, e.g. "http://100.64.0.12:7878"
     label      TEXT,                         -- optional human description
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, name)

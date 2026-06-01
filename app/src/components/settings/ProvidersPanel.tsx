@@ -57,7 +57,7 @@ const MOCK_PROVIDERS: Provider[] = [
     status: "online",
     models: 3,
     description: "Anthropic Claude 系列。訂閱制，高品質推理與長上下文。",
-    apiKey: "sk-ant-****************************xQ7p",
+    apiKey: "sk-ant-****************************0000",
   },
   {
     name: "OpenAI",
@@ -229,7 +229,7 @@ export default function ProvidersPanel() {
       {/* Error banner */}
       {fetchError && (
         <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 flex items-center justify-between text-sm">
-          <span>無法連接 Daemon：{fetchError}</span>
+          <span title={fetchError ?? undefined}>無法連接本機 daemon — 確認 phantom serve 已啟動（行動裝置可改用「集群派送」或從 Mac 匯入設定）</span>
           <button
             onClick={() => void fetchProviderHealth()}
             className="ml-4 px-3 py-1 rounded text-xs font-medium bg-phantom-danger/30 hover:bg-phantom-danger/50"

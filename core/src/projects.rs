@@ -68,11 +68,21 @@ pub fn registry() -> Vec<Project> {
         Project {
             id: "phantom-mesh",
             name: "phantom-mesh",
-            tagline: "Self-hostable AI agent runtime — Mac/Linux/Windows/Android/iOS, Tailscale cluster",
+            tagline:
+                "Self-hostable AI agent runtime — Mac/Linux/Windows/Android/iOS, Tailscale cluster",
             repo_url: "https://github.com/markl-a/phantom-mesh",
             demo_cmd: Some(DemoCmd {
-                cwd_under_home: "Documents/GitHub/hailmary/phantom-mesh",
-                argv: &["phantom", "autoevolve", "--once", "--no-commit", "--target", "check", "--max-rounds", "1"],
+                cwd_under_home: "path/to/phantom-mesh",
+                argv: &[
+                    "phantom",
+                    "autoevolve",
+                    "--once",
+                    "--no-commit",
+                    "--target",
+                    "check",
+                    "--max-rounds",
+                    "1",
+                ],
                 expected_duration_secs: 30,
             }),
             status: "active",
@@ -94,7 +104,8 @@ pub fn registry() -> Vec<Project> {
         Project {
             id: "phantom-mobile",
             name: "phantom-mobile",
-            tagline: "Agentic E2E testing for Android — vision-LLM scenario judge across emulator matrix",
+            tagline:
+                "Agentic E2E testing for Android — vision-LLM scenario judge across emulator matrix",
             repo_url: "https://github.com/markl-a/phantom-mobile",
             demo_cmd: Some(DemoCmd {
                 cwd_under_home: "Documents/GitHub/phantom-mobile",
@@ -107,11 +118,20 @@ pub fn registry() -> Vec<Project> {
         Project {
             id: "data-analysis-with-agents",
             name: "Data-Analysis-with-Agents",
-            tagline: "Streamlit dashboard — clustering + RFM segmentation + agent telemetry analytics",
+            tagline:
+                "Streamlit dashboard — clustering + RFM segmentation + agent telemetry analytics",
             repo_url: "https://github.com/markl-a/Data-Analysis-with-Agents",
             demo_cmd: Some(DemoCmd {
                 cwd_under_home: "Documents/GitHub/Data-Analysis-with-Agents",
-                argv: &["streamlit", "run", "app.py", "--server.headless", "true", "--server.port", "8501"],
+                argv: &[
+                    "streamlit",
+                    "run",
+                    "app.py",
+                    "--server.headless",
+                    "true",
+                    "--server.port",
+                    "8501",
+                ],
                 // Long-running: the dashboard streams the URL back so the
                 // user can hop over. We cap the run-demo SSE stream at
                 // ~10s of startup logs and link them to the live UI.
@@ -123,7 +143,8 @@ pub fn registry() -> Vec<Project> {
         Project {
             id: "automation-with-agent",
             name: "Automation_with_Agent",
-            tagline: "Applied automation + AIOps + MLOps — fetch → chunk → embed → RAG → LLM in 30 s",
+            tagline:
+                "Applied automation + AIOps + MLOps — fetch → chunk → embed → RAG → LLM in 30 s",
             repo_url: "https://github.com/markl-a/Automation_with_Agent",
             // Wired 2026-05-10 (commit c8ebdf8): top-level demo.py runs
             // a stdlib-only RAG demo over a real Wikipedia URL. Mock LLM
@@ -176,7 +197,8 @@ mod tests {
         for id in &ids {
             assert!(
                 id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
-                "non-URL-safe id: {}", id
+                "non-URL-safe id: {}",
+                id
             );
         }
     }
@@ -192,7 +214,8 @@ mod tests {
                     p.status == "wip" || p.id == "my-ai-learning-notes",
                     "project '{}' has status '{}' but no demo_cmd — \
                      either wire a demo or set status='wip'",
-                    p.id, p.status
+                    p.id,
+                    p.status
                 );
             }
         }
@@ -206,7 +229,8 @@ mod tests {
             assert!(
                 p.tagline.chars().count() <= 110,
                 "tagline too long for tile: {} ({} chars)",
-                p.id, p.tagline.chars().count()
+                p.id,
+                p.tagline.chars().count()
             );
         }
     }

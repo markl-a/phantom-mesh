@@ -1,22 +1,59 @@
-// core/src/mesh.rs — cluster peer manager
-//
-// Peers are configured in agents.toml under [cluster]:
-//
-//   [cluster]
-//   peers = ["http://192.168.1.2:7878", "http://100.x.x.5:7878"]
-//   cluster_secret = "shared-hmac-key"
-//   node_name = "my-node"
-//
-// ── Future: Tailscale integration ─────────────────────────────────────────────
-//
-// Each PeerInfo will carry a `tailscale_ip: Option<String>` once we integrate
-// with the Tailscale API (or parse `/usr/bin/tailscale status --json`).  When
-// present, the mesh will prefer the Tailscale IP over the raw LAN/WAN address
-// for stable end-to-end encrypted addressing that survives NAT changes and
-// network reconfigurations.  The connection pool would be keyed on the
-// Tailscale IP so that a peer's DNS name or public address can change without
-// losing the warm connection.
-// ──────────────────────────────────────────────────────────────────────────────
+//! Cluster peer manager — mesh topology, health tracking, and task routing.
+//!
+//! This module is the runtime model of the phantom-mesh cluster: the set of
+//! reachable peer nodes, how healthy each one is, and how a task or message is
+//! routed to the best peer that can run it.
+//!
+//! # Core abstractions
+//!
+//! * [`PeerInfo`] — the persistent, on-disk record for one peer (URL, version,
+//!   liveness, capabilities, [`PeerHealth`] state). Cached to
+//!   `~/.phantom-mesh/peers.json` via [`save_peers`] / [`load_peers`].
+//! * [`PeerStatus`] — the lighter wire type returned by `/rpc/ping` and the
+//!   cluster status API; derived from a [`PeerInfo`].
+//! * [`ClusterManager`] — owns the live peer list behind a lock and drives all
+//!   network operations: ping, refresh, heartbeat, HMAC auth, and task assign /
+//!   forward / poll.
+//! * [`ClusterConfig`] — the `[cluster]` section of `agents.toml`, parsed once
+//!   at startup.
+//!
+//! # Topology discovery
+//!
+//! Peers can be supplied three ways, in increasing order of dynamism:
+//! statically via `[cluster] peers`, by mDNS on the LAN
+//! ([`discover_local_peers`]), or over a Tailscale tailnet
+//! ([`discover_tailscale_peers`]). A [`coordinator`](ClusterConfig::coordinator)
+//! node can also hand out the live peer list at startup.
+//!
+//! # Routing & capabilities
+//!
+//! Routing prefers healthy peers with the lowest `consecutive_failures`. When a
+//! task declares `required_caps`, only peers advertising the union of those
+//! capabilities are eligible ([`peer_has_capabilities`],
+//! [`select_best_peer_with_caps`]). Workers can additionally enforce
+//! `required_caps` on inbound tasks ([`EnforceMode`], [`enforce_required_caps`])
+//! and forward to a capable peer on a mismatch.
+//!
+//! # Configuration
+//!
+//! Peers are configured in `agents.toml` under `[cluster]`:
+//!
+//! ```toml
+//! [cluster]
+//! peers = ["http://192.168.1.2:7878", "http://100.x.x.5:7878"]
+//! cluster_secret = "shared-hmac-key"
+//! node_name = "my-node"
+//! ```
+//!
+//! # Tailscale integration (SPEC-10 §6.4)
+//!
+//! Each [`PeerInfo`] carries an optional `tailscale_ip` populated from
+//! `tailscale status --json` (see [`tailscale_status_json`]). When present, task
+//! dispatch ([`ClusterManager::assign_task_to_best_peer`]) prefers
+//! `http://<ts_ip>:7878` over the raw `peer.url`, giving stable end-to-end
+//! encrypted addressing that survives NAT changes and Wi-Fi → cellular handoff.
+//! If Tailscale is not installed, the field stays `None` and the LAN/WAN URL is
+//! used as before — behaviour for single-network deploys is unchanged.
 
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -46,11 +83,37 @@ pub enum DispatchError {
     /// HMAC authentication was rejected by the peer.
     HMACMismatch { url: String },
     /// Peer accepted the request but returned an `error` field.
-    PeerRejected { url: String, code: Option<String>, message: String },
+    PeerRejected {
+        url: String,
+        code: Option<String>,
+        message: String,
+    },
     /// Peer rejected because its local `agents.toml` has no such agent.
     AgentMissing { url: String, agent: String },
     /// Peer accepted the request but did not respond within `elapsed`.
-    Timeout { url: String, elapsed: std::time::Duration },
+    Timeout {
+        url: String,
+        elapsed: std::time::Duration,
+    },
+    /// C1: online peers exist but none advertise the union of `required` caps.
+    /// Distinct from `NoPeersAvailable` so the CLI can print actionable hints
+    /// ("bring up a peer with worker_caps containing X" vs "no peers at all").
+    /// `available_peers` carries the inventory of online (url, worker_caps)
+    /// so operators can audit the routing decision.
+    NoPeerSatisfiesCaps {
+        required: Vec<String>,
+        available_peers: Vec<(String, Vec<String>)>,
+    },
+    /// C1: forward attempt completed but the downstream peer returned non-2xx.
+    /// Carries the inner HTTP status + body so the caller can surface them.
+    ForwardRejected {
+        peer: String,
+        status: u16,
+        body: String,
+    },
+    /// C1: forward attempt aborted because the forward chain would cycle —
+    /// receiver either saw itself in the chain or the chain hit the hop limit.
+    ForwardChainExhausted { chain: Vec<String>, reason: String },
     /// Fallback for anything we didn't model (malformed body, JSON decode error, ...).
     Other(String),
 }
@@ -71,6 +134,22 @@ impl std::fmt::Display for DispatchError {
             }
             Self::Timeout { url, elapsed } => {
                 write!(f, "peer {url} timed out after {elapsed:?}")
+            }
+            Self::NoPeerSatisfiesCaps {
+                required,
+                available_peers,
+            } => {
+                write!(
+                    f,
+                    "no peer satisfies required_caps {:?} (online inventory: {:?})",
+                    required, available_peers,
+                )
+            }
+            Self::ForwardRejected { peer, status, body } => {
+                write!(f, "forward to {peer} rejected: HTTP {status} body={body}")
+            }
+            Self::ForwardChainExhausted { chain, reason } => {
+                write!(f, "forward chain exhausted ({reason}): chain={chain:?}")
             }
             Self::Other(msg) => write!(f, "dispatch error: {msg}"),
         }
@@ -140,16 +219,153 @@ pub struct ClusterConfig {
     /// and fetches the live peer list from the coordinator instead of relying on
     /// hardcoded `peers`. e.g. "http://coordinator.example.com:7900"
     pub coordinator: Option<String>,
+    /// T5 server-side enforcement mode for /rpc/task/assign. `None`
+    /// (default) or `Some(Soft)` preserves pre-T5 behaviour: a
+    /// `required_caps` mismatch is logged but the task still runs.
+    /// `Some(Strict)` rejects the task with `409 Conflict` and a
+    /// structured error body. Can be overridden at runtime via the
+    /// `PHANTOM_ENFORCE_REQUIRED_CAPS=soft|strict` env var.
+    #[serde(default)]
+    pub enforce_caps: Option<EnforceMode>,
+    /// C4: how often the heartbeat task probes each peer's `/rpc/ping`.
+    /// `None` = use default (30s). Only consulted when the
+    /// `experimental-cluster-heartbeat` feature is enabled and the cluster
+    /// has at least one configured peer — otherwise the heartbeat task
+    /// does not start at all (single-node deployments stay quiet).
+    #[serde(default)]
+    pub heartbeat_interval_secs: Option<u64>,
+    /// C4: how many consecutive probe failures flip a peer from
+    /// `Healthy` to `Unhealthy`. `None` = use default (3). Set to 1 for
+    /// faster fail-over at the cost of false positives on transient blips.
+    #[serde(default)]
+    pub heartbeat_failure_threshold: Option<u32>,
+}
+
+/// C4: default heartbeat probe interval when `[cluster] heartbeat_interval_secs`
+/// is unset. Mirrors the pre-C4 background loop in `bin/phantom.rs`.
+pub const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 30;
+
+/// C4: default consecutive-failure threshold before a peer transitions
+/// `Healthy → Unhealthy`. Three matches typical kubelet-style probes —
+/// covers a single retry plus one transient packet loss.
+pub const DEFAULT_HEARTBEAT_FAILURE_THRESHOLD: u32 = 3;
+
+impl ClusterConfig {
+    /// Resolve the effective enforcement mode, considering both the
+    /// config field and the `PHANTOM_ENFORCE_REQUIRED_CAPS` env var.
+    /// Precedence: env (if set to a recognised value) > config > Soft.
+    pub fn effective_enforce_mode(&self) -> EnforceMode {
+        if let Ok(raw) = std::env::var("PHANTOM_ENFORCE_REQUIRED_CAPS") {
+            match raw.trim().to_ascii_lowercase().as_str() {
+                "strict" => return EnforceMode::Strict,
+                "soft" => return EnforceMode::Soft,
+                _ => { /* fall through to config */ }
+            }
+        }
+        self.enforce_caps.unwrap_or(EnforceMode::Soft)
+    }
 }
 
 // ── Coordinator wire types ──────────────────────────────────────────────────
 
+/// Payload a node POSTs to a coordinator on startup to join the mesh.
+///
+/// The coordinator verifies `secret_hash` against its own
+/// `SHA-256(cluster_secret)` before accepting the registration, then folds the
+/// node into the live peer list it hands back to all members.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoordinatorRegistration {
+    /// Display name this node advertises (its `[cluster] node_name`).
     pub name: String,
+    /// Base URL other peers should dial to reach this node.
     pub url: String,
+    /// Capabilities this node declares it can run (its `[cluster] capabilities`).
     pub capabilities: Vec<String>,
-    pub secret_hash: String, // SHA-256(cluster_secret), hex encoded
+    /// `SHA-256(cluster_secret)`, hex encoded — proves shared-secret membership
+    /// without sending the secret itself.
+    pub secret_hash: String,
+}
+
+// ── PeerHealth (C4) ─────────────────────────────────────────────────────────
+//
+// PeerHealth is the coarse "is this peer worth talking to" bit consumed by
+// `select_best_peer_with_caps`. Distinct from `PeerInfo.online` (which simply
+// reflects the most recent ping result) — `Unhealthy` requires N consecutive
+// failures so a single transient blip does not flip routing decisions.
+//
+// `Instant` is not `Serialize`, so the disk format is the cheap two-variant
+// shape; on load every peer comes back `Healthy` and the heartbeat task
+// reconverges within a few intervals if the peer is actually down.
+
+/// C4: routing-relevant health state for a peer.
+///
+/// `Healthy` is the default for newly-discovered peers (give them a chance
+/// to respond before routing skips them). `Unhealthy` carries the `Instant`
+/// of the first failure that pushed it over the threshold plus the running
+/// `failure_count` — both useful for `phantom peer list` diagnostics.
+///
+/// Transitions Healthy → Unhealthy emit `tracing::warn!`; Unhealthy → Healthy
+/// emit `tracing::info!`. The heartbeat task (gated by the
+/// `experimental-cluster-heartbeat` feature) drives transitions via
+/// `ClusterManager::record_probe_result`.
+// Optimistic default rationale: new peers are `Healthy` so the routing
+// filter does not skip them for the first probe interval on a healthy
+// mesh. The heartbeat task converges them to `Unhealthy` after the
+// configured threshold (`heartbeat_failure_threshold`) of failed pings.
+#[derive(Debug, Clone, Default)]
+pub enum PeerHealth {
+    #[default]
+    Healthy,
+    Unhealthy {
+        /// Wall-clock instant we first marked this peer Unhealthy.
+        /// Not serialised — reconstructed on load as the daemon's startup.
+        since: Instant,
+        /// Consecutive probe failures observed since the last success.
+        /// Continues to climb past the threshold so operators can see
+        /// "this peer has been gone for hours" in diagnostics.
+        failure_count: u32,
+    },
+}
+
+impl PeerHealth {
+    /// True if the peer is in the `Healthy` state.
+    pub fn is_healthy(&self) -> bool {
+        matches!(self, PeerHealth::Healthy)
+    }
+}
+
+// Custom Serialize/Deserialize: persist only the discriminant (`"healthy"`
+// vs `"unhealthy"`) so the on-disk peers.json stays human-readable and
+// forward-compatible. `Instant` cannot be serialised, and re-serialising
+// `failure_count` across daemon restarts would be misleading (the count
+// reflects in-process probes, not history). On load we always reconstruct
+// `Healthy`; the heartbeat task will re-derive Unhealthy if the peer is
+// still down. Keeps invariant: cold-start = optimistic.
+impl Serialize for PeerHealth {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        match self {
+            PeerHealth::Healthy => ser.serialize_str("healthy"),
+            PeerHealth::Unhealthy { .. } => ser.serialize_str("unhealthy"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PeerHealth {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        // Accept anything — old peers.json files predate this field, in
+        // which case `#[serde(default)]` on the PeerInfo field saves us.
+        // For the "unhealthy" tag we reconstruct with current Instant and
+        // failure_count = 0 (the heartbeat task will replenish it).
+        let raw = String::deserialize(de)?;
+        Ok(match raw.as_str() {
+            "unhealthy" => PeerHealth::Unhealthy {
+                since: Instant::now(),
+                failure_count: 0,
+            },
+            // "healthy" or anything else: default to Healthy (optimistic).
+            _ => PeerHealth::Healthy,
+        })
+    }
 }
 
 // ── PeerInfo ────────────────────────────────────────────────────────────────
@@ -186,6 +402,23 @@ pub struct PeerInfo {
     pub last_seen: Option<Instant>,
     /// How many consecutive RPC failures we have seen since the last success.
     pub consecutive_failures: u32,
+    /// C4: routing-relevant health state. Drives `select_best_peer_with_caps`
+    /// preference ordering (Healthy first, fall through to Unhealthy as
+    /// fallback). Defaults to `Healthy` for newly-created peers and on
+    /// disk reload — see `PeerHealth::Default` rationale.
+    #[serde(default)]
+    pub health: PeerHealth,
+    /// SPEC-10 §6.4 Tailscale stable address (IPv4) for this peer, when
+    /// known. Populated by callers that walk `tailscale status --json`
+    /// (see [`tailscale_status_json`]). When `Some`, dispatch helpers
+    /// (see [`peer_dispatch_base_url`]) prefer
+    /// `http://<tailscale_ip>:7878` over the raw `url`, which survives
+    /// Wi-Fi → cellular handoff and NAT-changes without losing the peer.
+    /// `None` (default) preserves pre-Tailscale routing — the LAN/WAN
+    /// `url` field is used as-is, so single-network deploys see no
+    /// behaviour change.
+    #[serde(default)]
+    pub tailscale_ip: Option<String>,
 }
 
 impl PeerInfo {
@@ -198,6 +431,171 @@ impl PeerInfo {
             None => false,
         }
     }
+}
+
+// ── Tailscale integration (SPEC-10 §6.4) ────────────────────────────────────
+//
+// `tailscale_status_json` shells out to `tailscale status --json` and parses
+// it into the shape consumed by the rest of mesh.rs (a per-peer IPv4 lookup).
+// The CLI invocation is split from the byte-level parse so the parser stays
+// pure + fully unit-testable from a fixture.
+
+/// Failure modes for [`tailscale_status_json`]. Kept separate from
+/// [`DispatchError`] because Tailscale lookup happens before any dispatch
+/// attempt — callers care whether to retry, fall back to LAN, or surface
+/// a user-actionable "install tailscale" hint.
+#[derive(Debug)]
+pub enum MeshError {
+    /// `tailscale` CLI is not on `PATH` (or `which`/`exec` failed at the
+    /// OS level). Most common cause: Tailscale not installed. Treat as
+    /// soft failure — fall back to the LAN/WAN URL.
+    TailscaleNotInstalled,
+    /// `tailscale status --json` exited non-zero. Stderr is propagated
+    /// so the operator can see "Logged out" / "no network" / etc.
+    TailscaleCliFailed { exit_code: Option<i32>, stderr: String },
+    /// CLI returned bytes that did not parse as `tailscale status --json`.
+    /// Usually a version skew between phantom and the tailscale binary.
+    JsonParse(String),
+}
+
+impl std::fmt::Display for MeshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TailscaleNotInstalled => {
+                write!(f, "tailscale CLI not installed or not on PATH")
+            }
+            Self::TailscaleCliFailed { exit_code, stderr } => write!(
+                f,
+                "tailscale status --json failed (exit={exit_code:?}): {stderr}",
+            ),
+            Self::JsonParse(msg) => write!(f, "tailscale status --json parse error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for MeshError {}
+
+/// Parsed view of `tailscale status --json` keyed by peer hostname.
+/// Stores only the fields the mesh actually consumes; unknown fields are
+/// ignored on parse (forward-compat with newer Tailscale releases).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TailscaleStatus {
+    /// Hostname → first IPv4 address. Hostname is the Tailscale `HostName`
+    /// (e.g. "node-a", "mac-mini") with the magicDNS suffix stripped. Only
+    /// online peers are included; offline peers and IPv6-only peers are
+    /// dropped (phantom dials IPv4:port).
+    pub peers: std::collections::BTreeMap<String, String>,
+}
+
+impl TailscaleStatus {
+    /// Look up a peer's Tailscale IPv4 by hostname (case-insensitive,
+    /// trailing `.local.` / magicDNS suffix stripped). Returns `None`
+    /// when no entry matches — caller should fall back to LAN/WAN URL.
+    pub fn lookup(&self, hostname: &str) -> Option<&str> {
+        let normalised = normalise_hostname(hostname);
+        self.peers
+            .iter()
+            .find(|(name, _)| normalise_hostname(name) == normalised)
+            .map(|(_, ip)| ip.as_str())
+    }
+}
+
+fn normalise_hostname(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('.');
+    let head = trimmed.split('.').next().unwrap_or(trimmed);
+    head.to_ascii_lowercase()
+}
+
+/// Pure parser for `tailscale status --json` output. Split from the CLI
+/// invocation so tests can feed fixture bytes without depending on a
+/// real `tailscale` binary on the runner.
+///
+/// Mirrors the filter applied by `extract_tailscale_peer_ips` (online +
+/// IPv4 only) so both code paths agree on what counts as a reachable
+/// peer. Returns `Err(MeshError::JsonParse)` on malformed input.
+pub fn parse_tailscale_status_json(bytes: &[u8]) -> Result<TailscaleStatus, MeshError> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|e| MeshError::JsonParse(e.to_string()))?;
+    let mut peers = std::collections::BTreeMap::new();
+    let Some(peer_obj) = value.get("Peer").and_then(|p| p.as_object()) else {
+        return Ok(TailscaleStatus { peers });
+    };
+    for entry in peer_obj.values() {
+        let online = entry
+            .get("Online")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !online {
+            continue;
+        }
+        let hostname = entry
+            .get("HostName")
+            .and_then(|v| v.as_str())
+            .map(normalise_hostname);
+        let Some(name) = hostname else { continue };
+        let Some(addrs) = entry.get("TailscaleIPs").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        let ipv4 = addrs.iter().find_map(|a| {
+            a.as_str()
+                .filter(|s| !s.contains(':'))
+                .map(|s| s.to_string())
+        });
+        if let Some(ip) = ipv4 {
+            peers.insert(name, ip);
+        }
+    }
+    Ok(TailscaleStatus { peers })
+}
+
+/// Invoke `tailscale status --json` synchronously and parse the output
+/// into a [`TailscaleStatus`]. Uses a blocking [`std::process::Command`]
+/// rather than tokio so callers from non-async contexts (e.g. CLI setup,
+/// `phantom selftest`) can use it without an executor.
+///
+/// Returns:
+/// * `Err(MeshError::TailscaleNotInstalled)` — CLI missing (most common
+///   reason: Tailscale not installed). Caller should fall back to LAN URL.
+/// * `Err(MeshError::TailscaleCliFailed { .. })` — CLI present but failed
+///   (e.g. logged out, no network).
+/// * `Err(MeshError::JsonParse(_))` — CLI succeeded but emitted bytes the
+///   parser does not understand (likely a tailscale version skew).
+/// * `Ok(TailscaleStatus { peers })` — happy path. `peers` may be empty
+///   when the local node is the only one in the tailnet.
+pub fn tailscale_status_json() -> Result<TailscaleStatus, MeshError> {
+    let output = std::process::Command::new("tailscale")
+        .args(["status", "--json"])
+        .output()
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => MeshError::TailscaleNotInstalled,
+            _ => MeshError::TailscaleCliFailed {
+                exit_code: None,
+                stderr: e.to_string(),
+            },
+        })?;
+    if !output.status.success() {
+        return Err(MeshError::TailscaleCliFailed {
+            exit_code: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    parse_tailscale_status_json(&output.stdout)
+}
+
+/// SPEC-10 §6.4: pick the base URL to dial for `peer`. Prefers the
+/// stable Tailscale address `http://<tailscale_ip>:7878` when known;
+/// otherwise falls back to the LAN/WAN `peer.url` (trailing `/`
+/// trimmed so callers can join `/rpc/...` without a double slash).
+///
+/// Kept a free function so callers outside `ClusterManager` (and tests)
+/// can reuse the exact same selection logic.
+pub fn peer_dispatch_base_url(peer: &PeerInfo) -> String {
+    if let Some(ts_ip) = peer.tailscale_ip.as_deref().map(str::trim) {
+        if !ts_ip.is_empty() {
+            return format!("http://{}:7878", ts_ip);
+        }
+    }
+    peer.url.trim_end_matches('/').to_string()
 }
 
 // ── PeerStatus ──────────────────────────────────────────────────────────────
@@ -222,8 +620,8 @@ pub struct PeerStatus {
     #[serde(default)]
     pub worker_caps: Vec<String>,
     /// Agents configured on this peer (keys of `[agent.*]`). Coordinator
-    /// uses this to plan Squad Pipeline dispatch — it can't ask Z13 to
-    /// run "recon-agent" if Z13's agents.toml doesn't have that key.
+    /// uses this to plan Squad Pipeline dispatch — it can't ask node-a to
+    /// run "recon-agent" if node-a's agents.toml doesn't have that key.
     /// Populated by the daemon at /rpc/ping time, never persisted.
     #[serde(default)]
     pub agents: Vec<String>,
@@ -375,7 +773,10 @@ pub async fn discover_local_peers() -> Vec<String> {
             let text = String::from_utf8_lossy(&buf);
             let urls = parse_urls(&text);
             if !urls.is_empty() {
-                tracing::debug!("discover_local_peers: found {} peers via dns-sd", urls.len());
+                tracing::debug!(
+                    "discover_local_peers: found {} peers via dns-sd",
+                    urls.len()
+                );
                 return urls;
             }
         }
@@ -469,27 +870,29 @@ pub async fn discover_tailscale_peers_with(ports: &[u16], probe_timeout: Duratio
 
     // Cross-product (ip × port) — peers don't advertise their port, so
     // probe each candidate. The first port to answer wins per IP.
-    let probes = ips.iter().flat_map(|ip| {
-        ports.iter().map(move |port| (ip.clone(), *port))
-    }).map(|(ip, port)| {
-        let client = client.clone();
-        async move {
-            let url = format!("http://{}:{}/healthz", ip, port);
-            match client.get(&url).send().await {
-                Ok(r) if r.status().is_success() => {
-                    Some(format!("http://{}:{}", ip, port))
+    let probes = ips
+        .iter()
+        .flat_map(|ip| ports.iter().map(move |port| (ip.clone(), *port)))
+        .map(|(ip, port)| {
+            let client = client.clone();
+            async move {
+                let url = format!("http://{}:{}/healthz", ip, port);
+                match client.get(&url).send().await {
+                    Ok(r) if r.status().is_success() => Some(format!("http://{}:{}", ip, port)),
+                    _ => None,
                 }
-                _ => None,
             }
-        }
-    });
+        });
 
     let results: Vec<Option<String>> = futures::future::join_all(probes).await;
     // Dedupe: keep first hit per IP (lowest-port wins).
     let mut seen_ips = std::collections::HashSet::new();
     let mut alive = Vec::new();
     for url in results.into_iter().flatten() {
-        if let Some(ip_part) = url.strip_prefix("http://").and_then(|s| s.split(':').next()) {
+        if let Some(ip_part) = url
+            .strip_prefix("http://")
+            .and_then(|s| s.split(':').next())
+        {
             if seen_ips.insert(ip_part.to_string()) {
                 alive.push(url);
             }
@@ -513,7 +916,10 @@ fn extract_tailscale_peer_ips(status: &serde_json::Value) -> Vec<String> {
         return ips;
     };
     for peer in peers.values() {
-        let online = peer.get("Online").and_then(|v| v.as_bool()).unwrap_or(false);
+        let online = peer
+            .get("Online")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if !online {
             continue;
         }
@@ -569,7 +975,11 @@ async fn post_with_retry(
                 if !e.is_connect() && !e.is_timeout() {
                     break;
                 }
-                tracing::warn!("post_with_retry: transient error (attempt {}): {}", attempt + 1, e);
+                tracing::warn!(
+                    "post_with_retry: transient error (attempt {}): {}",
+                    attempt + 1,
+                    e
+                );
             }
         }
     }
@@ -600,18 +1010,160 @@ pub async fn route_to_best_peer(peers: &[PeerInfo], message: &str) -> Option<Str
         .build()
         .unwrap_or_default();
 
-    let resp = post_with_retry(&client, &url, body, None).await.ok()?;
-    let data: serde_json::Value = resp.json().await.ok()?;
+    let resp = match post_with_retry(&client, &url, body, None).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(url = %url, "route_to_best_peer: post_with_retry failed: {}", e);
+            return None;
+        }
+    };
+    let data: serde_json::Value = match resp.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(url = %url, "route_to_best_peer: json parse failed: {}", e);
+            return None;
+        }
+    };
+    data["output"].as_str().map(|s| s.to_string())
+}
+
+/// True if `peer` satisfies all `required_caps` (set inclusion: every
+/// element of `required_caps` is present in `peer.capabilities`).
+///
+/// Empty `required_caps` always satisfies — every peer qualifies.
+///
+/// PF-7: pure helper exposed for callers that need to pre-filter peer
+/// lists outside of `route_to_capable_peer` (e.g. UI rendering "which
+/// peers can run this task" hints, RPC `peer assign` selection).
+pub fn peer_has_capabilities(peer: &PeerInfo, required_caps: &[String]) -> bool {
+    required_caps
+        .iter()
+        .all(|cap| peer.capabilities.iter().any(|p| p == cap))
+}
+
+// T-CORE-02: capability-query overlay wire types.
+//
+// A thin pub/sub style "who can do <caps>?" query computed locally from the
+// already-cached peer roster (no extra network I/O). The request travels over
+// the existing HTTP REST mesh at POST /rpc/capability-query, authed with the
+// same X-Cluster-Auth dual scheme as the other /rpc/* routes.
+
+/// serde default for `CapabilityQueryRequest::include_self`. When a client
+/// omits the field we default to true so a bare `{}` body asks "who (including
+/// me) can do nothing", which yields every peer plus self.
+fn default_true() -> bool {
+    true
+}
+
+/// Request body for POST /rpc/capability-query.
+///
+/// `required_caps` is the union of capability slugs a caller needs; an empty
+/// list matches every peer (set inclusion of nothing is always satisfied).
+/// `include_self` toggles whether the answering node evaluates and includes
+/// its own capabilities in the result. Both fields default via serde so a
+/// minimal `{}` body deserializes cleanly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityQueryRequest {
+    #[serde(default)]
+    pub required_caps: Vec<String>,
+    #[serde(default = "default_true")]
+    pub include_self: bool,
+}
+
+/// One matching node in a capability-query answer.
+///
+/// `self_node` is true only for the answering node's own entry (when
+/// `include_self` was set and self satisfied the query); false for every
+/// cached peer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapablePeerAnswer {
+    pub name: String,
+    pub url: String,
+    pub capabilities: Vec<String>,
+    pub online: bool,
+    #[serde(default)]
+    pub self_node: bool,
+}
+
+/// Response body for POST /rpc/capability-query. Echoes the resolved
+/// `required_caps`, the matching `answers`, and their `count` for convenience.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityQueryResponse {
+    pub required_caps: Vec<String>,
+    pub answers: Vec<CapablePeerAnswer>,
+    pub count: usize,
+}
+
+/// Capability-aware variant of `route_to_best_peer`.
+///
+/// Filters `peers` to those whose `capabilities` ⊇ `required_caps`,
+/// then picks the healthiest peer the same way `route_to_best_peer`
+/// does (min consecutive_failures among healthy peers). Returns
+/// `None` if no peer matches OR all matching peers are unhealthy.
+///
+/// Empty `required_caps` falls through to the same selection as
+/// `route_to_best_peer` (no filter applied).
+///
+/// PF-7 from doc 25 §7. Foundation for v0.6.0 V4 (Android worker_caps
+/// dispatch filter) + v0.7.0 C1/C2/C3 (cluster RPC capability-aware
+/// forwarding). The scheduler now selects by advertised capability
+/// instead of hard-coded `target_os` branching (which was already
+/// absent from mesh.rs, but this makes the routing intent explicit
+/// in the type signature).
+pub async fn route_to_capable_peer(
+    peers: &[PeerInfo],
+    message: &str,
+    required_caps: &[String],
+) -> Option<String> {
+    let best = peers
+        .iter()
+        .filter(|p| p.is_healthy(30))
+        .filter(|p| peer_has_capabilities(p, required_caps))
+        .min_by_key(|p| p.consecutive_failures)?;
+
+    let url = format!("{}/rpc/message", best.url.trim_end_matches('/'));
+    let body = serde_json::json!({ "message": message }).to_string();
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    let resp = match post_with_retry(&client, &url, body, None).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(url = %url, "route_to_capable_peer: post_with_retry failed: {}", e);
+            return None;
+        }
+    };
+    let data: serde_json::Value = match resp.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(url = %url, "route_to_capable_peer: json parse failed: {}", e);
+            return None;
+        }
+    };
     data["output"].as_str().map(|s| s.to_string())
 }
 
 // ── ClusterManager ──────────────────────────────────────────────────────────
 
+/// Owns the live cluster topology and drives all peer network operations.
+///
+/// Holds the mutable peer list behind an [`RwLock`] (shared cheaply via
+/// [`Arc`] — `ClusterManager` is `Clone`) plus a long-timeout HTTP client
+/// reused across pings, task assigns, and forwards. Construct one per daemon
+/// with [`ClusterManager::new`].
 #[derive(Clone)]
 pub struct ClusterManager {
+    /// Parsed `[cluster]` section from `agents.toml`.
     pub config: ClusterConfig,
+    /// Live peer list, shared across clones and updated by ping / heartbeat.
     peers: Arc<RwLock<Vec<PeerInfo>>>,
+    /// Shared HTTP client (180s ceiling so cross-mesh `/rpc/message` survives a
+    /// remote LLM turn — see [`ClusterManager::new`]).
     client: reqwest::Client,
+    /// Daemon start instant, reported as `uptime_secs` in `/rpc/ping` responses.
     start_time: Instant,
 }
 
@@ -631,6 +1183,8 @@ impl ClusterManager {
                 last_seen: None,
                 consecutive_failures: 0,
                 capabilities: vec![],
+                health: PeerHealth::default(),
+                tailscale_ip: None,
             })
             .collect();
         Self {
@@ -707,12 +1261,23 @@ impl ClusterManager {
     /// for the full 180s × N peers, which a CLI user reads as "frozen".
     pub async fn ping_peer(&self, url: &str) -> Result<PeerStatus, String> {
         const PING_DEADLINE: Duration = Duration::from_secs(5);
+        // A scheme-less or malformed URL otherwise reaches reqwest and surfaces
+        // as the opaque "builder error". Catch the common case up front with a
+        // message that says what a peer URL should look like.
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(crate::i18n::tr_owned(
+                format!("invalid peer URL '{url}' — expected http://host:port or https://host:port"),
+                format!("無效的節點 URL '{url}' — 需要 http://host:port 或 https://host:port"),
+            ));
+        }
         let ping_url = format!("{}/rpc/ping", url.trim_end_matches('/'));
         let body = String::new();
         let result = match tokio::time::timeout(
             PING_DEADLINE,
             post_with_retry(&self.client, &ping_url, body, None),
-        ).await {
+        )
+        .await
+        {
             Ok(r) => r,
             Err(_) => Err(format!("ping timeout after {:?}", PING_DEADLINE)),
         };
@@ -727,8 +1292,16 @@ impl ClusterManager {
                 let data: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
                 let capabilities = data["capabilities"]
                     .as_array()
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
                     .unwrap_or_default();
+                let tailscale_ip = data["tailscale_ip"]
+                    .as_str()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
                 let info = PeerInfo {
                     url: url.to_string(),
                     name: data["name"].as_str().unwrap_or(url).to_string(),
@@ -740,21 +1313,42 @@ impl ClusterManager {
                     last_seen: Some(Instant::now()),
                     consecutive_failures: 0,
                     capabilities,
+                    // Carried forward in the merge below — `record_probe_result`
+                    // decides whether this success flips Unhealthy → Healthy.
+                    health: PeerHealth::default(),
+                    tailscale_ip,
                 };
                 let status = PeerStatus::from(&info);
-                let mut peers = self.peers.write().await;
-                if let Some(p) = peers.iter_mut().find(|p| p.url == url) {
-                    *p = info;
+                {
+                    let mut peers = self.peers.write().await;
+                    if let Some(p) = peers.iter_mut().find(|p| p.url == url) {
+                        // Preserve the existing `health` slot so the transition
+                        // log emitted by `record_probe_result` below sees the
+                        // pre-success state.
+                        let prior_health = std::mem::replace(&mut p.health, PeerHealth::Healthy);
+                        *p = info;
+                        p.health = prior_health;
+                    }
                 }
+                // C4: drive PeerHealth transitions. No-op (just keeps state
+                // `Healthy`) when the `experimental-cluster-heartbeat` feature
+                // is off, so existing single-node clusters see zero behaviour
+                // change.
+                self.record_probe_result(url, true).await;
                 Ok(status)
             }
             Err(e) => {
                 // Record the failure without resetting last_seen.
-                let mut peers = self.peers.write().await;
-                if let Some(p) = peers.iter_mut().find(|p| p.url == url) {
-                    p.online = false;
-                    p.consecutive_failures = p.consecutive_failures.saturating_add(1);
+                {
+                    let mut peers = self.peers.write().await;
+                    if let Some(p) = peers.iter_mut().find(|p| p.url == url) {
+                        p.online = false;
+                        p.consecutive_failures = p.consecutive_failures.saturating_add(1);
+                    }
                 }
+                // C4: feed the failure into the health state machine. Gated
+                // internally on the feature flag — see `record_probe_result`.
+                self.record_probe_result(url, false).await;
                 Err(e)
             }
         }
@@ -762,7 +1356,10 @@ impl ClusterManager {
 
     /// Refresh all configured peers in parallel and return updated status list.
     pub async fn refresh_all(&self) -> Vec<PeerStatus> {
-        let futs: Vec<_> = self.config.peers.iter()
+        let futs: Vec<_> = self
+            .config
+            .peers
+            .iter()
             .map(|url| self.ping_peer(url))
             .collect();
         futures::future::join_all(futs).await;
@@ -771,12 +1368,239 @@ impl ClusterManager {
 
     /// Return all peers' current cached status (lightweight wire type).
     pub async fn status(&self) -> Vec<PeerStatus> {
-        self.peers.read().await.iter().map(PeerStatus::from).collect()
+        self.peers
+            .read()
+            .await
+            .iter()
+            .map(PeerStatus::from)
+            .collect()
     }
 
     /// Return the full PeerInfo records (with health-tracking fields).
     pub async fn peer_infos(&self) -> Vec<PeerInfo> {
         self.peers.read().await.clone()
+    }
+
+    /// T-CORE-02: answer a capability query from the locally-cached roster.
+    ///
+    /// Computes "which nodes can do `required_caps`?" with zero extra network
+    /// I/O: it reads the cached peer list via `peer_infos()` and filters with
+    /// `peer_has_capabilities`. An empty `required_caps` matches every peer
+    /// (set inclusion of nothing). When `include_self` is true the answering
+    /// node also evaluates its own advertised capabilities against the same
+    /// predicate and, on a match, appends itself with `self_node = true`.
+    pub async fn query_capability(
+        &self,
+        required_caps: &[String],
+        include_self: bool,
+    ) -> Vec<CapablePeerAnswer> {
+        // Read the cached roster only; no ping / refresh is issued here.
+        let peers = self.peer_infos().await;
+        let me = self.own_peer_status();
+        // Exclude any roster entry that is actually THIS node (matched by the
+        // advertised node name) so the answering node can never appear twice:
+        // once as a cached peer and once as the explicit self answer below
+        // (codex review: self de-dupe / self-loop guard). `include_self` then
+        // solely controls whether the self answer is appended.
+        let mut answers: Vec<CapablePeerAnswer> = peers
+            .iter()
+            .filter(|peer| peer.name != me.name)
+            .filter(|peer| peer_has_capabilities(peer, required_caps))
+            .map(|peer| CapablePeerAnswer {
+                name: peer.name.clone(),
+                url: peer.url.clone(),
+                capabilities: peer.capabilities.clone(),
+                online: peer.online,
+                self_node: false,
+            })
+            .collect();
+
+        if include_self {
+            // own_peer_status() carries this node's capabilities; the predicate
+            // operates on a PeerInfo, so build a minimal equivalent to reuse
+            // the exact same set-inclusion check as for peers.
+            let self_as_peer = PeerInfo {
+                url: me.url.clone(),
+                name: me.name.clone(),
+                version: me.version.clone(),
+                online: me.online,
+                active_tasks: me.active_tasks,
+                uptime_secs: me.uptime_secs,
+                last_seen_unix: me.last_seen,
+                last_seen: None,
+                consecutive_failures: 0,
+                capabilities: me.capabilities.clone(),
+                health: PeerHealth::default(),
+                tailscale_ip: None,
+            };
+            if peer_has_capabilities(&self_as_peer, required_caps) {
+                answers.push(CapablePeerAnswer {
+                    name: me.name,
+                    url: me.url,
+                    capabilities: me.capabilities,
+                    online: me.online,
+                    self_node: true,
+                });
+            }
+        }
+
+        answers
+    }
+
+    // ── C4: heartbeat + health state machine ────────────────────────────────
+
+    /// C4: resolve the effective probe interval from config, falling back
+    /// to `DEFAULT_HEARTBEAT_INTERVAL_SECS` when unset. Kept a method so
+    /// `spawn_heartbeat_task` callers don't have to mirror the default.
+    pub fn effective_heartbeat_interval(&self) -> Duration {
+        Duration::from_secs(
+            self.config
+                .heartbeat_interval_secs
+                .unwrap_or(DEFAULT_HEARTBEAT_INTERVAL_SECS),
+        )
+    }
+
+    /// C4: resolve the effective consecutive-failure threshold from config.
+    /// A peer flips Healthy → Unhealthy after this many failures in a row.
+    pub fn effective_heartbeat_failure_threshold(&self) -> u32 {
+        self.config
+            .heartbeat_failure_threshold
+            .unwrap_or(DEFAULT_HEARTBEAT_FAILURE_THRESHOLD)
+    }
+
+    /// C4: feed one probe outcome into the health state machine.
+    /// `success = true` resets failure counters and may flip Unhealthy →
+    /// Healthy (emits `tracing::info!`). `success = false` increments the
+    /// counter; once it reaches the configured threshold it flips Healthy →
+    /// Unhealthy (emits `tracing::warn!`).
+    ///
+    /// **Feature gate**: when the `experimental-cluster-heartbeat` feature
+    /// is OFF (the v0.6.0 default), this function is a no-op as far as
+    /// `health` is concerned — peers stay `Healthy` and
+    /// `select_best_peer_with_caps`' health filter degenerates to "all
+    /// peers are healthy", matching pre-C4 behaviour exactly. The function
+    /// still updates `consecutive_failures` because that field predates
+    /// C4 and is consumed by `route_to_best_peer`.
+    pub async fn record_probe_result(&self, url: &str, success: bool) {
+        let threshold = self.effective_heartbeat_failure_threshold();
+        let mut peers = self.peers.write().await;
+        let Some(peer) = peers.iter_mut().find(|p| p.url == url) else {
+            return;
+        };
+
+        if success {
+            // Always reset the counter on success — meaningful for
+            // route_to_best_peer's `min_by_key(consecutive_failures)`.
+            peer.consecutive_failures = 0;
+
+            #[cfg(feature = "experimental-cluster-heartbeat")]
+            {
+                if matches!(peer.health, PeerHealth::Unhealthy { .. }) {
+                    tracing::info!(
+                        target: "phantom::cluster::heartbeat",
+                        event = "peer_health_transition",
+                        peer_url = %peer.url,
+                        peer_name = %peer.name,
+                        from = "unhealthy",
+                        to = "healthy",
+                        "peer recovered — routing now prefers it again"
+                    );
+                    peer.health = PeerHealth::Healthy;
+                }
+            }
+        } else {
+            // Bump the failure counter regardless of feature gate (existing
+            // route_to_best_peer logic uses it as a tiebreaker).
+            peer.consecutive_failures = peer.consecutive_failures.saturating_add(1);
+
+            #[cfg(feature = "experimental-cluster-heartbeat")]
+            {
+                let new_count = peer.consecutive_failures;
+                match &mut peer.health {
+                    PeerHealth::Healthy => {
+                        if new_count >= threshold {
+                            tracing::warn!(
+                                target: "phantom::cluster::heartbeat",
+                                event = "peer_health_transition",
+                                peer_url = %peer.url,
+                                peer_name = %peer.name,
+                                from = "healthy",
+                                to = "unhealthy",
+                                failure_count = new_count,
+                                threshold = threshold,
+                                "peer crossed failure threshold — routing will deprioritise"
+                            );
+                            peer.health = PeerHealth::Unhealthy {
+                                since: Instant::now(),
+                                failure_count: new_count,
+                            };
+                        }
+                    }
+                    PeerHealth::Unhealthy { failure_count, .. } => {
+                        *failure_count = new_count;
+                    }
+                }
+            }
+            // Suppress the unused-variable warning when the feature is off.
+            #[cfg(not(feature = "experimental-cluster-heartbeat"))]
+            {
+                let _ = threshold;
+            }
+        }
+    }
+
+    /// C4: spawn the background heartbeat task. Returns a `JoinHandle` so
+    /// the caller can keep the task alive for the daemon's lifetime (or
+    /// drop the handle, which detaches the task — tokio still runs it).
+    ///
+    /// Returns `None` when:
+    ///   * the `experimental-cluster-heartbeat` feature is OFF, OR
+    ///   * the cluster has zero configured peers (single-node deployment).
+    ///
+    /// The pre-C4 background loop in `bin/phantom.rs` already invokes
+    /// `refresh_all` on a 30s tick for coordinator-driven topology refresh;
+    /// this task is the C4-specific *health* loop and respects the
+    /// configurable `heartbeat_interval_secs`. Both loops are safe to run
+    /// concurrently — `refresh_all` ultimately funnels into `ping_peer`
+    /// which feeds `record_probe_result` exactly once per outcome.
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    pub fn spawn_heartbeat_task(
+        self: &std::sync::Arc<Self>,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        if self.config.peers.is_empty() {
+            tracing::debug!(
+                target: "phantom::cluster::heartbeat",
+                "skipping heartbeat task: cluster has zero peers"
+            );
+            return None;
+        }
+        let manager = std::sync::Arc::clone(self);
+        let interval_dur = self.effective_heartbeat_interval();
+        let threshold = self.effective_heartbeat_failure_threshold();
+        tracing::info!(
+            target: "phantom::cluster::heartbeat",
+            event = "heartbeat_started",
+            interval_secs = interval_dur.as_secs(),
+            failure_threshold = threshold,
+            peer_count = self.config.peers.len(),
+            "C4 heartbeat task spawned"
+        );
+        Some(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval_dur);
+            // Skip the immediate first tick so startup isn't bombarded —
+            // give the peers a couple of seconds to come online with us.
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            ticker.tick().await; // consume the immediate tick
+            loop {
+                ticker.tick().await;
+                // refresh_all → ping_peer → record_probe_result (success/fail).
+                // We deliberately ignore the returned Vec<PeerStatus>; the
+                // diagnostic info is already in the per-peer tracing fields
+                // emitted by record_probe_result on a state transition.
+                // silent-ok: returns Vec (not Result), per-peer telemetry already in record_probe_result.
+                let _ = manager.refresh_all().await;
+            }
+        }))
     }
 
     /// HMAC-SHA256 auth token: HMAC-SHA256(key=secret, msg=body) encoded as lowercase hex.
@@ -788,7 +1612,11 @@ impl ClusterManager {
     /// Uses real HMAC-SHA256 so it matches `openssl dgst -sha256 -hmac "$SECRET"`.
     /// Panics if `cluster_secret` is not configured — callers must ensure a secret
     /// is set before generating tokens.
-    fn make_auth_token_bytes(&self, body: &[u8]) -> String {
+    ///
+    /// `pub(crate)` (C1): the forwarder in `serve::rpc_task_assign` needs
+    /// to re-sign the body before posting to the next hop. Kept module-private
+    /// outside the crate so external callers cannot mint tokens.
+    pub(crate) fn make_auth_token_bytes(&self, body: &[u8]) -> String {
         use hmac::{Hmac, Mac};
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
@@ -798,8 +1626,8 @@ impl ClusterManager {
             .as_deref()
             .filter(|s| !s.is_empty())
             .expect("cluster_secret must be set before generating auth tokens");
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .expect("HMAC can take key of any size");
+        let mut mac =
+            HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
         mac.update(body);
         hex::encode(mac.finalize().into_bytes())
     }
@@ -811,11 +1639,76 @@ impl ClusterManager {
     pub fn verify_auth(&self, token: &str, body: impl AsRef<[u8]>) -> bool {
         use subtle::ConstantTimeEq;
         // Reject all requests when no secret is configured.
-        if self.config.cluster_secret.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+        if self
+            .config
+            .cluster_secret
+            .as_deref()
+            .map(|s| s.is_empty())
+            .unwrap_or(true)
+        {
             return false;
         }
         let expected = self.make_auth_token_bytes(body.as_ref());
         bool::from(expected.as_bytes().ct_eq(token.as_bytes()))
+    }
+
+    /// Dual-accept inbound cluster auth for the SPEC-10 migration window.
+    ///
+    /// During the rollout a node must accept BOTH auth schemes so the live
+    /// cluster never returns 401 mid-upgrade (the two are NOT wire-compatible):
+    ///
+    /// * **legacy** — `HMAC-SHA256(secret, raw_body)`, carried in the
+    ///   `X-Cluster-Auth` header (this is [`verify_auth`](Self::verify_auth)).
+    /// * **SPEC-10** — `HMAC-SHA256(secret, canonical)` where `canonical` is the
+    ///   5-part string from [`rpc_wire::build_canonical_string`], carried in the
+    ///   `X-Cluster-Auth` header (verified via [`rpc_wire::verify_hmac`]).
+    ///
+    /// Returns `true` if EITHER scheme verifies. Outbound signing stays legacy
+    /// until a coordinated cluster-wide cutover (see T-CORE-01 Stage 3); this
+    /// method only widens what we *accept*, so it is safe to ship unilaterally.
+    ///
+    /// 中文: SPEC-10 遷移期的雙重接受驗證 — 同時收舊版（對 body 簽）與新版
+    /// （對 canonical 標準化字串簽）兩種 HMAC，任一通過即放行，避免升級期間
+    /// 叢集互相回 401。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn verify_auth_dual(
+        &self,
+        legacy_token: Option<&str>,
+        canonical_sig: Option<&str>,
+        method: &str,
+        path: &str,
+        sorted_query: &str,
+        body: &[u8],
+        traceparent: Option<&str>,
+    ) -> bool {
+        // Legacy arm: HMAC over the raw body (X-Cluster-Auth). Reuses the
+        // existing constant-time check; also returns false on empty secret.
+        if let Some(tok) = legacy_token {
+            if self.verify_auth(tok, body) {
+                return true;
+            }
+        }
+        // SPEC-10 arm: HMAC over the canonical string (X-Cluster-Auth).
+        if let Some(sig) = canonical_sig {
+            if let Some(secret) = self
+                .config
+                .cluster_secret
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                let canonical = crate::rpc_wire::build_canonical_string(
+                    method,
+                    path,
+                    sorted_query,
+                    body,
+                    traceparent,
+                );
+                if crate::rpc_wire::verify_hmac(secret.as_bytes(), &canonical, sig).is_ok() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Forward a task to the least-loaded online peer and return its output.
@@ -846,7 +1739,9 @@ impl ClusterManager {
         })
         .to_string();
 
-        let url = format!("{}/rpc/message", best.url.trim_end_matches('/'));
+        // SPEC-10 §6.4: prefer the Tailscale stable address when known.
+        // Falls back to peer.url for LAN-only deploys (tailscale_ip = None).
+        let url = format!("{}/rpc/message", peer_dispatch_base_url(best));
         let resp = post_with_retry(&self.client, &url, body, None)
             .await
             .map_err(|source| DispatchError::PeerUnreachable {
@@ -862,9 +1757,10 @@ impl ClusterManager {
             return Err(DispatchError::HMACMismatch { url: url.clone() });
         }
 
-        let data: DispatchResponse = resp.json().await.map_err(|e| {
-            DispatchError::Other(format!("decode response from {url}: {e}"))
-        })?;
+        let data: DispatchResponse = resp
+            .json()
+            .await
+            .map_err(|e| DispatchError::Other(format!("decode response from {url}: {e}")))?;
 
         if let Some(err_msg) = data.error {
             // Classify by message content. Server doesn't yet emit machine-
@@ -901,7 +1797,8 @@ impl ClusterManager {
             .filter(|p| p.online)
             .min_by_key(|p| p.active_tasks)
             .ok_or(DispatchError::NoPeersAvailable)?;
-        let url = format!("{}/rpc/task/assign", best.url.trim_end_matches('/'));
+        // SPEC-10 §6.4: prefer Tailscale stable address when known.
+        let url = format!("{}/rpc/task/assign", peer_dispatch_base_url(best));
         self.post_task_assign(&url, agent, prompt).await
     }
 
@@ -959,12 +1856,15 @@ impl ClusterManager {
             })?;
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(DispatchError::HMACMismatch { url: url.to_string() });
+            return Err(DispatchError::HMACMismatch {
+                url: url.to_string(),
+            });
         }
 
-        let data: DispatchResponse = resp.json().await.map_err(|e| {
-            DispatchError::Other(format!("decode response from {url}: {e}"))
-        })?;
+        let data: DispatchResponse = resp
+            .json()
+            .await
+            .map_err(|e| DispatchError::Other(format!("decode response from {url}: {e}")))?;
 
         if let Some(err_msg) = data.error {
             if let Some(missing) = parse_missing_agent(&err_msg) {
@@ -985,11 +1885,141 @@ impl ClusterManager {
         })
     }
 
+    /// C1: dispatch a `TaskAssignRequest` (with `required_caps`,
+    /// `forward_chain`, `idempotency_key`) to a specific peer URL. Used by:
+    ///   * `phantom peer assign --required-caps ...` (C2 CLI) — first hop.
+    ///   * `forward_task_to_capable_peer` (C3 server) — subsequent hops
+    ///     after appending `self` to the chain.
+    ///
+    /// The wire body is the serialized `TaskAssignRequest` so the new
+    /// fields ride through unchanged. HMAC is computed over the exact
+    /// canonical bytes (see spec §6).
+    pub async fn assign_task_to_peer_full(
+        &self,
+        peer_url: &str,
+        req: &TaskAssignRequest,
+    ) -> Result<String, DispatchError> {
+        let url = format!("{}/rpc/task/assign", peer_url.trim_end_matches('/'));
+        let canonical = serde_json::to_vec(req)
+            .map_err(|e| DispatchError::Other(format!("encode TaskAssignRequest: {e}")))?;
+        let body_string = String::from_utf8(canonical.clone())
+            .map_err(|e| DispatchError::Other(format!("canonical body not utf8: {e}")))?;
+        let auth_token = if self
+            .config
+            .cluster_secret
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
+            Some(self.make_auth_token_bytes(&canonical))
+        } else {
+            None
+        };
+        let resp = post_with_retry(&self.client, &url, body_string, auth_token.as_deref())
+            .await
+            .map_err(|source| DispatchError::PeerUnreachable {
+                url: url.clone(),
+                source,
+            })?;
+
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(DispatchError::HMACMismatch { url: url.clone() });
+        }
+
+        // Capture body for richer error messages on non-2xx (e.g. cycle
+        // rejection from a downstream forwarder).
+        let raw = resp.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(DispatchError::ForwardRejected {
+                peer: url.clone(),
+                status: status.as_u16(),
+                body: raw,
+            });
+        }
+
+        let data: DispatchResponse = serde_json::from_str(&raw).map_err(|e| {
+            DispatchError::Other(format!("decode response from {url}: {e} (body={raw})"))
+        })?;
+
+        if let Some(err_msg) = data.error {
+            if let Some(missing) = parse_missing_agent(&err_msg) {
+                return Err(DispatchError::AgentMissing {
+                    url: url.clone(),
+                    agent: missing,
+                });
+            }
+            return Err(DispatchError::PeerRejected {
+                url: url.clone(),
+                code: data.error_code,
+                message: err_msg,
+            });
+        }
+
+        data.job_id.ok_or_else(|| {
+            DispatchError::Other(format!("peer {url} returned neither job_id nor error"))
+        })
+    }
+
+    /// C1: forward an inbound `TaskAssignRequest` to a peer that satisfies
+    /// `required_caps`. Called from `serve::rpc_task_assign` when the local
+    /// capability gate returns `CapsDecision::ForwardTo`. The receiver
+    /// appends its own `node_name` to the chain before re-signing.
+    ///
+    /// Cycle guard is done at the call site (in serve.rs) on the **inbound**
+    /// chain length so the receiver short-circuits before doing any work.
+    /// This function panics in debug builds if called with `forward_chain`
+    /// at or above `FORWARD_CHAIN_LIMIT` to catch caller bugs.
+    pub async fn forward_task_to_capable_peer(
+        &self,
+        original: &TaskAssignRequest,
+        target: &PeerInfo,
+        my_node_name: &str,
+    ) -> Result<String, DispatchError> {
+        let mut forwarded = original.clone();
+        forwarded.forward_chain.push(my_node_name.to_string());
+        // ForwardDecision telemetry — paired with the inbound-side warn
+        // at the `capability_mismatch` site so log aggregation sees the
+        // forward path end-to-end.
+        tracing::info!(
+            target: "phantom::dispatch::forward",
+            event = "forward_decision",
+            original_node = %forwarded.forward_chain.first().cloned().unwrap_or_else(|| my_node_name.to_string()),
+            current_node = %my_node_name,
+            target_node = %target.name,
+            target_url = %target.url,
+            caps_required = ?original.required_caps,
+            chain_length = forwarded.forward_chain.len(),
+            "forwarding task — local caps insufficient, downstream peer satisfies"
+        );
+        self.assign_task_to_peer_full(&target.url, &forwarded).await
+    }
+
     /// Poll a job's result from the given peer.  Returns `(status, output)`.
-    pub async fn poll_task(&self, peer_url: &str, job_id: &str) -> Option<(String, Option<String>)> {
-        let url = format!("{}/rpc/task/status/{}", peer_url.trim_end_matches('/'), job_id);
-        let resp = self.client.get(&url).send().await.ok()?;
-        let data: serde_json::Value = resp.json().await.ok()?;
+    pub async fn poll_task(
+        &self,
+        peer_url: &str,
+        job_id: &str,
+    ) -> Option<(String, Option<String>)> {
+        let url = format!(
+            "{}/rpc/task/status/{}",
+            peer_url.trim_end_matches('/'),
+            job_id
+        );
+        let resp = match self.client.get(&url).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(url = %url, job_id = job_id, "poll_task: GET failed: {}", e);
+                return None;
+            }
+        };
+        let data: serde_json::Value = match resp.json().await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!(url = %url, job_id = job_id, "poll_task: json parse failed: {}", e);
+                return None;
+            }
+        };
         let status = data["status"].as_str()?.to_string();
         let output = data["output"].as_str().map(|s| s.to_string());
         Some((status, output))
@@ -1010,6 +2040,8 @@ impl ClusterManager {
                 last_seen: None,
                 consecutive_failures: 0,
                 capabilities: vec![],
+                health: PeerHealth::default(),
+                tailscale_ip: None,
             });
         }
     }
@@ -1030,11 +2062,18 @@ impl ClusterManager {
             Some(c) => c.clone(),
             None => return Ok(()),
         };
-        let secret_hash = self.config.cluster_secret.as_deref()
+        let secret_hash = self
+            .config
+            .cluster_secret
+            .as_deref()
             .map(Self::secret_hash)
             .unwrap_or_default();
         let reg = CoordinatorRegistration {
-            name: self.config.node_name.clone().unwrap_or_else(|| "phantom".into()),
+            name: self
+                .config
+                .node_name
+                .clone()
+                .unwrap_or_else(|| "phantom".into()),
             url: self_url.to_string(),
             capabilities: self.config.capabilities.clone(),
             secret_hash,
@@ -1057,10 +2096,17 @@ impl ClusterManager {
             Some(c) => c.clone(),
             None => return 0,
         };
-        let secret_hash = self.config.cluster_secret.as_deref()
+        let secret_hash = self
+            .config
+            .cluster_secret
+            .as_deref()
             .map(Self::secret_hash)
             .unwrap_or_default();
-        let url = format!("{}/peers?secret_hash={}", coord.trim_end_matches('/'), secret_hash);
+        let url = format!(
+            "{}/peers?secret_hash={}",
+            coord.trim_end_matches('/'),
+            secret_hash
+        );
         let resp = match self.client.get(&url).send().await {
             Ok(r) => r,
             Err(_) => return 0,
@@ -1084,7 +2130,9 @@ impl ClusterManager {
                         }
                     }
                 }
-                if self.peers.read().await.len() > before { added += 1; }
+                if self.peers.read().await.len() > before {
+                    added += 1;
+                }
             }
         }
         added
@@ -1100,21 +2148,430 @@ impl Default for ClusterManager {
 // ── Task assign request/response ───────────────────────────────────────────
 
 /// Inbound payload for POST /rpc/task/assign.
-#[derive(Debug, Deserialize)]
+///
+/// `Serialize` is derived so the C1 forwarder can re-emit the body verbatim
+/// (minus the field-order-stable struct shape) and HMAC-sign it for the
+/// next hop — see `ClusterManager::forward_task_to_capable_peer`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TaskAssignRequest {
+    /// Name of the agent (a `[agent.*]` key) to run on the worker. Defaults to
+    /// `"master"` when the client omits it.
     #[serde(default = "default_agent")]
     pub agent: String,
+    /// The prompt / instruction text to hand to the chosen agent.
     pub prompt: String,
+    /// Capability tags the task needs from the worker. Server-side
+    /// enforcement (M1 defense-in-depth, track T5): if non-empty, the
+    /// worker rejects in strict mode and warns in soft mode when any
+    /// of these is missing from the worker's local `worker_caps`.
+    /// Old clients omitting this field land here as `vec![]` =
+    /// no restriction.
+    #[serde(default)]
+    pub required_caps: Vec<String>,
+    /// C1: node_names this request has already transited. Empty on the
+    /// first hop. Receiving node appends `self.config.node_name` before
+    /// forwarding. Cycle guard rejects when `len() >= FORWARD_CHAIN_LIMIT`
+    /// or when `self` is already in the chain.
+    /// Old clients omitting this field land here as `vec![]` = first hop.
+    #[serde(default)]
+    pub forward_chain: Vec<String>,
+    /// C1: caller-supplied stable key for at-most-once semantics. The
+    /// forwarder preserves this byte-for-byte so the next-hop receiver
+    /// can dedupe (planned for v0.7.0). Old clients omitting this field
+    /// land here as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 fn default_agent() -> String {
     "master".into()
 }
 
+// ── Server-side dispatch capability enforcement (T5) ──────────────────────
+//
+// Defense-in-depth on the worker side of `/rpc/task/assign`. The M1
+// client-side dispatch filter (`select_best_peer_with_caps`) already
+// avoids sending tasks to workers that can't handle them, but a buggy
+// or malicious peer holding the cluster_secret could still POST a task
+// with `required_caps` this worker doesn't advertise. These types let
+// the worker recognise that and (optionally) refuse.
+
+/// How aggressively a worker enforces `required_caps` on inbound tasks.
+///
+/// `Soft` (default) preserves pre-T5 behaviour: the mismatch is
+/// `tracing::warn!`'d but the task still runs — so old clusters keep
+/// working unchanged.
+///
+/// `Strict` returns `409 Conflict` with a structured error body. Opt
+/// in via `[cluster] enforce_caps = "strict"` in `agents.toml` or via
+/// `PHANTOM_ENFORCE_REQUIRED_CAPS=strict` (env wins, see
+/// `ClusterConfig::effective_enforce_mode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnforceMode {
+    /// Log a `tracing::warn!` on a capability mismatch but still run the task.
+    #[default]
+    Soft,
+    /// Reject a capability mismatch with `409 Conflict` and a structured body.
+    Strict,
+}
+
+/// Outcome of the capability check. `Allow` = run the task; `LogAndAllow`
+/// = run it but emit a warning; `Reject` = bounce with 409 and surface
+/// `missing` to the caller; `ForwardTo` (C1) = a peer in `peers.json`
+/// satisfies the caps — forward the task there. The fourth arm is only
+/// returned by `enforce_required_caps_with_forwarding` and only when
+/// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1`.
+///
+/// `PartialEq`/`Eq` are intentionally NOT derived: `ForwardTo` carries a
+/// `PeerInfo` which would need its own equality impl that strips
+/// `last_seen: Instant` (not comparable across snapshots). Tests use
+/// `matches!` + field destructure instead.
+#[derive(Debug, Clone)]
+pub enum CapsDecision {
+    /// Worker satisfies all required caps — run the task.
+    Allow,
+    /// Soft mode: caps are `missing` but run anyway after a warning.
+    LogAndAllow {
+        /// Required caps this worker does not advertise.
+        missing: Vec<String>,
+    },
+    /// Strict mode: bounce with 409 and surface `missing` to the caller.
+    Reject {
+        /// Required caps this worker does not advertise.
+        missing: Vec<String>,
+    },
+    /// C1: missing locally, but a peer satisfies. Gated by
+    /// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1` (default OFF) so existing
+    /// single-node deployments see zero behaviour change.
+    ForwardTo {
+        peer: PeerInfo,
+        missing: Vec<String>,
+    },
+}
+
+/// C1: maximum forward hops permitted before the receiver short-circuits
+/// with `cycle_detected`. Limit of 2 means the worst-case fan-out is 3
+/// nodes total (origin + 2 forwarders). Spec §5 deliberately caps small
+/// to limit blast radius of any forwarding bug; can be raised later once
+/// real telemetry validates the path.
+pub const FORWARD_CHAIN_LIMIT: usize = 2;
+
+/// Read `PHANTOM_FORWARD_ON_CAPS_MISMATCH` at request time (not process
+/// start) so integration tests can toggle the gate per-test by setting and
+/// unsetting the env var around an `app.oneshot` call.
+pub fn forward_on_caps_mismatch_enabled() -> bool {
+    std::env::var("PHANTOM_FORWARD_ON_CAPS_MISMATCH")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Pure decision function: what to do with `required_caps` vs the
+/// worker's advertised `worker_caps`, under the given mode.
+///
+/// Rules (matches the M1 client-side filter so client/server agree):
+/// 1. `local.is_empty()` ⇒ full worker, accept anything → `Allow`.
+/// 2. `required.is_empty()` ⇒ no restriction → `Allow`.
+/// 3. `required ⊆ local` ⇒ `Allow`.
+/// 4. otherwise compute `missing = required \ local` (order-preserving,
+///    deduplicated) and emit `Reject` (strict) or `LogAndAllow` (soft).
+pub fn enforce_required_caps(
+    local: &[String],
+    required: &[String],
+    mode: EnforceMode,
+) -> CapsDecision {
+    // Rule 1: full worker
+    if local.is_empty() {
+        return CapsDecision::Allow;
+    }
+    // Rule 2: no restriction in request
+    if required.is_empty() {
+        return CapsDecision::Allow;
+    }
+    // Compute missing = required \ local, preserving first-seen order
+    // and deduplicating so callers don't see "shell, shell" in errors.
+    let mut missing: Vec<String> = Vec::new();
+    for cap in required {
+        if !local.iter().any(|l| l == cap) && !missing.iter().any(|m| m == cap) {
+            missing.push(cap.clone());
+        }
+    }
+    if missing.is_empty() {
+        CapsDecision::Allow
+    } else {
+        match mode {
+            EnforceMode::Strict => CapsDecision::Reject { missing },
+            EnforceMode::Soft => CapsDecision::LogAndAllow { missing },
+        }
+    }
+}
+
+/// C1: caps-aware sibling of `enforce_required_caps`. When the env gate
+/// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1` is set AND a peer in `peers` satisfies
+/// the missing caps, returns `CapsDecision::ForwardTo { peer, missing }`
+/// instead of the usual `Reject`/`LogAndAllow`. Otherwise delegates verbatim
+/// to `enforce_required_caps` so soft-mode/strict-mode/full-worker behaviour
+/// is unchanged when the gate is off — which is the default.
+///
+/// Kept as a sibling rather than replacing `enforce_required_caps` because
+/// the existing pure function is used by client-side dispatch filters and
+/// unit tests that should not need to thread a peer list through.
+pub fn enforce_required_caps_with_forwarding(
+    local: &[String],
+    required: &[String],
+    mode: EnforceMode,
+    peers: &[PeerInfo],
+) -> CapsDecision {
+    // Fast path: behaviour unchanged from `enforce_required_caps` when
+    // local satisfies (Allow) or required is empty (Allow). Only mismatch
+    // cases consider forwarding.
+    let base = enforce_required_caps(local, required, mode);
+    match base {
+        CapsDecision::Allow => CapsDecision::Allow,
+        // Forwarding only kicks in when the env gate is set AND a peer can
+        // satisfy. Otherwise we keep the original decision (Reject/LogAndAllow)
+        // so misconfigured operators are not silently routed around.
+        CapsDecision::Reject { ref missing } | CapsDecision::LogAndAllow { ref missing } => {
+            if !forward_on_caps_mismatch_enabled() {
+                return base;
+            }
+            match select_best_peer_with_caps(required, peers) {
+                Some(peer) => CapsDecision::ForwardTo {
+                    peer,
+                    missing: missing.clone(),
+                },
+                None => base,
+            }
+        }
+        CapsDecision::ForwardTo { .. } => base,
+    }
+}
+
+/// C1: pick the most-recently-pinged online peer whose `capabilities`
+/// superset of `required`. Returns `None` when no peer satisfies — the
+/// caller distinguishes between "no peers at all" (`NoPeersAvailable`) and
+/// "online peers exist, none satisfy" (`NoPeerSatisfiesCaps`) via the
+/// error taxonomy.
+///
+/// Selection rule (in priority order):
+///   1. `online == true`.
+///   2. `required ⊆ capabilities` (or `capabilities.is_empty()` = full worker).
+///   3. Most recent `last_seen_unix` (we cannot rely on `Instant`
+///      `last_seen` because it is `#[serde(skip)]` and reloads as `None`).
+///   4. Ties broken by lowest `active_tasks`.
+///
+/// Note on `capabilities` vs `worker_caps` (spec §14 Q1): `PeerInfo` only
+/// persists `capabilities` (general node-capability tags from each peer's
+/// agents.toml). The richer `worker_caps` sandbox subset lives only on
+/// `PeerStatus` returned by `/rpc/ping` and is not cached on disk. For V1
+/// we treat `capabilities` as the routing key — see Q1 resolution in the
+/// PR description.
+pub fn select_best_peer_with_caps(required: &[String], peers: &[PeerInfo]) -> Option<PeerInfo> {
+    // C4: per-PeerHealth tier preference. Try Healthy peers first, then
+    // fall through to Unhealthy as a last-resort fallback (better than
+    // bouncing the task with NoCapablePeers when the only matches happen
+    // to be marked Unhealthy by the heartbeat task).
+    //
+    // This filter is data-only: when the `experimental-cluster-heartbeat`
+    // feature is OFF, `record_probe_result` never flips peers to Unhealthy,
+    // so every match lands in the Healthy tier and the Unhealthy-fallback
+    // pass is unreachable — preserving exact pre-C4 selection behaviour.
+    let cap_match = |p: &&PeerInfo| -> bool {
+        p.capabilities.is_empty()
+            || required
+                .iter()
+                .all(|c| p.capabilities.iter().any(|h| h == c))
+    };
+    let pick = |only_healthy: bool| -> Option<PeerInfo> {
+        peers
+            .iter()
+            .filter(|p| p.online)
+            .filter(|p| {
+                if only_healthy {
+                    p.health.is_healthy()
+                } else {
+                    true
+                }
+            })
+            .filter(cap_match)
+            .max_by(|a, b| {
+                a.last_seen_unix
+                    .cmp(&b.last_seen_unix)
+                    .then_with(|| b.active_tasks.cmp(&a.active_tasks))
+            })
+            .cloned()
+    };
+    // Tier 1: healthy peers only.
+    if let Some(p) = pick(true) {
+        return Some(p);
+    }
+    // Tier 2: include Unhealthy peers. `tracing::debug!` so operators can
+    // see fallback in logs without polluting normal flows.
+    let fallback = pick(false);
+    if let Some(ref p) = fallback {
+        if !p.health.is_healthy() {
+            tracing::debug!(
+                target: "phantom::cluster::heartbeat",
+                event = "peer_fallback_unhealthy",
+                peer_url = %p.url,
+                peer_name = %p.name,
+                "no healthy peer satisfied required_caps; falling back to unhealthy peer"
+            );
+        }
+    }
+    fallback
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn peer_with_caps(name: &str, caps: &[&str]) -> PeerInfo {
+        PeerInfo {
+            url: format!("http://{name}:7878"),
+            name: name.into(),
+            version: "0.6.0".into(),
+            online: true,
+            active_tasks: 0,
+            uptime_secs: 60,
+            last_seen_unix: 1_700_000_000,
+            last_seen: None,
+            consecutive_failures: 0,
+            capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            health: PeerHealth::default(),
+            tailscale_ip: None,
+        }
+    }
+
+    // ── PF-7: peer_has_capabilities ────────────────────────────────────────
+
+    #[test]
+    fn peer_has_capabilities_empty_required_always_matches() {
+        let p = peer_with_caps("node-a", &["shell", "browser"]);
+        assert!(
+            peer_has_capabilities(&p, &[]),
+            "empty required_caps must match every peer"
+        );
+    }
+
+    #[test]
+    fn peer_has_capabilities_single_required_matches_when_present() {
+        let p = peer_with_caps("node-a", &["shell", "browser", "gpu_compute:cuda"]);
+        assert!(peer_has_capabilities(&p, &["browser".into()]));
+        assert!(peer_has_capabilities(&p, &["gpu_compute:cuda".into()]));
+    }
+
+    #[test]
+    fn peer_has_capabilities_single_required_misses_when_absent() {
+        let p = peer_with_caps("node-a", &["shell", "browser"]);
+        assert!(!peer_has_capabilities(&p, &["camera".into()]));
+        assert!(!peer_has_capabilities(&p, &["gpu_compute:metal".into()]));
+    }
+
+    #[test]
+    fn peer_has_capabilities_multi_required_is_set_inclusion() {
+        let p = peer_with_caps("m1", &["shell", "gpu_compute:metal", "local_llm:mlx"]);
+        // All required present → match
+        assert!(peer_has_capabilities(
+            &p,
+            &["shell".into(), "gpu_compute:metal".into()]
+        ));
+        // One missing → miss
+        assert!(!peer_has_capabilities(
+            &p,
+            &["shell".into(), "camera".into()]
+        ));
+    }
+
+    #[test]
+    fn peer_has_capabilities_peer_with_no_caps_matches_only_empty() {
+        let p = peer_with_caps("legacy", &[]);
+        assert!(peer_has_capabilities(&p, &[]), "empty/empty matches");
+        assert!(
+            !peer_has_capabilities(&p, &["shell".into()]),
+            "empty peer caps can't satisfy any non-empty requirement"
+        );
+    }
+
+    // ── PF-7: capability-aware filtering selects correct peer ──────────────
+
+    #[test]
+    fn cap_filter_picks_only_capable_peers() {
+        // Simulate the inline filter used by route_to_capable_peer.
+        let peers = vec![
+            peer_with_caps("node-a", &["shell", "browser"]),
+            peer_with_caps("m1", &["shell", "gpu_compute:metal", "local_llm:mlx"]),
+            peer_with_caps("node-b", &["shell", "browser", "camera"]),
+        ];
+        let required = vec!["camera".to_string()];
+        let matches: Vec<&str> = peers
+            .iter()
+            .filter(|p| peer_has_capabilities(p, &required))
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(matches, vec!["node-b"], "only node-b has camera");
+
+        let required = vec!["shell".to_string()];
+        let matches: Vec<&str> = peers
+            .iter()
+            .filter(|p| peer_has_capabilities(p, &required))
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(matches, vec!["node-a", "m1", "node-b"]);
+    }
+
+    /// MAC P0 — when a request requires the `local_llm:mlx` capability,
+    /// the dispatcher's peer filter must surface only peers that advertise
+    /// it. This guards the production routing path that sends MLX-bound
+    /// inference to Apple Silicon peers and never to e.g. a Win/Linux box
+    /// where mlx_lm.server cannot run.
+    #[test]
+    fn dispatcher_picks_mlx_when_cap_matches() {
+        let peers = vec![
+            peer_with_caps("node-a", &["shell", "browser"]), // Win, no MLX
+            peer_with_caps("m1", &["shell", "gpu_compute:metal", "local_llm:mlx"]),
+            peer_with_caps("node-b", &["shell", "browser", "camera"]), // Win, no MLX
+            peer_with_caps("yoyo", &["shell"]),                      // Linux, no MLX
+        ];
+        let required = vec!["local_llm:mlx".to_string()];
+
+        let picked: Vec<&str> = peers
+            .iter()
+            .filter(|p| peer_has_capabilities(p, &required))
+            .map(|p| p.name.as_str())
+            .collect();
+
+        assert_eq!(
+            picked,
+            vec!["m1"],
+            "only m1 advertises local_llm:mlx; dispatcher must NOT route \
+             MLX inference to non-Apple-Silicon peers"
+        );
+
+        // Inverse: a peer that has `local_llm:mlx` plus other caps must
+        // still match. Defends against an over-strict equality match.
+        let required = vec!["local_llm:mlx".to_string()];
+        let m1_only = peer_with_caps("m1", &["local_llm:mlx", "gpu_compute:metal", "shell"]);
+        assert!(
+            peer_has_capabilities(&m1_only, &required),
+            "peer with caps superset of the requirement must still match"
+        );
+
+        // Multi-cap request: both `local_llm:mlx` AND `gpu_compute:metal`
+        // — m1 has both, others have neither.
+        let required = vec!["local_llm:mlx".to_string(), "gpu_compute:metal".to_string()];
+        let picked: Vec<&str> = peers
+            .iter()
+            .filter(|p| peer_has_capabilities(p, &required))
+            .map(|p| p.name.as_str())
+            .collect();
+        assert_eq!(
+            picked,
+            vec!["m1"],
+            "combined-cap requirement still picks the one peer that has both"
+        );
+    }
 
     #[test]
     fn dispatch_response_missing_agent_classifies_correctly() {
@@ -1150,7 +2607,10 @@ mod tests {
             "error_code": "agent_missing",
         });
         let parsed: DispatchResponse = serde_json::from_value(body).expect("parse");
-        assert!(parsed.job_id.is_none(), "error envelope must not contain job_id");
+        assert!(
+            parsed.job_id.is_none(),
+            "error envelope must not contain job_id"
+        );
         let err_msg = parsed.error.expect("has error");
         assert_eq!(parse_missing_agent(&err_msg).as_deref(), Some("reviewer"));
         assert_eq!(parsed.error_code.as_deref(), Some("agent_missing"));
@@ -1230,5 +2690,983 @@ mod tests {
             }
         });
         assert!(extract_tailscale_peer_ips(&status).is_empty());
+    }
+
+    #[test]
+    fn task_assign_request_parses_required_caps() {
+        let body = json!({
+            "agent": "master",
+            "prompt": "hello",
+            "required_caps": ["file_in_container", "web"],
+        });
+        let req: TaskAssignRequest = serde_json::from_value(body).expect("parse");
+        assert_eq!(req.agent, "master");
+        assert_eq!(req.prompt, "hello");
+        assert_eq!(req.required_caps, vec!["file_in_container", "web"]);
+    }
+
+    #[test]
+    fn task_assign_request_required_caps_defaults_to_empty() {
+        // Backwards-compat: old clients that omit required_caps must
+        // still deserialize, and required_caps must default to [].
+        let body = json!({ "prompt": "hi" });
+        let req: TaskAssignRequest = serde_json::from_value(body).expect("parse");
+        assert_eq!(req.agent, "master");
+        assert!(req.required_caps.is_empty());
+    }
+
+    #[test]
+    fn enforce_full_worker_allows_anything() {
+        // Empty local worker_caps = "full worker, no restriction" per
+        // ClusterConfig::worker_caps doc.
+        let local: Vec<String> = vec![];
+        let required = vec!["file_in_container".to_string(), "shell".to_string()];
+
+        // Even in strict mode, a full worker accepts everything.
+        let d = enforce_required_caps(&local, &required, EnforceMode::Strict);
+        assert!(matches!(d, CapsDecision::Allow), "got {d:?}");
+
+        let d = enforce_required_caps(&local, &required, EnforceMode::Soft);
+        assert!(matches!(d, CapsDecision::Allow), "got {d:?}");
+    }
+
+    #[test]
+    fn enforce_empty_required_caps_always_allows() {
+        // No required_caps in the request = no restriction. Even a
+        // tight sandbox worker accepts. Soft and strict identical.
+        let local = vec!["file_in_container".to_string()];
+        let required: Vec<String> = vec![];
+        assert!(matches!(
+            enforce_required_caps(&local, &required, EnforceMode::Strict),
+            CapsDecision::Allow
+        ));
+        assert!(matches!(
+            enforce_required_caps(&local, &required, EnforceMode::Soft),
+            CapsDecision::Allow
+        ));
+    }
+
+    #[test]
+    fn enforce_strict_rejects_missing_caps() {
+        let local = vec!["file_in_container".to_string(), "memory".to_string()];
+        let required = vec!["file_in_container".to_string(), "shell".to_string()];
+        match enforce_required_caps(&local, &required, EnforceMode::Strict) {
+            CapsDecision::Reject { missing } => {
+                assert_eq!(missing, vec!["shell".to_string()]);
+            }
+            other => panic!("expected Reject, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enforce_strict_allows_subset_match() {
+        let local = vec![
+            "file_in_container".to_string(),
+            "memory".to_string(),
+            "web".to_string(),
+        ];
+        let required = vec!["file_in_container".to_string(), "memory".to_string()];
+        assert!(matches!(
+            enforce_required_caps(&local, &required, EnforceMode::Strict),
+            CapsDecision::Allow
+        ));
+    }
+
+    #[test]
+    fn enforce_soft_logs_and_allows_on_mismatch() {
+        let local = vec!["file_in_container".to_string()];
+        let required = vec!["file_in_container".to_string(), "shell".to_string()];
+        match enforce_required_caps(&local, &required, EnforceMode::Soft) {
+            CapsDecision::LogAndAllow { missing } => {
+                assert_eq!(missing, vec!["shell".to_string()]);
+            }
+            other => panic!("expected LogAndAllow, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enforce_missing_caps_preserve_order_and_dedup() {
+        let local = vec!["a".to_string()];
+        // Note: duplicate "c" in required — output should be deduped.
+        let required = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "c".to_string(),
+        ];
+        match enforce_required_caps(&local, &required, EnforceMode::Strict) {
+            CapsDecision::Reject { missing } => {
+                assert_eq!(missing, vec!["b".to_string(), "c".to_string()]);
+            }
+            other => panic!("expected Reject, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn effective_enforce_mode_defaults_to_soft() {
+        // PHANTOM_ENFORCE_REQUIRED_CAPS is process-global and also mutated by
+        // serve.rs tests — serialize via the crate env mutex.
+        let _g = crate::env_lock::acquire();
+        // Bare ClusterConfig with no field set, no env override
+        // → Soft (preserves pre-T5 behaviour for every existing
+        // deployment).
+        let cfg = ClusterConfig::default();
+        // Make sure the env is not set for this thread / process.
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Soft);
+    }
+
+    #[test]
+    fn effective_enforce_mode_config_strict_wins_when_env_unset() {
+        let _g = crate::env_lock::acquire();
+        let cfg = ClusterConfig {
+            enforce_caps: Some(EnforceMode::Strict),
+            ..ClusterConfig::default()
+        };
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
+    }
+
+    #[test]
+    fn effective_enforce_mode_env_overrides_config() {
+        let _g = crate::env_lock::acquire();
+        // Env var beats config (operator escape hatch — flip on a
+        // running node without editing agents.toml).
+        let cfg = ClusterConfig {
+            enforce_caps: Some(EnforceMode::Soft),
+            ..ClusterConfig::default()
+        };
+        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "strict");
+        assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+    }
+
+    #[test]
+    fn effective_enforce_mode_env_unknown_value_falls_back_to_config() {
+        let _g = crate::env_lock::acquire();
+        let cfg = ClusterConfig {
+            enforce_caps: Some(EnforceMode::Strict),
+            ..ClusterConfig::default()
+        };
+        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "garbage");
+        assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+    }
+
+    // ── C1: RPC capability-aware forwarding ────────────────────────────
+    //
+    // Tests in this module mutate `PHANTOM_FORWARD_ON_CAPS_MISMATCH` so they
+    // must serialise — reuse the env_guard pattern from test_security_t7.rs
+    // but inlined because this is a unit-test module.
+    fn fwd_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        // Delegate to the crate-wide env mutex so PHANTOM_FORWARD_ON_CAPS_MISMATCH
+        // tests serialize against every other env-touching test process-wide.
+        crate::env_lock::acquire()
+    }
+
+    fn fixture_peer(name: &str, caps: &[&str], online: bool, last_seen: u64) -> PeerInfo {
+        PeerInfo {
+            url: format!("http://127.0.0.1:0/{name}"),
+            name: name.to_string(),
+            version: "test".into(),
+            online,
+            active_tasks: 0,
+            uptime_secs: 0,
+            last_seen_unix: last_seen,
+            last_seen: None,
+            consecutive_failures: 0,
+            capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            health: PeerHealth::default(),
+            tailscale_ip: None,
+        }
+    }
+
+    #[test]
+    fn task_assign_request_forward_chain_defaults_to_empty() {
+        // Back-compat: old clients omit `forward_chain` and
+        // `idempotency_key`, and must continue to parse.
+        let body = json!({ "prompt": "hi" });
+        let req: TaskAssignRequest = serde_json::from_value(body).expect("parse");
+        assert!(req.forward_chain.is_empty());
+        assert!(req.idempotency_key.is_none());
+    }
+
+    #[test]
+    fn task_assign_request_round_trips_with_new_fields() {
+        // C1 forwarder relies on Serialize → byte-stable for HMAC.
+        let req = TaskAssignRequest {
+            agent: "master".into(),
+            prompt: "echo hi".into(),
+            required_caps: vec!["shell.write".into()],
+            forward_chain: vec!["node-a".into()],
+            idempotency_key: Some("test-001".into()),
+        };
+        let bytes = serde_json::to_vec(&req).expect("serialize");
+        let parsed: TaskAssignRequest = serde_json::from_slice(&bytes).expect("parse");
+        assert_eq!(parsed.agent, "master");
+        assert_eq!(parsed.forward_chain, vec!["node-a".to_string()]);
+        assert_eq!(parsed.idempotency_key.as_deref(), Some("test-001"));
+        assert_eq!(parsed.required_caps, vec!["shell.write".to_string()]);
+    }
+
+    #[test]
+    fn select_best_peer_with_caps_picks_capable_online_peer() {
+        // C1 happy path: A has the required cap, B does not — A wins.
+        let peers = vec![
+            fixture_peer("A", &["shell.write", "network"], true, 1000),
+            fixture_peer("B", &["memory"], true, 2000),
+        ];
+        let picked =
+            select_best_peer_with_caps(&["shell.write".to_string()], &peers).expect("A satisfies");
+        assert_eq!(picked.name, "A");
+    }
+
+    #[test]
+    fn select_best_peer_with_caps_skips_offline_even_if_capable() {
+        let peers = vec![
+            fixture_peer("A", &["shell.write"], false, 9999), // offline
+            fixture_peer("B", &["shell.write"], true, 100),
+        ];
+        let picked = select_best_peer_with_caps(&["shell.write".to_string()], &peers)
+            .expect("B picked despite older last_seen");
+        assert_eq!(picked.name, "B");
+    }
+
+    #[test]
+    fn select_best_peer_with_caps_returns_none_when_nobody_matches() {
+        // All online peers, none advertise shell.write — caller should
+        // map this to NoPeerSatisfiesCaps, not NoPeersAvailable.
+        let peers = vec![
+            fixture_peer("A", &["memory"], true, 1000),
+            fixture_peer("B", &["network"], true, 2000),
+        ];
+        assert!(select_best_peer_with_caps(&["shell.write".to_string()], &peers,).is_none());
+    }
+
+    #[test]
+    fn select_best_peer_with_caps_treats_empty_caps_as_full_worker() {
+        // PeerInfo.capabilities.is_empty() = full worker per the
+        // ClusterConfig::worker_caps semantics — it accepts everything.
+        let peers = vec![fixture_peer("full", &[], true, 1000)];
+        let picked =
+            select_best_peer_with_caps(&["shell.write".to_string(), "memory".to_string()], &peers)
+                .expect("full worker accepts");
+        assert_eq!(picked.name, "full");
+    }
+
+    #[test]
+    fn select_best_peer_with_caps_breaks_ties_by_recency() {
+        // Two equally capable peers — most-recently-pinged wins.
+        let peers = vec![
+            fixture_peer("old", &["shell.write"], true, 1_000),
+            fixture_peer("new", &["shell.write"], true, 9_000),
+        ];
+        let picked =
+            select_best_peer_with_caps(&["shell.write".to_string()], &peers).expect("at least one");
+        assert_eq!(picked.name, "new", "newer last_seen should win the tie");
+    }
+
+    #[test]
+    fn forward_decision_chooses_capable_peer_when_env_gate_on() {
+        // C1 spec test #1: with PHANTOM_FORWARD_ON_CAPS_MISMATCH=1,
+        // mismatch + a capable peer in `peers` returns ForwardTo(peer).
+        let _g = fwd_env_guard();
+        std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+
+        let local = vec!["memory".to_string()];
+        let required = vec!["shell.write".to_string()];
+        let peers = vec![
+            fixture_peer("A-can", &["shell.write"], true, 2000),
+            fixture_peer("B-cant", &["memory"], true, 1000),
+        ];
+        let decision =
+            enforce_required_caps_with_forwarding(&local, &required, EnforceMode::Strict, &peers);
+        match decision {
+            CapsDecision::ForwardTo { peer, missing } => {
+                assert_eq!(peer.name, "A-can");
+                assert_eq!(missing, vec!["shell.write".to_string()]);
+            }
+            other => panic!("expected ForwardTo, got {other:?}"),
+        }
+
+        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    }
+
+    #[test]
+    fn forward_disabled_returns_reject_by_default() {
+        // C1 spec test #5: without PHANTOM_FORWARD_ON_CAPS_MISMATCH,
+        // behaviour is unchanged from pre-C1 — strict mode still 409s
+        // even when a capable peer exists. Back-compat guarantee.
+        let _g = fwd_env_guard();
+        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+
+        let local = vec!["memory".to_string()];
+        let required = vec!["shell.write".to_string()];
+        let peers = vec![fixture_peer("A-can", &["shell.write"], true, 2000)];
+
+        let decision =
+            enforce_required_caps_with_forwarding(&local, &required, EnforceMode::Strict, &peers);
+        match decision {
+            CapsDecision::Reject { missing } => {
+                assert_eq!(missing, vec!["shell.write".to_string()]);
+            }
+            other => panic!("expected Reject (forwarding disabled), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn forward_falls_back_to_reject_when_no_peer_satisfies() {
+        // C1 spec test #4 (helper level): env gate on, but no peer
+        // satisfies → the enforce sibling falls back to Reject. The
+        // call site translates that to NoPeerSatisfiesCaps error.
+        let _g = fwd_env_guard();
+        std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+
+        let local = vec!["memory".to_string()];
+        let required = vec!["shell.write".to_string()];
+        let peers = vec![fixture_peer("B-cant", &["memory"], true, 1000)];
+
+        let decision =
+            enforce_required_caps_with_forwarding(&local, &required, EnforceMode::Strict, &peers);
+        assert!(
+            matches!(decision, CapsDecision::Reject { .. }),
+            "no capable peer ⇒ fall back to the original Reject (call site translates)"
+        );
+        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    }
+
+    #[test]
+    fn dispatch_error_no_peer_satisfies_caps_renders_inventory() {
+        // Display should surface both required and available_peers so the
+        // CLI can echo verbatim — operators must see the actual mismatch.
+        let e = DispatchError::NoPeerSatisfiesCaps {
+            required: vec!["shell.write".into()],
+            available_peers: vec![
+                ("http://a:7878".into(), vec!["memory".into()]),
+                ("http://b:7878".into(), vec!["network".into()]),
+            ],
+        };
+        let s = format!("{e}");
+        assert!(s.contains("shell.write"), "got {s}");
+        assert!(s.contains("memory") && s.contains("network"), "got {s}");
+    }
+
+    #[test]
+    fn dispatch_error_forward_chain_exhausted_renders_chain() {
+        let e = DispatchError::ForwardChainExhausted {
+            chain: vec!["A".into(), "B".into()],
+            reason: "self_in_chain".into(),
+        };
+        let s = format!("{e}");
+        assert!(s.contains("self_in_chain"));
+        assert!(s.contains("\"A\"") && s.contains("\"B\""), "got {s}");
+    }
+
+    // ── C4: peer heartbeat + health-aware selection ────────────────────────
+    //
+    // Tests split into two groups:
+    //   * Data-only tests (filter, defaults, fallback) — run on every build.
+    //   * State-machine tests (transitions) — gated on the
+    //     `experimental-cluster-heartbeat` feature so the test suite matches
+    //     the production behaviour for the corresponding flag.
+
+    fn unhealthy_fixture(
+        name: &str,
+        caps: &[&str],
+        last_seen: u64,
+        failure_count: u32,
+    ) -> PeerInfo {
+        let mut p = fixture_peer(name, caps, true, last_seen);
+        p.health = PeerHealth::Unhealthy {
+            since: Instant::now(),
+            failure_count,
+        };
+        p
+    }
+
+    #[test]
+    fn peer_health_default_is_healthy() {
+        // Optimistic default: newly-loaded peers get a chance to respond
+        // before routing skips them.
+        assert!(PeerHealth::default().is_healthy());
+        assert!(matches!(PeerHealth::default(), PeerHealth::Healthy));
+    }
+
+    #[test]
+    fn peer_info_default_health_round_trips_through_serde() {
+        // Backwards-compat: existing peers.json files predate the `health`
+        // field. They must still deserialise (default = Healthy) and the
+        // re-serialised form must contain `"health": "healthy"`.
+        let body = json!({
+            "url": "http://a:7878",
+            "name": "A",
+            "version": "0.5.0",
+            "online": true,
+            "active_tasks": 0,
+            "uptime_secs": 0,
+            "last_seen_unix": 0,
+            "consecutive_failures": 0,
+        });
+        let p: PeerInfo = serde_json::from_value(body).expect("old format parses");
+        assert!(p.health.is_healthy());
+
+        let again = serde_json::to_string(&p).expect("serialize");
+        assert!(again.contains("\"health\":\"healthy\""), "got {again}");
+    }
+
+    #[test]
+    fn peer_health_unhealthy_deserialises_to_optimistic_healthy_on_cold_load() {
+        // Documented invariant: cold-start reload = optimistic. Even if the
+        // on-disk tag says "unhealthy", a fresh daemon should give the peer
+        // one probe cycle before routing skips it.
+        let body = json!({
+            "url": "http://a:7878",
+            "name": "A",
+            "version": "0.5.0",
+            "online": true,
+            "active_tasks": 0,
+            "uptime_secs": 0,
+            "last_seen_unix": 0,
+            "consecutive_failures": 0,
+            "health": "unhealthy",
+        });
+        let p: PeerInfo = serde_json::from_value(body).expect("parse");
+        // We accept the tag — heartbeat task will re-derive on-the-wire state.
+        assert!(!p.health.is_healthy());
+    }
+
+    #[test]
+    fn select_best_peer_prefers_healthy_over_unhealthy() {
+        // C4 core contract: a Healthy peer wins even when an Unhealthy peer
+        // has the same caps and a more-recent last_seen.
+        let peers = vec![
+            // Unhealthy but newer + capable.
+            unhealthy_fixture("U", &["shell.write"], 9999, 5),
+            // Healthy, older, capable.
+            fixture_peer("H", &["shell.write"], true, 1000),
+        ];
+        let picked = select_best_peer_with_caps(&["shell.write".to_string()], &peers)
+            .expect("must pick somebody");
+        assert_eq!(
+            picked.name, "H",
+            "Healthy peer must win over Unhealthy even with worse last_seen",
+        );
+    }
+
+    #[test]
+    fn select_best_peer_falls_back_to_unhealthy_when_no_healthy_match() {
+        // C4 fallback: if NO healthy peer satisfies caps, pick the best
+        // Unhealthy one rather than returning None. Better to attempt a
+        // possibly-stale peer than to fail the dispatch entirely.
+        let peers = vec![
+            // Healthy but wrong caps.
+            fixture_peer("H-wrong-caps", &["memory"], true, 5000),
+            // Unhealthy but capable.
+            unhealthy_fixture("U", &["shell.write"], 1000, 4),
+        ];
+        let picked = select_best_peer_with_caps(&["shell.write".to_string()], &peers)
+            .expect("fall back to Unhealthy U");
+        assert_eq!(picked.name, "U");
+    }
+
+    #[test]
+    fn select_best_peer_picks_most_recent_when_both_healthy() {
+        // No regression: when both tiers have matches, last_seen tie-break
+        // applies within the Healthy tier — same as pre-C4.
+        let peers = vec![
+            fixture_peer("H-old", &["shell.write"], true, 100),
+            fixture_peer("H-new", &["shell.write"], true, 200),
+        ];
+        let picked =
+            select_best_peer_with_caps(&["shell.write".to_string()], &peers).expect("must pick");
+        assert_eq!(picked.name, "H-new");
+    }
+
+    #[test]
+    fn cluster_config_heartbeat_defaults_are_30s_and_3() {
+        // Defaults are public constants so operators can reference them in
+        // sample configs without copy-paste drift.
+        assert_eq!(DEFAULT_HEARTBEAT_INTERVAL_SECS, 30);
+        assert_eq!(DEFAULT_HEARTBEAT_FAILURE_THRESHOLD, 3);
+
+        let cfg = ClusterConfig::default();
+        let mgr = ClusterManager::new(cfg);
+        assert_eq!(mgr.effective_heartbeat_interval().as_secs(), 30);
+        assert_eq!(mgr.effective_heartbeat_failure_threshold(), 3);
+    }
+
+    #[test]
+    fn cluster_config_heartbeat_overrides_are_honoured() {
+        let cfg = ClusterConfig {
+            heartbeat_interval_secs: Some(7),
+            heartbeat_failure_threshold: Some(2),
+            ..ClusterConfig::default()
+        };
+        let mgr = ClusterManager::new(cfg);
+        assert_eq!(mgr.effective_heartbeat_interval().as_secs(), 7);
+        assert_eq!(mgr.effective_heartbeat_failure_threshold(), 2);
+    }
+
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    #[tokio::test]
+    async fn record_probe_result_transitions_healthy_to_unhealthy_after_threshold() {
+        // C4 spec test 1: N consecutive failures flips Healthy → Unhealthy.
+        // With threshold = 2: failures 1,2 — peer Unhealthy by the second.
+        let url = "http://hb-test-a:7878";
+        let cfg = ClusterConfig {
+            peers: vec![url.to_string()],
+            heartbeat_failure_threshold: Some(2),
+            ..ClusterConfig::default()
+        };
+        let mgr = ClusterManager::new(cfg);
+        // Sanity: starts Healthy.
+        let initial = mgr.peer_infos().await;
+        assert!(initial[0].health.is_healthy(), "starts Healthy");
+
+        mgr.record_probe_result(url, false).await; // failure 1
+        let after_one = mgr.peer_infos().await;
+        assert!(
+            after_one[0].health.is_healthy(),
+            "still Healthy at 1 < threshold"
+        );
+
+        mgr.record_probe_result(url, false).await; // failure 2 = threshold
+        let after_two = mgr.peer_infos().await;
+        assert!(
+            !after_two[0].health.is_healthy(),
+            "flipped Unhealthy at threshold (2)",
+        );
+        match &after_two[0].health {
+            PeerHealth::Unhealthy { failure_count, .. } => assert_eq!(*failure_count, 2),
+            PeerHealth::Healthy => panic!("expected Unhealthy"),
+        }
+    }
+
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    #[tokio::test]
+    async fn record_probe_result_recovers_unhealthy_to_healthy_on_success() {
+        // C4 spec test 2: a single success after Unhealthy flips back.
+        let url = "http://hb-test-b:7878";
+        let cfg = ClusterConfig {
+            peers: vec![url.to_string()],
+            heartbeat_failure_threshold: Some(1),
+            ..ClusterConfig::default()
+        };
+        let mgr = ClusterManager::new(cfg);
+
+        mgr.record_probe_result(url, false).await; // threshold = 1 ⇒ Unhealthy
+        assert!(!mgr.peer_infos().await[0].health.is_healthy());
+
+        mgr.record_probe_result(url, true).await; // recovery
+        let recovered = mgr.peer_infos().await;
+        assert!(
+            recovered[0].health.is_healthy(),
+            "recovered Healthy on success"
+        );
+        assert_eq!(
+            recovered[0].consecutive_failures, 0,
+            "counter reset on success"
+        );
+    }
+
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    #[tokio::test]
+    async fn record_probe_result_stays_healthy_below_threshold_then_recovers() {
+        // Sanity: 2 failures with threshold 3 ⇒ stay Healthy; one success
+        // resets the counter so the next 2 failures are not catastrophic.
+        let url = "http://hb-test-c:7878";
+        let cfg = ClusterConfig {
+            peers: vec![url.to_string()],
+            heartbeat_failure_threshold: Some(3),
+            ..ClusterConfig::default()
+        };
+        let mgr = ClusterManager::new(cfg);
+
+        mgr.record_probe_result(url, false).await;
+        mgr.record_probe_result(url, false).await;
+        let mid = mgr.peer_infos().await;
+        assert!(
+            mid[0].health.is_healthy(),
+            "2 < threshold(3): still Healthy"
+        );
+        assert_eq!(mid[0].consecutive_failures, 2);
+
+        mgr.record_probe_result(url, true).await;
+        let after = mgr.peer_infos().await;
+        assert_eq!(after[0].consecutive_failures, 0, "success resets counter");
+        assert!(after[0].health.is_healthy());
+    }
+
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    #[tokio::test]
+    async fn spawn_heartbeat_task_skipped_when_no_peers() {
+        // Spec constraint: heartbeat task must not start if cluster has
+        // zero peers (single-node deploys see zero behaviour change).
+        let mgr = std::sync::Arc::new(ClusterManager::new(ClusterConfig::default()));
+        let handle = mgr.spawn_heartbeat_task();
+        assert!(
+            handle.is_none(),
+            "spawn must return None when peers.is_empty()",
+        );
+    }
+
+    #[cfg(feature = "experimental-cluster-heartbeat")]
+    #[tokio::test]
+    async fn spawn_heartbeat_task_starts_when_peers_present() {
+        // The task itself loops forever — we just verify it spawned and
+        // abort it immediately so the test process exits cleanly.
+        let cfg = ClusterConfig {
+            peers: vec!["http://nowhere.invalid:7878".to_string()],
+            heartbeat_interval_secs: Some(60), // long, we abort below
+            ..ClusterConfig::default()
+        };
+        let mgr = std::sync::Arc::new(ClusterManager::new(cfg));
+        let handle = mgr.spawn_heartbeat_task().expect("spawned");
+        handle.abort();
+    }
+
+    // ── SHARED P0: tailscale status parser ─────────────────────────────────
+
+    /// Pins the shape that `extract_tailscale_peer_ips` consumes —
+    /// a subset of what `tailscale status --json` emits in practice.
+    /// Online peers contribute their IPv4 from `TailscaleIPs`; offline
+    /// peers are skipped; IPv6 entries (those containing `:`) are
+    /// dropped because phantom dials :7878 over IPv4 only.
+    #[test]
+    fn peer_list_parses_tailscale_status_json() {
+        let status = json!({
+            "Self": {
+                "TailscaleIPs": ["100.64.0.1"],
+                "Online": true,
+            },
+            "Peer": {
+                "node-a": {
+                    "Online": true,
+                    "TailscaleIPs": ["100.64.0.10", "fd7a:115c:a1e0::a"],
+                },
+                "node-m1": {
+                    "Online": true,
+                    "TailscaleIPs": ["100.64.0.20"],
+                },
+                "node-b": {
+                    "Online": false,
+                    "TailscaleIPs": ["100.64.0.30"],
+                },
+            }
+        });
+
+        let ips = extract_tailscale_peer_ips(&status);
+        assert!(
+            ips.contains(&"100.64.0.10".to_string()),
+            "node-a IPv4 must be included"
+        );
+        assert!(
+            ips.contains(&"100.64.0.20".to_string()),
+            "m1 IPv4 must be included"
+        );
+        assert!(
+            !ips.iter().any(|s| s == "100.64.0.30"),
+            "offline node IP must be skipped"
+        );
+        assert!(
+            !ips.iter().any(|s| s.contains(':')),
+            "IPv6 entries must be dropped (phantom dials IPv4 only)"
+        );
+        assert!(
+            !ips.iter().any(|s| s == "100.64.0.1"),
+            "Self entry must not appear in peer list"
+        );
+    }
+
+    // ── SHARED P0: HMAC cluster auth ───────────────────────────────────────
+
+    /// Verifies the round-trip of `make_auth_token_bytes` ↔ `verify_auth`:
+    /// a token minted from `body` with `cluster_secret = S` must validate
+    /// when re-checked with the same body and secret, and must FAIL on
+    /// any mutation (body byte flip, secret change, or empty secret).
+    /// This is the cluster's only line of defense against a third party
+    /// posting `/rpc/task/assign` requests — if validate ever returns
+    /// true for a tampered body, we ship a remote-exec hole.
+    #[test]
+    fn hmac_signature_validates_with_shared_secret() {
+        let secret = "test-cluster-secret-xyz";
+        let body = br#"{"task_id":"t1","payload":"hello"}"#;
+
+        let mgr = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some(secret.to_string()),
+            ..ClusterConfig::default()
+        });
+
+        let token = mgr.make_auth_token_bytes(body);
+        // hex-encoded SHA-256 ⇒ exactly 64 hex chars
+        assert_eq!(
+            token.len(),
+            64,
+            "HMAC-SHA256 hex must be 64 chars, got {}",
+            token.len()
+        );
+        assert!(
+            token.chars().all(|c| c.is_ascii_hexdigit()),
+            "token must be lowercase hex: {token}",
+        );
+
+        // Round-trip: same body + same secret ⇒ valid.
+        assert!(mgr.verify_auth(&token, body), "fresh token must validate");
+
+        // Tampered body ⇒ invalid (constant-time compare must still reject).
+        let mut tampered = body.to_vec();
+        tampered[10] ^= 0x01;
+        assert!(
+            !mgr.verify_auth(&token, &tampered),
+            "tampered body must NOT validate"
+        );
+
+        // Different secret ⇒ invalid.
+        let other_mgr = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some("different-secret".to_string()),
+            ..ClusterConfig::default()
+        });
+        assert!(
+            !other_mgr.verify_auth(&token, body),
+            "token minted under secret A must NOT validate under secret B"
+        );
+
+        // No-secret ClusterManager ⇒ always rejects (fail-closed).
+        let unconfigured = ClusterManager::new(ClusterConfig {
+            cluster_secret: None,
+            ..ClusterConfig::default()
+        });
+        assert!(
+            !unconfigured.verify_auth(&token, body),
+            "unconfigured cluster must reject all tokens (fail-closed)"
+        );
+
+        // Empty-string secret behaves the same as unconfigured.
+        let empty = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some(String::new()),
+            ..ClusterConfig::default()
+        });
+        assert!(
+            !empty.verify_auth(&token, body),
+            "empty-string secret must reject (fail-closed)"
+        );
+    }
+
+    /// SPEC-10 migration: `verify_auth_dual` must accept BOTH the legacy
+    /// body-HMAC (X-Cluster-Auth) and the new canonical-HMAC
+    /// (X-Cluster-Auth), reject when neither matches, and stay
+    /// fail-closed with no secret.
+    #[test]
+    fn verify_auth_dual_accepts_legacy_and_canonical() {
+        let secret = "dual-accept-secret-123";
+        let body = br#"{"agent":"master","prompt":"hi"}"#;
+        let (method, path, query) = ("POST", "/rpc/task/assign", "");
+
+        let mgr = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some(secret.to_string()),
+            ..ClusterConfig::default()
+        });
+
+        // Legacy arm: token = HMAC over raw body.
+        let legacy = mgr.make_auth_token_bytes(body);
+        assert!(
+            mgr.verify_auth_dual(Some(&legacy), None, method, path, query, body, None),
+            "legacy X-Cluster-Auth token must verify via dual path"
+        );
+
+        // SPEC-10 arm: sig = HMAC over the canonical string.
+        let canonical =
+            crate::rpc_wire::build_canonical_string(method, path, query, body, None);
+        let sig = crate::rpc_wire::sign_hmac(secret.as_bytes(), &canonical);
+        assert!(
+            mgr.verify_auth_dual(None, Some(&sig), method, path, query, body, None),
+            "SPEC-10 X-Cluster-Auth must verify via dual path"
+        );
+
+        // The two schemes are NOT interchangeable: a legacy token presented in
+        // the canonical slot (or vice-versa) must NOT verify.
+        assert!(
+            !mgr.verify_auth_dual(None, Some(&legacy), method, path, query, body, None),
+            "legacy token must NOT validate as a canonical signature"
+        );
+
+        // Neither header → reject. Both wrong → reject.
+        assert!(
+            !mgr.verify_auth_dual(None, None, method, path, query, body, None),
+            "no auth material must reject"
+        );
+        assert!(
+            !mgr.verify_auth_dual(Some("deadbeef"), Some("deadbeef"), method, path, query, body, None),
+            "garbage in both slots must reject"
+        );
+
+        // Wrong secret on the canonical arm → reject.
+        let other = crate::rpc_wire::sign_hmac(b"wrong-secret", &canonical);
+        assert!(
+            !mgr.verify_auth_dual(None, Some(&other), method, path, query, body, None),
+            "canonical sig under a different secret must reject"
+        );
+
+        // Fail-closed with no secret, even with otherwise-valid-looking input.
+        let unconfigured = ClusterManager::new(ClusterConfig {
+            cluster_secret: None,
+            ..ClusterConfig::default()
+        });
+        assert!(
+            !unconfigured.verify_auth_dual(Some(&legacy), Some(&sig), method, path, query, body, None),
+            "unconfigured cluster must reject both arms (fail-closed)"
+        );
+
+        // Inverse non-interchangeability (review: codex): a canonical signature
+        // presented in the LEGACY slot must NOT validate (legacy verifies HMAC
+        // over the raw body, not the canonical string).
+        assert!(
+            !mgr.verify_auth_dual(Some(&sig), None, method, path, query, body, None),
+            "canonical signature in the legacy slot must reject"
+        );
+
+        // Both arms valid simultaneously (review: opencode) → accept (first
+        // match short-circuits; documents the both-valid path explicitly).
+        assert!(
+            mgr.verify_auth_dual(Some(&legacy), Some(&sig), method, path, query, body, None),
+            "both valid arms must accept"
+        );
+    }
+
+    // ── T-CORE-02: query_capability (local capability-query overlay) ────────
+
+    /// Build a ClusterManager whose cached roster is the given peers. The
+    /// `node_name` + `capabilities` configure what `own_peer_status()` reports
+    /// so the `include_self` path is exercisable without any network I/O.
+    async fn mgr_with_roster(
+        node_name: &str,
+        self_caps: &[&str],
+        roster: Vec<PeerInfo>,
+    ) -> ClusterManager {
+        let mgr = ClusterManager::new(ClusterConfig {
+            node_name: Some(node_name.to_string()),
+            capabilities: self_caps.iter().map(|s| s.to_string()).collect(),
+            ..ClusterConfig::default()
+        });
+        // Inject the roster directly into the cached peer list (same-module
+        // access to the private `peers` field). No ping is issued.
+        *mgr.peers.write().await = roster;
+        mgr
+    }
+
+    #[tokio::test]
+    async fn query_capability_returns_only_subset_matching_peers() {
+        let roster = vec![
+            peer_with_caps("node-a", &["shell", "browser"]),
+            peer_with_caps("m1", &["shell", "gpu_compute:metal", "local_llm:mlx"]),
+            peer_with_caps("node-b", &["shell", "browser", "camera"]),
+        ];
+        // self has no special caps and we exclude it, so only peers count.
+        let mgr = mgr_with_roster("self", &[], roster).await;
+
+        let required = vec!["camera".to_string()];
+        let answers = mgr.query_capability(&required, false).await;
+        let names: Vec<&str> = answers.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["node-b"], "only node-b advertises camera");
+        assert!(
+            answers.iter().all(|a| !a.self_node),
+            "include_self=false must never flag a self_node answer"
+        );
+
+        // Multi-cap requirement is set inclusion: only m1 has both.
+        let required = vec!["local_llm:mlx".to_string(), "gpu_compute:metal".to_string()];
+        let answers = mgr.query_capability(&required, false).await;
+        let names: Vec<&str> = answers.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["m1"], "only m1 has both required caps");
+    }
+
+    #[tokio::test]
+    async fn query_capability_empty_required_returns_all_peers() {
+        let roster = vec![
+            peer_with_caps("node-a", &["shell"]),
+            peer_with_caps("m1", &["shell", "local_llm:mlx"]),
+            peer_with_caps("legacy", &[]),
+        ];
+        let mgr = mgr_with_roster("self", &[], roster).await;
+
+        // Empty required_caps matches every peer (set inclusion of nothing).
+        let answers = mgr.query_capability(&[], false).await;
+        let names: Vec<&str> = answers.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["node-a", "m1", "legacy"],
+            "empty required_caps must return the whole roster"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_capability_include_self_toggles_self_answer() {
+        let roster = vec![peer_with_caps("node-a", &["shell", "browser"])];
+        // self advertises camera, which no peer has.
+        let mgr = mgr_with_roster("my-node", &["shell", "camera"], roster).await;
+
+        let required = vec!["camera".to_string()];
+
+        // include_self=false: no peer matches camera, self excluded → empty.
+        let excluded = mgr.query_capability(&required, false).await;
+        assert!(
+            excluded.is_empty(),
+            "no peer has camera and self is excluded"
+        );
+
+        // include_self=true: self matches camera and is appended.
+        let included = mgr.query_capability(&required, true).await;
+        assert_eq!(included.len(), 1, "self must be the lone match");
+        let me = &included[0];
+        assert_eq!(me.name, "my-node");
+        assert!(me.self_node, "the self answer must set self_node = true");
+        assert!(
+            me.capabilities.contains(&"camera".to_string()),
+            "self answer carries this node's advertised capabilities"
+        );
+
+        // include_self=true but self does NOT satisfy the requirement →
+        // self must NOT be appended.
+        let unmet = vec!["gpu_compute:cuda".to_string()];
+        let none = mgr.query_capability(&unmet, true).await;
+        assert!(
+            none.is_empty(),
+            "self is only included when it satisfies required_caps"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_capability_self_in_roster_not_duplicated() {
+        // codex review (self de-dupe): if the cached roster ALREADY contains an
+        // entry whose name matches this node, the answer must NOT list self
+        // twice. The node-named roster entry is dropped; only the explicit
+        // self answer (self_node = true) appears.
+        let roster = vec![
+            peer_with_caps("my-node", &["shell", "camera"]), // same name as self
+            peer_with_caps("node-a", &["shell", "camera"]),
+        ];
+        let mgr = mgr_with_roster("my-node", &["shell", "camera"], roster).await;
+
+        let required = vec!["camera".to_string()];
+        let answers = mgr.query_capability(&required, true).await;
+
+        let mine: Vec<&CapablePeerAnswer> =
+            answers.iter().filter(|a| a.name == "my-node").collect();
+        assert_eq!(
+            mine.len(),
+            1,
+            "self must appear exactly once even when present in the roster, got {:?}",
+            answers.iter().map(|a| (&a.name, a.self_node)).collect::<Vec<_>>()
+        );
+        assert!(mine[0].self_node, "the single self entry must be the self answer");
+        // The genuine peer node-a is unaffected.
+        assert!(answers.iter().any(|a| a.name == "node-a" && !a.self_node));
+
+        // include_self = false: self is excluded entirely (no self-named entry).
+        let without = mgr.query_capability(&required, false).await;
+        assert!(
+            without.iter().all(|a| a.name != "my-node"),
+            "include_self=false must drop the self-named roster entry too"
+        );
     }
 }

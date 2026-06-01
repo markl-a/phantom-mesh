@@ -1,8 +1,4 @@
-use phantom_mesh::{
-    cost::CostTracker,
-    providers::traits::ChatMessage,
-    session::ConversationStore,
-};
+use phantom_mesh::{cost::CostTracker, providers::traits::ChatMessage, session::ConversationStore};
 use tempfile::tempdir;
 
 // ---------------------------------------------------------------------------
@@ -10,11 +6,19 @@ use tempfile::tempdir;
 // ---------------------------------------------------------------------------
 
 fn user_msg(content: &str) -> ChatMessage {
-    ChatMessage { role: "user".into(), content: content.into(), tool_calls: None }
+    ChatMessage {
+        role: "user".into(),
+        content: content.into(),
+        tool_calls: None,
+    }
 }
 
 fn asst_msg(content: &str) -> ChatMessage {
-    ChatMessage { role: "assistant".into(), content: content.into(), tool_calls: None }
+    ChatMessage {
+        role: "assistant".into(),
+        content: content.into(),
+        tool_calls: None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -24,8 +28,13 @@ fn asst_msg(content: &str) -> ChatMessage {
 #[tokio::test]
 async fn test_session_empty_history() {
     let store = ConversationStore::new();
-    let history = store.get_history("unknown_chat_id_that_does_not_exist").await;
-    assert!(history.is_empty(), "expected empty history for unknown chat id");
+    let history = store
+        .get_history("unknown_chat_id_that_does_not_exist")
+        .await;
+    assert!(
+        history.is_empty(),
+        "expected empty history for unknown chat id"
+    );
 }
 
 #[tokio::test]
@@ -111,13 +120,17 @@ async fn test_session_list() {
     store
         .append("alpha", user_msg("hi"), asst_msg("hello"))
         .await;
-    store
-        .append("beta", user_msg("hey"), asst_msg("yo"))
-        .await;
+    store.append("beta", user_msg("hey"), asst_msg("yo")).await;
 
     let list = store.list().await;
-    assert!(list.contains(&"alpha".to_string()), "list should contain 'alpha'");
-    assert!(list.contains(&"beta".to_string()), "list should contain 'beta'");
+    assert!(
+        list.contains(&"alpha".to_string()),
+        "list should contain 'alpha'"
+    );
+    assert!(
+        list.contains(&"beta".to_string()),
+        "list should contain 'beta'"
+    );
 }
 
 #[tokio::test]
@@ -134,7 +147,11 @@ async fn test_session_evict() {
 
     // get_history should reload from disk transparently.
     let history = store.get_history("evict-chat").await;
-    assert_eq!(history.len(), 2, "expected history reloaded from disk after eviction");
+    assert_eq!(
+        history.len(),
+        2,
+        "expected history reloaded from disk after eviction"
+    );
     assert_eq!(history[0].content, "keep me");
     assert_eq!(history[1].content, "I persist");
 }
@@ -197,7 +214,9 @@ async fn test_cost_record_unknown_model() {
     // 1M prompt  = $1.00
     // 1M completion = $5.00
     // Total expected: $6.00
-    tracker.record("unknown-model-xyz", 1_000_000, 1_000_000).await;
+    tracker
+        .record("unknown-model-xyz", 1_000_000, 1_000_000)
+        .await;
 
     let summary = tracker.summary().await;
     let total = summary["total_usd"].as_f64().unwrap();
@@ -215,7 +234,9 @@ async fn test_cost_accumulates() {
     // First call: claude-sonnet-4 — 1M prompt ($3.0) + 500K completion ($7.5) = $10.50
     tracker.record("claude-sonnet-4", 1_000_000, 500_000).await;
     // Second call: unknown model — 1M prompt ($1.0) + 1M completion ($5.0) = $6.00
-    tracker.record("unknown-model-xyz", 1_000_000, 1_000_000).await;
+    tracker
+        .record("unknown-model-xyz", 1_000_000, 1_000_000)
+        .await;
 
     let summary = tracker.summary().await;
     let total = summary["total_usd"].as_f64().unwrap();

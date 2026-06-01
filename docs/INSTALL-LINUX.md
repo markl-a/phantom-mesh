@@ -1,16 +1,16 @@
-# Installing phantom-mesh on Linux
+# 在 Linux 上安裝 phantom-mesh
 
-Tested on **Ubuntu 22.04 / 24.04** + **Debian 12 (bookworm)**. Other
-glibc-based distros (Fedora, Arch, openSUSE) should work — the binary
-is statically-ish linked but you'll need `glibc 2.31+` and OpenSSL.
+已在 **Ubuntu 22.04 / 24.04** 與 **Debian 12 (bookworm)** 上測試通過。其他
+以 glibc（GNU C 函式庫）為基礎的發行版（Fedora、Arch、openSUSE）應該也能運作 —— 此二進位檔
+採用近似靜態連結（statically-ish linked），但你會需要 `glibc 2.31+` 與 OpenSSL。
 
-For Alpine / musl-based distros, you'd want a separate static-musl
-build — not yet in `dist/`; cross-compile with
-`cargo build --release --target x86_64-unknown-linux-musl`.
+若是 Alpine / 以 musl（輕量 C 函式庫）為基礎的發行版，你會需要另一個 static-musl
+（靜態 musl）建置 —— 目前尚未放在 `dist/` 中；請以
+`cargo build --release --target x86_64-unknown-linux-musl` 進行交叉編譯（cross-compile）。
 
 ---
 
-## TL;DR — 60 seconds
+## TL;DR（懶人包）—— 60 秒
 
 ```bash
 # As a normal user (sudo only for systemd install)
@@ -27,29 +27,29 @@ phantom serve &                  # or set up systemd unit (below)
 phantom doctor                   # verify all green
 ```
 
-Then open `http://127.0.0.1:7878/projects` in a browser — you should
-see 6 tiles with [Run Demo] buttons.
+接著在瀏覽器開啟 `http://127.0.0.1:7878/projects` —— 你應該會
+看到 6 個帶有 [Run Demo] 按鈕的方塊（tile）。
 
 ---
 
-## Prereqs
+## 先決條件（Prereqs）
 
-| Component | Why | How to get |
+| 元件 | 用途 | 取得方式 |
 |---|---|---|
-| Rust toolchain ≥ 1.80 | Build phantom from source | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| `git`                  | Clone the repo                      | `apt install git` |
-| OpenSSL dev headers    | Some Rust deps build against system OpenSSL | `apt install libssl-dev pkg-config` |
-| `build-essential`      | gcc + make for native deps          | `apt install build-essential` |
-| Tailscale (optional)   | Cross-machine cluster + mobile access | https://tailscale.com/download/linux |
+| Rust toolchain ≥ 1.80 | 從原始碼建置 phantom | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| `git`                  | Clone 此 repo（程式碼倉庫）                      | `apt install git` |
+| OpenSSL 開發標頭檔（dev headers）    | 部分 Rust 相依套件會針對系統 OpenSSL 編譯 | `apt install libssl-dev pkg-config` |
+| `build-essential`      | 原生相依套件所需的 gcc + make          | `apt install build-essential` |
+| Tailscale（選用）   | 跨機叢集（cluster）與行動裝置存取 | https://tailscale.com/download/linux |
 
-**Total fresh-install time on a 4-core 8 GB VPS:** ~6 min (mostly
-cargo build).
+**在 4 核心 8 GB 的 VPS（虛擬私人伺服器）上全新安裝的總時間：** 約 6 分鐘（主要花在
+cargo build）。
 
 ---
 
-## Detailed install
+## 詳細安裝
 
-### 1. Build the binary
+### 1. 建置二進位檔
 
 ```bash
 cd ~/Documents
@@ -59,70 +59,70 @@ cargo install --path . --locked
 phantom --version
 ```
 
-`cargo install` puts the binary at `~/.cargo/bin/phantom`. If that's
-not on your `$PATH`, the rustup installer added a line to `~/.profile`
-that adds it — `source ~/.profile` or reopen the shell.
+`cargo install` 會把二進位檔放在 `~/.cargo/bin/phantom`。若該路徑
+不在你的 `$PATH` 中，rustup 安裝程式已在 `~/.profile` 加入一行
+把它加進去 —— 執行 `source ~/.profile` 或重新開啟 shell。
 
-### 2. First-time onboarding
+### 2. 首次導引設定（onboarding）
 
 ```bash
 phantom onboarding
 ```
 
-90-second interactive wizard. Sets up:
-- `~/.phantom-mesh/agents.toml` with one provider (you pick which —
-  Anthropic / OpenAI / Groq / OpenRouter / OpenCode / etc.)
-- Default agent set (master, coder, reviewer, researcher)
-- Cluster secret for HMAC peer auth
+90 秒的互動式精靈（wizard）。會設定：
+- `~/.phantom-mesh/agents.toml`，並帶一個供應商（provider，由你挑選 ——
+  Anthropic / OpenAI / Groq / OpenRouter / OpenCode / 等等）
+- 預設代理（agent）組合（master、coder、reviewer、researcher）
+- 用於 HMAC（雜湊訊息驗證碼）對等節點驗證的叢集密鑰（cluster secret）
 
-Skip the cluster section if you're solo; you can edit `agents.toml`
-later to add peers.
+若你是單機作業，可跳過叢集區段；之後可再編輯 `agents.toml`
+來加入對等節點（peer）。
 
-### 3. Run as a systemd user unit (so it survives logout)
+### 3. 以 systemd 使用者單元（user unit）執行（這樣登出後仍能存活）
 
-phantom's `service install` writes a systemd `--user` unit:
+phantom 的 `service install` 會寫入一個 systemd `--user` 單元：
 
 ```bash
 phantom service install
 systemctl --user status phantom-serve     # should be active (running)
 ```
 
-The unit lives at `~/.config/systemd/user/phantom-serve.service` and
-runs `phantom serve` with auto-restart on failure. To start on boot
-without an active login session (headless server):
+該單元位於 `~/.config/systemd/user/phantom-serve.service`，並
+執行 `phantom serve`，失敗時會自動重啟。若要在沒有作用中
+登入工作階段的情況下開機自動啟動（無頭伺服器，headless server）：
 
 ```bash
 sudo loginctl enable-linger $USER
 ```
 
-### 4. (Optional) hourly autoevolve
+### 4.（選用）每小時自動演化（autoevolve）
 
 ```bash
 phantom autoevolve schedule install --interval 3600
 systemctl --user status phantom-autoevolve.timer
 ```
 
-The autoevolve timer runs `phantom autoevolve --once` every hour:
-checks cargo for red, dispatches a fix agent if so, commits when green.
+autoevolve 計時器每小時執行一次 `phantom autoevolve --once`：
+檢查 cargo 是否為紅燈（red），若是則派出修復代理（fix agent），綠燈時提交（commit）。
 
-Log at `~/.local/state/phantom-mesh/autoevolve.log` (or
-`~/.phantom-mesh/autoevolve.log` depending on XDG state).
+日誌位於 `~/.local/state/phantom-mesh/autoevolve.log`（或
+`~/.phantom-mesh/autoevolve.log`，視 XDG state 而定）。
 
-### 5. (Optional) cluster
+### 5.（選用）叢集
 
-Edit `~/.phantom-mesh/agents.toml`:
+編輯 `~/.phantom-mesh/agents.toml`：
 
 ```toml
 [cluster]
 node_name      = "linux-1"
 cluster_secret = "<same secret across nodes>"
 peers = [
-  "http://100.87.93.58:7878",      # mac (over Tailscale)
-  "http://100.87.70.65:7879",      # windows-z13
+  "http://<mac-tailscale-ip>:7878",      # mac (over Tailscale)
+  "http://100.64.0.10:7879",      # windows-node-a
 ]
 ```
 
-`tailscale up` first if you haven't already. Then verify reachability:
+若你尚未這麼做，請先執行 `tailscale up`。接著驗證連通性：
 
 ```bash
 curl http://<peer-tailscale-ip>:7878/healthz
@@ -130,22 +130,22 @@ curl http://<peer-tailscale-ip>:7878/healthz
 
 ---
 
-## Verify
+## 驗證
 
-### 1. Quick health check
+### 1. 快速健康檢查
 
 ```bash
 phantom doctor
 ```
 
-`phantom doctor` runs 11 colour-coded sections on Linux
-(binary, config, permissions, provider keys, phantom serve,
-systemd, network, autoevolve, identity, diagnostics, tools).
-Every line should be `✓` green or `⚠` yellow. `⚠` is expected for
-features you haven't opted into (unused provider keys, autoevolve
-not yet run). Red `✗` lines need fixing.
+`phantom doctor` 在 Linux 上會執行 11 個彩色標示的區段
+（binary、config、permissions、provider keys、phantom serve、
+systemd、network、autoevolve、identity、diagnostics、tools）。
+每一行都應該是 `✓` 綠燈或 `⚠` 黃燈。對於你尚未啟用的
+功能（未使用的供應商金鑰、尚未執行的 autoevolve），出現 `⚠` 是預期內的。紅色 `✗`
+的行則需要修正。
 
-**Expected output on a healthy Linux install:**
+**在健康的 Linux 安裝上的預期輸出：**
 
 ```
 phantom doctor 0.4.0
@@ -191,22 +191,22 @@ tools
 done.
 ```
 
-The **⚠ lines to watch for on first install** (normal, not errors):
-- `Anthropic: not in env` — you didn't choose it during onboarding;
-  add `ANTHROPIC_API_KEY` to env or `agents.toml` if needed
-- `autoevolve/history: no runs yet` — expected before first run;
-  fix with `phantom autoevolve --once`
-- `autoevolve/schedule: not scheduled` — normal if you skipped that step
-- `identity: local-only (broker not deployed)` — expected; the broker at
-  phantommesh.io isn't live yet, so login is not yet available
+**首次安裝時需留意的 ⚠ 行**（正常現象，非錯誤）：
+- `Anthropic: not in env` —— 你在 onboarding 期間沒有選它；
+  如有需要，可把 `ANTHROPIC_API_KEY` 加到 env 或 `agents.toml`
+- `autoevolve/history: no runs yet` —— 首次執行前的預期狀況；
+  以 `phantom autoevolve --once` 修正
+- `autoevolve/schedule: not scheduled` —— 若你跳過了該步驟，這是正常的
+- `identity: local-only (broker not deployed)` —— 預期狀況；位於
+  phantommesh.io 的 broker（中介伺服器）尚未上線，因此登入功能尚未可用
 
-**Red ✗ lines that need fixing:**
-- `agents.toml: not found` → run `phantom onboarding`
-- `healthz: unreachable` → run `phantom serve` or `systemctl --user start phantom-serve`
-- `systemd: no unit installed` → run `phantom service install`
+**需要修正的紅色 ✗ 行：**
+- `agents.toml: not found` → 執行 `phantom onboarding`
+- `healthz: unreachable` → 執行 `phantom serve` 或 `systemctl --user start phantom-serve`
+- `systemd: no unit installed` → 執行 `phantom service install`
 - `Tailscale: not in PATH or not connected` → `sudo tailscale up`
 
-For machine-readable output:
+若需要機器可讀（machine-readable）的輸出：
 
 ```bash
 phantom doctor --json | jq '.status'       # "ok" / "warn" / "fail"
@@ -214,16 +214,16 @@ phantom doctor --json | jq '.serve'         # port, running, status
 phantom doctor --json | jq '.autoevolve'   # queue + last run
 ```
 
-### 2. Open the dashboard
+### 2. 開啟儀表板（dashboard）
 
 ```bash
 xdg-open http://127.0.0.1:7878/projects
 ```
 
-Should show 6 project tiles + cluster status bar + recent activity.
-Each [Run Demo] streams output live via SSE.
+應該會顯示 6 個專案方塊 + 叢集狀態列 + 近期活動。
+每個 [Run Demo] 都會透過 SSE（伺服器發送事件，Server-Sent Events）即時串流輸出。
 
-### 3. Feature sweep
+### 3. 功能全面測試（feature sweep）
 
 ```bash
 phantom selftest                # 22+ feature checks
@@ -234,23 +234,23 @@ phantom selftest --p0-only       # critical checks only, ~3 s
 
 ---
 
-## MCP integration with Claude Code
+## 與 Claude Code 的 MCP 整合
 
 ```bash
 claude mcp add phantom $(which phantom) mcp
 ```
 
-After this, Claude Code's tool palette gains `mcp__phantom__*` tools
-(file_read, shell, content_search, git_*, task, subagent, …).
+完成後，Claude Code 的工具面板（tool palette）會新增 `mcp__phantom__*` 工具
+（file_read、shell、content_search、git_*、task、subagent、…）。
 
-Smoke-test:
+煙霧測試（Smoke-test）：
 ```bash
 ./scripts/test-mcp-tools.sh    # 13 checks; expect all pass
 ```
 
 ---
 
-## Updating
+## 更新
 
 ```bash
 cd ~/Documents/phantom-mesh
@@ -261,7 +261,7 @@ systemctl --user restart phantom-serve.service
 
 ---
 
-## Uninstall
+## 解除安裝（Uninstall）
 
 ```bash
 phantom autoevolve schedule uninstall
@@ -273,47 +273,47 @@ cargo uninstall phantom-mesh
 
 ---
 
-## Troubleshooting
+## 疑難排解（Troubleshooting）
 
-### `phantom doctor` quick triage
+### `phantom doctor` 快速分流（triage）
 
-Run `phantom doctor` and look for the failure in this order:
+執行 `phantom doctor`，並依此順序尋找故障：
 
-| `phantom doctor` line | Cause | Fix |
+| `phantom doctor` 行 | 原因 | 修正方式 |
 |---|---|---|
-| `✗ agents.toml: not found` | onboarding not run | `phantom onboarding` |
-| `✗ healthz: unreachable` | serve not running | `phantom serve &` or `systemctl --user start phantom-serve` |
-| `⚠ autoevolve/history: no runs yet` | first run never done | `phantom autoevolve --once` |
-| `⚠ autoevolve/schedule: not scheduled` | schedule not installed | `phantom autoevolve schedule install` |
-| `⚠ Tailscale: not in PATH` | Tailscale not installed | `curl -fsSL https://tailscale.com/install.sh \| sh` |
-| `⚠ Tailscale: not connected` | not logged in | `sudo tailscale up` |
-| `⚠ crash logs: N recorded` | a recent agent run crashed | `phantom debug last` to read the latest |
-| `⚠ identity: local-only` | expected (broker not deployed) | nothing to fix — this is normal |
-| `⚠ events.jsonl: 0 bytes` | expected on first run | nothing to fix — this is normal |
-| `✗ [permissions]: parse error` | syntax in `agents.toml [permissions]` block | check the DSL in docs/PERMISSIONS.md |
+| `✗ agents.toml: not found` | 尚未執行 onboarding | `phantom onboarding` |
+| `✗ healthz: unreachable` | serve 未執行 | `phantom serve &` 或 `systemctl --user start phantom-serve` |
+| `⚠ autoevolve/history: no runs yet` | 從未執行過首次執行 | `phantom autoevolve --once` |
+| `⚠ autoevolve/schedule: not scheduled` | 尚未安裝排程 | `phantom autoevolve schedule install` |
+| `⚠ Tailscale: not in PATH` | 尚未安裝 Tailscale | `curl -fsSL https://tailscale.com/install.sh \| sh` |
+| `⚠ Tailscale: not connected` | 尚未登入 | `sudo tailscale up` |
+| `⚠ crash logs: N recorded` | 近期某次代理執行當機 | `phantom debug last` 讀取最新一筆 |
+| `⚠ identity: local-only` | 預期狀況（broker 尚未部署） | 無需修正 —— 這是正常的 |
+| `⚠ events.jsonl: 0 bytes` | 首次執行時的預期狀況 | 無需修正 —— 這是正常的 |
+| `✗ [permissions]: parse error` | `agents.toml [permissions]` 區塊中的語法問題 | 檢查 docs/PERMISSIONS.md 中的 DSL（領域特定語言） |
 
-### Other shell-level failures
+### 其他 shell 層級的故障
 
-| Symptom | Fix |
+| 症狀 | 修正方式 |
 |---|---|
-| `cargo install` fails on `openssl-sys` | `apt install libssl-dev pkg-config` and retry |
-| `cargo install` fails on `link.exe` not found | You're on WSL — use `cargo build --target x86_64-unknown-linux-gnu` instead |
-| `phantom: command not found` after install | `source ~/.cargo/env` or add `~/.cargo/bin` to PATH |
-| `systemctl --user start phantom-serve` says "Failed to connect to bus" | Not lingered — `sudo loginctl enable-linger $USER` then retry |
-| `phantom autoevolve --once` crashes with no API key | In `agents.toml`, set `api_key_env = "GROQ_API_KEY"` (or your provider), export the env var, retry |
-| Port 7878 already in use | Set `[core] port = 7879` in agents.toml |
-| `phantom doctor` output is garbled (ANSI codes) | Pipe through `cat -v` or `less -R`; terminal may not support colour |
+| `cargo install` 在 `openssl-sys` 失敗 | `apt install libssl-dev pkg-config` 後重試 |
+| `cargo install` 失敗並提示找不到 `link.exe` | 你在 WSL 上 —— 改用 `cargo build --target x86_64-unknown-linux-gnu` |
+| 安裝後出現 `phantom: command not found` | `source ~/.cargo/env` 或把 `~/.cargo/bin` 加到 PATH |
+| `systemctl --user start phantom-serve` 顯示 "Failed to connect to bus" | 未啟用 lingering —— 執行 `sudo loginctl enable-linger $USER` 後重試 |
+| `phantom autoevolve --once` 因無 API 金鑰而當機 | 在 `agents.toml` 中設定 `api_key_env = "GROQ_API_KEY"`（或你的供應商），匯出該環境變數後重試 |
+| 連接埠（port）7878 已被佔用 | 在 agents.toml 中設定 `[core] port = 7879` |
+| `phantom doctor` 輸出亂碼（ANSI 控制碼） | 透過 `cat -v` 或 `less -R` 過濾；終端機可能不支援彩色 |
 
 ---
 
-## Performance baseline (Ubuntu 24.04, AMD EPYC 4 vCPU, 8 GB RAM)
+## 效能基準（Performance baseline，Ubuntu 24.04、AMD EPYC 4 vCPU、8 GB RAM）
 
-| Operation | Time |
+| 操作 | 時間 |
 |---|---|
-| Fresh `cargo install --path .` (first build) | ~5-6 min |
-| Incremental rebuild after 1-file edit | 4-8 s |
-| `phantom doctor` cold | ~1 s |
-| `phantom selftest --p0-only` | ~3 s |
-| `phantom autoevolve --once` (green path) | < 5 s |
-| `phantom mcp` startup → tools/list response | < 200 ms |
-| HTTP `/api/projects` cold | < 50 ms |
+| 全新 `cargo install --path .`（首次建置） | 約 5-6 分鐘 |
+| 編輯 1 個檔案後的增量重建（incremental rebuild） | 4-8 秒 |
+| `phantom doctor` 冷啟動 | 約 1 秒 |
+| `phantom selftest --p0-only` | 約 3 秒 |
+| `phantom autoevolve --once`（綠燈路徑） | < 5 秒 |
+| `phantom mcp` 啟動 → tools/list 回應 | < 200 毫秒 |
+| HTTP `/api/projects` 冷啟動 | < 50 毫秒 |

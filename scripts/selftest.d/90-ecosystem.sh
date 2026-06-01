@@ -18,8 +18,7 @@ _eco_find_satellite() {
   local name="$1" repo="${name#phantom-}"
   local candidates=(
     "$(pwd)/../$name"
-    "$HOME/Documents/GitHub/hailmary/$name"
-    "$HOME/Documents/workspace/hailmary/$name"
+    "$HOME/path/to/$name"
     "$HOME/$name"
   )
   for d in "${candidates[@]}"; do

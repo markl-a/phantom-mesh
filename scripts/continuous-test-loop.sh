@@ -9,7 +9,7 @@
 # Each iteration (mode B and C):
 #   - Checks Mac daemon health + core_sha drift vs HEAD
 #   - Validates /rpc/ping schema (wire_version, agents, worker_caps)
-#   - Detects new commits from other sessions (Z13 / Oracle / iOS / Android)
+#   - Detects new commits from other sessions (node-a / Oracle / iOS / Android)
 #   - Detects peer online state change (Phase 2/3 unlock signal)
 #   - Verifies peer list timeout-safe (≤8s) every 4th round only
 #
@@ -27,7 +27,7 @@
 
 set -u
 
-REPO=/Users/marklight/Documents/workspace/hailmary/phantom-mesh
+REPO="${REPO:-$HOME/path/to/phantom-mesh}"
 DAEMON_URL=http://127.0.0.1:7878
 SECRET=$(grep -E "^\s*cluster_secret\s*=" "$HOME/.phantom-mesh/agents.toml" 2>/dev/null \
   | sed 's/.*= *"//; s/"$//' || echo "")

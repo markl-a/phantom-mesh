@@ -8,7 +8,9 @@
 
 use phantom_mesh::tools::{file, git, memory, search};
 use serde_json::json;
-use tempfile::tempdir;
+
+mod common;
+use common::workspace_tempdir;
 
 // ============================================================================
 // 1. FILE TOOL TESTS
@@ -17,7 +19,7 @@ use tempfile::tempdir;
 /// Write a file to a tempdir and read it back; round-trip must be lossless.
 #[tokio::test]
 async fn test_file_write_and_read() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("roundtrip.txt");
     let path_str = path.to_str().unwrap();
     let content = "Hello, phantom-mesh!\nSecond line.\n";
@@ -44,13 +46,11 @@ async fn test_file_write_and_read() {
 /// Write 100 numbered lines then read back only lines 10-20 via offset+limit.
 #[tokio::test]
 async fn test_file_read_with_offset_limit() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("hundred_lines.txt");
     let path_str = path.to_str().unwrap();
 
-    let content: String = (1..=100)
-        .map(|n| format!("line {}\n", n))
-        .collect();
+    let content: String = (1..=100).map(|n| format!("line {}\n", n)).collect();
 
     file::write(&json!({ "path": path_str, "content": content })).await;
 
@@ -84,7 +84,7 @@ async fn test_file_read_with_offset_limit() {
 /// Write bytes containing a null byte; read should return a binary-detection message.
 #[tokio::test]
 async fn test_file_read_binary_detection() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("binary.bin");
 
     // Write raw bytes including a null — this cannot go through file::write (which
@@ -103,7 +103,7 @@ async fn test_file_read_binary_detection() {
 /// Write a file, edit a unique string, verify the content changed and diff is returned.
 #[tokio::test]
 async fn test_file_edit_success() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("edit_target.txt");
     let path_str = path.to_str().unwrap();
 
@@ -142,7 +142,7 @@ async fn test_file_edit_success() {
 /// Edit a nonexistent string — should return an informative error, not panic.
 #[tokio::test]
 async fn test_file_edit_not_found() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("no_match.txt");
     let path_str = path.to_str().unwrap();
 
@@ -170,12 +170,13 @@ async fn test_file_edit_not_found() {
 /// fail with an error listing the line numbers of each occurrence.
 #[tokio::test]
 async fn test_file_edit_multiple_matches() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("duplicates.txt");
     let path_str = path.to_str().unwrap();
 
     // "DUPLICATE" appears on lines 1, 3, 5.
-    let content = "DUPLICATE here\nsomething else\nDUPLICATE again\nmore stuff\nDUPLICATE once more\n";
+    let content =
+        "DUPLICATE here\nsomething else\nDUPLICATE again\nmore stuff\nDUPLICATE once more\n";
     std::fs::write(&path, content).unwrap();
 
     let result = file::edit(&json!({
@@ -204,7 +205,7 @@ async fn test_file_edit_multiple_matches() {
 /// should find it in the right file.
 #[tokio::test]
 async fn test_content_search_basic() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     std::fs::write(dir.path().join("file_a.txt"), "apple orange banana\n").unwrap();
     std::fs::write(dir.path().join("file_b.txt"), "grapefruit mango kiwi\n").unwrap();
 
@@ -233,7 +234,7 @@ async fn test_content_search_basic() {
 /// Search with context_lines=2; surrounding lines should appear in the output.
 #[tokio::test]
 async fn test_content_search_with_context() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let content = "line one\nline two\nTARGET_UNIQUE_PATTERN\nline four\nline five\n";
     std::fs::write(dir.path().join("ctx_test.txt"), content).unwrap();
 
@@ -258,7 +259,7 @@ async fn test_content_search_with_context() {
 /// Glob for *.rs pattern; should find only .rs files, not others.
 #[tokio::test]
 async fn test_glob_search_basic() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     std::fs::write(dir.path().join("main.rs"), "fn main() {}").unwrap();
     std::fs::write(dir.path().join("lib.rs"), "pub fn lib() {}").unwrap();
     std::fs::write(dir.path().join("notes.txt"), "just notes").unwrap();
@@ -295,7 +296,7 @@ async fn test_glob_search_basic() {
 /// present, so we use a `*` wildcard prefix to make it match anywhere in the tree.
 #[tokio::test]
 async fn test_glob_search_exclude() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
 
     // Create a subdirectory whose files will be excluded.
     let skip_dir = dir.path().join("skip_me");
@@ -433,9 +434,16 @@ async fn test_memory_all() {
     {
         let ns = format!("tmtest4_{}", uuid_suffix());
 
-        memory::store(&json!({ "key": "fruit_a", "value": "I like apples",      "namespace": ns })).await;
-        memory::store(&json!({ "key": "fruit_b", "value": "bananas are great",   "namespace": ns })).await;
-        memory::store(&json!({ "key": "veggie",  "value": "carrots are healthy", "namespace": ns })).await;
+        memory::store(&json!({ "key": "fruit_a", "value": "I like apples",      "namespace": ns }))
+            .await;
+        memory::store(
+            &json!({ "key": "fruit_b", "value": "bananas are great",   "namespace": ns }),
+        )
+        .await;
+        memory::store(
+            &json!({ "key": "veggie",  "value": "carrots are healthy", "namespace": ns }),
+        )
+        .await;
 
         let result = memory::search(&json!({
             "query": "apple",
@@ -469,7 +477,7 @@ async fn test_memory_all() {
 /// Helper: initialise a fresh git repo in a tempdir and return the tempdir.
 /// Configures minimal user identity so commits work even in CI environments.
 async fn init_temp_git_repo() -> tempfile::TempDir {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().to_str().unwrap();
 
     tokio::process::Command::new("git")

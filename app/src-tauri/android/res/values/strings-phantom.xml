@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Phantom Mesh</string>
+    <string name="main_activity_title">Phantom Mesh</string>
+    <!-- SPEC-34 §10E Quick Settings focus tile -->
+    <string name="focus_tile_label">Phantom 焦點</string>
+    <string name="focus_tile_idle_subtitle">點一下開始 25 分鐘</string>
+    <string name="focus_tile_active_subtitle">專注中 · 剩 %1$d 分</string>
+    <!-- SPEC-34 §10E habit-chip palette widget -->
+    <string name="habit_widget_description">一鍵記錄習慣（喝水・起身・深呼吸・記錄）</string>
+</resources>

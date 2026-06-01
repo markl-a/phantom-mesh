@@ -1,0 +1,115 @@
+# SPEC-60 V2 ship-gate — per-spec line-coverage exception list.
+#
+# Spec source: docs/superpowers/specs/v060-deep-spec/SPEC-60-TESTING-strategy.md §8.2
+#              (exit criteria: per-spec line coverage ≥ 80%, exception list lives here)
+# Reader guide: docs/superpowers/v2-coverage-gate.md
+# Plan:         docs/superpowers/PHASE-E-INTEGRATION-TEST-PLAN.md §3.2 (V2 row)
+#
+# Default policy
+# --------------
+# Every leaf-spec Rust module must hit ≥ 80% line coverage (see
+# PHANTOM_V2_COVERAGE_THRESHOLD in ship-gate-coverage.yml). This file lists
+# the *narrow* set of modules that are allowed to drop below the threshold,
+# with a documented reason and an `expires_at` date.
+#
+# Schema (per entry)
+# ------------------
+#   spec_id           : "SPEC-XX" — leaf spec ID from SPEC-00-INDEX.md
+#   path_glob         : glob (relative to repo root) matching the Rust file(s)
+#                       the exception applies to. Matches `**` recursively.
+#                       Empty / non-matching globs are NOT an error — the
+#                       parser logs a `warn:` and ignores the entry so a
+#                       deferred-but-not-yet-created file does not break CI.
+#   coverage_override : permitted floor in percent (integer 0-79). Must be
+#                       strictly < 80, otherwise the entry is redundant.
+#   reason            : one-sentence human-readable justification. Must
+#                       reference *why* the floor cannot meet 80% (unsafe
+#                       FFI / unimplemented Stage-4 helper / external SDK
+#                       shim / ...), not just "low coverage".
+#   expires_at        : ISO-8601 date (YYYY-MM-DD). After this date the
+#                       exception is treated as expired and the gate fails
+#                       again. Force operator to revisit instead of letting
+#                       the list silently rot.
+#
+# Operator workflow when adding a new entry
+# -----------------------------------------
+#   1. First try to write more tests — exceptions are a debt, not a tool.
+#   2. If the module genuinely cannot be tested in-process (e.g. iOS
+#      Objective-C runtime call), open a corresponding bullet in the spec's
+#      §18 Open Question per SPEC-60 §8.2.
+#   3. Add an entry below with `expires_at = today + 60 days` max.
+#   4. Re-run `bash scripts/ship-gate/v2-coverage-local.sh` locally to
+#      confirm the gate now passes.
+#
+# IMPORTANT
+# ---------
+# - This file must be valid YAML (the workflow's yq parser will reject
+#   malformed input — the job fails, not silently passes).
+# - Keep the list short. If it grows past ~10 entries, that is a smell that
+#   the 80% target is wrong or the test strategy is wrong, not that more
+#   exceptions are needed.
+
+# Top-level key MUST be `exceptions` (a list). Empty list = "no exceptions,
+# all specs hit 80%" — that is the goal state.
+
+exceptions:
+  # -------------------------------------------------------------------------
+  # SPEC-12 IDENTITY — native keystore FFI shims (security-framework / JNI)
+  # -------------------------------------------------------------------------
+  # The macOS / iOS / Android arms of `KeystoreBackend` are pure FFI thunks
+  # into Security.framework / Android Keystore. They cannot run inside the
+  # `cargo test` host process on ubuntu-latest, so unit-coverage will always
+  # read 0 for these arms. Real coverage comes from V5 cross-OS smoke (real
+  # device / simulator). Floor = 60% covers the dispatch/error paths that
+  # *do* run on ubuntu (the `FileChmod0600` fallback + error mapping).
+  #
+  # Reference: SPEC-12 §7.3 KeystoreBackend matrix; project memory
+  # `project_v060_stage_state.md` marks 12-keystore native arms as
+  # "Stage 4 deferred to v0.7.0+ (security-framework, jni)".
+  - spec_id: "SPEC-12"
+    path_glob: "core/src/identity_wire.rs"
+    coverage_override: 60
+    reason: "Native keystore FFI (security-framework / android jni) cannot exercise on ubuntu-latest; real coverage comes from V5 cross-OS smoke on real device."
+    expires_at: "2026-07-25"
+
+  # Platform-specific keystore shim files (currently the placeholder
+  # `core/src/platform/ios.rs` + `android.rs` 60-80 LOC). Same FFI reasoning.
+  - spec_id: "SPEC-12"
+    path_glob: "core/src/platform/ios.rs"
+    coverage_override: 50
+    reason: "iOS Objective-C runtime calls (Security.framework) — host-side cargo test cannot exercise; covered by V4/V5 on iOS simulator."
+    expires_at: "2026-07-25"
+
+  - spec_id: "SPEC-12"
+    path_glob: "core/src/platform/android.rs"
+    coverage_override: 50
+    reason: "Android Keystore JNI bridge — host-side cargo test cannot exercise; covered by V4/V5 on Android emulator."
+    expires_at: "2026-07-25"
+
+  # -------------------------------------------------------------------------
+  # SPEC-14 PROVIDERS — 8 secondary provider stubs (unimplemented! in Stage 3)
+  # -------------------------------------------------------------------------
+  # `core/src/providers_wire.rs` currently has Stage 4 real-impl for groq +
+  # anthropic only. The other 8 secondary providers (openai, cerebras,
+  # gemini, cloudflare workers AI, ollama-local, mistral, deepseek, llama-cpp)
+  # are `unimplemented!()` stubs awaiting v0.7.0+. Their bodies cannot be
+  # covered until the stub becomes real — exception expires when Stage 4 of
+  # SPEC-14 closes (target v0.7.0 GA, currently scheduled 2026-08-15).
+  #
+  # Reference: project memory `project_v060_stage_state.md` → "14 provider
+  # — groq + anthropic real, openai + gemini stubs"; grep result confirms
+  # ~8 `unimplemented!(` calls in providers_wire.rs.
+  - spec_id: "SPEC-14"
+    path_glob: "core/src/providers_wire.rs"
+    coverage_override: 65
+    reason: "8 secondary providers (openai/cerebras/gemini/cloudflare/ollama/mistral/deepseek/llamacpp) are unimplemented! stubs deferred to v0.7.0+; only groq + anthropic have Stage 4 impl."
+    expires_at: "2026-08-15"
+
+  # -------------------------------------------------------------------------
+  # NOTE — modules NOT listed here have no exception and must hit ≥ 80%.
+  # -------------------------------------------------------------------------
+  # The 6 other partial-Stage-3 wires from project memory
+  # (SPEC-20/21/23/25/26/27) are wire-types-only — their cargo-llvm-cov
+  # score will be high because there is barely any executable code yet.
+  # If they fail the 80% gate, add an entry here with `expires_at` ≤ 60
+  # days out, then file the matching Stage 4 task.

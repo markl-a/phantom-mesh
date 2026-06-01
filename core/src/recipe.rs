@@ -128,8 +128,7 @@ pub fn compute_sha(goal: &str, plan: &[String], patch: Option<&str>) -> String {
 /// Build a signed Recipe from a body. Loads the user's signing key
 /// from disk; errors if `phantom keys init` hasn't run.
 pub fn sign(body: RecipeBody) -> Result<Recipe> {
-    let canonical = serde_json::to_vec(&body)
-        .context("serialising recipe body for signing")?;
+    let canonical = serde_json::to_vec(&body).context("serialising recipe body for signing")?;
     let signature = crate::identity::sign_hex(&canonical)
         .context("signing recipe — has `phantom keys init` been run?")?;
     let author_pubkey = crate::identity::load_pub_hex()?;
@@ -173,7 +172,9 @@ pub fn load(sha_or_path: &str) -> Result<Recipe> {
 /// decides which CO-EVO Tier the recipe touches. The broker re-runs
 /// this authoritatively; this is just a local hint.
 pub fn classify_patch(patch: Option<&str>) -> &'static str {
-    let Some(p) = patch else { return "extensions_only"; };
+    let Some(p) = patch else {
+        return "extensions_only";
+    };
     // Sensitive paths (per CO-EVOLUTION.md §107 + SPEC-FREEZE-V1 §2):
     let sensitive = [
         "core/src/auth/",
@@ -202,7 +203,11 @@ mod tests {
 
     fn body_for_test() -> RecipeBody {
         RecipeBody {
-            recipe_sha: compute_sha("fix CJK render", &["read tui.rs".into(), "edit display_width".into()], None),
+            recipe_sha: compute_sha(
+                "fix CJK render",
+                &["read tui.rs".into(), "edit display_width".into()],
+                None,
+            ),
             session_id: "sess-1".into(),
             goal: "fix CJK render".into(),
             plan: vec!["read tui.rs".into(), "edit display_width".into()],
@@ -223,10 +228,24 @@ mod tests {
     #[test]
     fn classify_patches_correctly() {
         assert_eq!(classify_patch(None), "extensions_only");
-        assert_eq!(classify_patch(Some("--- a/core/src/keys.rs\n+++ b/core/src/keys.rs\n")), "sensitive_change");
-        assert_eq!(classify_patch(Some("--- a/core/src/agent.rs\n+++ b/core/src/agent.rs\n")), "core_change");
-        assert_eq!(classify_patch(Some("--- a/scripts/build-mac.sh\n+++ b/scripts/build-mac.sh\n")), "scripts_or_tests");
-        assert_eq!(classify_patch(Some("--- a/docs/README.md\n+++ b/docs/README.md\n")), "scripts_or_tests");
+        assert_eq!(
+            classify_patch(Some("--- a/core/src/keys.rs\n+++ b/core/src/keys.rs\n")),
+            "sensitive_change"
+        );
+        assert_eq!(
+            classify_patch(Some("--- a/core/src/agent.rs\n+++ b/core/src/agent.rs\n")),
+            "core_change"
+        );
+        assert_eq!(
+            classify_patch(Some(
+                "--- a/scripts/build-mac.sh\n+++ b/scripts/build-mac.sh\n"
+            )),
+            "scripts_or_tests"
+        );
+        assert_eq!(
+            classify_patch(Some("--- a/docs/README.md\n+++ b/docs/README.md\n")),
+            "scripts_or_tests"
+        );
     }
 
     #[test]
@@ -246,5 +265,58 @@ mod tests {
         assert_eq!(body.goal, deserialised.goal);
         assert_eq!(body.recipe_sha, deserialised.recipe_sha);
         assert_eq!(body.dead_ends.len(), deserialised.dead_ends.len());
+    }
+
+    #[test]
+    fn recipe_envelope_round_trips_pretty() {
+        // Full signed envelope (body + author + sig) survives a
+        // pretty-print -> parse cycle, mirroring how `save`/`load` persist
+        // recipes to disk. Uses placeholder pubkey/sig (no keystore needed).
+        let recipe = Recipe {
+            body: body_for_test(),
+            author_pubkey: "00112233445566778899aabbccddeeff".into(),
+            signature: "deadbeefcafef00d".into(),
+        };
+        let json = serde_json::to_string_pretty(&recipe).unwrap();
+        let parsed: Recipe = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.author_pubkey, recipe.author_pubkey);
+        assert_eq!(parsed.signature, recipe.signature);
+        assert_eq!(parsed.body.goal, recipe.body.goal);
+        assert_eq!(parsed.body.recipe_sha, recipe.body.recipe_sha);
+        assert_eq!(parsed.body.plan, recipe.body.plan);
+        assert_eq!(parsed.body.descriptor.platform, recipe.body.descriptor.platform);
+        assert_eq!(parsed.body.published_at_ms, recipe.body.published_at_ms);
+    }
+
+    #[test]
+    fn journey_entry_round_trips() {
+        let body = RecipeBody {
+            journey: vec![JourneyEntry {
+                node: "node-a".into(),
+                ts_ms: 1777700001000,
+                note: "handed off mid-evolve".into(),
+            }],
+            ..body_for_test()
+        };
+        let json = serde_json::to_string(&body).unwrap();
+        let parsed: RecipeBody = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.journey.len(), 1);
+        assert_eq!(parsed.journey[0].node, "node-a");
+        assert_eq!(parsed.journey[0].ts_ms, 1777700001000);
+        assert_eq!(parsed.journey[0].note, "handed off mid-evolve");
+    }
+
+    #[test]
+    fn parse_rejects_invalid_json() {
+        // Not valid JSON at all.
+        assert!(serde_json::from_str::<Recipe>("{ not json ]").is_err());
+        // Valid JSON but missing every required field of the envelope.
+        assert!(serde_json::from_str::<Recipe>("{}").is_err());
+        // Has a body but is missing `author_pubkey` and `signature`.
+        let body_only = format!(
+            "{{\"body\":{}}}",
+            serde_json::to_string(&body_for_test()).unwrap()
+        );
+        assert!(serde_json::from_str::<Recipe>(&body_only).is_err());
     }
 }

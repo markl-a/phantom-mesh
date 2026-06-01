@@ -22,8 +22,14 @@ use std::io::{IsTerminal, Write};
 const NON_TTY_MSG: &str = "[ask_user unavailable: not running interactively]";
 
 pub async fn ask(args: &Value) -> String {
-    let question = args.get("question").and_then(|v| v.as_str()).unwrap_or("(no question)");
-    let default  = args.get("default").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let question = args
+        .get("question")
+        .and_then(|v| v.as_str())
+        .unwrap_or("(no question)");
+    let default = args
+        .get("default")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Only prompt when stdin is a real terminal — otherwise we'd hang
     // forever waiting on EOF.
@@ -33,10 +39,10 @@ pub async fn ask(args: &Value) -> String {
 
     // Render the prompt. Use ANSI manually here (this tool isn't tied to
     // bin/phantom.rs's `colored()` helper).
-    let dim    = "\x1b[2m";
+    let dim = "\x1b[2m";
     let yellow = "\x1b[33m";
-    let cyan   = "\x1b[36m";
-    let reset  = "\x1b[0m";
+    let cyan = "\x1b[36m";
+    let reset = "\x1b[0m";
 
     eprintln!();
     eprintln!("  {}{}{} agent asks:", yellow, "⌘", reset);

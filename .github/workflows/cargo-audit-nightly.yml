@@ -1,0 +1,33 @@
+name: cargo-audit-nightly
+on:
+  schedule:
+    - cron: '0 3 * * *'  # 03:00 UTC daily
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable   # pin a known toolchain before `cargo install` (don't rely on the runner image's default)
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit
+      - name: Run audit on core
+        id: audit-core
+        run: |
+          cd core && cargo audit --json > ../audit-core.json || echo "FAILED" > ../audit-core.failed
+      - name: Run audit on pm-types
+        run: cd crates/pm-types && cargo audit --json > ../../audit-pm-types.json || echo "FAILED" >> ../../audit-pm-types.failed
+      - name: Run audit on app/src-tauri
+        # app/src-tauri/Cargo.lock holds the only `rsa` transitive (via jsonwebtoken
+        # OAuth path); RUSTSEC-2023-0071 lives here, not in core/. See
+        # docs/superpowers/security/RUSTSEC-2023-0071-rsa-marvin-mitigation.md.
+        run: cd app/src-tauri && cargo audit --json > ../../audit-app-src-tauri.json || echo "FAILED" >> ../../audit-app-src-tauri.failed
+      - name: File issue on advisory
+        if: hashFiles('audit-core.failed') != '' || hashFiles('audit-pm-types.failed') != '' || hashFiles('audit-app-src-tauri.failed') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "[cargo-audit] nightly run found advisories" --body "Run details: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --label "security,cargo-audit"

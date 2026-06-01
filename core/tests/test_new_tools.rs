@@ -1,24 +1,35 @@
+use phantom_mesh::project_context;
+use phantom_mesh::providers::traits::ChatMessage;
+use phantom_mesh::session::ConversationStore;
 /// Integration tests for improvements added by parallel agents A3, A4, A5, A7, A8, A10.
 ///
 /// Tests that exercise APIs not yet in main are marked `#[ignore]` with a comment
 /// explaining which agent adds the feature. Remove `#[ignore]` once the relevant
 /// agent's branch is merged and all assertions compile and pass.
 use phantom_mesh::tools::{file, shell};
-use phantom_mesh::project_context;
-use phantom_mesh::session::ConversationStore;
-use phantom_mesh::providers::traits::ChatMessage;
 use serde_json::json;
 use tempfile::tempdir;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 fn user_msg(content: &str) -> ChatMessage {
-    ChatMessage { role: "user".into(), content: content.into(), tool_calls: None }
+    ChatMessage {
+        role: "user".into(),
+        content: content.into(),
+        tool_calls: None,
+    }
 }
 
 fn asst_msg(content: &str) -> ChatMessage {
-    ChatMessage { role: "assistant".into(), content: content.into(), tool_calls: None }
+    ChatMessage {
+        role: "assistant".into(),
+        content: content.into(),
+        tool_calls: None,
+    }
 }
+
+mod common;
+use common::workspace_tempdir;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // A3 — file_edit: replace_all, better errors, line range read, show_line_numbers
@@ -27,7 +38,7 @@ fn asst_msg(content: &str) -> ChatMessage {
 /// A3: file_edit with replace_all=true replaces every occurrence.
 #[tokio::test]
 async fn test_file_edit_replace_all() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("replace_all.txt");
     let path_str = path.to_str().unwrap();
 
@@ -63,7 +74,7 @@ async fn test_file_edit_replace_all() {
 /// A3: editing a file where old_string is not present returns an error containing "not found".
 #[tokio::test]
 async fn test_file_edit_not_found_error() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("no_match.txt");
     let path_str = path.to_str().unwrap();
 
@@ -86,7 +97,7 @@ async fn test_file_edit_not_found_error() {
 /// that mentions the count.
 #[tokio::test]
 async fn test_file_edit_ambiguous_error() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("ambiguous.txt");
     let path_str = path.to_str().unwrap();
 
@@ -109,7 +120,7 @@ async fn test_file_edit_ambiguous_error() {
 /// A3: reading a file with start_line / end_line returns only the requested range.
 #[tokio::test]
 async fn test_file_read_line_range() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("twenty_lines.txt");
     let path_str = path.to_str().unwrap();
 
@@ -152,7 +163,7 @@ async fn test_file_read_line_range() {
 /// A3: reading a file with show_line_numbers=true prefixes each line with its number.
 #[tokio::test]
 async fn test_file_read_show_line_numbers() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let path = dir.path().join("numbered.txt");
     let path_str = path.to_str().unwrap();
 
@@ -255,7 +266,9 @@ async fn test_session_auto_title() {
 
     store.auto_title("title-chat", long_message).await;
 
-    let title = store.get_title("title-chat").await
+    let title = store
+        .get_title("title-chat")
+        .await
         .expect("expected a title to be stored by auto_title");
 
     assert!(
@@ -263,7 +276,10 @@ async fn test_session_auto_title() {
         "auto_title should store at most 60 chars, got {} chars: {title:?}",
         title.len()
     );
-    assert!(!title.is_empty(), "auto_title should store a non-empty title");
+    assert!(
+        !title.is_empty(),
+        "auto_title should store a non-empty title"
+    );
 }
 
 /// A7: session_info returns a SessionInfo struct whose message_count equals the number
@@ -273,14 +289,17 @@ async fn test_session_info() {
     let dir = tempdir().unwrap();
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
-    store.append("info-chat", user_msg("first"), asst_msg("reply1")).await;
-    store.append("info-chat", user_msg("second"), asst_msg("reply2")).await;
+    store
+        .append("info-chat", user_msg("first"), asst_msg("reply1"))
+        .await;
+    store
+        .append("info-chat", user_msg("second"), asst_msg("reply2"))
+        .await;
 
     let info = store.session_info("info-chat").await;
 
     assert_eq!(
-        info.message_count,
-        4,
+        info.message_count, 4,
         "expected 4 messages (2 user + 2 asst), got {}",
         info.message_count
     );
@@ -305,7 +324,10 @@ async fn test_session_delete() {
     );
 
     let deleted = store.delete("delete-chat").await;
-    assert!(deleted, "delete() should return true when the session existed");
+    assert!(
+        deleted,
+        "delete() should return true when the session existed"
+    );
 
     let after = store.list().await;
     assert!(
@@ -350,7 +372,11 @@ async fn test_load_project_config_walk_up() {
     std::fs::create_dir_all(&child_dir).unwrap();
 
     // Place PHANTOM.md only in the parent.
-    std::fs::write(parent_dir.path().join("PHANTOM.md"), "parent project context").unwrap();
+    std::fs::write(
+        parent_dir.path().join("PHANTOM.md"),
+        "parent project context",
+    )
+    .unwrap();
 
     // Call from the child dir (no PHANTOM.md there).
     let result: Option<String> = project_context::load_project_context(&child_dir).await;
@@ -464,19 +490,34 @@ async fn test_memory_list_delete_search() {
     memory::store(&json!({"key": "list_key_b", "value": "value_b"})).await;
 
     let list_result = memory::list(&json!({})).await;
-    assert!(list_result.contains("list_key_a"), "expected 'list_key_a' in list, got: {list_result}");
-    assert!(list_result.contains("list_key_b"), "expected 'list_key_b' in list, got: {list_result}");
+    assert!(
+        list_result.contains("list_key_a"),
+        "expected 'list_key_a' in list, got: {list_result}"
+    );
+    assert!(
+        list_result.contains("list_key_b"),
+        "expected 'list_key_b' in list, got: {list_result}"
+    );
 
     // ── delete ────────────────────────────────────────────────────────────
     memory::store(&json!({"key": "delete_me", "value": "temporary"})).await;
     let before = memory::recall(&json!({"key": "delete_me"})).await;
-    assert!(before.contains("temporary"), "expected value before deletion, got: {before}");
+    assert!(
+        before.contains("temporary"),
+        "expected value before deletion, got: {before}"
+    );
 
     let del_result = memory::delete(&json!({"key": "delete_me"})).await;
-    assert!(!del_result.starts_with("Error"), "expected successful deletion, got: {del_result}");
+    assert!(
+        !del_result.starts_with("Error"),
+        "expected successful deletion, got: {del_result}"
+    );
 
     let after = memory::recall(&json!({"key": "delete_me"})).await;
-    assert!(!after.contains("temporary"), "expected key absent after deletion, got: {after}");
+    assert!(
+        !after.contains("temporary"),
+        "expected key absent after deletion, got: {after}"
+    );
 
     // ── search ────────────────────────────────────────────────────────────
     memory::store(&json!({"key": "search_needle_key", "value": "some_value"})).await;
@@ -488,7 +529,8 @@ async fn test_memory_list_delete_search() {
     std::env::remove_var("PHANTOM_MEMORY_FILE");
 
     assert!(
-        search_result.contains("search_needle_key") || search_result.contains("search_needle_in_value"),
+        search_result.contains("search_needle_key")
+            || search_result.contains("search_needle_in_value"),
         "expected search_needle entries in search results, got: {search_result}"
     );
 }

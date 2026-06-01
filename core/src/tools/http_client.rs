@@ -1,4 +1,7 @@
-use reqwest::{header::{HeaderMap, HeaderName, HeaderValue}, ClientBuilder};
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    ClientBuilder,
+};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -12,10 +15,9 @@ fn build_header_map(headers: Option<&serde_json::Value>) -> HeaderMap {
                 serde_json::Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            if let (Ok(name), Ok(value)) = (
-                HeaderName::from_str(k),
-                HeaderValue::from_str(&val_str),
-            ) {
+            if let (Ok(name), Ok(value)) =
+                (HeaderName::from_str(k), HeaderValue::from_str(&val_str))
+            {
                 map.insert(name, value);
             }
         }
@@ -23,7 +25,11 @@ fn build_header_map(headers: Option<&serde_json::Value>) -> HeaderMap {
     map
 }
 
-fn format_response(status: reqwest::StatusCode, headers: &reqwest::header::HeaderMap, body: &str) -> String {
+fn format_response(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: &str,
+) -> String {
     let content_type = headers
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -40,7 +46,11 @@ fn format_response(status: reqwest::StatusCode, headers: &reqwest::header::Heade
         body.to_string()
     };
 
-    let mut out = format!("HTTP {} {}\n", status.as_u16(), status.canonical_reason().unwrap_or(""));
+    let mut out = format!(
+        "HTTP {} {}\n",
+        status.as_u16(),
+        status.canonical_reason().unwrap_or("")
+    );
     if !content_type.is_empty() {
         out.push_str(&format!("Content-Type: {}\n", content_type));
     }
@@ -54,7 +64,15 @@ pub async fn get(args: &serde_json::Value) -> String {
         Some(u) => u.to_string(),
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
-    let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(30);
+    // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
+    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    if let Err(e) = crate::tools::urlguard::validate_url(&url) {
+        return format!("ERROR: {}", e);
+    }
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30);
     let extra_headers = args.get("headers");
 
     let client = match ClientBuilder::new()
@@ -101,7 +119,15 @@ pub async fn post(args: &serde_json::Value) -> String {
         Some(u) => u.to_string(),
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
-    let timeout_secs = args.get("timeout_secs").and_then(|v| v.as_u64()).unwrap_or(30);
+    // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
+    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    if let Err(e) = crate::tools::urlguard::validate_url(&url) {
+        return format!("ERROR: {}", e);
+    }
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(30);
     let extra_headers = args.get("headers");
     let body_json = args.get("body");
     let body_text = args.get("body_text").and_then(|v| v.as_str());

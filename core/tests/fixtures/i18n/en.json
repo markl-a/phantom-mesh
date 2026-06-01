@@ -1,0 +1,12 @@
+{
+  "chat.send_button": "Send",
+  "chat.placeholder": "Type a message…",
+  "coach.greeting": "Hi {name}, how are you feeling today?",
+  "coach.daily_diff": "{count} more meals today than yesterday",
+  "coach.streak": "You have logged for {days} days straight",
+  "settings.title": "Settings",
+  "settings.locale_label": "Display language",
+  "error.network": "Network unavailable, please try again later",
+  "error.auth_failed": "Sign-in failed: {reason}",
+  "onboarding.welcome": "Welcome to phantom-mesh"
+}

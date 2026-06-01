@@ -1,16 +1,15 @@
-# phantom-test — black-box scenario harness
+# phantom-test — 黑箱情境測試框架（black-box scenario harness）
 
-A bash-based test harness that drives the **already-running phantom** through
-its public surfaces (CLI, HTTP/RPC, on-disk state) and asserts behavior. No
-cargo build required — exists alongside the in-tree `cargo test` suite, not
-instead of it.
+一個以 bash 為基礎的測試框架（harness），透過**已在執行中的 phantom** 的
+公開介面（CLI、HTTP/RPC、磁碟上狀態）來驅動它並斷言（assert）其行為。不需要
+cargo build — 它與原始碼樹內的 `cargo test` 測試套件並存，而非取代它。
 
-The two layers are complementary:
+這兩層是互補的：
 
-| Layer | Lives in | Verifies | Reset between runs |
+| 層級 | 位於 | 驗證 | 各次執行間是否重置 |
 |---|---|---|---|
-| `cargo test` (e.g. `tui_render_tests`) | `core/src/**/*.rs` | Code-level invariants, render paths, parser state | Each test fresh |
-| `phantom-test` (this dir) | `scripts/phantom-test/` | Wire protocol, on-disk state, CLI surface, real LLM/RPC roundtrips | Side effects accumulate (events.jsonl grows, etc.) — by design |
+| `cargo test`（例如 `tui_render_tests`） | `core/src/**/*.rs` | 程式碼層級的不變量（invariant）、渲染路徑、剖析器（parser）狀態 | 每個測試都是全新的 |
+| `phantom-test`（此目錄） | `scripts/phantom-test/` | 傳輸協定（wire protocol）、磁碟上狀態、CLI 介面、真實 LLM/RPC 往返 | 副作用會累積（events.jsonl 會增長等）— 此為刻意設計 |
 
 ## Quick start
 
@@ -32,30 +31,29 @@ scripts/phantom-test/harness.sh --retry-failed
 PHANTOM_TEST_RETRY_COOLDOWN_S=60 scripts/phantom-test/harness.sh --retry-failed
 ```
 
-Exit code is 0 if every scenario passed, 1 if any failed, 2 if no scenarios
-matched the filter. Skipped scenarios (exit 77 — usually missing dependency,
-e.g. PowerShell on a Linux host) don't count as failures. Scenarios that
-fail first-try but pass on retry are reported as `PASS-RETRY` in the
-summary so reviewers can see which scenarios needed a second go.
+若每個情境都通過，離開碼（exit code）為 0；任一失敗為 1；若沒有任何情境
+符合篩選條件則為 2。被略過的情境（exit 77 — 通常是缺少相依套件，例如在
+Linux 主機上缺 PowerShell）不算失敗。第一次嘗試失敗但重試後通過的情境，會在
+摘要中標記為 `PASS-RETRY`，讓審查者能看出哪些情境需要跑第二次。
 
 ## Required environment
 
-| Var | Default | Purpose |
+| 變數 | 預設值 | 用途 |
 |---|---|---|
-| `PHANTOM_BIN` | `phantom` | Binary on PATH, or absolute path |
-| `PHANTOM_HOST` | `127.0.0.1` | serve host |
-| `PHANTOM_PORT` | `7879` | serve port (matches `[core].port` in agents.toml) |
-| `PHANTOM_CLUSTER_SECRET` | `phantom-cluster-2026` | for HMAC RPC |
-| `PHANTOM_CONFIG_DIR` | `~/.phantom-mesh` | where DBs / events.jsonl live |
-| `OPENCODE_API_KEY` (or any LLM provider key) | — | needed for scenarios that exercise real LLM calls (06) |
+| `PHANTOM_BIN` | `phantom` | PATH 上的執行檔，或絕對路徑 |
+| `PHANTOM_HOST` | `127.0.0.1` | serve 主機 |
+| `PHANTOM_PORT` | `7879` | serve 連接埠（對應 agents.toml 中的 `[core].port`） |
+| `PHANTOM_CLUSTER_SECRET` | `changeme-cluster-secret` | 供 HMAC RPC 使用 |
+| `PHANTOM_CONFIG_DIR` | `~/.phantom-mesh` | DB / events.jsonl 所在位置 |
+| `OPENCODE_API_KEY`（或任一 LLM 供應商金鑰） | — | 會實際呼叫 LLM 的情境（06）所需 |
 
-For scenario 07 (no-key graceful fail), the harness explicitly `env -u`s
-all common LLM key vars, so its check works regardless of your shell env.
+對於情境 07（no-key graceful fail，無金鑰時優雅失敗），框架會明確以 `env -u`
+清除所有常見的 LLM 金鑰變數，因此不論你的 shell 環境為何，這項檢查都能運作。
 
 ## Scenarios
 
-Each `.sh` file in `scenarios/` is a self-contained scenario. The current
-suite (16 scenarios, ~290 s total wall time on a Z13):
+`scenarios/` 中的每個 `.sh` 檔都是一個獨立完整的情境。目前的測試套件
+（16 個情境，在一台 node-a 上總計約 290 秒 wall time）：
 
 ```
 01-doctor-baseline.sh                phantom doctor structural checks
@@ -85,7 +83,7 @@ suite (16 scenarios, ~290 s total wall time on a Z13):
                                        (60s timeout catches McAfee/Defender hangs)
 ```
 
-## Adding a new scenario
+## Adding a new scenario（新增情境）
 
 ```bash
 cat > scripts/phantom-test/scenarios/11-my-new-thing.sh <<'EOF'
@@ -108,10 +106,10 @@ EOF
 chmod +x scripts/phantom-test/scenarios/11-my-new-thing.sh
 ```
 
-The runner discovers scenarios by glob — no central registry to update.
-Use a `NN-` numeric prefix so the order in `--list` is stable.
+執行器（runner）以 glob（萬用字元比對）來探索情境 — 沒有需要更新的中央
+登錄表。請使用 `NN-` 數字前綴，讓 `--list` 中的順序保持穩定。
 
-### Assertions available (`lib/common.sh`)
+### Assertions available（可用的斷言）（`lib/common.sh`）
 
 ```
 ASSERT_EQ <a> <b> [label]                  exact string equality
@@ -121,7 +119,7 @@ ASSERT_HTTP <url> <expected_code> [label]  GET, expect HTTP code
 ASSERT_FILE_GREW <path> <prev_size> [label] file is bigger than before
 ```
 
-### RPC helpers (`lib/cluster-rpc.sh`)
+### RPC helpers（RPC 輔助函式）（`lib/cluster-rpc.sh`）
 
 ```
 rpc_url                                     -> http://host:port
@@ -134,7 +132,7 @@ rpc_error <job_id>                          -> error string or empty
 rpc_wait_done <job_id> <max_seconds>        -> 0 done / 1 failed / 2 timeout
 ```
 
-### State inspectors (`lib/inspect.sh`)
+### State inspectors（狀態檢查器）（`lib/inspect.sh`）
 
 ```
 events_count                                # lines in events.jsonl
@@ -148,16 +146,16 @@ doctor_summary                              # `phantom doctor` ANSI-stripped
 now_ms                                      # current epoch ms
 ```
 
-### Mock LLM server (`lib/mock-llm-server.py` + `lib/mock.sh`)
+### Mock LLM server（模擬 LLM 伺服器）（`lib/mock-llm-server.py` + `lib/mock.sh`）
 
-A standalone Python HTTP server that implements just enough of the
-OpenAI-compatible API for phantom to think it's talking to a real LLM:
+一個獨立的 Python HTTP 伺服器，僅實作 OpenAI 相容 API 中剛好足夠的部分，
+讓 phantom 以為自己正在與真實的 LLM 對話：
 
-- `GET  /v1/models`              — returns scripted model list
-- `POST /v1/chat/completions`    — returns scripted reply (streaming or not)
-- `GET  /healthz`                — for liveness checks
+- `GET  /v1/models`              — 回傳腳本化（scripted）的模型清單
+- `POST /v1/chat/completions`    — 回傳腳本化的回覆（串流或非串流）
+- `GET  /healthz`                — 供存活性（liveness）檢查使用
 
-Scripted responses live in `fixtures/mock-responses.toml`:
+腳本化的回應放在 `fixtures/mock-responses.toml`：
 
 ```toml
 [[response]]
@@ -173,7 +171,7 @@ delay_ms = 50                  # optional simulated latency
 text = "MOCK: no scripted response matched"
 ```
 
-Wire it in from a scenario via `lib/mock.sh`:
+透過 `lib/mock.sh` 在情境中將它接上：
 
 ```bash
 source "$PHANTOM_TEST_LIB/mock.sh"
@@ -185,22 +183,22 @@ out=$(cd "$agents_dir" && phantom repl --agent master -c "ping")
 ASSERT_CONTAINS "$out" "pong" "ping → pong"
 ```
 
-`mock_temp_agents_dir` writes a temp `./agents.toml` that wires `[providers.mock]`
-to `http://127.0.0.1:11999/v1`. phantom prefers a cwd-local `agents.toml`
-over `$HOME/.phantom-mesh/agents.toml` (per the precedence note in the
-project's `agents.toml.example`), so `cd $agents_dir && phantom …` runs
-deterministic without touching the user's real config.
+`mock_temp_agents_dir` 會寫出一個暫時的 `./agents.toml`，把 `[providers.mock]`
+接到 `http://127.0.0.1:11999/v1`。phantom 會優先採用 cwd（目前工作目錄）內的
+`agents.toml`，而非 `$HOME/.phantom-mesh/agents.toml`（依專案
+`agents.toml.example` 中的優先序說明），因此 `cd $agents_dir && phantom …`
+能以決定性（deterministic）方式執行，且不會碰到使用者的真實設定檔。
 
-Stdlib-only Python (uses `tomllib` on 3.11+, falls back to a 25-line inline
-TOML reader on older Pythons). No `pip install` required.
+僅用標準函式庫的 Python（在 3.11+ 上使用 `tomllib`，在較舊的 Python 上則退回
+一個 25 行的內嵌 TOML 讀取器）。不需要 `pip install`。
 
-Why this instead of `[providers.mock]` baked into the binary?
-- **Zero Rust changes** — works today regardless of build state
-- **No new public surface in phantom** — the binary stays narrowly scoped
-- **Easy to evolve scripted-response semantics** — fixture format can grow
-  (tool-call mocking, multi-turn state machines) without touching core/
+為何採用這種方式，而不是把 `[providers.mock]` 直接編進二進位執行檔？
+- **零 Rust 變更** — 不論建置狀態如何，今天就能運作
+- **不在 phantom 中新增公開介面** — 讓二進位執行檔維持窄小的範圍
+- **容易演進腳本化回應的語意** — fixture（測試固定資料）格式可以擴充
+  （工具呼叫模擬、多輪狀態機）而不必動到 core/
 
-### TUI snapshot (`lib/snapshot.ps1`, Windows-only)
+### TUI snapshot（TUI 快照）（`lib/snapshot.ps1`，僅限 Windows）
 
 ```powershell
 # Full virtual desktop (all monitors)
@@ -210,52 +208,50 @@ powershell -ExecutionPolicy Bypass -File lib/snapshot.ps1
 powershell -ExecutionPolicy Bypass -File lib/snapshot.ps1 -Window "phantom"
 ```
 
-Output: prints PNG path on stdout, saves to `~/.phantom-mesh/snapshots/`.
+輸出：在 stdout 印出 PNG 路徑，並存檔到 `~/.phantom-mesh/snapshots/`。
 
-## Limitations & roadmap
+## Limitations & roadmap（限制與藍圖）
 
-What this harness CANNOT do today (and what would fix it):
+這個框架今天還做不到的事（以及該如何修補）：
 
-| Gap | Fix |
+| 缺口 | 修補方式 |
 |---|---|
-| Inject keystrokes into a running TUI | needs a `phantom tui --headless --script keys.txt` mode in core (deferred — requires Rust changes) |
-| Headless TUI buffer dump (without screen capture) | needs `phantom tui render --state fixture.json --output snap.txt` subcommand (planned) |
-| ~~Deterministic LLM (no real API call)~~ | ✅ shipped: see "Mock LLM server" above |
-| Linux/macOS TUI snapshot | port `snapshot.ps1` to `xdotool` / `screencapture` (mechanical) |
-| Concurrent / load testing | wrap dispatch helpers in xargs / GNU parallel (cookbook recipe, not a feature) |
-| Tool-call mocking | extend `lib/mock-llm-server.py` to emit OpenAI tool_calls deltas based on a fixture entry |
+| 將鍵盤輸入注入執行中的 TUI | 需要在 core 中加入 `phantom tui --headless --script keys.txt` 模式（已延後 — 需要 Rust 變更） |
+| 無頭式（headless）TUI 緩衝區傾印（不靠螢幕擷取） | 需要 `phantom tui render --state fixture.json --output snap.txt` 子命令（已規劃） |
+| ~~決定性 LLM（無真實 API 呼叫）~~ | ✅ 已交付：見上文「Mock LLM server」 |
+| Linux/macOS 的 TUI 快照 | 將 `snapshot.ps1` 移植到 `xdotool` / `screencapture`（機械式作業） |
+| 並行 / 負載測試 | 用 xargs / GNU parallel 包裝 dispatch 輔助函式（食譜式作法，非內建功能） |
+| 工具呼叫模擬 | 擴充 `lib/mock-llm-server.py`，依 fixture 條目發出 OpenAI tool_calls 增量（deltas） |
 
-Each gap is filed as a follow-up; the framework is structured so adding any
-of them is additive (new lib/ helper + new scenarios), not invasive.
+每個缺口都已記錄為後續工作（follow-up）；框架的結構設計使得新增任一項都是
+增量式的（新增 lib/ 輔助函式 + 新增情境），而非侵入式的。
 
-## Why bash, not Rust integration tests?
+## Why bash, not Rust integration tests?（為何用 bash，而非 Rust 整合測試？）
 
-- **Verifies the wire protocol, not the abstract function call** — exercises
-  the real HMAC, the real serve binary, the real conversation persistence.
-  A `cargo test` in core/ that constructs an `AgentRuntime` directly will
-  miss serializer bugs, header-name typos, or service-startup-order issues.
-- **Drives a cross-language surface** — the same scenario can equally well
-  hit a phantom serve running on Linux/Mac/Android. The harness only needs
-  bash + curl + python3 + openssl, all of which exist on every dev machine
-  in this repo's matrix.
-- **No build required** — works on machines where `cargo build` is broken
-  (e.g. Z13 with McAfee real-time scan stomping `.rmeta` writes), which is
-  exactly when you most need a regression check.
-- **Survives major refactors** — internal types / function signatures can
-  change freely; as long as the CLI args, RPC payload, and on-disk format
-  stay stable, scenarios continue to pass.
+- **驗證的是傳輸協定，而非抽象的函式呼叫** — 它演練真實的 HMAC、真實的
+  serve 二進位執行檔、真實的對話持久化。在 core/ 中直接建構 `AgentRuntime`
+  的 `cargo test` 會漏掉序列化器（serializer）錯誤、標頭名稱（header-name）
+  拼字錯誤，或服務啟動順序的問題。
+- **驅動跨語言介面** — 同一個情境同樣可以打到在 Linux/Mac/Android 上執行的
+  phantom serve。這個框架只需要 bash + curl + python3 + openssl，而這些在本
+  repo 矩陣中的每一台開發機器上都有。
+- **不需建置** — 可在 `cargo build` 壞掉的機器上運作（例如 node-a 上 McAfee
+  即時掃描踩踏 `.rmeta` 寫入），而那正是你最需要做回歸檢查的時候。
+- **能撐過大型重構** — 內部型別 / 函式簽章可以自由變更；只要 CLI 參數、
+  RPC 酬載（payload）與磁碟上格式維持穩定，情境就會持續通過。
 
-## When to add a `cargo test` instead
+## When to add a `cargo test` instead（何時改用 `cargo test`）
 
-Use a code-level test (in `core/src/**/*.rs` under `#[cfg(test)]`) when:
+在以下情況使用程式碼層級的測試（位於 `core/src/**/*.rs` 中、標記
+`#[cfg(test)]`）：
 
-- the assertion is about an internal data structure or pure function
-- the test should run in CI without network or running serve
-- failure should block compilation, not happen at runtime
+- 斷言的對象是內部資料結構或純函式（pure function）
+- 該測試應能在 CI 中於無網路、無執行中 serve 的情況下執行
+- 失敗應該擋下編譯，而非在執行期才發生
 
-Use a `phantom-test` scenario when:
+在以下情況使用 `phantom-test` 情境：
 
-- the assertion is about end-to-end behavior across process boundaries
-- the test exercises persistence, networking, or CLI ergonomics
-- you want to catch regressions in shipping behavior even when the code
-  inside hasn't changed (e.g. dependency upgrade silently broke wire format)
+- 斷言的對象是跨行程邊界（process boundaries）的端對端行為
+- 該測試會演練持久化、網路，或 CLI 的使用體驗
+- 你想抓出已上線行為的回歸，即使內部程式碼並未變更（例如相依套件升級悄悄
+  破壞了傳輸格式）

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { Routes, Route, NavLink, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { listen } from "@tauri-apps/api/event";
 import {
   MessageSquare, LayoutDashboard, Target,
-  Globe, FileText, Settings, Menu, X, LogOut,
+  Globe, FileText, Settings, Menu, X, LogOut, Mic, ListChecks, Utensils, History, CalendarDays, Search,
 } from "lucide-react";
 import OnboardingQuickStart, { clearSession } from "./components/onboarding/OnboardingQuickStart";
 import StartupCheck from "./components/StartupCheck";
@@ -15,17 +16,39 @@ import Browser from "./pages/Browser";
 import PageViewer from "./pages/PageViewer";
 import SettingsPage from "./pages/Settings";
 import Terminal from "./pages/Terminal";
+import FocusPage from "./components/focus/FocusPage";
+import FocusStartSheet from "./screens/macos/FocusStartSheet";
+import HabitPage from "./screens/macos/HabitPage";
+import FoodCapturePanel from "./components/food/FoodCapturePanel";
+import EventTimeline from "./screens/macos/EventTimeline";
+import CoachReviewReader from "./screens/macos/CoachReviewReader";
+import RecallSearch from "./screens/macos/RecallSearch";
 
 import { useIsMobile } from "./hooks/useIsMobile";
 import MobileShell from "./components/mobile/MobileShell";
 import MobileConversation from "./components/mobile/MobileConversation";
-import MobileDashboard from "./components/mobile/MobileDashboard";
+import MobileDispatch from "./components/mobile/MobileDispatch";
+import MobileHistory from "./components/mobile/MobileHistory";
 import MobileSettings from "./components/mobile/MobileSettings";
 import MobileOnboardingV2 from "./components/mobile/MobileOnboardingV2";
+import MobileFirstLaunch from "./components/mobile/MobileFirstLaunch";
+import MobileJoinCluster from "./components/mobile/MobileJoinCluster";
+import MobileMesh from "./components/mobile/MobileMesh";
+
+type FirstLaunchStage =
+  | { kind: "pick" }
+  | { kind: "join"; discovered?: { host: string; port: number; url: string } }
+  | { kind: "broker" };
 
 const PRIMARY_NAV = [
   { path: "/",          icon: MessageSquare,   label: "對話" },
   { path: "/dashboard", icon: LayoutDashboard, label: "儀表板" },
+  { path: "/focus",     icon: Mic,             label: "專注" },
+  { path: "/habit",     icon: ListChecks,      label: "習慣" },
+  { path: "/food",      icon: Utensils,        label: "飲食" },
+  { path: "/timeline",  icon: History,         label: "時間軸" },
+  { path: "/review",    icon: CalendarDays,    label: "回顧" },
+  { path: "/recall",    icon: Search,          label: "回想" },
   { path: "/settings",  icon: Settings,        label: "設定" },
 ];
 
@@ -51,6 +74,23 @@ export default function App() {
       if (raw) setUserInfo(JSON.parse(raw));
     } catch { /* ignore */ }
   }, [onboarded]);
+
+  // SPEC-41 F2/F3 — the Rust global-shortcut handler (Cmd+Shift+H / Cmd+Shift+F)
+  // emits these events; route them to the chip quick-log / focus-start screens.
+  // In web/browser mode `listen` rejects (no Tauri IPC) → harmless no-op.
+  const navigate = useNavigate();
+  useEffect(() => {
+    const subs = [
+      listen("shortcut://chip", () => navigate("/habit")),
+      listen("shortcut://focus", () => navigate("/focus/start")),
+      listen("shortcut://review", () => navigate("/review")),
+      // SPEC-41 S1 menu-bar "開啟設定…" item.
+      listen("tray://settings", () => navigate("/settings")),
+    ];
+    return () => {
+      subs.forEach((p) => p.then((un) => un()).catch(() => {}));
+    };
+  }, [navigate]);
 
   const handleLogout = () => {
     clearSession();
@@ -93,37 +133,7 @@ export default function App() {
 
   // ─── Mobile branch: minimal 3-tab shell ──────────────────────────────────
   if (isMobile) {
-    // First-launch onboarding gate. MobileOnboardingV2 checks AuthState
-    // on mount: if a valid broker_token is already saved, it immediately
-    // calls onReady() and we drop straight into chat. Otherwise the user
-    // sees a single big "登入 phantommesh.io" button that drives the full
-    // OAuth → vault sync chain before letting them into the app.
-    const ONBOARDED_LOCAL = "phantom_mesh_v2_onboarded";
-    const onboardedV2 = localStorage.getItem(ONBOARDED_LOCAL) === "true";
-    if (!onboardedV2) {
-      return (
-        <MobileOnboardingV2
-          onReady={() => {
-            try { localStorage.setItem(ONBOARDED_LOCAL, "true"); } catch (_e) {/* ignore */}
-            // Force re-render of App.
-            window.location.reload();
-          }}
-        />
-      );
-    }
-
-    return (
-      <Routes>
-        <Route element={<MobileShell onLogout={userInfo ? handleLogout : undefined} />}>
-          <Route path="/"           element={<MobileConversation />} />
-          <Route path="/dashboard"  element={<MobileDashboard />} />
-          <Route path="/settings"   element={<MobileSettings />} />
-          <Route path="/settings/*" element={<MobileSettings />} />
-          {/* Anything else → home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    );
+    return <MobileApp onLogout={userInfo ? handleLogout : undefined} />;
   }
 
   const renderNavLink = (item: typeof PRIMARY_NAV[0]) => (
@@ -223,6 +233,13 @@ export default function App() {
         <Routes>
           <Route path="/"           element={<Conversation />} />
           <Route path="/dashboard"  element={<Dashboard />} />
+          <Route path="/focus"      element={<FocusPage />} />
+          <Route path="/focus/start" element={<FocusStartRoute />} />
+          <Route path="/habit"      element={<HabitPage />} />
+          <Route path="/food"       element={<FoodCapturePanel />} />
+          <Route path="/timeline"   element={<EventTimeline />} />
+          <Route path="/review"     element={<CoachReviewReader />} />
+          <Route path="/recall"     element={<RecallSearch />} />
           <Route path="/goals"      element={<Goals />} />
           <Route path="/browser"    element={<Browser />} />
           <Route path="/pages"      element={<PageViewer />} />
@@ -247,3 +264,110 @@ export default function App() {
     </div>
   );
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// MobileApp — first-launch picker + the 3-tab shell. Kept in this file (vs
+// its own component) because App.tsx already owns the cross-platform
+// branching and there's no other consumer.
+//
+// Onboarding state machine (lives in localStorage so a refresh / cold-start
+// resumes wherever the user left off):
+//   key `phantom_mesh_v2_onboarded` ∈ {undefined,"true"}
+//   key `phantom_mesh_v2_onboarded_mode` ∈ {"demo","join","broker"}
+// ───────────────────────────────────────────────────────────────────────────
+function MobileApp({ onLogout }: { onLogout?: () => void }) {
+  const [onboardedV2, setOnboardedV2] = useState(
+    () => localStorage.getItem("phantom_mesh_v2_onboarded") === "true"
+  );
+  const [stage, setStage] = useState<FirstLaunchStage>({ kind: "pick" });
+
+  const markDone = (mode: "demo" | "join" | "broker") => {
+    try {
+      localStorage.setItem("phantom_mesh_v2_onboarded", "true");
+      localStorage.setItem("phantom_mesh_v2_onboarded_mode", mode);
+    } catch (_e) { /* localStorage might be restricted */ }
+    setOnboardedV2(true);
+  };
+
+  if (!onboardedV2) {
+    if (stage.kind === "pick") {
+      return (
+        <MobileFirstLaunch
+          onPickedDemo={() => {
+            // TODO Phase 2: bundle Cerebras key + write to clusterModeStore as
+            // a special "demo://cerebras" pseudo-coordinator (clusterDispatch
+            // detects that scheme and goes direct). For Phase 1 we just mark
+            // onboarded and drop into chat — user gets a clear empty-state
+            // until they configure a real provider.
+            markDone("demo");
+          }}
+          onPickedJoin={(discovered) => setStage({ kind: "join", discovered })}
+          onPickedSignIn={() => setStage({ kind: "broker" })}
+        />
+      );
+    }
+    if (stage.kind === "join") {
+      return (
+        <MobileJoinCluster
+          discovered={stage.discovered}
+          onDone={() => markDone("join")}
+          onCancel={() => setStage({ kind: "pick" })}
+        />
+      );
+    }
+    if (stage.kind === "broker") {
+      return (
+        <MobileOnboardingV2
+          onReady={() => markDone("broker")}
+        />
+      );
+    }
+  }
+
+  return (
+    <Routes>
+      <Route element={<MobileShell onLogout={onLogout} />}>
+        <Route path="/"           element={<MobileConversation />} />
+        <Route path="/focus"      element={<FocusPage />} />
+        <Route path="/cluster"    element={<MobileMesh />} />
+        <Route path="/dispatch"   element={<MobileDispatch />} />
+        <Route path="/history"    element={<MobileHistory />} />
+        <Route
+          path="/review"
+          element={
+            // CoachReviewReader is a desktop component with no scroll container
+            // of its own (desktop gets it from the outer <main>). MobileShell's
+            // <main> is overflow-hidden, so wrap it here to scroll + clear the
+            // bottom tab bar via the safe-area inset.
+            <div
+              className="h-full overflow-y-auto p-4"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}
+            >
+              <CoachReviewReader />
+            </div>
+          }
+        />
+        <Route path="/settings"   element={<MobileSettings />} />
+        <Route path="/settings/*" element={<MobileSettings />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+// SPEC-41 §10.4 focus start sheet — interim route surface. The native
+// Cmd+Shift+F trigger (SPEC-40 menubar.rs) is deferred; until then the sheet
+// is reachable at /focus/start, rendered centered on a dimmed backdrop.
+function FocusStartRoute() {
+  const navigate = useNavigate();
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <FocusStartSheet
+        onStart={() => navigate("/focus")}
+        onCancel={() => navigate("/focus")}
+      />
+    </div>
+  );
+}
+
+// (Habit logging now lives in the /habit HabitPage, which embeds ChipPopover.)

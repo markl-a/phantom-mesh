@@ -1,10 +1,10 @@
+use phantom_mesh::cost::CostTracker;
+use phantom_mesh::scaffold;
 /// Phase-3 integration tests.
 ///
 /// Tests that depend on features not yet implemented are marked `#[ignore]`
 /// with a comment describing which feature is needed.
 use phantom_mesh::tools::{fetch, fs as phantom_fs, git};
-use phantom_mesh::cost::CostTracker;
-use phantom_mesh::scaffold;
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::net::TcpListener;
@@ -41,9 +41,7 @@ async fn start_http_mock(body: &'static str, content_type: &'static str) -> Stri
     let addr = listener.local_addr().expect("local addr");
 
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("mock server error");
+        axum::serve(listener, app).await.expect("mock server error");
     });
 
     format!("http://127.0.0.1:{}", addr.port())
@@ -56,6 +54,9 @@ fn fresh_tracker(dir: &tempfile::TempDir) -> CostTracker {
     CostTracker::new()
 }
 
+mod common;
+use common::workspace_tempdir;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. File tools — list_dir
 // ═══════════════════════════════════════════════════════════════════════════
@@ -63,7 +64,7 @@ fn fresh_tracker(dir: &tempfile::TempDir) -> CostTracker {
 /// list_dir on a temp dir with 3 files — all three names appear in the output.
 #[tokio::test]
 async fn test_file_list_directory() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     for name in &["alpha.txt", "beta.txt", "gamma.txt"] {
         std::fs::write(dir.path().join(name), "content").unwrap();
     }
@@ -88,7 +89,7 @@ async fn test_file_list_directory() {
 /// should appear before plain files when the name sorts first.
 #[tokio::test]
 async fn test_file_list_sorts_dirs_first() {
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     // Subdirectory name starts with 'a' so it sorts before files starting with 'b'/'c'.
     std::fs::create_dir(dir.path().join("aaa_subdir")).unwrap();
     std::fs::write(dir.path().join("bbb_file.txt"), "x").unwrap();
@@ -108,8 +109,12 @@ async fn test_file_list_sorts_dirs_first() {
 
     // Because list_dir sorts all entries alphabetically, "aaa_subdir" (dir)
     // comes before "bbb_file.txt" (file) in the output string.
-    let pos_dir = result.find("aaa_subdir").expect("aaa_subdir should be in output");
-    let pos_file = result.find("bbb_file.txt").expect("bbb_file.txt should be in output");
+    let pos_dir = result
+        .find("aaa_subdir")
+        .expect("aaa_subdir should be in output");
+    let pos_file = result
+        .find("bbb_file.txt")
+        .expect("bbb_file.txt should be in output");
     assert!(
         pos_dir < pos_file,
         "directory 'aaa_subdir' should appear before 'bbb_file.txt' in sorted output"
@@ -130,32 +135,33 @@ async fn test_file_delete_requires_approval() {
     let _g = env_lock().lock().await;
     std::env::remove_var("PHANTOM_AUTO_APPROVE");
 
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let file = dir.path().join("to_delete.txt");
     std::fs::write(&file, "data").unwrap();
 
-    let result =
-        phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
+    let result = phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
 
     assert!(
         result.contains("APPROVAL_REQUIRED"),
         "expected APPROVAL_REQUIRED without env var, got: {result}"
     );
-    assert!(file.exists(), "file should not have been deleted without approval");
+    assert!(
+        file.exists(),
+        "file should not have been deleted without approval"
+    );
 }
 
 #[tokio::test]
 async fn test_file_delete_with_approval() {
     let _g = env_lock().lock().await;
 
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let file = dir.path().join("should_delete.txt");
     std::fs::write(&file, "data").unwrap();
     assert!(file.exists(), "pre-condition: file must exist");
 
     std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
-    let result =
-        phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
+    let result = phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
     std::env::remove_var("PHANTOM_AUTO_APPROVE");
 
     assert!(
@@ -175,7 +181,7 @@ async fn test_file_rename_requires_approval() {
     let _g = env_lock().lock().await;
     std::env::remove_var("PHANTOM_AUTO_APPROVE");
 
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let src = dir.path().join("old_name.txt");
     std::fs::write(&src, "data").unwrap();
 
@@ -197,7 +203,7 @@ async fn test_file_rename_with_approval() {
     let _g = env_lock().lock().await;
     std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
 
-    let dir = tempdir().unwrap();
+    let dir = workspace_tempdir();
     let src = dir.path().join("before.txt");
     let dst = dir.path().join("after.txt");
     std::fs::write(&src, "data").unwrap();
@@ -252,7 +258,9 @@ async fn test_shell_bg_returns_pid() {
             assert!(check.success(), "process PID={pid} should be running");
 
             // Clean up: kill the background sleep.
-            let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+            let _ = std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .status();
         }
     }
 }
@@ -300,11 +308,8 @@ async fn test_shell_check_bg_running() {
 /// allow-lists or we expose an internal extraction helper.
 #[tokio::test]
 async fn test_fetch_url_extracts_text() {
-    let base_url = start_http_mock(
-        "<html><body><p>Hello World</p></body></html>",
-        "text/html",
-    )
-    .await;
+    let base_url =
+        start_http_mock("<html><body><p>Hello World</p></body></html>", "text/html").await;
     let url = format!("{}/", base_url);
 
     std::env::set_var("PHANTOM_FETCH_ALLOW_LOCAL", "1");
@@ -455,7 +460,10 @@ async fn test_cost_session_reset() {
     assert!(total_before > 0.0, "total_usd should be > 0 before reset");
 
     let session_before = tracker.session_cost().await;
-    assert!(session_before > 0.0, "session_cost should be > 0 before reset");
+    assert!(
+        session_before > 0.0,
+        "session_cost should be > 0 before reset"
+    );
 
     tracker.reset_session().await;
 
@@ -511,8 +519,13 @@ async fn test_cost_by_model_breakdown() {
     );
 
     // Sanity check: each model's cost should be positive.
-    let sonnet_cost = by_model["claude-sonnet-4-6"]["cost_usd"].as_f64().unwrap_or(0.0);
+    let sonnet_cost = by_model["claude-sonnet-4-6"]["cost_usd"]
+        .as_f64()
+        .unwrap_or(0.0);
     let gpt_cost = by_model["gpt-4.1"]["cost_usd"].as_f64().unwrap_or(0.0);
-    assert!(sonnet_cost > 0.0, "claude-sonnet-4-6 cost should be > 0, got {sonnet_cost}");
+    assert!(
+        sonnet_cost > 0.0,
+        "claude-sonnet-4-6 cost should be > 0, got {sonnet_cost}"
+    );
     assert!(gpt_cost > 0.0, "gpt-4.1 cost should be > 0, got {gpt_cost}");
 }

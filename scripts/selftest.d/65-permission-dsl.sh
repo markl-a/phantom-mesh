@@ -45,11 +45,14 @@ selftest_run() {
   out="$SELFTEST_ARTIFACTS/perm-empty.txt"
   HOME="$td" "$PHANTOM" doctor > "$out" 2>&1
   T_ARTIFACT="$out"
-  T_REPRO="HOME=$td $PHANTOM doctor 2>&1 | grep 'allow all'"
-  if grep -q "no rules → allow all" "$out"; then
+  # Locale-robust: doctor's [permissions] line is i18n'd — en "no rules → allow
+  # all", zh-TW "未設定規則 → 全部允許". Match either so this passes on the zh-TW
+  # canary Mac (LANG=zh_TW) as well as English CI (z13).
+  T_REPRO="HOME=$td $PHANTOM doctor 2>&1 | grep -E 'allow all|全部允許'"
+  if grep -qE "no rules → allow all|全部允許" "$out"; then
     t_pass "empty permissions → allow-all message" ""
   else
-    t_fail "empty permissions → allow-all message" "missing 'no rules → allow all'"
+    t_fail "empty permissions → allow-all message" "missing 'allow all' / '全部允許'"
   fi
   rm -rf "$td"
 

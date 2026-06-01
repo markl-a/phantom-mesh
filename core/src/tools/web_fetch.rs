@@ -24,9 +24,25 @@ fn html_to_text(html: &str) -> String {
 
     // 2. Replace block-level closing tags with newlines so paragraphs survive.
     let block_closes = [
-        "</p>", "</div>", "</section>", "</article>", "</header>", "</footer>",
-        "</li>", "</ul>", "</ol>", "</tr>", "</table>", "</h1>", "</h2>",
-        "</h3>", "</h4>", "</h5>", "</h6>", "</blockquote>", "</pre>",
+        "</p>",
+        "</div>",
+        "</section>",
+        "</article>",
+        "</header>",
+        "</footer>",
+        "</li>",
+        "</ul>",
+        "</ol>",
+        "</tr>",
+        "</table>",
+        "</h1>",
+        "</h2>",
+        "</h3>",
+        "</h4>",
+        "</h5>",
+        "</h6>",
+        "</blockquote>",
+        "</pre>",
     ];
     for close in &block_closes {
         s = s.replace(close, "\n");
@@ -124,9 +140,7 @@ fn decode_entities(s: &str) -> String {
                             .ok()
                             .and_then(char::from_u32)
                     }
-                    e if e.starts_with('#') => {
-                        e[1..].parse::<u32>().ok().and_then(char::from_u32)
-                    }
+                    e if e.starts_with('#') => e[1..].parse::<u32>().ok().and_then(char::from_u32),
                     _ => None,
                 };
                 if let Some(c) = replaced {
@@ -189,6 +203,11 @@ pub async fn fetch(args: &Value) -> String {
         Some(u) => u.to_string(),
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
+    // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
+    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    if let Err(e) = crate::tools::urlguard::validate_url(&url) {
+        return format!("ERROR: {}", e);
+    }
     let max_chars = args
         .get("max_chars")
         .and_then(|v| v.as_u64())

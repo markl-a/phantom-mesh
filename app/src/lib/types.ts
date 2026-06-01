@@ -69,6 +69,17 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   tool_calls?: ToolCall[];
+  /**
+   * Optional provider slug (e.g. `groq`, `anthropic`) — populated when the
+   * message was produced by the SPEC-14 providers wire. Used by MessageList /
+   * MobileConversation to render a small attribution label on the AI bubble.
+   */
+  provider?: string;
+  /**
+   * Optional model id actually used by the provider (after fallback). Pairs
+   * with `provider` for the attribution label.
+   */
+  model?: string;
 }
 
 export interface AgentEvent {

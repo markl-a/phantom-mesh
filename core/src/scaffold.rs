@@ -1,3 +1,21 @@
+//! Project scaffolding and templating for `phantom init`.
+//!
+//! This module inspects a target project directory and synthesizes a
+//! `PHANTOM.md` context file describing the project to downstream agents.
+//! It performs lightweight, dependency-free heuristics — no external parsers
+//! are pulled in — to keep the scaffolding path cheap and self-contained:
+//!
+//! - [`detect_project_type`] — classify the project (Rust / Node.js / Python /
+//!   Go / Unknown) from well-known manifest files.
+//! - [`generate_phantom_md`] / [`generate_phantom_md_async`] — assemble the
+//!   full `PHANTOM.md` template from project metadata, key files, directory
+//!   layout, build/test commands, and a README excerpt.
+//!
+//! All functions are read-only with respect to the target directory; callers
+//! are responsible for writing any generated content to disk. The private
+//! helpers in this module cover manifest parsing (minimal TOML/JSON field
+//! extraction), source-file discovery, and per-language command selection.
+
 /// Detects the project type at `cwd` by checking for well-known manifest files.
 ///
 /// Returns one of: `"Rust"`, `"Node.js"`, `"Python"`, `"Go"`, `"Unknown"`.
@@ -48,7 +66,11 @@ pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
     let dirs_bullet = if key_dirs.is_empty() {
         "- (none found)".to_string()
     } else {
-        key_dirs.iter().map(|d| format!("- {}/", d)).collect::<Vec<_>>().join("\n")
+        key_dirs
+            .iter()
+            .map(|d| format!("- {}/", d))
+            .collect::<Vec<_>>()
+            .join("\n")
     };
 
     // ── 4. Key source files (up to 30) ────────────────────────────────────
@@ -87,7 +109,12 @@ pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
 
     // ── 8. Existing docs ──────────────────────────────────────────────────
     let mut existing_docs: Vec<String> = Vec::new();
-    for doc in &["README.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "CHANGELOG.md"] {
+    for doc in &[
+        "README.md",
+        "ARCHITECTURE.md",
+        "CONTRIBUTING.md",
+        "CHANGELOG.md",
+    ] {
         if cwd.join(doc).exists() {
             existing_docs.push(format!("- `{}`", doc));
         }
@@ -188,28 +215,35 @@ pub async fn generate_phantom_md_async(cwd: &std::path::Path) -> String {
 
 /// Extracts `(name, description)` from the relevant manifest, falling back to
 /// the directory name / a placeholder string.
-fn extract_name_and_description(
-    cwd: &std::path::Path,
-    project_type: &str,
-) -> (String, String) {
-    use std::fs;
-
+fn extract_name_and_description(cwd: &std::path::Path, project_type: &str) -> (String, String) {
     let fallback_name = cwd
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "unknown".to_string());
 
+    // Best-effort manifest read: warn on read error so misclassification is
+    // traceable, but continue with empty content (fallback name/desc apply).
+    fn read_manifest(path: std::path::PathBuf) -> String {
+        match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), "scaffold: manifest read failed, using fallback: {}", e);
+                String::new()
+            }
+        }
+    }
+
     match project_type {
         "Rust" => {
-            let content = fs::read_to_string(cwd.join("Cargo.toml")).unwrap_or_default();
-            let name = extract_toml_field(&content, "name")
-                .unwrap_or_else(|| fallback_name.clone());
+            let content = read_manifest(cwd.join("Cargo.toml"));
+            let name =
+                extract_toml_field(&content, "name").unwrap_or_else(|| fallback_name.clone());
             let desc = extract_toml_field(&content, "description")
                 .unwrap_or_else(|| "TODO: Add project description".to_string());
             (name, desc)
         }
         "Node.js" => {
-            let content = fs::read_to_string(cwd.join("package.json")).unwrap_or_default();
+            let content = read_manifest(cwd.join("package.json"));
             let name = extract_json_string_field(&content, "name")
                 .unwrap_or_else(|| fallback_name.clone());
             let desc = extract_json_string_field(&content, "description")
@@ -219,9 +253,9 @@ fn extract_name_and_description(
         "Python" => {
             let pyproject = cwd.join("pyproject.toml");
             if pyproject.exists() {
-                let content = fs::read_to_string(&pyproject).unwrap_or_default();
-                let name = extract_toml_field(&content, "name")
-                    .unwrap_or_else(|| fallback_name.clone());
+                let content = read_manifest(pyproject);
+                let name =
+                    extract_toml_field(&content, "name").unwrap_or_else(|| fallback_name.clone());
                 let desc = extract_toml_field(&content, "description")
                     .unwrap_or_else(|| "TODO: Add project description".to_string());
                 return (name, desc);
@@ -229,7 +263,7 @@ fn extract_name_and_description(
             (fallback_name, "TODO: Add project description".to_string())
         }
         "Go" => {
-            let content = fs::read_to_string(cwd.join("go.mod")).unwrap_or_default();
+            let content = read_manifest(cwd.join("go.mod"));
             // First line of go.mod is typically: `module <name>`
             let name = content
                 .lines()
@@ -250,25 +284,25 @@ fn collect_key_files(cwd: &std::path::Path, max: usize) -> Vec<(String, &'static
 
     // Well-known entry points and their labels.
     let known: &[(&str, &str)] = &[
-        ("src/main.rs",     "binary entry point"),
-        ("src/lib.rs",      "library root"),
-        ("src/bin",         "additional binaries"),
-        ("main.go",         "Go entry point"),
-        ("cmd/main.go",     "Go entry point"),
-        ("index.ts",        "TypeScript entry point"),
-        ("index.js",        "JavaScript entry point"),
-        ("src/index.ts",    "TypeScript entry point"),
-        ("src/index.js",    "JavaScript entry point"),
-        ("main.py",         "Python entry point"),
-        ("app.py",          "Python app entry"),
-        ("pyproject.toml",  "Python project manifest"),
-        ("Cargo.toml",      "Rust workspace/crate manifest"),
-        ("package.json",    "Node.js package manifest"),
-        ("go.mod",          "Go module manifest"),
-        ("tsconfig.json",   "TypeScript configuration"),
-        ("tests",           "test directory"),
-        ("__tests__",       "JavaScript test directory"),
-        ("spec",            "spec/test directory"),
+        ("src/main.rs", "binary entry point"),
+        ("src/lib.rs", "library root"),
+        ("src/bin", "additional binaries"),
+        ("main.go", "Go entry point"),
+        ("cmd/main.go", "Go entry point"),
+        ("index.ts", "TypeScript entry point"),
+        ("index.js", "JavaScript entry point"),
+        ("src/index.ts", "TypeScript entry point"),
+        ("src/index.js", "JavaScript entry point"),
+        ("main.py", "Python entry point"),
+        ("app.py", "Python app entry"),
+        ("pyproject.toml", "Python project manifest"),
+        ("Cargo.toml", "Rust workspace/crate manifest"),
+        ("package.json", "Node.js package manifest"),
+        ("go.mod", "Go module manifest"),
+        ("tsconfig.json", "TypeScript configuration"),
+        ("tests", "test directory"),
+        ("__tests__", "JavaScript test directory"),
+        ("spec", "spec/test directory"),
         ("ARCHITECTURE.md", "architecture docs"),
     ];
 
@@ -331,7 +365,11 @@ fn detect_primary_language(
 
     let search_dir = {
         let src = cwd.join("src");
-        if src.is_dir() { src } else { cwd.to_path_buf() }
+        if src.is_dir() {
+            src
+        } else {
+            cwd.to_path_buf()
+        }
     };
 
     let mut counts: HashMap<String, usize> = HashMap::new();
@@ -339,7 +377,9 @@ fn detect_primary_language(
         for entry in entries.flatten() {
             if entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
                 if let Some(ext) = entry.path().extension() {
-                    *counts.entry(ext.to_string_lossy().into_owned()).or_insert(0) += 1;
+                    *counts
+                        .entry(ext.to_string_lossy().into_owned())
+                        .or_insert(0) += 1;
                 }
             }
         }
@@ -351,18 +391,18 @@ fn detect_primary_language(
         .map(|(k, _)| k.as_str())
     {
         match top_ext {
-            "rs"   => "Rust",
+            "rs" => "Rust",
             "ts" | "tsx" => "TypeScript",
             "js" | "jsx" | "mjs" | "cjs" => "JavaScript",
-            "py"   => "Python",
-            "go"   => "Go",
+            "py" => "Python",
+            "go" => "Go",
             "java" => "Java",
             "cpp" | "cc" | "cxx" => "C++",
-            "c"    => "C",
-            "rb"   => "Ruby",
+            "c" => "C",
+            "rb" => "Ruby",
             "swift" => "Swift",
-            "kt"   => "Kotlin",
-            _      => "",
+            "kt" => "Kotlin",
+            _ => "",
         }
     } else {
         ""
@@ -370,11 +410,11 @@ fn detect_primary_language(
 
     let label = if label.is_empty() {
         match project_type {
-            "Rust"    => "Rust",
+            "Rust" => "Rust",
             "Node.js" => "JavaScript/TypeScript",
-            "Python"  => "Python",
-            "Go"      => "Go",
-            _         => "Unknown",
+            "Python" => "Python",
+            "Go" => "Go",
+            _ => "Unknown",
         }
     } else {
         label
@@ -384,10 +424,7 @@ fn detect_primary_language(
 }
 
 /// Returns `(build_command, test_command, check_command)` based on project type.
-fn build_test_commands(
-    cwd: &std::path::Path,
-    project_type: &str,
-) -> (String, String, String) {
+fn build_test_commands(cwd: &std::path::Path, project_type: &str) -> (String, String, String) {
     use std::fs;
 
     match project_type {
@@ -397,10 +434,24 @@ fn build_test_commands(
             "cargo check".to_string(),
         ),
         "Node.js" => {
-            let content = fs::read_to_string(cwd.join("package.json")).unwrap_or_default();
-            let build = if content.contains("\"build\"") { "npm run build" } else { "npm install" };
-            let test  = "npm test"; // both arms of a prior if/else were "npm test" — collapsed.
-            let check = if content.contains("\"lint\"")  { "npm run lint" } else { "npx tsc --noEmit" };
+            let content = match fs::read_to_string(cwd.join("package.json")) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!("scaffold: package.json read failed for build-script detection, using defaults: {}", e);
+                    String::new()
+                }
+            };
+            let build = if content.contains("\"build\"") {
+                "npm run build"
+            } else {
+                "npm install"
+            };
+            let test = "npm test"; // both arms of a prior if/else were "npm test" — collapsed.
+            let check = if content.contains("\"lint\"") {
+                "npm run lint"
+            } else {
+                "npx tsc --noEmit"
+            };
             (build.to_string(), test.to_string(), check.to_string())
         }
         "Python" => (
@@ -591,8 +642,14 @@ mod tests {
         fs::write(path.join("go.mod"), "module example.com/myapp\n\ngo 1.21\n").unwrap();
 
         let md = generate_phantom_md(&path);
-        assert!(md.contains("example.com/myapp"), "should contain module name");
-        assert!(md.contains("go build ./..."), "should contain build command");
+        assert!(
+            md.contains("example.com/myapp"),
+            "should contain module name"
+        );
+        assert!(
+            md.contains("go build ./..."),
+            "should contain build command"
+        );
         assert!(md.contains("go test ./..."), "should contain test command");
         assert!(md.contains("Go"), "should mention Go");
     }
@@ -611,7 +668,10 @@ mod tests {
         let long = "x".repeat(600);
         fs::write(path.join("README.md"), &long).unwrap();
         let md = generate_phantom_md(&path);
-        assert!(md.contains('…'), "long README should be truncated with ellipsis");
+        assert!(
+            md.contains('…'),
+            "long README should be truncated with ellipsis"
+        );
     }
 
     #[test]
@@ -619,8 +679,14 @@ mod tests {
         let (_dir, path) = tmp_dir();
         let md = generate_phantom_md(&path);
         assert!(md.contains("# Project:"), "should have project header");
-        assert!(md.contains("TODO: Add project description"), "should have placeholder description");
-        assert!(md.contains("Unknown"), "should mention Unknown project type");
+        assert!(
+            md.contains("TODO: Add project description"),
+            "should have placeholder description"
+        );
+        assert!(
+            md.contains("Unknown"),
+            "should mention Unknown project type"
+        );
     }
 
     #[tokio::test]
@@ -633,7 +699,10 @@ mod tests {
         .unwrap();
 
         let md = generate_phantom_md_async(&path).await;
-        assert!(md.contains("async-crate"), "async wrapper should produce same output");
+        assert!(
+            md.contains("async-crate"),
+            "async wrapper should produce same output"
+        );
         assert!(md.contains("Rust"));
     }
 

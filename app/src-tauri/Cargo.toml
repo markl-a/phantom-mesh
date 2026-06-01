@@ -1,7 +1,8 @@
 [package]
 name = "phantom-mesh-app"
-version = "0.4.0"
+version = "0.6.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
 
 [[bin]]
 name = "phantom-mesh-app"
@@ -13,6 +14,13 @@ crate-type = ["staticlib", "cdylib", "lib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+cc = "1"
+
+[features]
+# Opt-in toolchain for the native-window WKWebView E2E. NOT default → the
+# webdriver-automation plugin code/dep stays entirely out of normal + release
+# builds. Enable only for the E2E binary: `cargo build --features e2e-webdriver`.
+e2e-webdriver = ["dep:tauri-plugin-webdriver-automation"]
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
@@ -21,6 +29,21 @@ tauri-plugin-notification = "2"
 tauri-plugin-store = "2"
 tauri-plugin-process = "2"
 tauri-plugin-deep-link = "2"
+tauri-plugin-http = "2"
+# tauri-plugin-opener: cross-platform external-URL opener. On iOS it uses native
+# UIApplication.openURL: — the `open` crate's subprocess approach fails in the iOS
+# sandbox, which made open_external_url fall back to in-webview navigation, so
+# Google rejected the OAuth flow (disallowed_useragent). Opens Safari instead; the
+# broker OAuth callback returns via the phantom://oauth/callback deep-link.
+tauri-plugin-opener = "2"
+# E2E only: in-app W3C WebDriver server for native-window (WKWebView) automation
+# on macOS, where no system WKWebView WebDriver exists. OPTIONAL + behind the
+# `e2e-webdriver` feature so the crate is NOT in the default dependency graph and
+# never reaches a release/shipping build (codex review F1). Build the E2E binary
+# with `cargo build --features e2e-webdriver`. Driven by the `tauri-wd` CLI
+# (cargo install tauri-webdriver-automation) on port 4444.
+tauri-plugin-webdriver-automation = { version = "0.1.3", optional = true }
+mdns-sd = "0.11"
 phantom-mesh = { path = "../../core", features = ["desktop"] }
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
@@ -38,18 +61,37 @@ jsonwebtoken = "9"
 base64 = "0.22"
 tiny_http = "0.12"
 sha2 = "0.10"
+hex = "0.4"
 open = "5"
 urlencoding = "2"
 rand = "0.8"
+subtle = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.39", features = ["bundled"] }
 toml = "1.1.0"
+# F105 (E002 §"Settings screen" extend) edits ~/.phantom-mesh/agents.toml in
+# place. toml_edit preserves comments + key ordering, which the plain `toml`
+# crate's value→re-serialize path would lose. Workspace already uses 0.22 in
+# phantom-mesh core::cli_config — kept the same major to avoid a duplicate
+# transitive build.
+toml_edit = "0.22"
 tracing-appender = "0.2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"  # SPEC-41 F2/F3: Cmd+Shift+H chip log / Cmd+Shift+F focus start
 
 [target.'cfg(target_os = "android")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
+# SPEC-34 §9 MIUI guide Stage 2 — JNI startActivity bridge to open the MIUI
+# 自啟動 / battery-optimization Settings screens (commands/miui.rs). jni +
+# ndk-context are already pinned in Cargo.lock (transitive via the tao /
+# android-activity stack that also populates ndk_context::android_context()),
+# so this adds no new dependency resolution. Android-only — desktop / iOS use
+# the no-op stubs in commands/miui.rs.
+jni = "0.21"
+ndk-context = "0.1"
+# openssl = { version = "0.10", features = ["vendored"] }
+# Removed 2026-05-18: openssl wasn't used in source on Android; vendored build needed
+# a Unix-style Perl with full modules that Windows lacks. reqwest uses rustls-tls.

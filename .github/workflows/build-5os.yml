@@ -1,0 +1,201 @@
+name: Build 5 OS
+
+# 5-platform build matrix — mac (arm64 + x86_64) / linux / windows / ios-sim / android.
+# Each job produces a downloadable artifact; the final `release` job (main only)
+# bundles them into a nightly GitHub Release.
+#
+# Source: docs/superpowers/MASTER.md §8 T3 (task-2026052703).
+#
+# BILLING NOTE: GitHub Actions billing has been exhausted since 2026-05-17
+# (see docs/superpowers/runbooks/plan-a-local-crossbuild.md). To stay
+# billing-safe this workflow is `workflow_dispatch`-only by default, matching
+# pr-build-matrix.yml. When billing is restored, uncomment the `push:` block
+# below to make every push to main / wip build artifacts automatically.
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [ main, 'wip/**' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write   # release job needs to create/upload a GitHub Release
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-mac-aarch64:
+    name: build-mac-aarch64
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: mac-aarch64
+      - name: Build (ad-hoc signed)
+        run: TARGET=aarch64-apple-darwin bash scripts/build-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-mac-aarch64
+          path: dist/phantom-aarch64-apple-darwin
+          if-no-files-found: error
+
+  build-mac-x86_64:
+    name: build-mac-x86_64
+    runs-on: macos-13   # Intel runner
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: mac-x86_64
+      - name: Build (ad-hoc signed)
+        run: TARGET=x86_64-apple-darwin bash scripts/build-mac.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-mac-x86_64
+          path: dist/phantom-x86_64-apple-darwin
+          if-no-files-found: error
+
+  build-linux:
+    name: build-linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: linux-x86_64
+      - name: Build release binary
+        run: bash scripts/build-linux.sh
+      - name: Package .deb
+        run: bash scripts/package-linux.sh --no-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-linux-amd64
+          path: |
+            dist/phantom-mesh_*_amd64.deb
+            dist/phantom-x86_64-unknown-linux-gnu
+          if-no-files-found: error
+
+  build-windows:
+    name: build-windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: windows-x86_64
+      # build-windows.ps1 layers Defender/deploy handling that a clean CI
+      # runner does not need; call cargo directly for robustness. MSI bundling
+      # is tracked separately (task-2026052630 Windows half).
+      - name: Cargo build
+        working-directory: core
+        run: cargo build --release --bin phantom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-windows-x86_64
+          path: core/target/release/phantom.exe
+          if-no-files-found: error
+
+  build-android:
+    name: build-android
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    continue-on-error: true   # NDK toolchain setup is fragile; don't block the matrix
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Package Android tarball
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash scripts/package-android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-android-arm64
+          path: dist/phantom-android-arm64.tar.gz
+          if-no-files-found: error
+
+  build-ios-sim:
+    name: build-ios-sim
+    runs-on: macos-latest
+    timeout-minutes: 30
+    needs: [build-mac-aarch64]
+    continue-on-error: true   # iOS sim build allowed to fail per acceptance criteria
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: ios-sim
+      - name: Cargo build (ios simulator lib)
+        working-directory: core
+        run: cargo build --release --target aarch64-apple-ios-sim --bin phantom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phantom-ios-sim
+          path: core/target/aarch64-apple-ios-sim/release/phantom
+          if-no-files-found: warn
+
+  release:
+    name: release-nightly
+    runs-on: ubuntu-latest
+    needs: [build-mac-aarch64, build-mac-x86_64, build-linux, build-windows, build-android]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Compute nightly tag
+        id: tag
+        run: echo "tag=nightly-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      - name: Create / update nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          # Flatten downloaded artifact dirs into a single upload set. Collect via
+          # a NUL-delimited array so filenames with spaces (Tauri bundles like
+          # "Phantom Mesh_x64-setup.exe") aren't word-split by an unquoted $(find).
+          mapfile -d '' -t FILES < <(find artifacts -type f -print0)
+          printf '%s\n' "${FILES[@]}"
+          gh release create "$TAG" \
+            --title "Nightly build $TAG" \
+            --notes "Automated 5-OS nightly build. Unsigned dev artifacts." \
+            --prerelease \
+            "${FILES[@]}" \
+          || gh release upload "$TAG" "${FILES[@]}" --clobber

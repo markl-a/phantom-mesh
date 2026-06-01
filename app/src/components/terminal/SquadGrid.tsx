@@ -34,7 +34,7 @@ import AnsiText from "./AnsiText";
 export type PanelState = "pending" | "streaming" | "done" | "error";
 
 export interface SquadPanelData {
-  /** Peer name (e.g. "z13", "oracle", "ipad") */
+  /** Peer name (e.g. "node-a", "oracle", "ipad") */
   peer: string;
   /** Agent name on that peer (e.g. "recon", "enrich", "triage") */
   agent: string;

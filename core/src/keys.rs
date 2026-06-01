@@ -62,8 +62,8 @@ pub fn snapshot_states(cfg: &crate::config::AgentsConfig) -> Vec<(String, KeySta
 /// Preserves all other formatting (comments, ordering, spacing).
 /// Errors if the file is missing or the provider isn't found.
 pub fn remove_api_key(path: &Path, provider: &str) -> anyhow::Result<()> {
-    let content = fs::read_to_string(path)
-        .map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?;
+    let content =
+        fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?;
     let mut doc: toml_edit::DocumentMut = content
         .parse()
         .map_err(|e| anyhow::anyhow!("parse toml: {}", e))?;
@@ -91,8 +91,7 @@ pub fn remove_api_key(path: &Path, provider: &str) -> anyhow::Result<()> {
 /// brand-new provider works without hand-editing).
 pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()> {
     let content = if path.exists() {
-        fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?
+        fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?
     } else {
         // Fresh file — start with an empty `[providers]` table.
         String::from("# phantom agents.toml\n\n[providers]\n")
@@ -143,14 +142,19 @@ pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()>
 /// (they'll fill in url manually later).
 pub fn default_provider_meta(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
-        "groq"       => Some(("groq",       "https://api.groq.com/openai/v1")),
-        "gemini"     => Some(("gemini",     "https://generativelanguage.googleapis.com/v1beta")),
+        "groq" => Some(("groq", "https://api.groq.com/openai/v1")),
+        "gemini" => Some(("gemini", "https://generativelanguage.googleapis.com/v1beta")),
         "openrouter" => Some(("openrouter", "https://openrouter.ai/api/v1")),
-        "anthropic"  => Some(("anthropic",  "https://api.anthropic.com/v1")),
-        "openai"     => Some(("openai",     "https://api.openai.com/v1")),
+        "anthropic" => Some(("anthropic", "https://api.anthropic.com/v1")),
+        "openai" => Some(("openai", "https://api.openai.com/v1")),
         // OpenCode Zen gateway — /api/v1 returns 404, /zen/v1 is live.
-        "opencode"   => Some(("opencode",   "https://opencode.ai/zen/v1")),
-        _            => None,
+        "opencode" => Some(("opencode", "https://opencode.ai/zen/v1")),
+        // OpenClaw Telegram channel adapter — track [O1].
+        // `type` is informational; the openclaw::telegram module reads
+        // the api_key directly. url points at the Bot API root for
+        // any future probe path that wants to GET /bot<token>/getMe.
+        "telegram_bot" => Some(("telegram_bot", "https://api.telegram.org")),
+        _ => None,
     }
 }
 
@@ -170,7 +174,11 @@ pub struct ProbeResult {
 /// Returns Ok(ProbeResult) on any HTTP outcome — even 401 or 403 are
 /// "the network worked, the key just isn't accepted." Errors are
 /// reserved for transport-level failures (DNS, connection refused).
-pub async fn probe_provider(provider: &str, base_url: &str, key: &str) -> anyhow::Result<ProbeResult> {
+pub async fn probe_provider(
+    provider: &str,
+    base_url: &str,
+    key: &str,
+) -> anyhow::Result<ProbeResult> {
     use std::time::Instant;
     let t0 = Instant::now();
 
@@ -210,7 +218,13 @@ pub async fn probe_provider(provider: &str, base_url: &str, key: &str) -> anyhow
     }
     let resp = req.send().await?;
     let status = resp.status();
-    let body_text = resp.text().await.unwrap_or_default();
+    let body_text = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(url = %url, status = %status, "probe response body read failed; reporting empty: {}", e);
+            String::new()
+        }
+    };
     let elapsed_ms = t0.elapsed().as_millis();
 
     let model_count = parse_model_count(&body_text);
@@ -226,8 +240,8 @@ pub async fn probe_provider(provider: &str, base_url: &str, key: &str) -> anyhow
             ),
         ),
         401 | 403 => (false, format!("{} — key rejected", status)),
-        429       => (false, format!("{} — rate limited", status)),
-        other     => (
+        429 => (false, format!("{} — rate limited", status)),
+        other => (
             false,
             format!(
                 "{} — {}",
@@ -291,7 +305,11 @@ pub fn is_likely_free_model(provider_type: &str, base_url: Option<&str>, model_i
         return true;
     }
     let id = model_id.to_lowercase();
-    if id.ends_with("-free") || id.contains(":free") || id.contains("/free") || id.contains("-free-") {
+    if id.ends_with("-free")
+        || id.contains(":free")
+        || id.contains("/free")
+        || id.contains("-free-")
+    {
         return true;
     }
     if provider_type == "opencode" {
@@ -316,10 +334,13 @@ pub async fn fetch_models_annotated(
     key: &str,
 ) -> anyhow::Result<Vec<ModelInfo>> {
     let ids = fetch_models(provider_type, base_url, key).await?;
-    Ok(ids.into_iter().map(|id| ModelInfo {
-        is_free: is_likely_free_model(provider_type, Some(base_url), &id),
-        id,
-    }).collect())
+    Ok(ids
+        .into_iter()
+        .map(|id| ModelInfo {
+            is_free: is_likely_free_model(provider_type, Some(base_url), &id),
+            id,
+        })
+        .collect())
 }
 
 /// Fetch the actual list of model names from a provider — used by
@@ -329,7 +350,11 @@ pub async fn fetch_models_annotated(
 ///
 /// For UIs that want a free/paid annotation per model, prefer
 /// `fetch_models_annotated` which wraps this and adds the heuristic flag.
-pub async fn fetch_models(provider: &str, base_url: &str, key: &str) -> anyhow::Result<Vec<String>> {
+pub async fn fetch_models(
+    provider: &str,
+    base_url: &str,
+    key: &str,
+) -> anyhow::Result<Vec<String>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
         .build()?;
@@ -380,8 +405,11 @@ pub async fn fetch_models(provider: &str, base_url: &str, key: &str) -> anyhow::
     // Gemini / Anthropic-style: { models: [{name: "..."} | {id: "..."}, ...] }
     if let Some(arr) = v.get("models").and_then(|d| d.as_array()) {
         for item in arr {
-            if let Some(name) = item.get("name").and_then(|s| s.as_str())
-                .or_else(|| item.get("id").and_then(|s| s.as_str())) {
+            if let Some(name) = item
+                .get("name")
+                .and_then(|s| s.as_str())
+                .or_else(|| item.get("id").and_then(|s| s.as_str()))
+            {
                 // Gemini prefixes "models/" — strip for cleaner display.
                 let cleaned = name.strip_prefix("models/").unwrap_or(name).to_string();
                 ids.push(cleaned);
@@ -397,16 +425,14 @@ pub async fn fetch_models(provider: &str, base_url: &str, key: &str) -> anyhow::
 /// on Unix so secrets aren't world-readable.
 fn write_atomic(path: &Path, contents: &str) -> anyhow::Result<()> {
     let tmp = path.with_extension("toml.tmp");
-    fs::write(&tmp, contents)
-        .map_err(|e| anyhow::anyhow!("write {}: {}", tmp.display(), e))?;
+    fs::write(&tmp, contents).map_err(|e| anyhow::anyhow!("write {}: {}", tmp.display(), e))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o600);
         fs::set_permissions(&tmp, perms).ok();
     }
-    fs::rename(&tmp, path)
-        .map_err(|e| anyhow::anyhow!("rename to {}: {}", path.display(), e))?;
+    fs::rename(&tmp, path).map_err(|e| anyhow::anyhow!("rename to {}: {}", path.display(), e))?;
     Ok(())
 }
 
@@ -423,11 +449,13 @@ mod tests {
 
     #[test]
     fn snapshot_marks_inline_keys() {
-        let cfg = cfg_from(r#"
+        let cfg = cfg_from(
+            r#"
             [providers.groq]
             type = "groq"
             api_key = "gsk_real"
-        "#);
+        "#,
+        );
         let s = snapshot_states(&cfg);
         assert_eq!(s, vec![("groq".into(), KeyState::Inline)]);
     }
@@ -436,14 +464,16 @@ mod tests {
     fn snapshot_marks_env_resolved_and_missing() {
         std::env::set_var("PHANTOM_TEST_GROQ_K6", "abc");
         std::env::remove_var("PHANTOM_TEST_GEMINI_K6");
-        let cfg = cfg_from(r#"
+        let cfg = cfg_from(
+            r#"
             [providers.groq]
             type = "groq"
             api_key_env = "PHANTOM_TEST_GROQ_K6"
             [providers.gemini]
             type = "gemini"
             api_key_env = "PHANTOM_TEST_GEMINI_K6"
-        "#);
+        "#,
+        );
         let mut s = snapshot_states(&cfg);
         s.sort();
         assert_eq!(s.len(), 2);
@@ -454,10 +484,12 @@ mod tests {
 
     #[test]
     fn snapshot_marks_unset_provider() {
-        let cfg = cfg_from(r#"
+        let cfg = cfg_from(
+            r#"
             [providers.opencode]
             type = "opencode"
-        "#);
+        "#,
+        );
         let s = snapshot_states(&cfg);
         assert_eq!(s, vec![("opencode".into(), KeyState::NotConfigured)]);
     }
@@ -466,17 +498,27 @@ mod tests {
     fn set_then_remove_round_trip_preserves_other_fields() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("agents.toml");
-        fs::write(&path, "[providers.groq]\ntype = \"groq\"\nurl = \"https://api.groq.com/openai/v1\"\n").unwrap();
+        fs::write(
+            &path,
+            "[providers.groq]\ntype = \"groq\"\nurl = \"https://api.groq.com/openai/v1\"\n",
+        )
+        .unwrap();
 
         set_api_key(&path, "groq", "gsk_pasted").unwrap();
         let after_add = fs::read_to_string(&path).unwrap();
         assert!(after_add.contains("api_key = \"gsk_pasted\""));
-        assert!(after_add.contains("type = \"groq\""), "type field preserved");
+        assert!(
+            after_add.contains("type = \"groq\""),
+            "type field preserved"
+        );
         assert!(after_add.contains("url = "), "url preserved");
 
         remove_api_key(&path, "groq").unwrap();
         let after_remove = fs::read_to_string(&path).unwrap();
-        assert!(!after_remove.contains("api_key"), "api_key gone after remove");
+        assert!(
+            !after_remove.contains("api_key"),
+            "api_key gone after remove"
+        );
         assert!(after_remove.contains("type = \"groq\""), "type still there");
     }
 
@@ -502,7 +544,11 @@ mod tests {
     fn remove_errors_when_provider_missing() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("agents.toml");
-        fs::write(&path, "[providers.groq]\ntype = \"groq\"\napi_key = \"x\"\n").unwrap();
+        fs::write(
+            &path,
+            "[providers.groq]\ntype = \"groq\"\napi_key = \"x\"\n",
+        )
+        .unwrap();
 
         assert!(remove_api_key(&path, "nonesuch").is_err());
         // groq's api_key is still there
@@ -515,38 +561,68 @@ mod tests {
     #[test]
     fn free_marker_explicit_suffixes() {
         // -free suffix
-        assert!(is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"),
-                                      "minimax-m2.5-free"));
-        assert!(is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"),
-                                      "hy3-preview-free"));
+        assert!(is_likely_free_model(
+            "opencode",
+            Some("https://opencode.ai/zen/v1"),
+            "minimax-m2.5-free"
+        ));
+        assert!(is_likely_free_model(
+            "opencode",
+            Some("https://opencode.ai/zen/v1"),
+            "hy3-preview-free"
+        ));
         // :free marker (OpenRouter pattern)
-        assert!(is_likely_free_model("openrouter", Some("https://openrouter.ai/api/v1"),
-                                      "meta-llama/llama-3.1-8b:free"));
+        assert!(is_likely_free_model(
+            "openrouter",
+            Some("https://openrouter.ai/api/v1"),
+            "meta-llama/llama-3.1-8b:free"
+        ));
         // /free segment
-        assert!(is_likely_free_model("openrouter", None,
-                                      "google/gemma-2-9b/free"));
+        assert!(is_likely_free_model(
+            "openrouter",
+            None,
+            "google/gemma-2-9b/free"
+        ));
     }
 
     #[test]
     fn free_marker_local_endpoints() {
-        assert!(is_likely_free_model("openai_compat", Some("http://localhost:11434/v1"),
-                                      "qwen3:8b"));
-        assert!(is_likely_free_model("openai_compat", Some("http://127.0.0.1:8080"),
-                                      "anything"));
+        assert!(is_likely_free_model(
+            "openai_compat",
+            Some("http://localhost:11434/v1"),
+            "qwen3:8b"
+        ));
+        assert!(is_likely_free_model(
+            "openai_compat",
+            Some("http://127.0.0.1:8080"),
+            "anything"
+        ));
         assert!(is_likely_free_model("ollama", None, "llama3.2"));
     }
 
     #[test]
     fn free_marker_paid_models() {
         // Frontier models on remote providers — paid even if account has free quota.
-        assert!(!is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"),
-                                       "claude-sonnet-4-6"));
-        assert!(!is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"),
-                                       "gpt-5.4"));
-        assert!(!is_likely_free_model("groq", Some("https://api.groq.com/openai/v1"),
-                                       "llama-3.3-70b-versatile"));
-        assert!(!is_likely_free_model("anthropic", Some("https://api.anthropic.com/v1"),
-                                       "claude-3-5-sonnet-20241022"));
+        assert!(!is_likely_free_model(
+            "opencode",
+            Some("https://opencode.ai/zen/v1"),
+            "claude-sonnet-4-6"
+        ));
+        assert!(!is_likely_free_model(
+            "opencode",
+            Some("https://opencode.ai/zen/v1"),
+            "gpt-5.4"
+        ));
+        assert!(!is_likely_free_model(
+            "groq",
+            Some("https://api.groq.com/openai/v1"),
+            "llama-3.3-70b-versatile"
+        ));
+        assert!(!is_likely_free_model(
+            "anthropic",
+            Some("https://api.anthropic.com/v1"),
+            "claude-3-5-sonnet-20241022"
+        ));
     }
 
     #[test]
@@ -554,10 +630,52 @@ mod tests {
         // Models in the whitelist that DON'T have -free suffix would still
         // be marked. (Currently all 5 do have the suffix; this test just
         // documents the whitelist mechanism for future entries.)
-        for id in &["minimax-m2.5-free", "hy3-preview-free", "ling-2.6-flash-free",
-                    "trinity-large-preview-free", "nemotron-3-super-free"] {
-            assert!(is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"), id),
-                    "expected {} to be marked free", id);
+        for id in &[
+            "minimax-m2.5-free",
+            "hy3-preview-free",
+            "ling-2.6-flash-free",
+            "trinity-large-preview-free",
+            "nemotron-3-super-free",
+        ] {
+            assert!(
+                is_likely_free_model("opencode", Some("https://opencode.ai/zen/v1"), id),
+                "expected {} to be marked free",
+                id
+            );
         }
+    }
+
+    // ── default_provider_meta: telegram_bot (track O1) ─────────────────
+
+    #[test]
+    fn default_provider_meta_recognises_telegram_bot() {
+        // Track [O1] — OpenClaw Telegram channel adapter.
+        // The keys.rs flow needs an entry so that
+        //   phantom keys add telegram_bot <token>     (TUI /keys add)
+        // creates a sensible [providers.telegram_bot] table without
+        // forcing the user to remember the type/url strings.
+        let meta = default_provider_meta("telegram_bot");
+        assert_eq!(
+            meta,
+            Some(("telegram_bot", "https://api.telegram.org")),
+            "telegram_bot should map to type=telegram_bot, url=Bot API root"
+        );
+    }
+
+    #[test]
+    fn set_api_key_creates_telegram_bot_table_with_defaults() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("agents.toml");
+        // Fresh file
+        fs::write(&path, "# header\n").unwrap();
+
+        // Bot tokens look like 123456789:ABC-DEF... — never log this value.
+        set_api_key(&path, "telegram_bot", "FAKE_TEST_TOKEN_123:abc").unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        assert!(after.contains("[providers.telegram_bot]"));
+        assert!(after.contains("type = \"telegram_bot\""));
+        assert!(after.contains("url = \"https://api.telegram.org\""));
+        assert!(after.contains("api_key = \"FAKE_TEST_TOKEN_123:abc\""));
     }
 }

@@ -1,3 +1,27 @@
+//! Project-context detection and loading.
+//!
+//! This module inspects the filesystem around a working directory to build a
+//! [`ProjectContext`] that downstream agents can fold into a system prompt. It
+//! detects and loads, starting from `cwd` and walking up to three parent
+//! directories:
+//!
+//! - **Instruction files** — the nearest `PHANTOM.md`, `CLAUDE.md`, or
+//!   `AGENTS.md`, picked by priority ([`InstructionSource`]).
+//! - **README excerpt** — the first 100 lines of the nearest `README.md`.
+//! - **Phantom config** — the contents of `.phantom/config.toml`, if present.
+//! - **Project type** — Rust, Node, Python, or Go metadata parsed from the
+//!   relevant manifest ([`ProjectType`], via [`detect_project_type`]).
+//! - **Git state** — branch, last commit subject, and dirty/uncommitted count
+//!   ([`GitContext`], via [`load_git_context`]).
+//!
+//! [`ProjectContext::to_system_context`] renders the full context as a Markdown
+//! block, and [`ProjectContext::to_system_context_brief`] renders a one-line
+//! summary capped at 200 characters.
+//!
+//! The legacy top-level functions ([`load_project_context`], [`load_from_path`],
+//! [`load_cwd_context`]) are retained for backward compatibility and only
+//! resolve instruction/context Markdown, not the richer structured context.
+
 use std::path::{Path, PathBuf};
 
 // ---------------------------------------------------------------------------
@@ -7,8 +31,11 @@ use std::path::{Path, PathBuf};
 /// Priority-ordered instruction files. Higher index = lower priority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstructionSource {
+    /// `PHANTOM.md` — highest-priority instruction file.
     PhantomMd,
+    /// `CLAUDE.md` — used when no `PHANTOM.md` is present.
     ClaudeMd,
+    /// `AGENTS.md` — lowest-priority fallback instruction file.
     AgentsMd,
 }
 
@@ -33,25 +60,41 @@ impl InstructionSource {
 /// Detected project type with extracted metadata.
 #[derive(Debug, Clone)]
 pub enum ProjectType {
+    /// A Rust crate, parsed from `Cargo.toml`.
     Rust {
+        /// Crate name (`package.name`).
         name: String,
+        /// Crate version (`package.version`), or `0.0.0` if unspecified.
         version: String,
+        /// Crate description (`package.description`), if present.
         description: Option<String>,
+        /// Names of runtime dependencies (the `[dependencies]` table keys).
         dependencies: Vec<String>,
     },
+    /// A Node.js package, parsed from `package.json`.
     Node {
+        /// Package name.
         name: String,
+        /// Package description, if present.
         description: Option<String>,
+        /// Names of the defined npm scripts.
         scripts: Vec<String>,
+        /// Names of runtime and dev dependencies (deduplicated).
         dependencies: Vec<String>,
     },
+    /// A Python project, parsed from `pyproject.toml` or `setup.py`.
     Python {
+        /// Project name.
         name: String,
+        /// Required Python version, if declared.
         python_version: Option<String>,
     },
+    /// A Go module, parsed from `go.mod`.
     Go {
+        /// Module path (the `module` directive).
         module: String,
     },
+    /// No recognized project manifest was found.
     Unknown,
 }
 
@@ -64,15 +107,20 @@ impl ProjectType {
 /// Git state for the working tree.
 #[derive(Debug, Clone, Default)]
 pub struct GitContext {
+    /// Current branch name, or `None` when detached or not a git repo.
     pub branch: Option<String>,
+    /// Subject line of the most recent commit, if any.
     pub last_commit: Option<String>,
+    /// `true` when the working tree has uncommitted changes.
     pub is_dirty: bool,
+    /// Number of files reported by `git status --porcelain`.
     pub uncommitted_files: usize,
 }
 
 /// Full project context, detected from the filesystem.
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
+    /// The working directory the context was detected from.
     pub cwd: PathBuf,
 
     /// The instruction file found (PHANTOM.md > CLAUDE.md > AGENTS.md).
@@ -138,10 +186,7 @@ impl ProjectContext {
                 if let Ok(content) = tokio::fs::read_to_string(&path).await {
                     let trimmed = content.trim().to_string();
                     if !trimmed.is_empty() {
-                        tracing::info!(
-                            "Loaded project instructions from {}",
-                            path.display()
-                        );
+                        tracing::info!("Loaded project instructions from {}", path.display());
                         ctx.instruction_source = Some(source.clone());
                         ctx.instruction_content = Some(trimmed);
                         break 'outer;
@@ -155,11 +200,7 @@ impl ProjectContext {
             let path = dir.join("README.md");
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if !content.trim().is_empty() {
-                    let excerpt: String = content
-                        .lines()
-                        .take(100)
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    let excerpt: String = content.lines().take(100).collect::<Vec<_>>().join("\n");
                     ctx.readme_excerpt = Some(excerpt);
                     break;
                 }
@@ -214,10 +255,7 @@ impl ProjectContext {
         // Header line with git info
         let git_info = self.git_summary_inline();
         out.push_str("# Project Context\n");
-        out.push_str(&format!(
-            "Directory: {}",
-            self.cwd.display()
-        ));
+        out.push_str(&format!("Directory: {}", self.cwd.display()));
         if !git_info.is_empty() {
             out.push_str(&format!(" ({})", git_info));
         }
@@ -229,14 +267,9 @@ impl ProjectContext {
         }
 
         // Project instructions
-        if let (Some(src), Some(content)) =
-            (&self.instruction_source, &self.instruction_content)
-        {
+        if let (Some(src), Some(content)) = (&self.instruction_source, &self.instruction_content) {
             out.push('\n');
-            out.push_str(&format!(
-                "## Project Instructions (from {})\n",
-                src.label()
-            ));
+            out.push_str(&format!("## Project Instructions (from {})\n", src.label()));
             out.push_str(content);
             out.push('\n');
         }
@@ -361,7 +394,10 @@ impl ProjectContext {
                 }
                 s
             }
-            ProjectType::Python { name, python_version } => {
+            ProjectType::Python {
+                name,
+                python_version,
+            } => {
                 let mut s = format!("Python project: {}", name);
                 if let Some(pv) = python_version {
                     s.push_str(&format!("\nPython: {}", pv));
@@ -516,21 +552,24 @@ fn parse_pyproject_toml(content: &str) -> Option<ProjectType> {
             .get("requires-python")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        return Some(ProjectType::Python { name, python_version });
+        return Some(ProjectType::Python {
+            name,
+            python_version,
+        });
     }
 
     // Poetry style: [tool.poetry]
-    if let Some(poetry) = val
-        .get("tool")
-        .and_then(|t| t.get("poetry"))
-    {
+    if let Some(poetry) = val.get("tool").and_then(|t| t.get("poetry")) {
         let name = poetry.get("name")?.as_str()?.to_string();
         let python_version = poetry
             .get("dependencies")
             .and_then(|d| d.get("python"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        return Some(ProjectType::Python { name, python_version });
+        return Some(ProjectType::Python {
+            name,
+            python_version,
+        });
     }
 
     None

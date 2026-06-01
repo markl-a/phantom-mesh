@@ -72,6 +72,64 @@ export async function verifyCsrf(
   return diff === 0;
 }
 
+/* ── OAuth state ↔ browser binding (B2 audit fix) ─────────────────────── */
+//
+// Pre-fix, the OAuth callback found its KV session purely by the `state`
+// query parameter; anyone who learned `state` (Referer leak,
+// shoulder-surf, Google's request logs) could complete the dance from
+// their own browser and have the loopback redirect deliver the
+// broker_token to their machine.
+//
+// Fix: at authStart / webStart we issue a fresh random `nonce`, store
+// HMAC(secret, nonce) in the KV record, and set the nonce in an
+// HttpOnly cookie. Every subsequent hop (googleStart, googleCallback,
+// emailLogin, emailRegister) recomputes the HMAC from the cookie and
+// constant-time-compares it against the stored hash. An attacker who
+// sniffs `state` from a URL bar / Referer doesn't have the cookie and
+// can't complete the dance.
+//
+// See docs/superpowers/audits/2026-05-15-broker-audit.md §2.2 B2.
+
+export const NONCE_COOKIE = "phantom_oauth_nonce";
+
+export function generateOAuthNonce(): string {
+  return b64url(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+export async function hashOAuthNonce(secret: string, nonce: string): Promise<string> {
+  // Same HMAC primitive as csrfToken — keyed by BROKER_JWT_SECRET so the
+  // hash is meaningless without the server-side secret. Output is
+  // b64url so it round-trips through KV / JSON cleanly.
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(nonce));
+  return b64url(new Uint8Array(sig));
+}
+
+// Returns true iff `cookieNonce` HMACs to `storedHash` under `secret`.
+// Constant-time on the comparison step. `cookieNonce` may be "" (no
+// cookie sent) or "anything-arbitrary" (attacker-controlled); both
+// must return false.
+export async function verifyOAuthNonce(
+  secret: string,
+  cookieNonce: string,
+  storedHash: string,
+): Promise<boolean> {
+  if (!cookieNonce || !storedHash) return false;
+  const expected = await hashOAuthNonce(secret, cookieNonce);
+  if (expected.length !== storedHash.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^ storedHash.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 /* ── Google OAuth ─────────────────────────────────────────────────────── */
 
 export function googleAuthUrl(params: {

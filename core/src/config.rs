@@ -1,6 +1,43 @@
+//! Agent / runtime configuration loading and validation.
+//!
+//! [`AgentsConfig`] is the deserialized form of a `agents.toml` /
+//! `PHANTOM.toml` file plus a set of built-in defaults. It holds providers,
+//! agents, tools, cluster, workspace, and permission settings.
+//!
+//! # Loading precedence (lowest → highest)
+//!
+//! Effective config is built by layering three sources, where each later
+//! layer overrides the earlier one:
+//!
+//! 1. **Built-in defaults** — [`AgentsConfig::with_defaults`] yields a usable
+//!    config even with no file present (one `master` agent on the `anthropic`
+//!    provider, the full default tool list, etc.).
+//! 2. **Config file** — [`AgentsConfig::find_and_load`] searches standard
+//!    locations and parses the first file found, in this order:
+//!    `./agents.toml` → `./PHANTOM.toml` →
+//!    `~/.phantom-mesh/agents.toml` → `~/.config/phantom-mesh/config.toml`.
+//!    After parsing, `${ENV_VAR}` references inside provider string fields are
+//!    resolved by [`AgentsConfig::resolve_env_vars`] /
+//!    [`interpolate_env_vars`].
+//! 3. **Environment variable overrides** —
+//!    [`AgentsConfig::apply_env_overrides`] applies well-known vars on top of
+//!    the loaded file. Recognized: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+//!    `PHANTOM_MODEL`, `PHANTOM_MAX_ROUNDS`, `PHANTOM_TOKEN_BUDGET`.
+//!    [`default_max_tokens`] separately honors `PHANTOM_MAX_TOKENS` at call
+//!    time.
+//!
+//! Invalid or empty override values are ignored and fall back to the prior
+//! layer rather than erroring, so a typo in the environment never breaks a
+//! run. Call [`AgentsConfig::validate`] to surface configuration mistakes
+//! (missing API key, unknown provider/tool references) all at once.
+
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// All built-in tool names the agent runtime can execute. Mirrors the match
+/// arms in `tools/mod.rs::execute()`; [`AgentsConfig::validate`] uses this set
+/// to reject unknown tool references (external MCP tools are allowed via their
+/// `<server>_` prefix instead).
 // ── Valid tool names (mirrors tools/mod.rs execute() match arms) ───────────
 pub const VALID_TOOLS: &[&str] = &[
     "shell",
@@ -30,12 +67,22 @@ pub const VALID_TOOLS: &[&str] = &[
 
 // ── Default value helpers ─────────────────────────────────────────────────
 
-fn default_host() -> String { "0.0.0.0".into() }
-fn default_port() -> u16 { 7878 }
+fn default_host() -> String {
+    "0.0.0.0".into()
+}
+fn default_port() -> u16 {
+    7878
+}
 
-fn default_model() -> String { "claude-sonnet-4-5-20251022".into() }
-fn default_max_rounds() -> usize { 25 }
-fn default_token_budget() -> usize { 100_000 }
+fn default_model() -> String {
+    "claude-sonnet-4-5-20251022".into()
+}
+fn default_max_rounds() -> usize {
+    25
+}
+fn default_token_budget() -> usize {
+    100_000
+}
 
 fn default_system_prompt() -> String {
     "\
@@ -55,9 +102,9 @@ what you *would* do; just call the tool.
 - **Memory**: `memory_store`, `memory_recall` — persist context across rounds.
 - **Web**: `web_search` — look up docs, crates, packages, or error messages.
 - **Multi-machine**: `cluster_status` / `cluster_peers` / `cluster_sessions` to discover
-  what's reachable; then `task({agent:'coder', prompt:'...', node:'ayaneo'})` or
-  `parallel_tasks({tasks:[{node:'mac1',...},{node:'ayaneo',...}]})` to actually delegate.
-  Use this when the user says things like 'have ayaneo run the tests while mac1 builds the
+  what's reachable; then `task({agent:'coder', prompt:'...', node:'host-a'})` or
+  `parallel_tasks({tasks:[{node:'host-b',...},{node:'host-a',...}]})` to actually delegate.
+  Use this when the user says things like 'have host-a run the tests while host-b builds the
   iOS target' — you don't need them to specify exact URLs, just match the peer name.
 
 ## Coding workflow
@@ -80,16 +127,23 @@ fn default_tools_list() -> Vec<String> {
 
 // ── Top-level config ──────────────────────────────────────────────────────
 
+/// Top-level deserialized configuration. See the module docs for the
+/// defaults → file → env loading precedence.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentsConfig {
+    /// `[core]` block — server host/port and optional hub API key.
     #[serde(default)]
     pub core: CoreConfig,
+    /// `[providers.*]` blocks — keyed by provider name (e.g. `anthropic`).
     #[serde(default)]
     pub providers: HashMap<String, ProviderEntry>,
+    /// `[agent.*]` blocks — keyed by agent name (e.g. `master`).
     #[serde(default)]
     pub agent: HashMap<String, AgentEntry>,
+    /// `[tools]` block — tool-specific settings (e.g. search API keys).
     #[serde(default)]
     pub tools: ToolsConfig,
+    /// `[cluster]` block — multi-machine mesh peer configuration.
     #[serde(default)]
     pub cluster: crate::mesh::ClusterConfig,
     /// Per-machine workspace pin — when set, `phantom` (no args) auto-cd
@@ -104,6 +158,7 @@ pub struct AgentsConfig {
     /// preserves legacy `PHANTOM_PERM=allow` behaviour (allow all).
     #[serde(default)]
     pub permissions: PermissionsConfig,
+    /// `[telegram]` block — optional bot token/chat for notifications.
     #[serde(default)]
     pub telegram: Option<crate::TelegramConfig>,
     /// External MCP servers to launch as children at startup. Their tools are
@@ -177,23 +232,29 @@ impl AgentsConfig {
 
     // ── Validation ────────────────────────────────────────────────────────
 
-    /// Validate the configuration and return all errors at once (not just the first).
-    pub fn validate(&self) -> Result<(), Vec<String>> {
-        let mut errors: Vec<String> = Vec::new();
-
-        // At least one provider must have an api_key configured (directly or via env var).
-        let has_key = self.providers.values().any(|p| {
-            p.api_key.is_some()
+    /// True if at least one configured provider has a usable api_key — either
+    /// inline (`api_key = "…"`) or resolvable from its `api_key_env` env var.
+    /// Used by `validate()` and by the TUI first-run hint (so a keyless user
+    /// gets pointed at `/login` instead of a blank "all providers failed").
+    pub fn has_usable_provider_key(&self) -> bool {
+        self.providers.values().any(|p| {
+            p.api_key.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
                 || p.api_key_env
                     .as_deref()
                     .and_then(|env| std::env::var(env).ok())
                     .map(|v| !v.is_empty())
                     .unwrap_or(false)
-        });
+        })
+    }
+
+    /// Validate the configuration and return all errors at once (not just the first).
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errors: Vec<String> = Vec::new();
+
+        // At least one provider must have an api_key configured (directly or via env var).
+        let has_key = self.has_usable_provider_key();
         if !has_key && !self.providers.is_empty() {
-            errors.push(
-                "No provider has an api_key or a resolvable api_key_env configured".into(),
-            );
+            errors.push("No provider has an api_key or a resolvable api_key_env configured".into());
         }
 
         // Each agent must reference a valid provider name.
@@ -208,14 +269,20 @@ impl AgentsConfig {
 
         // Tool names referenced by agents must be known. External MCP tools
         // are accepted if they start with a configured `<server>_` prefix.
-        let valid_set: std::collections::HashSet<&str> =
-            VALID_TOOLS.iter().copied().collect();
-        let mcp_prefixes: Vec<String> = self.mcp_servers.iter()
-            .map(|s| format!("{}_", s.name)).collect();
+        let valid_set: std::collections::HashSet<&str> = VALID_TOOLS.iter().copied().collect();
+        let mcp_prefixes: Vec<String> = self
+            .mcp_servers
+            .iter()
+            .map(|s| format!("{}_", s.name))
+            .collect();
         for (agent_name, entry) in &self.agent {
             for tool in &entry.tools {
-                if valid_set.contains(tool.as_str()) { continue; }
-                if mcp_prefixes.iter().any(|p| tool.starts_with(p)) { continue; }
+                if valid_set.contains(tool.as_str()) {
+                    continue;
+                }
+                if mcp_prefixes.iter().any(|p| tool.starts_with(p)) {
+                    continue;
+                }
                 errors.push(format!(
                     "Agent '{}' references unknown tool '{}'",
                     agent_name, tool
@@ -237,17 +304,17 @@ impl AgentsConfig {
         // ANTHROPIC_API_KEY → set on the "anthropic" provider (create if absent).
         if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
             if !key.is_empty() {
-                let entry = self
-                    .providers
-                    .entry("anthropic".into())
-                    .or_insert_with(|| ProviderEntry {
-                        provider_type: "anthropic".into(),
-                        url: None,
-                        api_key: None,
-                        api_key_env: None,
-                        default_model: Some(self.default_model.clone()),
-                        tier: None,
-                    });
+                let entry =
+                    self.providers
+                        .entry("anthropic".into())
+                        .or_insert_with(|| ProviderEntry {
+                            provider_type: "anthropic".into(),
+                            url: None,
+                            api_key: None,
+                            api_key_env: None,
+                            default_model: Some(self.default_model.clone()),
+                            tier: None,
+                        });
                 entry.api_key = Some(key);
             }
         }
@@ -255,17 +322,17 @@ impl AgentsConfig {
         // OPENAI_API_KEY → set on the "openai" provider (create if absent).
         if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             if !key.is_empty() {
-                let entry = self
-                    .providers
-                    .entry("openai".into())
-                    .or_insert_with(|| ProviderEntry {
-                        provider_type: "openai".into(),
-                        url: None,
-                        api_key: None,
-                        api_key_env: None,
-                        default_model: Some("gpt-4o".into()),
-                        tier: None,
-                    });
+                let entry =
+                    self.providers
+                        .entry("openai".into())
+                        .or_insert_with(|| ProviderEntry {
+                            provider_type: "openai".into(),
+                            url: None,
+                            api_key: None,
+                            api_key_env: None,
+                            default_model: Some("gpt-4o".into()),
+                            tier: None,
+                        });
                 entry.api_key = Some(key);
             }
         }
@@ -303,13 +370,15 @@ impl AgentsConfig {
     /// 4. `~/.config/phantom-mesh/config.toml`
     pub fn find_and_load() -> Option<Self> {
         let candidates: Vec<std::path::PathBuf> = {
-            let mut v: Vec<std::path::PathBuf> = vec![
-                "./agents.toml".into(),
-                "./PHANTOM.toml".into(),
-            ];
+            let mut v: Vec<std::path::PathBuf> =
+                vec!["./agents.toml".into(), "./PHANTOM.toml".into()];
             if let Some(home) = dirs::home_dir() {
                 v.push(home.join(".phantom-mesh").join("agents.toml"));
-                v.push(home.join(".config").join("phantom-mesh").join("config.toml"));
+                v.push(
+                    home.join(".config")
+                        .join("phantom-mesh")
+                        .join("config.toml"),
+                );
             }
             v
         };
@@ -385,11 +454,7 @@ impl AgentsConfig {
         let tool_count = all_tools.len();
         let tool_names: Vec<&str> = all_tools.iter().map(|s| s.as_str()).collect();
         let tools_preview = if tool_names.len() > 5 {
-            format!(
-                "{}, ... ({} total)",
-                tool_names[..5].join(", "),
-                tool_count
-            )
+            format!("{}, ... ({} total)", tool_names[..5].join(", "), tool_count)
         } else {
             tool_names.join(", ")
         };
@@ -440,8 +505,10 @@ fn format_number(n: usize) -> String {
 
 // ── Sub-structs ───────────────────────────────────────────────────────────
 
+/// `[tools]` block — settings consumed by individual tools.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ToolsConfig {
+    /// API key for the Brave Search backend of the `web_search` tool.
     #[serde(default)]
     pub brave_search_api_key: Option<String>,
 }
@@ -471,19 +538,27 @@ pub struct PermissionsConfig {
     pub allow: Vec<String>,
 }
 
+/// `[core]` block — the `phantom serve` listener and hub auth settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CoreConfig {
+    /// Bind address for the server (default `0.0.0.0`).
     #[serde(default = "default_host")]
     pub host: String,
+    /// Listener port (default `7878`).
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Optional shared secret required to reach hub endpoints.
     #[serde(default)]
     pub hub_api_key: Option<String>,
 }
 
 impl Default for CoreConfig {
     fn default() -> Self {
-        Self { host: default_host(), port: default_port(), hub_api_key: None }
+        Self {
+            host: default_host(),
+            port: default_port(),
+            hub_api_key: None,
+        }
     }
 }
 
@@ -511,22 +586,31 @@ pub struct WorkspaceConfig {
     pub auto_open_tui: Option<bool>,
 }
 
+/// A single `[providers.<name>]` block describing one LLM backend.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProviderEntry {
+    /// Provider kind, e.g. `anthropic`, `openai`, `groq` (TOML key `type`).
     #[serde(rename = "type", default)]
     pub provider_type: String,
+    /// Base URL override for the API (TOML key `url` or `base_url`).
     #[serde(default, alias = "base_url")]
     pub url: Option<String>,
+    /// Inline API key. Supports `${ENV_VAR}` interpolation at load time.
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Name of an env var to read the API key from when `api_key` is unset.
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// Default model for this provider when an agent does not name one.
     #[serde(default)]
     pub default_model: Option<String>,
+    /// Optional free-form tier label (e.g. `free`, `paid`) for routing hints.
     #[serde(default)]
     pub tier: Option<String>,
 }
 
+/// A single `[agent.<name>]` block — one named agent's provider, model,
+/// tool allow-list, and system instructions.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AgentEntry {
     /// Single primary provider (legacy form, kept for backwards compat).
@@ -545,10 +629,13 @@ pub struct AgentEntry {
     #[serde(default)]
     pub providers: Option<Vec<String>>,
 
+    /// Model ID for this agent; empty falls back to the provider/global default.
     #[serde(default)]
     pub model: String,
+    /// Tool names this agent may call (validated against [`VALID_TOOLS`]).
     #[serde(default)]
     pub tools: Vec<String>,
+    /// System prompt / instructions for this agent; empty uses the default.
     #[serde(default)]
     pub instructions: String,
 }
@@ -596,6 +683,30 @@ mod tests {
     }
 
     #[test]
+    fn has_usable_provider_key_detects_inline_and_empty() {
+        let mut cfg = AgentsConfig::with_defaults();
+        // Point every default provider at a guaranteed-unset env var so the
+        // result is deterministic regardless of the ambient test environment.
+        for p in cfg.providers.values_mut() {
+            p.api_key = None;
+            p.api_key_env = Some("PHANTOM_TEST_DEFINITELY_UNSET_KEY".to_string());
+        }
+        assert!(!cfg.has_usable_provider_key(), "all key sources cleared → none usable");
+
+        // An empty inline api_key must NOT count as usable.
+        if let Some(p) = cfg.providers.values_mut().next() {
+            p.api_key = Some(String::new());
+        }
+        assert!(!cfg.has_usable_provider_key(), "empty inline api_key is not usable");
+
+        // A non-empty inline api_key is usable.
+        if let Some(p) = cfg.providers.values_mut().next() {
+            p.api_key = Some("sk-real".to_string());
+        }
+        assert!(cfg.has_usable_provider_key(), "non-empty inline api_key is usable");
+    }
+
+    #[test]
     fn validate_catches_bad_provider() {
         let mut cfg = AgentsConfig::with_defaults();
         cfg.providers.get_mut("anthropic").unwrap().api_key = Some("sk-x".into());
@@ -608,7 +719,11 @@ mod tests {
     fn validate_catches_bad_tool() {
         let mut cfg = AgentsConfig::with_defaults();
         cfg.providers.get_mut("anthropic").unwrap().api_key = Some("sk-x".into());
-        cfg.agent.get_mut("master").unwrap().tools.push("not_a_real_tool".into());
+        cfg.agent
+            .get_mut("master")
+            .unwrap()
+            .tools
+            .push("not_a_real_tool".into());
         let errs = cfg.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.contains("unknown tool")));
     }
@@ -661,7 +776,10 @@ mod tests {
 
     #[test]
     fn short_model_label_strips_date() {
-        assert_eq!(short_model_label("claude-sonnet-4-5-20251022"), "claude-sonnet-4-5");
+        assert_eq!(
+            short_model_label("claude-sonnet-4-5-20251022"),
+            "claude-sonnet-4-5"
+        );
         assert_eq!(short_model_label("gpt-4o"), "gpt-4o");
     }
 
@@ -669,8 +787,10 @@ mod tests {
     fn interpolate_env_resolves_set_var() {
         std::env::set_var("PHANTOM_TEST_KEY_K1", "secret-abc");
         assert_eq!(interpolate_env_vars("${PHANTOM_TEST_KEY_K1}"), "secret-abc");
-        assert_eq!(interpolate_env_vars("prefix-${PHANTOM_TEST_KEY_K1}-suffix"),
-                   "prefix-secret-abc-suffix");
+        assert_eq!(
+            interpolate_env_vars("prefix-${PHANTOM_TEST_KEY_K1}-suffix"),
+            "prefix-secret-abc-suffix"
+        );
         std::env::remove_var("PHANTOM_TEST_KEY_K1");
     }
 
@@ -678,7 +798,10 @@ mod tests {
     fn interpolate_env_unset_var_becomes_empty() {
         std::env::remove_var("PHANTOM_TEST_NEVER_SET_K2");
         assert_eq!(interpolate_env_vars("${PHANTOM_TEST_NEVER_SET_K2}"), "");
-        assert_eq!(interpolate_env_vars("a-${PHANTOM_TEST_NEVER_SET_K2}-b"), "a--b");
+        assert_eq!(
+            interpolate_env_vars("a-${PHANTOM_TEST_NEVER_SET_K2}-b"),
+            "a--b"
+        );
     }
 
     #[test]
@@ -694,7 +817,10 @@ mod tests {
     #[test]
     fn interpolate_env_handles_unclosed_brace() {
         // `${UNCLOSED` (no `}`) should pass through unchanged, not eat the rest.
-        assert_eq!(interpolate_env_vars("${UNCLOSED and more"), "${UNCLOSED and more");
+        assert_eq!(
+            interpolate_env_vars("${UNCLOSED and more"),
+            "${UNCLOSED and more"
+        );
     }
 
     #[test]
@@ -758,7 +884,9 @@ pub fn interpolate_env_vars(s: &str) -> String {
                     out.push_str(&val);
                     // Advance the iterator past the closing `}`
                     while let Some(&(j, _)) = chars.peek() {
-                        if j > i + 2 + close_off { break; }
+                        if j > i + 2 + close_off {
+                            break;
+                        }
                         chars.next();
                     }
                     continue;

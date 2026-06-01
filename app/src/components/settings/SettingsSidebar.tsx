@@ -1,10 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { Cpu, Workflow, Wrench, Sparkles, Brain, KeyRound, Radio, Shield, ScrollText, RefreshCw } from "lucide-react";
+import { Cpu, Workflow, Wrench, Sparkles, Brain, KeyRound, Radio, Shield, ScrollText, RefreshCw, Network, Send, Fingerprint } from "lucide-react";
 
 const SETTINGS_GROUPS = [
   {
     title: "叢集",
     items: [
+      { path: "/settings/cluster", icon: Network, label: "叢集狀態" },
+      { path: "/settings/dispatch", icon: Send, label: "派工規劃" },
       { path: "/settings/agents", icon: Cpu, label: "Agent 監控" },
       { path: "/settings/hands", icon: Workflow, label: "工作流" },
       { path: "/settings/tools", icon: Wrench, label: "工具管理" },
@@ -22,6 +24,7 @@ const SETTINGS_GROUPS = [
   {
     title: "系統",
     items: [
+      { path: "/settings/identity", icon: Fingerprint, label: "身分與隱私" },
       { path: "/settings/security", icon: Shield, label: "安全" },
       { path: "/settings/logs", icon: ScrollText, label: "日誌" },
       { path: "/settings/update", icon: RefreshCw, label: "更新" },

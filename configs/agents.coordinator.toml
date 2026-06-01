@@ -1,6 +1,6 @@
 # Phantom Mesh — Coordinator Node Config
 # =========================================
-# For: Z13 (Windows) or M1 Mac — the primary hub / development machine
+# For: node-a (Windows) or node-c (Apple Silicon Mac) — the primary hub / development machine
 # Role: Coordinator — orchestrates tasks, hosts the main agent, runs git tools
 #
 # This node is typically your laptop or desktop. It does NOT need to be
@@ -57,10 +57,10 @@ node_name = "coordinator"
 # it here — or paste the value directly and keep this file out of source control.
 cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
 peers = [
-  "http://100.x.x.2:7878",   # acer worker      — replace with actual Tailscale IP
-  "http://100.x.x.3:7878",   # ayaneo worker     — replace with actual Tailscale IP
-  "http://100.x.x.4:7878",   # m1-mac            — replace with actual Tailscale IP
-  "http://100.x.x.5:7878",   # oracle-vm (cloud, 24/7) — replace with actual Tailscale IP
+  "http://100.x.x.2:7878",   # node-b worker          — replace with actual Tailscale IP
+  "http://100.x.x.3:7878",   # node-c worker          — replace with actual Tailscale IP
+  "http://100.x.x.4:7878",   # node-d worker          — replace with actual Tailscale IP
+  "http://100.x.x.5:7878",   # node-e (cloud, 24/7)   — replace with actual Tailscale IP
 ]
 
 # ── Telegram bot — disabled on coordinator ─────────────────────────────────────

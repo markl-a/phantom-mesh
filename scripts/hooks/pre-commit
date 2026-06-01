@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# phantom-mesh pre-commit hook — anti-fake-green gate (Phase 0).
+#
+# Deterministic guard so "all tests pass" can't be silently faked. Currently:
+#   1. check-test-citations.sh — every ✅ row in docs/test-cases/*.md must cite
+#      a test that resolves to real code (a green badge for a nonexistent test
+#      is fake-green; the coverage sweep found several).
+#
+# Install: scripts/hooks/install.sh  (symlinks this into .git/hooks/pre-commit)
+# Bypass (use sparingly, and say so): git commit --no-verify
+#
+# Future gates to add here as they're built: cargo-rc-evidence check on commits
+# that touch core/, mac.md test-name audit, etc.
+
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+if [ -x scripts/check-test-citations.sh ]; then
+  if ! bash scripts/check-test-citations.sh; then
+    echo
+    echo "✗ pre-commit blocked: fake-green test citation(s) above."
+    echo "  Fix the citation / write the test, or downgrade the ✅, then re-commit."
+    echo "  (Emergency bypass: git commit --no-verify — and note why.)"
+    exit 1
+  fi
+fi
+
+exit 0

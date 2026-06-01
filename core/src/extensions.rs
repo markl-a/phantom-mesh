@@ -127,7 +127,10 @@ mod tests {
     /// mutate process-wide $HOME (which races with sibling tests
     /// that resolve checkpoint paths through dirs).
     fn summarize_at(root: &std::path::Path) -> Summary {
-        let mut s = Summary { root: root.to_path_buf(), ..Default::default() };
+        let mut s = Summary {
+            root: root.to_path_buf(),
+            ..Default::default()
+        };
         for (i, sub) in ["prompts", "skills", "hooks"].iter().enumerate() {
             if let Ok(entries) = fs::read_dir(root.join(sub)) {
                 let count = entries

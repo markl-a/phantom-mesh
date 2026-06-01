@@ -1,4 +1,20 @@
+# COST WORKAROUND 2026-05-17: the build-macos job below (macos-latest,
+# 10x Linux cost) only runs on workflow_dispatch. Tag pushes still build
+# Linux + Windows (cross-compiled on ubuntu, both cheap) + Android (ubuntu)
+# to keep the bulk of the daemon release pipeline auto-triggered. The
+# `release` job depends on build-macos with `if: always()` so the GitHub
+# Release is still cut even if macOS artifacts are absent. To produce the
+# macOS arm64 + x86_64 daemon binaries, run manually:
+#   gh workflow run release-daemon.yml -f draft=true
+# Revert when the billing cycle resets or a self-hosted runner is online.
 name: Release Daemon Binaries
+
+# Serialize per-ref so two near-simultaneous tag pushes can't race two parallel
+# runs creating duplicate GitHub Releases for the same ref. cancel-in-progress
+# false: never abort a release mid-upload, just queue (T-WLA-14).
+concurrency:
+  group: release-daemon-${{ github.ref }}
+  cancel-in-progress: false
 
 on:
   push:
@@ -115,6 +131,9 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   build-macos:
     name: Build macOS (${{ matrix.target }})
+    # COST WORKAROUND 2026-05-17: macos-latest is 10x Linux cost.
+    # Skip on tag push; run via `gh workflow run release-daemon.yml`.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     strategy:
       fail-fast: false
@@ -231,6 +250,16 @@ jobs:
   release:
     name: Publish GitHub Release
     needs: [build-linux, build-windows, build-macos, build-android]
+    # COST WORKAROUND 2026-05-17: tolerate skipped build-macos so the
+    # release is still cut from Linux + Windows + Android on tag push.
+    # We require the three non-mac jobs to have succeeded; build-macos may
+    # be skipped (cancelled or success are also fine).
+    if: |
+      always()
+      && needs.build-linux.result == 'success'
+      && needs.build-windows.result == 'success'
+      && needs.build-android.result == 'success'
+      && (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -251,8 +280,29 @@ jobs:
           done
           ls -lh release-assets/
 
+      # Emit per-asset .sha256 sidecars AND a combined SHA256SUMS manifest.
+      # Install scripts consume the per-asset sidecars (e.g. install-mac.sh
+      # downloads "<binary>.sha256" and compares before chmod +x).
+      # See scripts/_verify-download.sh and docs/install-binary-verification.md.
+      - name: Generate SHA256 sidecars + manifest
+        working-directory: release-assets
+        run: |
+          # Per-asset sidecar: <name>.sha256 contains "<hex>  <name>"
+          for f in *; do
+            [ -f "$f" ] || continue
+            # Skip if this is already a sidecar (idempotent).
+            case "$f" in *.sha256|SHA256SUMS) continue ;; esac
+            sha256sum "$f" > "$f.sha256"
+          done
+          # Combined manifest, also published as a release asset.
+          sha256sum * 2>/dev/null | grep -v '\.sha256$' | grep -v 'SHA256SUMS' > SHA256SUMS || true
+          echo "── SHA256SUMS ──"
+          cat SHA256SUMS
+          echo "── sidecars ──"
+          ls -lh *.sha256
+
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           draft: ${{ github.event.inputs.draft || 'true' }}
           generate_release_notes: true

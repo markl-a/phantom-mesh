@@ -17,9 +17,23 @@
         }
       ]
     },
-    "shell:allow-spawn",
-    "shell:allow-kill",
-    "shell:allow-open",
-    "deep-link:default"
+    "deep-link:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "http://localhost:7878/*" },
+        { "url": "http://localhost:7879/*" },
+        { "url": "http://127.0.0.1:7878/*" },
+        { "url": "http://*.ts.net:7878/*" },
+        { "url": "http://*.ts.net:7879/*" },
+        { "url": "http://*:7878/*" },
+        { "url": "http://*:7879/*" },
+        { "url": "https://phantommesh.io/*" },
+        { "url": "https://*.phantommesh.io/*" },
+        { "url": "https://*.ts.net/*" },
+        { "url": "https://*.ts.net:*/*" },
+        { "url": "https://api.telegram.org/*" }
+      ]
+    }
   ]
 }

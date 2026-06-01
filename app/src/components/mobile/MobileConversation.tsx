@@ -2,13 +2,22 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { safeInvoke as invoke, isTauri } from "../../lib/tauri-compat";
 import {
-  Send, Trash2, Square, RotateCcw, Sparkles, Network,
+  Send, Trash2, Square, RotateCcw, Sparkles, Network, Zap,
 } from "lucide-react";
 import type { Message } from "../../lib/types";
 import ToolCallDisplay from "../conversation/ToolCallDisplay";
 import Markdown, { CopyButton } from "./Markdown";
 import { useClusterModeStore } from "../../stores/clusterModeStore";
 import { dispatchToCluster } from "../../lib/clusterDispatch";
+import { reducedMotionScrollBehavior } from "../../lib/motion";
+import {
+  selectProvider,
+  streamComplete,
+  buildRequest,
+  describeError,
+  type ProviderMessage,
+  type StreamHandle,
+} from "../../lib/providers";
 
 const CHAT_ID = "mobile";
 
@@ -67,9 +76,31 @@ export default function MobileConversation() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<{ unlisten?: (() => void) | { unsubscribe?: () => void } } | null>(null);
 
+  // SPEC-14 providers wire direct mode (skips agent loop + cluster path).
+  // Persisted lightly via state only — phone users typically toggle per
+  // session, and a dedicated store would over-engineer a single bit.
+  const [providerMode, setProviderMode] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<string | null>(null);
+  const streamRef = useRef<StreamHandle | null>(null);
+
   // Cluster mode
   const cluster = useClusterModeStore();
   const navigate = useNavigate();
+
+  // Resolve a provider slug when the toggle flips on so the header label
+  // reflects the actual upstream before the user even types.
+  useEffect(() => {
+    if (!providerMode) {
+      setActiveProvider(null);
+      return;
+    }
+    selectProvider("commodity", "interactive")
+      .then(setActiveProvider)
+      .catch((e) => {
+        setActiveProvider(null);
+        setError(`Provider 解析失敗：${describeError(String(e))}`);
+      });
+  }, [providerMode]);
 
   // Load history once
   useEffect(() => {
@@ -86,7 +117,7 @@ export default function MobileConversation() {
 
   // Auto-scroll
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: reducedMotionScrollBehavior() });
   }, [messages, loading]);
 
   const detachListener = () => {
@@ -94,6 +125,75 @@ export default function MobileConversation() {
     if (typeof u === "function") u();
     else (u as { unsubscribe?: () => void } | undefined)?.unsubscribe?.();
     abortRef.current = null;
+  };
+
+  // ── Provider-mode send path ─────────────────────────────────────────────
+  // Bypasses both the agent loop and the cluster coordinator; talks straight
+  // to the SPEC-14 providers wire via the Tauri command surface registered
+  // in `commands::providers_wire`. Used only when the user flips the lightning
+  // toggle in the header.
+  const sendViaProvider = async (text: string) => {
+    const priorMessages = messages.filter(m => !(m.role === "assistant" && m.content === ""));
+    const providerMessages: ProviderMessage[] = [
+      ...priorMessages.map(m => ({ role: m.role, content: m.content, images: [] })),
+      { role: "user" as const, content: text, images: [] },
+    ];
+
+    let resolvedProvider = activeProvider;
+    try {
+      if (!resolvedProvider) {
+        resolvedProvider = await selectProvider("commodity", "interactive");
+        setActiveProvider(resolvedProvider);
+      }
+    } catch (e) {
+      setError(`Provider 解析失敗：${describeError(String(e))}`);
+      setMessages(prev => prev.slice(0, -1));
+      setLoading(false);
+      return;
+    }
+
+    const req = buildRequest({
+      model: resolvedProvider ?? "",
+      messages: providerMessages,
+      temperature: 0.7,
+    });
+
+    const handle = await streamComplete(req, {
+      onToken: (token) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const idx = updated.length - 1;
+          if (updated[idx]?.role === "assistant") {
+            updated[idx] = { ...updated[idx], content: token };
+          }
+          return updated;
+        });
+      },
+      onDone: (response) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          const idx = updated.length - 1;
+          if (updated[idx]?.role === "assistant") {
+            updated[idx] = {
+              ...updated[idx],
+              content: response.text,
+              provider: resolvedProvider ?? undefined,
+              model: response.modelUsed,
+            };
+          }
+          return updated;
+        });
+        setLoading(false);
+        streamRef.current = null;
+      },
+      onError: (err) => {
+        setError(describeError(err));
+        setMessages(prev => prev.slice(0, -1));
+        setLoading(false);
+        streamRef.current = null;
+      },
+    });
+    streamRef.current = handle;
   };
 
   const send = async (textOverride?: string) => {
@@ -105,7 +205,8 @@ export default function MobileConversation() {
     // and lib.rs setup() loads env vars into the running process. Only
     // require the cluster setup when the user explicitly turned the
     // cluster toggle ON but hasn't filled coordinator URL + secret.
-    if (cluster.enabled && !cluster.isConfigured()) {
+    // Provider-direct mode bypasses the cluster check entirely.
+    if (!providerMode && cluster.enabled && !cluster.isConfigured()) {
       setError("Cluster 模式已開但尚未設定 — 點到「設定 → Cluster 派送」填 coordinator URL + secret，或關掉上方 toggle 用本機模式");
       return;
     }
@@ -117,6 +218,18 @@ export default function MobileConversation() {
     const userMsg: Message = { role: "user", content: text };
     const placeholderAssistant: Message = { role: "assistant", content: "" };
     setMessages(prev => [...prev, userMsg, placeholderAssistant]);
+
+    // ── PROVIDER-DIRECT MODE: skip agent loop + cluster entirely ──────────
+    if (providerMode) {
+      try {
+        await sendViaProvider(text);
+      } catch (e) {
+        setError(describeError(String(e)));
+        setMessages(prev => prev.slice(0, -1));
+        setLoading(false);
+      }
+      return;
+    }
 
     // ── CLUSTER MODE: dispatch via coordinator ────────────────────────────
     if (cluster.enabled && cluster.isConfigured()) {
@@ -135,13 +248,16 @@ export default function MobileConversation() {
               ...updated[idx],
               content: r.ok
                 ? (r.output ?? "(no output)")
-                : `**錯誤**: ${r.error ?? "unknown"}`,
+                : `**錯誤**: ${describeError(r.error ?? "unknown")}`,
             };
           }
           return updated;
         });
       } catch (e) {
-        setError(String(e));
+        // Cluster dispatch failed to even reach the coordinator (network /
+        // HMAC / timeout). Humanise instead of leaking the raw exception, and
+        // point at the usual fixes.
+        setError(`派送失敗：${describeError(String(e))}（確認 coordinator URL + secret，或改用本機模式）`);
         setMessages(prev => prev.slice(0, -1));
       } finally {
         setLoading(false);
@@ -198,7 +314,12 @@ export default function MobileConversation() {
       setLoading(false);
       detachListener();
     } catch (e) {
-      setError(String(e));
+      // Humanise rather than leaking a raw "TypeError: Failed to fetch".
+      // describeError now maps the no-key / providers-failed case to an
+      // actionable "set a key in Settings" prompt, so we don't append a
+      // second hint here — that doubled up the message and mis-fired on real
+      // network errors (which aren't about a missing key).
+      setError(describeError(String(e)));
       setMessages(prev => prev.slice(0, -1));
       setLoading(false);
       detachListener();
@@ -208,6 +329,9 @@ export default function MobileConversation() {
   const stop = () => {
     setLoading(false);
     detachListener();
+    // Provider-mode stream uses its own handle — detach that listener too.
+    streamRef.current?.cancel();
+    streamRef.current = null;
     // mark last message as interrupted if empty
     setMessages(prev => {
       const updated = [...prev];
@@ -257,25 +381,47 @@ export default function MobileConversation() {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-phantom-text leading-tight">
-              {cluster.enabled ? "Phantom Cluster" : "Phantom"}
+              {providerMode
+                ? "Phantom Provider"
+                : cluster.enabled
+                ? "Phantom Cluster"
+                : "Phantom"}
             </h1>
             <p className="text-[10px] text-phantom-muted leading-tight">
-              {cluster.enabled
+              {providerMode
+                ? `Provider 直連 · ${activeProvider ?? "解析中…"}`
+                : cluster.enabled
                 ? (cluster.isConfigured() ? "經由協調者派送" : "尚未設定")
                 : "本機"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* SPEC-14 provider-direct toggle (bypasses agent + cluster). */}
+          <button
+            onClick={() => setProviderMode(m => !m)}
+            disabled={loading}
+            aria-label={providerMode ? "關閉 Provider 直連模式" : "開啟 Provider 直連模式"}
+            title={providerMode
+              ? `Provider 直連（${activeProvider ?? "解析中"}）`
+              : "Provider 直連模式（跳過 agent loop）"}
+            className={`p-1.5 -m-1 rounded transition disabled:opacity-40 ${
+              providerMode ? "text-phantom-primary" : "text-phantom-muted hover:text-phantom-text"
+            }`}
+          >
+            <Zap size={16} />
+          </button>
           {/* Cluster toggle */}
           <button
             onClick={() => cluster.setEnabled(!cluster.enabled)}
-            disabled={!cluster.isConfigured()}
+            disabled={!cluster.isConfigured() || providerMode}
             className={`relative w-11 h-6 rounded-full transition flex-shrink-0 ${
               cluster.enabled ? "bg-phantom-success" : "bg-phantom-card border border-phantom-border"
-            } ${!cluster.isConfigured() ? "opacity-40" : ""}`}
+            } ${!cluster.isConfigured() || providerMode ? "opacity-40" : ""}`}
             aria-label={cluster.enabled ? "關閉 cluster 模式" : "開啟 cluster 模式"}
-            title={cluster.isConfigured()
+            title={providerMode
+              ? "Provider 直連模式啟用中，已停用 Cluster 切換"
+              : cluster.isConfigured()
               ? (cluster.enabled ? "Cluster 模式 (本機)" : "本機 (Cluster 模式)")
               : "請先到設定 → cluster 配置 coordinator URL 跟 secret"}
           >
@@ -363,6 +509,13 @@ export default function MobileConversation() {
                 )}
                 {msg.tool_calls && msg.tool_calls.length > 0 && (
                   <ToolCallDisplay toolCalls={msg.tool_calls} />
+                )}
+                {(msg.provider || msg.model) && (
+                  <p className="mt-1 text-[10px] text-phantom-muted font-mono select-none">
+                    {msg.provider}
+                    {msg.provider && msg.model ? " · " : ""}
+                    {msg.model}
+                  </p>
                 )}
                 {msg.content && !loading && (
                   <div className="mt-1.5 flex items-center gap-3">

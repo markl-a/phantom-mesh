@@ -13,25 +13,39 @@
 use serde_json::Value;
 
 pub async fn read(args: &Value) -> String {
-    let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or("summary");
+    let kind = args
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("summary");
     match kind {
-        "events"  => events(args.get("limit").and_then(|v| v.as_u64()).unwrap_or(30) as usize),
+        "events" => events(args.get("limit").and_then(|v| v.as_u64()).unwrap_or(30) as usize),
         "crashes" => crashes(args.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize),
         "summary" => summary(),
         "last_crash" => last_crash(),
-        _ => format!("[diag_read error] unknown kind '{}' — try events|crashes|summary|last_crash", kind),
+        _ => format!(
+            "[diag_read error] unknown kind '{}' — try events|crashes|summary|last_crash",
+            kind
+        ),
     }
 }
 
 fn events(limit: usize) -> String {
     let snap = crate::diag::snapshot();
     if snap.is_empty() {
-        return "[diag] no events recorded yet (process just started or diag not initialised)".to_string();
+        return "[diag] no events recorded yet (process just started or diag not initialised)"
+            .to_string();
     }
     let take = snap.len().saturating_sub(limit);
-    let mut out = format!("=== last {} events (of {} in ring) ===\n", snap.len() - take, snap.len());
+    let mut out = format!(
+        "=== last {} events (of {} in ring) ===\n",
+        snap.len() - take,
+        snap.len()
+    );
     for ev in &snap[take..] {
-        out.push_str(&format!("[{:>13} ms] {:<14} {}\n", ev.ts_ms, ev.kind, ev.summary));
+        out.push_str(&format!(
+            "[{:>13} ms] {:<14} {}\n",
+            ev.ts_ms, ev.kind, ev.summary
+        ));
     }
     out
 }
@@ -47,7 +61,12 @@ fn crashes(limit: usize) -> String {
     };
     let mut paths: Vec<(std::time::SystemTime, std::path::PathBuf)> = entries
         .flatten()
-        .filter_map(|e| e.metadata().ok().and_then(|m| m.modified().ok()).map(|t| (t, e.path())))
+        .filter_map(|e| {
+            e.metadata()
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .map(|t| (t, e.path()))
+        })
         .collect();
     if paths.is_empty() {
         return format!("[diag] no crashes recorded ({})", dir.display());
@@ -61,7 +80,12 @@ fn crashes(limit: usize) -> String {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        out.push_str(&format!("  {} ({} bytes, ts={})\n", path.display(), bytes, secs));
+        out.push_str(&format!(
+            "  {} ({} bytes, ts={})\n",
+            path.display(),
+            bytes,
+            secs
+        ));
     }
     out.push_str("\nUse {kind:'last_crash'} to read the newest one's full content.\n");
     out
@@ -79,7 +103,12 @@ fn last_crash() -> String {
     // Cap so a giant backtrace doesn't blow the agent's context window.
     let capped: String = body.chars().take(8_000).collect();
     if body.len() > 8_000 {
-        format!("=== {} (truncated to 8000 chars of {}) ===\n{}\n…[truncated]", path.display(), body.len(), capped)
+        format!(
+            "=== {} (truncated to 8000 chars of {}) ===\n{}\n…[truncated]",
+            path.display(),
+            body.len(),
+            capped
+        )
     } else {
         format!("=== {} ===\n{}", path.display(), capped)
     }
@@ -88,7 +117,8 @@ fn last_crash() -> String {
 fn summary() -> String {
     let events = crate::diag::snapshot();
     let dir = dirs::home_dir().map(|h| h.join(".phantom-mesh/crashes"));
-    let crash_count: usize = dir.as_ref()
+    let crash_count: usize = dir
+        .as_ref()
         .and_then(|d| std::fs::read_dir(d).ok())
         .map(|it| it.flatten().count())
         .unwrap_or(0);

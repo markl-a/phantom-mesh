@@ -1,12 +1,8 @@
 /// Integration tests for AgentRuntime and ConversationStore/CostTracker.
 /// These tests use no real API calls — they exercise local state only.
-
 use phantom_mesh::{
-    agent::AgentRuntime,
-    config::AgentsConfig,
-    cost::CostTracker,
+    agent::AgentRuntime, config::AgentsConfig, cost::CostTracker, providers::traits::ChatMessage,
     session::ConversationStore,
-    providers::traits::ChatMessage,
 };
 
 // ---------------------------------------------------------------------------
@@ -29,8 +25,14 @@ fn test_agent_runtime_from_config() {
     let rt = AgentRuntime::new(config);
     let cfg = rt.config();
     // Default config pre-populates a "master" agent entry pointing to "anthropic".
-    assert!(cfg.agent.contains_key("master"), "default config should have a 'master' agent entry");
-    assert!(cfg.providers.contains_key("anthropic"), "default config should have an 'anthropic' provider");
+    assert!(
+        cfg.agent.contains_key("master"),
+        "default config should have a 'master' agent entry"
+    );
+    assert!(
+        cfg.providers.contains_key("anthropic"),
+        "default config should have an 'anthropic' provider"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -71,8 +73,16 @@ async fn test_session_list() {
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
     for i in 0..3 {
-        let user = ChatMessage { role: "user".into(), content: format!("msg {}", i), tool_calls: None };
-        let asst = ChatMessage { role: "assistant".into(), content: format!("reply {}", i), tool_calls: None };
+        let user = ChatMessage {
+            role: "user".into(),
+            content: format!("msg {}", i),
+            tool_calls: None,
+        };
+        let asst = ChatMessage {
+            role: "assistant".into(),
+            content: format!("reply {}", i),
+            tool_calls: None,
+        };
         store.append(&format!("session_{}", i), user, asst).await;
     }
 
@@ -94,8 +104,16 @@ async fn test_session_evict() {
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
     let session_id = "evict_me";
-    let user = ChatMessage { role: "user".into(), content: "soon gone".into(), tool_calls: None };
-    let asst = ChatMessage { role: "assistant".into(), content: "bye".into(), tool_calls: None };
+    let user = ChatMessage {
+        role: "user".into(),
+        content: "soon gone".into(),
+        tool_calls: None,
+    };
+    let asst = ChatMessage {
+        role: "assistant".into(),
+        content: "bye".into(),
+        tool_calls: None,
+    };
     store.append(session_id, user, asst).await;
 
     // Confirm messages are in cache.
@@ -107,7 +125,11 @@ async fn test_session_evict() {
 
     // A fresh get_history should reload from disk and still return 2 messages.
     let after = store.get_history(session_id).await;
-    assert_eq!(after.len(), 2, "disk-backed messages survive in-memory eviction");
+    assert_eq!(
+        after.len(),
+        2,
+        "disk-backed messages survive in-memory eviction"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -133,11 +155,18 @@ async fn test_cost_tracker() {
 
     // Lifetime requests should have grown by exactly 2.
     let requests_after = summary["requests"].as_u64().unwrap_or(0);
-    assert_eq!(requests_after, requests_before + 2, "should have recorded exactly 2 new requests");
+    assert_eq!(
+        requests_after,
+        requests_before + 2,
+        "should have recorded exactly 2 new requests"
+    );
 
     // Session cost should be > 0.
     let session_cost = tracker.session_cost().await;
-    assert!(session_cost > 0.0, "session cost should be positive after recording tokens");
+    assert!(
+        session_cost > 0.0,
+        "session cost should be positive after recording tokens"
+    );
 
     // Last request cost should be > 0.
     let last = tracker.last_request_cost().await;

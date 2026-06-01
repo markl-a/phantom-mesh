@@ -121,10 +121,7 @@ pub fn render_unified_diff(path: &str, old_text: &str, new_text: &str) -> String
             // Trim trailing equals down to CONTEXT.
             let mut end = j;
             let mut tail_equal = 0;
-            while end > start
-                && matches!(ops[end - 1], Op::Equal(..))
-                && tail_equal < CONTEXT
-            {
+            while end > start && matches!(ops[end - 1], Op::Equal(..)) && tail_equal < CONTEXT {
                 tail_equal += 1;
                 end -= 1;
             }
@@ -244,7 +241,9 @@ mod tests {
         let new = "line one\nLINE TWO ALTERED\nline three\n";
         let rendered = render_unified_diff("/tmp/diff-test.txt", old, new);
         let plain = strip_ansi(&rendered);
-        assert!(plain.contains("--- a/tmp/diff-test.txt") || plain.contains("--- a//tmp/diff-test.txt"));
+        assert!(
+            plain.contains("--- a/tmp/diff-test.txt") || plain.contains("--- a//tmp/diff-test.txt")
+        );
         assert!(plain.contains("+++ b/"));
         assert!(plain.contains("- line two"));
         assert!(plain.contains("+ LINE TWO ALTERED"));
@@ -269,5 +268,70 @@ mod tests {
         let rendered = render_unified_diff("x.txt", old, new);
         let plain = strip_ansi(&rendered);
         assert!(plain.contains("+ b"));
+    }
+
+    #[test]
+    fn unified_diff_empty_to_empty() {
+        // Two empty inputs produce no changes (and must not panic).
+        let rendered = render_unified_diff("empty.txt", "", "");
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("(no changes)"));
+        // Headers are still emitted in the no-change branch.
+        assert!(plain.contains("--- a/empty.txt"));
+        assert!(plain.contains("+++ b/empty.txt"));
+    }
+
+    #[test]
+    fn unified_diff_empty_to_content() {
+        // Adding content to an empty file should surface the new line(s).
+        let rendered = render_unified_diff("new.txt", "", "hello world\n");
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("+ hello world"));
+        assert!(plain.contains("@@ "));
+    }
+
+    #[test]
+    fn unified_diff_content_to_empty() {
+        // Removing all content should surface the removed line(s).
+        let rendered = render_unified_diff("gone.txt", "hello world\n", "");
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("- hello world"));
+        assert!(plain.contains("@@ "));
+    }
+
+    #[test]
+    fn unified_diff_single_line_no_trailing_newline() {
+        // A single-line change with no trailing newline on either side.
+        let rendered = render_unified_diff("one.txt", "before", "after");
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("- before"));
+        assert!(plain.contains("+ after"));
+        assert!(plain.contains("@@ "));
+    }
+
+    #[test]
+    fn unified_diff_unicode_content() {
+        // Non-ASCII content (CJK + emoji) must round-trip through the renderer
+        // without panicking or corrupting the changed line.
+        let old = "第一行\n第二行\n第三行\n";
+        let new = "第一行\n第二行已修改 🚀\n第三行\n";
+        let rendered = render_unified_diff("文件.txt", old, new);
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("--- a/文件.txt"));
+        assert!(plain.contains("- 第二行"));
+        assert!(plain.contains("+ 第二行已修改 🚀"));
+        // Unchanged context lines preserved verbatim.
+        assert!(plain.contains(" 第一行"));
+        assert!(plain.contains(" 第三行"));
+    }
+
+    #[test]
+    fn unified_diff_unicode_pure_addition() {
+        // Inserting a unicode-only line into existing unicode content.
+        let old = "α\nγ\n";
+        let new = "α\nβ\nγ\n";
+        let rendered = render_unified_diff("greek.txt", old, new);
+        let plain = strip_ansi(&rendered);
+        assert!(plain.contains("+ β"));
     }
 }

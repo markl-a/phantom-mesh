@@ -105,7 +105,7 @@ esac
 # ─── tool edge cases ──────────────────────────────────────────────────────
 section "49. tool edge cases"
 
-ABS_REPO="/Users/marklight/Documents/workspace/hailmary/phantom-mesh"
+ABS_REPO="${PHANTOM_REPO:-$PWD}"
 
 # file_read on non-existent file
 resp=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/this/does/not/exist.txt"}}}')

@@ -1,14 +1,22 @@
+# COST WORKAROUND 2026-05-17: tag-push auto-trigger removed because
+# windows-latest costs 2x Linux minutes and the GitHub Actions monthly
+# quota was exhausted. To cut a Windows release, push the tag as usual
+# AND then manually run this workflow via:
+#   gh workflow run release-windows.yml -f draft=true
+# (or via the Actions tab → "Release Windows Binary + MSI" → "Run workflow")
+# Revert when the billing cycle resets or a self-hosted runner is online.
 name: Release Windows Binary + MSI
 
 # Native Windows build (vs `release-daemon.yml`, which cross-compiles
 # from Linux → x86_64-pc-windows-gnu and produces a binary that depends
 # on libwinpthread-1.dll). This workflow uses windows-latest +
-# x86_64-pc-windows-msvc — the same toolchain Z13 dev sessions ship
+# x86_64-pc-windows-msvc — the same toolchain node-a dev sessions ship
 # with — so the artifact behaves identically to a `cargo build` on a
 # real Windows machine.
 #
-# Triggered by: `git tag v*.*.* && git push --tags`. Drop a manual
-# workflow_dispatch run for ad-hoc release builds.
+# Triggered by: operator only — `gh workflow run release-windows.yml`.
+# (Previously also auto-triggered on `git push --tags`; disabled per the
+# COST WORKAROUND header above.)
 #
 # Artifacts uploaded:
 #   - phantom-x86_64-pc-windows.exe          standalone CLI (matches the
@@ -20,9 +28,6 @@ name: Release Windows Binary + MSI
 #   - Phantom Mesh_<ver>_x64_en-US.msi       MSI installer (Tauri shell)
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       draft:
@@ -39,7 +44,7 @@ env:
   CARGO_INCREMENTAL: 0
   # Build outside the workspace so Defender's real-time scan doesn't
   # lock build-script-build.exe mid-link. Mirrors what the doc and
-  # scripts/build-windows.ps1 use locally on Z13.
+  # scripts/build-windows.ps1 use locally on node-a.
   CARGO_TARGET_DIR: ${{ github.workspace }}\..\target-windows
 
 jobs:
@@ -78,18 +83,42 @@ jobs:
       # ── Standalone CLI binary ───────────────────────────────────────────
       - name: Build phantom CLI (release, msvc)
         working-directory: core
-        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc
+        # --features experimental-hermes-curator: the CLI advertises `phantom skill
+        # run`, but the default Windows release built WITHOUT it, so skill-run failed
+        # "built without experimental-hermes-curator" (Windows usage-matrix finding,
+        # 2026-05-29). Verified to compile clean on windows-msvc before enabling.
+        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc --features experimental-hermes-curator
 
-      - name: Stage CLI artifact
+      - name: Stage CLI binary
         shell: pwsh
         run: |
           $src = "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\release\phantom.exe"
           if (-not (Test-Path $src)) { throw "build output missing: $src" }
+          Copy-Item $src "phantom-x86_64-pc-windows.exe"
+          Get-Item "phantom-x86_64-pc-windows.exe"
+
+      - name: Sign CLI binary (Authenticode, secret-gated)
+        shell: pwsh
+        # No-op when WINDOWS_CODESIGN_PFX_BASE64 is unset (forks / no cert yet):
+        # the script prints "skip" and exits 0, so the build stays green and the
+        # binary just ships unsigned. With the secret present it gets a real
+        # RFC3161-timestamped Authenticode signature, which is what removes the
+        # SmartScreen "unknown publisher" warning for downloaded phantom.exe.
+        env:
+          WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          WINDOWS_CODESIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
+        run: .\scripts\sign-windows-ci.ps1 -Path .\phantom-x86_64-pc-windows.exe
+
+      - name: Hash CLI binary (post-sign)
+        shell: pwsh
+        # MUST run after signing: an Authenticode signature is embedded into the
+        # PE, changing the file bytes. `phantom self-update` verifies this
+        # sha256, so it has to match the signed artifact, not the pre-sign one.
+        run: |
           $dst = "phantom-x86_64-pc-windows.exe"
-          Copy-Item $src $dst
           $sha = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
           "$sha  $dst" | Out-File -Encoding ascii "$dst.sha256"
-          Get-Item $dst, "$dst.sha256"
+          Get-Content "$dst.sha256"
 
       - name: Upload CLI binary artifact
         uses: actions/upload-artifact@v4
@@ -101,7 +130,7 @@ jobs:
 
       # ── Tauri MSI / NSIS bundle ─────────────────────────────────────────
       - name: Build Tauri Windows bundle (MSI + NSIS)
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         with:
           projectPath: ./app
           # Tauri auto-picks targets from app/src-tauri/tauri.conf.json
@@ -119,7 +148,10 @@ jobs:
   publish:
     name: Attach CLI binary to release
     needs: build
-    if: github.event_name == 'push'
+    # This workflow is workflow_dispatch-only; the previous `== 'push'` guard
+    # meant the publish job NEVER fired, so the CLI binary was never attached
+    # to a release. Fire it on manual dispatch instead.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,7 +164,7 @@ jobs:
           path: ./dist
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
             ./dist/phantom-x86_64-pc-windows.exe

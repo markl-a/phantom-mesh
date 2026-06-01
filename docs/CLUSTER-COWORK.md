@@ -1,6 +1,6 @@
 # Cluster Cowork — 3 台機器同時攻一個 repo 的 SOP
 
-> **Status**: Phase 1 SOP for the Z13 + ayaneo + acer mesh.
+> **Status**: Phase 1 SOP for the node-a + node-a + node-b mesh.
 > **Updated**: 2026-05-03
 
 ## TL;DR
@@ -41,28 +41,28 @@ cd foo
 ### 2. 每台機 pin 一個 worktree 給自己
 
 ```powershell
-# 假設主 repo 在 Z13 上的 ~/Projects/foo
-# Z13 自己用主 worktree（main 分支留給 review/merge）
+# 假設主 repo 在 node-a 上的 ~/Projects/foo
+# node-a 自己用主 worktree（main 分支留給 review/merge）
 
-# ayaneo 上：
+# node-a 上：
 cd $env:USERPROFILE\Projects\foo
 git fetch origin
 git worktree add ../foo-api feat/api      # 開個叫 foo-api 的 worktree 對應 feat/api branch
 
-# acer 上：
+# node-b 上：
 git worktree add ../foo-tests tests/cov   # 同理
 ```
 
 ### 3. 每台機把 phantom 釘到自己的 worktree
 
 ```powershell
-# Z13:
-phantom workspace set "C:\Users\m4932\Projects\foo" master
+# node-a:
+phantom workspace set "C:\Users\<you>\Projects\foo" master
 
-# ayaneo:
-phantom workspace set "C:\Users\m4932\Projects\foo-api" coder
+# node-a:
+phantom workspace set "C:\Users\<you>\Projects\foo-api" coder
 
-# acer:
+# node-b:
 phantom workspace set "C:\Users\user\Projects\foo-tests" tester
 ```
 
@@ -82,9 +82,9 @@ phantom workspace set "C:\Users\user\Projects\foo-tests" tester
 
 | machine | branch        | task                  | status      | blockers |
 |---------|---------------|-----------------------|-------------|----------|
-| Z13     | main          | code review + merge   | 等 ayaneo   | -        |
-| ayaneo  | feat/api      | 補 /users endpoint    | 進行中      | -        |
-| acer    | tests/cov     | 寫 auth 模組測試      | 完成 → 等 review | feat/auth 還沒 merge |
+| node-a     | main          | code review + merge   | 等 node-a   | -        |
+| node-a  | feat/api      | 補 /users endpoint    | 進行中      | -        |
+| node-b    | tests/cov     | 寫 auth 模組測試      | 完成 → 等 review | feat/auth 還沒 merge |
 
 ## Next checkpoints
 
@@ -93,7 +93,7 @@ phantom workspace set "C:\Users\user\Projects\foo-tests" tester
 
 ## Decisions log
 
-- 2026-05-03: 統一 API path 用 /api/v1/*（不是 /v1/*）— Z13 + ayaneo 議定
+- 2026-05-03: 統一 API path 用 /api/v1/*（不是 /v1/*）— node-a + node-a 議定
 ```
 
 每次 phantom agent 完成一個 task：
@@ -104,14 +104,14 @@ phantom workspace set "C:\Users\user\Projects\foo-tests" tester
 ### 5. Merge flow
 
 ```powershell
-# 任何時候在 Z13（主 worktree）上：
+# 任何時候在 node-a（主 worktree）上：
 cd ~/Projects/foo
 git fetch --all
 git checkout main
 git merge --no-ff feat/api
 git push origin main
 
-# Push 出去後 ayaneo / acer 各自 pull：
+# Push 出去後 node-a / node-b 各自 pull：
 cd ~/Projects/foo-api
 git pull --rebase origin main      # 拿到 main 的最新（含剛 merge 的 feat/api）
 ```
@@ -120,15 +120,15 @@ git pull --rebase origin main      # 拿到 main 的最新（含剛 merge 的 fe
 
 ## 用 phantom cluster RPC 呼叫遠端機
 
-如果你想在 Z13 直接叫 ayaneo 跑 build：
+如果你想在 node-a 直接叫 node-a 跑 build：
 
 ```powershell
-# Z13 PowerShell
-phantom rpc assign --target http://100.107.205.98:7878 --agent coder \
+# node-a PowerShell
+phantom rpc assign --target http://100.64.0.10:7878 --agent coder \
   "在 feat/api branch 上加一個 /api/v1/health endpoint，commit 完 push"
 ```
 
-ayaneo 的 phantom serve 收到後在 ayaneo 的 worktree 上跑該 task，完成後 push。Z13 next pull 看得到。
+node-a 的 phantom serve 收到後在 node-a 的 worktree 上跑該 task，完成後 push。node-a next pull 看得到。
 
 > **Note**: 目前 RPC 用法繁瑣（要記 IP）。Phase 2 會加 capability-based dispatch 讓你寫 `phantom dispatch --tag api "..."` 自動 route。
 
@@ -148,31 +148,31 @@ ayaneo 的 phantom serve 收到後在 ayaneo 的 worktree 上跑該 task，完�
 
 ## Per-machine 角色建議
 
-對你的 setup（Z13 桌機 + ayaneo handheld + acer 筆電）：
+對你的 setup（node-a 桌機 + node-a handheld + node-b 筆電）：
 
 | 機器 | 角色 | pinned_agent | 適合的工作 |
 |---|---|---|---|
-| **Z13** | 主開發 + merge 中心 | `master` | 主 worktree、review、merge、整合測試 |
-| **ayaneo** | 平行 task runner | `coder` 或 `worker` | feature branch 的實作（你不在電腦前的時候它也能跑）|
-| **acer** | 輕度任務 + 測試 | `tester` | 跑測試、寫測試、scrape data、生 doc |
+| **node-a** | 主開發 + merge 中心 | `master` | 主 worktree、review、merge、整合測試 |
+| **node-a** | 平行 task runner | `coder` 或 `worker` | feature branch 的實作（你不在電腦前的時候它也能跑）|
+| **node-b** | 輕度任務 + 測試 | `tester` | 跑測試、寫測試、scrape data、生 doc |
 
 每台 agents.toml 在 `[agent.<name>]` 設不同 model + tools 配對它的角色：
 
 ```toml
-# Z13 - 主機，需要強模型 + 全 tools
+# node-a - 主機，需要強模型 + 全 tools
 [agent.master]
 provider = "opencode"
 model    = "minimax-m2.5-free"   # 或之後付費 claude-sonnet
 tools    = ["shell","file_read","file_write","file_edit","content_search","glob_search","git_status","git_diff","git_log","git_commit"]
 providers = ["opencode:minimax-m2.5-free"]
 
-# ayaneo - long-running coder
+# node-a - long-running coder
 [agent.coder]
 provider = "opencode"
 model    = "minimax-m2.5-free"
 tools    = ["shell","file_read","file_write","file_edit","content_search","glob_search","git_status","git_diff","git_commit"]
 
-# acer - tester role
+# node-b - tester role
 [agent.tester]
 provider = "opencode"
 model    = "minimax-m2.5-free"
@@ -187,29 +187,29 @@ instructions = "You are a senior test engineer. Write missing tests, run them, f
 **情境**：你想加一個「使用者頭像上傳」功能。
 
 ```powershell
-# 1. 在 Z13 開 issue + 在 STATE.md 規劃任務
-# 2. 在 Z13 的 main 上開 branch + 推到 origin
+# 1. 在 node-a 開 issue + 在 STATE.md 規劃任務
+# 2. 在 node-a 的 main 上開 branch + 推到 origin
 cd ~/Projects/foo
 git checkout -b feat/avatar
 git push -u origin feat/avatar
 
-# 3. 在 ayaneo 上開對應 worktree 接手實作
+# 3. 在 node-a 上開對應 worktree 接手實作
 cd ~/Projects/foo
 git fetch
 git worktree add ../foo-avatar feat/avatar
 
-# 4. ayaneo 上跑 phantom（已 pin 到 ../foo-avatar）
+# 4. node-a 上跑 phantom（已 pin 到 ../foo-avatar）
 phantom
 # 在 TUI 裡 type: 「實作頭像上傳到 /api/v1/users/me/avatar，用 multipart/form-data，後端存到 R2」
 # agent 寫 code → 跑測試 → commit → push
 
-# 5. 在 acer 上接手寫測試
+# 5. 在 node-b 上接手寫測試
 git fetch
 git worktree add ../foo-avatar-tests feat/avatar       # 同 branch 不同 worktree（test 用獨立目錄）
-phantom    # acer pinned to coder/tester role
+phantom    # node-b pinned to coder/tester role
 # 「為剛剛 push 上來的 avatar 上傳功能寫整合測試」
 
-# 6. 兩台都 push 完，回 Z13
+# 6. 兩台都 push 完，回 node-a
 cd ~/Projects/foo
 git checkout main
 git merge --no-ff feat/avatar
@@ -221,8 +221,8 @@ git push
 
 ## 哪些事情這個 SOP **不解決**（之後 Phase 2/3 才處理）
 
-- ✗ Cross-machine 對話接續（你在 ayaneo 開的 phantom session 不能在 acer 繼續）→ Phase 3 (Path C)
-- ✗ Capability-based dispatch（你還是要手動指定 `--target http://ayaneo:7878`）→ Phase 2 (Path B)
+- ✗ Cross-machine 對話接續（你在 node-a 開的 phantom session 不能在 node-b 繼續）→ Phase 3 (Path C)
+- ✗ Capability-based dispatch（你還是要手動指定 `--target http://node-a:7878`）→ Phase 2 (Path B)
 - ✗ Task DAG / 並行 reduce（適合批次 workload，你目前還用不到）→ Phase 4 (Path E)
 
 ---

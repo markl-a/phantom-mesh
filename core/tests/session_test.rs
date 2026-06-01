@@ -1,17 +1,17 @@
 /// Integration tests for ConversationStore session management:
 /// disk persistence, markdown export, and session search.
-
-use phantom_mesh::{
-    session::ConversationStore,
-    providers::traits::ChatMessage,
-};
+use phantom_mesh::{providers::traits::ChatMessage, session::ConversationStore};
 
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------
 
 fn msg(role: &str, content: &str) -> ChatMessage {
-    ChatMessage { role: role.into(), content: content.into(), tool_calls: None }
+    ChatMessage {
+        role: role.into(),
+        content: content.into(),
+        tool_calls: None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -27,15 +27,31 @@ async fn test_conversation_persistence() {
     // Write messages with one store instance.
     {
         let store = ConversationStore::new_with_dir(path.clone());
-        store.append("persist_session", msg("user", "first message"), msg("assistant", "first reply")).await;
-        store.append("persist_session", msg("user", "second message"), msg("assistant", "second reply")).await;
+        store
+            .append(
+                "persist_session",
+                msg("user", "first message"),
+                msg("assistant", "first reply"),
+            )
+            .await;
+        store
+            .append(
+                "persist_session",
+                msg("user", "second message"),
+                msg("assistant", "second reply"),
+            )
+            .await;
     }
 
     // Open a brand-new store pointing at the same directory.
     let store2 = ConversationStore::new_with_dir(path);
     let history = store2.get_history("persist_session").await;
 
-    assert_eq!(history.len(), 4, "all 4 messages should be reloaded from disk");
+    assert_eq!(
+        history.len(),
+        4,
+        "all 4 messages should be reloaded from disk"
+    );
     assert_eq!(history[0].content, "first message");
     assert_eq!(history[1].content, "first reply");
     assert_eq!(history[2].content, "second message");
@@ -51,27 +67,38 @@ async fn test_session_export_markdown() {
     let dir = tempfile::tempdir().unwrap();
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
-    store.append(
-        "md_session",
-        msg("user", "What is Rust?"),
-        msg("assistant", "A systems programming language."),
-    ).await;
+    store
+        .append(
+            "md_session",
+            msg("user", "What is Rust?"),
+            msg("assistant", "A systems programming language."),
+        )
+        .await;
 
     let markdown = store.export_markdown("md_session").await;
 
     // Should open with the session heading.
-    assert!(markdown.contains("# Session: md_session"), "missing session heading");
+    assert!(
+        markdown.contains("# Session: md_session"),
+        "missing session heading"
+    );
 
     // Should contain a turn heading.
     assert!(markdown.contains("## Turn 1"), "missing turn heading");
 
     // Should contain both the user and assistant content.
     assert!(markdown.contains("What is Rust?"), "missing user content");
-    assert!(markdown.contains("A systems programming language."), "missing assistant content");
+    assert!(
+        markdown.contains("A systems programming language."),
+        "missing assistant content"
+    );
 
     // User and assistant labels should be present.
     assert!(markdown.contains("**User:**"), "missing user label");
-    assert!(markdown.contains("**Assistant:**"), "missing assistant label");
+    assert!(
+        markdown.contains("**Assistant:**"),
+        "missing assistant label"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -84,9 +111,27 @@ async fn test_session_search() {
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
     // Three sessions with distinct content.
-    store.append("alpha", msg("user", "tell me about tokio async runtime"), msg("assistant", "Tokio is a Rust async runtime.")).await;
-    store.append("beta",  msg("user", "explain ownership in Rust"), msg("assistant", "Ownership prevents data races.")).await;
-    store.append("gamma", msg("user", "what is a borrow checker"), msg("assistant", "It enforces ownership rules.")).await;
+    store
+        .append(
+            "alpha",
+            msg("user", "tell me about tokio async runtime"),
+            msg("assistant", "Tokio is a Rust async runtime."),
+        )
+        .await;
+    store
+        .append(
+            "beta",
+            msg("user", "explain ownership in Rust"),
+            msg("assistant", "Ownership prevents data races."),
+        )
+        .await;
+    store
+        .append(
+            "gamma",
+            msg("user", "what is a borrow checker"),
+            msg("assistant", "It enforces ownership rules."),
+        )
+        .await;
 
     // Search across all sessions for "tokio".
     let matching = store.search("tokio").await;
@@ -95,8 +140,14 @@ async fn test_session_search() {
 
     // Search within the "beta" session for "ownership".
     let in_session = store.search_in_session("beta", "ownership").await;
-    assert!(!in_session.is_empty(), "should find 'ownership' in beta session");
-    assert!(in_session.iter().any(|c| c.contains("ownership")), "matched content should contain 'ownership'");
+    assert!(
+        !in_session.is_empty(),
+        "should find 'ownership' in beta session"
+    );
+    assert!(
+        in_session.iter().any(|c| c.contains("ownership")),
+        "matched content should contain 'ownership'"
+    );
 
     // Search for a term that does not exist.
     let none = store.search("xyzzy_not_found_9999").await;
@@ -113,11 +164,13 @@ async fn test_multiple_appends_ordering() {
     let store = ConversationStore::new_with_dir(dir.path().to_path_buf());
 
     for i in 0..5u32 {
-        store.append(
-            "order_test",
-            msg("user", &format!("question {}", i)),
-            msg("assistant", &format!("answer {}", i)),
-        ).await;
+        store
+            .append(
+                "order_test",
+                msg("user", &format!("question {}", i)),
+                msg("assistant", &format!("answer {}", i)),
+            )
+            .await;
     }
 
     let history = store.get_history("order_test").await;

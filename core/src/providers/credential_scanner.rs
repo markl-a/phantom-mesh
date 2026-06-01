@@ -20,21 +20,30 @@ impl DiscoveredCredential {
 pub async fn scan_all() -> Vec<DiscoveredCredential> {
     let mut found = Vec::new();
 
-    if std::env::var("OPENAI_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {
+    if std::env::var("OPENAI_API_KEY")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         found.push(DiscoveredCredential {
             name: "openai".into(),
             provider_type: "openai".into(),
             source: "env".into(),
         });
     }
-    if std::env::var("ANTHROPIC_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {
+    if std::env::var("ANTHROPIC_API_KEY")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         found.push(DiscoveredCredential {
             name: "anthropic".into(),
             provider_type: "anthropic".into(),
             source: "env".into(),
         });
     }
-    if std::env::var("OPENROUTER_API_KEY").map(|v| !v.is_empty()).unwrap_or(false) {
+    if std::env::var("OPENROUTER_API_KEY")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         found.push(DiscoveredCredential {
             name: "openrouter".into(),
             provider_type: "openrouter".into(),
@@ -48,8 +57,16 @@ pub async fn scan_all() -> Vec<DiscoveredCredential> {
 pub fn copilot_token_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = dirs_home() {
-        paths.push(home.join(".config").join("github-copilot").join("hosts.json"));
-        paths.push(home.join(".config").join("github-copilot").join("apps.json"));
+        paths.push(
+            home.join(".config")
+                .join("github-copilot")
+                .join("hosts.json"),
+        );
+        paths.push(
+            home.join(".config")
+                .join("github-copilot")
+                .join("apps.json"),
+        );
     }
     paths
 }

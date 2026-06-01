@@ -1,28 +1,84 @@
+//! Sign-in via Google and Apple using the OAuth 2.0 Authorization Code flow
+//! with PKCE (Proof Key for Code Exchange).
+//!
+//! # Why PKCE
+//!
+//! phantom is a public client (a native/desktop app, not a confidential server),
+//! so it cannot safely embed a long-lived client secret. PKCE protects the
+//! authorization-code exchange against interception:
+//!
+//! 1. **Start** — generate a random `code_verifier`, derive its SHA-256
+//!    `code_challenge`, and a random `csrf_state`. The browser is sent to the
+//!    provider's authorize endpoint carrying the challenge + state.
+//! 2. **Redirect** — the provider authenticates the user and redirects back with
+//!    an authorization `code` plus the original `state`.
+//! 3. **Callback** — [`handle_callback`] verifies `state` (CSRF defense), then
+//!    exchanges `code` + `code_verifier` for tokens. The provider re-derives the
+//!    challenge from the verifier and rejects the exchange if they do not match.
+//! 4. **Identity** — the returned OpenID Connect `id_token` (a JWT) is decoded
+//!    into a [`UserIdentity`].
+//!
+//! # Provider differences
+//!
+//! - **Google** — redirects to a local loopback URI (`http://localhost:<port>/oauth/callback`).
+//!   The client secret is read from the `PHANTOM_MESH_GOOGLE_CLIENT_SECRET` env var.
+//! - **Apple** — uses `response_mode=form_post` via a hosted relay (Apple does not
+//!   redirect to loopback). The `state` is encoded as `"<csrf>.<port>"` so the relay
+//!   can route the callback back to the correct local daemon. Apple has no static
+//!   client secret; one is minted on demand as a short-lived ES256 JWT signed with a
+//!   `.p8` private key (see [`generate_apple_client_secret`]). Apple sign-in is only
+//!   available when an `apple-auth.json` config file is present (see [`apple_available`]).
+//!
+//! # State machine
+//!
+//! Two process-global [`Mutex`]es hold the flow state: `PENDING` (the in-progress
+//! flow between start and callback) and `RESULT` (the final identity or error,
+//! polled via [`get_result`]). Only one OAuth flow is tracked at a time.
+//!
+//! Endpoint URLs and client identifiers are compile-time constants; no secrets are
+//! stored in this module.
+
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const GOOGLE_CLIENT_ID: &str = "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID: &str =
+    "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
 const APPLE_CLIENT_ID: &str = "ai.phantommesh.auth";
 const APPLE_RELAY_URL: &str = "https://apple-oauth-relay.vercel.app/auth/apple-callback";
 const FRONTEND_URL: &str = "http://localhost:5173";
 
+/// Authenticated user identity extracted from a provider's OpenID Connect `id_token`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserIdentity {
+    /// Provider that issued this identity (`"google"` or `"apple"`).
     pub provider: String,
+    /// Stable, provider-scoped subject identifier (the `sub` claim).
     pub sub: String,
+    /// User email address (may be empty if not granted by the provider).
     pub email: String,
+    /// Human-readable display name; falls back to the email when no name is provided.
     pub display_name: String,
+    /// Optional avatar/profile picture URL (`picture` claim), if the provider supplies one.
     pub avatar_url: Option<String>,
 }
 
+/// Configuration required to mint Apple "Sign in with Apple" client secrets.
+///
+/// Loaded from `~/.phantom-mesh/apple-auth.json` (or the XDG config path). The
+/// `.p8` private key it references is used to sign a short-lived ES256 JWT that
+/// serves as Apple's client secret during the token exchange.
 #[derive(Debug, Deserialize)]
 pub struct AppleAuthConfig {
+    /// Apple service/client identifier; defaults to the built-in value when omitted.
     pub client_id: Option<String>,
+    /// Apple developer Team ID, used as the JWT `iss` (issuer) claim.
     pub team_id: String,
+    /// Identifier of the `.p8` signing key, set as the JWT header `kid`.
     pub key_id: String,
+    /// Filesystem path to the `.p8` ES256 private key used to sign the client secret.
     pub p8_path: String,
 }
 
@@ -59,14 +115,20 @@ fn load_apple_config() -> Option<AppleAuthConfig> {
     None
 }
 
-fn generate_apple_client_secret(config: &AppleAuthConfig, client_id: &str) -> Result<String, String> {
+fn generate_apple_client_secret(
+    config: &AppleAuthConfig,
+    client_id: &str,
+) -> Result<String, String> {
     let p8_pem = std::fs::read_to_string(&config.p8_path)
         .map_err(|e| format!("Cannot read .p8 key: {}", e))?;
 
     let encoding_key = jsonwebtoken::EncodingKey::from_ec_pem(p8_pem.as_bytes())
         .map_err(|e| format!("Invalid .p8 key: {}", e))?;
 
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
     let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
     header.kid = Some(config.key_id.clone());
@@ -85,6 +147,10 @@ fn generate_apple_client_secret(config: &AppleAuthConfig, client_id: &str) -> Re
 
 // ── Google OAuth ───────────────────────────────────────────────────────────
 
+/// Begin a Google sign-in flow and return the authorize URL to open in a browser.
+///
+/// Generates the PKCE verifier/challenge and CSRF state, records them in the
+/// pending-flow slot, and builds the loopback redirect URI for `daemon_port`.
 pub fn google_start_url(daemon_port: u16) -> String {
     let code_verifier = gen_random_b64(32);
     let code_challenge = {
@@ -119,6 +185,11 @@ pub fn google_start_url(daemon_port: u16) -> String {
 
 // ── Apple OAuth ────────────────────────────────────────────────────────────
 
+/// Begin an Apple sign-in flow and return the authorize URL to open in a browser.
+///
+/// Requires an Apple auth config file (otherwise returns an error). Encodes the
+/// CSRF state as `"<csrf>.<daemon_port>"` so the hosted relay can route the
+/// `form_post` callback back to this daemon.
 pub fn apple_start_url(daemon_port: u16) -> Result<String, String> {
     let _config = load_apple_config()
         .ok_or("Apple 登入需要設定檔。請建立 ~/.phantom-mesh/apple-auth.json")?;
@@ -156,14 +227,26 @@ pub fn apple_start_url(daemon_port: u16) -> Result<String, String> {
     Ok(auth_url)
 }
 
+/// Returns `true` when an Apple auth config file is present, meaning Apple
+/// sign-in can be offered.
 pub fn apple_available() -> bool {
     load_apple_config().is_some()
 }
 
 // ── Shared callback handler ────────────────────────────────────────────────
 
+/// Complete an in-progress OAuth flow from the provider's redirect.
+///
+/// Verifies `state` against the pending flow (CSRF defense; for Apple, matches
+/// the `<csrf>` prefix), exchanges `code` for tokens with the matching provider,
+/// stores the resulting [`UserIdentity`] in the result slot, and returns a
+/// frontend redirect URL carrying the identity. Returns an error if there is no
+/// pending flow, the state mismatches, or the token exchange fails.
 pub async fn handle_callback(code: &str, state: &str) -> Result<String, String> {
-    let pending = PENDING.lock().unwrap().take()
+    let pending = PENDING
+        .lock()
+        .unwrap()
+        .take()
         .ok_or("No pending OAuth flow")?;
 
     // Verify state — for Apple, state is "{csrf}.{port}", match csrf part
@@ -197,7 +280,8 @@ async fn exchange_google(code: &str, pending: &PendingOAuth) -> Result<UserIdent
     let client_secret = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET")
         .map_err(|_| "PHANTOM_MESH_GOOGLE_CLIENT_SECRET env var not set".to_string())?;
     let client = reqwest::Client::new();
-    let resp = client.post("https://oauth2.googleapis.com/token")
+    let resp = client
+        .post("https://oauth2.googleapis.com/token")
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -206,7 +290,9 @@ async fn exchange_google(code: &str, pending: &PendingOAuth) -> Result<UserIdent
             ("client_id", GOOGLE_CLIENT_ID),
             ("client_secret", client_secret.as_str()),
         ])
-        .send().await.map_err(|e| format!("Token exchange failed: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("Token exchange failed: {}", e))?;
 
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -224,7 +310,8 @@ async fn exchange_apple(code: &str, pending: &PendingOAuth) -> Result<UserIdenti
     let client_secret = generate_apple_client_secret(&config, client_id)?;
 
     let client = reqwest::Client::new();
-    let resp = client.post("https://appleid.apple.com/auth/token")
+    let resp = client
+        .post("https://appleid.apple.com/auth/token")
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -233,7 +320,9 @@ async fn exchange_apple(code: &str, pending: &PendingOAuth) -> Result<UserIdenti
             ("client_id", client_id),
             ("client_secret", client_secret.as_str()),
         ])
-        .send().await.map_err(|e| format!("Token exchange failed: {}", e))?;
+        .send()
+        .await
+        .map_err(|e| format!("Token exchange failed: {}", e))?;
 
     if !resp.status().is_success() {
         let body = resp.text().await.unwrap_or_default();
@@ -247,7 +336,9 @@ async fn exchange_apple(code: &str, pending: &PendingOAuth) -> Result<UserIdenti
 
 fn decode_jwt_identity(provider: &str, id_token: &str) -> Result<UserIdentity, String> {
     let parts: Vec<&str> = id_token.split('.').collect();
-    if parts.len() != 3 { return Err("Invalid token".into()); }
+    if parts.len() != 3 {
+        return Err("Invalid token".into());
+    }
 
     let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(parts[1])
@@ -257,20 +348,26 @@ fn decode_jwt_identity(provider: &str, id_token: &str) -> Result<UserIdentity, S
         })
         .map_err(|e| format!("Base64 error: {}", e))?;
 
-    let claims: serde_json::Value = serde_json::from_slice(&payload_bytes)
-        .map_err(|e| format!("JWT parse error: {}", e))?;
+    let claims: serde_json::Value =
+        serde_json::from_slice(&payload_bytes).map_err(|e| format!("JWT parse error: {}", e))?;
 
     Ok(UserIdentity {
         provider: provider.into(),
         sub: claims["sub"].as_str().unwrap_or("").into(),
         email: claims["email"].as_str().unwrap_or("").into(),
-        display_name: claims["name"].as_str()
+        display_name: claims["name"]
+            .as_str()
             .or_else(|| claims["email"].as_str())
-            .unwrap_or("").into(),
+            .unwrap_or("")
+            .into(),
         avatar_url: claims["picture"].as_str().map(String::from),
     })
 }
 
+/// Poll the outcome of the most recent OAuth flow.
+///
+/// Returns `None` while a flow is still in progress, `Some(Ok(_))` once an
+/// identity has been resolved, or `Some(Err(_))` if the flow failed.
 pub fn get_result() -> Option<Result<UserIdentity, String>> {
     RESULT.lock().unwrap().clone()
 }

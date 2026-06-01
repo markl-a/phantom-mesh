@@ -91,6 +91,23 @@ fn main() {
     println!("cargo:rerun-if-changed=../dist/index.html");
     println!("cargo:rerun-if-changed=../dist/assets");
 
+    // ── iOS: compile native ObjC HTTP bridge into our dylib ─────────────────
+    // tauri-plugin-http (reqwest) silently times out fetching Tailscale magic
+    // hostnames + private IPs on physical iOS devices. The `phantom_ios_fetch`
+    // function in native/ios_fetch.m uses NSURLSession, which routes through
+    // iOS's standard URL loading stack and works reliably for LAN + Tailnet.
+    // Compiled here via cc so the symbol lives in the same dylib as the Rust
+    // code (xcodebuild-compiled Swift link-loads after cargo, causing
+    // undefined-symbol errors at Rust link time — see commit notes).
+    if target.contains("ios") {
+        cc::Build::new()
+            .file("native/ios_fetch.m")
+            .flag("-fobjc-arc")
+            .compile("phantom_ios_fetch");
+        println!("cargo:rerun-if-changed=native/ios_fetch.m");
+        println!("cargo:rustc-link-lib=framework=Foundation");
+    }
+
     // ── Standard Tauri build (validates externalBin, generates code) ────────
     tauri_build::build();
 }

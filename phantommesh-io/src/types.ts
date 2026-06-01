@@ -15,6 +15,13 @@ export type Env = {
   BROKER_TOKEN_TTL_SECS: string;
   BROKER_VERSION: string;
 
+  // Cloudflare Web Analytics beacon token. Optional — when empty
+  // string, no beacon is injected (dev/staging defaults). Set in
+  // wrangler.toml [vars] for prod after creating the Web Analytics
+  // site in the Cloudflare dashboard. Public by design (gets
+  // embedded in HTML), so [vars] not [secrets].
+  CF_ANALYTICS_TOKEN: string;
+
   // Secrets (set via `wrangler secret put`)
   GOOGLE_CLIENT_SECRET: string;
   BROKER_JWT_SECRET: string;    // 32+ random bytes
@@ -25,6 +32,11 @@ export type Env = {
   // Rotating this requires re-encrypting every row — defer until
   // there's tooling to do that atomically.
   ENV_VAULT_KEY: string;
+
+  // F205: Durable Object namespace for streaming dispatch chunks.
+  // One instance per dispatch job_id; fan-outs SSE events to every
+  // subscriber tab. See src/durable/dispatch_stream.ts.
+  DISPATCH_STREAM: DurableObjectNamespace;
 };
 
 export type UserRow = {
@@ -67,4 +79,14 @@ export type OAuthSession = {
   code_verifier: string;
   provider: string;
   created_at: number;
+  // HMAC-SHA256(BROKER_JWT_SECRET, nonce_cookie_value) stored at
+  // authStart/webStart time and re-verified at every subsequent hop
+  // (googleStart, googleCallback, emailLogin, emailRegister). Binds
+  // the OAuth dance to the originator's browser even if `state` leaks
+  // through Referer / shoulder-surf / Google's logs.
+  //
+  // Audit B2 (HIGH) — 2026-05-15. Older KV records written before this
+  // field existed are treated as "legacy / unbound" (see verifyNonceBinding
+  // in lib/oauth.ts). New code paths always set this.
+  nonce_hash?: string;
 };

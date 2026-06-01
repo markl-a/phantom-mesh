@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { reducedMotionScrollBehavior } from "../../lib/motion";
 
 type LogLevel = "INFO" | "WARN" | "ERROR" | "DEBUG";
 
@@ -31,7 +32,7 @@ const MOCK_LOGS: LogEntry[] = [
   { timestamp: "2026-03-21 23:14:04", level: "WARN", module: "provider", message: "Ollama connection timeout, retrying..." },
   { timestamp: "2026-03-21 23:14:05", level: "INFO", module: "provider", message: "Ollama connected: qwen3:8b ready" },
   { timestamp: "2026-03-21 23:14:05", level: "INFO", module: "cluster", message: "Hub listening on 0.0.0.0:7878" },
-  { timestamp: "2026-03-21 23:14:06", level: "INFO", module: "cluster", message: "Worker 'm1-mac' registered (capabilities: [llm, sandbox])" },
+  { timestamp: "2026-03-21 23:14:06", level: "INFO", module: "cluster", message: "Worker 'mac-worker' registered (capabilities: [llm, sandbox])" },
   { timestamp: "2026-03-21 23:14:10", level: "INFO", module: "telegram", message: "Bot @clawtex_bot connected" },
   { timestamp: "2026-03-21 23:14:15", level: "DEBUG", module: "cron", message: "Next scheduled task: embed-pipeline at 00:00" },
   { timestamp: "2026-03-21 23:14:30", level: "INFO", module: "agent", message: "Task #42 assigned to master agent" },
@@ -60,7 +61,7 @@ export default function LogsPanel() {
 
   const scrollToBottom = useCallback(() => {
     if (autoScroll && logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+      logEndRef.current.scrollIntoView({ behavior: reducedMotionScrollBehavior() });
     }
   }, [autoScroll]);
 

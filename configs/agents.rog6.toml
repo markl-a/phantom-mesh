@@ -45,12 +45,18 @@ default_model = "claude-haiku-4-5"
 [cluster]
 node_name = "rog6"
 cluster_secret = "REPLACE_WITH_SHARED_SECRET"
+# Worker caps advertised to peers. Other nodes dispatch via
+# `phantom peer assign --required-caps ...`; this node is picked only when
+# its `worker_caps` is a superset of the required set (see
+# `core/src/mesh.rs::select_best_peer_with_caps`). Mobile workers run in
+# a sandbox, so we advertise the sandbox-safe set instead of "full".
+worker_caps = ["file_in_container", "memory", "web", "subagent", "llm_local"]
 peers = [
   "http://100.x.x.MAC:7878",     # Coordinator (Mac)
   "http://100.x.x.ORACLE:7878",  # Oracle Cloud VM
-  "http://100.x.x.Z13:7878",     # Z13
-  "http://100.x.x.ACER:7878",    # Acer
-  "http://100.x.x.AYANEO:7878",  # AYANEO
+  "http://100.x.x.node-a:7878",     # node-a
+  "http://100.x.x.node-b:7878",    # node-b
+  "http://100.x.x.node-d:7878",  # node-d
   "http://100.x.x.MIPAD:7878",   # Mi Pad
   "http://100.x.x.IPAD:7878",    # iPad Pro
 ]

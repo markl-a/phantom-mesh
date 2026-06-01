@@ -229,11 +229,16 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
     let error: Option<String> = row.get(13)?;
     let trace_id: String = row.get(14)?;
 
-    let status = TaskStatus::from_str(&status_str).unwrap_or(TaskStatus::Failed);
-    let task_id = Uuid::parse_str(&task_id)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
-    let trace_id = Uuid::parse_str(&trace_id)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?;
+    let status = TaskStatus::from_str(&status_str).unwrap_or_else(|| {
+        tracing::warn!(status_str = %status_str, task_id = %task_id, "TaskStatus::from_str unknown variant — coerced to Failed");
+        TaskStatus::Failed
+    });
+    let task_id = Uuid::parse_str(&task_id).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+    let trace_id = Uuid::parse_str(&trace_id).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
+    })?;
     let parent_task_id = match parent_task_id {
         Some(s) => Some(Uuid::parse_str(&s).map_err(|e| {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
@@ -269,7 +274,9 @@ fn now_millis() -> i64 {
 }
 
 #[allow(dead_code)]
-pub(crate) fn _touch_path(p: &Path) -> &Path { p }
+pub(crate) fn _touch_path(p: &Path) -> &Path {
+    p
+}
 
 #[cfg(test)]
 mod tests {
@@ -301,13 +308,19 @@ mod tests {
         let t = mk_task("ws1");
         store.insert(&t).await.unwrap();
 
-        store.update_status(t.task_id, TaskStatus::Running, None).await.unwrap();
+        store
+            .update_status(t.task_id, TaskStatus::Running, None)
+            .await
+            .unwrap();
         let got = store.get(t.task_id).await.unwrap().unwrap();
         assert_eq!(got.status, TaskStatus::Running);
         assert!(got.started_at.is_some());
         assert!(got.finished_at.is_none());
 
-        store.update_status(t.task_id, TaskStatus::Completed, None).await.unwrap();
+        store
+            .update_status(t.task_id, TaskStatus::Completed, None)
+            .await
+            .unwrap();
         let got = store.get(t.task_id).await.unwrap().unwrap();
         assert_eq!(got.status, TaskStatus::Completed);
         assert!(got.finished_at.is_some());
@@ -324,12 +337,18 @@ mod tests {
         store.insert(&t1).await.unwrap();
         store.insert(&t2).await.unwrap();
         store.insert(&t3).await.unwrap();
-        store.update_status(t2.task_id, TaskStatus::Failed, Some("boom")).await.unwrap();
+        store
+            .update_status(t2.task_id, TaskStatus::Failed, Some("boom"))
+            .await
+            .unwrap();
 
         let ws1_all = store.list(Some("ws1"), None, 100).await.unwrap();
         assert_eq!(ws1_all.len(), 2);
 
-        let ws1_failed = store.list(Some("ws1"), Some(TaskStatus::Failed), 100).await.unwrap();
+        let ws1_failed = store
+            .list(Some("ws1"), Some(TaskStatus::Failed), 100)
+            .await
+            .unwrap();
         assert_eq!(ws1_failed.len(), 1);
         assert_eq!(ws1_failed[0].error.as_deref(), Some("boom"));
     }

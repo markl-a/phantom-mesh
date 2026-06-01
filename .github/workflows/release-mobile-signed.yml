@@ -1,0 +1,313 @@
+# =============================================================================
+# Release Mobile (Signed APK) — v0.6.0 V4 hard-gated
+# =============================================================================
+# Purpose:
+#   Cuts a *production-signed* Android APK on `v*` tag pushes and attaches it
+#   as a GitHub Release asset, alongside the matching `phantom-aarch64-linux-android`
+#   coordinator binary from release-daemon.yml.
+#
+# Hard gate (V4):
+#   - This workflow REQUIRES the four ANDROID_* secrets below. If any are
+#     missing the run fails fast in `verify-secrets`. Use release-mobile.yml
+#     for unsigned / debug-signed CI builds.
+#   - APK is uploaded as a NON-DRAFT GitHub Release asset (operator promotes
+#     to "latest" via the Releases UI after smoke-testing).
+#
+# Required secrets (operator setup — see docs/release-android-signed.md):
+#   ANDROID_KEYSTORE_BASE64  — base64-encoded keystore.jks
+#   ANDROID_KEYSTORE_PASSWORD — keystore (-storepass) password
+#   ANDROID_KEY_ALIAS         — key alias inside the keystore
+#   ANDROID_KEY_PASSWORD      — per-key (-keypass) password
+# =============================================================================
+
+name: Release Mobile (Signed APK)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build for (must already exist, e.g. v0.6.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  # Match release-mobile.yml — Tauri auto-detects the newest NDK in the SDK root,
+  # so pinning here keeps our ranlib/ar symlinks in the same NDK that the build
+  # actually uses. Drift here breaks OpenSSL vendored builds with Error 127.
+  NDK_VERSION: '29.0.14206865'
+
+# Cancel superseded runs on the same tag/dispatch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Hard gate — fail fast if any of the four signing secrets are missing.
+  # Runs as a tiny separate job so the expensive Android toolchain setup is
+  # only invoked when secrets are actually present.
+  # ──────────────────────────────────────────────────────────────────────────
+  verify-secrets:
+    name: Verify signing secrets present
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check ANDROID_* secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          missing=0
+          for var in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Required secret '$var' is not set."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::See docs/release-android-signed.md for operator setup instructions."
+            exit 1
+          fi
+          echo "All four ANDROID_* signing secrets present."
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Build signed release APK
+  # ──────────────────────────────────────────────────────────────────────────
+  build-signed-apk:
+    name: Build signed release APK
+    needs: verify-secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          # JDK 17 per T53 spec (Android Gradle Plugin 8.x baseline). The
+          # legacy release-mobile.yml uses 21 for parity with Tauri's tooling;
+          # we pin 17 here because v0.6.0 V4 explicitly requires it.
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          set -e
+          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "NDK_HOME=$NDK_HOME"               >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_HOME"       >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_HOME"       >> "$GITHUB_ENV"
+          echo "$NDK_BIN"                         >> "$GITHUB_PATH"
+
+          # ranlib / ar symlinks for OpenSSL vendored build (NDK ships only llvm-* names).
+          for tgt in aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android; do
+            ln -sf "$NDK_BIN/llvm-ranlib" "$NDK_BIN/${tgt}-ranlib"
+            ln -sf "$NDK_BIN/llvm-ar"     "$NDK_BIN/${tgt}-ar"
+          done
+
+      - name: Install Rust + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install frontend dependencies
+        working-directory: app
+        # `npm ci` requires a committed package-lock.json which the repo
+        # .gitignore excludes — fall back to npm install.
+        run: npm install
+
+      - name: Init Android project
+        working-directory: app
+        run: npm run tauri android init
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Allow cleartext in AndroidManifest
+        # Same fix as release-mobile.yml — webview localhost is HTTP-only.
+        working-directory: app
+        run: |
+          set -e
+          MF=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          test -f "$MF"
+          sed -i 's|"\${usesCleartextTraffic}"|"true"|g' "$MF"
+          sed -i 's|android:usesCleartextTraffic="false"|android:usesCleartextTraffic="true"|g' "$MF"
+          if ! grep -q 'android:usesCleartextTraffic=' "$MF"; then
+            sed -i 's|<application |<application android:usesCleartextTraffic="true" |' "$MF"
+          fi
+          grep -q 'android:usesCleartextTraffic="true"' "$MF"
+
+      - name: Build APK (release, unsigned)
+        working-directory: app
+        run: npm run tauri android build -- --apk
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Decode keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          # Decode to a path under $RUNNER_TEMP so it's auto-cleaned and not
+          # under the workspace (avoids any chance of the keystore being
+          # picked up by an artifact upload glob).
+          KEYSTORE_PATH="$RUNNER_TEMP/keystore.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          # Sanity check — keytool will fail with the configured password
+          # if the file is malformed or the password is wrong.
+          keytool -list -keystore "$KEYSTORE_PATH" \
+            -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" \
+            >/dev/null
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Sign APK with apksigner
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          REF="${{ github.event.inputs.tag || github.ref_name }}"
+          REF_SAFE="${REF//\//-}"
+          UNSIGNED=app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+          test -f "$UNSIGNED" || {
+            echo "::error::Unsigned APK not found at $UNSIGNED"
+            ls -la app/src-tauri/gen/android/app/build/outputs/apk/ || true
+            exit 1
+          }
+
+          APK_NAME="phantom-mesh-${REF_SAFE}-signed.apk"
+          # apksigner reads passwords from env via the `pass:env:` prefix,
+          # which keeps the secrets out of `ps` output and the run log.
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --ks-pass pass:env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass pass:env:ANDROID_KEY_PASSWORD \
+            --out "$APK_NAME" \
+            "$UNSIGNED"
+
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" verify --verbose "$APK_NAME"
+          ls -la "$APK_NAME"
+          echo "APK_NAME=$APK_NAME" >> "$GITHUB_ENV"
+
+      - name: Cleanup keystore
+        if: always()
+        # Defense-in-depth — RUNNER_TEMP is wiped by the runner anyway,
+        # but explicit removal narrows the window.
+        run: rm -f "$RUNNER_TEMP/keystore.jks"
+
+      - name: Upload signed APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed APK to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: ${{ env.APK_NAME }}
+          # NOT a draft — operator should promote to "latest" after smoke test.
+          draft: false
+          # Mark as prerelease until v1.0; flip when V4 hits stable.
+          prerelease: true
+          fail_on_unmatched_files: true
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Build matching aarch64-linux-android coordinator binary and attach it
+  # to the same release. Mirrors the build-android job in release-daemon.yml
+  # so this workflow is self-contained for V4 cuts.
+  # ──────────────────────────────────────────────────────────────────────────
+  build-coordinator-android:
+    name: Build phantom-aarch64-linux-android
+    needs: verify-secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      DAEMON_NDK_VERSION: '28.2.13676358'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          set -e
+          sdkmanager "ndk;${DAEMON_NDK_VERSION}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${DAEMON_NDK_VERSION}"
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_HOME" >> "$GITHUB_ENV"
+
+      - name: Install Rust + aarch64-linux-android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: signed-android-aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: signed-android-aarch64-cargo-
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build phantom binary
+        working-directory: core
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+
+      - name: Strip and rename binary
+        run: |
+          set -e
+          NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          BIN="core/target/aarch64-linux-android/release/phantom"
+          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-aarch64-linux-android
+          ls -lh phantom-aarch64-linux-android
+
+      - name: Upload binary to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: phantom-aarch64-linux-android
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: true
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}

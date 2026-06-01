@@ -1,0 +1,46 @@
+name: SPEC-17 lints
+
+# Dedicated lint workflow (split out of ci-fast so it triggers on the Tauri
+# command surface — app/src-tauri/** — without dragging the Rust check/clippy/
+# test jobs along on app-only PRs). Both lints are SPEC-17 stage-1 WARN-ONLY:
+# each script exits 0 unless --strict, so this surfaces deviation lists on PR
+# WITHOUT blocking; flip to --strict at GA per the SPEC-17 migration.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src-tauri/src/**'
+      - 'core/src/**'
+      - 'scripts/qa/**'
+      - '.github/workflows/spec17-lints.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/src-tauri/src/**'
+      - 'core/src/**'
+      - 'scripts/qa/**'
+      - '.github/workflows/spec17-lints.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spec17-lints:
+    name: SPEC-17 Tauri bridge lints (warn-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Self-test FIRST: pins the lints' hardened behavior (string/comment/raw-
+      # string lexing, lifetimes, object-key-only, secret-safe output, exit codes)
+      # so a regression fails CI here rather than silently weakening the lints.
+      - name: lint self-test (regression guard)
+        run: node scripts/qa/lint-selftest.mjs
+      - name: §13 — event payloads carry no plaintext secret
+        run: node scripts/qa/event-payload-lint.ts
+      - name: §7.2/§8 — Tauri command contract (naming/visibility/Result/no-unwrap)
+        run: node scripts/qa/tauri-cmd-lint.ts

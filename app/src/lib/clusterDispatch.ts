@@ -1,6 +1,61 @@
 // Cluster-mode dispatch: thin client (mobile) → coordinator's
 // /rpc/task/assign, then polls /rpc/task/status/:id until done | error.
 //
+// IMPORTANT — we use `fetch` from `@tauri-apps/plugin-http`, NOT the
+// browser/WKWebView `window.fetch`. On iOS the Tauri webview origin is
+// `https://tauri.localhost`, so any http:// cluster coordinator URL is
+// blocked as mixed content (silently — TypeError: Load failed) by
+// WebKit regardless of NSAppTransportSecurity. The plugin's fetch goes
+// through the native reqwest client and is exempt from browser CSP /
+// mixed-content / preflight CORS rules.
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { invoke } from "@tauri-apps/api/core";
+
+/**
+ * iOS-only escape hatch. tauri-plugin-http's reqwest backend silently
+ * times out when fetching Tailscale magic hostnames + private IPs from
+ * physical iOS devices — likely because reqwest uses raw sockets that
+ * don't satisfy the iOS network sandbox. The `swift_cluster_fetch`
+ * Tauri command (app/src-tauri/src/lib.rs + PhantomFetch.swift) routes
+ * the request through native NSURLSession.dataTask which goes through
+ * iOS's standard URL loading stack and works reliably.
+ *
+ * Returns the same {ok, status, text()} shape the browser fetch returns
+ * so the rest of the file's call sites don't need conditional logic.
+ */
+async function nativeFetch(
+  url: string,
+  init: { method?: string; headers?: Record<string, string>; body?: string } = {},
+): Promise<{ ok: boolean; status: number; statusText: string; text(): Promise<string>; json(): Promise<unknown> }> {
+  const method = (init.method || "GET").toUpperCase();
+  const auth = init.headers?.["X-Cluster-Auth"] || init.headers?.["x-cluster-auth"] || "";
+  const body = init.body || "";
+  const diag = (msg: string) => (window as { phantomDiag?: (m: string) => void }).phantomDiag?.(msg);
+  diag(`[fetch] ${method} ${url.slice(0, 60)} body=${body.length}B`);
+  try {
+    const r = await invoke<{ status: number; body: string }>("swift_cluster_fetch", {
+      url, method, body, auth,
+    });
+    diag(`[fetch] ← status=${r.status} body=${r.body.length}B body[0..80]=${r.body.slice(0,80)}`);
+    return {
+      ok: r.status >= 200 && r.status < 300,
+      status: r.status,
+      statusText: r.status < 0 ? "native-error" : "",
+      text: async () => r.body,
+      json: async () => JSON.parse(r.body),
+    };
+  } catch (e) {
+    diag(`[fetch] ✗ invoke threw: ${String(e).slice(0, 120)}`);
+    throw e;
+  }
+}
+
+// User-Agent contains "Mobile" / "iPhone" / "iPad" on iOS; gate native bridge on that.
+const isIOS = typeof navigator !== "undefined"
+  && /iPad|iPhone|iPod/.test(navigator.userAgent || "");
+
+const httpFetch = isIOS ? nativeFetch : tauriFetch;
+//
 // Wire format (matches core/src/serve.rs::rpc_task_assign and
 // core/src/mesh.rs::make_auth_token_bytes):
 //
@@ -53,8 +108,8 @@ export async function dispatchToCluster(
     secret,
     agent,
     prompt,
-    maxWaitMs = 60_000,
-    pollIntervalMs = 500,
+    maxWaitMs = 120_000,
+    pollIntervalMs = 1500,
   } = args;
 
   if (!coordinatorUrl) return { ok: false, error: "coordinator URL missing" };
@@ -68,7 +123,7 @@ export async function dispatchToCluster(
 
   let jobId: string;
   try {
-    const r = await fetch(`${base}/rpc/task/assign`, {
+    const r = await httpFetch(`${base}/rpc/task/assign`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -92,7 +147,7 @@ export async function dispatchToCluster(
   while (performance.now() - started < maxWaitMs) {
     await new Promise((res) => setTimeout(res, pollIntervalMs));
     try {
-      const r = await fetch(`${base}/rpc/task/status/${jobId}`);
+      const r = await httpFetch(`${base}/rpc/task/status/${jobId}`);
       if (!r.ok) continue;
       const j = (await r.json()) as {
         status?: string;

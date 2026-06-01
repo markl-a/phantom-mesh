@@ -20,22 +20,22 @@ token_budget = 80000
 # ── 集群設定 ─────────────────────────────────────────────────────────────────
 
 [cluster]
-# 每台節點改成不同名字：mac-orchestrator / oracle / z13 / acer / ayaneo
-node_name      = "mac-orchestrator"
+# 每台節點改成不同名字：node-a / node-b / node-c / node-d
+node_name      = "node-a"
 cluster_secret = "REPLACE_WITH_RANDOM_SECRET"  # 所有節點一樣
 peers = [
-  "http://100.x.x.ORACLE:7878",   # Oracle Cloud VM
-  "http://100.x.x.Z13:7878",      # Z13 Windows (WSL2)
-  "http://100.x.x.ACER:7878",     # Acer A514 (WSL2)
-  "http://100.x.x.AYANEO:7878",   # AYANEO 2 (WSL2)
+  "http://100.64.0.10:7878",   # node-b (cloud VM)        — replace with actual Tailscale IP
+  "http://100.64.0.11:7878",   # node-c (Windows + WSL2)  — replace with actual Tailscale IP
+  "http://100.64.0.12:7878",   # node-d (Windows + WSL2)  — replace with actual Tailscale IP
+  "http://100.64.0.13:7878",   # node-e (handheld)        — replace with actual Tailscale IP
 ]
 
 # ── Providers（模型路由，從上往下 fallback）──────────────────────────────────
 
-# Z13 本地 Ollama（零費用，最優先）
-# 只有在 Z13 上或能連到 Z13 時有效
-[providers.z13-ollama]
-base_url      = "http://100.x.x.Z13:11434/v1"
+# 本地 Ollama（零費用，最優先）
+# 只有在跑 Ollama 的節點上或能連到它時有效
+[providers.local-ollama]
+base_url      = "http://100.64.0.11:11434/v1"   # replace with the Ollama node's Tailscale IP
 api_key       = "ollama"
 default_model = "qwen2.5-coder:7b"
 
@@ -74,9 +74,9 @@ You are a capable AI coding assistant. Use tools proactively — never describe
 what you *would* do; just call the tool. Read before editing. Verify after changes.
 """
 
-# coder：程式開發，優先用 Z13 本地模型
+# coder：程式開發，優先用本地模型
 [agent.coder]
-provider = "z13-ollama"
+provider = "local-ollama"
 model    = "qwen2.5-coder:7b"
 tools    = [
   "shell", "file_read", "file_write", "file_edit",

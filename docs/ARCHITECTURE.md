@@ -1,19 +1,19 @@
-# Phantom Mesh Architecture
+# Phantom Mesh 架構
 
-> This document describes the **current, implemented** daemon architecture based on
-> the actual source code in `core/src/`. It is the authoritative reference for
-> developers working on the codebase.
+> 本文件描述**目前已實作**的 daemon（常駐服務）架構，內容依據 `core/src/` 中的
+> 實際原始碼撰寫。它是開發者在本程式碼倉庫上工作時的權威參考。
 
 ---
 
-## 1. Overview
+## 1. 總覽
 
-Phantom Mesh is a distributed AI agent daemon written in Rust. Each node runs a
-self-contained HTTP server (Axum, port 7878) that exposes a tool-calling agent
-loop backed by any OpenAI-compatible LLM provider. Multiple nodes can form a P2P
-mesh over Tailscale or any shared network — tasks are authenticated with a shared
-HMAC secret and forwarded to the least-loaded peer. Clients reach the daemon via
-HTTP REST, a Tauri desktop app, or Telegram.
+Phantom Mesh 是一個用 Rust 撰寫的分散式 AI agent（智慧代理）daemon（常駐服務）。
+每個 node（節點）執行一個自包含的 HTTP 伺服器（Axum，連接埠 7878），對外提供一個
+tool-calling（工具呼叫）的 agent 迴圈，背後可由任何 OpenAI 相容的 LLM（大型語言模型）
+供應商驅動。多個 node 可以透過 Tailscale 或任何共享網路組成一個 P2P（點對點）
+mesh（網狀網路）——任務以共享的 HMAC（雜湊訊息驗證碼）密鑰進行驗證，並轉發給
+負載最低的 peer（對等節點）。客戶端可透過 HTTP REST、Tauri 桌面應用程式或
+Telegram 連到 daemon。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -62,44 +62,43 @@ HTTP REST, a Tauri desktop app, or Telegram.
 
 ---
 
-## 2. Core Components
+## 2. 核心元件
 
 ### AppState
 
-The single shared state object cloned into every Axum handler via
-`axum::extract::State`. It is constructed once in `main()`, hydrated by
-`load_config_toml()`, and then Arc-wrapped so clones are cheap.
+唯一的共享狀態物件，透過 `axum::extract::State` 複製進每個 Axum handler（處理函式）。
+它在 `main()` 中建構一次，由 `load_config_toml()` 填入資料，接著用 Arc 包裝，
+因此複製的成本很低。
 
-**Key fields:**
+**主要欄位：**
 
-| Field | Type | Purpose |
+| 欄位 | 型別 | 用途 |
 |---|---|---|
-| `agent_runtime` | `AgentRuntime` | Runs the tool-calling loop |
-| `llm_router` | `LLMRouter` | Holds provider health summaries |
-| `tool_registry` | `ToolRegistry` | List of enabled tool names |
-| `conversations` | `ConversationStore` | Persistent per-chat history |
-| `cost_tracker` | `CostTracker` | Cumulative token accounting |
-| `cluster_manager` | `ClusterManager` | P2P peer manager + auth |
-| `job_store` | `JobStore` | In-memory async job status map |
-| `telegram_config` | `Option<TelegramConfig>` | Bot config from agents.toml |
+| `agent_runtime` | `AgentRuntime` | 執行 tool-calling（工具呼叫）迴圈 |
+| `llm_router` | `LLMRouter` | 保存供應商健康狀態摘要 |
+| `tool_registry` | `ToolRegistry` | 已啟用工具名稱的清單 |
+| `conversations` | `ConversationStore` | 每個對話的持久化歷史 |
+| `cost_tracker` | `CostTracker` | 累計的 token（詞元）計量 |
+| `cluster_manager` | `ClusterManager` | P2P（點對點）peer 管理器與驗證 |
+| `job_store` | `JobStore` | 記憶體內的非同步工作狀態對照表 |
+| `telegram_config` | `Option<TelegramConfig>` | 來自 agents.toml 的 bot 設定 |
 
-**File:** `core/src/lib.rs`
+**檔案：** `core/src/lib.rs`
 
 ---
 
 ### AgentRuntime
 
-The execution engine. `AgentRuntime::run()` drives a multi-round conversation
-with the LLM, executing tool calls between rounds until the model stops issuing
-them or the guard limits are hit.
+執行引擎。`AgentRuntime::run()` 驅動一場與 LLM 的多回合對話，在回合之間執行工具
+呼叫，直到模型停止發出工具呼叫，或觸及防護上限為止。
 
-**Guard limits:**
+**防護上限：**
 
-- `MAX_ROUNDS = 20` — hard ceiling on tool-call rounds
-- `STALL_THRESHOLD = 2` — consecutive rounds with identical output break the loop early
-- `TOKEN_BUDGET = 60_000` (estimated tokens) — triggers context compaction
+- `MAX_ROUNDS = 20` — 工具呼叫回合的硬性上限
+- `STALL_THRESHOLD = 2` — 連續多回合輸出相同時提早中斷迴圈
+- `TOKEN_BUDGET = 60_000`（估計 token）— 觸發 context（上下文）壓縮
 
-**Context compaction** (triggered when estimated tokens > 60 K):
+**Context（上下文）壓縮**（當估計 token 數 > 60 K 時觸發）：
 
 ```
 system messages preserved
@@ -108,7 +107,7 @@ last 12 conversation messages kept
 any leading "tool" role messages stripped (would confuse the LLM)
 ```
 
-**Tool-calling loop per round:**
+**每回合的 tool-calling（工具呼叫）迴圈：**
 
 ```
 call_with_fallback() → LLM response JSON
@@ -121,19 +120,18 @@ call_with_fallback() → LLM response JSON
        no  → stall check → break
 ```
 
-**Key structs:** `AgentRuntime`, `AgentResult`
+**主要結構：** `AgentRuntime`、`AgentResult`
 
-**File:** `core/src/lib.rs` (lines 663–1649)
+**檔案：** `core/src/lib.rs`（第 663–1649 行）
 
 ---
 
 ### LLMRouter + call_with_fallback()
 
-`LLMRouter` is a thin wrapper around a `Vec<ProviderHealthSummary>` built at
-config load time. Its primary use is reporting provider health to the dashboard.
+`LLMRouter` 是包在 `Vec<ProviderHealthSummary>` 外的薄包裝，於設定載入時建立。
+它的主要用途是向 dashboard（儀表板）回報供應商健康狀態。
 
-The actual provider selection is done at runtime inside
-`AgentRuntime::call_with_fallback()`:
+實際的供應商選擇是在執行時於 `AgentRuntime::call_with_fallback()` 內完成：
 
 ```
 provider_names = [agent.provider] + sorted(all_other_providers)
@@ -153,93 +151,92 @@ for each provider (attempt 0, 1, 2, …):
   7. HTTP 5xx → try next provider immediately
 ```
 
-All providers must expose an OpenAI-compatible `/v1/chat/completions` endpoint.
+所有供應商都必須提供一個 OpenAI 相容的 `/v1/chat/completions` 端點。
 
-**Key structs:** `LLMRouter`, `LLMRouterInner`, `ProviderHealthSummary`
+**主要結構：** `LLMRouter`、`LLMRouterInner`、`ProviderHealthSummary`
 
-**File:** `core/src/lib.rs`
+**檔案：** `core/src/lib.rs`
 
 ---
 
-### Tool Executor
+### Tool Executor（工具執行器）
 
-`execute_tool(name, args, tools_config)` is a large `match` block — no dynamic
-dispatch, no trait objects. Each tool is a simple async function body embedded in
-one match arm.
+`execute_tool(name, args, tools_config)` 是一個大型的 `match` 區塊——沒有動態
+dispatch（分派），沒有 trait 物件。每個工具都是嵌在某個 match 分支裡的一段
+簡單非同步函式主體。
 
-**13 tools:**
+**13 種工具：**
 
-| Tool | Description |
+| 工具 | 說明 |
 |---|---|
-| `shell` | Run a shell command. Blocklist guards against `rm -rf /`, fork bombs, etc. Sequences of `;`/`&&` commands are split and run individually. 30 s default timeout. Output truncated at 20 K chars. |
-| `file_read` | Read a file. Path resolved via `safe_path()` (canonicalize if exists). |
-| `file_write` | Write a file; creates parent directories automatically. |
-| `file_edit` | Replace an exact string in a file; errors if match count ≠ 1. |
-| `content_search` | Regex/literal search via `rg` (falls back to `grep`). Up to 50 matches. |
-| `glob_search` | Find files by glob pattern via `find`. Excludes `node_modules`, `.git`, `target`. |
-| `web_search` | Brave Search API if `brave_search_api_key` configured, otherwise DuckDuckGo instant-answer API (no key required). |
-| `memory_store` | Write a key→value pair to `~/.phantom-mesh/memory.json`. |
-| `memory_recall` | Read a key from `~/.phantom-mesh/memory.json`. |
-| `git_status` | `git status --short` for a path. |
-| `git_diff` | `git diff --stat` (optionally `--cached`, optionally scoped to a file). |
-| `git_log` | `git log --oneline -N` for a path. |
-| `git_commit` | `git commit -am <message>` for a path. |
+| `shell` | 執行一個 shell 命令。封鎖清單（blocklist）會防範 `rm -rf /`、fork 炸彈等。以 `;`/`&&` 串接的命令序列會被拆開並逐一執行。預設逾時 30 秒。輸出在 20 K 字元處截斷。 |
+| `file_read` | 讀取檔案。路徑經 `safe_path()` 解析（若存在則正規化）。 |
+| `file_write` | 寫入檔案；自動建立上層目錄。 |
+| `file_edit` | 在檔案中取代一段完全相符的字串；若相符次數 ≠ 1 則回報錯誤。 |
+| `content_search` | 透過 `rg` 進行正規表示式／字面搜尋（找不到時退回 `grep`）。最多 50 個相符結果。 |
+| `glob_search` | 透過 `find` 以 glob（萬用字元）樣式尋找檔案。排除 `node_modules`、`.git`、`target`。 |
+| `web_search` | 若已設定 `brave_search_api_key` 則使用 Brave Search API，否則使用 DuckDuckGo 即時解答 API（不需金鑰）。 |
+| `memory_store` | 將一組 key→value（鍵→值）寫入 `~/.phantom-mesh/memory.json`。 |
+| `memory_recall` | 從 `~/.phantom-mesh/memory.json` 讀取某個 key。 |
+| `git_status` | 對某個路徑執行 `git status --short`。 |
+| `git_diff` | `git diff --stat`（可選 `--cached`，可選限定於某個檔案）。 |
+| `git_log` | 對某個路徑執行 `git log --oneline -N`。 |
+| `git_commit` | 對某個路徑執行 `git commit -am <message>`。 |
 
-**File:** `core/src/lib.rs` (lines 904–1313)
+**檔案：** `core/src/lib.rs`（第 904–1313 行）
 
 ---
 
 ### ClusterManager
 
-Manages configured peer nodes. Peers are declared as plain URLs in `agents.toml`
-— no automatic discovery. Tailscale or any routable IP is the transport.
+管理已設定的 peer（對等節點）。peer 在 `agents.toml` 中以純 URL 宣告——沒有自動
+探索機制。Tailscale 或任何可路由的 IP 都是傳輸層。
 
-**Responsibilities:**
+**職責：**
 
-- Keep a cached `Vec<PeerStatus>` for each peer (online/offline, active tasks, uptime)
-- `ping_peer(url)` — POST `{peer}/rpc/ping`, update cached status
-- `refresh_all()` — ping all peers in parallel
-- `make_auth_token(body)` — SHA-256(`cluster_secret` ‖ `body`) → hex string
-- `verify_auth(token, body)` — constant-time comparison via the `subtle` crate
-- `assign_task_to_best_peer(agent, prompt)` — pick the online peer with the fewest active tasks, POST to its `/rpc/task/assign` with `X-Cluster-Auth` header
+- 為每個 peer 保留一份快取的 `Vec<PeerStatus>`（上線／離線、進行中的任務、運行時間）
+- `ping_peer(url)` — POST `{peer}/rpc/ping`，更新快取狀態
+- `refresh_all()` — 平行 ping 所有 peer
+- `make_auth_token(body)` — SHA-256(`cluster_secret` ‖ `body`) → 十六進位字串
+- `verify_auth(token, body)` — 透過 `subtle` crate 進行常數時間比對
+- `assign_task_to_best_peer(agent, prompt)` — 挑選進行中任務最少的上線 peer，帶著 `X-Cluster-Auth` 標頭 POST 到它的 `/rpc/task/assign`
 
-**Key structs:** `ClusterManager`, `ClusterConfig`, `PeerStatus`
+**主要結構：** `ClusterManager`、`ClusterConfig`、`PeerStatus`
 
-**File:** `core/src/mesh.rs`
+**檔案：** `core/src/mesh.rs`
 
 ---
 
 ### ConversationStore
 
-Persistent per-conversation history backed by JSONL files on disk. One file per
-`chat_id`; lines are newline-delimited JSON `ChatMessage` objects.
+每個對話的持久化歷史，背後以磁碟上的 JSONL 檔案儲存。每個 `chat_id` 一個檔案；
+每一行都是換行分隔的 JSON `ChatMessage` 物件。
 
-**Write path:** disk first, then update in-memory cache (disk is authoritative).
+**寫入路徑：** 先寫磁碟，再更新記憶體內快取（磁碟為權威來源）。
 
-**Read path:** if `chat_id` not in cache, load from disk into cache, then return.
+**讀取路徑：** 若 `chat_id` 不在快取中，先從磁碟載入快取，再回傳。
 
-**Storage location:** `~/.phantom-mesh/conversations/{chat_id}.jsonl`
+**儲存位置：** `~/.phantom-mesh/conversations/{chat_id}.jsonl`
 
-`chat_id` examples:
-- `daemon` — default for direct HTTP calls
-- `tg:{telegram_chat_id}` — Telegram conversations
-- `rpc` — tasks received from peer nodes
+`chat_id` 範例：
+- `daemon` — 直接 HTTP 呼叫的預設值
+- `tg:{telegram_chat_id}` — Telegram 對話
+- `rpc` — 從 peer 節點收到的任務
 
-**Key structs:** `ConversationStore`, `ChatMessage` (in `providers/traits.rs`)
+**主要結構：** `ConversationStore`、`ChatMessage`（位於 `providers/traits.rs`）
 
-**File:** `core/src/lib.rs` (lines 534–637)
+**檔案：** `core/src/lib.rs`（第 534–637 行）
 
 ---
 
 ### CostTracker
 
-Accumulates token usage and USD cost estimates across all LLM calls. Data is
-persisted to `~/.phantom-mesh/costs.json` after every `record()` call (synchronous
-`fs::write`).
+累計所有 LLM 呼叫的 token（詞元）用量與美元成本估計。每次 `record()` 呼叫後
+（以同步的 `fs::write`）將資料持久化到 `~/.phantom-mesh/costs.json`。
 
-**Pricing table** (April 2026, per million tokens — input / output):
+**價格表**（2026 年 4 月，每百萬 token——輸入／輸出）：
 
-| Model family | Input | Output |
+| 模型家族 | 輸入 | 輸出 |
 |---|---|---|
 | claude-opus-4 | $15 | $75 |
 | claude-sonnet-4 | $3 | $15 |
@@ -249,21 +246,21 @@ persisted to `~/.phantom-mesh/costs.json` after every `record()` call (synchrono
 | gemini-2.5-pro | $1.25 | $10 |
 | gemini-2.0-flash | $0.10 | $0.40 |
 | groq / llama | $0.05 | $0.08 |
-| (default) | $1 | $3 |
+| （預設值） | $1 | $3 |
 
-**Key structs:** `CostTracker`, `CostTrackerInner`
+**主要結構：** `CostTracker`、`CostTrackerInner`
 
-**File:** `core/src/lib.rs` (lines 417–506)
+**檔案：** `core/src/lib.rs`（第 417–506 行）
 
 ---
 
 ### TelegramBot
 
-A minimal long-poll Telegram bot backed by plain `reqwest`. No third-party
-Telegram library is used. The polling loop runs in a `tokio::spawn` task started
-from `main()` when `[telegram]` is configured.
+一個極簡的長輪詢（long-poll）Telegram bot，背後僅用 `reqwest`。未使用任何第三方
+Telegram 函式庫。當有設定 `[telegram]` 時，輪詢迴圈會在一個由 `main()` 啟動的
+`tokio::spawn` 工作中執行。
 
-**Polling loop (in `main.rs`):**
+**輪詢迴圈（位於 `main.rs`）：**
 
 ```
 loop:
@@ -276,39 +273,38 @@ loop:
   on error: sleep 5s, retry
 ```
 
-Messages are sent as HTML (`parse_mode: HTML`). If parsing fails Telegram-side,
-the bot automatically retries as plain text.
+訊息以 HTML 格式送出（`parse_mode: HTML`）。若 Telegram 端解析失敗，bot 會
+自動以純文字重試。
 
-**Key structs:** `TelegramBot`
+**主要結構：** `TelegramBot`
 
-**File:** `core/src/channels/telegram.rs`
+**檔案：** `core/src/channels/telegram.rs`
 
 ---
 
 ### ProjectContext
 
-Walks up the directory tree from the current working directory looking for project
-context files to inject into the agent system prompt.
+從目前的工作目錄沿目錄樹往上走，尋找要注入 agent 系統提示（system prompt）的
+專案 context（上下文）檔案。
 
-**Search order per directory:**
+**每個目錄的搜尋順序：**
 1. `PHANTOM.md`
 2. `.phantom-mesh/context.md`
 
-Stops at the user's home directory or filesystem root.
+在使用者的家目錄或檔案系統根目錄處停止。
 
-**Usage:** the loaded context string is passed as `extra_context` to
-`AgentRuntime::run()`, where it is appended to the system prompt with two
-newlines as separator.
+**用法：** 載入的 context 字串會作為 `extra_context` 傳給 `AgentRuntime::run()`，
+在那裡以兩個換行作為分隔符附加到系統提示之後。
 
-**Key functions:** `load_project_context()`, `load_cwd_context()`, `load_from_path()`
+**主要函式：** `load_project_context()`、`load_cwd_context()`、`load_from_path()`
 
-**File:** `core/src/project_context.rs`
+**檔案：** `core/src/project_context.rs`
 
 ---
 
-## 3. Request Flow
+## 3. 請求流程
 
-Typical agent request via `POST /agent/master/run`:
+透過 `POST /agent/master/run` 的典型 agent 請求：
 
 ```
 1.  HTTP POST /agent/{name}/run
@@ -359,12 +355,12 @@ Typical agent request via `POST /agent/master/run`:
 
 ---
 
-## 4. P2P Mesh Protocol
+## 4. P2P Mesh 協定
 
-### Node Discovery
+### Node Discovery（節點探索）
 
-Nodes are **config-based** — there is no automatic mDNS or DNS-SD discovery in
-the current implementation. Each node lists its peers explicitly in `agents.toml`:
+node（節點）是**以設定為基礎**——目前的實作中沒有自動的 mDNS 或 DNS-SD 探索。
+每個 node 在 `agents.toml` 中明確列出它的 peer（對等節點）：
 
 ```toml
 [cluster]
@@ -373,24 +369,23 @@ cluster_secret = "shared-hmac-key"
 node_name = "my-node"
 ```
 
-Tailscale provides the VPN layer so nodes can reach each other by stable IP
-across networks without exposing ports to the public internet.
+Tailscale 提供 VPN（虛擬私人網路）層，讓 node 能跨網路以穩定 IP 互相連通，
+而不必對公開網際網路暴露連接埠。
 
-### Authentication
+### Authentication（驗證）
 
-Every RPC request between nodes must include an `X-Cluster-Auth` header:
+node 之間的每個 RPC 請求都必須包含一個 `X-Cluster-Auth` 標頭：
 
 ```
 token = SHA-256(cluster_secret_bytes || request_body_bytes)
       formatted as lowercase hex
 ```
 
-Verification uses constant-time comparison (via the `subtle` crate) to prevent
-timing oracle attacks. Requests with a missing or incorrect token are rejected
-with HTTP 401. If `cluster_secret` is empty or absent, **all** inbound cluster
-RPC requests are rejected.
+驗證採用常數時間比對（透過 `subtle` crate），以防範計時旁路（timing oracle）
+攻擊。標頭遺漏或不正確的請求會以 HTTP 401 拒絕。若 `cluster_secret` 為空或缺漏，
+則**所有**進入的叢集 RPC 請求一律拒絕。
 
-### Task Assignment Protocol
+### Task Assignment Protocol（任務指派協定）
 
 ```
 Caller node                          Callee node
@@ -419,10 +414,10 @@ Caller node                          Callee node
     │◀─────────────────────────────────────│
 ```
 
-### Peer Health
+### Peer Health（對等節點健康狀態）
 
-`ClusterManager::refresh_all()` pings all configured peers in parallel via
-`POST {peer}/rpc/ping`. Each peer responds with:
+`ClusterManager::refresh_all()` 透過 `POST {peer}/rpc/ping` 平行 ping 所有已設定的
+peer。每個 peer 回應如下：
 
 ```json
 {
@@ -434,24 +429,22 @@ Caller node                          Callee node
 }
 ```
 
-`assign_task_to_best_peer()` selects the online peer with the lowest
-`active_tasks` count.
+`assign_task_to_best_peer()` 會選出 `active_tasks` 計數最低的上線 peer。
 
-### RPC Endpoints
+### RPC Endpoints（RPC 端點）
 
-| Method | Path | Purpose |
+| 方法 | 路徑 | 用途 |
 |---|---|---|
-| POST | `/rpc/ping` | Return this node's status (no auth required) |
-| GET | `/rpc/peers` | List all configured peers with cached status |
-| POST | `/rpc/task/assign` | Accept a task from a peer (auth required) |
-| GET | `/rpc/task/status/:job_id` | Poll async task result |
+| POST | `/rpc/ping` | 回傳本 node 的狀態（不需驗證） |
+| GET | `/rpc/peers` | 列出所有已設定的 peer 及其快取狀態 |
+| POST | `/rpc/task/assign` | 接受來自某個 peer 的任務（需驗證） |
+| GET | `/rpc/task/status/:job_id` | 輪詢非同步任務結果 |
 
 ---
 
-## 5. Configuration
+## 5. 設定
 
-All configuration lives in `~/.phantom-mesh/agents.toml` (default) or a path
-supplied via `--config`.
+所有設定都放在 `~/.phantom-mesh/agents.toml`（預設），或透過 `--config` 提供的路徑。
 
 ```toml
 # ── Core server settings ──────────────────────────────────────────────────
@@ -508,22 +501,22 @@ allowed_users = [123456789]               # Telegram user IDs; empty = allow all
 agent = "master"                          # which agent handles Telegram messages
 ```
 
-**Configuration controls at a glance:**
+**設定控制項一覽：**
 
-| Section | Controls |
+| 區段 | 控制項 |
 |---|---|
-| `[core]` | Bind address, port, optional hub API key |
-| `[providers.*]` | LLM endpoints, API keys, fallback models |
-| `[agent.*]` | Per-agent model, provider, system prompt, tool list |
-| `[tools]` | Web search backend (Brave vs DuckDuckGo) |
-| `[cluster]` | Peer URLs, HMAC secret, local node name |
-| `[telegram]` | Bot token, user allowlist, routing agent |
+| `[core]` | 綁定位址、連接埠、可選的 hub API 金鑰 |
+| `[providers.*]` | LLM 端點、API 金鑰、備援模型 |
+| `[agent.*]` | 各 agent 的模型、供應商、系統提示、工具清單 |
+| `[tools]` | 網路搜尋後端（Brave 或 DuckDuckGo） |
+| `[cluster]` | peer URL、HMAC 密鑰、本機 node 名稱 |
+| `[telegram]` | bot token、使用者允許清單、路由 agent |
 
 ---
 
-## 6. Data Storage
+## 6. 資料儲存
 
-All persistent state lives under `~/.phantom-mesh/`:
+所有持久化狀態都放在 `~/.phantom-mesh/` 之下：
 
 ```
 ~/.phantom-mesh/
@@ -538,21 +531,20 @@ All persistent state lives under `~/.phantom-mesh/`:
 
 ### conversations/{chat_id}.jsonl
 
-Newline-delimited JSON. Each line is a `ChatMessage`:
+換行分隔的 JSON。每一行都是一個 `ChatMessage`：
 
 ```json
 {"role":"user","content":"what is 2+2?"}
 {"role":"assistant","content":"4"}
 ```
 
-Appended on every successful agent run. Loaded lazily into memory on first access
-for a given `chat_id`. The cache is write-through: disk is written first, then
-the in-memory cache is updated.
+每次 agent 成功執行後附加。對某個 `chat_id` 首次存取時才惰性載入記憶體。
+此快取為寫穿（write-through）：先寫磁碟，再更新記憶體內快取。
 
 ### memory.json
 
-A flat JSON object. Written atomically (full file rewrite) on each `memory_store`
-tool call:
+一個扁平的 JSON 物件。每次 `memory_store` 工具呼叫時以原子方式寫入
+（整個檔案重寫）：
 
 ```json
 {
@@ -563,7 +555,7 @@ tool call:
 
 ### costs.json
 
-A flat JSON object updated after every LLM call:
+一個扁平的 JSON 物件，每次 LLM 呼叫後更新：
 
 ```json
 {
@@ -574,4 +566,4 @@ A flat JSON object updated after every LLM call:
 }
 ```
 
-`total_usd` is rounded to 4 decimal places in API responses.
+`total_usd` 在 API 回應中四捨五入到小數點後 4 位。

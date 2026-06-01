@@ -135,7 +135,10 @@ impl WorkspaceRegistry {
         }
         conn.execute(
             "UPDATE workspaces SET tags = ?1 WHERE id = ?2",
-            params![serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into()), id.as_str()],
+            params![
+                serde_json::to_string(&tags).unwrap_or_else(|_| "[]".into()),
+                id.as_str()
+            ],
         )?;
         Ok(())
     }

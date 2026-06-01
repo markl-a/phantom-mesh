@@ -86,7 +86,7 @@ jobs:
 
           [cluster]
           # Match PHANTOM_CLUSTER_SECRET default in scripts/phantom-test/lib/common.sh
-          secret = "phantom-cluster-2026"
+          secret = "ci-test-cluster-secret"
 
           # No [providers.*] sections — scenarios that need a real LLM will
           # skip cleanly via exit 77 (graceful no-key handling) or fail with
@@ -120,7 +120,7 @@ jobs:
           PHANTOM_BIN: /usr/local/bin/phantom
           PHANTOM_HOST: 127.0.0.1
           PHANTOM_PORT: '7879'
-          PHANTOM_CLUSTER_SECRET: phantom-cluster-2026
+          PHANTOM_CLUSTER_SECRET: ci-test-cluster-secret
           NO_COLOR: '1'
         run: |
           # Curated prefix list — see workflow header for what each tests.

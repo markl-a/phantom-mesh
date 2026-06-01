@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use crate::tools::file::safe_path;
+
 const MAX_OUTPUT: usize = 5000;
 
 // ── Myers diff ──────────────────────────────────────────────────────────────
@@ -32,9 +34,7 @@ fn myers_diff<'a>(a: &'a [&'a str], b: &'a [&'a str]) -> Vec<Op> {
         let mut k = k_min;
         while k <= k_max {
             let ki = (k + max as i64) as usize;
-            let mut x: i64 = if k == -d
-                || (k != d && v[ki - 1] < v[ki + 1])
-            {
+            let mut x: i64 = if k == -d || (k != d && v[ki - 1] < v[ki + 1]) {
                 v[ki + 1]
             } else {
                 v[ki - 1] + 1
@@ -283,11 +283,11 @@ fn format_diff(label_a: &str, label_b: &str, a: &[&str], b: &[&str], ctx: usize)
 // ── Public tool functions ────────────────────────────────────────────────────
 
 pub async fn diff_files(args: &Value) -> String {
-    let path_a = match args.get("path_a").and_then(|v| v.as_str()) {
+    let path_a_raw = match args.get("path_a").and_then(|v| v.as_str()) {
         Some(p) => p.to_string(),
         None => return "Error: missing required param 'path_a'".to_string(),
     };
-    let path_b = match args.get("path_b").and_then(|v| v.as_str()) {
+    let path_b_raw = match args.get("path_b").and_then(|v| v.as_str()) {
         Some(p) => p.to_string(),
         None => return "Error: missing required param 'path_b'".to_string(),
     };
@@ -297,21 +297,34 @@ pub async fn diff_files(args: &Value) -> String {
         .map(|v| v as usize)
         .unwrap_or(3);
 
+    // [T7f] Workspace-boundary check (PR #75 audit H-6). Before this fix
+    // a model could exfiltrate `/etc/passwd` or `~/.ssh/id_rsa` simply by
+    // diffing the sensitive file against any in-workspace file: the
+    // returned hunk lists the sensitive file's contents as `+` lines.
+    let path_a = match safe_path(&path_a_raw) {
+        Ok(p) => p,
+        Err(e) => return format!("Error: invalid path_a: {}", e),
+    };
+    let path_b = match safe_path(&path_b_raw) {
+        Ok(p) => p,
+        Err(e) => return format!("Error: invalid path_b: {}", e),
+    };
+
     let content_a = match tokio::fs::read_to_string(&path_a).await {
         Ok(s) => s,
-        Err(e) => return format!("Error reading '{}': {}", path_a, e),
+        Err(e) => return format!("Error reading '{}': {}", path_a.display(), e),
     };
     let content_b = match tokio::fs::read_to_string(&path_b).await {
         Ok(s) => s,
-        Err(e) => return format!("Error reading '{}': {}", path_b, e),
+        Err(e) => return format!("Error reading '{}': {}", path_b.display(), e),
     };
 
     let lines_a: Vec<&str> = content_a.lines().collect();
     let lines_b: Vec<&str> = content_b.lines().collect();
 
     format_diff(
-        &format!("a/{}", path_a),
-        &format!("b/{}", path_b),
+        &format!("a/{}", path_a.display()),
+        &format!("b/{}", path_b.display()),
         &lines_a,
         &lines_b,
         ctx,

@@ -39,22 +39,28 @@ pub async fn sessions(_args: &Value) -> String {
 pub async fn peers(_args: &Value) -> String {
     let peers = match crate::cli_config::read_peers_json() {
         Some(p) => p,
-        None => return "[cluster_peers] no peers.json found — run `phantom config pull` to sync".to_string(),
+        None => {
+            return "[cluster_peers] no peers.json found — run `phantom config pull` to sync"
+                .to_string()
+        }
     };
     let me = crate::cli_config::resolve_self_node_name().unwrap_or_default();
     if peers.is_empty() {
         return "[cluster_peers] (empty registry)".to_string();
     }
-    let json_value: Vec<Value> = peers.into_iter().map(|p| {
-        let is_self = p.name == me;
-        json!({
-            "name":         p.name,
-            "url":          p.url,
-            "label":        p.label.unwrap_or_default(),
-            "capabilities": p.capabilities,
-            "is_self":      is_self,
+    let json_value: Vec<Value> = peers
+        .into_iter()
+        .map(|p| {
+            let is_self = p.name == me;
+            json!({
+                "name":         p.name,
+                "url":          p.url,
+                "label":        p.label.unwrap_or_default(),
+                "capabilities": p.capabilities,
+                "is_self":      is_self,
+            })
         })
-    }).collect();
+        .collect();
     serde_json::to_string_pretty(&json_value)
         .unwrap_or_else(|e| format!("[cluster_peers error] serialize: {}", e))
 }

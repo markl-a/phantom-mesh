@@ -32,7 +32,7 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 // ── Entry point ───────────────────────────────────────────────────────────────
 
 pub async fn run_stdio(tools_config: ToolsConfig) -> anyhow::Result<()> {
-    let stdin  = tokio::io::stdin();
+    let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     let mut reader = BufReader::new(stdin).lines();
     let mut writer = tokio::io::BufWriter::new(stdout);
@@ -40,23 +40,29 @@ pub async fn run_stdio(tools_config: ToolsConfig) -> anyhow::Result<()> {
     tracing::info!("phantom MCP server started (stdio)");
 
     while let Some(line) = reader.next_line().await? {
-        let line = line.trim().to_string();
-        if line.is_empty() { continue; }
+        let line = preprocess_line(line);
+        if line.is_empty() {
+            continue;
+        }
 
         let msg: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {
-                send(&mut writer, json!({
-                    "jsonrpc": "2.0",
-                    "id":      null,
-                    "error":   { "code": -32700, "message": format!("Parse error: {}", e) }
-                })).await?;
+                send(
+                    &mut writer,
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id":      null,
+                        "error":   { "code": -32700, "message": format!("Parse error: {}", e) }
+                    }),
+                )
+                .await?;
                 continue;
             }
         };
 
         let method = msg["method"].as_str().unwrap_or("").to_string();
-        let id     = msg["id"].clone();
+        let id = msg["id"].clone();
 
         // Client notifications have no "id" → no response required.
         if msg.get("id").is_none() {
@@ -67,14 +73,22 @@ pub async fn run_stdio(tools_config: ToolsConfig) -> anyhow::Result<()> {
         let outcome = handle(&method, &msg["params"], &tools_config).await;
         match outcome {
             Ok(result) => {
-                send(&mut writer, json!({ "jsonrpc": "2.0", "id": id, "result": result })).await?;
+                send(
+                    &mut writer,
+                    json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                )
+                .await?;
             }
             Err((code, message)) => {
-                send(&mut writer, json!({
-                    "jsonrpc": "2.0",
-                    "id":      id,
-                    "error":   { "code": code, "message": message }
-                })).await?;
+                send(
+                    &mut writer,
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id":      id,
+                        "error":   { "code": code, "message": message }
+                    }),
+                )
+                .await?;
             }
         }
     }
@@ -154,42 +168,58 @@ async fn handle(
 
             // Handle distributed cluster tools
             if name == "phantom_swarm" || name == "phantom_evolve_distributed" {
-                let phantom_bin = std::env::current_exe()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("phantom"));
+                let phantom_bin =
+                    std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("phantom"));
                 let phantom_bin = phantom_bin.to_string_lossy().to_string();
 
                 let output = if name == "phantom_swarm" {
-                    let prompt = params["arguments"]["prompt"].as_str().unwrap_or("").to_string();
-                    let agent = params["arguments"]["agent"].as_str().unwrap_or("master").to_string();
+                    let prompt = params["arguments"]["prompt"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    let agent = params["arguments"]["agent"]
+                        .as_str()
+                        .unwrap_or("master")
+                        .to_string();
                     tokio::process::Command::new(&phantom_bin)
                         .args(["swarm", "--agent", &agent, &prompt])
-                        .output().await
+                        .output()
+                        .await
                         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                         .unwrap_or_else(|e| format!("Error: {}", e))
                 } else {
-                    let goal = params["arguments"]["goal"].as_str().unwrap_or("").to_string();
-                    let rounds = params["arguments"]["rounds"].as_u64().unwrap_or(5).to_string();
+                    let goal = params["arguments"]["goal"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    let rounds = params["arguments"]["rounds"]
+                        .as_u64()
+                        .unwrap_or(5)
+                        .to_string();
                     tokio::process::Command::new(&phantom_bin)
                         .args(["evolve", "--distributed", "--rounds", &rounds, &goal])
-                        .output().await
+                        .output()
+                        .await
                         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
                         .unwrap_or_else(|e| format!("Error: {}", e))
                 };
 
+                let is_err = is_error_output(&output);
                 return Ok(json!({
                     "content": [{ "type": "text", "text": output }],
-                    "isError": false,
+                    "isError": is_err,
                 }));
             }
 
             if !crate::tools::all_tool_names().contains(&name) {
                 return Err((-32602, format!("Unknown tool: {}", name)));
             }
-            let args   = params["arguments"].clone();
+            let args = params["arguments"].clone();
             let output = crate::tools::execute(name, &args, tools_config).await;
+            let is_err = is_error_output(&output);
             Ok(json!({
                 "content": [{ "type": "text", "text": output }],
-                "isError": false,
+                "isError": is_err,
             }))
         }
 
@@ -202,6 +232,30 @@ async fn handle(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Heuristic: did a phantom tool return a textual error?
+///
+/// MCP 2024-11-05 §`tools/call` requires the server to set `isError: true`
+/// whenever a tool call fails (blocked-shell, missing file, timeout, …).
+/// Phantom tools return `String` and signal failure by prefixing the message
+/// with one of the conventions below. We honour all of them so the MCP host
+/// can surface failures to the user/LLM correctly.
+///
+/// This is intentionally conservative — we only flag strings that *clearly*
+/// look like errors. False negatives are acceptable (host treats it as
+/// success); false positives are not (host would suppress real output).
+pub(crate) fn is_error_output(s: &str) -> bool {
+    let t = s.trim_start();
+    if t.is_empty() {
+        return false;
+    }
+    // Common prefixes used across core/src/tools/*.rs
+    t.starts_with("Error:")
+        || t.starts_with("Error ")              // "Error reading", "Error writing", …
+        || t.starts_with("[error]")
+        || t.starts_with("[mcp:")               // mcp_client::McpRegistry::dispatch error envelope
+        || t.starts_with("ERROR:")
+}
+
 /// Convert a phantom-mesh tool name to an MCP tool descriptor.
 ///
 /// phantom-mesh schemas use the OpenAI function-calling envelope:
@@ -211,7 +265,7 @@ async fn handle(
 ///   `{ "name", "description", "inputSchema" }`
 fn to_mcp_tool(name: &str) -> Option<Value> {
     let schema = crate::tools::schema(name)?;
-    let func   = &schema["function"];
+    let func = &schema["function"];
     Some(json!({
         "name":        func["name"],
         "description": func["description"],
@@ -230,12 +284,65 @@ async fn send(
     Ok(())
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/// Strip a leading UTF-8 BOM (U+FEFF) plus surrounding whitespace from one
+/// line of MCP stdin input.
+///
+/// PowerShell 5.1 prepends `EF BB BF` to stdout when piping a native
+/// command on non-UTF-8 console codepages (CP950/CP932/CP949 etc., the
+/// default on most localised Windows installs). Without this strip,
+/// `serde_json::from_str` rejects the first line with
+/// `Parse error: expected value at line 1 column 1`, making phantom-mcp
+/// unreachable from default-config PowerShell clients — the standard MCP
+/// transport on Windows. RFC 8259 §8.1 permits implementations to ignore
+/// a leading BOM.
+fn preprocess_line(line: String) -> String {
+    line.trim()
+        .trim_start_matches('\u{FEFF}')
+        .trim()
+        .to_string()
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tools;
+
+    #[test]
+    fn server_tolerates_utf8_bom_on_stdin() {
+        // Repro from 2026-05-19 sweep (PR #254 / #256): PowerShell 5.1 on a
+        // non-UTF-8 console codepage prepends EF BB BF to native-command
+        // pipes. The MCP server's serde_json::from_str then rejects line 1
+        // with `Parse error: expected value at line 1 column 1`, breaking
+        // every default-PS MCP client on Windows.
+        //
+        // RFC 8259 §8.1 permits ignoring a leading BOM. preprocess_line()
+        // strips it before parsing; this test locks that contract.
+        let raw = "\u{FEFF}{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}".to_string();
+        let cleaned = preprocess_line(raw);
+        assert!(
+            !cleaned.starts_with('\u{FEFF}'),
+            "BOM not stripped: cleaned bytes start with {:02x?}",
+            cleaned.as_bytes().iter().take(3).collect::<Vec<_>>()
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&cleaned).expect("cleaned line must parse as JSON");
+        assert_eq!(parsed["method"], "ping");
+
+        // Also cover the inputs we will not change so this test catches
+        // accidental over-stripping later:
+        assert_eq!(preprocess_line("{\"a\":1}".to_string()), "{\"a\":1}");
+        assert_eq!(preprocess_line("  {\"a\":1}  ".to_string()), "{\"a\":1}");
+        assert_eq!(
+            preprocess_line("\u{FEFF}\u{FEFF}{\"a\":1}".to_string()),
+            "{\"a\":1}",
+            "multiple leading BOMs should all be stripped"
+        );
+        assert_eq!(preprocess_line("".to_string()), "");
+    }
 
     #[test]
     fn all_tools_have_mcp_schema() {
@@ -257,9 +364,17 @@ mod tests {
     fn mcp_schema_has_required_fields() {
         for name in tools::all_tool_names() {
             if let Some(tool) = to_mcp_tool(name) {
-                assert!(tool["name"].is_string(),        "{}: missing name",        name);
-                assert!(tool["description"].is_string(), "{}: missing description", name);
-                assert!(tool["inputSchema"].is_object(), "{}: missing inputSchema", name);
+                assert!(tool["name"].is_string(), "{}: missing name", name);
+                assert!(
+                    tool["description"].is_string(),
+                    "{}: missing description",
+                    name
+                );
+                assert!(
+                    tool["inputSchema"].is_object(),
+                    "{}: missing inputSchema",
+                    name
+                );
             }
         }
     }
@@ -267,7 +382,9 @@ mod tests {
     #[tokio::test]
     async fn handle_initialize() {
         let cfg = crate::config::ToolsConfig::default();
-        let result = handle("initialize", &serde_json::json!({}), &cfg).await.unwrap();
+        let result = handle("initialize", &serde_json::json!({}), &cfg)
+            .await
+            .unwrap();
         assert_eq!(result["protocolVersion"], PROTOCOL_VERSION);
         assert!(result["serverInfo"]["name"].is_string());
     }
@@ -275,7 +392,9 @@ mod tests {
     #[tokio::test]
     async fn handle_tools_list() {
         let cfg = crate::config::ToolsConfig::default();
-        let result = handle("tools/list", &serde_json::json!({}), &cfg).await.unwrap();
+        let result = handle("tools/list", &serde_json::json!({}), &cfg)
+            .await
+            .unwrap();
         let tools = result["tools"].as_array().unwrap();
         assert!(!tools.is_empty(), "tools list should not be empty");
         // Every entry must have name + description + inputSchema
@@ -289,7 +408,9 @@ mod tests {
     #[tokio::test]
     async fn handle_unknown_method() {
         let cfg = crate::config::ToolsConfig::default();
-        let err = handle("nonexistent/method", &serde_json::json!({}), &cfg).await.unwrap_err();
+        let err = handle("nonexistent/method", &serde_json::json!({}), &cfg)
+            .await
+            .unwrap_err();
         assert_eq!(err.0, -32601);
     }
 
@@ -298,5 +419,83 @@ mod tests {
         let cfg = crate::config::ToolsConfig::default();
         let result = handle("ping", &serde_json::json!({}), &cfg).await.unwrap();
         assert_eq!(result, serde_json::json!({}));
+    }
+
+    // ── HIGH-3 (audit V4): tools/call must report isError correctly ───────────
+
+    #[test]
+    fn is_error_output_recognises_phantom_conventions() {
+        // Error-shaped strings: must be detected
+        assert!(is_error_output("Error: missing 'path' argument"));
+        assert!(is_error_output("Error reading /tmp/nope: not found"));
+        assert!(is_error_output("Error writing foo: permission denied"));
+        assert!(is_error_output("[error] something blew up"));
+        assert!(is_error_output("[mcp:filesystem error] timeout"));
+        assert!(is_error_output("ERROR: bad input"));
+        assert!(is_error_output("   Error: leading whitespace ok"));
+
+        // Success-shaped strings: must NOT be flagged
+        assert!(!is_error_output(""));
+        assert!(!is_error_output("OK"));
+        assert!(!is_error_output("Written 42 bytes to /tmp/x"));
+        assert!(!is_error_output("hello world"));
+        assert!(!is_error_output(
+            "error in lower case alone is not a prefix"
+        ));
+    }
+
+    #[tokio::test]
+    async fn tools_call_reports_iserror_true_on_failure() {
+        // file_read with no `path` argument is the canonical "tool failed"
+        // path — phantom returns "Error: missing 'path' argument". MCP spec
+        // requires isError:true so the host doesn't silently feed the error
+        // text back to the model as if it were real data.
+        let cfg = crate::config::ToolsConfig::default();
+        let result = handle(
+            "tools/call",
+            &serde_json::json!({
+                "name": "file_read",
+                "arguments": {}
+            }),
+            &cfg,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result["isError"],
+            serde_json::Value::Bool(true),
+            "expected isError:true for failed tool call, got {}",
+            result
+        );
+        let text = result["content"][0]["text"].as_str().unwrap_or("");
+        assert!(
+            text.starts_with("Error"),
+            "expected Error-prefixed text, got: {}",
+            text
+        );
+    }
+
+    #[tokio::test]
+    async fn tools_call_reports_iserror_false_on_success() {
+        // todo_list with no todos is a successful call returning a non-error
+        // string — must keep isError:false so the host treats it as real
+        // output.
+        let cfg = crate::config::ToolsConfig::default();
+        let result = handle(
+            "tools/call",
+            &serde_json::json!({
+                "name": "todo_list",
+                "arguments": {}
+            }),
+            &cfg,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result["isError"],
+            serde_json::Value::Bool(false),
+            "expected isError:false for successful call, got {}",
+            result
+        );
     }
 }

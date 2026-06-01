@@ -1,0 +1,204 @@
+name: ci-e2e-mobile
+# E002 acceptance: "All 4 screens render on iOS Simulator + Android emulator
+# (CI workflow_dispatch)". Phase 1 — unattended AVD launch smoke for the Tauri
+# mobile app: boot AVD → install debug APK → start MainActivity → assert no
+# fatal Java exception in logcat. Screen-by-screen UIAutomator2 coverage is
+# deferred to F107/F108 and is explicitly NOT in scope here.
+#
+# Structurally mirrors `.github/workflows/ci-android-avd.yml` (M1 phantom
+# binary cap-mismatch smoke) — same macos-13 runner (AVD hardware accel is
+# only available there), same emulator-runner action version, same AVD cache
+# key shape — so the two jobs drift together rather than independently.
+
+on:
+  # COST WORKAROUND 2026-05-17 freeze: this is a ~45-min macos-13 Tauri-Android +
+  # AVD job — do NOT auto-fire on every app/** PR. Operator-triggered only
+  # (`gh workflow run ci-e2e-mobile.yml`). Restore pull_request when billing
+  # resets / a self-hosted macOS runner lands.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Match release-mobile.yml so Tauri's android backend resolves the same
+  # NDK that the cached aarch64-linux-android artifacts were built against.
+  NDK_VERSION: '29.0.14206865'
+
+jobs:
+  android-e2e-smoke:
+    name: Android AVD launch smoke (E002)
+    runs-on: macos-13  # AVD requires hardware accel only available on macOS runners
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Set up pnpm 10
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Rust + Android target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust cache (app/src-tauri)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+          key: e2e-aarch64-linux-android
+
+      - name: Install Android NDK ${{ env.NDK_VERSION }}
+        run: |
+          set -e
+          sdkmanager "ndk;${{ env.NDK_VERSION }}"
+          NDK_HOME="$ANDROID_SDK_ROOT/ndk/${{ env.NDK_VERSION }}"
+          NDK_BIN="$NDK_HOME/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+          echo "NDK_HOME=$NDK_HOME"         >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_HOME" >> "$GITHUB_ENV"
+          echo "$NDK_BIN" >> "$GITHUB_PATH"
+
+      - name: Cache AVD
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-api-34-arm64
+
+      - name: Install frontend dependencies (pnpm)
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Init Tauri Android project
+        working-directory: app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+        run: pnpm tauri android init
+
+      # WebView fetch to http://127.0.0.1:<runtime port> is blocked unless the
+      # app manifest opts into cleartext. Same fix as release-mobile.yml — the
+      # Tauri Android template emits a Gradle placeholder that resolves to
+      # "false" by default; rewrite to literal "true" before the build packs
+      # the manifest into the APK.
+      - name: Allow cleartext in AndroidManifest
+        working-directory: app
+        run: |
+          set -e
+          MF=src-tauri/gen/android/app/src/main/AndroidManifest.xml
+          test -f "$MF"
+          sed -i '' 's|"\${usesCleartextTraffic}"|"true"|g' "$MF"
+          sed -i '' 's|android:usesCleartextTraffic="false"|android:usesCleartextTraffic="true"|g' "$MF"
+          if ! grep -q 'android:usesCleartextTraffic=' "$MF"; then
+            sed -i '' 's|<application |<application android:usesCleartextTraffic="true" |' "$MF"
+          fi
+          grep -q 'android:usesCleartextTraffic="true"' "$MF"
+
+      - name: Build debug APK (aarch64)
+        working-directory: app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+        run: pnpm tauri android build --debug --apk --target aarch64
+
+      - name: Locate built APK
+        id: locate-apk
+        run: |
+          set -e
+          APK=$(find app/src-tauri/gen/android/app/build/outputs/apk -type f -name '*-debug.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::No debug APK found under app/src-tauri/gen/android/app/build/outputs/apk"
+            find app/src-tauri/gen/android/app/build/outputs -type f || true
+            exit 1
+          fi
+          echo "Found APK: $APK"
+          echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
+
+      - name: Start Android AVD + launch smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: arm64-v8a
+          target: google_apis
+          profile: pixel_6
+          force-avd-creation: false
+          emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          script: |
+            set -e
+            APK="${{ steps.locate-apk.outputs.apk_path }}"
+            PKG="ai.phantommesh.app"
+
+            echo "=== adb devices ==="
+            adb devices
+
+            echo "=== install APK ==="
+            adb install -r "$APK"
+
+            echo "=== assert package present ==="
+            adb shell pm list packages | grep -q "package:${PKG}"
+
+            echo "=== clear logcat ==="
+            adb logcat -c
+
+            echo "=== start MainActivity ==="
+            adb shell am start -n "${PKG}/.MainActivity"
+
+            # Give the WebView + Rust runtime time to boot. 8s is enough for
+            # a cold start on macos-13 + swiftshader (M1 workflow uses 3s for
+            # the much lighter phantom binary; the Tauri WebView is heavier).
+            sleep 8
+
+            echo "=== dump logcat ==="
+            adb logcat -d -t 500 -v threadtime | tee logcat.txt
+
+            echo "=== assert app is the foreground activity ==="
+            # `dumpsys activity activities` lists the resumed activity. If the
+            # app crashed on launch it will have been removed and this grep
+            # will fail.
+            adb shell dumpsys activity activities | tee activities.txt | \
+              grep -E "mResumedActivity|topResumedActivity|ResumedActivity" | \
+              grep -q "${PKG}" || {
+                echo "::error::${PKG} is not the foreground activity after launch"
+                exit 1
+              }
+
+            echo "=== assert no fatal Java exception ==="
+            # FATAL EXCEPTION is the Android runtime's marker for an uncaught
+            # exception that killed the process; AndroidRuntime.*FATAL is the
+            # tag/level shape that appears in threadtime format.
+            if grep -E "FATAL EXCEPTION|AndroidRuntime.*FATAL" logcat.txt; then
+              echo "::error::Fatal Java exception in logcat — see uploaded logcat.txt"
+              exit 1
+            fi
+
+            echo "=== smoke OK ==="
+
+      - name: Upload logcat + APK on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-mobile-forensics
+          path: |
+            logcat.txt
+            activities.txt
+            app/src-tauri/gen/android/app/build/outputs/apk/**/*-debug.apk
+          if-no-files-found: warn
+          retention-days: 7

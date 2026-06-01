@@ -266,7 +266,11 @@ fn detect_npus_accel() -> Vec<NpuInfo> {
             let path = e.ok()?.path();
             let name = std::fs::read_to_string(path.join("device/name"))
                 .or_else(|_| std::fs::read_to_string(path.join("name")))
-                .unwrap_or_else(|_| path.file_name()?.to_string_lossy().to_string());
+                .unwrap_or_else(|_| {
+                    path.file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default()
+                });
             Some(NpuInfo { name: name.trim().to_string(), tops: 0, device_id: String::new() })
         }).collect();
         if !result.is_empty() { return result; }

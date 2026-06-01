@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::response::IntoResponse;
@@ -52,9 +52,7 @@ async fn start_mock_server(responses: Vec<Value>) -> String {
     let addr = listener.local_addr().expect("local addr");
 
     tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("mock server error");
+        axum::serve(listener, app).await.expect("mock server error");
     });
 
     format!("http://127.0.0.1:{}", addr.port())
@@ -107,7 +105,9 @@ async fn test_agent_no_config() {
         Err(e) => e.to_string(),
     };
     assert!(
-        msg.contains("All providers failed") || msg.contains("No agent configuration") || msg.contains("no output"),
+        msg.contains("All providers failed")
+            || msg.contains("No agent configuration")
+            || msg.contains("no output"),
         "unexpected fallback message: {:?}",
         msg
     );
@@ -252,10 +252,7 @@ async fn test_compaction_triggered() {
             received_chars: Arc<AtomicUsize>,
         }
 
-        async fn handler(
-            State(s): State<S>,
-            body: axum::body::Bytes,
-        ) -> impl IntoResponse {
+        async fn handler(State(s): State<S>, body: axum::body::Bytes) -> impl IntoResponse {
             s.received_chars.fetch_add(body.len(), Ordering::SeqCst);
             let idx = s.call_count.fetch_add(1, Ordering::SeqCst);
             let resp = s
@@ -280,7 +277,9 @@ async fn test_compaction_triggered() {
         .expect("bind compaction mock");
     let addr = listener.local_addr().expect("local addr");
     tokio::spawn(async move {
-        axum::serve(listener, app).await.expect("compaction mock error");
+        axum::serve(listener, app)
+            .await
+            .expect("compaction mock error");
     });
     let base_url = format!("http://127.0.0.1:{}", addr.port());
 

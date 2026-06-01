@@ -1,7 +1,9 @@
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::tools::file::safe_path;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -120,7 +122,14 @@ pub async fn list(args: &Value) -> String {
     let hidden = args["hidden"].as_bool().unwrap_or(false);
     let max_entries = args["max_entries"].as_u64().unwrap_or(200) as usize;
 
-    let root = PathBuf::from(path_str);
+    // [T7f] Workspace-boundary check (PR #75 audit H-7). Without this,
+    // `ls /etc` or `ls C:\Windows\System32` dumps an entire system
+    // directory tree — fingerprinting target host + SSH-key file
+    // recon in one shot.
+    let root = match safe_path(path_str) {
+        Ok(p) => p,
+        Err(e) => return format!("Error: invalid path: {}", e),
+    };
 
     if !root.exists() {
         return format!("Error: path does not exist: {}", path_str);
@@ -139,9 +148,7 @@ pub async fn list(args: &Value) -> String {
 
     let entries: Vec<_> = entries.into_iter().take(max_entries).collect();
     let truncated = {
-        let total = read_dir_sorted(&root, hidden)
-            .map(|e| e.len())
-            .unwrap_or(0);
+        let total = read_dir_sorted(&root, hidden).map(|e| e.len()).unwrap_or(0);
         total > max_entries
     };
 
@@ -164,7 +171,10 @@ pub async fn list(args: &Value) -> String {
             } else {
                 name.clone()
             };
-            lines.push(format!("{:<10}  {:>8}  {}  {}", mode, size, mtime, display_name));
+            lines.push(format!(
+                "{:<10}  {:>8}  {}  {}",
+                mode, size, mtime, display_name
+            ));
         }
     } else {
         for (name, meta) in &entries {
@@ -181,7 +191,9 @@ pub async fn list(args: &Value) -> String {
         out.push_str(&format!(
             "\n\n[truncated — showing {} of {} entries; use max_entries to see more]",
             max_entries,
-            read_dir_sorted(&root, hidden).map(|e| e.len()).unwrap_or(max_entries)
+            read_dir_sorted(&root, hidden)
+                .map(|e| e.len())
+                .unwrap_or(max_entries)
         ));
     }
     out
@@ -285,7 +297,13 @@ pub async fn stat(args: &Value) -> String {
         None => return "Error: missing 'path' argument".into(),
     };
 
-    let path = PathBuf::from(path_str);
+    // [T7f] Workspace-boundary check (PR #75 audit H-7). Stat on
+    // arbitrary system paths leaks size/mtime/permissions/line counts
+    // of sensitive files (e.g. `~/.ssh/id_rsa`) even without a read.
+    let path = match safe_path(path_str) {
+        Ok(p) => p,
+        Err(e) => return format!("Error: invalid path: {}", e),
+    };
     let meta = match fs::metadata(&path) {
         Ok(m) => m,
         Err(e) => return format!("Error: cannot stat {}: {}", path_str, e),

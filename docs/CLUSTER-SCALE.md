@@ -70,10 +70,10 @@ iwr -useb https://phantommesh.io/install.ps1 | iex
 ✓ joined cluster as 'homeserver'
   agents.toml: ...
   peers (4):
-    "http://100.87.93.58:7878",       # mac-coordinator
-    "http://100.87.70.65:7879",       # yoyogood
-    "http://100.107.205.98:7878",     # ayaneo
-    "http://100.106.176.125:7878",    # laptop-gur943mk
+    "http://<mac-tailscale-ip>:7878",       # mac-coordinator
+    "http://100.64.0.10:7879",       # node-a
+    "http://100.64.0.11:7878",     # node-b
+    "http://100.64.0.12:7878",    # node-c
 ```
 
 ### 3. 通知舊機器
@@ -111,13 +111,13 @@ phantom cluster status
 
 | name | OS | role | URL |
 |---|---|---|---|
-| mac-coordinator | macOS | reference / Mac dev | http://100.87.93.58:7878 |
-| yoyogood | Win11 | desktop dev | http://100.87.70.65:7879 |
-| ayaneo | Win11 | handheld | http://100.107.205.98:7878 |
-| laptop-gur943mk | Win11 | mobile dev | http://100.106.176.125:7878 |
+| mac-coordinator | macOS | reference / Mac dev | http://<mac-tailscale-ip>:7878 |
+| node-a | Win11 | desktop dev | http://100.64.0.10:7879 |
+| node-b | Win11 | handheld | http://100.64.0.11:7878 |
+| node-c | Win11 | mobile dev | http://100.64.0.12:7878 |
 | **homeserver** | Linux | 24/7 background tasks | http://100.x.x.x:7878 |
-| **m1-mini** | macOS | mac build farm | http://100.x.x.x:7878 |
-| **rog-phone** | Android (Termux) | mobile worker | http://100.84.223.59:7879 |
+| **node-c** | macOS | mac build farm | http://100.x.x.x:7878 |
+| **node-d** | Android (Termux) | mobile worker | http://100.64.0.13:7879 |
 | **vm-cloud** | Linux | EC2 / GCP burstable | http://100.x.x.x:7878 |
 
 每台跑同一條安裝指令，差別只在：

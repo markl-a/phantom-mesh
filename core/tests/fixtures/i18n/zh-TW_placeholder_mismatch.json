@@ -1,0 +1,5 @@
+{
+  "coach.greeting": "你好",
+  "coach.daily_diff": "今天比昨天多 {count} 餐",
+  "error.auth_failed": "登入失敗：{reason}，錯誤碼 {code}"
+}

@@ -3,19 +3,19 @@
 # Run after `windows-bootstrap.ps1` has been executed on each Windows machine.
 #
 # Usage:
-#   USER_YOYOGOOD=user USER_AYANEO=user USER_LAPTOP=user ./scripts/verify-windows-nodes.sh
+#   USER_NODEA=user USER_NODEB=user USER_NODEC=user ./scripts/verify-windows-nodes.sh
 #   或編輯下面預設
 
 set -uo pipefail
 
-USER_YOYOGOOD="${USER_YOYOGOOD:-user}"
-USER_AYANEO="${USER_AYANEO:-user}"
-USER_LAPTOP="${USER_LAPTOP:-user}"
+USER_NODEA="${USER_NODEA:-user}"
+USER_NODEB="${USER_NODEB:-user}"
+USER_NODEC="${USER_NODEC:-user}"
 
 declare -A NODES
-NODES[yoyogood]="$USER_YOYOGOOD@100.87.70.65"
-NODES[ayaneo]="$USER_AYANEO@100.107.205.98"
-NODES[laptop-gur943mk]="$USER_LAPTOP@100.106.176.125"
+NODES[node-a]="$USER_NODEA@192.0.2.11"
+NODES[node-b]="$USER_NODEB@192.0.2.12"
+NODES[node-c]="$USER_NODEC@192.0.2.13"
 
 probe_node() {
     local name="$1"
@@ -52,7 +52,7 @@ probe_node() {
     echo ""
 }
 
-for n in yoyogood ayaneo laptop-gur943mk; do
+for n in node-a node-b node-c; do
     probe_node "$n" "${NODES[$n]}"
 done
 

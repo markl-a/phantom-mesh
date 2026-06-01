@@ -5,15 +5,35 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
-use phantom_mesh::{AppState, agent::{AgentRuntime, AgentEvent}, context::WorkspaceContext, cost::CostTracker, session::ConversationStore};
 use phantom_mesh::providers::traits::ChatMessage;
-use rustyline::error::ReadlineError;
+use phantom_mesh::{
+    agent::{AgentEvent, AgentRuntime},
+    context::WorkspaceContext,
+    cost::CostTracker,
+    session::ConversationStore,
+    AppState,
+};
+// PF-2a (2026-05-18): Windows scheduled-task helpers + constant moved to
+// phantom_mesh::service::windows. Imported here so the autoevolve and
+// doctor subcommands in this file can keep their existing call sites.
+#[cfg(target_os = "linux")]
+use phantom_mesh::service::linux::LINUX_UNIT_NAME;
+#[cfg(target_os = "windows")]
+use phantom_mesh::service::windows::{
+    windows_task_info, windows_task_result_label, WINDOWS_TASK_NAME,
+};
+// PROPAGATED_ENV_KEYS is only consumed in the bin by macOS's
+// `build_extra_env_plist_xml`; Linux's consumer moved into
+// `service/linux.rs` with PF-2b.
+#[cfg(target_os = "macos")]
+use phantom_mesh::service::PROPAGATED_ENV_KEYS;
 use rustyline::completion::{Completer, Pair};
+use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
+use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Context, Editor, Helper};
-use rustyline::history::DefaultHistory;
 use std::borrow::Cow;
 
 // ── Evolve system prompt ──────────────────────────────────────────────────────
@@ -92,15 +112,41 @@ failures:\n\
 
 // ── Evolve loop ───────────────────────────────────────────────────────────────
 
+/// A3/T93: default skill-extraction threshold θ on the 0..10 H1 rubric.
+/// A verdict score STRICTLY LESS than this value means "the agent struggled
+/// or failed" — that is the cohort where extracting a reusable skill from
+/// the transcript is most likely to produce real future leverage. Scores
+/// >= θ mean "the agent succeeded comfortably", so we skip extraction to
+/// avoid burying the skill library with redundant boilerplate.
+///
+/// Picked at 7 to bias toward "actually struggled" — adjustable later
+/// once we have real telemetry on extracted-skill reuse rates.
+#[cfg(feature = "experimental-hermes-curator")]
+const DEFAULT_EXTRACT_THRESHOLD: u8 = 7;
+
 async fn run_evolve(args: Vec<String>) -> Result<()> {
     // Parse flags
     let mut goal: Option<String> = None;
     let mut max_rounds: usize = 10;
     let mut agent_name = "master".to_string();
-    let mut do_rebuild   = false;  // --rebuild: cargo build after success
-    let mut do_deploy    = false;  // --deploy:  cluster-install.sh after rebuild
-    let mut distributed  = false;  // --distributed: parallel assign to all peers
-    let mut allow_core   = false;  // --allow-core-evolve: opt out of sandbox guard
+    let mut do_rebuild = false; // --rebuild: cargo build after success
+    let mut do_deploy = false; // --deploy:  cluster-install.sh after rebuild
+    let mut distributed = false; // --distributed: parallel assign to all peers
+    let mut allow_core = false; // --allow-core-evolve: opt out of sandbox guard
+    #[cfg(feature = "experimental-hermes-curator")]
+    let mut use_judge = false; // --judge: H1 LLM-as-judge scoring (gated)
+    #[cfg(feature = "experimental-hermes-curator")]
+    let mut ensemble_n: Option<usize> = None; // T28: --ensemble N opt-in
+                                              // A3/T93: --extract-skills opts into the post-judge extraction pipeline.
+                                              // Default OFF until A1 (skill extractor) + A2 (registry) actually land.
+                                              // When ON and verdict.score < threshold, we call extract::extract_skill().
+                                              // Until A1 lands, that call is a logged no-op (see below).
+    #[cfg(feature = "experimental-hermes-curator")]
+    let mut extract_skills = false;
+    // A3/T93: --extract-threshold N lets the operator override the default
+    // θ from the CLI. Useful for experimentation while we tune the cohort.
+    #[cfg(feature = "experimental-hermes-curator")]
+    let mut extract_threshold: u8 = DEFAULT_EXTRACT_THRESHOLD;
     let mut i = 2usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -116,10 +162,91 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
                     agent_name = name.clone();
                 }
             }
-            "--rebuild"      | "-r" => { do_rebuild = true; }
-            "--deploy"       | "-d" => { do_rebuild = true; do_deploy = true; }
-            "--distributed"  | "-D" => { distributed = true; }
-            "--allow-core-evolve"   => { allow_core = true; }
+            "--rebuild" | "-r" => {
+                do_rebuild = true;
+            }
+            "--deploy" | "-d" => {
+                do_rebuild = true;
+                do_deploy = true;
+            }
+            "--distributed" | "-D" => {
+                distributed = true;
+            }
+            "--allow-core-evolve" => {
+                allow_core = true;
+            }
+            "--judge" => {
+                #[cfg(feature = "experimental-hermes-curator")]
+                {
+                    use_judge = true;
+                }
+                #[cfg(not(feature = "experimental-hermes-curator"))]
+                {
+                    eprintln!("  {} --judge requires building with --features experimental-hermes-curator", colored("⚠", 33));
+                }
+            }
+            "--ensemble" => {
+                #[cfg(feature = "experimental-hermes-curator")]
+                {
+                    let n: usize = args
+                        .get(i + 1)
+                        .and_then(|s| s.parse().ok())
+                        .ok_or_else(|| anyhow::anyhow!("--ensemble requires N>=2"))?;
+                    if n < 2 {
+                        return Err(anyhow::anyhow!("--ensemble N must be >= 2"));
+                    }
+                    ensemble_n = Some(n);
+                    i += 1;
+                }
+                #[cfg(not(feature = "experimental-hermes-curator"))]
+                {
+                    eprintln!(
+                        "  {} --ensemble requires --features experimental-hermes-curator",
+                        colored("⚠", 33)
+                    );
+                    // consume N to keep arg loop sane
+                    let _ = args.get(i + 1);
+                    i += 1;
+                }
+            }
+            // A3/T93: opt into the post-judge extract-skill pipeline.
+            // No effect unless --judge is also set (extraction needs a verdict).
+            "--extract-skills" => {
+                #[cfg(feature = "experimental-hermes-curator")]
+                {
+                    extract_skills = true;
+                }
+                #[cfg(not(feature = "experimental-hermes-curator"))]
+                {
+                    eprintln!("  {} --extract-skills requires building with --features experimental-hermes-curator", colored("⚠", 33));
+                }
+            }
+            // A3/T93: override default extraction threshold θ (0..=10).
+            "--extract-threshold" => {
+                #[cfg(feature = "experimental-hermes-curator")]
+                {
+                    let n: u8 = args
+                        .get(i + 1)
+                        .and_then(|s| s.parse().ok())
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("--extract-threshold requires an integer in 0..=10")
+                        })?;
+                    if n > 10 {
+                        return Err(anyhow::anyhow!("--extract-threshold N must be in 0..=10"));
+                    }
+                    extract_threshold = n;
+                    i += 1;
+                }
+                #[cfg(not(feature = "experimental-hermes-curator"))]
+                {
+                    eprintln!(
+                        "  {} --extract-threshold requires --features experimental-hermes-curator",
+                        colored("⚠", 33)
+                    );
+                    let _ = args.get(i + 1);
+                    i += 1;
+                }
+            }
             arg if !arg.starts_with('-') && goal.is_none() => {
                 goal = Some(arg.to_string());
             }
@@ -130,9 +257,21 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
 
     let task = goal.unwrap_or_else(|| EVOLVE_DEFAULT_TASK.to_string());
 
-    eprintln!("{}", colored("◆ phantom evolve — autonomous development loop", 35));
-    eprintln!("  {}", colored(&format!("goal: {}", safe_truncate(&task, 100)), 90));
-    eprintln!("  {}", colored(&format!("agent: {}  max-rounds: {}", agent_name, max_rounds), 90));
+    eprintln!(
+        "{}",
+        colored("◆ phantom evolve — autonomous development loop", 35)
+    );
+    eprintln!(
+        "  {}",
+        colored(&format!("goal: {}", safe_truncate(&task, 100)), 90)
+    );
+    eprintln!(
+        "  {}",
+        colored(
+            &format!("agent: {}  max-rounds: {}", agent_name, max_rounds),
+            90
+        )
+    );
 
     // CO-EVO Phase 1 sandbox guard (SPEC-FREEZE-V1.1 §4.1-d).
     // Default ON for autoevolve invocations; opt out via flag.
@@ -153,17 +292,390 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
         run_evolve_local(&task, &agent_name, max_rounds, do_rebuild, do_deploy).await
     };
 
+    // H1: optionally score the just-completed evolve session via Hermes Curator.
+    // T28: when --ensemble N is also set, dispatch to V2 multi-judge orchestrator
+    // instead. V1 single-judge path runs when --ensemble is absent.
+    // A3/T93: thread --extract-skills + --extract-threshold through so the
+    //         post-judge extraction pipeline can fire on below-θ verdicts.
+    #[cfg(feature = "experimental-hermes-curator")]
+    if use_judge && outcome.is_ok() {
+        let result = match ensemble_n {
+            Some(n) => {
+                run_ensemble_on_latest_checkpoint(n, extract_skills, extract_threshold).await
+            }
+            None => run_judge_on_latest_checkpoint(extract_skills, extract_threshold).await,
+        };
+        if let Err(e) = result {
+            eprintln!("  {} judge failed: {}", colored("✗", 31), e);
+        }
+    }
+    // A3/T93: if the operator passed --extract-skills WITHOUT --judge, we
+    // would silently ignore it under the old logic. Surface a warning so
+    // they aren't left wondering why nothing extracted.
+    #[cfg(feature = "experimental-hermes-curator")]
+    if extract_skills && !use_judge {
+        eprintln!(
+            "  {} --extract-skills passed without --judge — extraction needs a verdict first; ignoring (re-run with both flags)",
+            colored("⚠", 33)
+        );
+    }
+
     // Restore sandbox state for the surrounding session.
     phantom_mesh::sandbox::enable(sandbox_was);
 
     outcome
 }
 
+/// A3/T93: shared post-verdict decision logic. Writes to the supplied
+/// writer so snapshot tests can capture output without going through stderr.
+/// Pure on its inputs (apart from the write) — easy to exercise.
+///
+/// Emits ONE of the two canonical status lines:
+///   - score >= θ → `✓ score X above θ=Y — no skill extracted`
+///   - score <  θ → `✗ score X below θ=Y → triggering extraction`
+/// then, when `extract_skills` is on AND we're in the below-θ cohort,
+/// invokes the extract pipeline (currently a logged no-op until A1 lands).
+///
+/// Returns Ok(()) on success. NEVER silently exits — every code path
+/// writes a status line so the operator can see why nothing extracted.
+///
+/// IMPORTANT: this function deliberately does NOT use `colored()` ANSI codes,
+/// so its output is stable for snapshot comparison regardless of NO_COLOR
+/// env state. Callers that want color should emit color separately or wrap.
+#[cfg(feature = "experimental-hermes-curator")]
+fn report_post_judge_to(
+    out: &mut dyn std::io::Write,
+    score: u8,
+    threshold: u8,
+    rationale: &str,
+    extract_skills: bool,
+    session_id: &str,
+) -> std::io::Result<()> {
+    if score >= threshold {
+        // Above-θ cohort: agent did well. Nothing to extract.
+        writeln!(
+            out,
+            "  ✓ score {}/10 above θ={} — no skill extracted",
+            score, threshold
+        )?;
+        if extract_skills {
+            // Explicitly tell the operator we DID consider extracting — they
+            // asked for it. Just the verdict said "no".
+            writeln!(
+                out,
+                "  · --extract-skills set, but verdict is above threshold; skipping"
+            )?;
+        }
+        return Ok(());
+    }
+
+    // Below-θ cohort: this is where extraction would help.
+    writeln!(
+        out,
+        "  ✗ score {}/10 below θ={} → triggering extraction",
+        score, threshold
+    )?;
+    writeln!(out, "  rationale: {}", rationale)?;
+
+    if !extract_skills {
+        writeln!(
+            out,
+            "  · extraction NOT performed (re-run with --extract-skills to enable)"
+        )?;
+        return Ok(());
+    }
+
+    // --extract-skills was passed AND we're below θ. Dispatch to the
+    // extractor. A1 (skill extractor) hasn't landed yet in this branch,
+    // so the call below is currently a logged stub.
+    //
+    // When A1 lands, replace this block with the real call:
+    //   phantom_mesh::hermes::extract::extract_skill(verdict, checkpoint)?;
+    writeln!(
+        out,
+        "  ◇ extract::extract_skill(...) for session {} — A1 not yet wired; logged no-op",
+        session_id
+    )?;
+    writeln!(out, "  › skill extraction will fire here once A1 + A2 land")?;
+    Ok(())
+}
+
+/// Convenience wrapper used by the real CLI paths. Writes the same content
+/// as `report_post_judge_to` straight to stderr.
+#[cfg(feature = "experimental-hermes-curator")]
+fn report_post_judge(
+    score: u8,
+    threshold: u8,
+    rationale: &str,
+    extract_skills: bool,
+    session_id: &str,
+) -> Result<()> {
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    report_post_judge_to(
+        &mut handle,
+        score,
+        threshold,
+        rationale,
+        extract_skills,
+        session_id,
+    )
+    .map_err(|e| anyhow::anyhow!("write post-judge status: {}", e))?;
+    Ok(())
+}
+
+/// H1: locate the most recently-touched EvolveCheckpoint and score it
+/// via a real Anthropic round-trip, writing the verdict back to disk.
+///
+/// A3/T93: now accepts `extract_skills` + `extract_threshold` so the
+/// post-judge decision (above-θ vs below-θ) and optional skill extraction
+/// can be driven from the same CLI invocation.
+#[cfg(feature = "experimental-hermes-curator")]
+async fn run_judge_on_latest_checkpoint(extract_skills: bool, extract_threshold: u8) -> Result<()> {
+    use phantom_mesh::evolve_checkpoint::EvolveCheckpoint;
+    use phantom_mesh::hermes::curator::{Curator, DEFAULT_JUDGE_MODEL};
+
+    let api_key = std::env::var("ANTHROPIC_API_KEY")
+        .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY not set"))?;
+    let api_base = std::env::var("ANTHROPIC_API_BASE")
+        .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
+
+    let all = EvolveCheckpoint::list_all(false)?;
+    let latest = all
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no checkpoints found to judge"))?;
+    let session_id = latest.session_id.clone();
+
+    let mut ck = EvolveCheckpoint::load(&session_id)?
+        .ok_or_else(|| anyhow::anyhow!("checkpoint disappeared between list + load"))?;
+
+    eprintln!(
+        "\n{}",
+        colored("◆ phantom evolve --judge — scoring latest session", 35)
+    );
+    eprintln!("  {}", colored(&format!("session: {}", ck.session_id), 90));
+    eprintln!(
+        "  {}",
+        colored(&format!("model:   {}", DEFAULT_JUDGE_MODEL), 90)
+    );
+    eprintln!(
+        "  {}",
+        colored(
+            &format!(
+                "threshold: θ={}  extract-skills: {}",
+                extract_threshold, extract_skills
+            ),
+            90
+        )
+    );
+
+    let curator = Curator {
+        api_base,
+        api_key,
+        model: DEFAULT_JUDGE_MODEL.to_string(),
+        timeout_secs: 30,
+    };
+    curator
+        .judge(&mut ck)
+        .await
+        .map_err(|e| anyhow::anyhow!("curator: {}", e))?;
+    ck.save()?;
+
+    let v = ck.judge_score.as_ref().expect("set on success");
+    eprintln!(
+        "  {} verdict: {}/10  rubric={}",
+        colored("•", 36),
+        v.score,
+        v.rubric_version
+    );
+
+    // A3/T93: emit the canonical above-θ / below-θ status line and (optionally)
+    // dispatch the extract pipeline. Always logs — never silently exits.
+    report_post_judge(
+        v.score,
+        extract_threshold,
+        &v.rationale,
+        extract_skills,
+        &ck.session_id,
+    )?;
+    Ok(())
+}
+
+/// T28 V2: locate the most recently-touched EvolveCheckpoint and score it
+/// via N independent judges concurrently, writing the ensemble verdict back
+/// to disk alongside (NOT replacing) the V1 single-judge field.
+///
+/// A3/T93: extended with `extract_skills` + `extract_threshold` so the
+/// aggregated median score participates in the same above-θ / below-θ
+/// extraction decision as the single-judge path.
+#[cfg(feature = "experimental-hermes-curator")]
+async fn run_ensemble_on_latest_checkpoint(
+    n: usize,
+    extract_skills: bool,
+    extract_threshold: u8,
+) -> Result<()> {
+    use phantom_mesh::evolve_checkpoint::{AgreementClass, EvolveCheckpoint};
+    use phantom_mesh::hermes::curator::DEFAULT_JUDGE_MODEL;
+    use phantom_mesh::hermes::curator_ensemble::{
+        AnthropicJudge, EnsembleCurator, JudgeProvider, OpenAICompatJudge,
+    };
+    use std::sync::Arc;
+
+    let api_base_anthropic =
+        std::env::var("ANTHROPIC_API_BASE").unwrap_or_else(|_| "https://api.anthropic.com".into());
+    let anthropic_key = std::env::var("ANTHROPIC_API_KEY").ok();
+
+    // Build the judge slate from environment. Anthropic first if available;
+    // then mistral, xai, together, fireworks in that order until we have N judges.
+    let mut judges: Vec<Arc<dyn JudgeProvider>> = Vec::new();
+    if let Some(k) = anthropic_key.clone() {
+        judges.push(Arc::new(AnthropicJudge {
+            api_base: api_base_anthropic.clone(),
+            api_key: k,
+            model: DEFAULT_JUDGE_MODEL.to_string(),
+            timeout_secs: 30,
+        }));
+    }
+    for (env_key, provider_id, default_base, default_model) in [
+        (
+            "MISTRAL_API_KEY",
+            "mistral",
+            "https://api.mistral.ai",
+            "mistral-small-latest",
+        ),
+        ("XAI_API_KEY", "xai", "https://api.x.ai", "grok-4"),
+        (
+            "TOGETHER_API_KEY",
+            "together",
+            "https://api.together.xyz",
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        ),
+        (
+            "FIREWORKS_API_KEY",
+            "fireworks",
+            "https://api.fireworks.ai/inference",
+            "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        ),
+    ] {
+        if judges.len() >= n {
+            break;
+        }
+        if let Ok(k) = std::env::var(env_key) {
+            judges.push(Arc::new(OpenAICompatJudge {
+                provider_id: provider_id.into(),
+                api_base: default_base.into(),
+                api_key: k,
+                model: default_model.into(),
+                timeout_secs: 30,
+            }));
+        }
+    }
+
+    // Self-consistency fallback: if we have anthropic + fewer than N total,
+    // top up with duplicate Anthropic instances (same key, same model — useful
+    // when only ANTHROPIC_API_KEY is set).
+    if let Some(k) = anthropic_key.clone() {
+        while judges.len() < n {
+            judges.push(Arc::new(AnthropicJudge {
+                api_base: api_base_anthropic.clone(),
+                api_key: k.clone(),
+                model: DEFAULT_JUDGE_MODEL.to_string(),
+                timeout_secs: 30,
+            }));
+        }
+    }
+
+    if judges.len() < 2 {
+        anyhow::bail!(
+            "ensemble requires at least 2 judges; set ANTHROPIC_API_KEY plus one of \
+             MISTRAL_API_KEY / XAI_API_KEY / TOGETHER_API_KEY / FIREWORKS_API_KEY"
+        );
+    }
+
+    let all = EvolveCheckpoint::list_all(false)?;
+    let latest = all
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no checkpoints found to judge"))?;
+    let session_id = latest.session_id.clone();
+    let mut ck = EvolveCheckpoint::load(&session_id)?
+        .ok_or_else(|| anyhow::anyhow!("checkpoint disappeared between list + load"))?;
+
+    eprintln!(
+        "\n{}",
+        colored(
+            "◆ phantom evolve --judge --ensemble — scoring latest session",
+            35
+        )
+    );
+    eprintln!(
+        "  {}",
+        colored(
+            &format!("session: {}  judges: {}", ck.session_id, judges.len()),
+            90
+        )
+    );
+    eprintln!(
+        "  {}",
+        colored(
+            &format!(
+                "threshold: θ={}  extract-skills: {}",
+                extract_threshold, extract_skills
+            ),
+            90
+        )
+    );
+
+    let curator = EnsembleCurator { judges };
+    let outcome = curator.judge_ensemble(&mut ck).await;
+    ck.save()?;
+
+    let e = ck.judge_ensemble.as_ref().expect("set on success");
+    let mark = match e.agreement {
+        AgreementClass::Unanimous => colored("✓✓✓", 32),
+        AgreementClass::Consensus => colored("✓", 32),
+        AgreementClass::NeedsHumanReview => colored("⚠", 33),
+    };
+    eprintln!(
+        "  {} score: {}/10 (median); stddev {:.2}; agreement = {:?}",
+        mark, e.aggregated.score, e.score_stddev, e.agreement
+    );
+    eprintln!(
+        "  {} {}/{} judges succeeded",
+        colored("•", 36),
+        e.judges_succeeded,
+        e.judges_attempted
+    );
+    for (i, r) in outcome.per_judge_results.iter().enumerate() {
+        match r {
+            Ok(v) => eprintln!("    [{}] {} → {}/10: {}", i, v.model, v.score, v.rationale),
+            Err(err) => eprintln!("    [{}] failed: {}", i, err),
+        }
+    }
+
+    // A3/T93: same above-θ / below-θ decision as the single-judge path, but
+    // driven by the ensemble's aggregated (median) score. Extraction
+    // dispatched only on below-θ AND --extract-skills.
+    report_post_judge(
+        e.aggregated.score,
+        extract_threshold,
+        &e.aggregated.rationale,
+        extract_skills,
+        &ck.session_id,
+    )?;
+    Ok(())
+}
+
 // ── Distributed evolve ────────────────────────────────────────────────────────
 
 // Describe a node's capabilities as a short string for the decompose prompt.
 fn caps_label(caps: &[String]) -> String {
-    if caps.is_empty() { "analysis, file ops".into() } else { caps.join(", ") }
+    if caps.is_empty() {
+        "analysis, file ops".into()
+    } else {
+        caps.join(", ")
+    }
 }
 
 struct NodeDesc {
@@ -182,22 +694,39 @@ struct NodeDesc {
 
 async fn run_evolve_list(args: &[String]) -> Result<()> {
     let active_only = args.iter().any(|a| a == "--active");
+    let json = args.iter().any(|a| a == "--json");
     let all = phantom_mesh::evolve_checkpoint::EvolveCheckpoint::list_all(active_only)?;
-    if all.is_empty() {
-        eprintln!("  {} (no checkpoints under ~/.phantom-mesh/evolve-checkpoints/)",
-                  colored("◇", 90));
+    // Machine-readable audit trail (matches `evolve goals list --json` /
+    // `doctor --json`): full checkpoints to stdout, empty → `[]`. Read-only.
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&all)
+                .map_err(|e| anyhow::anyhow!("serialize checkpoints: {e}"))?
+        );
         return Ok(());
     }
-    eprintln!("{} {} evolve checkpoint(s){}",
-              colored("◆", 35),
-              all.len(),
-              if active_only { " (active only)" } else { "" });
+    if all.is_empty() {
+        eprintln!(
+            "  {} (no checkpoints under ~/.phantom-mesh/evolve-checkpoints/)",
+            colored("◇", 90)
+        );
+        return Ok(());
+    }
+    eprintln!(
+        "{} {} evolve checkpoint(s){}",
+        colored("◆", 35),
+        all.len(),
+        if active_only { " (active only)" } else { "" }
+    );
     for c in &all {
         eprintln!("  {}", c.render_one_line());
     }
     eprintln!();
-    eprintln!("  {} replay one with: phantom evolve replay <session-id>",
-              colored("›", 90));
+    eprintln!(
+        "  {} replay one with: phantom evolve replay <session-id>",
+        colored("›", 90)
+    );
     Ok(())
 }
 
@@ -212,11 +741,16 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
     use phantom_mesh::evolve_goals::GoalsFile;
 
     let action = args.get(3).map(|s| s.as_str()).unwrap_or("next");
-    let path = args
+    // D26: resolve via the shared resolver — `--file` > $PHANTOM_EVOLVE_GOALS >
+    // existing ./EVOLVE-GOALS.md > ~/.phantom-mesh/EVOLVE-GOALS.md — so a goals
+    // command in a random dir no longer litters it with an EVOLVE-GOALS.md.
+    let explicit_file = args
         .iter()
         .position(|a| a == "--file")
-        .and_then(|i| args.get(i + 1).cloned())
-        .unwrap_or_else(|| "EVOLVE-GOALS.md".to_string());
+        .and_then(|i| args.get(i + 1).cloned());
+    let path = phantom_mesh::evolve_goals::resolve_goals_path(explicit_file.as_deref())
+        .to_string_lossy()
+        .into_owned();
 
     match action {
         "next" => {
@@ -227,11 +761,21 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
                     // Print the bare goal text on stdout so it composes with
                     // shell pipelines: `phantom evolve "$(phantom evolve goals next)"`.
                     println!("{}", cb.text);
-                    eprintln!("  {} from {} (line {})",
-                              colored("›", 90), path, line.idx + 1);
-                    eprintln!("  {} {} pending · {} done",
-                              colored("·", 90),
-                              g.pending_count(), g.done_count());
+                    // Label with the `#N` ordinal `mark-done` accepts (D25), not
+                    // the raw file line, so `mark-done <#>` works as shown.
+                    let ord = g.ordinal_of_idx(line.idx).unwrap_or(0);
+                    eprintln!(
+                        "  {} from {} (goal #{})",
+                        colored("›", 90),
+                        path,
+                        ord
+                    );
+                    eprintln!(
+                        "  {} {} pending · {} done",
+                        colored("·", 90),
+                        g.pending_count(),
+                        g.done_count()
+                    );
                 }
                 None => {
                     eprintln!("  {} all goals complete in {}", colored("✓", 32), path);
@@ -241,8 +785,9 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
         }
         "add" => {
             // phantom evolve goals add "<goal text>"
-            let text = args.get(4)
-                .ok_or_else(|| anyhow::anyhow!("usage: phantom evolve goals add \"<goal text>\""))?;
+            let text = args.get(4).ok_or_else(|| {
+                anyhow::anyhow!("usage: phantom evolve goals add \"<goal text>\"")
+            })?;
             let mut g = GoalsFile::load(&path)?;
             g.add_pending(text);
             g.save()?;
@@ -253,38 +798,66 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
             let g = GoalsFile::load(&path)?;
             let json_flag = args.contains(&"--json".to_string());
             if json_flag {
-                println!("{{\"pending\":{},\"done\":{}}}",
-                         serde_json::to_string(&g.pending_goals()).unwrap_or_default(),
-                         serde_json::to_string(&g.done_goals()).unwrap_or_default());
+                println!(
+                    "{{\"pending\":{},\"done\":{}}}",
+                    serde_json::to_string(&g.pending_goals()).unwrap_or_default(),
+                    serde_json::to_string(&g.done_goals()).unwrap_or_default()
+                );
             } else {
                 eprintln!("{} {}", colored("◆", 35), path);
-                eprintln!("  {} pending · {} done",
-                          g.pending_count(), g.done_count());
+                eprintln!("  {} pending · {} done", g.pending_count(), g.done_count());
+                eprintln!(
+                    "  {}",
+                    colored("mark a goal done with: phantom evolve goals mark-done <#>", 90)
+                );
+                // `#N` is the 1-based ordinal `mark-done` accepts (D25), counted
+                // over checkbox lines in this same print order.
+                let mut ordinal = 0usize;
                 for line in &g.lines {
                     if let Some(cb) = &line.checkbox {
-                        let mark = if cb.checked { colored("✓", 32) } else { colored("○", 33) };
+                        ordinal += 1;
+                        let mark = if cb.checked {
+                            colored("✓", 32)
+                        } else {
+                            colored("○", 33)
+                        };
                         let section_tag = match line.section {
                             phantom_mesh::evolve_goals::GoalSection::Pending => "",
                             phantom_mesh::evolve_goals::GoalSection::Done => "",
-                            phantom_mesh::evolve_goals::GoalSection::Other => " (outside known section)",
+                            phantom_mesh::evolve_goals::GoalSection::Other => {
+                                " (outside known section)"
+                            }
                         };
-                        eprintln!("  {} L{:<4} {}{}", mark, line.idx + 1,
-                                  cb.text, colored(section_tag, 90));
+                        eprintln!(
+                            "  {} #{:<3} {}{}",
+                            mark,
+                            ordinal,
+                            cb.text,
+                            colored(section_tag, 90)
+                        );
                     }
                 }
             }
             Ok(())
         }
         "mark-done" => {
-            // phantom evolve goals mark-done <line> [--sha SHA] [--date YYYY-MM-DD]
-            let line_arg = args.get(4)
-                .ok_or_else(|| anyhow::anyhow!("usage: phantom evolve goals mark-done <line> [--sha SHA] [--date YYYY-MM-DD]"))?;
-            let line_num: usize = line_arg.parse()
-                .map_err(|_| anyhow::anyhow!("'{}' is not a line number", line_arg))?;
-            let sha = args.iter().position(|a| a == "--sha")
+            // phantom evolve goals mark-done <#> [--sha SHA] [--date YYYY-MM-DD]  (# = ordinal from `goals list`)
+            let line_arg = args.get(4).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "usage: phantom evolve goals mark-done <#> [--sha SHA] [--date YYYY-MM-DD]   (# = the goal number from `goals list`)"
+                )
+            })?;
+            let ordinal: usize = line_arg
+                .parse()
+                .map_err(|_| anyhow::anyhow!("'{}' is not a goal number", line_arg))?;
+            let sha = args
+                .iter()
+                .position(|a| a == "--sha")
                 .and_then(|i| args.get(i + 1).cloned())
                 .unwrap_or_else(|| "pending".to_string());
-            let date = args.iter().position(|a| a == "--date")
+            let date = args
+                .iter()
+                .position(|a| a == "--date")
                 .and_then(|i| args.get(i + 1).cloned())
                 .unwrap_or_else(|| {
                     // Default: today in YYYY-MM-DD (UTC). Plain enough not
@@ -300,8 +873,17 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
                 });
 
             let mut g = GoalsFile::load(&path)?;
-            // Convert 1-based line input to the 0-based idx the parser uses.
-            let idx = line_num.saturating_sub(1);
+            // D25: the argument is a 1-based ordinal over goals (what `goals
+            // list` prints as `#N`), NOT a raw file line. Map it to the file
+            // idx the parser uses, with a clear out-of-range error.
+            let idx = g.idx_by_ordinal(ordinal).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no goal #{ordinal} — there {} {} goal(s) in {}. Run `phantom evolve goals list`.",
+                    if g.checkbox_count() == 1 { "is" } else { "are" },
+                    g.checkbox_count(),
+                    path
+                )
+            })?;
             let text = g.mark_done(idx, &date, &sha)?;
             g.save()?;
             eprintln!("  {} marked done: {}", colored("✓", 32), text);
@@ -309,7 +891,7 @@ async fn run_evolve_goals(args: &[String]) -> Result<()> {
             Ok(())
         }
         _ => {
-            eprintln!("usage: phantom evolve goals <next|list [--json]|add \"<text>\"|mark-done <line> [--sha SHA] [--date YYYY-MM-DD]> [--file PATH]");
+            eprintln!("usage: phantom evolve goals <next|list [--json]|add \"<text>\"|mark-done <#> [--sha SHA] [--date YYYY-MM-DD]> [--file PATH]");
             anyhow::bail!("unknown evolve goals subcommand '{}'", action);
         }
     }
@@ -342,13 +924,15 @@ fn epoch_day_to_ymd(days_since_epoch: i64) -> (i32, u32, u32) {
 /// hop on arrival — no two-phase commit needed because the checkpoint itself
 /// is the source of truth, persisted on both sides.
 async fn run_evolve_handoff(args: &[String]) -> Result<()> {
-    use phantom_mesh::evolve_checkpoint::{EvolveCheckpoint, EvolvePhase, EvolveOutcome};
+    use phantom_mesh::evolve_checkpoint::{EvolveCheckpoint, EvolveOutcome, EvolvePhase};
 
     let peer_url = match args.get(3) {
         Some(u) if !u.is_empty() => u.trim_end_matches('/').to_string(),
         _ => {
-            eprintln!("  {} usage: phantom evolve handoff <peer-url> [<session-id>|latest]",
-                      colored("✗", 31));
+            eprintln!(
+                "  {} usage: phantom evolve handoff <peer-url> [<session-id>|latest]",
+                colored("✗", 31)
+            );
             anyhow::bail!("missing peer url");
         }
     };
@@ -360,8 +944,7 @@ async fn run_evolve_handoff(args: &[String]) -> Result<()> {
         match active.first() {
             Some(c) => c.session_id.clone(),
             None => {
-                eprintln!("  {} no active checkpoints to hand off",
-                          colored("○", 33));
+                eprintln!("  {} no active checkpoints to hand off", colored("○", 33));
                 return Ok(());
             }
         }
@@ -372,24 +955,45 @@ async fn run_evolve_handoff(args: &[String]) -> Result<()> {
     let mut checkpoint = match EvolveCheckpoint::load(&session_id)? {
         Some(c) => c,
         None => {
-            eprintln!("  {} session id '{}' not found",
-                      colored("✗", 31), session_id);
+            eprintln!(
+                "  {} session id '{}' not found",
+                colored("✗", 31),
+                session_id
+            );
             anyhow::bail!("checkpoint not found");
         }
     };
 
     if matches!(checkpoint.phase, EvolvePhase::Done { .. }) {
-        eprintln!("  {} session '{}' already in terminal state — refusing to re-hand off",
-                  colored("✗", 31), checkpoint.session_id);
+        eprintln!(
+            "  {} session '{}' already in terminal state — refusing to re-hand off",
+            colored("✗", 31),
+            checkpoint.session_id
+        );
         anyhow::bail!("checkpoint already done");
     }
 
     eprintln!("{}", colored("◆ phantom evolve handoff", 35));
-    eprintln!("  {} {} → {}", colored("session:", 90), checkpoint.session_id, colored(&peer_url, 36));
-    eprintln!("  {} {}", colored("goal:", 90), safe_truncate(&checkpoint.goal, 100));
-    eprintln!("  {} {}",
-              colored("plan:", 90),
-              format!("{}/{} steps complete", checkpoint.completed_steps.len(), checkpoint.plan.len()));
+    eprintln!(
+        "  {} {} → {}",
+        colored("session:", 90),
+        checkpoint.session_id,
+        colored(&peer_url, 36)
+    );
+    eprintln!(
+        "  {} {}",
+        colored("goal:", 90),
+        safe_truncate(&checkpoint.goal, 100)
+    );
+    eprintln!(
+        "  {} {}",
+        colored("plan:", 90),
+        format!(
+            "{}/{} steps complete",
+            checkpoint.completed_steps.len(),
+            checkpoint.plan.len()
+        )
+    );
 
     // ── Mark migrated, record hop ─────────────────────────────────────────
     checkpoint.record_node_hop(
@@ -411,11 +1015,19 @@ async fn run_evolve_handoff(args: &[String]) -> Result<()> {
     }
     let cluster = app_state.cluster_manager.clone();
     let body = serde_json::to_string(&checkpoint)?;
-    let auth_token = if cluster.config.cluster_secret.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+    let auth_token = if cluster
+        .config
+        .cluster_secret
+        .as_deref()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+    {
         Some(cluster.make_auth_token(&body))
     } else {
-        eprintln!("  {} cluster_secret not configured — peer may reject the request",
-                  colored("⚠", 33));
+        eprintln!(
+            "  {} cluster_secret not configured — peer may reject the request",
+            colored("⚠", 33)
+        );
         None
     };
 
@@ -438,24 +1050,29 @@ async fn run_evolve_handoff(args: &[String]) -> Result<()> {
     let text = resp.text().await.unwrap_or_default();
 
     if !status.is_success() {
-        eprintln!("  {} peer returned HTTP {}: {}",
-                  colored("✗", 31), status.as_u16(), text);
+        eprintln!(
+            "  {} peer returned HTTP {}: {}",
+            colored("✗", 31),
+            status.as_u16(),
+            text
+        );
         anyhow::bail!("handoff rejected by peer");
     }
 
     eprintln!("  {} accepted by peer", colored("✓", 32));
     if let Ok(j) = serde_json::from_str::<serde_json::Value>(&text) {
         if let Some(hops) = j.get("hops").and_then(|v| v.as_u64()) {
-            eprintln!("    {} {} hops in journey",
-                      colored("·", 90), hops);
+            eprintln!("    {} {} hops in journey", colored("·", 90), hops);
         }
         if let Some(to) = j.get("to_node").and_then(|v| v.as_str()) {
-            eprintln!("    {} now running on '{}'",
-                      colored("·", 90), to);
+            eprintln!("    {} now running on '{}'", colored("·", 90), to);
         }
     }
-    eprintln!("  {} replay locally with: phantom evolve replay {}",
-              colored("›", 90), checkpoint.session_id);
+    eprintln!(
+        "  {} replay locally with: phantom evolve replay {}",
+        colored("›", 90),
+        checkpoint.session_id
+    );
     Ok(())
 }
 
@@ -481,8 +1098,11 @@ async fn run_evolve_replay(args: &[String]) -> Result<()> {
             Ok(())
         }
         None => {
-            eprintln!("  {} session id '{}' not found",
-                      colored("✗", 31), session_id);
+            eprintln!(
+                "  {} session id '{}' not found",
+                colored("✗", 31),
+                session_id
+            );
             anyhow::bail!("checkpoint not found");
         }
     }
@@ -498,7 +1118,9 @@ async fn run_evolve_replay(args: &[String]) -> Result<()> {
 /// Requires `phantom keys init` to have been run first.
 async fn run_evolve_publish(args: &[String]) -> Result<()> {
     let _private = !args.iter().any(|a| a == "--share"); // default = private
-    let session_arg = args.iter().skip(3)
+    let session_arg = args
+        .iter()
+        .skip(3)
         .find(|a| !a.starts_with("--"))
         .map(|s| s.as_str())
         .unwrap_or("latest");
@@ -508,8 +1130,10 @@ async fn run_evolve_publish(args: &[String]) -> Result<()> {
         match all.first() {
             Some(c) => c.session_id.clone(),
             None => {
-                eprintln!("  {} no evolve checkpoints found — run `phantom evolve <goal>` first",
-                    colored("○", 33));
+                eprintln!(
+                    "  {} no evolve checkpoints found — run `phantom evolve <goal>` first",
+                    colored("○", 33)
+                );
                 return Ok(());
             }
         }
@@ -520,15 +1144,21 @@ async fn run_evolve_publish(args: &[String]) -> Result<()> {
     let cp = match phantom_mesh::evolve_checkpoint::EvolveCheckpoint::load(&session_id)? {
         Some(c) => c,
         None => {
-            eprintln!("  {} session id '{}' not found", colored("✗", 31), session_id);
+            eprintln!(
+                "  {} session id '{}' not found",
+                colored("✗", 31),
+                session_id
+            );
             anyhow::bail!("checkpoint not found");
         }
     };
 
     // Confirm the user has an identity. Recipe export REQUIRES signing.
     if phantom_mesh::identity::load_pub_hex().is_err() {
-        eprintln!("  {} no ed25519 keypair found — run `phantom keys init` first",
-            colored("✗", 31));
+        eprintln!(
+            "  {} no ed25519 keypair found — run `phantom keys init` first",
+            colored("✗", 31)
+        );
         anyhow::bail!("identity not initialised");
     }
 
@@ -551,27 +1181,29 @@ async fn run_evolve_publish(args: &[String]) -> Result<()> {
     let plan = cp.plan.clone();
     // DeadEnd has hypothesis + why_failed; flatten to a single
     // descriptive line for the recipe consumer.
-    let dead_ends = cp.dead_ends.iter()
+    let dead_ends = cp
+        .dead_ends
+        .iter()
         .map(|d| format!("{} — {}", d.hypothesis, d.why_failed))
         .collect::<Vec<_>>();
-    let completed_steps = cp.completed_steps.iter()
+    let completed_steps = cp
+        .completed_steps
+        .iter()
         .map(|s| s.description.clone())
         .collect::<Vec<_>>();
     // NodeHop fields differ from JourneyEntry — adapt:
     // NodeHop {at_ms (i64), from, to, reason} -> JourneyEntry {node=to, ts_ms (u64), note=reason}
-    let journey = cp.journey.iter()
+    let journey = cp
+        .journey
+        .iter()
         .map(|h| phantom_mesh::recipe::JourneyEntry {
-            node:  h.to.clone(),
+            node: h.to.clone(),
             ts_ms: h.at_ms.max(0) as u64,
-            note:  h.reason.clone(),
+            note: h.reason.clone(),
         })
         .collect::<Vec<_>>();
 
-    let recipe_sha = phantom_mesh::recipe::compute_sha(
-        &cp.goal,
-        &plan,
-        patch.as_deref(),
-    );
+    let recipe_sha = phantom_mesh::recipe::compute_sha(&cp.goal, &plan, patch.as_deref());
     let classification = phantom_mesh::recipe::classify_patch(patch.as_deref());
 
     let now_ms = std::time::SystemTime::now()
@@ -608,54 +1240,102 @@ async fn run_evolve_publish(args: &[String]) -> Result<()> {
 
     eprintln!();
     eprintln!("  {} recipe published locally", colored("✓", 32));
-    eprintln!("    {}  {}", colored("path:",          90), path.display());
-    eprintln!("    {}  {}", colored("recipe_sha:",    90), recipe.body.recipe_sha);
-    eprintln!("    {}  {}", colored("classification:", 90), recipe.body.descriptor.classification);
-    eprintln!("    {}  {} bytes patch", colored("patch:",  90),
-        recipe.body.patch.as_deref().map(|p| p.len()).unwrap_or(0));
-    eprintln!("    {}  {}", colored("signed by:",     90), &recipe.author_pubkey[..16]);
+    eprintln!("    {}  {}", colored("path:", 90), path.display());
+    eprintln!(
+        "    {}  {}",
+        colored("recipe_sha:", 90),
+        recipe.body.recipe_sha
+    );
+    eprintln!(
+        "    {}  {}",
+        colored("classification:", 90),
+        recipe.body.descriptor.classification
+    );
+    eprintln!(
+        "    {}  {} bytes patch",
+        colored("patch:", 90),
+        recipe.body.patch.as_deref().map(|p| p.len()).unwrap_or(0)
+    );
+    eprintln!(
+        "    {}  {}",
+        colored("signed by:", 90),
+        &recipe.author_pubkey[..16]
+    );
     eprintln!();
-    eprintln!("  {} broker upload + auto-PR pipeline lands in v0.2", colored("›", 90));
-    eprintln!("  {} for now, share manually:  cat {}", colored("›", 90), path.display());
+    eprintln!(
+        "  {} broker upload + auto-PR pipeline lands in v0.2",
+        colored("›", 90)
+    );
+    eprintln!(
+        "  {} for now, share manually:  cat {}",
+        colored("›", 90),
+        path.display()
+    );
     Ok(())
 }
 
 async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize) -> Result<()> {
     eprintln!("{}", colored("◆ phantom evolve --distributed", 35));
-    eprintln!("  {}", colored(&format!("goal: {}", safe_truncate(&task, 120)), 90));
+    eprintln!(
+        "  {}",
+        colored(&format!("goal: {}", safe_truncate(&task, 120)), 90)
+    );
 
     let mut app_state = AppState::new();
-    if let Some(content) = find_config() { app_state.load_config_toml(&content); }
+    if let Some(content) = find_config() {
+        app_state.load_config_toml(&content);
+    }
     let cluster = app_state.cluster_manager.clone();
 
     // ── Discover peers + local ───────────────────────────────────────────────
     eprintln!("\n{}", colored("── Discovering peers ──", 35));
     let statuses = cluster.refresh_all().await;
-    let online: Vec<&phantom_mesh::mesh::PeerStatus> = statuses.iter().filter(|s| s.online).collect();
+    let online: Vec<&phantom_mesh::mesh::PeerStatus> =
+        statuses.iter().filter(|s| s.online).collect();
 
     if online.is_empty() {
-        eprintln!("{}", colored("✗ No online peers. Falling back to local evolve.", 31));
+        eprintln!(
+            "{}",
+            colored("✗ No online peers. Falling back to local evolve.", 31)
+        );
         return run_evolve_local(task, agent_name, max_rounds, false, false).await;
     }
 
     // Build node list: peers first, local last
     let local_caps = cluster.config.capabilities.clone();
-    let local_name = cluster.config.node_name.clone().unwrap_or_else(|| "local".into());
-    let mut nodes: Vec<NodeDesc> = online.iter().map(|s| NodeDesc {
-        url: Some(s.url.clone()),
-        name: s.name.clone(),
-        caps: s.capabilities.clone(),
-    }).collect();
-    nodes.push(NodeDesc { url: None, name: local_name.clone(), caps: local_caps });
+    let local_name = cluster
+        .config
+        .node_name
+        .clone()
+        .unwrap_or_else(|| "local".into());
+    let mut nodes: Vec<NodeDesc> = online
+        .iter()
+        .map(|s| NodeDesc {
+            url: Some(s.url.clone()),
+            name: s.name.clone(),
+            caps: s.capabilities.clone(),
+        })
+        .collect();
+    nodes.push(NodeDesc {
+        url: None,
+        name: local_name.clone(),
+        caps: local_caps,
+    });
 
     eprintln!("  {} peer(s) + local = {} nodes", online.len(), nodes.len());
     for (i, n) in nodes.iter().enumerate() {
-        let label = if n.url.is_none() { "local".into() } else { n.url.as_deref().unwrap_or("").to_string() };
-        eprintln!("    [{}] {} ({})  caps: [{}]",
+        let label = if n.url.is_none() {
+            "local".into()
+        } else {
+            n.url.as_deref().unwrap_or("").to_string()
+        };
+        eprintln!(
+            "    [{}] {} ({})  caps: [{}]",
             i + 1,
             colored(&label, 36),
             colored(&n.name, 90),
-            colored(&caps_label(&n.caps), 33));
+            colored(&caps_label(&n.caps), 33)
+        );
     }
 
     // ── Decompose with capability context ────────────────────────────────────
@@ -664,18 +1344,28 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     let runtime = app_state.agent_runtime.clone();
     phantom_mesh::tools::subagent::init_global(runtime.clone(), CostTracker::new());
 
-
     let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let local_node_name = local_name.clone();
 
-    let node_desc: String = nodes.iter().enumerate().map(|(i, n)| {
-        let access = if n.url.is_none() {
-            format!(" [has local filesystem access at {}]", cwd.display())
-        } else {
-            " [remote node, no access to local filesystem]".into()
-        };
-        format!("  Node {}: {} — capabilities: [{}]{}", i + 1, n.name, caps_label(&n.caps), access)
-    }).collect::<Vec<_>>().join("\n");
+    let node_desc: String = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let access = if n.url.is_none() {
+                format!(" [has local filesystem access at {}]", cwd.display())
+            } else {
+                " [remote node, no access to local filesystem]".into()
+            };
+            format!(
+                "  Node {}: {} — capabilities: [{}]{}",
+                i + 1,
+                n.name,
+                caps_label(&n.caps),
+                access
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let decompose_prompt = format!(
         "You are a task orchestrator. Decompose the goal into exactly {total} plain-text subtask descriptions.\n\
@@ -715,7 +1405,9 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     }
 
     // Pad or truncate to match node count
-    while subtasks.len() < nodes.len() { subtasks.push(task.to_string()); }
+    while subtasks.len() < nodes.len() {
+        subtasks.push(task.to_string());
+    }
     subtasks.truncate(nodes.len());
 
     eprintln!("  {} subtasks (capability-matched):", subtasks.len());
@@ -729,10 +1421,31 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     let local_idx = nodes.len() - 1;
     let cwd_lower = cwd.to_string_lossy().to_lowercase();
     // Keywords that indicate the task requires local filesystem access
-    let filesystem_keywords = ["cargo","clippy","test","compile","build","grep","find","read file",
-                                "read the file","read a file","search.*src","content_search",
-                                "file_read","git log","git diff","git blame","todo","fixme",
-                                "src/","lib.rs","main.rs",".toml",".rs"];
+    let filesystem_keywords = [
+        "cargo",
+        "clippy",
+        "test",
+        "compile",
+        "build",
+        "grep",
+        "find",
+        "read file",
+        "read the file",
+        "read a file",
+        "search.*src",
+        "content_search",
+        "file_read",
+        "git log",
+        "git diff",
+        "git blame",
+        "todo",
+        "fixme",
+        "src/",
+        "lib.rs",
+        "main.rs",
+        ".toml",
+        ".rs",
+    ];
 
     for subtask in &subtasks {
         // Find best matching unused node
@@ -740,42 +1453,72 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
 
         // Tasks that require local filesystem must go to the local node.
         // Also catches any task that literally references the local working path.
-        let needs_local_fs = s.contains(&cwd_lower) || filesystem_keywords.iter().any(|kw| {
-            if kw.contains(".*") {
-                let parts: Vec<&str> = kw.split(".*").collect();
-                parts.iter().all(|p| s.contains(p))
-            } else {
-                s.contains(kw)
-            }
-        });
+        let needs_local_fs = s.contains(&cwd_lower)
+            || filesystem_keywords.iter().any(|kw| {
+                if kw.contains(".*") {
+                    let parts: Vec<&str> = kw.split(".*").collect();
+                    parts.iter().all(|p| s.contains(p))
+                } else {
+                    s.contains(kw)
+                }
+            });
 
         let mut best = nodes.len() - 1; // default: local
         let mut best_score = -1i32;
 
         for i in 0..nodes.len() {
-            if used_nodes.contains(&i) { continue; }
+            if used_nodes.contains(&i) {
+                continue;
+            }
             // Force filesystem-dependent tasks to the local node
-            if needs_local_fs && i != local_idx { continue; }
-            let score: i32 = nodes[i].caps.iter().map(|cap| {
-                let kw = cap.to_lowercase();
-                match kw.as_str() {
-                    "rust" | "build" | "cargo" =>
-                        ["cargo","rust","clippy","test","compile","build","crate"].iter()
-                        .any(|w| s.contains(w)) as i32 * 3,
-                    "python" =>
-                        ["python","pip","torch","numpy"].iter().any(|w| s.contains(w)) as i32 * 3,
-                    "analysis" | "research" =>
-                        ["analyz","review","report","summar","audit","assess","document","comment"].iter()
-                        .any(|w| s.contains(w)) as i32 * 2,
-                    "web" | "fetch" =>
-                        ["http","web","fetch","scrape","download","url"].iter()
-                        .any(|w| s.contains(w)) as i32 * 2,
-                    "docs" | "document" =>
-                        ["doc","readme","comment","explain","write"].iter()
-                        .any(|w| s.contains(w)) as i32 * 2,
-                    other => s.contains(other) as i32,
-                }
-            }).sum::<i32>();
+            if needs_local_fs && i != local_idx {
+                continue;
+            }
+            let score: i32 = nodes[i]
+                .caps
+                .iter()
+                .map(|cap| {
+                    let kw = cap.to_lowercase();
+                    match kw.as_str() {
+                        "rust" | "build" | "cargo" => {
+                            [
+                                "cargo", "rust", "clippy", "test", "compile", "build", "crate",
+                            ]
+                            .iter()
+                            .any(|w| s.contains(w)) as i32
+                                * 3
+                        }
+                        "python" => {
+                            ["python", "pip", "torch", "numpy"]
+                                .iter()
+                                .any(|w| s.contains(w)) as i32
+                                * 3
+                        }
+                        "analysis" | "research" => {
+                            [
+                                "analyz", "review", "report", "summar", "audit", "assess",
+                                "document", "comment",
+                            ]
+                            .iter()
+                            .any(|w| s.contains(w)) as i32
+                                * 2
+                        }
+                        "web" | "fetch" => {
+                            ["http", "web", "fetch", "scrape", "download", "url"]
+                                .iter()
+                                .any(|w| s.contains(w)) as i32
+                                * 2
+                        }
+                        "docs" | "document" => {
+                            ["doc", "readme", "comment", "explain", "write"]
+                                .iter()
+                                .any(|w| s.contains(w)) as i32
+                                * 2
+                        }
+                        other => s.contains(other) as i32,
+                    }
+                })
+                .sum::<i32>();
             if score > best_score {
                 best_score = score;
                 best = i;
@@ -794,16 +1537,21 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     for (node_idx, subtask) in &assignments {
         let n = &nodes[*node_idx];
         let label = n.url.as_deref().unwrap_or("local");
-        eprintln!("    {} → [{}] {}: {}",
-            colored("→", 33), colored(&n.name, 36),
+        eprintln!(
+            "    {} → [{}] {}: {}",
+            colored("→", 33),
+            colored(&n.name, 36),
             colored(&format!("caps: [{}]", caps_label(&n.caps)), 33),
-            colored(safe_truncate(subtask, 70), 90));
+            colored(safe_truncate(subtask, 70), 90)
+        );
         let _ = label;
     }
 
     // ── Dispatch ─────────────────────────────────────────────────────────────
     eprintln!("\n{}", colored("── Dispatching ──", 35));
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(300)).build()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .build()?;
     let mut jobs: Vec<(String, String)> = vec![];
     let mut local_subtasks: Vec<String> = vec![];
 
@@ -813,9 +1561,17 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
             // Strip any local filesystem paths from remote node subtasks —
             // remote nodes have no access to this machine's filesystem.
             let remote_task = strip_local_paths(subtask, &cwd.to_string_lossy());
-            match cluster.assign_task_to_peer(url, agent_name, &remote_task).await {
+            match cluster
+                .assign_task_to_peer(url, agent_name, &remote_task)
+                .await
+            {
                 Ok(job_id) => {
-                    eprintln!("  {} {} ({})", colored("→", 33), colored(url, 36), colored(&job_id, 90));
+                    eprintln!(
+                        "  {} {} ({})",
+                        colored("→", 33),
+                        colored(url, 36),
+                        colored(&job_id, 90)
+                    );
                     jobs.push((url.clone(), job_id));
                 }
                 Err(e) => eprintln!("  {} {} ({})", colored("✗", 31), url, e),
@@ -827,7 +1583,11 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
             } else {
                 format!("{} (working directory: {})", subtask, cwd.display())
             };
-            eprintln!("  {} local: {}", colored("→", 33), colored(safe_truncate(&with_cwd, 60), 90));
+            eprintln!(
+                "  {} local: {}",
+                colored("→", 33),
+                colored(safe_truncate(&with_cwd, 60), 90)
+            );
             local_subtasks.push(with_cwd);
         }
     }
@@ -838,21 +1598,21 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     } else if local_subtasks.len() == 1 {
         local_subtasks.remove(0)
     } else {
-        let combined = local_subtasks.iter().enumerate()
+        let combined = local_subtasks
+            .iter()
+            .enumerate()
             .map(|(i, t)| format!("{}. {}", i + 1, t))
             .collect::<Vec<_>>()
             .join("\n");
         format!("Complete ALL of the following tasks:\n{}", combined)
     };
 
-    let local_future = run_evolve_local(&local_subtask, agent_name, max_rounds.min(5), false, false);
+    let local_future =
+        run_evolve_local(&local_subtask, agent_name, max_rounds.min(5), false, false);
 
     // Poll remote jobs while local runs
     eprintln!("\n{}", colored("── Running in parallel ──", 35));
-    let (local_result, remote_outputs) = tokio::join!(
-        local_future,
-        poll_all_jobs(&client, &jobs)
-    );
+    let (local_result, remote_outputs) = tokio::join!(local_future, poll_all_jobs(&client, &jobs));
 
     if let Err(e) = local_result {
         eprintln!("{} local task error: {}", colored("✗", 31), e);
@@ -861,20 +1621,43 @@ async fn run_evolve_distributed(task: &str, agent_name: &str, max_rounds: usize)
     // Synthesize results
     if !remote_outputs.is_empty() {
         eprintln!("\n{}", colored("── Synthesizing results ──", 35));
-        let mut synthesis_prompt = format!("Synthesize these parallel results for the goal: {}\n\n", task);
+        let mut synthesis_prompt = format!(
+            "Synthesize these parallel results for the goal: {}\n\n",
+            task
+        );
         for (i, (url, output)) in remote_outputs.iter().enumerate() {
-            synthesis_prompt.push_str(&format!("=== Node {} ({}) ===\n{}\n\n", i + 1, url, safe_truncate(output, 2000)));
+            synthesis_prompt.push_str(&format!(
+                "=== Node {} ({}) ===\n{}\n\n",
+                i + 1,
+                url,
+                safe_truncate(output, 2000)
+            ));
         }
         synthesis_prompt.push_str("Provide a unified summary in Traditional Chinese.");
 
-        let synthesis = runtime.run_with_callbacks(
-            agent_name, &synthesis_prompt, &[], None, &cost_tracker, |_| {},
-        ).await?;
+        let synthesis = runtime
+            .run_with_callbacks(
+                agent_name,
+                &synthesis_prompt,
+                &[],
+                None,
+                &cost_tracker,
+                |_| {},
+            )
+            .await?;
         println!("\n{}", synthesis.output.trim());
     }
 
-    let total = cost_tracker.summary().await["total_usd"].as_f64().unwrap_or(0.0);
-    eprintln!("\n{}", colored(&format!("✓ distributed evolve complete  total cost: ${:.4}", total), 32));
+    let total = cost_tracker.summary().await["total_usd"]
+        .as_f64()
+        .unwrap_or(0.0);
+    eprintln!(
+        "\n{}",
+        colored(
+            &format!("✓ distributed evolve complete  total cost: ${:.4}", total),
+            32
+        )
+    );
     Ok(())
 }
 
@@ -892,7 +1675,11 @@ async fn poll_all_jobs(
         let mut still_pending = vec![];
 
         for (peer_url, job_id) in &pending {
-            let url = format!("{}/rpc/task/status/{}", peer_url.trim_end_matches('/'), job_id);
+            let url = format!(
+                "{}/rpc/task/status/{}",
+                peer_url.trim_end_matches('/'),
+                job_id
+            );
             if let Ok(resp) = client.get(&url).send().await {
                 if let Ok(data) = resp.json::<serde_json::Value>().await {
                     let status = data["status"].as_str().unwrap_or("unknown");
@@ -904,7 +1691,11 @@ async fn poll_all_jobs(
                             Some(s) if !s.is_empty() => s.to_string(),
                             _ => format!("(peer {peer_url} reported done with empty output)"),
                         };
-                        eprintln!("  {} peer {} job done", colored("✓", 32), colored(peer_url, 36));
+                        eprintln!(
+                            "  {} peer {} job done",
+                            colored("✓", 32),
+                            colored(peer_url, 36)
+                        );
                         results.push((peer_url.clone(), output));
                     } else if status == "error" {
                         // Surface the peer's error message instead of swallowing
@@ -918,8 +1709,13 @@ async fn poll_all_jobs(
                         } else {
                             ""
                         };
-                        eprintln!("  {} peer {} job errored: {}{}",
-                            colored("✗", 31), colored(peer_url, 36), err_text, hint);
+                        eprintln!(
+                            "  {} peer {} job errored: {}{}",
+                            colored("✗", 31),
+                            colored(peer_url, 36),
+                            err_text,
+                            hint
+                        );
                         // Propagate so the synthesis stage sees the error too.
                         results.push((peer_url.clone(), format!("[peer error] {err_text}")));
                     } else {
@@ -937,7 +1733,13 @@ async fn poll_all_jobs(
 }
 
 // Single-node evolve extracted so distributed can reuse it
-async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_rebuild: bool, do_deploy: bool) -> Result<()> {
+async fn run_evolve_local(
+    task: &str,
+    agent_name: &str,
+    max_rounds: usize,
+    do_rebuild: bool,
+    do_deploy: bool,
+) -> Result<()> {
     if std::env::var("PHANTOM_MAX_ROUNDS").is_err() {
         std::env::set_var("PHANTOM_MAX_ROUNDS", "60");
     }
@@ -951,12 +1753,13 @@ async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_re
     let runtime = app_state.agent_runtime.clone();
     phantom_mesh::tools::subagent::init_global(runtime.clone(), CostTracker::new());
 
-
     let interrupted = Arc::new(AtomicBool::new(false));
     {
         let flag = interrupted.clone();
         tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() { flag.store(true, Ordering::Relaxed); }
+            if tokio::signal::ctrl_c().await.is_ok() {
+                flag.store(true, Ordering::Relaxed);
+            }
         });
     }
 
@@ -967,25 +1770,49 @@ async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_re
     while round < max_rounds && !all_done && !interrupted.load(Ordering::Relaxed) {
         round += 1;
         let bar = "─".repeat(50 - format!(" Round {}/{} ", round, max_rounds).len().min(48));
-        eprintln!("\n{}", colored(&format!("── Round {}/{} {}", round, max_rounds, bar), 35));
+        eprintln!(
+            "\n{}",
+            colored(&format!("── Round {}/{} {}", round, max_rounds, bar), 35)
+        );
 
-        let prompt = if round == 1 { task.to_string() } else {
+        let prompt = if round == 1 {
+            task.to_string()
+        } else {
             "Continue. Run cargo_test to see the current state, then fix remaining failures. \
-             Commit each fix. End your response with EVOLVE_DONE or EVOLVE_CONTINUE.".to_string()
+             Commit each fix. End your response with EVOLVE_DONE or EVOLVE_CONTINUE."
+                .to_string()
         };
 
-        let tool_outputs: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let tool_outputs: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let tool_outputs_cb = tool_outputs.clone();
         let interrupted_cb = interrupted.clone();
         let on_event = move |ev: AgentEvent| {
-            if interrupted_cb.load(Ordering::Relaxed) { return; }
+            if interrupted_cb.load(Ordering::Relaxed) {
+                return;
+            }
             match ev {
                 AgentEvent::ToolStart { name, args_preview } => {
-                    eprintln!("  {} {} {}", colored("⟳", 33), colored(&name, 36), colored(safe_truncate(&args_preview, 72), 90));
+                    eprintln!(
+                        "  {} {} {}",
+                        colored("⟳", 33),
+                        colored(&name, 36),
+                        colored(safe_truncate(&args_preview, 72), 90)
+                    );
                 }
-                AgentEvent::ToolDone { name, output_preview } => {
-                    eprintln!("  {} {} {}", colored("✓", 32), colored(&name, 36), colored(safe_truncate(&output_preview, 90), 90));
-                    if let Ok(mut v) = tool_outputs_cb.lock() { v.push(output_preview); }
+                AgentEvent::ToolDone {
+                    name,
+                    output_preview,
+                } => {
+                    eprintln!(
+                        "  {} {} {}",
+                        colored("✓", 32),
+                        colored(&name, 36),
+                        colored(safe_truncate(&output_preview, 90), 90)
+                    );
+                    if let Ok(mut v) = tool_outputs_cb.lock() {
+                        v.push(output_preview);
+                    }
                 }
                 _ => {}
             }
@@ -993,18 +1820,42 @@ async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_re
 
         let t0 = std::time::Instant::now();
         let evolve_system = build_evolve_system_prompt();
-        let result = runtime.run_with_callbacks(agent_name, &prompt, &history, Some(&evolve_system), &cost_tracker, on_event).await?;
+        let result = runtime
+            .run_with_callbacks(
+                agent_name,
+                &prompt,
+                &history,
+                Some(&evolve_system),
+                &cost_tracker,
+                on_event,
+            )
+            .await?;
         let elapsed = t0.elapsed().as_secs_f64();
 
         let output_trimmed = result.output.trim();
-        if !output_trimmed.is_empty() { println!("\n{}", output_trimmed); }
+        if !output_trimmed.is_empty() {
+            println!("\n{}", output_trimmed);
+        }
 
-        history.push(ChatMessage { role: "user".into(), content: prompt, tool_calls: None });
-        history.push(ChatMessage { role: "assistant".into(), content: result.output.clone(), tool_calls: None });
-        if history.len() > 6 { history = history.split_off(history.len() - 6); }
+        history.push(ChatMessage {
+            role: "user".into(),
+            content: prompt,
+            tool_calls: None,
+        });
+        history.push(ChatMessage {
+            role: "assistant".into(),
+            content: result.output.clone(),
+            tool_calls: None,
+        });
+        if history.len() > 6 {
+            history = history.split_off(history.len() - 6);
+        }
 
         let output_lower = result.output.to_lowercase();
-        let collected = tool_outputs.lock().map(|v| v.join("\n")).unwrap_or_default();
+        let collected = tool_outputs
+            .lock()
+            .map(|v| v.join("\n"))
+            .unwrap_or_default();
         let all_signals = format!("{}\n{}", output_lower, collected).to_lowercase();
         // Tightened detection — see B1+B2 fixes commit:
         //   - "all tests pass" alone is too permissive; the system prompt
@@ -1019,18 +1870,32 @@ async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_re
         let cargo_ran = all_signals.contains("test result: ok.")
             && (all_signals.contains("running ") && all_signals.contains(" tests"));
         let agent_responded = !output_lower.trim().is_empty();
-        if all_signals.contains("evolve_done")
-            || (cargo_ran && agent_responded) {
+        if all_signals.contains("evolve_done") || (cargo_ran && agent_responded) {
             all_done = true;
         }
 
         let last = cost_tracker.last_request_cost().await;
         let session = cost_tracker.session_cost().await;
-        eprintln!("\n{}", colored(&format!("[round {} ✓  ↑ ${:.4}  ∑ ${:.4}  {:.1}s]", round, last, session, elapsed), 90));
+        eprintln!(
+            "\n{}",
+            colored(
+                &format!(
+                    "[round {} ✓  ↑ ${:.4}  ∑ ${:.4}  {:.1}s]",
+                    round, last, session, elapsed
+                ),
+                90
+            )
+        );
     }
 
-    if all_done { eprintln!("{}", colored("✓ evolve complete — all tests pass", 32)); }
-    else { eprintln!("{}", colored(&format!("◆ evolve stopped after {} rounds", round), 33)); }
+    if all_done {
+        eprintln!("{}", colored("✓ evolve complete — all tests pass", 32));
+    } else {
+        eprintln!(
+            "{}",
+            colored(&format!("◆ evolve stopped after {} rounds", round), 33)
+        );
+    }
 
     if do_rebuild && (all_done || !interrupted.load(Ordering::Relaxed)) {
         rebuild_and_deploy(do_deploy).await?;
@@ -1041,7 +1906,10 @@ async fn run_evolve_local(task: &str, agent_name: &str, max_rounds: usize, do_re
 /// Rebuild the phantom binary and optionally redeploy to the cluster.
 async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
     eprintln!();
-    eprintln!("{}", colored("── Rebuilding binary ──────────────────────────────", 35));
+    eprintln!(
+        "{}",
+        colored("── Rebuilding binary ──────────────────────────────", 35)
+    );
 
     // Detect repo root (walk up until Cargo.toml or cross-compile target marker).
     let cwd = std::env::current_dir()?;
@@ -1062,7 +1930,13 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
         .status()?;
 
     if !status.success() {
-        eprintln!("{}", colored("  ✗ build failed — changes saved but binary not updated", 31));
+        eprintln!(
+            "{}",
+            colored(
+                "  ✗ build failed — changes saved but binary not updated",
+                31
+            )
+        );
         return Ok(());
     }
     let elapsed = t0.elapsed().as_secs_f64();
@@ -1070,8 +1944,8 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
 
     // Copy fresh binary to dist/ (best-effort — dist/ may not exist in all setups)
     let repo_root = cargo_dir.parent().unwrap_or(&cargo_dir).to_path_buf();
-    let src_bin   = cargo_dir.join("target/release/phantom");
-    let dist_dir  = repo_root.join("dist");
+    let src_bin = cargo_dir.join("target/release/phantom");
+    let dist_dir = repo_root.join("dist");
 
     let dist_name = phantom_mesh::platform::dist_binary_name();
 
@@ -1089,11 +1963,7 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
             if current_exe != src_bin {
                 // Best-effort: only replace if we own the file.
                 let _ = std::fs::copy(&src_bin, &current_exe);
-                eprintln!(
-                    "  {} updated {}",
-                    colored("✓", 32),
-                    current_exe.display()
-                );
+                eprintln!("  {} updated {}", colored("✓", 32), current_exe.display());
             }
         }
     }
@@ -1101,7 +1971,10 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
     // ── --deploy: push new binary to all cluster nodes ────────────────────────
     if deploy {
         eprintln!();
-        eprintln!("{}", colored("── Deploying to cluster ───────────────────────────", 35));
+        eprintln!(
+            "{}",
+            colored("── Deploying to cluster ───────────────────────────", 35)
+        );
         let install_sh = repo_root.join("scripts/cluster-install.sh");
         if install_sh.exists() {
             eprintln!("  {} scripts/cluster-install.sh", colored("⟳", 33));
@@ -1112,7 +1985,10 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
             if status.success() {
                 eprintln!("  {} cluster deploy complete", colored("✓", 32));
             } else {
-                eprintln!("  {} cluster deploy failed (check agents.toml + SSH keys)", colored("⚠", 33));
+                eprintln!(
+                    "  {} cluster deploy failed (check agents.toml + SSH keys)",
+                    colored("⚠", 33)
+                );
             }
         } else {
             eprintln!(
@@ -1123,7 +1999,13 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
     }
 
     eprintln!();
-    eprintln!("{}", colored("✓ Done. Restart phantom serve on each node to pick up the new binary.", 32));
+    eprintln!(
+        "{}",
+        colored(
+            "✓ Done. Restart phantom serve on each node to pick up the new binary.",
+            32
+        )
+    );
     Ok(())
 }
 
@@ -1132,10 +2014,28 @@ async fn rebuild_and_deploy(deploy: bool) -> Result<()> {
 // ── `phantom coordinator` ─────────────────────────────────────────────────
 
 async fn run_coordinator(args: Vec<String>) -> Result<()> {
-    use axum::{Router, extract::{Query, State}, routing::{get, post}, Json};
+    // `--help`/`-h` must short-circuit BEFORE we bind the HTTP server, or the
+    // command appears to hang (it silently starts the long-running daemon).
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("phantom coordinator - cluster coordinator hub (HTTP peer registry)");
+        println!();
+        println!("Long-running daemon: peers POST their registration so the mesh can");
+        println!("discover online nodes. Ctrl-C to stop.");
+        println!();
+        println!("Usage: phantom coordinator [--host H] [--port N] [--ttl SECS]");
+        println!("  --host H     bind address (default from config)");
+        println!("  --port N     listen port (default from config)");
+        println!("  --ttl SECS   peer registration time-to-live");
+        return Ok(());
+    }
+    use axum::{
+        extract::{Query, State},
+        routing::{get, post},
+        Json, Router,
+    };
+    use phantom_mesh::mesh::CoordinatorRegistration;
     use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
-    use phantom_mesh::mesh::CoordinatorRegistration;
 
     #[derive(Clone)]
     struct CoordState {
@@ -1160,7 +2060,9 @@ async fn run_coordinator(args: Vec<String>) -> Result<()> {
     }
 
     #[derive(serde::Deserialize)]
-    struct PeersQuery { secret_hash: Option<String> }
+    struct PeersQuery {
+        secret_hash: Option<String>,
+    }
 
     async fn handle_peers(
         State(s): State<CoordState>,
@@ -1168,26 +2070,35 @@ async fn run_coordinator(args: Vec<String>) -> Result<()> {
     ) -> Json<Vec<CoordinatorRegistration>> {
         let entries = s.entries.read().unwrap();
         let cutoff = now_secs().saturating_sub(s.ttl_secs);
-        let list: Vec<CoordinatorRegistration> = entries.values()
+        let list: Vec<CoordinatorRegistration> = entries
+            .values()
             .filter(|(reg, ts)| {
-                *ts >= cutoff && q.secret_hash.as_deref()
-                    .map(|sh| sh == reg.secret_hash)
-                    .unwrap_or(true)
+                *ts >= cutoff
+                    && q.secret_hash
+                        .as_deref()
+                        .map(|sh| sh == reg.secret_hash)
+                        .unwrap_or(true)
             })
             .map(|(reg, _)| reg.clone())
             .collect();
         Json(list)
     }
 
-    let host = args.iter().position(|a| a == "--host")
+    let host = args
+        .iter()
+        .position(|a| a == "--host")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.as_str())
         .unwrap_or("0.0.0.0");
-    let port: u16 = args.iter().position(|a| a == "--port")
+    let port: u16 = args
+        .iter()
+        .position(|a| a == "--port")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(7900);
-    let ttl_secs: u64 = args.iter().position(|a| a == "--ttl")
+    let ttl_secs: u64 = args
+        .iter()
+        .position(|a| a == "--ttl")
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse().ok())
         .unwrap_or(90);
@@ -1199,12 +2110,15 @@ async fn run_coordinator(args: Vec<String>) -> Result<()> {
 
     let router = Router::new()
         .route("/register", post(handle_register))
-        .route("/peers",    get(handle_peers))
+        .route("/peers", get(handle_peers))
         .with_state(state);
 
     eprintln!("{}", colored("◆ phantom coordinator", 35));
     eprintln!("  listen : http://{}:{}", host, port);
-    eprintln!("  TTL    : {}s (nodes must re-register within this window)", ttl_secs);
+    eprintln!(
+        "  TTL    : {}s (nodes must re-register within this window)",
+        ttl_secs
+    );
     eprintln!("  Routes : POST /register  |  GET /peers?secret_hash=<hash>");
     eprintln!("  Press Ctrl-C to stop.");
     eprintln!();
@@ -1217,21 +2131,143 @@ async fn run_coordinator(args: Vec<String>) -> Result<()> {
 async fn advertise_mdns(node_name: &str, host: &str, port: u16) {
     let ip = if host == "0.0.0.0" || host == "127.0.0.1" {
         std::net::UdpSocket::bind("0.0.0.0:0")
-            .and_then(|s| { s.connect("8.8.8.8:80")?; s.local_addr() })
+            .and_then(|s| {
+                s.connect("8.8.8.8:80")?;
+                s.local_addr()
+            })
             .map(|a| a.ip().to_string())
             .unwrap_or_else(|_| "127.0.0.1".to_string())
     } else {
         host.to_string()
     };
-    let url          = format!("http://{}:{}", ip, port);
+    let url = format!("http://{}:{}", ip, port);
     let service_name = format!("phantom-{}", node_name);
-    let url_txt      = format!("url={}", url);
+    let url_txt = format!("url={}", url);
 
     tracing::info!("mDNS: advertising {} at {}", service_name, url);
     phantom_mesh::platform::mdns_advertise(&service_name, port, &url_txt).await;
 }
 
 // ── phantom peer subcommand ───────────────────────────────────────────────────
+
+/// C2 helper: structured parse of `phantom peer {assign,send-async}` flags.
+/// Recognised flags:
+///   --agent / -a NAME         (default "master")
+///   --required-caps CSV       (default empty — no restriction)
+///   --target / -t URL         (default None — use best-peer pick)
+///   --idempotency-key KEY     (default None — receiver always spawns)
+/// Everything else accumulates into the prompt.
+struct ParsedPeerArgs {
+    agent: String,
+    required_caps: Vec<String>,
+    target_url: Option<String>,
+    idempotency_key: Option<String>,
+    prompt: String,
+}
+
+fn parse_peer_args(args: &[String]) -> ParsedPeerArgs {
+    let mut agent = "master".to_string();
+    let mut required_caps: Vec<String> = Vec::new();
+    let mut target_url: Option<String> = None;
+    let mut idempotency_key: Option<String> = None;
+    let mut parts: Vec<String> = Vec::new();
+    let mut i = 0usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--agent" | "-a" => {
+                i += 1;
+                if let Some(a) = args.get(i) {
+                    agent = a.clone();
+                }
+            }
+            "--required-caps" | "--caps" => {
+                i += 1;
+                if let Some(csv) = args.get(i) {
+                    required_caps = csv
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                }
+            }
+            "--target" | "-t" => {
+                i += 1;
+                if let Some(u) = args.get(i) {
+                    target_url = Some(u.clone());
+                }
+            }
+            "--idempotency-key" => {
+                i += 1;
+                if let Some(k) = args.get(i) {
+                    idempotency_key = Some(k.clone());
+                }
+            }
+            _ => parts.push(args[i].clone()),
+        }
+        i += 1;
+    }
+    ParsedPeerArgs {
+        agent,
+        required_caps,
+        target_url,
+        idempotency_key,
+        prompt: parts.join(" "),
+    }
+}
+
+/// Render a `DispatchError` to a human string. Used by both `peer assign`
+/// and `peer send-async` so the error taxonomy stays consistent and the
+/// new C1 variants (`NoPeerSatisfiesCaps`, `ForwardRejected`,
+/// `ForwardChainExhausted`) get actionable remediation hints per spec §9.
+fn format_dispatch_error(e: &phantom_mesh::mesh::DispatchError) -> String {
+    use phantom_mesh::mesh::DispatchError;
+    match e {
+        DispatchError::NoPeersAvailable => {
+            "No online peers available to take the task. Check `phantom peer ls`.".to_string()
+        }
+        DispatchError::PeerUnreachable { url, source } => {
+            format!("Peer {url} unreachable: {source}")
+        }
+        DispatchError::HMACMismatch { url } => {
+            format!("HMAC auth rejected by {url} — check cluster_secret matches on both nodes.")
+        }
+        DispatchError::AgentMissing { url, agent } => {
+            format!("Peer {url} has no agent '{agent}' configured in its agents.toml.")
+        }
+        DispatchError::PeerRejected { url, code, message } => {
+            let code_part = code
+                .as_deref()
+                .map(|c| format!(" [{c}]"))
+                .unwrap_or_default();
+            format!("Peer {url} rejected the task{code_part}: {message}")
+        }
+        DispatchError::Timeout { url, elapsed } => {
+            format!("Peer {url} timed out after {elapsed:?}.")
+        }
+        DispatchError::NoPeerSatisfiesCaps {
+            required,
+            available_peers,
+        } => {
+            let mut s = format!(
+                "No online peer satisfies required_caps {required:?}.\n  Online peers and their capabilities:\n"
+            );
+            for (url, caps) in available_peers {
+                s.push_str(&format!("    • {url} → {caps:?}\n"));
+            }
+            s.push_str("  Fix: bring up a peer whose agents.toml lists those caps in [cluster].worker_caps, \
+                        or drop --required-caps from this command.");
+            s
+        }
+        DispatchError::ForwardRejected { peer, status, body } => {
+            format!("Forward to {peer} rejected with HTTP {status}: {body}")
+        }
+        DispatchError::ForwardChainExhausted { chain, reason } => format!(
+            "Forward chain exhausted ({reason}). Chain so far: {chain:?}. \
+                     This usually means two nodes have each other as fallback for the same caps."
+        ),
+        DispatchError::Other(m) => format!("Dispatch error: {m}"),
+    }
+}
 
 async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
     let sub = args.get(2).map(|s| s.as_str());
@@ -1246,12 +2282,21 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
         // ── phantom peer list ────────────────────────────────────────────
         Some("list") | None => {
             if manager.config.peers.is_empty() {
-                eprintln!("{}", colored("No peers configured.", 33));
-                eprintln!("Add to agents.toml:");
+                eprintln!(
+                    "{}",
+                    colored(phantom_mesh::i18n::tr("No peers configured.", "尚未設定任何節點。"), 33)
+                );
+                eprintln!("{}", phantom_mesh::i18n::tr("Add to agents.toml:", "在 agents.toml 中新增："));
                 eprintln!("  [cluster]");
                 eprintln!("  peers = [\"http://192.168.1.X:7878\"]");
                 eprintln!();
-                eprintln!("Scanning for peers (mDNS + Tailscale)...");
+                eprintln!(
+                    "{}",
+                    phantom_mesh::i18n::tr(
+                        "Scanning for peers (mDNS + Tailscale)...",
+                        "正在掃描節點（mDNS + Tailscale）…",
+                    )
+                );
                 let (mdns, tailscale) = tokio::join!(
                     phantom_mesh::mesh::discover_local_peers(),
                     phantom_mesh::mesh::discover_tailscale_peers(),
@@ -1262,7 +2307,7 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
                 let mut discovered: Vec<(&str, String)> = Vec::new();
                 for url in &mdns {
                     if seen.insert(url.clone()) {
-                        discovered.push(("mDNS",     url.clone()));
+                        discovered.push(("mDNS", url.clone()));
                     }
                 }
                 for url in &tailscale {
@@ -1272,28 +2317,62 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
                 }
 
                 if discovered.is_empty() {
-                    eprintln!("{}", colored("No peers discovered via mDNS or Tailscale.", 90));
-                    eprintln!("  {}", colored("Tip: ensure phantom serve is running on a peer and you're on the same LAN or tailnet.", 90));
+                    eprintln!(
+                        "{}",
+                        colored(
+                            phantom_mesh::i18n::tr(
+                                "No peers discovered via mDNS or Tailscale.",
+                                "透過 mDNS 或 Tailscale 都沒有發現節點。",
+                            ),
+                            90
+                        )
+                    );
+                    eprintln!("  {}", colored(phantom_mesh::i18n::tr("Tip: ensure phantom serve is running on a peer and you're on the same LAN or tailnet.", "提示：確認某個節點上有執行 phantom serve，且你和它在同一個區域網路或 tailnet。"), 90));
                 } else {
-                    eprintln!("{}", colored(&format!("Found {} peer(s):", discovered.len()), 32));
+                    eprintln!(
+                        "{}",
+                        colored(
+                            &phantom_mesh::i18n::tr_owned(
+                                format!("Found {} peer(s):", discovered.len()),
+                                format!("發現 {} 個節點：", discovered.len()),
+                            ),
+                            32
+                        )
+                    );
                     for (source, url) in &discovered {
-                        eprintln!("  {} {} {}",
+                        eprintln!(
+                            "  {} {} {}",
                             colored(url, 36),
                             colored("via", 90),
                             colored(source, 90),
                         );
                     }
                     eprintln!();
-                    eprintln!("  {} add to agents.toml [cluster] peers = [...] to start using them.",
-                        colored("›", 90));
+                    eprintln!(
+                        "  {} {}",
+                        colored("›", 90),
+                        phantom_mesh::i18n::tr(
+                            "add to agents.toml [cluster] peers = [...] to start using them.",
+                            "把它們加進 agents.toml 的 [cluster] peers = [...] 即可開始使用。",
+                        )
+                    );
                 }
                 return Ok(());
             }
 
-            eprintln!("Pinging {} peer(s)...", manager.config.peers.len());
+            eprintln!(
+                "{}",
+                phantom_mesh::i18n::tr_owned(
+                    format!("Pinging {} peer(s)...", manager.config.peers.len()),
+                    format!("正在 ping {} 個節點…", manager.config.peers.len()),
+                )
+            );
             let peers = manager.refresh_all().await;
             eprintln!();
-            println!("{:<42} {:<20} {:<8} {:>6}", "URL", "NAME", "STATUS", "TASKS");
+            println!(
+                "{:<42} {:<20} {:<8} {:>6}",
+                "URL", "NAME", "STATUS", "TASKS"
+            );
             println!("{}", "─".repeat(80));
             for p in &peers {
                 let status_colored = if p.online {
@@ -1301,14 +2380,17 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
                 } else {
                     colored("offline", 31)
                 };
-                println!("{:<42} {:<20} {:<8} {:>6}",
-                    p.url, p.name, status_colored, p.active_tasks);
+                println!(
+                    "{:<42} {:<20} {:<8} {:>6}",
+                    p.url, p.name, status_colored, p.active_tasks
+                );
             }
         }
 
         // ── phantom peer ping <url> ──────────────────────────────────────
         Some("ping") => {
-            let url = args.get(3)
+            let url = args
+                .get(3)
                 .ok_or_else(|| anyhow::anyhow!("Usage: phantom peer ping <url>"))?;
             eprintln!("Pinging {}...", colored(url, 36));
             match manager.ping_peer(url).await {
@@ -1326,107 +2408,155 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
             }
         }
 
-        // ── phantom peer assign [--agent NAME] <prompt> ──────────────────
+        // ── phantom peer assign [--agent NAME] [--required-caps CSV] [--target URL] [--idempotency-key KEY] <prompt>
+        // C2 (track C1+C2+C3): adds --required-caps to declare which
+        // worker capabilities the prompt needs. When PHANTOM_FORWARD_ON_CAPS_MISMATCH=1
+        // is also set on the receiving peer, the peer will forward the task
+        // to whichever cluster member advertises those caps.
         Some("assign") => {
-            let mut agent  = "master".to_string();
-            let mut parts: Vec<String> = vec![];
-            let mut i = 3usize;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--agent" | "-a" => {
-                        i += 1;
-                        if let Some(a) = args.get(i) { agent = a.clone(); }
+            let parsed = parse_peer_args(&args[3..]);
+            if parsed.prompt.is_empty() {
+                anyhow::bail!(
+                    "Usage: phantom peer assign [--agent NAME] [--required-caps cap1,cap2] \
+                     [--target URL] [--idempotency-key KEY] <prompt>"
+                );
+            }
+            eprintln!(
+                "Forwarding to {} (agent={}, required_caps={:?})...",
+                if parsed.target_url.is_some() {
+                    "target URL"
+                } else {
+                    "best peer"
+                },
+                colored(&parsed.agent, 36),
+                parsed.required_caps,
+            );
+            // Build the structured request once — used by both the target
+            // path and the best-peer path so required_caps is wired through
+            // whichever branch the operator chose.
+            let req = phantom_mesh::mesh::TaskAssignRequest {
+                agent: parsed.agent.clone(),
+                prompt: parsed.prompt.clone(),
+                required_caps: parsed.required_caps.clone(),
+                forward_chain: Vec::new(),
+                idempotency_key: parsed.idempotency_key.clone(),
+            };
+
+            if let Some(target_url) = parsed.target_url.as_deref() {
+                // C2: --target URL bypasses the best-peer pick (useful for
+                // the spec §11.3 same-host two-port smoke test).
+                match manager.assign_task_to_peer_full(target_url, &req).await {
+                    Ok(job_id) => {
+                        eprintln!("{}", colored("Task accepted.", 32));
+                        println!("{}", job_id);
+                        eprintln!("Poll: phantom peer poll {target_url} {job_id}");
                     }
-                    _ => parts.push(args[i].clone()),
+                    Err(e) => {
+                        eprintln!("{}", colored(&format_dispatch_error(&e), 31));
+                        std::process::exit(1);
+                    }
                 }
-                i += 1;
+                return Ok(());
             }
-            let prompt = parts.join(" ");
-            if prompt.is_empty() {
-                anyhow::bail!("Usage: phantom peer assign [--agent NAME] <prompt>");
-            }
-            eprintln!("Forwarding to best peer (agent={})...", colored(&agent, 36));
+
             // Refresh peer health before picking. Each `phantom peer assign`
             // is a fresh CLI process so the cached state starts at offline.
             let refreshed = manager.refresh_all().await;
             let online: Vec<&phantom_mesh::mesh::PeerStatus> =
                 refreshed.iter().filter(|p| p.online).collect();
             if online.is_empty() {
-                eprintln!("{} {} peer(s) configured, none online.",
+                eprintln!(
+                    "{} {} peer(s) configured, none online.",
                     colored("✗", 31),
-                    refreshed.len());
+                    refreshed.len()
+                );
                 for p in &refreshed {
                     eprintln!("    {} {} (offline)", colored("·", 90), p.url);
                 }
                 std::process::exit(1);
             }
-            eprintln!("  {} {} peer(s) online — picking least-loaded:",
-                colored("◆", 36), online.len());
+            eprintln!(
+                "  {} {} peer(s) online — picking least-loaded:",
+                colored("◆", 36),
+                online.len()
+            );
             for p in &online {
-                eprintln!("    {} {} ({} active task{})",
-                    colored("•", 36), p.url, p.active_tasks,
-                    if p.active_tasks == 1 { "" } else { "s" });
+                eprintln!(
+                    "    {} {} ({} active task{})",
+                    colored("•", 36),
+                    p.url,
+                    p.active_tasks,
+                    if p.active_tasks == 1 { "" } else { "s" }
+                );
             }
-            match manager.assign_task_to_best_peer(&agent, &prompt).await {
+            match manager
+                .assign_task_to_best_peer(&parsed.agent, &parsed.prompt)
+                .await
+            {
                 Ok(output) => println!("{}", output),
                 Err(e) => {
-                    use phantom_mesh::mesh::DispatchError;
-                    // Print structured diagnostics so the user knows which
-                    // remediation to take (rotate secret vs fix agents.toml
-                    // vs retry vs investigate upstream LLM).
-                    let msg = match &e {
-                        DispatchError::NoPeersAvailable =>
-                            "No online peers available to take the task.".to_string(),
-                        DispatchError::PeerUnreachable { url, source } =>
-                            format!("Peer {url} unreachable: {source}"),
-                        DispatchError::HMACMismatch { url } =>
-                            format!("HMAC auth rejected by {url} — check cluster_secret matches on both nodes."),
-                        DispatchError::AgentMissing { url, agent } =>
-                            format!("Peer {url} has no agent '{agent}' configured in its agents.toml."),
-                        DispatchError::PeerRejected { url, code, message } => {
-                            let code_part = code.as_deref().map(|c| format!(" [{c}]")).unwrap_or_default();
-                            format!("Peer {url} rejected the task{code_part}: {message}")
-                        }
-                        DispatchError::Timeout { url, elapsed } =>
-                            format!("Peer {url} timed out after {elapsed:?}."),
-                        DispatchError::Other(m) =>
-                            format!("Dispatch error: {m}"),
-                    };
-                    eprintln!("{}", colored(&msg, 31));
+                    eprintln!("{}", colored(&format_dispatch_error(&e), 31));
                     std::process::exit(1);
                 }
             }
         }
 
-        // ── phantom peer send-async [--agent NAME] <prompt> ─────────────
-        // Fire-and-forget: returns a job_id for polling.
+        // ── phantom peer send-async [--agent NAME] [--required-caps CSV] [--target URL] [--idempotency-key KEY] <prompt>
+        // Fire-and-forget: returns a job_id for polling. C2 mirrors the
+        // assign branch — same flags, same parse helper.
         Some("send-async") => {
-            let mut agent  = "master".to_string();
-            let mut parts: Vec<String> = vec![];
-            let mut i = 3usize;
-            while i < args.len() {
-                match args[i].as_str() {
-                    "--agent" | "-a" => {
-                        i += 1;
-                        if let Some(a) = args.get(i) { agent = a.clone(); }
+            let parsed = parse_peer_args(&args[3..]);
+            if parsed.prompt.is_empty() {
+                anyhow::bail!(
+                    "Usage: phantom peer send-async [--agent NAME] [--required-caps cap1,cap2] \
+                     [--target URL] [--idempotency-key KEY] <prompt>"
+                );
+            }
+            eprintln!(
+                "Dispatching async task (agent={}, required_caps={:?})...",
+                colored(&parsed.agent, 36),
+                parsed.required_caps,
+            );
+
+            // Always go through `assign_task_to_peer_full` so required_caps
+            // and the optional idempotency_key ride the wire. The legacy
+            // `assign_task_async` path strips both fields.
+            let req = phantom_mesh::mesh::TaskAssignRequest {
+                agent: parsed.agent.clone(),
+                prompt: parsed.prompt.clone(),
+                required_caps: parsed.required_caps.clone(),
+                forward_chain: Vec::new(),
+                idempotency_key: parsed.idempotency_key.clone(),
+            };
+
+            let target_url = match parsed.target_url.as_deref() {
+                Some(u) => u.to_string(),
+                None => {
+                    // Pick the least-loaded online peer (same policy as
+                    // `assign_task_async` did before C2).
+                    let peers = manager.peer_infos().await;
+                    match peers
+                        .iter()
+                        .filter(|p| p.online)
+                        .min_by_key(|p| p.active_tasks)
+                    {
+                        Some(p) => p.url.clone(),
+                        None => {
+                            eprintln!("{} no online peers configured.", colored("✗", 31));
+                            std::process::exit(1);
+                        }
                     }
-                    _ => parts.push(args[i].clone()),
                 }
-                i += 1;
-            }
-            let prompt = parts.join(" ");
-            if prompt.is_empty() {
-                anyhow::bail!("Usage: phantom peer send-async [--agent NAME] <prompt>");
-            }
-            eprintln!("Dispatching async task (agent={})...", colored(&agent, 36));
-            match manager.assign_task_async(&agent, &prompt).await {
+            };
+
+            match manager.assign_task_to_peer_full(&target_url, &req).await {
                 Ok(job_id) => {
                     eprintln!("{}", colored("Task accepted.", 32));
                     println!("{}", job_id);
-                    eprintln!("Poll: phantom peer poll <peer-url> {}", job_id);
+                    eprintln!("Poll: phantom peer poll {target_url} {job_id}");
                 }
                 Err(e) => {
-                    eprintln!("{} {}", colored("Dispatch failed:", 31), e);
+                    eprintln!("{}", colored(&format_dispatch_error(&e), 31));
                     std::process::exit(1);
                 }
             }
@@ -1434,15 +2564,23 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
 
         // ── phantom peer poll <peer-url> <job-id> ────────────────────────
         Some("poll") => {
-            let peer_url = args.get(3)
+            let peer_url = args
+                .get(3)
                 .ok_or_else(|| anyhow::anyhow!("Usage: phantom peer poll <peer-url> <job-id>"))?;
-            let job_id = args.get(4)
+            let job_id = args
+                .get(4)
                 .ok_or_else(|| anyhow::anyhow!("Usage: phantom peer poll <peer-url> <job-id>"))?;
-            eprintln!("Polling {} job {}...", colored(peer_url, 36), colored(job_id, 90));
+            eprintln!(
+                "Polling {} job {}...",
+                colored(peer_url, 36),
+                colored(job_id, 90)
+            );
             match manager.poll_task(peer_url, job_id).await {
                 Some((status, output)) => {
                     println!("status : {}", status);
-                    if let Some(out) = output { println!("{}", out); }
+                    if let Some(out) = output {
+                        println!("{}", out);
+                    }
                 }
                 None => {
                     eprintln!("{}", colored("Failed to reach peer or job not found.", 31));
@@ -1459,7 +2597,13 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
             // mDNS via `dns-sd -B` doesn't exit on its own, so cap each
             // discovery method at 4s. The Tailscale path internally
             // probes with a 2s per-peer timeout.
-            eprintln!("Scanning for peers (mDNS + Tailscale)...");
+            eprintln!(
+                "{}",
+                phantom_mesh::i18n::tr(
+                    "Scanning for peers (mDNS + Tailscale)...",
+                    "正在掃描節點（mDNS + Tailscale）…",
+                )
+            );
             let mdns_fut = tokio::time::timeout(
                 std::time::Duration::from_secs(4),
                 phantom_mesh::mesh::discover_local_peers(),
@@ -1469,22 +2613,39 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
                 phantom_mesh::mesh::discover_tailscale_peers(),
             );
             let (mdns_res, tailscale_res) = tokio::join!(mdns_fut, tailscale_fut);
-            let mdns      = mdns_res.unwrap_or_else(|_| { eprintln!("  {} mDNS scan timed out", colored("⚠", 33)); vec![] });
-            let tailscale = tailscale_res.unwrap_or_else(|_| { eprintln!("  {} Tailscale scan timed out", colored("⚠", 33)); vec![] });
+            let mdns = mdns_res.unwrap_or_else(|_| {
+                eprintln!("  {} mDNS scan timed out", colored("⚠", 33));
+                vec![]
+            });
+            let tailscale = tailscale_res.unwrap_or_else(|_| {
+                eprintln!("  {} Tailscale scan timed out", colored("⚠", 33));
+                vec![]
+            });
             let mut seen = std::collections::HashSet::new();
             let mut found: Vec<(&str, String)> = Vec::new();
             for url in &mdns {
-                if seen.insert(url.clone()) { found.push(("mDNS",      url.clone())); }
+                if seen.insert(url.clone()) {
+                    found.push(("mDNS", url.clone()));
+                }
             }
             for url in &tailscale {
-                if seen.insert(url.clone()) { found.push(("Tailscale", url.clone())); }
+                if seen.insert(url.clone()) {
+                    found.push(("Tailscale", url.clone()));
+                }
             }
             if found.is_empty() {
-                eprintln!("{}", colored("No peers discovered via mDNS or Tailscale.", 90));
+                eprintln!(
+                    "{}",
+                    colored("No peers discovered via mDNS or Tailscale.", 90)
+                );
             } else {
-                eprintln!("{}", colored(&format!("Found {} peer(s):", found.len()), 32));
+                eprintln!(
+                    "{}",
+                    colored(&format!("Found {} peer(s):", found.len()), 32)
+                );
                 for (source, url) in &found {
-                    eprintln!("  {} {} {}",
+                    eprintln!(
+                        "  {} {} {}",
                         colored(url, 36),
                         colored("via", 90),
                         colored(source, 90),
@@ -1494,8 +2655,17 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
         }
 
         Some(other) => {
-            eprintln!("Unknown peer subcommand: {}", other);
-            eprintln!("Usage: phantom peer [list | discover | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]");
+            eprintln!(
+                "{}",
+                phantom_mesh::i18n::tr_owned(
+                    format!("Unknown peer subcommand: {}", other),
+                    format!("未知的 peer 子命令：{}", other),
+                )
+            );
+            eprintln!("{}", phantom_mesh::i18n::tr(
+                "Usage: phantom peer [list | discover | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]",
+                "用法：phantom peer [list | discover | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]",
+            ));
             std::process::exit(1);
         }
     }
@@ -1510,89 +2680,141 @@ async fn run_peer(args: Vec<String>) -> anyhow::Result<()> {
 async fn run_swarm(args: Vec<String>) -> Result<()> {
     let mut prompt: Option<String> = None;
     let mut agent_name = "master".to_string();
+    let mut throttle_secs: Option<u64> = None;
     let mut i = 2usize;
     while i < args.len() {
         match args[i].as_str() {
-            "--agent" | "-a" => { i += 1; if let Some(n) = args.get(i) { agent_name = n.clone(); } }
-            arg if !arg.starts_with('-') && prompt.is_none() => { prompt = Some(arg.to_string()); }
+            "--agent" | "-a" => {
+                i += 1;
+                if let Some(n) = args.get(i) {
+                    agent_name = n.clone();
+                }
+            }
+            "--throttle" => {
+                // Accept "--throttle <SECS|auto>" or bare "--throttle" (= auto = 15s).
+                let next = args.get(i + 1).map(|s| s.as_str());
+                match next {
+                    Some(v) if v == "auto" => {
+                        throttle_secs = Some(15);
+                        i += 1;
+                    }
+                    Some(v) if v.parse::<u64>().is_ok() => {
+                        throttle_secs = Some(v.parse::<u64>().unwrap());
+                        i += 1;
+                    }
+                    _ => {
+                        throttle_secs = Some(15);
+                    }
+                }
+            }
+            arg if !arg.starts_with('-') && prompt.is_none() => {
+                prompt = Some(arg.to_string());
+            }
             _ => {}
         }
         i += 1;
     }
     let prompt = match prompt {
         Some(p) => p,
-        None => { eprintln!("Usage: phantom swarm <PROMPT> [--agent NAME]"); return Ok(()); }
+        None => {
+            eprintln!("Usage: phantom swarm <PROMPT> [--agent NAME] [--throttle SECS|auto]");
+            return Ok(());
+        }
     };
 
-    eprintln!("{}", colored("◆ phantom swarm — parallel analysis across cluster", 35));
+    eprintln!(
+        "{}",
+        colored("◆ phantom swarm — parallel analysis across cluster", 35)
+    );
     eprintln!("  {}", colored(safe_truncate(&prompt, 100), 90));
 
     let mut app_state = AppState::new();
-    if let Some(content) = find_config() { app_state.load_config_toml(&content); }
-    let cluster = app_state.cluster_manager.clone();
+    if let Some(content) = find_config() {
+        app_state.load_config_toml(&content);
+    }
     let cost_tracker = CostTracker::new();
     let runtime = app_state.agent_runtime.clone();
     phantom_mesh::tools::subagent::init_global(runtime.clone(), CostTracker::new());
 
-
-    // Ping peers
-    eprintln!("\n{}", colored("── Discovering peers ──", 35));
-    let statuses = cluster.refresh_all().await;
-    let online_peers: Vec<String> = statuses.iter().filter(|s| s.online).map(|s| s.url.clone()).collect();
-    eprintln!("  {} peer(s) online + local = {} nodes", online_peers.len(), online_peers.len() + 1);
-
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(120)).build()?;
-
-    // Dispatch to all peers async (using ClusterManager for HMAC auth)
-    eprintln!("\n{}", colored("── Dispatching ──", 35));
-    let mut jobs: Vec<(String, String)> = vec![];
-    for peer_url in &online_peers {
-        match cluster.assign_task_to_peer(peer_url, &agent_name, &prompt).await {
-            Ok(job_id) => {
-                eprintln!("  {} → {} ({})", colored("→", 33), colored(peer_url, 36), colored(&job_id, 90));
-                jobs.push((peer_url.clone(), job_id));
-            }
-            Err(e) => {
-                eprintln!("  {} → {} ({})", colored("✗", 31), colored(peer_url, 36), e);
-            }
-        }
+    eprintln!("\n{}", colored("── Dispatching to cluster ──", 35));
+    if let Some(secs) = throttle_secs {
+        eprintln!(
+            "  {} throttle = {}s between peers (Groq TPM 6000 spread)",
+            colored("⏱", 33),
+            secs
+        );
     }
-
-    // Run locally in parallel
-    eprintln!("  {} → local", colored("→", 33));
-    let local_future = async {
-        runtime.run_with_callbacks(&agent_name, &prompt, &[], None, &cost_tracker, |_| {}).await
-    };
-
-    let (local_result, remote_outputs) = tokio::join!(local_future, poll_all_jobs(&client, &jobs));
+    let state_arc = std::sync::Arc::new(app_state);
+    let result = phantom_mesh::swarm::do_swarm_with_throttle(
+        state_arc,
+        &agent_name,
+        &prompt,
+        /* include_local = */ true,
+        std::time::Duration::from_secs(300),
+        throttle_secs,
+    )
+    .await;
+    eprintln!(
+        "  {} peer(s) online + local = {} nodes",
+        result.peer_count,
+        result.peer_count + 1
+    );
 
     // Show local result
     eprintln!("\n{}", colored("── Results ──", 35));
     eprintln!("{}", colored("[ local ]", 36));
-    if let Ok(r) = local_result {
-        println!("{}", r.output.trim());
+    match (&result.local, &result.local_error) {
+        (Some(s), _) => println!("{}", s.trim()),
+        (None, Some(e)) => eprintln!("  {} local failed: {}", colored("✗", 31), e),
+        (None, None) => eprintln!("  {} local skipped", colored("·", 90)),
     }
 
     // Show remote results
-    for (url, output) in &remote_outputs {
-        eprintln!("\n{}", colored(&format!("[ {} ]", url), 36));
-        println!("{}", phantom_mesh::tools::floor_char_boundary(output, 3000));
+    let mut synth_inputs: Vec<(String, String)> = vec![];
+    for peer in &result.peers {
+        eprintln!("\n{}", colored(&format!("[ {} ]", peer.url), 36));
+        match (&peer.output, &peer.error) {
+            (Some(out), _) => {
+                println!("{}", phantom_mesh::tools::floor_char_boundary(out, 3000));
+                synth_inputs.push((peer.url.clone(), out.clone()));
+            }
+            (None, Some(err)) => {
+                eprintln!("  {} {}: {}", colored("✗", 31), peer.status, err);
+            }
+            (None, None) => {
+                eprintln!("  {} {} (no output)", colored("·", 90), peer.status);
+            }
+        }
     }
 
     // Synthesize if multiple results
-    if !remote_outputs.is_empty() {
+    if !synth_inputs.is_empty() {
         eprintln!("\n{}", colored("── Synthesis ──", 35));
-        let mut synth = format!("Synthesize these parallel analysis results for: {}\n\n", prompt);
-        for (url, out) in &remote_outputs {
-            synth.push_str(&format!("=== {} ===\n{}\n\n", url, safe_truncate(out, 1500)));
+        let mut synth = format!(
+            "Synthesize these parallel analysis results for: {}\n\n",
+            prompt
+        );
+        for (url, out) in &synth_inputs {
+            synth.push_str(&format!(
+                "=== {} ===\n{}\n\n",
+                url,
+                safe_truncate(out, 1500)
+            ));
         }
         synth.push_str("Write a unified summary in Traditional Chinese.");
-        let synthesis = runtime.run_with_callbacks(&agent_name, &synth, &[], None, &cost_tracker, |_| {}).await?;
+        let synthesis = runtime
+            .run_with_callbacks(&agent_name, &synth, &[], None, &cost_tracker, |_| {})
+            .await?;
         println!("\n{}", synthesis.output.trim());
     }
 
-    let total = cost_tracker.summary().await["total_usd"].as_f64().unwrap_or(0.0);
-    eprintln!("\n{}", colored(&format!("✓ swarm complete  cost: ${:.4}", total), 32));
+    let total = cost_tracker.summary().await["total_usd"]
+        .as_f64()
+        .unwrap_or(0.0);
+    eprintln!(
+        "\n{}",
+        colored(&format!("✓ swarm complete  cost: ${:.4}", total), 32)
+    );
     Ok(())
 }
 
@@ -1609,46 +2831,50 @@ fn strip_local_paths(task: &str, local_path: &str) -> String {
 }
 
 fn parse_numbered_list(text: &str) -> Vec<String> {
-    let re_leading  = regex::Regex::new(r"^\s*[\*\-]?\s*\d+[\.\)]\s*\*{0,2}").unwrap();
-    let re_inline   = regex::Regex::new(r"(?i)^(?:subtask|task)\s+\d+[:\.]\s*").unwrap();
+    let re_leading = regex::Regex::new(r"^\s*[\*\-]?\s*\d+[\.\)]\s*\*{0,2}").unwrap();
+    let re_inline = regex::Regex::new(r"(?i)^(?:subtask|task)\s+\d+[:\.]\s*").unwrap();
     let mut out = vec![];
     for line in text.lines() {
         let t = line.trim();
-        if t.is_empty() || t.starts_with('#') { continue; }
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
         // Match lines that have a digit-based prefix
         if re_leading.is_match(t) {
             let stripped = re_leading.replace(t, "");
             let cleaned = stripped.trim().trim_matches('*').trim().to_string();
-            if !cleaned.is_empty() { out.push(cleaned); }
+            if !cleaned.is_empty() {
+                out.push(cleaned);
+            }
         } else if re_inline.is_match(t) {
             let stripped = re_inline.replace(t, "");
             let cleaned = stripped.trim().to_string();
-            if !cleaned.is_empty() { out.push(cleaned); }
+            if !cleaned.is_empty() {
+                out.push(cleaned);
+            }
         }
     }
     out
 }
 
 fn safe_truncate(s: &str, max_bytes: usize) -> &str {
-    if s.len() <= max_bytes { return s; }
+    if s.len() <= max_bytes {
+        return s;
+    }
     let mut idx = max_bytes;
-    while idx > 0 && !s.is_char_boundary(idx) { idx -= 1; }
+    while idx > 0 && !s.is_char_boundary(idx) {
+        idx -= 1;
+    }
     &s[..idx]
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
 
-fn is_colored() -> bool {
-    std::env::var("NO_COLOR").is_err()
-}
-
-fn colored(text: &str, code: u8) -> String {
-    if is_colored() {
-        format!("\x1b[{}m{}\x1b[0m", code, text)
-    } else {
-        text.to_string()
-    }
-}
+// PF-2d: `colored()` + `is_colored()` moved to `phantom_mesh::util::term`.
+// `colored()` is brought into scope via `use` at the top of this file so
+// existing call sites stay unchanged. `is_colored()` had no callers in
+// the binary; it lives only in the lib now.
+use phantom_mesh::util::term::colored;
 
 // ── @file expansion ───────────────────────────────────────────────────────────
 
@@ -1665,16 +2891,17 @@ fn expand_at_files(input: &str) -> String {
     let mut result = String::new();
     let mut first = true;
     for word in input.split_whitespace() {
-        if !first { result.push(' '); }
+        if !first {
+            result.push(' ');
+        }
         first = false;
         if let Some(path_str) = word.strip_prefix('@') {
             if image_mime_for_path(path_str).is_some() {
                 match encode_image_sentinel(path_str) {
                     Ok(sentinel) => result.push_str(&sentinel),
-                    Err(e) => result.push_str(&format!(
-                        "[error reading image {}: {}]",
-                        path_str, e
-                    )),
+                    Err(e) => {
+                        result.push_str(&format!("[error reading image {}: {}]", path_str, e))
+                    }
                 }
                 continue;
             }
@@ -1686,10 +2913,7 @@ fn expand_at_files(input: &str) -> String {
                     ));
                 }
                 Err(e) => {
-                    result.push_str(&format!(
-                        "[error reading {}: {}]",
-                        path_str, e
-                    ));
+                    result.push_str(&format!("[error reading {}: {}]", path_str, e));
                 }
             }
         } else {
@@ -1697,6 +2921,611 @@ fn expand_at_files(input: &str) -> String {
         }
     }
     result
+}
+
+/// T7 fix (codex audit 2026-05-15): scrub credentials from argv before
+/// persisting it to `~/.phantom-mesh/events.jsonl`. Heuristics:
+///
+/// 1. Any argv element matching a known credential flag name (`--key`,
+///    `--token`, `--password`, `--secret`, `--api-key`, `--auth`, plus
+///    provider-specific `--groq-key`, `--anthropic-key`, …) elides
+///    the NEXT element (`flag value` form) or its own `=`-tail
+///    (`--flag=value` form).
+/// 2. Any standalone element that looks like a high-entropy token —
+///    >=20 chars, no whitespace, mix of alphanumerics + symbol — is
+///    elided as a belt-and-braces measure in case a flag name we don't
+///    know was used.
+///
+/// D21 fix (Linux deep-test 2026-05-30): the credential heuristics above
+/// do NOT catch free-text life-capture content — `phantom note "my therapy
+/// notes"` has no credential flag and the text has whitespace, so it was
+/// logged VERBATIM to events.jsonl. That file is plaintext on disk even when
+/// the SPEC-16 event store is encrypted, so this defeated at-rest encryption.
+/// Two more rules close it:
+///
+/// 3. Content-flag values (`--text`, `--task`, `--title`, …) are scrubbed
+///    exactly like credential flags — that's where capture text lives for
+///    flag-driven subcommands (`event capture --text …`, `focus --task …`).
+/// 4. Positional free text is scrubbed by INVERSION — redact positionals by
+///    default, keep them only for an explicit allowlist of STRUCTURAL
+///    subcommands (`serve`, `doctor`, `peer`, …) whose positionals are
+///    subactions / identifiers / ports / paths, not user text. Keyed on the
+///    subcommand bareword (first non-flag arg after argv[0]):
+///      - a STRUCTURAL subcommand → keep positionals (diag stays useful);
+///      - any other KNOWN subcommand (`note`, `coach`, `dispatch`,
+///        `event`, `habit`, `swarm`, …) → redact every positional AFTER the
+///        subcommand token (the token itself stays visible);
+///      - an UNKNOWN bareword → it's an implicit agent prompt
+///        (`phantom what's my SSN?`), so redact the bareword AND everything
+///        positional after it.
+///    Inversion is the safe default: a newly-added content subcommand leaks
+///    NOTHING until it's deliberately allowlisted as structural.
+fn redact_argv(argv: &[String]) -> Vec<String> {
+    const CREDENTIAL_FLAGS: &[&str] = &[
+        "--key",
+        "--token",
+        "--password",
+        "--secret",
+        "--api-key",
+        "--auth",
+        "--groq-key",
+        "--anthropic-key",
+        "--openai-key",
+        "--gemini-key",
+        "--cluster-secret",
+        "--auth-token",
+        "--bearer",
+        "-k",
+    ];
+    // Flags whose VALUE is free-text user content (not a credential, but still
+    // private — therapy notes, task descriptions, journal entries).
+    const CONTENT_FLAGS: &[&str] = &[
+        "--text",
+        "--task",
+        "--title",
+        "--note",
+        "--query",
+        "--message",
+        "--prompt",
+        "--content",
+        "--summary",
+        "--body",
+        "--goal",
+    ];
+    // Subcommands whose POSITIONAL args are NOT user content — subactions,
+    // identifiers, ports, file paths, language codes. Everything NOT on this
+    // list (content subcommands like note/coach/dispatch/event, plus unknown
+    // implicit-prompt barewords) has its positionals redacted. Inversion fails
+    // safe: a new content subcommand leaks nothing until allowlisted here.
+    const STRUCTURAL_SUBCOMMANDS: &[&str] = &[
+        "autoevolve", "backup", "cluster", "config", "coordinator", "data", "debug",
+        "doctor", "focus", "git", "hello", "identity", "init", "keys", "lang", "login",
+        "logout", "logs", "mlx", "models", "node-capabilities", "onboarding",
+        "peer", "providers", "repl", "review", "self-update", "selftest",
+        "serve", "service", "sessions", "snapshot", "tui", "update", "version",
+        "whoami", "worker-setup", "workspace",
+    ];
+    let redaction = "[REDACTED]".to_string();
+
+    // How to treat positionals after argv[0].
+    enum Pos {
+        /// Redact positionals strictly AFTER the subcommand token (content
+        /// subcommand — keep the token itself visible for diag).
+        After,
+        /// Redact the subcommand bareword AND everything positional after it
+        /// (unknown bareword = implicit agent prompt).
+        From,
+    }
+
+    // Locate the subcommand bareword: first non-flag element after argv[0].
+    let sub_idx = argv
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find(|(_, a)| !a.starts_with('-'))
+        .map(|(i, _)| i);
+    let sub = sub_idx.and_then(|i| argv.get(i)).map(|s| s.as_str());
+    let positional_mode: Option<Pos> = match sub {
+        None => None,
+        Some(s) if STRUCTURAL_SUBCOMMANDS.contains(&s) => None, // keep positionals
+        Some(s) if KNOWN_SUBCOMMANDS.contains(&s) => Some(Pos::After), // content subcommand
+        Some(_) => Some(Pos::From), // unknown bareword → implicit agent prompt
+    };
+
+    let mut out = Vec::with_capacity(argv.len());
+    let mut skip_next = false;
+    for (i, a) in argv.iter().enumerate() {
+        if skip_next {
+            out.push(redaction.clone());
+            skip_next = false;
+            continue;
+        }
+        // `--flag=value` form (credential or content flag). Checked FIRST and
+        // unconditionally, so credentials are scrubbed even after a content
+        // subcommand (`phantom ask --token sk-… "q"`).
+        if let Some((flag, _val)) = a.split_once('=') {
+            if CREDENTIAL_FLAGS.contains(&flag) || CONTENT_FLAGS.contains(&flag) {
+                out.push(format!("{flag}=[REDACTED]"));
+                continue;
+            }
+        }
+        // `--flag value` form — record this arg, scrub the NEXT one
+        if CREDENTIAL_FLAGS.contains(&a.as_str()) || CONTENT_FLAGS.contains(&a.as_str()) {
+            out.push(a.clone());
+            skip_next = true;
+            continue;
+        }
+        // Free-text positional of a content subcommand / implicit prompt.
+        if !a.starts_with('-') {
+            let redact_here = match (&positional_mode, sub_idx) {
+                (Some(Pos::After), Some(si)) => i > si,
+                (Some(Pos::From), Some(si)) => i >= si,
+                _ => false,
+            };
+            if redact_here {
+                out.push(redaction.clone());
+                continue;
+            }
+        }
+        // High-entropy token heuristic: >=20 chars, no spaces, mix of
+        // alphanumerics + symbol → likely a token.
+        if looks_like_token(a) {
+            out.push(redaction.clone());
+            continue;
+        }
+        out.push(a.clone());
+    }
+    out
+}
+
+/// Collect process argv as `Vec<String>`, lossily replacing any non-UTF8 bytes
+/// (with U+FFFD) instead of panicking. `std::env::args()` calls `.unwrap()` on
+/// each arg and aborts the whole process (exit 101) the moment one contains a
+/// stray non-UTF8 byte (D28) — `args_os` + lossy conversion degrades
+/// gracefully: a mangled arg simply matches no subcommand/flag and falls
+/// through to the normal "unknown"/usage error path.
+fn args_lossy() -> Vec<String> {
+    std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
+
+fn looks_like_token(s: &str) -> bool {
+    if s.len() < 20 || s.contains(char::is_whitespace) {
+        return false;
+    }
+    let has_digit = s.chars().any(|c| c.is_ascii_digit());
+    let has_alpha = s.chars().any(|c| c.is_ascii_alphabetic());
+    let has_symbol = s.chars().any(|c| "+/=._-".contains(c));
+    has_digit && has_alpha && has_symbol
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod open_browser_tests {
+    use super::display_available_from;
+    use std::ffi::OsString;
+
+    #[test]
+    fn display_available_only_when_a_nonempty_display_var_is_set() {
+        // Headless: neither var → unavailable.
+        assert!(!display_available_from(None, None));
+        // Empty strings count as unset (xdg-open can't use them).
+        assert!(!display_available_from(Some(OsString::from("")), Some(OsString::from(""))));
+        // X11 display present → available.
+        assert!(display_available_from(Some(OsString::from(":0")), None));
+        // Wayland display present → available.
+        assert!(display_available_from(None, Some(OsString::from("wayland-0"))));
+    }
+}
+
+#[cfg(test)]
+mod redact_argv_tests {
+    use super::redact_argv;
+
+    #[test]
+    fn redacts_value_after_known_credential_flag() {
+        let argv = vec![
+            "phantom".into(),
+            "serve".into(),
+            "--groq-key".into(),
+            "sk-live-DEADBEEF1234567890".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("DEADBEEF")),
+            "credential should be elided, got: {red:?}"
+        );
+        assert!(
+            red.iter().any(|s| s == "--groq-key"),
+            "flag name should be preserved for debuggability"
+        );
+    }
+
+    #[test]
+    fn redacts_eq_form_credential_flag() {
+        let argv = vec!["phantom".into(), "--api-key=sk-live-SECRETSECRET".into()];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("SECRETSECRET")),
+            "=-form credential should be elided, got: {red:?}"
+        );
+        assert!(
+            red.iter().any(|s| s.starts_with("--api-key=")),
+            "=-form flag should still appear with redacted value"
+        );
+    }
+
+    #[test]
+    fn redacts_high_entropy_token() {
+        // A long random-looking string with no spaces — even without a
+        // flag name, we should elide it on the safe side.
+        let argv = vec![
+            "phantom".into(),
+            "peer".into(),
+            "ping".into(),
+            "http://1.2.3.4:7878".into(),
+            "ZXJyZGVhZGJlZWZ0b2tlbjEyMzQ1Njc4OTAxMjM0NTY3OA==".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("ZXJyZGVhZGJlZWY")),
+            "high-entropy token should be elided, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn preserves_normal_subcommand_args() {
+        let argv = vec![
+            "phantom".into(),
+            "git".into(),
+            "sync".into(),
+            "--all".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert_eq!(red, argv, "non-credential args must round-trip");
+    }
+
+    #[test]
+    fn redacts_token_after_dash_dash_token() {
+        let argv = vec!["phantom".into(), "--token".into(), "abc-secret".into()];
+        let red = redact_argv(&argv);
+        assert!(!red.iter().any(|s| s.contains("abc-secret")));
+    }
+
+    // ── D21: free-text life-capture content must never reach events.jsonl ──
+
+    #[test]
+    fn redacts_note_positional_text_keeps_subcommand() {
+        // `phantom note "my private therapy notes"` — the quoted text is ONE
+        // argv element with whitespace, so it dodges the credential + token
+        // heuristics. It must still be scrubbed.
+        let argv = vec![
+            "phantom".into(),
+            "note".into(),
+            "my private therapy notes".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("therapy")),
+            "note content must be redacted, got: {red:?}"
+        );
+        assert!(
+            red.iter().any(|s| s == "note"),
+            "the subcommand token stays visible for diag, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn redacts_unquoted_multiword_note() {
+        // Without quotes each word is its own positional — all must go.
+        let argv = vec![
+            "phantom".into(),
+            "note".into(),
+            "buy".into(),
+            "anniversary".into(),
+            "gift".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s == "anniversary" || s == "gift" || s == "buy"),
+            "every positional after `note` must be redacted, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn redacts_recall_query() {
+        let argv = vec!["phantom".into(), "recall".into(), "my password hint".into()];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("password")),
+            "recall query must be redacted, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn redacts_content_flag_value() {
+        // Flag-driven capture: `focus start --task "secret project"`.
+        let argv = vec![
+            "phantom".into(),
+            "focus".into(),
+            "start".into(),
+            "--task".into(),
+            "secret project codename".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("codename")),
+            "--task value must be redacted, got: {red:?}"
+        );
+        assert!(
+            red.iter().any(|s| s == "--task"),
+            "the flag name stays visible, got: {red:?}"
+        );
+        // `focus` is a known non-content subcommand: its positional `start`
+        // subaction stays visible (only the content-flag value is scrubbed).
+        assert!(red.iter().any(|s| s == "start"), "got: {red:?}");
+    }
+
+    #[test]
+    fn redacts_content_flag_eq_form() {
+        let argv = vec![
+            "phantom".into(),
+            "event".into(),
+            "capture".into(),
+            "--text=had a panic attack today".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("panic attack")),
+            "--text=value must be redacted, got: {red:?}"
+        );
+        assert!(
+            red.iter().any(|s| s.starts_with("--text=")),
+            "flag stays visible with redacted value, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn redacts_implicit_agent_prompt() {
+        // `phantom what is my social security number` — no known subcommand,
+        // so the whole thing is an implicit prompt to the agent and is private.
+        let argv = vec![
+            "phantom".into(),
+            "what".into(),
+            "is".into(),
+            "my".into(),
+            "ssn".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s == "ssn" || s == "what" || s == "social"),
+            "implicit prompt words must be redacted, got: {red:?}"
+        );
+        assert_eq!(red[0], "phantom", "binary name stays, got: {red:?}");
+    }
+
+    #[test]
+    fn preserves_structural_subcommand_positionals() {
+        // Known non-content subcommands keep their (non-secret) positionals
+        // so diag stays useful — e.g. which peer was pinged.
+        let argv = vec![
+            "phantom".into(),
+            "serve".into(),
+            "--port".into(),
+            "8080".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert_eq!(red, argv, "serve args are not user content; got: {red:?}");
+    }
+
+    #[test]
+    fn preserves_peer_ping_target() {
+        let argv = vec![
+            "phantom".into(),
+            "peer".into(),
+            "ping".into(),
+            "node-7".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert_eq!(red, argv, "peer positionals are identifiers; got: {red:?}");
+    }
+
+    // ── Inversion: content subcommands beyond the obvious note/recall must
+    //    ALSO be scrubbed (reviewer-flagged leak vectors). ──
+
+    #[test]
+    fn redacts_event_capture_positional() {
+        // `phantom event capture "had a panic attack"` — positional form, no
+        // content flag. `event` is NOT structural, so positionals after it go.
+        let argv = vec![
+            "phantom".into(),
+            "event".into(),
+            "capture".into(),
+            "had a panic attack today".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("panic")),
+            "event capture text must be redacted, got: {red:?}"
+        );
+        assert!(red.iter().any(|s| s == "event"), "token visible; got: {red:?}");
+    }
+
+    #[test]
+    fn redacts_coach_and_habit_and_dispatch_text() {
+        for (sub, secret) in [
+            ("coach", "I feel anxious about work"),
+            ("habit", "quit smoking"),
+            ("dispatch", "draft my resignation letter"),
+            ("swarm", "plan a surprise party"),
+        ] {
+            let argv = vec!["phantom".into(), sub.into(), secret.into()];
+            let red = redact_argv(&argv);
+            assert!(
+                !red.iter().any(|s| s.contains(secret)),
+                "{sub} free text must be redacted, got: {red:?}"
+            );
+            assert!(red.iter().any(|s| s == sub), "{sub} token visible; got: {red:?}");
+        }
+    }
+
+    #[test]
+    fn redacts_credential_flag_after_content_subcommand() {
+        // The credential scrub must still fire even when it appears after a
+        // content subcommand (flag checks run unconditionally, before the
+        // positional logic).
+        let argv = vec![
+            "phantom".into(),
+            "ask".into(),
+            "--token".into(),
+            "sk-live-DEADBEEF".into(),
+            "summarise my day".into(),
+        ];
+        let red = redact_argv(&argv);
+        assert!(
+            !red.iter().any(|s| s.contains("DEADBEEF")),
+            "credential after content subcommand must be scrubbed, got: {red:?}"
+        );
+        assert!(
+            !red.iter().any(|s| s.contains("summarise")),
+            "the prompt text must also be redacted, got: {red:?}"
+        );
+    }
+
+    #[test]
+    fn empty_and_bare_argv_do_not_panic() {
+        assert_eq!(redact_argv(&[]), Vec::<String>::new());
+        // Just the binary, no subcommand.
+        let argv = vec!["phantom".into()];
+        assert_eq!(redact_argv(&argv), argv);
+        // Content subcommand with no positionals — nothing to redact.
+        let argv = vec!["phantom".into(), "note".into()];
+        assert_eq!(redact_argv(&argv), argv);
+    }
+
+    #[test]
+    fn levenshtein_within_basic() {
+        assert_eq!(super::levenshtein_within("serve", "serve", 1), 0);
+        assert_eq!(super::levenshtein_within("servee", "serve", 1), 1); // deletion
+        assert_eq!(super::levenshtein_within("srve", "serve", 1), 1); // insertion
+        assert_eq!(super::levenshtein_within("sarve", "serve", 1), 1); // substitution
+        // distance 2 must report > max (budget 1)
+        assert!(super::levenshtein_within("saarve", "serve", 1) > 1);
+        // length gap alone exceeds budget
+        assert!(super::levenshtein_within("s", "serve", 1) > 1);
+    }
+
+    #[test]
+    fn suggest_subcommand_catches_typos() {
+        assert_eq!(super::suggest_subcommand("servee"), Some("serve"));
+        assert_eq!(super::suggest_subcommand("tuui"), Some("tui"));
+        assert_eq!(super::suggest_subcommand("doctorr"), Some("doctor"));
+    }
+
+    #[test]
+    fn suggest_subcommand_passes_real_and_distant_words() {
+        // Exact subcommands are not "typos" — no suggestion (they dispatch normally).
+        assert_eq!(super::suggest_subcommand("serve"), None);
+        // A genuine one-word prompt far from any subcommand stays a prompt.
+        assert_eq!(super::suggest_subcommand("hello"), None); // "hello" is itself known → None
+        assert_eq!(super::suggest_subcommand("banana"), None);
+        assert_eq!(super::suggest_subcommand(""), None);
+    }
+
+    fn peer_status(online: bool, version: &str) -> phantom_mesh::mesh::PeerStatus {
+        // PeerStatus isn't Default but is Deserialize with #[serde(default)] on
+        // the cap fields, so build from minimal JSON (the 7 required fields).
+        serde_json::from_value(serde_json::json!({
+            "url": "http://127.0.0.1:7878",
+            "name": "peer",
+            "version": version,
+            "online": online,
+            "active_tasks": 0,
+            "uptime_secs": 0,
+            "last_seen": 0,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn mesh_exit_code_semantics() {
+        let own = "0.6.0";
+        // all online + same build → 0
+        assert_eq!(
+            super::mesh_exit_code(&[peer_status(true, "0.6.0"), peer_status(true, "0.6.0")], own),
+            0
+        );
+        // any offline → 2 (broken), even if another is version-skewed
+        assert_eq!(
+            super::mesh_exit_code(&[peer_status(false, ""), peer_status(true, "0.5.0")], own),
+            2
+        );
+        // all online but a version skew → 1 (degraded)
+        assert_eq!(
+            super::mesh_exit_code(&[peer_status(true, "0.6.0"), peer_status(true, "0.5.0")], own),
+            1
+        );
+        // online peer with no reported version is NOT skew (unknown != mismatch)
+        assert_eq!(super::mesh_exit_code(&[peer_status(true, "")], own), 0);
+        // empty input → 0
+        assert_eq!(super::mesh_exit_code(&[], own), 0);
+    }
+}
+
+/// Top-level subcommands, used ONLY to suggest "did you mean" on a typo'd
+/// single bareword (`phantom servee` → serve). Need not be exhaustive: a
+/// missing entry just means no suggestion for typos near it. It never gates
+/// real dispatch — the typo check runs only at the implicit-prompt fallthrough,
+/// after every real subcommand has already been handled.
+const KNOWN_SUBCOMMANDS: &[&str] = &[
+    "autoevolve", "backup", "cluster", "coach", "config", "coordinator", "data", "debug",
+    "dispatch", "doctor", "event", "evolve", "exec", "focus", "food", "git", "habit", "hello", "identity", "init",
+    "keys", "lang", "login", "logout", "logs", "mcp", "mlx", "models",
+    "node-capabilities", "note", "onboarding", "peer", "providers", "recall", "repl", "review",
+    "self-update", "selftest", "serve", "service", "sessions", "skill",
+    "snapshot", "swarm", "tui", "update", "version", "whoami", "worker-setup",
+    "workspace",
+];
+
+/// Levenshtein distance between `a` and `b`, but only enough to answer
+/// "is it ≤ `max`?". Returns the true distance when ≤ max, else `max + 1`.
+/// Inputs are short subcommand-length strings, so the O(len²) table is fine.
+fn levenshtein_within(a: &str, b: &str, max: usize) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > max {
+        return max + 1;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for (i, &ca) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        let mut row_min = cur[0];
+        for (j, &cb) in b.iter().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            cur[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(cur[j] + 1);
+            row_min = row_min.min(cur[j + 1]);
+        }
+        if row_min > max {
+            return max + 1; // every cell in this row already exceeds the budget
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+/// If `input` is a near-miss (edit distance ≤ 1) of a known subcommand — and
+/// isn't itself one — return the closest match. Used to turn an accidental
+/// `phantom servee` (which would otherwise be dispatched to the LLM as a
+/// prompt, burning tokens) into a helpful "did you mean serve?".
+fn suggest_subcommand(input: &str) -> Option<&'static str> {
+    if input.is_empty() || KNOWN_SUBCOMMANDS.contains(&input) {
+        return None;
+    }
+    KNOWN_SUBCOMMANDS
+        .iter()
+        .copied()
+        .find(|cmd| levenshtein_within(input, cmd, 1) <= 1)
 }
 
 #[tokio::main]
@@ -1712,10 +3541,23 @@ async fn main() -> Result<()> {
     // Existing shell-set vars are NOT overwritten — explicit env always wins.
     phantom_mesh::cli_config::auto_load_env();
 
-    let mut args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = args_lossy();
+    // T7 fix (codex audit 2026-05-15): redact credentials before persisting
+    // argv to ~/.phantom-mesh/events.jsonl. Previously a user running
+    // `phantom --groq-key sk-...` would have that token logged for the
+    // lifetime of the rolling event log.
+    let redacted_args = redact_argv(&args);
     phantom_mesh::diag::record(
         "main",
-        format!("argv: {}", args.iter().take(8).cloned().collect::<Vec<_>>().join(" ")),
+        format!(
+            "argv: {}",
+            redacted_args
+                .iter()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
     );
 
     // ── `phantom --version / -V` ────────────────────────────────────────
@@ -1739,106 +3581,267 @@ async fn main() -> Result<()> {
 
     // ── `phantom help / --help / -h` ──────────────────────────────────────
     let sub = args.get(1).map(|s| s.as_str());
+
+    // Footgun guard: `phantom <sub> --help` for the long-running / side-effecting
+    // subcommands would START the daemon / loop / wizard before any arg parser
+    // sees --help (serve binds a port, coordinator hubs, mcp blocks on stdio,
+    // evolve kicks off a fix loop; onboarding opens a browser and HANGS, repl/tui
+    // launch the interactive UI, init WRITES PHANTOM.md into the cwd, sessions
+    // hits the broker). Intercept and show usage instead. Subcommands that parse
+    // --help themselves (exec / skill / autoevolve / focus / note / food / …) are
+    // not in this list.
+    if let Some(s) = sub {
+        let usage = match s {
+            "serve" => Some("phantom serve [--host H] [--port P] [--openclaw-telegram] [--bot-token-env VAR]"),
+            "coordinator" => Some("phantom coordinator   (run as a cluster coordinator hub)"),
+            "mcp" => Some("phantom mcp   (MCP stdio server, protocol 2024-11-05)"),
+            "evolve" => Some("phantom evolve [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed]"),
+            "onboarding" => Some("phantom onboarding   (browser-based first-time setup wizard)"),
+            "tui" => Some("phantom tui   (full-screen ratatui interface; requires an interactive terminal)"),
+            "repl" => Some("phantom repl [--agent NAME] [--session ID] [-c|--continue] [PROMPT]   (line-mode REPL; PROMPT runs once, -c resumes the last session)"),
+            "init" => Some("phantom init   (write a PHANTOM.md project scaffold into the current directory)"),
+            "sessions" => Some("phantom sessions   (live view of agent sessions across your mesh)"),
+            "hello" => Some("phantom hello   (send a 'hello' turn to your default agent — a quick provider smoke test)"),
+            _ => None,
+        };
+        if let Some(u) = usage {
+            if args.iter().skip(2).any(|a| a == "--help" || a == "-h") {
+                eprintln!("{}  {}", colored("usage:", 90), u);
+                eprintln!("       run `phantom help` for the full command list.");
+                return Ok(());
+            }
+        }
+    }
+
     if sub == Some("help") || sub == Some("--help") || sub == Some("-h") {
-        eprintln!("{}  {}",
+        use phantom_mesh::i18n::tr;
+        eprintln!(
+            "{}  {}",
             colored("phantom — AI agent mesh CLI", 35),
-            colored(env!("CARGO_PKG_VERSION"), 90));
+            colored(env!("CARGO_PKG_VERSION"), 90)
+        );
         eprintln!();
-        eprintln!("{}", colored("INTERACTIVE", 90));
+        eprintln!("{}", colored(tr("INTERACTIVE", "互動模式"), 90));
         eprintln!("  {}", colored("phantom", 36));
-        eprintln!("       Default: ratatui TUI (set PHANTOM_REPL=1 to force line REPL)");
-        eprintln!("  {}  [--agent NAME] [--session ID] [-c] [PROMPT]", colored("phantom repl", 36));
-        eprintln!("       Line-mode REPL, or one-shot prompt with -c");
+        eprintln!("{}", tr("       Default: ratatui TUI (set PHANTOM_REPL=1 to force line REPL)", "       預設：ratatui TUI 介面（設 PHANTOM_REPL=1 強制用行模式 REPL）"));
+        eprintln!(
+            "  {}  [--agent NAME] [--session ID] [-c] [PROMPT]",
+            colored("phantom repl", 36)
+        );
+        eprintln!("{}", tr("       Line-mode REPL, or one-shot prompt with -c", "       行模式 REPL；或用 -c 送出一次性提示"));
         eprintln!("  {}", colored("phantom tui", 36));
-        eprintln!("       Full-screen ratatui interface (alternative entry to TUI)");
-        eprintln!("  {}  [--agent NAME] [--json|--quiet] [--continue] [PROMPT]", colored("phantom exec", 36));
-        eprintln!("       Headless single-turn run for CI/pipelines (stdin = prompt; stdout = answer)");
+        eprintln!("{}", tr("       Full-screen ratatui interface (alternative entry to TUI)", "       全螢幕 ratatui 介面（進入 TUI 的另一個入口）"));
+        eprintln!(
+            "  {}  [--agent NAME] [--json|--quiet] [--continue] [PROMPT]",
+            colored("phantom exec", 36)
+        );
+        eprintln!("{}", tr(
+            "       Headless single-turn run for CI/pipelines (stdin = prompt; stdout = answer)",
+            "       無介面單輪執行，供 CI／管線使用（stdin = 提示；stdout = 回答）",
+        ));
         eprintln!();
-        eprintln!("{}", colored("DAEMON / SERVICE", 90));
-        eprintln!("  {}  [--host H] [--port P]", colored("phantom serve", 36));
-        eprintln!("       WebSocket + HTTP daemon, /ws /api/* /rpc/* /m /dist/* /scripts/*");
-        eprintln!("  {}  [install|uninstall|status]", colored("phantom service", 36));
-        eprintln!("       Auto-start at user login: launchd (mac) / Scheduled Task (win) /");
-        eprintln!("       systemd --user (linux). Defaults to status.");
+        eprintln!("{}", colored(tr("DAEMON / SERVICE", "常駐服務"), 90));
+        eprintln!(
+            "  {}  [--host H] [--port P] [--openclaw-telegram] [--bot-token-env VAR]",
+            colored("phantom serve", 36)
+        );
+        eprintln!("{}", tr("       WebSocket + HTTP daemon, /ws /api/* /rpc/* /m /dist/* /scripts/*", "       WebSocket + HTTP 常駐服務，/ws /api/* /rpc/* /m /dist/* /scripts/*"));
+        eprintln!("{}", tr("       --openclaw-telegram: spawn Telegram bot alongside HTTP server (B2/T83);", "       --openclaw-telegram：在 HTTP 服務旁同時啟動 Telegram 機器人（B2/T83）；"));
+        eprintln!("{}", tr("        token read from env var named by --bot-token-env, default TELEGRAM_BOT_API_KEY", "        token 由 --bot-token-env 指定的環境變數讀取，預設 TELEGRAM_BOT_API_KEY"));
+        eprintln!(
+            "  {}  [install|uninstall|status]",
+            colored("phantom service", 36)
+        );
+        eprintln!("{}", tr("       Auto-start at user login: launchd (mac) / Scheduled Task (win) /", "       登入時自動啟動：launchd（mac）/ 排程工作（win）/"));
+        eprintln!("{}", tr("       systemd --user (linux). Defaults to status.", "       systemd --user（linux）。預設顯示狀態。"));
         eprintln!("  {}", colored("phantom mcp", 36));
-        eprintln!("       MCP stdio server (50 tools, 2024-11-05 protocol)");
+        eprintln!("{}", tr("       MCP stdio server (built-in tool registry, 2024-11-05 protocol)", "       MCP stdio 伺服器（內建工具集，2024-11-05 協議）"));
         eprintln!();
-        eprintln!("{}", colored("SELF-IMPROVEMENT", 90));
-        eprintln!("  {}  [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed]", colored("phantom evolve", 36));
-        eprintln!("       One-shot test-driven fix loop");
-        eprintln!("  {}  [--once|--watch] [--interval N] [--target check|test] [--distributed]", colored("phantom autoevolve", 36));
-        eprintln!("       Daemon-mode self-improvement; auto-commit on green");
-        eprintln!("  {}  schedule [install|uninstall|status]", colored("phantom autoevolve", 36));
-        eprintln!("       Manage the OS scheduler entry (LaunchAgent / Scheduled Task) that runs --once on a cadence");
+        eprintln!("{}", colored(tr("SELF-IMPROVEMENT", "自我改進"), 90));
+        eprintln!("  {}  [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed] [--judge [--ensemble N] [--extract-skills [--extract-threshold N]]]", colored("phantom evolve", 36));
+        eprintln!("{}", tr("       One-shot test-driven fix loop", "       一次性的測試驅動修復迴圈"));
+        eprintln!(
+            "  {}  [--once|--watch] [--interval N] [--target check|test] [--distributed]",
+            colored("phantom autoevolve", 36)
+        );
+        eprintln!("{}", tr("       Daemon-mode self-improvement; auto-commit on green", "       常駐模式自我改進；測試綠燈時自動 commit"));
+        eprintln!(
+            "  {}  schedule [install|uninstall|status]",
+            colored("phantom autoevolve", 36)
+        );
+        eprintln!("{}", tr("       Manage the OS scheduler entry (LaunchAgent / Scheduled Task) that runs --once on a cadence", "       管理依排程跑 --once 的作業系統排程項目（LaunchAgent／排程工作）"));
         eprintln!("  {}  log [--n N]", colored("phantom autoevolve", 36));
-        eprintln!("       Pretty-print recent JSONL entries");
-        eprintln!("  {}  list [--active]   ·   replay [<id>|latest]   ·   handoff <peer-url> [<id>|latest]", colored("phantom evolve", 36));
-        eprintln!("       Inspect & migrate self-improvement checkpoints across the mesh");
-        eprintln!("  {}  goals next   ·   goals list [--json]   ·   goals add \"<text>\"   ·   goals mark-done <line>   [--file PATH]", colored("phantom evolve", 36));
-        eprintln!("       Curated milestone queue (default: ./EVOLVE-GOALS.md)");
-        eprintln!("  {}  <PROMPT> [--agent NAME]", colored("phantom swarm", 36));
-        eprintln!("       Fan a prompt to every online peer in parallel; synthesize results");
+        eprintln!("{}", tr("       Pretty-print recent JSONL entries", "       美化列印最近的 JSONL 紀錄"));
+        eprintln!("  {}  list [--active] [--json]   ·   replay [<id>|latest]   ·   handoff <peer-url> [<id>|latest]", colored("phantom evolve", 36));
+        eprintln!("{}", tr("       Inspect & migrate self-improvement checkpoints across the mesh", "       檢視並跨 mesh 遷移自我改進的檢查點"));
+        eprintln!("  {}  goals next   ·   goals list [--json]   ·   goals add \"<text>\"   ·   goals mark-done <#>   [--file PATH]", colored("phantom evolve", 36));
+        eprintln!("{}", tr("       Curated milestone queue (file: --file > $PHANTOM_EVOLVE_GOALS > ./EVOLVE-GOALS.md if present > ~/.phantom-mesh/EVOLVE-GOALS.md)", "       策劃的里程碑佇列（檔案順序：--file ＞ $PHANTOM_EVOLVE_GOALS ＞ 目前目錄的 ./EVOLVE-GOALS.md（若存在）＞ ~/.phantom-mesh/EVOLVE-GOALS.md）"));
+        eprintln!(
+            "  {}  <PROMPT> [--agent NAME]",
+            colored("phantom swarm", 36)
+        );
+        eprintln!("{}", tr("       Fan a prompt to every online peer in parallel; synthesize results", "       把提示平行扇出給每個在線節點；綜合結果"));
         eprintln!();
-        eprintln!("{}", colored("DIAGNOSTICS", 90));
-        eprintln!("  {}", colored("phantom doctor", 36));
-        eprintln!("       Single-screen environment health check");
-        eprintln!("  {}  [--json] [--out FILE] [--feature N] [--p0-only] [--list]", colored("phantom selftest", 36));
-        eprintln!("       Per-feature self-test suite; failures emit repro + artifact + hints");
-        eprintln!("  {}  [--source URL] [--dry-run]", colored("phantom self-update", 36));
-        eprintln!("       Pull a fresh binary + atomically swap + restart service");
+        eprintln!("{}", colored(tr("HERMES SKILLS (experimental)", "Hermes 技能（實驗性）"), 90));
+        eprintln!(
+            "  {}  <path-to-skill.md> [--dry-run] [--sandboxed --allow <cmd>...]",
+            colored("phantom skill run", 36)
+        );
+        eprintln!("{}", tr("       Execute a Hermes Skill Document. Requires --features experimental-hermes-curator at build time.", "       執行一份 Hermes Skill 文件。建置時需加 --features experimental-hermes-curator。"));
         eprintln!();
-        eprintln!("{}", colored("MAC-ONLY", 90));
-        eprintln!("  {}  [create|list|delete|prune|rollback|apply] [args]", colored("phantom snapshot", 36));
-        eprintln!("       APFS local snapshot — safety net for subagent runs");
-        eprintln!("       apply <id> [--cwd|--path P] [--execute]   automated rsync restore");
-        eprintln!("  {}  [pull|serve|status|stop] [--model M] [--port P]", colored("phantom mlx", 36));
-        eprintln!("       Apple Silicon local LLM helper (mlx_lm.server orchestration)");
+        eprintln!("{}", colored(tr("LIFE NODE", "生活節點"), 90));
+        eprintln!(
+            "  {}  [--kind K] [--image P]... [--audio P]... [--text T] [--tag T] [--coord URL]",
+            colored("phantom event capture", 36)
+        );
+        eprintln!("{}", tr("       Capture a multimodal life event and POST it to the local serve daemon.", "       擷取一筆多模態生活事件，並 POST 給本機 serve 常駐服務。"));
+        eprintln!("  {}", colored("phantom event show <id>", 36));
+        eprintln!("{}", tr("       Print one captured event in full (id from `phantom recall`). Read-only.", "       完整顯示單一擷取事件（id 來自 `phantom recall`）。唯讀。"));
+        eprintln!("  {}  review --date YYYY-MM-DD [--save]", colored("phantom coach", 36));
+        eprintln!("{}", tr("       Life Node daily review (aggregate → coach summary)", "       生活節點每日回顧（彙整 → coach 摘要）"));
+        eprintln!("  {}  start [--minutes N] [--task \"…\"]  ·  status  ·  stop  ·  history", colored("phantom focus", 36));
+        eprintln!("{}", tr("       Timed deep-work focus sessions (Timer mode; backend lands with SPEC-21 Stage 4)", "       計時深度工作 focus 時段（計時模式；後端隨 SPEC-21 Stage 4 完成）"));
+        eprintln!("  {}  [--tag T]...", colored("phantom note \"<text>\"", 36));
+        eprintln!("{}", tr("       Capture a quick text note directly (no daemon); encrypts at rest with identity.key", "       直接記錄一則文字筆記（免常駐服務）；有 identity.key 時靜態加密"));
+        eprintln!("  {}  [--kind K] [--since DATE] [--limit N] [--json]", colored("phantom recall <query>", 36));
+        eprintln!("  {}  [YYYY-MM-DD] [--json]", colored("phantom review", 36));
+        eprintln!("{}", tr(
+            "       Daily-review aggregate, offline + no LLM; --json emits that day's events (the AI coach summary is `phantom coach review`)",
+            "       每日回顧彙整，離線且不呼叫 LLM；--json 輸出當日事件（AI 教練摘要請用 `phantom coach review`）",
+        ));
+        eprintln!("{}", tr("       Search past life events by content (the CLI twin of the TUI /recall)", "       依內容搜尋過往生活事件（TUI /recall 的命令列版本）"));
+        eprintln!(
+            "  {}  [-n N | --tail N] [--since DUR] [--kind K] [--raw]",
+            colored("phantom logs", 36)
+        );
+        eprintln!("{}", tr("       Tail serve/system telemetry (events.jsonl) — NOT the Life-Track log; use recall/review", "       檢視 serve／系統遙測（events.jsonl）—— 非生活軌道日誌；那個用 recall／review"));
+        eprintln!("  {}  (--all --yes | <event-id>)", colored("phantom data delete", 36));
+        eprintln!("{}", tr(
+            "       Delete all events (--all --yes), or one event by id (from `phantom recall`). Irreversible.",
+            "       刪除所有事件（--all --yes），或依 id 刪除單一事件（id 來自 `phantom recall`）。不可復原。",
+        ));
+        eprintln!("  {}  [--format json|md] [--out FILE] [--kind K] [--since DATE]", colored("phantom data export", 36));
+        eprintln!("{}", tr(
+            "       Export your Life Node events (portability) — JSON or Markdown, to a file or stdout.",
+            "       匯出你的生活節點事件（資料可攜）— JSON 或 Markdown，輸出到檔案或 stdout。",
+        ));
+        eprintln!("  {}", colored("phantom data stats", 36));
+        eprintln!("{}", tr(
+            "       Life-log rollup: total · date span · last-7d · by-kind breakdown.",
+            "       生活紀錄彙整：總數 · 日期範圍 · 近 7 天 · 各類型統計。",
+        ));
         eprintln!();
-        eprintln!("{}", colored("CLUSTER", 90));
-        eprintln!("  {}  [list | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]", colored("phantom peer", 36));
-        eprintln!("       Inspect, ping, dispatch tasks to cluster peers");
+        eprintln!("{}", colored(tr("DIAGNOSTICS", "診斷"), 90));
+        eprintln!("  {}  [--json | --mesh]", colored("phantom doctor", 36));
+        eprintln!("{}", tr("       Single-screen environment health check (--mesh: per-peer ping table + exit code)", "       單頁環境健康檢查（--mesh：逐節點 ping 表格 + 退出碼）"));
+        eprintln!(
+            "  {}  [--json] [--out FILE] [--feature N] [--p0-only] [--list]",
+            colored("phantom selftest", 36)
+        );
+        eprintln!("{}", tr("       Per-feature self-test suite; failures emit repro + artifact + hints", "       逐功能自我測試套件；失敗時輸出重現步驟 + 產物 + 提示"));
+        eprintln!(
+            "  {}  [--source URL] [--dry-run]",
+            colored("phantom self-update", 36)
+        );
+        eprintln!("{}", tr("       Pull a fresh binary + atomically swap + restart service", "       拉取新 binary + 原子替換 + 重啟服務"));
+        eprintln!("  {}", colored("phantom debug", 36));
+        eprintln!("{}", tr("       Print a diagnostic debug bundle (config · env · paths)", "       輸出診斷 debug 包（設定 · 環境 · 路徑）"));
+        eprintln!();
+        eprintln!("{}", colored(tr("AGENTS / SESSIONS", "代理／工作階段"), 90));
+        eprintln!("  {}", colored("phantom providers", 36));
+        eprintln!("{}", tr("       List providers configured in agents.toml", "       列出 agents.toml 設定的 providers"));
+        eprintln!("  {}", colored("phantom models", 36));
+        eprintln!("{}", tr("       Show/refresh the model cache", "       顯示／重新整理模型快取"));
+        eprintln!("  {}", colored("phantom sessions", 36));
+        eprintln!("{}", tr("       List saved chat sessions", "       列出已儲存的對話階段"));
+        eprintln!("  {}", colored("phantom workspace", 36));
+        eprintln!("{}", tr("       Manage the workspace pin in agents.toml", "       管理 agents.toml 的 workspace pin"));
+        eprintln!();
+        eprintln!("{}", colored(tr("MAC-ONLY", "僅限 Mac"), 90));
+        eprintln!(
+            "  {}  [create|list|delete|prune|rollback|apply] [args]",
+            colored("phantom snapshot", 36)
+        );
+        eprintln!("{}", tr("       APFS local snapshot — safety net for subagent runs", "       APFS 本機快照 — subagent 執行的安全網"));
+        eprintln!("{}", tr("       apply <id> [--cwd|--path P] [--execute]   automated rsync restore", "       apply <id> [--cwd|--path P] [--execute]   自動 rsync 還原"));
+        eprintln!(
+            "  {}  [pull|serve|status|stop] [--model M] [--port P]",
+            colored("phantom mlx", 36)
+        );
+        eprintln!("{}", tr("       Apple Silicon local LLM helper (mlx_lm.server orchestration)", "       Apple Silicon 本機 LLM 輔助（mlx_lm.server 編排）"));
+        eprintln!();
+        eprintln!("{}", colored(tr("CLUSTER", "叢集"), 90));
+        eprintln!("  {}", colored("phantom cluster", 36));
+        eprintln!("{}", tr("       Cluster status snapshot (this node + configured peers)", "       叢集狀態快照（本節點 + 已設定的 peers）"));
+        eprintln!(
+            "  {}  [list | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]",
+            colored("phantom peer", 36)
+        );
+        eprintln!("{}", tr("       Inspect, ping, dispatch tasks to cluster peers", "       檢視、ping、派送任務給叢集節點"));
+        eprintln!(
+            "  {}  [--tag X] [--to Y] [--all] [--agent Z] \"task\"",
+            colored("phantom dispatch", 36)
+        );
+        eprintln!("{}", tr("       Send a task to specific peer(s) (use `swarm` to fan to all)", "       把任務送給指定節點（用 `swarm` 扇出給全部）"));
+        eprintln!("  {}", colored("phantom git", 36));
+        eprintln!("{}", tr("       Cluster git operations (agent-side helpers)", "       叢集 git 操作（agent 端輔助）"));
+        eprintln!("  {}", colored("phantom node-capabilities", 36));
+        eprintln!("{}", tr("       Print this node's capability report (platform · tools · models)", "       印出本節點的能力報告（平台 · 工具 · 模型）"));
+        eprintln!("  {}", colored("phantom worker-setup", 36));
+        eprintln!("{}", tr("       Bootstrap this node as a cluster worker", "       把本節點設定成叢集 worker"));
         eprintln!("  {}", colored("phantom coordinator", 36));
-        eprintln!("       Run as a coordinator hub for the cluster (optional)");
+        eprintln!("{}", tr("       Run as a coordinator hub for the cluster (optional)", "       以叢集協調者 hub 身分執行（選用）"));
         eprintln!();
-        eprintln!("{}", colored("IDENTITY", 90));
+        eprintln!("{}", colored(tr("IDENTITY", "身分"), 90));
         eprintln!("  {}", colored("phantom login", 36));
-        eprintln!("       Default: probe the broker (https://phantommesh.io) and");
-        eprintln!("       delegate OAuth there. Falls back to a local provider menu");
-        eprintln!("       (email / google / apple) when broker is offline.");
-        eprintln!("  {}  [email|google|apple|broker]", colored("phantom login", 36));
-        eprintln!("       Force a specific provider — bypasses broker probe.");
-        eprintln!("       email = local-only password; google = OAuth loopback at :48181;");
-        eprintln!("       apple = stub (needs broker); broker = re-try phantommesh.io.");
+        eprintln!("{}", tr("       Default: probe the broker (https://phantommesh.io) and", "       預設：探測 broker（https://phantommesh.io），"));
+        eprintln!("{}", tr("       delegate OAuth there. Falls back to a local provider menu", "       在該處委派 OAuth；broker 離線時退回本機 provider 選單"));
+        eprintln!("{}", tr("       (email / google / apple) when broker is offline.", "       （email / google / apple）。"));
+        eprintln!(
+            "  {}  [email|google|apple|broker]",
+            colored("phantom login", 36)
+        );
+        eprintln!("{}", tr("       Force a specific provider — bypasses broker probe.", "       強制指定 provider — 略過 broker 探測。"));
+        eprintln!("{}", tr("       email = local-only password; google = OAuth loopback at :48181;", "       email = 純本機密碼；google = OAuth loopback 於 :48181；"));
+        eprintln!("{}", tr("       apple = stub (needs broker); broker = re-try phantommesh.io.", "       apple = stub（需 broker）；broker = 重試 phantommesh.io。"));
         eprintln!("  {}", colored("phantom logout", 36));
-        eprintln!("       Delete the saved identity.");
+        eprintln!("{}", tr("       Delete the saved identity.", "       刪除已儲存的身分。"));
         eprintln!("  {}", colored("phantom whoami", 36));
-        eprintln!("       Print current identity (provider · email · device id).");
-        eprintln!("       PHANTOM_AUTH_URL=...  override broker URL.");
+        eprintln!("{}", tr("       Print current identity (provider · email · device id).", "       印出目前身分（provider · email · 裝置 id）。"));
+        eprintln!("{}", tr("       PHANTOM_AUTH_URL=...  override broker URL.", "       PHANTOM_AUTH_URL=...  覆寫 broker URL。"));
+        eprintln!("  {}  [init | ...]", colored("phantom keys", 36));
+        eprintln!("{}", tr("       Manage the local keypair", "       管理本機金鑰對"));
+        eprintln!("  {}  [pull | push] --token <jwt>", colored("phantom config", 36));
+        eprintln!("{}", tr("       Sync broker-managed config (providers, routing)", "       同步 broker 管理的設定（providers、routing）"));
         eprintln!();
-        eprintln!("{}", colored("ONE-TIME SETUP", 90));
+        eprintln!("{}", colored(tr("ONE-TIME SETUP", "初次設定"), 90));
         eprintln!("  {}", colored("phantom init", 36));
-        eprintln!("       Generate PHANTOM.md scaffold in current directory");
+        eprintln!("{}", tr("       Generate PHANTOM.md scaffold in current directory", "       在目前目錄產生 PHANTOM.md 骨架"));
         eprintln!("  {}", colored("phantom onboarding", 36));
-        eprintln!("       Browser-based first-time setup wizard");
+        eprintln!("{}", tr("       Browser-based first-time setup wizard", "       瀏覽器版首次設定精靈"));
+        eprintln!("  {}  [show | set <en|zh-TW> | reset]", colored("phantom lang", 36));
+        eprintln!("{}", tr("       Set the UI language (default 繁中); persists in ~/.phantom-mesh/lang", "       設定介面語言（可設繁中為預設）；儲存在 ~/.phantom-mesh/lang"));
         eprintln!();
-        eprintln!("{}", colored("VERSION INFO", 90));
+        eprintln!("{}", colored(tr("VERSION INFO", "版本資訊"), 90));
         eprintln!("  {}  [--short]", colored("phantom --version", 36));
-        eprintln!("       Default: version + git hash + os-arch + build date");
-        eprintln!("       --short returns the bare semver string");
+        eprintln!("{}", tr("       Default: version + git hash + os-arch + build date", "       預設：版本 + git hash + os-arch + 建置日期"));
+        eprintln!("{}", tr("       --short returns the bare semver string", "       --short 只回傳純 semver 字串"));
         eprintln!();
-        eprintln!("{}", colored("ENVIRONMENT", 90));
+        eprintln!("{}", colored(tr("ENVIRONMENT", "環境變數"), 90));
         eprintln!("  ANTHROPIC_API_KEY / OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY");
-        eprintln!("  PHANTOM_MAX_ROUNDS    cap subagent rounds (default 25)");
-        eprintln!("  PHANTOM_PERM          allow|ask|diff|deny — REPL tool gate");
-        eprintln!("  PHANTOM_PLAN_MODE     1 to gate tools until 'go' is typed");
-        eprintln!("  PHANTOM_PORT          override :7878 for serve");
-        eprintln!("  PHANTOM_COORD         coordinator URL for self-update / mesh");
-        eprintln!("  NO_COLOR              disable ANSI colors");
+        eprintln!("{}", tr("  PHANTOM_MAX_ROUNDS    cap subagent rounds (default 25)", "  PHANTOM_MAX_ROUNDS    限制 subagent 回合數（預設 25）"));
+        eprintln!("{}", tr("  PHANTOM_PERM          allow|ask|diff|deny — REPL tool gate", "  PHANTOM_PERM          allow|ask|diff|deny — REPL 工具閘門"));
+        eprintln!("{}", tr("  PHANTOM_PLAN_MODE     1 to gate tools until 'go' is typed", "  PHANTOM_PLAN_MODE     設 1 則工具閘到輸入 'go' 才放行"));
+        eprintln!("{}", tr("  PHANTOM_PORT          override :7878 for serve", "  PHANTOM_PORT          覆寫 serve 的 :7878"));
+        eprintln!("{}", tr("  PHANTOM_COORD         coordinator URL for self-update / mesh", "  PHANTOM_COORD         self-update / mesh 用的協調者 URL"));
+        eprintln!("{}", tr("  NO_COLOR              disable ANSI colors", "  NO_COLOR              關閉 ANSI 顏色"));
         eprintln!();
-        eprintln!("{}", colored("CONFIG", 90));
+        eprintln!("{}", colored(tr("CONFIG", "設定檔"), 90));
         eprintln!("  ~/.phantom-mesh/agents.toml  |  ./agents.toml      provider keys + agents");
         eprintln!("  ~/.phantom-mesh/env                                shell-sourcable secrets");
-        eprintln!("  ~/.phantom-mesh/autoevolve.log                     JSONL self-improvement log");
+        eprintln!(
+            "  ~/.phantom-mesh/autoevolve.log                     JSONL self-improvement log"
+        );
         eprintln!("  ~/.phantom-mesh/conversations/<id>.jsonl           session persistence");
         eprintln!();
         eprintln!("Docs: docs/MAC-DEEP-EXECUTION-PLAN.md  ·  docs/INSTALL-{{ANDROID,IOS}}.md");
@@ -1911,23 +3914,99 @@ async fn main() -> Result<()> {
         if let Some(content) = find_config() {
             app_state.load_config_toml(&content);
         }
-        let cfg  = app_state.agent_runtime.config();
+        // T7/T7c/T55 fix: loudly warn at every boot if any backwards-compat
+        // security override is set, so operators see the migration ask.
+        // Also surface a "failing-closed" diagnostic when cluster_secret is
+        // empty and no override is masking the gate. Called BEFORE bind so
+        // the lines are visible above the listen-address banner.
+        let cluster_secret_configured = app_state
+            .cluster_manager
+            .config
+            .cluster_secret
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        phantom_mesh::serve::emit_boot_security_warnings_with_config(cluster_secret_configured);
+        // Provision the per-device root identity key on first boot (idempotent).
+        // Without it, `load_event_key` fails and the SPEC-16 EventStore silently
+        // falls back to PLAINTEXT — so the daemon self-heals encryption here.
+        match phantom_mesh::identity::ensure_root_identity_key() {
+            Ok(true) => eprintln!(
+                "  identity  : created ~/.phantom-mesh/identity.key (event encryption enabled)"
+            ),
+            Ok(false) => {}
+            Err(e) => eprintln!(
+                "  ⚠ identity: could not create identity.key ({e}); events will be PLAINTEXT"
+            ),
+        }
+        let cfg = app_state.agent_runtime.config();
         // CLI flags override agents.toml — `phantom serve [--host H] [--port P]`
         // is documented at line 1552 but the binary previously fell through
         // to config values and silently ignored both flags.
         let mut host = cfg.core.host.clone();
         let mut port = cfg.core.port;
+        // PHANTOM_PORT overrides the config default (documented in --help as
+        // "override :7878 for serve"). The `--port` flag parsed below still
+        // wins over the env var. Precedence: --port > PHANTOM_PORT > config.
+        if let Some(p) = std::env::var("PHANTOM_PORT")
+            .ok()
+            .and_then(|s| s.trim().parse::<u16>().ok())
+        {
+            port = p;
+        }
+        // B2/T83 — `--openclaw-telegram` opt-in launcher.
+        //   Default: off; bot is *never* started by `phantom serve` alone.
+        //   When set, we read the bot token from the env var named by
+        //   `--bot-token-env` (default `TELEGRAM_BOT_API_KEY`, matching
+        //   `phantom keys set telegram_bot`). The raw token is *never*
+        //   accepted on the CLI to keep it out of process listings and
+        //   shell history.
+        let mut openclaw_telegram = false;
+        let mut bot_token_env = "TELEGRAM_BOT_API_KEY".to_string();
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
-                "--host" => { i += 1; if let Some(h) = args.get(i) { host = h.clone(); } }
-                "--port" => { i += 1; if let Some(p) = args.get(i).and_then(|s| s.parse().ok()) { port = p; } }
+                "--host" => {
+                    i += 1;
+                    if let Some(h) = args.get(i) {
+                        host = h.clone();
+                    }
+                }
+                "--port" => {
+                    i += 1;
+                    // A bad --port value (`--port abc`, `--port 0`, `--port 99999`)
+                    // must error, not silently fall back to the config/default port
+                    // and bind somewhere the user didn't ask for.
+                    match args.get(i).map(|s| s.parse::<u16>()) {
+                        Some(Ok(p)) if p > 0 => port = p,
+                        _ => {
+                            let got = args.get(i).map(|s| s.as_str()).unwrap_or("(missing)");
+                            eprintln!(
+                                "{} --port expects a number in 1..=65535, got: {got}",
+                                colored("✗", 31),
+                            );
+                            std::process::exit(2);
+                        }
+                    }
+                }
+                "--openclaw-telegram" => {
+                    openclaw_telegram = true;
+                }
+                "--bot-token-env" => {
+                    i += 1;
+                    if let Some(v) = args.get(i) {
+                        bot_token_env = v.clone();
+                    }
+                }
                 _ => {}
             }
             i += 1;
         }
 
-        let node_name = app_state.cluster_manager.config.node_name
+        let node_name = app_state
+            .cluster_manager
+            .config
+            .node_name
             .clone()
             .unwrap_or_else(|| "phantom".to_string());
         let peer_count = app_state.cluster_manager.config.peers.len();
@@ -1935,7 +4014,10 @@ async fn main() -> Result<()> {
         // Coordinator: compute self URL for registration
         let self_ip = if host == "0.0.0.0" || host == "127.0.0.1" {
             std::net::UdpSocket::bind("0.0.0.0:0")
-                .and_then(|s| { s.connect("8.8.8.8:80")?; s.local_addr() })
+                .and_then(|s| {
+                    s.connect("8.8.8.8:80")?;
+                    s.local_addr()
+                })
                 .map(|a| a.ip().to_string())
                 .unwrap_or_else(|_| "127.0.0.1".to_string())
         } else {
@@ -1959,38 +4041,68 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Background heartbeat — ping all configured peers every 30s.
-        // Also re-register with coordinator so our entry doesn't expire.
+        // Background heartbeat — ping all configured peers every
+        // `[cluster] heartbeat_interval_secs` (default 30s, C4-configurable).
+        // Also re-registers with the coordinator so our entry does not expire.
+        //
+        // C4 (2026-05-17): the per-peer health state machine is driven from
+        // inside `ClusterManager::ping_peer` via `record_probe_result`, which
+        // is itself feature-gated on `experimental-cluster-heartbeat`. So
+        // this loop's mere existence is unchanged from pre-C4 — peers only
+        // start flipping Healthy → Unhealthy when the feature is enabled.
+        // Skipped entirely when there are zero configured peers and no
+        // coordinator (single-node deploy = nothing to probe, no need to
+        // wake every 30s).
         {
             let manager = app_state.cluster_manager.clone();
             let url = self_url.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
-                loop {
-                    interval.tick().await;
-                    // Re-register and sync peers from coordinator
-                    if manager.config.coordinator.is_some() {
-                        let _ = manager.register_with_coordinator(&url).await;
-                        manager.fetch_coordinator_peers(&url).await;
+            let interval_dur = manager.effective_heartbeat_interval();
+            let has_peers_or_coordinator =
+                !manager.config.peers.is_empty() || manager.config.coordinator.is_some();
+            if has_peers_or_coordinator {
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(interval_dur);
+                    loop {
+                        interval.tick().await;
+                        // Re-register and sync peers from coordinator
+                        if manager.config.coordinator.is_some() {
+                            let _ = manager.register_with_coordinator(&url).await;
+                            manager.fetch_coordinator_peers(&url).await;
+                        }
+                        let statuses = manager.refresh_all().await;
+                        let online = statuses.iter().filter(|s| s.online).count();
+                        tracing::debug!(
+                            "heartbeat: {}/{} peers online (interval {}s)",
+                            online,
+                            statuses.len(),
+                            interval_dur.as_secs(),
+                        );
                     }
-                    let statuses = manager.refresh_all().await;
-                    let online = statuses.iter().filter(|s| s.online).count();
-                    tracing::debug!("heartbeat: {}/{} peers online", online, statuses.len());
-                }
-            });
+                });
+            } else {
+                tracing::debug!("skipping background heartbeat: zero peers, no coordinator");
+            }
         }
 
         // mDNS advertising — let peers on the local network discover this node.
         let adv_host = host.clone();
         let adv_name = node_name.clone();
-        tokio::spawn(async move { advertise_mdns(&adv_name, &adv_host, port).await; });
+        tokio::spawn(async move {
+            advertise_mdns(&adv_name, &adv_host, port).await;
+        });
 
         // ── banner snapshot (capture before moving app_state into Arc) ──
         let (master_model, master_provider) = {
             let cfg = app_state.agent_runtime.config();
             (
-                cfg.agent.get("master").map(|a| a.model.clone()).unwrap_or_else(|| "(none)".into()),
-                cfg.agent.get("master").map(|a| a.provider.clone()).unwrap_or_else(|| "(none)".into()),
+                cfg.agent
+                    .get("master")
+                    .map(|a| a.model.clone())
+                    .unwrap_or_else(|| "(none)".into()),
+                cfg.agent
+                    .get("master")
+                    .map(|a| a.provider.clone())
+                    .unwrap_or_else(|| "(none)".into()),
             )
         };
         let cwd_str = std::env::current_dir()
@@ -2001,28 +4113,102 @@ async fn main() -> Result<()> {
         let tool_count = phantom_mesh::tools::all_tool_names().len();
 
         let state = std::sync::Arc::new(app_state);
-        let router = phantom_mesh::serve::router(state)
-            .layer(tower_http::cors::CorsLayer::permissive());
+        // T7 fix (codex audit 2026-05-15): the router's own `build_cors_layer`
+        // (default: same-origin; permissive only if PHANTOM_CORS_ALLOW_ANY=1)
+        // is the authoritative CORS policy. Layering another permissive CORS
+        // here would defeat the same-origin default.
+        let router = phantom_mesh::serve::router(state);
 
-        eprintln!("{} {} {}",
+        eprintln!(
+            "{} {} {}",
             colored("◆ phantom serve", 35),
             colored(env!("CARGO_PKG_VERSION"), 90),
-            colored(option_env!("PHANTOM_GIT_HASH").unwrap_or(""), 90));
+            colored(option_env!("PHANTOM_GIT_HASH").unwrap_or(""), 90)
+        );
         eprintln!("  node      : {}", colored(&node_name, 36));
-        eprintln!("  agent     : master · {} / {}", master_provider, colored(&master_model, 33));
+        eprintln!(
+            "  agent     : master · {} / {}",
+            master_provider,
+            colored(&master_model, 33)
+        );
         eprintln!("  cwd       : {}", cwd_str);
         eprintln!(
             "  perm/plan : {} / {}",
             perm_mode,
-            if plan_mode { colored("ON", 33) } else { "off".into() }
+            if plan_mode {
+                colored("ON", 33)
+            } else {
+                "off".into()
+            }
         );
         eprintln!("  tools     : {} built-in + 2 cluster RPC", tool_count);
         eprintln!("  WebSocket : ws://{}:{}/ws", host, port);
         eprintln!("  Health    : http://{}:{}/healthz", host, port);
-        eprintln!("  RPC       : http://{}:{}/rpc/{{ping,peers,message,task/assign}}", host, port);
+        eprintln!(
+            "  RPC       : http://{}:{}/rpc/{{ping,peers,message,task/assign}}",
+            host, port
+        );
         if peer_count > 0 {
-            eprintln!("  peers     : {} configured (heartbeat every 30s)", peer_count);
+            eprintln!(
+                "  peers     : {} configured (heartbeat every 30s)",
+                peer_count
+            );
         }
+
+        // ── B2/T83 — OpenClaw Telegram bot launcher (opt-in) ──────────────
+        //
+        // Spawned BEFORE `start_http_server` so the bot's `getMe` probe
+        // failing (bad token) doesn't tear down a running HTTP server.
+        // If `--openclaw-telegram` was passed without the feature compiled
+        // in, we surface a clear error rather than silently ignoring the
+        // flag.
+        if openclaw_telegram {
+            #[cfg(feature = "experimental-openclaw-telegram")]
+            {
+                use phantom_mesh::openclaw::telegram::{
+                    cli as tg_cli, run_round_trip, EchoDispatcher, OpenclawTelegramBot,
+                };
+                let allowed_raw = std::env::var(tg_cli::ALLOWED_USERS_ENV).ok();
+                match tg_cli::resolve_config(&bot_token_env, allowed_raw, |n| std::env::var(n).ok())
+                {
+                    Ok(tg_cfg) => {
+                        eprintln!(
+                            "  openclaw  : telegram bot ENABLED (token from ${}, allowlist={} ids)",
+                            bot_token_env,
+                            tg_cfg.allowed_user_ids.len()
+                        );
+                        // EchoDispatcher is the temporary stand-in until
+                        // T1 (PR #52) wires PhantomAgentDispatcher.
+                        let bot = std::sync::Arc::new(OpenclawTelegramBot::new(
+                            tg_cfg,
+                            std::sync::Arc::new(EchoDispatcher),
+                        ));
+                        tokio::spawn(async move {
+                            match run_round_trip(bot).await {
+                                Ok(()) => tracing::info!(
+                                    "openclaw-telegram bot started: round-trip loop exited cleanly"
+                                ),
+                                Err(e) => tracing::error!(
+                                    error = %e,
+                                    "openclaw-telegram bot failed (HTTP server still running)"
+                                ),
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        eprintln!("  openclaw  : telegram bot DISABLED — {}", e);
+                    }
+                }
+            }
+            #[cfg(not(feature = "experimental-openclaw-telegram"))]
+            {
+                let _ = &bot_token_env; // suppress unused-var warning
+                eprintln!(
+                    "  openclaw  : --openclaw-telegram requires `--features experimental-openclaw-telegram`; flag ignored"
+                );
+            }
+        }
+
         eprintln!("  Press Ctrl-C to stop.");
         eprintln!();
 
@@ -2036,6 +4222,1395 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // ── `phantom event` subcommand — E002 Task 9 ──────────────────────────
+    //
+    //   phantom event capture --kind K --image P --audio P --text T --tag T --coord URL
+    //     Capture a multimodal life event and POST it to the local serve
+    //     daemon's /api/events endpoint. The daemon (Task 10) reconstructs
+    //     proper modalities from the multipart parts, persists via EventStore,
+    //     dispatches to the configured MultimodalProvider, and returns the
+    //     AnalysisResult as JSON.
+    if args.get(1).map(|s| s.as_str()) == Some("event") {
+        let action = args.get(2).map(String::as_str).unwrap_or("");
+
+        // ── `phantom event show <id>` — print one event in full ─────────────
+        // Read-only; reads the same store /review + recall use (decrypts when
+        // identity.key is present). Completes the recall → inspect → delete flow.
+        if action == "show" {
+            use phantom_mesh::i18n::{tr, tr_owned};
+            use phantom_mesh::rpc_wire::EventKind;
+            let id_arg = args.get(3).map(|s| s.as_str());
+            if matches!(id_arg, None | Some("-h") | Some("--help")) {
+                eprintln!("{}", tr("phantom event show <id> — print one captured event in full", "phantom event show <id> — 完整顯示單一擷取事件"));
+                eprintln!();
+                eprintln!("  {}   (id or prefix from `phantom recall`)", colored("phantom event show <event-id>", 36));
+                return Ok(());
+            }
+            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let phantom = home.join(".phantom-mesh");
+            let events_dir = phantom.join("events");
+            let id = match phantom_mesh::life_node::data_cli::resolve_event_id(&events_dir, id_arg.unwrap()) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!("{}", tr_owned(format!("phantom event show: {e}"), format!("phantom event show：{e}")));
+                    std::process::exit(2);
+                }
+            };
+            let store = phantom_mesh::life_node::storage::EventStore::with_identity_file(
+                &events_dir,
+                &phantom.join("identity.key"),
+            );
+            let meta = match store.read_meta(&id) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("{}", tr_owned(
+                        format!("phantom event show: can't read {id}: {e} (encrypted without identity.key?)"),
+                        format!("phantom event show：無法讀取 {id}：{e}（已加密但無 identity.key？）"),
+                    ));
+                    std::process::exit(1);
+                }
+            };
+            let kind = match meta.kind {
+                EventKind::Food => "food",
+                EventKind::Focus => "focus",
+                EventKind::Habit => "habit",
+                EventKind::Text => "text",
+            };
+            println!("event {}", id);
+            println!("  kind     {}", kind);
+            println!("  when     {}", meta.timestamp);
+            if !meta.tags.is_empty() {
+                println!("  tags     {}", meta.tags.join(", "));
+            }
+            if let Ok(a) = store.read_analysis(&id) {
+                println!("  summary  {}", a.summary);
+                if let Some(impact) = a.goal_impact.as_deref().filter(|s| !s.is_empty()) {
+                    println!("  impact   {}", impact);
+                }
+                if let Some(sug) = a.suggestion.as_deref().filter(|s| !s.is_empty()) {
+                    println!("  suggest  {}", sug);
+                }
+                if !a.model_id.is_empty() {
+                    println!("  model    {}", a.model_id);
+                }
+            }
+            return Ok(());
+        }
+
+        if action != "capture" {
+            eprintln!("{}", phantom_mesh::i18n::tr("usage: phantom event (capture --kind <k> [--image|--audio|--text] | show <id>)", "用法：phantom event (capture --kind <k> [--image|--audio|--text] | show <id>)"));
+            std::process::exit(2);
+        }
+        let mut kind = String::from("note");
+        let mut image_paths: Vec<String> = Vec::new();
+        let mut audio_paths: Vec<String> = Vec::new();
+        let mut text: Option<String> = None;
+        let mut goal_tags: Vec<String> = Vec::new();
+        let port = std::env::var("PHANTOM_PORT").unwrap_or_else(|_| "7878".into());
+        let mut coord_url = format!("http://127.0.0.1:{}", port);
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--kind" => {
+                    kind = args.get(i + 1).cloned().unwrap_or_default();
+                    i += 2;
+                }
+                "--image" => {
+                    image_paths.push(args.get(i + 1).cloned().unwrap_or_default());
+                    i += 2;
+                }
+                "--audio" => {
+                    audio_paths.push(args.get(i + 1).cloned().unwrap_or_default());
+                    i += 2;
+                }
+                "--text" => {
+                    text = Some(args.get(i + 1).cloned().unwrap_or_default());
+                    i += 2;
+                }
+                "--tag" => {
+                    goal_tags.push(args.get(i + 1).cloned().unwrap_or_default());
+                    i += 2;
+                }
+                "--coord" => {
+                    coord_url = args.get(i + 1).cloned().unwrap_or_default();
+                    i += 2;
+                }
+                other => {
+                    eprintln!("unknown flag: {}", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+        phantom_mesh::life_node::capture::run(phantom_mesh::life_node::capture::CaptureArgs {
+            kind,
+            image_paths,
+            audio_paths,
+            text,
+            goal_tags,
+            coord_url,
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // ── `phantom food` — terse food-log shortcut (Life Track, SPEC-20) ─────
+    //   phantom food "grilled chicken salad" [--image P] [--tag T]...
+    // Ergonomic wrapper over `event capture --kind food` (same daemon path:
+    // POST /api/events → multimodal analysis → store), giving food the same
+    // one-word CLI as `phantom focus` / `phantom habit`.
+    if args.get(1).map(|s| s.as_str()) == Some("food") {
+        use phantom_mesh::i18n::tr;
+        let first = args.get(2).map(|s| s.as_str());
+        if matches!(first, None | Some("-h") | Some("--help")) {
+            eprintln!("{}", tr("phantom food — log a meal (Life Track)", "phantom food — 記錄一餐（生活軌道）"));
+            eprintln!();
+            eprintln!("  {}  [--image P] [--tag T]...", colored("phantom food \"<description>\"", 36));
+            eprintln!("{}", tr("       Captures a food event + gets a shame-free coach note. See `phantom coach review`.", "       擷取飲食事件 + 取得 shame-free 教練回饋。可用 `phantom coach review` 查看。"));
+            return Ok(());
+        }
+        let mut text: Option<String> = None;
+        let mut image_paths: Vec<String> = Vec::new();
+        let mut goal_tags: Vec<String> = vec!["fat_loss".to_string()];
+        let mut tag_set = false;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--image" | "-i" => { image_paths.push(args.get(i + 1).cloned().unwrap_or_default()); i += 2; }
+                "--tag" | "-t" => {
+                    if !tag_set { goal_tags.clear(); tag_set = true; }
+                    if let Some(t) = args.get(i + 1) { goal_tags.push(t.clone()); }
+                    i += 2;
+                }
+                other if text.is_none() && !other.starts_with('-') => { text = Some(other.to_string()); i += 1; }
+                _ => i += 1,
+            }
+        }
+        if text.is_none() && image_paths.is_empty() {
+            eprintln!("{}", tr("usage: phantom food \"<description>\" [--image P]", "用法：phantom food \"<描述>\" [--image P]"));
+            std::process::exit(2);
+        }
+        let port = std::env::var("PHANTOM_PORT").unwrap_or_else(|_| "7878".into());
+        phantom_mesh::life_node::capture::run(phantom_mesh::life_node::capture::CaptureArgs {
+            kind: "food".to_string(),
+            image_paths,
+            audio_paths: Vec::new(),
+            text,
+            goal_tags,
+            coord_url: format!("http://127.0.0.1:{}", port),
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // ── `phantom data` subcommand — E004 Task 6 ─────────────────────────────
+    //
+    //   phantom data delete --all --yes
+    //     Wipe `~/.phantom-mesh/events/` and everything under it.
+    //     Irreversible. Does NOT touch agents.toml / identity.key /
+    //     sessions/. Requires both --all (scope) and --yes (confirm) so a
+    //     stray `phantom data delete` can never destroy state by accident.
+    if args.get(1).map(|s| s.as_str()) == Some("data") {
+        let action = args.get(2).map(String::as_str).unwrap_or("");
+
+        // ── `phantom data export` — portability: get your life log OUT ──────
+        //   phantom data export [--format json|md] [--out FILE] [--kind K] [--since DATE]
+        if action == "export" {
+            use phantom_mesh::i18n::{tr, tr_owned};
+            use phantom_mesh::life_node::data_cli::ExportFormat;
+            let mut format = ExportFormat::Json;
+            let mut out: Option<String> = None;
+            let mut kind: Option<String> = None;
+            let mut since: Option<String> = None;
+            let mut j = 3;
+            while j < args.len() {
+                match args[j].as_str() {
+                    "--format" | "-f" => {
+                        match args.get(j + 1).map(|s| s.as_str()) {
+                            Some("json") => format = ExportFormat::Json,
+                            Some("md") | Some("markdown") => format = ExportFormat::Markdown,
+                            other => {
+                                eprintln!("{}", tr_owned(
+                                    format!("unknown --format '{}' (try json|md)", other.unwrap_or("")),
+                                    format!("未知的 --format「{}」（可用 json|md）", other.unwrap_or("")),
+                                ));
+                                std::process::exit(2);
+                            }
+                        }
+                        j += 2;
+                    }
+                    "--out" | "-o" => { out = args.get(j + 1).cloned(); j += 2; }
+                    "--kind" | "-k" => { kind = args.get(j + 1).cloned(); j += 2; }
+                    "--since" | "-s" => { since = args.get(j + 1).cloned(); j += 2; }
+                    "-h" | "--help" => {
+                        eprintln!("{}", tr("phantom data export — export your Life Node events (portability)", "phantom data export — 匯出你的 Life Node 事件（資料可攜）"));
+                        eprintln!();
+                        eprintln!("  {}  [--format json|md] [--out FILE] [--kind K] [--since YYYY-MM-DD]", colored("phantom data export", 36));
+                        return Ok(());
+                    }
+                    other => { eprintln!("unknown flag: {}", other); std::process::exit(2); }
+                }
+            }
+            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let filter = phantom_mesh::life_node::recall::RecallFilter {
+                query: "",
+                kind: kind.as_deref(),
+                since: since.as_deref(),
+            };
+            let result = phantom_mesh::life_node::data_cli::run_export(&home, format, &filter)?;
+            match &out {
+                Some(path) => {
+                    std::fs::write(path, &result.body)
+                        .map_err(|e| anyhow::anyhow!("write {}: {}", path, e))?;
+                    eprintln!("{}", tr_owned(
+                        format!("✓ exported {} event(s) → {}", result.event_count, path),
+                        format!("✓ 已匯出 {} 筆事件 → {}", result.event_count, path),
+                    ));
+                }
+                None => {
+                    print!("{}", result.body);
+                    eprintln!("{}", tr_owned(
+                        format!("✓ exported {} event(s)", result.event_count),
+                        format!("✓ 已匯出 {} 筆事件", result.event_count),
+                    ));
+                }
+            }
+            return Ok(());
+        }
+
+        // ── `phantom data stats` — life-log rollup ──────────────────────────
+        if action == "stats" {
+            use phantom_mesh::i18n::tr_owned;
+            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let s = phantom_mesh::life_node::data_cli::compute_stats(&home)?;
+            let span = match (&s.earliest, &s.latest) {
+                (Some(e), Some(l)) => format!("{} → {}", e, l),
+                _ => "—".to_string(),
+            };
+            println!("{}", tr_owned(
+                format!("life log — {} events · {} · {} in last 7d", s.total, span, s.last_7d),
+                format!("生活紀錄 — {} 筆事件 · {} · 近 7 天 {} 筆", s.total, span, s.last_7d),
+            ));
+            for (kind, n) in &s.by_kind {
+                println!("  {:<7} {}", kind, n);
+            }
+            return Ok(());
+        }
+
+        if action != "delete" {
+            eprintln!("{}", phantom_mesh::i18n::tr("usage: phantom data [delete (--all --yes | <event-id>) | export [--format json|md] [--out FILE] | stats]", "用法：phantom data [delete (--all --yes | <event-id>) | export [--format json|md] [--out FILE] | stats]"));
+            std::process::exit(2);
+        }
+        // `phantom data delete <event-id>` — remove a SINGLE event (granular
+        // reversibility: take back one mis-captured note without --all). Any
+        // non-flag arg after `delete` is treated as the id/prefix.
+        if let Some(id) = args.get(3).filter(|a| !a.starts_with("--")) {
+            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            match phantom_mesh::life_node::data_cli::delete_event(&home, id) {
+                Ok(deleted) => eprintln!("{}", phantom_mesh::i18n::tr_owned(
+                    format!("✓ deleted event {deleted}"),
+                    format!("✓ 已刪除事件 {deleted}"),
+                )),
+                Err(e) => {
+                    eprintln!("{}", phantom_mesh::i18n::tr_owned(
+                        format!("phantom data delete: {e}"),
+                        format!("phantom data delete：{e}"),
+                    ));
+                    std::process::exit(1);
+                }
+            }
+            return Ok(());
+        }
+        let mut want_all = false;
+        let mut confirmed = false;
+        let mut include_broker = false;
+        let mut j = 3;
+        while j < args.len() {
+            match args[j].as_str() {
+                "--all" => {
+                    want_all = true;
+                    j += 1;
+                }
+                "--yes" => {
+                    confirmed = true;
+                    j += 1;
+                }
+                "--include-broker" => {
+                    // CUJ-05 EU compliance: also schedule a server-side
+                    // wipe so the broker stops holding sealed objects for
+                    // this account. 24h SLA, returns wipe_id for support
+                    // follow-up. No effect without an active broker login.
+                    include_broker = true;
+                    j += 1;
+                }
+                other => {
+                    eprintln!("unknown flag: {}", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+        if !want_all {
+            eprintln!("{}", phantom_mesh::i18n::tr("phantom data delete requires --all", "phantom data delete 需要 --all"));
+            std::process::exit(2);
+        }
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        match phantom_mesh::life_node::data_cli::run_delete_all(&home, confirmed) {
+            Ok(s) => {
+                eprintln!(
+                    "✓ deleted {} events ({} bytes) from {}",
+                    s.event_count,
+                    s.bytes_deleted,
+                    s.events_dir.display()
+                );
+            }
+            Err(e) => {
+                eprintln!("phantom data delete: {}", e);
+                std::process::exit(1);
+            }
+        }
+        // CUJ-05 broker-side wipe — runs only after local delete confirmed
+        // so a network failure here doesn't leave the user thinking nothing
+        // happened. Local already gone; broker is the "best-effort
+        // additional" step.
+        if include_broker {
+            match phantom_mesh::cli_config::wipe_broker_vault_now(
+                "all",
+                Some("phantom data delete --all --yes --include-broker (user-initiated)".to_string()),
+            )
+            .await
+            {
+                Ok(resp) => {
+                    eprintln!(
+                        "✓ broker wipe scheduled — wipe_id={} eta_complete_ts={} (24h SLA)",
+                        resp.wipe_id, resp.eta_complete_ts,
+                    );
+                    eprintln!(
+                        "  poll status: phantom data wipe-status {} (not yet implemented; \
+                         check phantommesh.io account page meanwhile)",
+                        resp.wipe_id,
+                    );
+                }
+                Err(e) => {
+                    eprintln!(
+                        "phantom data delete: local delete OK, broker wipe failed: {}",
+                        e
+                    );
+                    eprintln!(
+                        "  to retry only the broker side: phantom data wipe-broker (not yet \
+                         a subcommand; re-run --include-broker after fixing network/login)"
+                    );
+                    std::process::exit(1);
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // ── `phantom identity import` — CUJ-05 reinstall path ─────────────────
+    //
+    //   phantom identity import --from <path> [--force]
+    //     Restore `~/.phantom-mesh/identity.key` from a file the user is
+    //     carrying over (e.g. extracted from a prior `phantom backup`
+    //     tar.gz with `tar -xzf ... .phantom-mesh/identity.key`).
+    //
+    //     The bytes MUST be exactly 64 (the per-device root IKM length).
+    //     A different length means the source is corrupt or from a
+    //     different version; we fail-loud rather than silently produce an
+    //     unreadable EventStore.
+    //
+    //     Refuses to clobber an existing identity.key unless `--force`.
+    //     With `--force`, the old file is renamed to
+    //     `identity.key.bak-<unix-ts>` first so the operator can recover
+    //     if they imported the wrong file.
+    //
+    //     Prints the fingerprint (sha256[0..8] hex) on success so the user
+    //     can match against the value `phantom backup` records.
+    //
+    //     NOTE: only identity.key is restored. To bring back the events
+    //     themselves, also extract `events/`, `events.sqlite`, `reviews/`
+    //     etc. from the backup tarball:
+    //         tar -xzf backup.tar.gz -C ~/
+    //     This subcommand is the "key only" route for when the user has
+    //     just the key (e.g. printed/typed from a paper wallet).
+    if args.get(1).map(|s| s.as_str()) == Some("identity") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        let action = args.get(2).map(String::as_str).unwrap_or("");
+        if action == "import" {
+            let mut from_path: Option<String> = None;
+            let mut force = false;
+            let mut j = 3;
+            while j < args.len() {
+                match args[j].as_str() {
+                    "--from" | "-f" => {
+                        from_path = args.get(j + 1).cloned();
+                        j += 2;
+                    }
+                    "--force" => {
+                        force = true;
+                        j += 1;
+                    }
+                    "-h" | "--help" => {
+                        eprintln!("{}", tr(
+                            "phantom identity import — restore identity.key from a file (CUJ-05 reinstall)",
+                            "phantom identity import — 從檔案還原 identity.key (CUJ-05 reinstall)",
+                        ));
+                        eprintln!();
+                        eprintln!("  {}  --from <path> [--force]", colored("phantom identity import", 36));
+                        return Ok(());
+                    }
+                    other => {
+                        eprintln!("unknown flag: {}", other);
+                        std::process::exit(2);
+                    }
+                }
+            }
+            let from = match from_path {
+                Some(p) => p,
+                None => {
+                    eprintln!("{}", tr(
+                        "phantom identity import requires --from <path>",
+                        "phantom identity import 需要 --from <path>",
+                    ));
+                    std::process::exit(2);
+                }
+            };
+            // Read the raw bytes. Whether the source is a saved
+            // identity.key, an `age` blob, or extracted tar member is the
+            // operator's responsibility — we only validate the length.
+            let bytes = match std::fs::read(&from) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("{}", tr_owned(
+                        format!("phantom identity import: read {}: {}", from, e),
+                        format!("phantom identity import：讀 {} 失敗：{}", from, e),
+                    ));
+                    std::process::exit(1);
+                }
+            };
+            match phantom_mesh::identity::import_root_identity_key(&bytes, force) {
+                Ok(fp) => {
+                    eprintln!("{}", tr_owned(
+                        format!("✓ phantom identity import → ~/.phantom-mesh/identity.key (fingerprint: {})", fp),
+                        format!("✓ phantom identity import → ~/.phantom-mesh/identity.key（指紋：{}）", fp),
+                    ));
+                    eprintln!("{}", tr(
+                        "  Next: restore events with `tar -xzf <backup.tar.gz> -C ~/` to get the encrypted data files",
+                        "  下一步：用 `tar -xzf <backup.tar.gz> -C ~/` 取回 events 加密資料檔",
+                    ));
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("{}", tr_owned(
+                        format!("phantom identity import: {}", e),
+                        format!("phantom identity import：{}", e),
+                    ));
+                    std::process::exit(1);
+                }
+            }
+        }
+        eprintln!("{}", tr(
+            "usage: phantom identity import --from <path> [--force]",
+            "用法：phantom identity import --from <path> [--force]",
+        ));
+        std::process::exit(2);
+    }
+
+    // ── `phantom backup` — CUJ-05 full data archive (EU compliance MVP) ────
+    //
+    //   phantom backup --to <path.tar.gz>
+    //     Wrap the entire ~/.phantom-mesh/ tree (identity.key, events/,
+    //     events.sqlite, habits.sqlite, reviews/, agents.toml — everything
+    //     under HOME/.phantom-mesh/) into one tar.gz so the user can take
+    //     their data off the machine before delete-all / uninstall (GDPR
+    //     Article 17 right-to-export + reinstall-restore path).
+    //
+    //     Shells out to `tar -czf <path> -C ~ .phantom-mesh` so we don't
+    //     pull `tar` + `flate2` crates just for the MVP — the system tar is
+    //     on every macOS + Linux box. Failure (no tar / disk full) prints a
+    //     friendly error and exits 1. The destination path can be relative
+    //     (resolved against cwd) or absolute.
+    //
+    //     Does NOT touch broker server-side data; pair with
+    //     `phantom data delete --all --yes --include-broker` (TODO) when
+    //     the broker DELETE endpoint lands.
+    if args.get(1).map(|s| s.as_str()) == Some("backup") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        let mut out_path: Option<String> = None;
+        let mut j = 2;
+        while j < args.len() {
+            match args[j].as_str() {
+                "--to" | "-o" => {
+                    out_path = args.get(j + 1).cloned();
+                    j += 2;
+                }
+                "-h" | "--help" => {
+                    eprintln!("{}", tr(
+                        "phantom backup — archive ~/.phantom-mesh/ to tar.gz (CUJ-05 export path)",
+                        "phantom backup — 把 ~/.phantom-mesh/ 整包匯出成 tar.gz (CUJ-05 export)",
+                    ));
+                    eprintln!();
+                    eprintln!("  {}  --to <path.tar.gz>", colored("phantom backup", 36));
+                    return Ok(());
+                }
+                other => {
+                    eprintln!("unknown flag: {}", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+        let out = match out_path {
+            Some(p) => p,
+            None => {
+                eprintln!("{}", tr(
+                    "phantom backup requires --to <path.tar.gz>",
+                    "phantom backup 需要 --to <path.tar.gz>",
+                ));
+                std::process::exit(2);
+            }
+        };
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        let phantom_dir = home.join(".phantom-mesh");
+        if !phantom_dir.exists() {
+            eprintln!("{}", tr(
+                "phantom backup: ~/.phantom-mesh/ does not exist (nothing to archive)",
+                "phantom backup：~/.phantom-mesh/ 不存在（沒東西要打包）",
+            ));
+            std::process::exit(1);
+        }
+        // `tar -czf <out> -C <home> .phantom-mesh` — single-step gzip stream,
+        // no temp file, preserves directory structure so a recipient can
+        // `tar -xzf <out> -C ~/` to restore in place.
+        let status = std::process::Command::new("tar")
+            .arg("-czf")
+            .arg(&out)
+            .arg("-C")
+            .arg(&home)
+            .arg(".phantom-mesh")
+            .status()
+            .map_err(|e| anyhow::anyhow!("spawn tar: {}", e))?;
+        if !status.success() {
+            eprintln!("{}", tr_owned(
+                format!("phantom backup: tar exited with {} (disk full? permission? path collision?)", status),
+                format!("phantom backup：tar 退出代碼 {}（磁碟滿？權限？路徑撞？）", status),
+            ));
+            std::process::exit(1);
+        }
+        // Best-effort size report — if stat fails (file gone, weird fs), the
+        // backup still succeeded so don't error out here.
+        let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+        eprintln!("{}", tr_owned(
+            format!("✓ phantom backup → {} ({} bytes)", out, size),
+            format!("✓ phantom backup → {}（{} bytes）", out, size),
+        ));
+        eprintln!("{}", tr(
+            "  to restore: tar -xzf <path> -C ~/  (overwrites existing ~/.phantom-mesh/)",
+            "  恢復方法：tar -xzf <path> -C ~/（會覆蓋現有 ~/.phantom-mesh/）",
+        ));
+        return Ok(());
+    }
+
+    // ── `phantom coach` subcommand — E003 first slice ──────────────────────
+    //
+    //   phantom coach review --date YYYY-MM-DD [--save]
+    //     Aggregate all (event, analysis) pairs from
+    //     ~/.phantom-mesh/events/ whose timestamp falls on <date> into a
+    //     deterministic Markdown brief. Prints to stdout. With --save,
+    //     also writes to ~/.phantom-mesh/reviews/<date>.md
+    //     (the path E005's from_daily_review extractor will read).
+    //
+    //     Runs the shame-free lint (`coach_prompts::lint::check`) on the
+    //     final brief — warnings go to stderr but never block output;
+    //     the brief is event data + analysis summaries, not coach
+    //     prose, so violations are unexpected here. The lint hooks
+    //     into the same place when the LLM tomorrow-action pass ships.
+    // ── `phantom focus` — terminal focus session (P2 Life Track) ──────────
+    // Design: docs/superpowers/design/terminal-focus.md. Implemented via
+    // life_node::focus_session — a disk-backed timer
+    // (~/.phantom-mesh/focus-session.json) whose `stop` writes a kind=focus Life
+    // Node event (age-encrypted when identity.key exists). Unknown sub-actions
+    // exit 2. (The Tauri/mobile wire path `capture_focus_wire` is separate.)
+    if args.get(1).map(|s| s.as_str()) == Some("focus") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        let sub = args.get(2).map(|s| s.as_str());
+        match sub {
+            None | Some("-h") | Some("--help") => {
+                eprintln!("{}", tr("phantom focus — timed deep-work sessions (Life Track)", "phantom focus — 計時深度工作時段（生活軌道）"));
+                eprintln!();
+                eprintln!("  {}  [--minutes N] [--task \"…\"] [--record]", colored("phantom focus start", 36));
+                eprintln!("  {}", colored("phantom focus status", 36));
+                eprintln!("  {}  [\"note\"]", colored("phantom focus interrupt", 36));
+                eprintln!("  {}", colored("phantom focus stop", 36));
+                eprintln!("  {}  [--date YYYY-MM-DD]", colored("phantom focus history", 36));
+                eprintln!();
+                eprintln!("{}", tr("       Timer mode (terminal): timer + interruption log. --record (audio + transcript) is NOT implemented yet — accepted but warns + runs timer-only.", "       計時模式（終端機）：計時 + 記錄中斷。--record（錄音 + 逐字稿）尚未實作 — 會接受但提示並只計時。"));
+                return Ok(());
+            }
+            Some("start") => {
+                use phantom_mesh::life_node::focus_session as fsx;
+                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let mut minutes: u64 = 25;
+                let mut task: Option<String> = None;
+                let mut record_requested = false;
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--minutes" | "-m" => {
+                            // Reject a missing or non-numeric value instead of
+                            // silently falling back to 25 — a typo'd duration
+                            // should fail loudly, not start a surprise 25-min timer.
+                            match args.get(i + 1).map(|s| s.parse::<u64>()) {
+                                Some(Ok(n)) if n > 0 => minutes = n,
+                                _ => {
+                                    let got = args.get(i + 1).map(|s| s.as_str()).unwrap_or("(missing)");
+                                    eprintln!("{}", tr_owned(
+                                        format!("✗ --minutes expects a positive whole number, got: {got}"),
+                                        format!("✗ --minutes 需要正整數分鐘數，收到：{got}"),
+                                    ));
+                                    std::process::exit(2);
+                                }
+                            }
+                            i += 2;
+                        }
+                        "--task" | "-t" => {
+                            task = args.get(i + 1).cloned();
+                            i += 2;
+                        }
+                        // SPEC-21: audio capture → ASR → transcript is not yet
+                        // implemented. Record the request so we can tell the user
+                        // plainly rather than silently no-op (which would mislead
+                        // them into thinking the session was recorded).
+                        "--record" => {
+                            record_requested = true;
+                            i += 1;
+                        }
+                        other if task.is_none() && !other.starts_with('-') => {
+                            task = Some(other.to_string());
+                            i += 1;
+                        }
+                        _ => i += 1,
+                    }
+                }
+                if record_requested {
+                    // Be honest: don't let `--record` imply audio was captured.
+                    eprintln!("{}", tr(
+                        "  ⚠ --record (audio capture + transcript) is not implemented yet; running timer-only this session.",
+                        "  ⚠ --record（錄音 + 逐字稿）尚未實作；本次只計時，不錄音。",
+                    ));
+                }
+                match fsx::start(&home, minutes, task.clone(), vec![]) {
+                    Ok(s) => {
+                        let short = s.session_id.get(..8).unwrap_or(&s.session_id);
+                        let suffix = task.as_deref().map(|t| format!(" · {t}")).unwrap_or_default();
+                        println!("{}", tr_owned(
+                            format!("● focus started — {minutes} min · session {short}{suffix}"),
+                            format!("● 專注開始 — {minutes} 分鐘 · session {short}{suffix}"),
+                        ));
+                        println!("{}", tr(
+                            "  stop with `phantom focus stop`; log a distraction with `phantom focus interrupt`.",
+                            "  用 `phantom focus stop` 結束；用 `phantom focus interrupt` 記錄中斷。",
+                        ));
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(2);
+                    }
+                }
+                return Ok(());
+            }
+            Some("status") => {
+                use phantom_mesh::life_node::focus_session as fsx;
+                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let fmt = |ms: u64| format!("{:02}:{:02}", ms / 60000, (ms % 60000) / 1000);
+                match fsx::status(&home) {
+                    Some(s) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        let elapsed = now.saturating_sub(s.started_at_ms);
+                        let remaining = s.planned_duration_ms.saturating_sub(elapsed);
+                        let suffix = s.task.as_deref().map(|t| format!(" · {t}")).unwrap_or_default();
+                        println!("{}", tr_owned(
+                            format!("● active — {} elapsed / {} remaining · {} interruption(s){suffix}", fmt(elapsed), fmt(remaining), s.interruptions.len()),
+                            format!("● 進行中 — 已過 {} / 剩 {} · {} 次中斷{suffix}", fmt(elapsed), fmt(remaining), s.interruptions.len()),
+                        ));
+                    }
+                    None => println!("{}", tr(
+                        "no active focus session — start one with `phantom focus start`.",
+                        "目前沒有進行中的專注時段 — 用 `phantom focus start` 開始。",
+                    )),
+                }
+                return Ok(());
+            }
+            Some("interrupt") => {
+                use phantom_mesh::life_node::focus_session as fsx;
+                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let note = args.get(3).cloned().unwrap_or_else(|| "interruption".to_string());
+                match fsx::interrupt(&home, &note) {
+                    Ok(n) => println!("{}", tr_owned(
+                        format!("logged interruption #{n}: {note}"),
+                        format!("已記錄第 {n} 次中斷：{note}"),
+                    )),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(2);
+                    }
+                }
+                return Ok(());
+            }
+            Some("stop") => {
+                use phantom_mesh::life_node::focus_session as fsx;
+                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let fmt = |ms: u64| format!("{:02}:{:02}", ms / 60000, (ms % 60000) / 1000);
+                match fsx::stop(&home) {
+                    Ok(r) => {
+                        println!("{}", tr_owned(
+                            format!("■ focus complete — {} ({:.0}% of plan) · {} interruption(s)", fmt(r.actual_duration_ms), r.completion_pct, r.interruptions),
+                            format!("■ 專注完成 — {}（達成 {:.0}%）· {} 次中斷", fmt(r.actual_duration_ms), r.completion_pct, r.interruptions),
+                        ));
+                        match r.event_id {
+                            Some(id) => {
+                                let short = id.get(..8).unwrap_or(&id);
+                                println!("{}", tr_owned(
+                                    format!("  saved as Life Node event {short} — see `phantom coach review`."),
+                                    format!("  已存成 Life Node 事件 {short} — 可用 `phantom coach review` 查看。"),
+                                ));
+                            }
+                            None => println!("{}", tr(
+                                "  (session ended; event write skipped)",
+                                "  （時段已結束；事件寫入略過）",
+                            )),
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(2);
+                    }
+                }
+                return Ok(());
+            }
+            Some("history") => {
+                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let mut date: Option<String> = None;
+                let mut i = 3;
+                while i < args.len() {
+                    if args[i] == "--date" {
+                        date = args.get(i + 1).cloned();
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+                let events_dir = home.join(".phantom-mesh/events");
+                let key = phantom_mesh::life_node::key_derivation::load_event_key(
+                    &home.join(".phantom-mesh/identity.key"),
+                )
+                .ok();
+                let pairs = phantom_mesh::life_node::daily_review::load_events_for_date(
+                    &events_dir, &date, key,
+                )?;
+                let focus: Vec<_> = pairs
+                    .iter()
+                    .filter(|(m, _)| matches!(m.kind, phantom_mesh::event_storage_wire::EventKind::Focus))
+                    .collect();
+                if focus.is_empty() {
+                    println!("{}", tr_owned(
+                        format!("no focus sessions on {date}."),
+                        format!("{date} 沒有專注時段。"),
+                    ));
+                } else {
+                    println!("{}", tr_owned(
+                        format!("focus sessions — {date} ({})", focus.len()),
+                        format!("專注時段 — {date}（{} 筆）", focus.len()),
+                    ));
+                    for (m, a) in focus {
+                        let t = m.timestamp.get(11..16).unwrap_or("");
+                        println!("  · {t}  {}", a.summary.lines().next().unwrap_or(""));
+                    }
+                }
+                return Ok(());
+            }
+            Some(other) => {
+                eprintln!("{}", tr_owned(
+                    format!("error: unknown `phantom focus` action '{other}' — try start|status|interrupt|stop|history"),
+                    format!("錯誤：未知的 `phantom focus` 動作 '{other}' — 可用 start|status|interrupt|stop|history"),
+                ));
+                std::process::exit(2);
+            }
+        }
+    }
+
+    // ── `phantom habit` — recurring-habit tracker (SPEC-22, Life Track) ────
+    //   phantom habit create <slug> [--label "…"] [--tag T]...
+    //   phantom habit checkin <slug> ["note"]
+    //   phantom habit list
+    // Backed by the real capture_habit_wire sqlite (shared with the app's
+    // HabitPage — same ~/.phantom-mesh habits db), so CLI + app habits are one.
+    if args.get(1).map(|s| s.as_str()) == Some("habit") {
+        use phantom_mesh::capture_habit_wire as hw;
+        use phantom_mesh::i18n::{tr, tr_owned};
+        let sub = args.get(2).map(|s| s.as_str());
+        match sub {
+            None | Some("-h") | Some("--help") => {
+                eprintln!("{}", tr("phantom habit — recurring-habit tracker (Life Track)", "phantom habit — 週期習慣追蹤（生活軌道）"));
+                eprintln!();
+                eprintln!("  {}  [--label \"…\"] [--tag T]...", colored("phantom habit create <slug>", 36));
+                eprintln!("  {}  [\"note\"]", colored("phantom habit checkin <slug>", 36));
+                eprintln!("  {}", colored("phantom habit list", 36));
+                return Ok(());
+            }
+            Some("create") => {
+                let slug = match args.get(3) {
+                    Some(s) if !s.starts_with('-') => s.clone(),
+                    _ => {
+                        eprintln!("{}", tr("usage: phantom habit create <slug> [--label \"…\"] [--tag T]", "用法：phantom habit create <slug> [--label \"…\"] [--tag T]"));
+                        std::process::exit(2);
+                    }
+                };
+                let mut label: Option<String> = None;
+                let mut tags: Vec<String> = Vec::new();
+                let mut i = 4;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--label" | "-l" => { label = args.get(i + 1).cloned(); i += 2; }
+                        "--tag" | "-t" => { if let Some(t) = args.get(i + 1) { tags.push(t.clone()); } i += 2; }
+                        _ => i += 1,
+                    }
+                }
+                let def = hw::HabitDefinition {
+                    slug: slug.clone(),
+                    label: label.unwrap_or_else(|| slug.clone()),
+                    target_frequency: hw::HabitFrequency::Daily,
+                    tags,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                };
+                match hw::create_habit(&def) {
+                    Ok(()) => println!("{}", tr_owned(format!("✓ habit created: {slug}"), format!("✓ 已建立習慣：{slug}"))),
+                    Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                }
+                return Ok(());
+            }
+            Some("checkin") => {
+                let slug = match args.get(3) {
+                    Some(s) if !s.starts_with('-') => s.clone(),
+                    _ => {
+                        eprintln!("{}", tr("usage: phantom habit checkin <slug> [\"note\"]", "用法：phantom habit checkin <slug> [\"note\"]"));
+                        std::process::exit(2);
+                    }
+                };
+                let note = args.get(4).cloned();
+                // G-BUG-CHECKIN: provision the per-device identity key (idempotent)
+                // before the encrypted check-in write. Without this, a fresh-install
+                // user whose only setup was `keys init` (which makes ed25519 mesh
+                // keys, NOT ~/.phantom-mesh/identity.key) hits "EventKey not loaded
+                // (vault locked)" on their first check-in. Mirrors the `food` capture
+                // path (E002 Task 8). Non-fatal: a provisioning failure is logged and
+                // record_checkin still surfaces its own Store error if encryption is
+                // truly unavailable.
+                if let Err(e) = phantom_mesh::identity::ensure_root_identity_key() {
+                    tracing::warn!("identity key provisioning failed before checkin: {e}");
+                }
+                let checkin = hw::HabitCheckin {
+                    habit_slug: slug.clone(),
+                    timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                    note,
+                    source: hw::HabitCheckinSource::Manual,
+                };
+                match hw::record_checkin(&checkin) {
+                    Ok(streak) => println!("{}", tr_owned(
+                        format!("✓ checked in: {slug} — streak {} (longest {})", streak.current_streak, streak.longest_streak),
+                        format!("✓ 已打卡：{slug} — 連續 {} 天（最長 {}）", streak.current_streak, streak.longest_streak),
+                    )),
+                    Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                }
+                return Ok(());
+            }
+            Some("list") => {
+                match hw::list_habits() {
+                    Ok(habits) if habits.is_empty() => println!("{}", tr("no habits yet — `phantom habit create <slug>`", "尚無習慣 — `phantom habit create <slug>`")),
+                    Ok(habits) => {
+                        println!("{}", tr_owned(format!("habits ({})", habits.len()), format!("習慣（{} 個）", habits.len())));
+                        for h in habits {
+                            println!(
+                                "  {}  {} {} · 7d={} 30d={}",
+                                h.habit_slug,
+                                tr("streak", "連續"),
+                                h.streak.current_streak,
+                                h.last_7d_count,
+                                h.last_30d_count
+                            );
+                        }
+                    }
+                    Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                }
+                return Ok(());
+            }
+            Some(other) => {
+                eprintln!("{}", tr_owned(
+                    format!("error: unknown `phantom habit` action '{other}' — try create|checkin|list"),
+                    format!("錯誤：未知的 `phantom habit` 動作 '{other}' — 可用 create|checkin|list"),
+                ));
+                std::process::exit(2);
+            }
+        }
+    }
+
+    // ── `phantom note` — capture a free-text Life Node event (Life Track) ──
+    //   phantom note "<text>" [--tag T]...
+    // Direct synchronous write to ~/.phantom-mesh/events (no daemon); encrypts
+    // at rest when identity.key is present. The CLI twin of the TUI `/note`.
+    if args.get(1).map(|s| s.as_str()) == Some("note") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        use std::io::{IsTerminal, Read};
+        let stdin_is_tty = std::io::stdin().is_terminal();
+        let no_args = args.get(2).is_none();
+        // Full help on explicit -h/--help, or a bare *interactive* `phantom
+        // note` (no args + a TTY). A bare *piped* invocation (`… | phantom
+        // note`) falls through to read the note text from stdin.
+        if matches!(args.get(2).map(|s| s.as_str()), Some("-h") | Some("--help"))
+            || (no_args && stdin_is_tty)
+        {
+            eprintln!("{}", tr("phantom note — capture a quick Life Node note (Life Track)", "phantom note — 記錄一則 Life Node 筆記（生活軌道）"));
+            eprintln!();
+            eprintln!("  {}  [--tag T]...", colored("phantom note \"<text>\"", 36));
+            eprintln!("  {}", colored("… | phantom note  [--tag T]...   (read text from stdin; `-` also forces it)", 90));
+            eprintln!("{}", tr("       Writes directly to ~/.phantom-mesh/events; encrypts at rest when identity.key exists. Find it later with `phantom recall`.", "       直接寫入 ~/.phantom-mesh/events；有 identity.key 時靜態加密。之後可用 `phantom recall` 找回。"));
+            return Ok(());
+        }
+        let mut text: Option<String> = None;
+        let mut tags: Vec<String> = Vec::new();
+        let mut read_stdin = false;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--tag" | "-t" => {
+                    if let Some(t) = args.get(i + 1) {
+                        tags.push(t.clone());
+                    }
+                    i += 2;
+                }
+                // `-` forces reading the note from stdin (even on a TTY).
+                "-" => {
+                    read_stdin = true;
+                    i += 1;
+                }
+                other if text.is_none() && !other.starts_with('-') => {
+                    text = Some(other.to_string());
+                    i += 1;
+                }
+                _ => i += 1,
+            }
+        }
+        // No inline text → read stdin when piped (not a TTY) or `-` was given.
+        // The TTY guard means an interactive `phantom note --tag x` won't hang.
+        if text.is_none() && (read_stdin || !stdin_is_tty) {
+            let mut buf = String::new();
+            std::io::stdin().read_to_string(&mut buf).ok();
+            let trimmed = buf.trim();
+            if !trimmed.is_empty() {
+                text = Some(trimmed.to_string());
+            }
+        }
+        let Some(text) = text else {
+            eprintln!("{}", tr("usage: phantom note \"<text>\" [--tag T]   (or pipe text: `… | phantom note`)", "用法：phantom note \"<文字>\" [--tag T]（或用管線輸入：`… | phantom note`）"));
+            std::process::exit(2);
+        };
+        if tags.is_empty() {
+            tags.push("note".to_string());
+        }
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        match phantom_mesh::life_node::note_capture::capture_note(&home.join(".phantom-mesh"), &text, &tags) {
+            Ok(out) => {
+                let short: String = out.event_id.chars().take(8).collect();
+                let enc = if out.encrypted {
+                    tr("encrypted", "已加密")
+                } else {
+                    tr("plaintext — no identity.key", "明文 — 無 identity.key")
+                };
+                println!("{}", tr_owned(
+                    format!("✓ note captured ({}… · {})", short, enc),
+                    format!("✓ 已記錄筆記（{}… · {}）", short, enc),
+                ));
+            }
+            Err(e) => {
+                eprintln!("{}", tr_owned(format!("note capture failed: {e}"), format!("記錄筆記失敗：{e}")));
+                std::process::exit(2);
+            }
+        }
+        return Ok(());
+    }
+
+    // ── `phantom recall` — search Life Node events by content (Life Track) ──
+    //   phantom recall <query> [--kind food|focus|habit|text] [--since YYYY-MM-DD] [--limit N]
+    // The CLI twin of the TUI `/recall`; reads the same ~/.phantom-mesh/events
+    // store. Bare `phantom recall` lists recent events. Read-only.
+    if args.get(1).map(|s| s.as_str()) == Some("recall") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        if matches!(args.get(2).map(|s| s.as_str()), Some("-h") | Some("--help")) {
+            eprintln!("{}", tr("phantom recall — search past Life Node events (Life Track)", "phantom recall — 搜尋過往 Life Node 事件（生活軌道）"));
+            eprintln!();
+            eprintln!("  {}  [--kind food|focus|habit|text] [--since YYYY-MM-DD] [--limit N] [--json]", colored("phantom recall <query>", 36));
+            return Ok(());
+        }
+        let mut kind: Option<String> = None;
+        let mut since: Option<String> = None;
+        let mut limit: usize = 20;
+        let mut json = false;
+        let mut qwords: Vec<String> = Vec::new();
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--kind" | "-k" => {
+                    kind = args.get(i + 1).cloned();
+                    i += 2;
+                }
+                "--since" | "-s" => {
+                    since = args.get(i + 1).cloned();
+                    i += 2;
+                }
+                "--limit" | "-n" => {
+                    limit = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(20);
+                    i += 2;
+                }
+                "--json" => {
+                    json = true;
+                    i += 1;
+                }
+                other => {
+                    qwords.push(other.to_string());
+                    i += 1;
+                }
+            }
+        }
+        let qtext = qwords.join(" ");
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        let phantom = home.join(".phantom-mesh");
+        let key = phantom_mesh::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
+        let filter = phantom_mesh::life_node::recall::RecallFilter {
+            query: &qtext,
+            kind: kind.as_deref(),
+            since: since.as_deref(),
+        };
+        match phantom_mesh::life_node::recall::search_events(&phantom.join("events"), key, &filter, limit) {
+            // Machine-readable (matches `evolve list --json` / `doctor --json`):
+            // the full hit array to stdout, empty → `[]`.
+            Ok(hits) if json => println!(
+                "{}",
+                serde_json::to_string_pretty(&hits)
+                    .map_err(|e| anyhow::anyhow!("serialize hits: {e}"))?
+            ),
+            Ok(hits) if hits.is_empty() => println!("{}", tr("no matching events.", "沒有符合的事件。")),
+            Ok(hits) => {
+                println!("{}", tr_owned(format!("{} match(es):", hits.len()), format!("找到 {} 筆：", hits.len())));
+                for h in &hits {
+                    let when = h.timestamp.get(0..10).unwrap_or("—");
+                    // Short id prefix → `phantom data delete <id>` can target this event.
+                    let id8: String = h.event_id.chars().take(8).collect();
+                    println!("  {}  {}  [{}]  {}", id8, when, h.kind, h.summary);
+                }
+            }
+            Err(e) => {
+                eprintln!("{}", tr_owned(format!("recall failed: {e}"), format!("搜尋失敗：{e}")));
+                std::process::exit(2);
+            }
+        }
+        return Ok(());
+    }
+
+    // ── `phantom review` — offline daily-review aggregate (Life Track) ──────
+    //   phantom review [YYYY-MM-DD]   (default today)
+    // The CLI twin of the TUI `/review` pane: deterministic, no daemon, no LLM.
+    // For the AI coach summary + tomorrow's action, use `phantom coach review`.
+    if args.get(1).map(|s| s.as_str()) == Some("review") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        use phantom_mesh::rpc_wire::EventKind;
+        // Parse: optional [YYYY-MM-DD] + optional --json (any order).
+        let mut json = false;
+        let mut date: Option<String> = None;
+        let mut want_help = false;
+        let mut i = 2;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--json" => json = true,
+                "-h" | "--help" => want_help = true,
+                d if date.is_none() && !d.starts_with('-') => date = Some(d.to_string()),
+                _ => {}
+            }
+            i += 1;
+        }
+        if want_help {
+            eprintln!("{}", tr("phantom review — your Life Node daily-review aggregate (no LLM)", "phantom review — 你的 Life Node 每日回顧彙整（不呼叫 LLM）"));
+            eprintln!();
+            eprintln!("  {}  [YYYY-MM-DD] [--json]", colored("phantom review", 36));
+            eprintln!("{}", tr("       Deterministic + offline. --json emits that day's events. For the AI coach summary, use `phantom coach review`.", "       離線、確定性彙整。--json 輸出當日事件。要 AI 教練摘要請用 `phantom coach review`。"));
+            return Ok(());
+        }
+        let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+        if chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+            eprintln!("{}", tr_owned(
+                format!("error: invalid date '{date}' (expected YYYY-MM-DD)"),
+                format!("錯誤：無效日期「{date}」（應為 YYYY-MM-DD）"),
+            ));
+            std::process::exit(2);
+        }
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        let phantom = home.join(".phantom-mesh");
+        let key = phantom_mesh::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
+        let events = phantom_mesh::life_node::daily_review::load_events_for_date(
+            &phantom.join("events"),
+            &date,
+            key,
+        )
+        .map_err(|e| anyhow::anyhow!("load events: {e}"))?;
+        if json {
+            // Exactly one day's events, structured (recall has --since but no
+            // upper bound, so it can't isolate a single day). Useful for a
+            // dashboard "day view".
+            let arr: Vec<serde_json::Value> = events
+                .iter()
+                .map(|(m, a)| {
+                    let kind = match m.kind {
+                        EventKind::Food => "food",
+                        EventKind::Focus => "focus",
+                        EventKind::Habit => "habit",
+                        EventKind::Text => "text",
+                    };
+                    serde_json::json!({
+                        "event_id": m.event_id,
+                        "timestamp": m.timestamp,
+                        "kind": kind,
+                        "tags": m.tags,
+                        "summary": a.summary,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({ "date": date, "events": arr }))
+                    .map_err(|e| anyhow::anyhow!("serialize: {e}"))?
+            );
+        } else {
+            let md = phantom_mesh::life_node::daily_review::aggregate(&date, &events);
+            println!("{}", md);
+        }
+        return Ok(());
+    }
+
+    if args.get(1).map(|s| s.as_str()) == Some("coach") {
+        let action = args.get(2).map(String::as_str).unwrap_or("");
+        if action != "review" && action != "schedule" {
+            eprintln!("{}", phantom_mesh::i18n::tr(
+                "usage: phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]   (prints the OS scheduler unit to install)",
+                "用法：phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]   (印出可安裝的 OS 排程單元)"));
+            std::process::exit(2);
+        }
+        // `phantom coach schedule [--at HH:MM]` — print the platform's scheduler
+        // unit (launchd / systemd / schtasks) for the daily coach review so the
+        // user can install it. PRINT ONLY: phantom never mutates the host here.
+        if action == "schedule" {
+            let mut at: Option<String> = None;
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--at" => {
+                        // Require a value — a dangling `--at` is an error, not a
+                        // silent fall-through to the default time.
+                        at = Some(
+                            args.get(i + 1)
+                                .cloned()
+                                .ok_or_else(|| anyhow::anyhow!("--at requires a HH:MM value"))?,
+                        );
+                        i += 2;
+                    }
+                    other => {
+                        eprintln!("unknown flag: {}", other);
+                        std::process::exit(2);
+                    }
+                }
+            }
+            let schedule = match at {
+                Some(s) => {
+                    let (h, m) = s
+                        .split_once(':')
+                        .ok_or_else(|| anyhow::anyhow!("--at must be HH:MM, got {s}"))?;
+                    let hour: u8 = h
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--at hour not a number: {s}"))?;
+                    let minute: u8 = m
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--at minute not a number: {s}"))?;
+                    phantom_mesh::life_node::coach_scheduler::CoachSchedule::new(hour, minute)
+                        .map_err(|e| anyhow::anyhow!(e))?
+                }
+                None => phantom_mesh::life_node::coach_scheduler::CoachSchedule::default(),
+            };
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "phantom".to_string());
+            use phantom_mesh::life_node::coach_scheduler::{render_cli_unit, SchedulerTarget};
+            let target = if cfg!(target_os = "macos") {
+                SchedulerTarget::Launchd
+            } else if cfg!(target_os = "windows") {
+                SchedulerTarget::Schtasks
+            } else {
+                SchedulerTarget::Systemd
+            };
+            print!("{}", render_cli_unit(target, &exe, schedule));
+            return Ok(());
+        }
+        let mut date: Option<String> = None;
+        let mut save = false;
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--date" => {
+                    date = args.get(i + 1).cloned();
+                    i += 2;
+                }
+                "--save" => {
+                    save = true;
+                    i += 1;
+                }
+                other => {
+                    eprintln!("unknown flag: {}", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+        let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+        // Validate the date like the standalone `phantom review` does — otherwise
+        // `coach review --date notadate` is accepted and renders "Daily review —
+        // notadate" with zero events, masking the typo.
+        if chrono::NaiveDate::parse_from_str(&date, "%Y-%m-%d").is_err() {
+            eprintln!("{}", phantom_mesh::i18n::tr_owned(
+                format!("error: invalid date '{date}' (expected YYYY-MM-DD)"),
+                format!("錯誤：無效日期「{date}」（應為 YYYY-MM-DD）"),
+            ));
+            std::process::exit(2);
+        }
+        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        // Shared with the app's `daily_review_generate` command — aggregate +
+        // shame-free lint + Gemini tomorrow-action + save/encrypt all live in
+        // daily_review::run_coach_review so the two surfaces never drift.
+        let review =
+            phantom_mesh::life_node::daily_review::run_coach_review(&home, &date, save).await?;
+        if let Some(path) = &review.saved_to {
+            if review.saved_encrypted {
+                eprintln!("saved (age-encrypted) to {}", path.display());
+            } else {
+                eprintln!(
+                    "saved (plaintext — no identity.key found) to {}",
+                    path.display()
+                );
+            }
+        }
+        print!("{}", review.markdown);
+        return Ok(());
+    }
+
+    // ── `phantom skill` subcommand — T10 ──────────────────────────────────
+    //
+    //   phantom skill run <path-to-skill.md> [--dry-run]
+    //     Parse a Skill Document (H2 format) and execute it via SkillExecutor.
+    //     With --dry-run, no bash steps spawn; the runtime lists what it
+    //     would do. Always feature-gated behind `experimental-hermes-curator`.
+    if args.get(1).map(|s| s.as_str()) == Some("skill") {
+        let action = args.get(2).map(|s| s.as_str()).unwrap_or("help");
+        match action {
+            "run" => {
+                let path = match args.get(3) {
+                    Some(p) => p.clone(),
+                    None => {
+                        eprintln!(
+                            "  {} usage: phantom skill run <path> [--dry-run] [--sandboxed --allow <cmd>...]",
+                            colored("✗", 31)
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                let dry_run = args.iter().any(|a| a == "--dry-run");
+                let sandboxed = args.iter().any(|a| a == "--sandboxed");
+                let mut allowed: Vec<String> = Vec::new();
+                {
+                    let mut it = args.iter();
+                    while let Some(a) = it.next() {
+                        if a == "--allow" {
+                            match it.next() {
+                                Some(cmd) => allowed.push(cmd.clone()),
+                                None => {
+                                    eprintln!(
+                                        "  {} --allow requires a command name",
+                                        colored("✗", 31)
+                                    );
+                                    std::process::exit(2);
+                                }
+                            }
+                        }
+                    }
+                }
+                if sandboxed && allowed.is_empty() {
+                    eprintln!(
+                        "  {} --sandboxed requires at least one --allow <cmd>",
+                        colored("✗", 31)
+                    );
+                    std::process::exit(2);
+                }
+                if !sandboxed && !allowed.is_empty() {
+                    eprintln!(
+                        "  {} --allow is only meaningful with --sandboxed",
+                        colored("⚠", 33)
+                    );
+                    // not fatal — just a warning, then fall through to trusted mode
+                }
+
+                #[cfg(feature = "experimental-hermes-curator")]
+                {
+                    let mode = if sandboxed {
+                        phantom_mesh::hermes::ExecutionMode::Sandboxed {
+                            allowed_commands: allowed,
+                        }
+                    } else {
+                        phantom_mesh::hermes::ExecutionMode::Trusted
+                    };
+                    run_phantom_skill(&path, dry_run, mode).await?;
+                }
+                #[cfg(not(feature = "experimental-hermes-curator"))]
+                {
+                    let _ = (sandboxed, allowed); // silence unused
+                    run_phantom_skill(&path, dry_run, ()).await?;
+                }
+                return Ok(());
+            }
+            "help" | "--help" | "-h" => {
+                eprintln!(
+                    "{}",
+                    colored("phantom skill — Hermes Skill Document runtime (T10)", 35)
+                );
+                eprintln!();
+                eprintln!(
+                    "  {}  <path-to-skill.md> [--dry-run] [--sandboxed --allow <cmd>...]",
+                    colored("phantom skill run", 36)
+                );
+                eprintln!("       Parse a Skill Document and execute its body.");
+                eprintln!("       --dry-run  : list what would execute, spawn nothing.");
+                eprintln!(
+                    "       --sandboxed: argv-list dispatch; reject pipes/redirects/expansion."
+                );
+                eprintln!(
+                    "       --allow <cmd>: add <cmd> to the sandboxed allowlist (repeatable)."
+                );
+                eprintln!();
+                eprintln!("  Requires build with `--features experimental-hermes-curator`.");
+                return Ok(());
+            }
+            other => {
+                eprintln!("  {} unknown skill subcommand: {}", colored("✗", 31), other);
+                eprintln!("       try: phantom skill help");
+                std::process::exit(2);
+            }
+        }
+    }
+
     // ── `phantom keys` subcommand ──────────────────────────────────────────
     // CONTRIBUTOR-FUNNEL §5 — per-user ed25519 identity for recipe signing.
     // SPEC-FREEZE-V1 §4.1 freeze-compatible scaffolding (additive subcommand).
@@ -2047,33 +5622,76 @@ async fn main() -> Result<()> {
     //   phantom keys path
     //     print the keys directory (for scripting)
     if args.get(1).map(|s| s.as_str()) == Some("keys") {
+        use phantom_mesh::i18n::tr;
         let action = args.get(2).map(|s| s.as_str()).unwrap_or("show");
         match action {
             "init" => {
                 let force = args.iter().any(|a| a == "--force");
+                // `#[allow(deprecated)]`: `identity::init` returns the legacy
+                // `InitOutcome` (file-paths + pub_hex) that this CLI block
+                // prints. Phase G keeps both alive intentionally — see
+                // `docs/superpowers/phase-g-init-outcome-notes.md` for the
+                // SPEC-12 Stage 4 cutover that flips this to the wire shape.
+                #[allow(deprecated)]
                 let outcome = phantom_mesh::identity::init(force)?;
                 // Co-create the extension folder layout so users have
                 // a documented place to drop customisations from day 1.
                 let _ = phantom_mesh::extensions::ensure_layout();
                 if outcome.created {
-                    eprintln!("  {} ed25519 keypair generated", colored("✓", 32));
-                    eprintln!("    {}  {}", colored("private:", 90), outcome.priv_path.display());
-                    eprintln!("    {}  {}", colored("public:", 90),  outcome.pub_path.display());
-                    eprintln!("    {}  {}", colored("pubkey:", 90),  outcome.pub_hex);
+                    eprintln!("  {} {}", colored("✓", 32), tr("ed25519 keypair generated", "已產生 ed25519 金鑰對"));
+                    eprintln!(
+                        "    {}  {}",
+                        colored("private:", 90),
+                        outcome.priv_path.display()
+                    );
+                    eprintln!(
+                        "    {}  {}",
+                        colored("public:", 90),
+                        outcome.pub_path.display()
+                    );
+                    eprintln!("    {}  {}", colored("pubkey:", 90), outcome.pub_hex);
                     let exts = phantom_mesh::extensions::extensions_dir();
-                    eprintln!("    {}  {}", colored("exts:", 90),    exts.display());
+                    eprintln!("    {}  {}", colored("exts:", 90), exts.display());
                     eprintln!();
-                    eprintln!("  {} the private key NEVER leaves this machine.", colored("›", 90));
-                    eprintln!("  {} customise prompts at  {}/prompts/<agent>.md", colored("›", 90), exts.display());
-                    eprintln!("  {} sign recipes with `phantom evolve publish`.", colored("›", 90));
+                    eprintln!(
+                        "  {} {}",
+                        colored("›", 90),
+                        tr("the private key NEVER leaves this machine.", "私鑰絕不會離開這台機器。")
+                    );
+                    eprintln!(
+                        "  {} {}  {}/prompts/<agent>.md",
+                        colored("›", 90),
+                        tr("customise prompts at", "自訂提示詞於"),
+                        exts.display()
+                    );
+                    eprintln!(
+                        "  {} {}",
+                        colored("›", 90),
+                        tr("sign recipes with `phantom evolve publish`.", "用 `phantom evolve publish` 簽署配方。")
+                    );
                 } else if force {
-                    eprintln!("  {} keys already exist — pass --force to overwrite (lose all signatures)", colored("⚠", 33));
+                    eprintln!(
+                        "  {} {}",
+                        colored("⚠", 33),
+                        tr(
+                            "keys already exist — pass --force to overwrite (lose all signatures)",
+                            "金鑰已存在 — 加 --force 才會覆寫（會失去所有簽章）",
+                        )
+                    );
                 } else {
-                    eprintln!("  {} keypair already initialised", colored("◆", 35));
-                    eprintln!("    {}  {}", colored("public:", 90), outcome.pub_path.display());
+                    eprintln!("  {} {}", colored("◆", 35), tr("keypair already initialised", "金鑰對已初始化"));
+                    eprintln!(
+                        "    {}  {}",
+                        colored("public:", 90),
+                        outcome.pub_path.display()
+                    );
                     eprintln!("    {}  {}", colored("pubkey:", 90), outcome.pub_hex);
                     eprintln!();
-                    eprintln!("  {} pass --force to regenerate (destructive).", colored("›", 90));
+                    eprintln!(
+                        "  {} {}",
+                        colored("›", 90),
+                        tr("pass --force to regenerate (destructive).", "加 --force 可重新產生（具破壞性）。")
+                    );
                 }
                 return Ok(());
             }
@@ -2081,11 +5699,18 @@ async fn main() -> Result<()> {
                 match phantom_mesh::identity::load_pub_hex() {
                     Ok(hex) => {
                         eprintln!("  {} ed25519 public key", colored("◆", 35));
-                        eprintln!("    {}  {}", colored("path:",   90), phantom_mesh::identity::pub_key_path().display());
+                        eprintln!(
+                            "    {}  {}",
+                            colored("path:", 90),
+                            phantom_mesh::identity::pub_key_path().display()
+                        );
                         eprintln!("    {}  {}", colored("pubkey:", 90), hex);
                     }
                     Err(_) => {
-                        eprintln!("  {} no keypair found — run `phantom keys init` first", colored("✗", 31));
+                        eprintln!(
+                            "  {} no keypair found — run `phantom keys init` first",
+                            colored("✗", 31)
+                        );
                         std::process::exit(1);
                     }
                 }
@@ -2099,13 +5724,24 @@ async fn main() -> Result<()> {
                 // Provider-API-key subcommands — delegate to the older
                 // /keys flow (TUI slash command) for now. CLI flow lands
                 // in v0.2 if there's demand.
-                eprintln!("  {} `phantom keys {}` — use `/keys {}` inside the TUI / REPL",
-                    colored("›", 90), action, action);
-                eprintln!("  {} or edit ~/.phantom-mesh/agents.toml directly.", colored("›", 90));
+                eprintln!(
+                    "  {} `phantom keys {}` — use `/keys {}` inside the TUI / REPL",
+                    colored("›", 90),
+                    action,
+                    action
+                );
+                eprintln!(
+                    "  {} or edit ~/.phantom-mesh/agents.toml directly.",
+                    colored("›", 90)
+                );
                 return Ok(());
             }
             other => {
-                eprintln!("  {} unknown subcommand: phantom keys {}", colored("✗", 31), other);
+                eprintln!(
+                    "  {} unknown subcommand: phantom keys {}",
+                    colored("✗", 31),
+                    other
+                );
                 eprintln!("  Available: init [--force] / show / path");
                 std::process::exit(2);
             }
@@ -2140,12 +5776,12 @@ async fn main() -> Result<()> {
     #[cfg(target_os = "windows")]
     if args.get(1).map(|s| s.as_str()) == Some("service") {
         let action = args.get(2).map(|s| s.as_str()).unwrap_or("status");
-        return run_service_subcommand_windows(action).await;
+        return phantom_mesh::service::run_service_subcommand(action).await;
     }
     #[cfg(target_os = "linux")]
     if args.get(1).map(|s| s.as_str()) == Some("service") {
         let action = args.get(2).map(|s| s.as_str()).unwrap_or("status");
-        return run_service_subcommand_linux(action).await;
+        return phantom_mesh::service::run_service_subcommand(action).await;
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     if args.get(1).map(|s| s.as_str()) == Some("service") {
@@ -2212,6 +5848,127 @@ async fn main() -> Result<()> {
         return phantom_mesh::cli_config::run_git(&args).await;
     }
 
+    // ── `phantom node-capabilities` — hardware capability report ──────────
+    //
+    // Reports the capabilities this node advertises to the cluster (shell,
+    // GPU, sensors, camera, etc.). Detected at runtime via the
+    // `phantom_mesh::capabilities` module (ported from public phantom-mesh
+    // in PF-3). The report is what cluster peers see in their `peers.json`
+    // and what `phantom dispatch --capability=X` filters against.
+    //
+    // Usage:
+    //   phantom node-capabilities         human-readable summary
+    //   phantom node-capabilities --json  machine-readable JSON
+    if args.get(1).map(|s| s.as_str()) == Some("node-capabilities") {
+        let report = phantom_mesh::capabilities::NodeCapabilityReport::detect();
+        let want_json = args.iter().any(|a| a == "--json");
+        if want_json {
+            let json = serde_json::to_string_pretty(&report)?;
+            println!("{}", json);
+        } else {
+            print!("{}", report.format_display());
+        }
+        return Ok(());
+    }
+
+    // ── `phantom worker-setup` — per-OS install runbook (PF-8) ─────────────
+    //
+    // Emits an OS-appropriate install runbook for joining this machine
+    // to a phantom-mesh cluster as a worker. Combines the runtime
+    // capability detector (PF-3) with the worker_installer generators
+    // (systemd unit / Windows service script / macOS launchd plist) to
+    // produce a copy-pasteable runbook.
+    //
+    // Flags:
+    //   --hub URL        coordinator URL the worker registers with
+    //                    (default http://localhost:7878)
+    //   --name NAME      worker name; defaults to $HOSTNAME / $COMPUTERNAME
+    //                    / "phantom-worker"
+    //   --port N         port the worker listens on (default 7878)
+    //   --token TOKEN    auth token sent with cluster register call
+    if args.get(1).map(|s| s.as_str()) == Some("worker-setup") {
+        let hub = args
+            .iter()
+            .position(|a| a == "--hub")
+            .and_then(|i| args.get(i + 1).cloned())
+            .unwrap_or_else(|| "http://localhost:7878".into());
+        let name = args
+            .iter()
+            .position(|a| a == "--name")
+            .and_then(|i| args.get(i + 1).cloned());
+        let port: u16 = args
+            .iter()
+            .position(|a| a == "--port")
+            .and_then(|i| args.get(i + 1))
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(7878);
+        let token = args
+            .iter()
+            .position(|a| a == "--token")
+            .and_then(|i| args.get(i + 1).cloned());
+
+        let report = phantom_mesh::capabilities::NodeCapabilityReport::detect();
+        println!("{}", report.format_display());
+
+        let worker_name = name.unwrap_or_else(|| {
+            std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("COMPUTERNAME"))
+                .unwrap_or_else(|_| "phantom-worker".into())
+        });
+
+        let config = phantom_mesh::worker_installer::InstallerConfig {
+            hub_url: hub,
+            worker_name: worker_name.clone(),
+            auth_token: token,
+            port,
+            capabilities: report.capability_ids.clone(),
+            device_type: report.platform.default_node_mode.clone(),
+            install_dir: if cfg!(windows) {
+                "C:\\Program Files\\phantom-mesh".into()
+            } else {
+                "/opt/phantom-mesh".into()
+            },
+            binary_path: None,
+        };
+
+        println!("\n--- Setup Runbook for {} ---", report.platform.os);
+        match report.platform.os.as_str() {
+            "linux" => {
+                println!("\n1. Create installation directory:");
+                println!("   sudo mkdir -p {}", config.install_dir);
+                println!("\n2. Create systemd unit file at /etc/systemd/system/phantom-mesh-worker.service:");
+                println!(
+                    "---\n{}\n---",
+                    phantom_mesh::worker_installer::generate_systemd_unit(&config)
+                );
+                println!("\n3. Enable and start the service:");
+                println!("   sudo systemctl daemon-reload");
+                println!("   sudo systemctl enable phantom-mesh-worker");
+                println!("   sudo systemctl start phantom-mesh-worker");
+            }
+            "windows" => {
+                println!(
+                    "\n1. Run the following PowerShell as Administrator to install the service:"
+                );
+                println!(
+                    "---\n{}\n---",
+                    phantom_mesh::worker_installer::generate_windows_service(&config)
+                );
+            }
+            "macos" => {
+                println!("\n1. Create launchd plist at ~/Library/LaunchAgents/com.phantom-mesh.worker.plist:");
+                println!(
+                    "---\n{}\n---",
+                    phantom_mesh::worker_installer::generate_launchd_plist(&config)
+                );
+            }
+            other => {
+                println!("\nManual setup required for platform: {}", other);
+            }
+        }
+        return Ok(());
+    }
+
     // ── `phantom doctor` — environment self-diagnostic ─────────────────────
     if args.get(1).map(|s| s.as_str()) == Some("doctor") {
         // `phantom doctor --json` emits a machine-readable JSON object
@@ -2224,6 +5981,11 @@ async fn main() -> Result<()> {
         // `.autoevolve.queue_pending` directly.
         if args.iter().any(|a| a == "--json") {
             return run_doctor_json().await;
+        }
+        // `phantom doctor --mesh` (EVOLVE-GOALS L14 / MULTI-DEV Gap 3): per-peer
+        // health table + an exit code, for monitoring / CI mesh checks.
+        if args.iter().any(|a| a == "--mesh") {
+            return run_doctor_mesh().await;
         }
         return run_doctor().await;
     }
@@ -2255,15 +6017,144 @@ async fn main() -> Result<()> {
     }
     if args.get(1).map(|s| s.as_str()) == Some("logout") {
         phantom_mesh::auth::delete()?;
-        eprintln!("{} logged out (deleted {})",
+        eprintln!(
+            "{} {}",
             colored("✓", 32),
-            phantom_mesh::auth::auth_path().display());
+            phantom_mesh::i18n::tr_owned(
+                format!("logged out (deleted {})", phantom_mesh::auth::auth_path().display()),
+                format!("已登出（已刪除 {}）", phantom_mesh::auth::auth_path().display()),
+            )
+        );
         return Ok(());
     }
     if args.get(1).map(|s| s.as_str()) == Some("whoami") {
+        phantom_mesh::cli_config::reject_unsupported_json(&args, "whoami");
         match phantom_mesh::auth::load() {
-            Some(s) => println!("{} {}", colored("◆", 35), phantom_mesh::auth::human_summary(&s)),
-            None    => println!("{} not logged in — run `phantom login`", colored("◇", 90)),
+            Some(s) => println!(
+                "{} {}",
+                colored("◆", 35),
+                phantom_mesh::auth::human_summary(&s)
+            ),
+            None => println!(
+                "{} {}",
+                colored("◇", 90),
+                phantom_mesh::i18n::tr(
+                    "not logged in — run `phantom login`",
+                    "尚未登入 — 執行 `phantom login`",
+                )
+            ),
+        }
+        return Ok(());
+    }
+
+    // ── `phantom lang` — show / set / reset the UI language (繁中 i18n) ─────
+    // Makes the i18n language a persistent preference (~/.phantom-mesh/lang)
+    // instead of env-var-only, so "預設繁中" actually sticks across runs.
+    if args.get(1).map(|s| s.as_str()) == Some("lang") {
+        use phantom_mesh::i18n;
+        match args.get(2).map(|s| s.as_str()) {
+            None | Some("show") | Some("status") => {
+                println!(
+                    "{} {}",
+                    colored(i18n::tr("active language:", "目前語言："), 36),
+                    i18n::current_lang().tag()
+                );
+                match i18n::persisted_lang() {
+                    Some(p) => println!(
+                        "  {} {}",
+                        i18n::tr("saved preference:", "已儲存偏好："),
+                        p.tag()
+                    ),
+                    None => println!(
+                        "  {}",
+                        i18n::tr(
+                            "saved preference: (none — using PHANTOM_LANG / system locale)",
+                            "已儲存偏好：（無 — 使用 PHANTOM_LANG／系統語系）",
+                        )
+                    ),
+                }
+                println!(
+                    "  {}",
+                    i18n::tr(
+                        "set with: phantom lang set <en|zh-TW>",
+                        "設定方式：phantom lang set <en|zh-TW>",
+                    )
+                );
+            }
+            Some("set") => {
+                let val = args.get(3).map(|s| s.as_str()).unwrap_or("");
+                if val.is_empty() {
+                    eprintln!(
+                        "{}",
+                        i18n::tr(
+                            "usage: phantom lang set <en|zh-TW>",
+                            "用法：phantom lang set <en|zh-TW>",
+                        )
+                    );
+                    std::process::exit(2);
+                }
+                // Strict parse: reject anything that isn't an explicit supported
+                // tag instead of letting the fuzzy locale sniffer fall back to En
+                // and report "saved (en)" for junk like `lang set zzz`.
+                let lang = match i18n::parse_explicit_lang(val) {
+                    Some(l) => l,
+                    None => {
+                        eprintln!(
+                            "{}",
+                            i18n::tr_owned(
+                                format!("error: '{val}' is not a supported language (use: en, zh-TW). Simplified zh-CN is not yet available."),
+                                format!("錯誤：'{val}' 不是支援的語言（可用：en、zh-TW）。簡體 zh-CN 尚未提供。"),
+                            )
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                match i18n::set_persisted_lang(lang) {
+                    Ok(path) => println!(
+                        "{} {} → {}",
+                        colored("✓", 32),
+                        i18n::tr_owned(
+                            format!("language saved ({})", lang.tag()),
+                            format!("語言已儲存（{}）", lang.tag()),
+                        ),
+                        path.display()
+                    ),
+                    Err(e) => {
+                        eprintln!(
+                            "{} {}: {}",
+                            colored("✗", 31),
+                            i18n::tr("failed to save language", "儲存語言失敗"),
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
+            Some("reset") | Some("clear") | Some("unset") => match i18n::clear_persisted_lang() {
+                Ok(true) => println!(
+                    "{} {}",
+                    colored("✓", 32),
+                    i18n::tr("language preference cleared", "已清除語言偏好")
+                ),
+                Ok(false) => println!(
+                    "{}",
+                    i18n::tr("no saved language preference", "沒有已儲存的語言偏好")
+                ),
+                Err(e) => {
+                    eprintln!("{} {}", colored("✗", 31), e);
+                    std::process::exit(1);
+                }
+            },
+            Some(other) => {
+                eprintln!(
+                    "{}",
+                    i18n::tr_owned(
+                        format!("unknown `phantom lang` action '{other}' — try show|set|reset"),
+                        format!("未知的 `phantom lang` 動作 '{other}' — 可用 show|set|reset"),
+                    )
+                );
+                std::process::exit(2);
+            }
         }
         return Ok(());
     }
@@ -2275,13 +6166,18 @@ async fn main() -> Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     if args.get(1).map(|s| s.as_str()) == Some("mlx") {
-        eprintln!("{} `phantom mlx` requires Apple Silicon (uses Apple's MLX framework).",
-            colored("✗", 31));
+        eprintln!(
+            "{} `phantom mlx` requires Apple Silicon (uses Apple's MLX framework).",
+            colored("✗", 31)
+        );
         std::process::exit(1);
     }
     #[cfg(not(target_os = "macos"))]
     if args.get(1).map(|s| s.as_str()) == Some("snapshot") {
-        eprintln!("{} `phantom snapshot` is macOS-only (uses tmutil).", colored("✗", 31));
+        eprintln!(
+            "{} `phantom snapshot` is macOS-only (uses tmutil).",
+            colored("✗", 31)
+        );
         std::process::exit(1);
     }
 
@@ -2322,12 +6218,33 @@ async fn main() -> Result<()> {
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
-                "--json"     => { json_mode = true; }
-                "--quiet"    => { quiet = true; }
-                "--continue" | "-c" => { do_continue = true; }
-                "--agent"    => { i += 1; if i < args.len() { agent_name = args[i].clone(); } }
-                "--session"  => { i += 1; if i < args.len() { session_id = Some(args[i].clone()); } }
-                "--config"   => { i += 1; if i < args.len() { config_override = Some(args[i].clone()); } }
+                "--json" => {
+                    json_mode = true;
+                }
+                "--quiet" => {
+                    quiet = true;
+                }
+                "--continue" | "-c" => {
+                    do_continue = true;
+                }
+                "--agent" => {
+                    i += 1;
+                    if i < args.len() {
+                        agent_name = args[i].clone();
+                    }
+                }
+                "--session" => {
+                    i += 1;
+                    if i < args.len() {
+                        session_id = Some(args[i].clone());
+                    }
+                }
+                "--config" => {
+                    i += 1;
+                    if i < args.len() {
+                        config_override = Some(args[i].clone());
+                    }
+                }
                 "-h" | "--help" => {
                     eprintln!("usage: phantom exec [--agent NAME] [--session ID] [--continue] [--json] [--quiet] [--config PATH] [PROMPT]");
                     eprintln!("       echo \"...\" | phantom exec     # read prompt from stdin");
@@ -2340,7 +6257,21 @@ async fn main() -> Result<()> {
                 arg if !arg.starts_with('-') => {
                     prompt_arg = Some(arg.to_string());
                 }
-                _ => {}
+                // A dash-leading token with whitespace is almost certainly the
+                // prompt itself (e.g. "-5C and raining"), so accept it.
+                arg if arg.contains(char::is_whitespace) => {
+                    prompt_arg = Some(arg.to_string());
+                }
+                // Otherwise it's an unknown flag. Fail loudly instead of silently
+                // ignoring it — `phantom exec --jsonn` must NOT quietly run in
+                // human-output mode and break a CI pipeline expecting --json.
+                unknown => {
+                    eprintln!(
+                        "{} unknown flag '{unknown}' for `phantom exec` — see `phantom exec --help`",
+                        colored("✗", 31)
+                    );
+                    std::process::exit(2);
+                }
             }
             i += 1;
         }
@@ -2353,21 +6284,21 @@ async fn main() -> Result<()> {
             None => {
                 use std::io::{IsTerminal, Read};
                 if std::io::stdin().is_terminal() {
-                    eprintln!("error: phantom exec requires a PROMPT or stdin input");
+                    eprintln!("{}", phantom_mesh::i18n::tr("error: phantom exec requires a PROMPT or stdin input", "錯誤：phantom exec 需要一個 PROMPT 引數或 stdin 輸入"));
                     eprintln!("       phantom exec \"summarize this README\"");
                     eprintln!("       echo \"task\" | phantom exec");
                     std::process::exit(2);
                 }
                 let mut buf = String::new();
                 if std::io::stdin().read_to_string(&mut buf).is_err() {
-                    eprintln!("error: failed to read prompt from stdin");
+                    eprintln!("{}", phantom_mesh::i18n::tr("error: failed to read prompt from stdin", "錯誤：無法從 stdin 讀取提示"));
                     std::process::exit(2);
                 }
                 buf.trim().to_string()
             }
         };
         if prompt.is_empty() {
-            eprintln!("error: empty prompt");
+            eprintln!("{}", phantom_mesh::i18n::tr("error: empty prompt", "錯誤：提示為空"));
             std::process::exit(2);
         }
 
@@ -2376,12 +6307,12 @@ async fn main() -> Result<()> {
         let mut app_state = phantom_mesh::AppState::new();
         let config_content = match config_override.as_deref() {
             Some(path) => std::fs::read_to_string(path).ok().or_else(find_config),
-            None       => find_config(),
+            None => find_config(),
         };
         match config_content {
             Some(content) => app_state.load_config_toml(&content),
             None => {
-                eprintln!("error: no agents.toml found — run `phantom init` or pass --config PATH");
+                eprintln!("{}", phantom_mesh::i18n::tr("error: no agents.toml found — run `phantom onboarding` (it writes ~/.phantom-mesh/agents.toml) or pass --config PATH", "錯誤：找不到 agents.toml — 執行 `phantom onboarding`（會寫入 ~/.phantom-mesh/agents.toml）或用 --config PATH 指定"));
                 std::process::exit(2);
             }
         }
@@ -2442,7 +6373,10 @@ async fn main() -> Result<()> {
                 AgentEvent::ToolStart { name, args_preview } => {
                     eprintln!("[tool] {} {}", name, args_preview);
                 }
-                AgentEvent::ToolDone { name, output_preview } => {
+                AgentEvent::ToolDone {
+                    name,
+                    output_preview,
+                } => {
                     let preview: String = output_preview.chars().take(200).collect();
                     eprintln!("[done] {} → {}", name, preview);
                 }
@@ -2450,6 +6384,14 @@ async fn main() -> Result<()> {
                     eprintln!("[note] {}", message);
                 }
                 AgentEvent::Thinking { .. } | AgentEvent::Done { .. } => {}
+                #[cfg(feature = "experimental-anti-hallucination")]
+                AgentEvent::ConsistencyWarning { unbacked_claims } => {
+                    eprintln!(
+                        "[anti-halluc] {} unbacked claim(s): {}",
+                        unbacked_claims.len(),
+                        unbacked_claims.join(" | "),
+                    );
+                }
             }
         };
 
@@ -2474,8 +6416,16 @@ async fn main() -> Result<()> {
                     // glue the next prompt onto the last output line.
                     println!();
                 }
-                let user_msg = ChatMessage { role: "user".into(), content: prompt, tool_calls: None };
-                let asst_msg = ChatMessage { role: "assistant".into(), content: r.output, tool_calls: None };
+                let user_msg = ChatMessage {
+                    role: "user".into(),
+                    content: prompt,
+                    tool_calls: None,
+                };
+                let asst_msg = ChatMessage {
+                    role: "assistant".into(),
+                    content: r.output,
+                    tool_calls: None,
+                };
                 conversations.append(&chat_id, user_msg, asst_msg).await;
                 std::process::exit(0);
             }
@@ -2499,8 +6449,49 @@ async fn main() -> Result<()> {
     if args.len() == 1
         && !force_repl
         && std::env::var("PHANTOM_REPL").is_err()
-        && std::env::var("PHANTOM_TUI").map(|v| v != "0").unwrap_or(true)
+        && std::env::var("PHANTOM_TUI")
+            .map(|v| v != "0")
+            .unwrap_or(true)
     {
+        // D13: bare `phantom` launches the interactive TUI, which needs a TTY.
+        // Detect a non-terminal stdin EARLY and emit actionable guidance, instead
+        // of spinning up config load + letting the TUI bail late with a generic
+        // "stdin is not a terminal". (UFCS so no IsTerminal import is needed here.)
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            eprintln!(
+                "{} `phantom` (no args) launches the interactive TUI, which needs a terminal.",
+                colored("✗", 31)
+            );
+            eprintln!("    For non-interactive / headless use:");
+            eprintln!("      echo '<prompt>' | phantom exec     # one-shot for CI/pipelines (stdin → stdout)");
+            eprintln!("      phantom exec '<prompt>'            # one-shot with an argument");
+            eprintln!("      phantom repl                       # line-mode REPL (works when piped)");
+            eprintln!("      phantom serve                      # run the daemon");
+            std::process::exit(2);
+        }
+        // First-run: no agents.toml anywhere → run the setup wizard (language +
+        // providers) BEFORE the TUI, so a brand-new `phantom` user isn't dropped
+        // into a TUI with no providers configured + no language pick. Only when
+        // interactive — the wizard uses line prompts; a non-TTY falls through to
+        // the TUI's own "needs a terminal" message. The repl / one-shot paths
+        // run this same wizard later at the shared onboarding check (~L5014).
+        {
+            use std::io::IsTerminal;
+            // "No config" = neither a loadable config NOR a present-but-broken
+            // one. find_and_load scans the FULL candidate set (incl.
+            // ./PHANTOM.toml + ~/.config/phantom-mesh/config.toml) so we don't
+            // re-onboard a user whose config lives in a path find_config misses.
+            // find_config (existence-only) additionally guards a malformed
+            // ~/.phantom-mesh/agents.toml the user may be mid-editing — so the
+            // wizard never clobbers it. Both None → genuinely fresh install.
+            let no_config = phantom_mesh::config::AgentsConfig::find_and_load().is_none()
+                && find_config().is_none();
+            if no_config && std::io::stdin().is_terminal() {
+                if let Err(e) = run_first_time_onboarding() {
+                    eprintln!("{} onboarding failed: {}", colored("error:", 31), e);
+                }
+            }
+        }
         // Workspace pin: if [workspace].default_dir is set, cd to it
         // BEFORE launching the TUI so the session, conversation history
         // (cwd-{hash}.jsonl), and tool actions all happen relative to
@@ -2514,14 +6505,21 @@ async fn main() -> Result<()> {
                     let p = std::path::Path::new(dir);
                     if p.exists() && p.is_dir() {
                         if let Err(e) = std::env::set_current_dir(p) {
-                            eprintln!("{} workspace cd to {} failed: {} — using caller's cwd",
-                                colored("⚠", 33), dir, e);
+                            eprintln!(
+                                "{} workspace cd to {} failed: {} — using caller's cwd",
+                                colored("⚠", 33),
+                                dir,
+                                e
+                            );
                         } else {
                             eprintln!("{} workspace pinned to {}", colored("◆", 35), dir);
                         }
                     } else {
-                        eprintln!("{} workspace dir {} doesn't exist — using caller's cwd",
-                            colored("⚠", 33), dir);
+                        eprintln!(
+                            "{} workspace dir {} doesn't exist — using caller's cwd",
+                            colored("⚠", 33),
+                            dir
+                        );
                         eprintln!("    fix: phantom workspace set <existing-dir> [agent]");
                     }
                 }
@@ -2549,8 +6547,12 @@ async fn main() -> Result<()> {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
-            "--continue" | "-c" => { do_continue = true; }
-            "--list-sessions" => { list_sessions = true; }
+            "--continue" | "-c" => {
+                do_continue = true;
+            }
+            "--list-sessions" => {
+                list_sessions = true;
+            }
             "--config" => {
                 i += 1;
                 if i < args.len() {
@@ -2577,10 +6579,39 @@ async fn main() -> Result<()> {
         i += 1;
     }
 
+    // Typo guard: a lone `phantom <oneword>` that's a near-miss of a real
+    // subcommand (e.g. `phantom servee`) would otherwise fall through to the
+    // implicit one-shot prompt and silently fire an LLM call. Catch the
+    // narrow single-bareword case and suggest the intended command instead;
+    // anything with extra args/flags is treated as a genuine prompt as before.
+    if args.len() == 2 {
+        if let Some(word) = one_shot_prompt.as_deref() {
+            if let Some(sugg) = suggest_subcommand(word) {
+                let sugg_c = colored(sugg, 36);
+                eprintln!(
+                    "{} {}",
+                    colored("error:", 31),
+                    phantom_mesh::i18n::tr_owned(
+                        format!("unknown command '{word}' — did you mean '{sugg_c}'?"),
+                        format!("無此指令 '{word}' — 你是不是要打 '{sugg_c}'？"),
+                    )
+                );
+                eprintln!(
+                    "{}",
+                    phantom_mesh::i18n::tr_owned(
+                        format!("       run `phantom {sugg}`, or `phantom -c \"{word}\"` to send it as a prompt."),
+                        format!("       執行 `phantom {sugg}`，或用 `phantom -c \"{word}\"` 把它當提示送出。"),
+                    )
+                );
+                std::process::exit(2);
+            }
+        }
+    }
+
     let mut app_state = AppState::new();
     let mut config_content = match config_override.as_deref() {
         Some(path) => std::fs::read_to_string(path).ok().or_else(find_config),
-        None       => find_config(),
+        None => find_config(),
     };
 
     // First-run onboarding: no agents.toml anywhere → walk through CLI setup.
@@ -2679,14 +6710,38 @@ async fn main() -> Result<()> {
         let elapsed = t0.elapsed().as_secs_f64();
         let last = cost_tracker.last_request_cost().await;
         let session = cost_tracker.session_cost().await;
-        eprintln!("{}", colored(&format!("[↑ ${:.4}  ∑ ${:.4}  {:.1}s]", last, session, elapsed), 90));
-        let user_msg = ChatMessage { role: "user".into(), content: prompt, tool_calls: None };
-        let asst_msg = ChatMessage { role: "assistant".into(), content: result.output, tool_calls: None };
+        eprintln!(
+            "{}",
+            colored(
+                &format!("[↑ ${:.4}  ∑ ${:.4}  {:.1}s]", last, session, elapsed),
+                90
+            )
+        );
+        let user_msg = ChatMessage {
+            role: "user".into(),
+            content: prompt,
+            tool_calls: None,
+        };
+        let asst_msg = ChatMessage {
+            role: "assistant".into(),
+            content: result.output,
+            tool_calls: None,
+        };
         conversations.append(&chat_id, user_msg, asst_msg).await;
         return Ok(());
     }
 
-    repl(runtime, app_state, conversations, cost_tracker, chat_id, agent_name, extra_context, do_continue).await
+    repl(
+        runtime,
+        app_state,
+        conversations,
+        cost_tracker,
+        chat_id,
+        agent_name,
+        extra_context,
+        do_continue,
+    )
+    .await
 }
 
 // compact_via_llm moved to phantom_mesh::session — used by both REPL
@@ -2713,7 +6768,8 @@ async fn repl(
     {
         let cfg = app_state.agent_runtime.config();
         let ws = WorkspaceContext::capture();
-        let branch_str = ws.git_branch
+        let branch_str = ws
+            .git_branch
             .as_deref()
             .map(|b| format!(" · {}", b))
             .unwrap_or_default();
@@ -2733,7 +6789,14 @@ async fn repl(
         let provider_count = cfg.providers.len();
         let provider_names: Vec<&str> = cfg.providers.keys().map(|s| s.as_str()).collect();
         if provider_count == 0 {
-            eprintln!("  {} {}", colored("⚠", 33), colored("no providers configured — run /init or set ~/.phantom-mesh/agents.toml", 33));
+            eprintln!(
+                "  {} {}",
+                colored("⚠", 33),
+                colored(
+                    "no providers configured — run /init or set ~/.phantom-mesh/agents.toml",
+                    33
+                )
+            );
         } else {
             eprintln!(
                 "  {} providers: {} ({})",
@@ -2768,12 +6831,19 @@ async fn repl(
         );
 
         eprintln!();
-        eprintln!("  {} type /help for commands  ·  Ctrl-D to exit  ·  end line with \\ for multi-line", colored("›", 90));
+        eprintln!(
+            "  {} type /help for commands  ·  Ctrl-D to exit  ·  end line with \\ for multi-line",
+            colored("›", 90)
+        );
         eprintln!();
     }
 
     if load_history {
-        eprintln!("{} Resuming session {}", colored("◆", 35), &chat_id[..chat_id.len().min(16)]);
+        eprintln!(
+            "{} Resuming session {}",
+            colored("◆", 35),
+            &chat_id[..chat_id.len().min(16)]
+        );
     }
 
     let mut pending_context: Vec<String> = Vec::new();
@@ -2803,20 +6873,26 @@ async fn repl(
     let permission_engine: Arc<phantom_mesh::permission::Engine> = {
         let cfg = phantom_mesh::config::AgentsConfig::find_and_load()
             .unwrap_or_else(phantom_mesh::config::AgentsConfig::with_defaults);
-        let deny: Vec<&str>  = cfg.permissions.deny.iter().map(String::as_str).collect();
-        let ask: Vec<&str>   = cfg.permissions.ask.iter().map(String::as_str).collect();
+        let deny: Vec<&str> = cfg.permissions.deny.iter().map(String::as_str).collect();
+        let ask: Vec<&str> = cfg.permissions.ask.iter().map(String::as_str).collect();
         let allow: Vec<&str> = cfg.permissions.allow.iter().map(String::as_str).collect();
         match phantom_mesh::permission::Engine::from_lists(&deny, &ask, &allow) {
             Ok(e) => {
                 if !e.is_empty() {
-                    eprintln!("  {} permission rules loaded: {} active",
-                        colored("◆", 36), e.rules().len());
+                    eprintln!(
+                        "  {} permission rules loaded: {} active",
+                        colored("◆", 36),
+                        e.rules().len()
+                    );
                 }
                 Arc::new(e)
             }
             Err(err) => {
-                eprintln!("  {} permission rule parse error — running with no rules: {}",
-                    colored("⚠", 33), err);
+                eprintln!(
+                    "  {} permission rule parse error — running with no rules: {}",
+                    colored("⚠", 33),
+                    err
+                );
                 Arc::new(phantom_mesh::permission::Engine::new(Vec::new()))
             }
         }
@@ -2831,8 +6907,7 @@ async fn repl(
     // ── rustyline setup with custom Helper (Tab completion + ghost-hints) ──
     let mut rl: Editor<PhantomHelper, DefaultHistory> = Editor::new()?;
     rl.set_helper(Some(PhantomHelper));
-    let history_path = dirs::home_dir()
-        .map(|h| h.join(".phantom-mesh").join("history"));
+    let history_path = dirs::home_dir().map(|h| h.join(".phantom-mesh").join("history"));
     if let Some(ref p) = history_path {
         let _ = rl.load_history(p);
     }
@@ -2861,14 +6936,23 @@ async fn repl(
                 m.clone()
             } else {
                 let cfg = app_state.agent_runtime.config();
-                cfg.agent.get(&agent_name)
-                    .map(|a| if a.model.is_empty() { "default".to_string() } else { a.model.clone() })
+                cfg.agent
+                    .get(&agent_name)
+                    .map(|a| {
+                        if a.model.is_empty() {
+                            "default".to_string()
+                        } else {
+                            a.model.clone()
+                        }
+                    })
                     .unwrap_or_else(|| "default".to_string())
             };
             let plan = std::env::var("PHANTOM_PLAN_MODE").ok().filter(|s| s == "1");
             let plan_str = if plan.is_some() {
                 format!("  ·  {}", colored("PLAN", 33))
-            } else { String::new() };
+            } else {
+                String::new()
+            };
             eprintln!(
                 "  {} {}  ·  model: {}  ·  cost: {} session ({} last){}",
                 colored("agent:", 90),
@@ -2893,7 +6977,11 @@ async fn repl(
         let mut buffer = String::new();
         let mut read_err: Option<ReadlineError> = None;
         loop {
-            let p = if buffer.is_empty() { &prompt_str } else { &cont_prompt };
+            let p = if buffer.is_empty() {
+                &prompt_str
+            } else {
+                &cont_prompt
+            };
             match rl.readline(p) {
                 Ok(l) => {
                     if l.ends_with('\\') {
@@ -2905,13 +6993,19 @@ async fn repl(
                     buffer.push_str(&l);
                     break;
                 }
-                Err(e) => { read_err = Some(e); break; }
+                Err(e) => {
+                    read_err = Some(e);
+                    break;
+                }
             }
         }
 
         if let Some(e) = read_err {
             match e {
-                ReadlineError::Interrupted => { eprintln!("^C"); continue; }
+                ReadlineError::Interrupted => {
+                    eprintln!("^C");
+                    continue;
+                }
                 ReadlineError::Eof => break,
                 other => {
                     eprintln!("{} {}", colored("error:", 31), other);
@@ -2925,7 +7019,9 @@ async fn repl(
             rl.add_history_entry(line.replace('\n', " ⏎ ")).ok();
         }
         let line = line.trim().to_string();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
 
         // Handle slash commands
         if line.starts_with('/') {
@@ -2934,43 +7030,59 @@ async fn repl(
                 "/exit" | "/quit" => break,
 
                 "/help" => {
-                    eprintln!("  {}",   colored("session", 36));
-                    eprintln!("    /clear            — clear conversation history for current session");
-                    eprintln!("    /compact          — LLM-summarize older turns, keep last 6 verbatim");
+                    eprintln!("  {}", colored("session", 36));
+                    eprintln!(
+                        "    /clear            — clear conversation history for current session"
+                    );
+                    eprintln!(
+                        "    /compact          — LLM-summarize older turns, keep last 6 verbatim"
+                    );
                     eprintln!("    /sessions         — list all sessions sorted by recency");
                     eprintln!("    /session [id]     — show current session or switch to <id>");
-                    eprintln!("    /resume [id|prefix] — resume latest session, or one matching <prefix>");
+                    eprintln!(
+                        "    /resume [id|prefix] — resume latest session, or one matching <prefix>"
+                    );
                     eprintln!("    /fork [name]      — branch the current session into a new one (history copied)");
                     eprintln!("    /list             — list saved sessions (size view)");
                     eprintln!();
-                    eprintln!("  {}",   colored("agents & tools", 36));
+                    eprintln!("  {}", colored("agents & tools", 36));
                     eprintln!("    /agent [name]     — show or switch active agent (master/coder/reviewer/researcher)");
                     eprintln!("    /agents           — list configured agents");
-                    eprintln!("    /model [name]     — show or set model override for this session");
+                    eprintln!(
+                        "    /model [name]     — show or set model override for this session"
+                    );
                     eprintln!("    /tools            — list available tools by category");
-                    eprintln!("    /mcp [test NAME]  — list configured MCP servers (or re-ping one)");
+                    eprintln!(
+                        "    /mcp [test NAME]  — list configured MCP servers (or re-ping one)"
+                    );
                     eprintln!("    /keys [list|add|remove|test] — manage provider API keys without editing toml");
                     eprintln!("    /todo             — show current TODO list (~/.phantom-mesh/todos.json)");
                     eprintln!("    /plan             — toggle plan mode (preview-before-exec)");
                     eprintln!("    /show [n]         — list captured tool calls; with arg, dump full output of #n");
-                    eprintln!("    /show thinking    — dump full reasoning trace of the most recent turn");
+                    eprintln!(
+                        "    /show thinking    — dump full reasoning trace of the most recent turn"
+                    );
                     eprintln!();
                     eprintln!("  {}", colored("display", 36));
                     eprintln!("    /density compact|full     — single-line vs multi-line tool result rendering");
-                    eprintln!("    /theme dark|light|claude  — color theme (also: codex, gemini, mono)");
+                    eprintln!(
+                        "    /theme dark|light|claude  — color theme (also: codex, gemini, mono)"
+                    );
                     eprintln!("    /perm ask|diff|allow|deny — tool permission mode (diff = preview file_edit patches)");
                     eprintln!();
-                    eprintln!("  {}",   colored("context", 36));
+                    eprintln!("  {}", colored("context", 36));
                     eprintln!("    /add <path>       — read file into context");
                     eprintln!("    /init             — generate PHANTOM.md in current directory");
                     eprintln!("    /cost             — show cost breakdown");
                     eprintln!("    /copy [all|turn]  — copy to clipboard: last assistant (default), full session, or last turn");
                     eprintln!("    /export [path]    — write the session as markdown (~/.phantom-mesh/exports/ if no path)");
                     eprintln!();
-                    eprintln!("  {}",   colored("input", 36));
+                    eprintln!("  {}", colored("input", 36));
                     eprintln!("    Tab               — complete slash commands and @paths");
                     eprintln!("    @<path>           — inline file contents in a prompt");
-                    eprintln!("    <line>\\           — end a line with \\ to continue on the next line");
+                    eprintln!(
+                        "    <line>\\           — end a line with \\ to continue on the next line"
+                    );
                     eprintln!();
                     eprintln!("    /help             — show this help");
                     eprintln!("    /exit  /quit      — exit (also Ctrl-D)");
@@ -2993,12 +7105,20 @@ async fn repl(
                     eprintln!("    tokens     in {} / out {}", input_tokens, output_tokens);
                     if budget_limit > 0.0 {
                         let pct = (total_usd / budget_limit * 100.0).min(999.0);
-                        let color = if over_budget { 31 } else if pct >= 80.0 { 33 } else { 32 };
-                        eprintln!("    budget     ${:.2} ({}{}%{})",
+                        let color = if over_budget {
+                            31
+                        } else if pct >= 80.0 {
+                            33
+                        } else {
+                            32
+                        };
+                        eprintln!(
+                            "    budget     ${:.2} ({}{}%{})",
                             budget_limit,
                             colored("", color),
                             pct as u32,
-                            "");
+                            ""
+                        );
                         let bar_w = 30usize;
                         let filled = ((pct / 100.0 * bar_w as f64) as usize).min(bar_w);
                         let bar: String = "█".repeat(filled) + &"░".repeat(bar_w - filled);
@@ -3008,27 +7128,42 @@ async fn repl(
                     // Per-model breakdown (lifetime, ordered by spend desc).
                     if let Some(by_model) = summary["by_model"].as_object() {
                         if !by_model.is_empty() {
-                            let mut rows: Vec<(String, f64, u64, u64)> = by_model.iter()
-                                .map(|(k, v)| (
-                                    k.clone(),
-                                    v["cost_usd"].as_f64().unwrap_or(0.0),
-                                    v["input_tokens"].as_u64().unwrap_or(0),
-                                    v["output_tokens"].as_u64().unwrap_or(0),
-                                ))
+                            let mut rows: Vec<(String, f64, u64, u64)> = by_model
+                                .iter()
+                                .map(|(k, v)| {
+                                    (
+                                        k.clone(),
+                                        v["cost_usd"].as_f64().unwrap_or(0.0),
+                                        v["input_tokens"].as_u64().unwrap_or(0),
+                                        v["output_tokens"].as_u64().unwrap_or(0),
+                                    )
+                                })
                                 .collect();
-                            rows.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+                            rows.sort_by(|a, b| {
+                                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                            });
                             eprintln!();
                             eprintln!("  {} per model", colored("◆", 36));
                             for (model, cost, in_tok, out_tok) in rows.iter().take(8) {
-                                let pct_of_total = if total_usd > 0.0 { cost / total_usd * 100.0 } else { 0.0 };
-                                eprintln!("    ${:>7.4}  {:>5.1}%  {:<40}  in {} / out {}",
-                                    cost, pct_of_total,
+                                let pct_of_total = if total_usd > 0.0 {
+                                    cost / total_usd * 100.0
+                                } else {
+                                    0.0
+                                };
+                                eprintln!(
+                                    "    ${:>7.4}  {:>5.1}%  {:<40}  in {} / out {}",
+                                    cost,
+                                    pct_of_total,
                                     model.chars().take(40).collect::<String>(),
-                                    in_tok, out_tok);
+                                    in_tok,
+                                    out_tok
+                                );
                             }
                             if rows.len() > 8 {
-                                eprintln!("    ({} more — full data at ~/.phantom-mesh/costs.json)",
-                                    rows.len() - 8);
+                                eprintln!(
+                                    "    ({} more — full data at ~/.phantom-mesh/costs.json)",
+                                    rows.len() - 8
+                                );
                             }
                         }
                     }
@@ -3064,47 +7199,69 @@ async fn repl(
                     // user gets the full interactive experience (browser
                     // open, prompt, etc.). After the child exits we reload
                     // the auth state and print a summary.
-                    let arg = parts.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
+                    let arg = parts
+                        .get(1)
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
                     let exe = std::env::current_exe().ok();
                     if let Some(exe) = exe {
                         let mut cmd = std::process::Command::new(exe);
                         cmd.arg("login");
-                        if !arg.is_empty() { cmd.arg(arg); }
+                        if !arg.is_empty() {
+                            cmd.arg(arg);
+                        }
                         cmd.stdin(std::process::Stdio::inherit());
                         cmd.stdout(std::process::Stdio::inherit());
                         cmd.stderr(std::process::Stdio::inherit());
                         let _ = cmd.status();
                     }
                     if let Some(s) = phantom_mesh::auth::load() {
-                        eprintln!("  {} now: {}", colored("◆", 36), phantom_mesh::auth::human_summary(&s));
+                        eprintln!(
+                            "  {} now: {}",
+                            colored("◆", 36),
+                            phantom_mesh::auth::human_summary(&s)
+                        );
                     }
                 }
 
                 "/logout" => {
                     let _ = phantom_mesh::auth::delete();
-                    eprintln!("  {} logged out (deleted {})",
+                    eprintln!(
+                        "  {} logged out (deleted {})",
                         colored("✓", 32),
-                        phantom_mesh::auth::auth_path().display());
+                        phantom_mesh::auth::auth_path().display()
+                    );
                 }
 
-                "/whoami" => {
-                    match phantom_mesh::auth::load() {
-                        Some(s) => eprintln!("  {} {}", colored("◆", 36), phantom_mesh::auth::human_summary(&s)),
-                        None    => eprintln!("  {} not logged in — `/login` to set up identity", colored("◇", 90)),
-                    }
-                }
+                "/whoami" => match phantom_mesh::auth::load() {
+                    Some(s) => eprintln!(
+                        "  {} {}",
+                        colored("◆", 36),
+                        phantom_mesh::auth::human_summary(&s)
+                    ),
+                    None => eprintln!(
+                        "  {} not logged in — `/login` to set up identity",
+                        colored("◇", 90)
+                    ),
+                },
 
                 "/diag" => {
                     let events = phantom_mesh::diag::snapshot();
                     let n = events.len();
-                    eprintln!("  {} {} recent event{} (last 30 shown):",
-                        colored("◆", 36), n, if n == 1 { "" } else { "s" });
+                    eprintln!(
+                        "  {} {} recent event{} (last 30 shown):",
+                        colored("◆", 36),
+                        n,
+                        if n == 1 { "" } else { "s" }
+                    );
                     let take = events.len().saturating_sub(30);
                     for ev in &events[take..] {
-                        eprintln!("    {} {:<14} {}",
+                        eprintln!(
+                            "    {} {:<14} {}",
                             colored(&format!("{}", ev.ts_ms), 90),
                             colored(&ev.kind, 36),
-                            ev.summary);
+                            ev.summary
+                        );
                     }
                     if let Some(p) = phantom_mesh::diag::events_path() {
                         eprintln!();
@@ -3130,26 +7287,42 @@ async fn repl(
                                 let cwd = std::env::current_dir()
                                     .map(|p| p.display().to_string())
                                     .unwrap_or_else(|_| ".".into());
-                                eprintln!("  {} most recent snapshot: {}",
-                                    colored("◆", 36), newest.id);
+                                eprintln!(
+                                    "  {} most recent snapshot: {}",
+                                    colored("◆", 36),
+                                    newest.id
+                                );
                                 eprintln!("  {} target: {}", colored("◆", 36), cwd);
-                                eprintln!("  {} sudo will be prompted (rsync --delete restore)…",
-                                    colored("⟲", 33));
+                                eprintln!(
+                                    "  {} sudo will be prompted (rsync --delete restore)…",
+                                    colored("⟲", 33)
+                                );
                                 if let Ok(exe) = std::env::current_exe() {
                                     let _ = std::process::Command::new(&exe)
-                                        .args(["snapshot", "apply", &newest.id, "--path", &cwd, "--execute"])
+                                        .args([
+                                            "snapshot",
+                                            "apply",
+                                            &newest.id,
+                                            "--path",
+                                            &cwd,
+                                            "--execute",
+                                        ])
                                         .status();
                                 }
                             }
-                            Ok(_) => eprintln!("  {} no local snapshots — `phantom snapshot create <label>` first",
-                                colored("⚠", 33)),
+                            Ok(_) => eprintln!(
+                                "  {} no local snapshots — `phantom snapshot create <label>` first",
+                                colored("⚠", 33)
+                            ),
                             Err(e) => eprintln!("  {} {}", colored("✗", 31), e),
                         }
                     }
                     #[cfg(not(target_os = "macos"))]
                     {
-                        eprintln!("  {} `/undo` is currently macOS-only (uses APFS local snapshots).",
-                            colored("⚠", 33));
+                        eprintln!(
+                            "  {} `/undo` is currently macOS-only (uses APFS local snapshots).",
+                            colored("⚠", 33)
+                        );
                     }
                 }
 
@@ -3164,8 +7337,12 @@ async fn repl(
                         "turn" => {
                             // Walk back from the end: find the last assistant,
                             // then the user before it.
-                            let mut last_user: Option<&phantom_mesh::providers::traits::ChatMessage> = None;
-                            let mut last_asst: Option<&phantom_mesh::providers::traits::ChatMessage> = None;
+                            let mut last_user: Option<
+                                &phantom_mesh::providers::traits::ChatMessage,
+                            > = None;
+                            let mut last_asst: Option<
+                                &phantom_mesh::providers::traits::ChatMessage,
+                            > = None;
                             for m in history.iter().rev() {
                                 if last_asst.is_none() && m.role == "assistant" {
                                     last_asst = Some(m);
@@ -3175,11 +7352,17 @@ async fn repl(
                                 }
                             }
                             let mut s = String::new();
-                            if let Some(u) = last_user { s.push_str(&format!("**You:** {}\n\n", u.content.trim())); }
-                            if let Some(a) = last_asst { s.push_str(&format!("**Assistant:** {}\n", a.content.trim())); }
+                            if let Some(u) = last_user {
+                                s.push_str(&format!("**You:** {}\n\n", u.content.trim()));
+                            }
+                            if let Some(a) = last_asst {
+                                s.push_str(&format!("**Assistant:** {}\n", a.content.trim()));
+                            }
                             s
                         }
-                        _ => history.iter().rev()
+                        _ => history
+                            .iter()
+                            .rev()
                             .find(|m| m.role == "assistant")
                             .map(|m| m.content.clone())
                             .unwrap_or_default(),
@@ -3207,16 +7390,20 @@ async fn repl(
                                 }
                                 let _ = c.wait();
                                 let label = match mode {
-                                    "all"  => "entire session",
+                                    "all" => "entire session",
                                     "turn" => "last turn",
-                                    _      => "last assistant message",
+                                    _ => "last assistant message",
                                 };
-                                eprintln!("  {} copied {} ({} chars) via {}",
-                                    colored("✓", 32), label, payload.len(), cmd);
+                                eprintln!(
+                                    "  {} copied {} ({} chars) via {}",
+                                    colored("✓", 32),
+                                    label,
+                                    payload.len(),
+                                    cmd
+                                );
                             }
                             Err(e) => {
-                                eprintln!("  {} couldn't run {}: {}",
-                                    colored("✗", 31), cmd, e);
+                                eprintln!("  {} couldn't run {}: {}", colored("✗", 31), cmd, e);
                                 eprintln!("    install hint: `brew install xclip` (linux) — pbcopy/clip ship with the OS.");
                             }
                         }
@@ -3226,13 +7413,17 @@ async fn repl(
                 "/settings" => {
                     // Open phantom serve's web UI Settings pane in the default browser.
                     // Falls back to printing the URL when no `open` / `xdg-open` / `start`.
-                    let port: u16 = std::env::var("PHANTOM_PORT").ok()
-                        .and_then(|s| s.parse().ok()).unwrap_or(7878);
+                    let port: u16 = std::env::var("PHANTOM_PORT")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or(7878);
                     let url = format!("http://127.0.0.1:{}/?tab=settings", port);
                     eprintln!("  {} opening {}", colored("◆", 36), url);
                     open_browser(&url);
-                    eprintln!("  {} (paste in any browser if it didn't open automatically)",
-                        colored("›", 90));
+                    eprintln!(
+                        "  {} (paste in any browser if it didn't open automatically)",
+                        colored("›", 90)
+                    );
                 }
 
                 "/export" => {
@@ -3250,12 +7441,14 @@ async fn repl(
                             None => {
                                 let ts = std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_secs()).unwrap_or(0);
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
                                 let dir = dirs::home_dir()
                                     .unwrap_or_else(|| PathBuf::from("."))
                                     .join(".phantom-mesh/exports");
                                 std::fs::create_dir_all(&dir).ok();
-                                let safe_id: String = chat_id.chars()
+                                let safe_id: String = chat_id
+                                    .chars()
                                     .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
                                     .collect();
                                 dir.join(format!("{}-{}.md", safe_id, ts))
@@ -3263,10 +7456,17 @@ async fn repl(
                         };
                         match std::fs::write(&path, &md) {
                             Ok(()) => {
-                                eprintln!("  {} exported {} chars → {}",
-                                    colored("✓", 32), md.len(), path.display());
-                                eprintln!("  {} open it: `open {}`",
-                                    colored("›", 90), path.display());
+                                eprintln!(
+                                    "  {} exported {} chars → {}",
+                                    colored("✓", 32),
+                                    md.len(),
+                                    path.display()
+                                );
+                                eprintln!(
+                                    "  {} open it: `open {}`",
+                                    colored("›", 90),
+                                    path.display()
+                                );
                             }
                             Err(e) => {
                                 eprintln!("  {} write failed: {}", colored("✗", 31), e);
@@ -3280,9 +7480,16 @@ async fn repl(
                     let providers: Vec<(&String, &phantom_mesh::config::ProviderEntry)> =
                         cfg.providers.iter().collect();
                     if providers.is_empty() {
-                        eprintln!("  {} no [providers.*] block in agents.toml — `/settings` to add one", colored("⚠", 33));
+                        eprintln!(
+                            "  {} no [providers.*] block in agents.toml — `/settings` to add one",
+                            colored("⚠", 33)
+                        );
                     } else {
-                        eprintln!("  {} {} configured providers:", colored("◆", 36), providers.len());
+                        eprintln!(
+                            "  {} {} configured providers:",
+                            colored("◆", 36),
+                            providers.len()
+                        );
                         for (name, ent) in &providers {
                             let key_state = if ent.api_key.is_some() {
                                 colored("✓ key", 32)
@@ -3293,7 +7500,13 @@ async fn repl(
                             };
                             let model = ent.default_model.as_deref().unwrap_or("<none>");
                             let base = ent.url.as_deref().unwrap_or("<vendor default>");
-                            eprintln!("    {} {:<14} {} · default: {}", colored("•", 36), name, key_state, model);
+                            eprintln!(
+                                "    {} {:<14} {} · default: {}",
+                                colored("•", 36),
+                                name,
+                                key_state,
+                                model
+                            );
                             eprintln!("      {} {}", colored("base:", 90), colored(base, 90));
                         }
                         eprintln!();
@@ -3312,23 +7525,31 @@ async fn repl(
                             let cfg = app_state.agent_runtime.config();
                             let states = phantom_mesh::keys::snapshot_states(&cfg);
                             if states.is_empty() {
-                                eprintln!("  {} no providers configured. `/keys add <name>` to add one.",
-                                    colored("◆", 33));
+                                eprintln!(
+                                    "  {} no providers configured. `/keys add <name>` to add one.",
+                                    colored("◆", 33)
+                                );
                             } else {
-                                eprintln!("  {} key state ({} provider{}):",
+                                eprintln!(
+                                    "  {} key state ({} provider{}):",
                                     colored("◆", 36),
                                     states.len(),
-                                    if states.len() == 1 { "" } else { "s" });
+                                    if states.len() == 1 { "" } else { "s" }
+                                );
                                 for (name, state) in &states {
                                     let badge = match state {
-                                        phantom_mesh::keys::KeyState::Inline =>
-                                            colored("✓ inline", 32),
-                                        phantom_mesh::keys::KeyState::EnvResolved { var } =>
-                                            colored(&format!("✓ env (${})", var), 32),
-                                        phantom_mesh::keys::KeyState::EnvMissing { var } =>
-                                            colored(&format!("⚠ env-unset (${})", var), 33),
-                                        phantom_mesh::keys::KeyState::NotConfigured =>
-                                            colored("✗ no key", 31),
+                                        phantom_mesh::keys::KeyState::Inline => {
+                                            colored("✓ inline", 32)
+                                        }
+                                        phantom_mesh::keys::KeyState::EnvResolved { var } => {
+                                            colored(&format!("✓ env (${})", var), 32)
+                                        }
+                                        phantom_mesh::keys::KeyState::EnvMissing { var } => {
+                                            colored(&format!("⚠ env-unset (${})", var), 33)
+                                        }
+                                        phantom_mesh::keys::KeyState::NotConfigured => {
+                                            colored("✗ no key", 31)
+                                        }
                                     };
                                     eprintln!("    {} {:<14} {}", colored("•", 36), name, badge);
                                 }
@@ -3345,10 +7566,16 @@ async fn repl(
                                 let path = phantom_mesh::keys::agents_toml_path();
                                 match phantom_mesh::keys::remove_api_key(&path, target) {
                                     Ok(()) => {
-                                        eprintln!("  {} dropped api_key for {} from {}",
-                                            colored("✓", 32), target, path.display());
-                                        eprintln!("  {} restart phantom for the change to take effect.",
-                                            colored("›", 90));
+                                        eprintln!(
+                                            "  {} dropped api_key for {} from {}",
+                                            colored("✓", 32),
+                                            target,
+                                            path.display()
+                                        );
+                                        eprintln!(
+                                            "  {} restart phantom for the change to take effect.",
+                                            colored("›", 90)
+                                        );
                                     }
                                     Err(e) => {
                                         eprintln!("  {} {}", colored("✗", 31), e);
@@ -3368,37 +7595,71 @@ async fn repl(
                                     }
                                     Some(ent) => {
                                         // Pick the resolved key — inline first, then env.
-                                        let key = ent.api_key.clone().filter(|s| !s.is_empty())
-                                            .or_else(|| ent.api_key_env.as_ref()
-                                                .and_then(|v| std::env::var(v).ok())
-                                                .filter(|s| !s.is_empty()));
+                                        let key =
+                                            ent.api_key.clone().filter(|s| !s.is_empty()).or_else(
+                                                || {
+                                                    ent.api_key_env
+                                                        .as_ref()
+                                                        .and_then(|v| std::env::var(v).ok())
+                                                        .filter(|s| !s.is_empty())
+                                                },
+                                            );
                                         match key {
                                             None => {
-                                                eprintln!("  {} no key set for {} — /keys add {} first",
-                                                    colored("✗", 31), target, target);
+                                                eprintln!(
+                                                    "  {} no key set for {} — /keys add {} first",
+                                                    colored("✗", 31),
+                                                    target,
+                                                    target
+                                                );
                                             }
                                             Some(k) => {
-                                                let url = ent.url.clone()
-                                                    .or_else(|| phantom_mesh::keys::default_provider_meta(target)
-                                                        .map(|(_, u)| u.to_string()))
+                                                let url = ent
+                                                    .url
+                                                    .clone()
+                                                    .or_else(|| {
+                                                        phantom_mesh::keys::default_provider_meta(
+                                                            target,
+                                                        )
+                                                        .map(|(_, u)| u.to_string())
+                                                    })
                                                     .unwrap_or_default();
                                                 if url.is_empty() {
                                                     eprintln!("  {} no base url for {} — set [providers.{}].url in agents.toml",
                                                         colored("✗", 31), target, target);
                                                 } else {
-                                                    eprintln!("  {} probing {} → {} (5s timeout)…",
-                                                        colored("◆", 36), target, url);
-                                                    match phantom_mesh::keys::probe_provider(target, &url, &k).await {
+                                                    eprintln!(
+                                                        "  {} probing {} → {} (5s timeout)…",
+                                                        colored("◆", 36),
+                                                        target,
+                                                        url
+                                                    );
+                                                    match phantom_mesh::keys::probe_provider(
+                                                        target, &url, &k,
+                                                    )
+                                                    .await
+                                                    {
                                                         Ok(r) => {
-                                                            let mark = if r.ok { colored("✓", 32) } else { colored("✗", 31) };
-                                                            eprintln!("  {} {} ({} ms)", mark, r.message, r.elapsed_ms);
+                                                            let mark = if r.ok {
+                                                                colored("✓", 32)
+                                                            } else {
+                                                                colored("✗", 31)
+                                                            };
+                                                            eprintln!(
+                                                                "  {} {} ({} ms)",
+                                                                mark, r.message, r.elapsed_ms
+                                                            );
                                                             if let Some(n) = r.model_count {
                                                                 eprintln!("  {} {} models available — /model fetch {} to list them",
                                                                     colored("›", 90), n, target);
                                                             }
                                                         }
                                                         Err(e) => {
-                                                            eprintln!("  {} transport error: {}", colored("✗", 31), e);
+                                                            eprintln!(
+                                                                "  {} transport error: {}",
+                                                                colored("✗", 31),
+                                                                e
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -3425,8 +7686,11 @@ async fn repl(
                                         colored("◆", 33), target, target);
                                 } else {
                                     // 2. Prompt for key (rustyline isn't ideal for paste but it's what we have).
-                                    eprintln!("  {} paste your {} api key (or empty to abort):",
-                                        colored("◆", 36), target);
+                                    eprintln!(
+                                        "  {} paste your {} api key (or empty to abort):",
+                                        colored("◆", 36),
+                                        target
+                                    );
                                     let new_key = match rl.readline("    key: ") {
                                         Ok(s) => s.trim().to_string(),
                                         Err(_) => String::new(),
@@ -3435,17 +7699,30 @@ async fn repl(
                                         eprintln!("  {} aborted.", colored("◆", 33));
                                     } else {
                                         // 3. Write to toml.
-                                        match phantom_mesh::keys::set_api_key(&path, target, &new_key) {
+                                        match phantom_mesh::keys::set_api_key(
+                                            &path, target, &new_key,
+                                        ) {
                                             Err(e) => {
-                                                eprintln!("  {} write failed: {}", colored("✗", 31), e);
+                                                eprintln!(
+                                                    "  {} write failed: {}",
+                                                    colored("✗", 31),
+                                                    e
+                                                );
                                             }
                                             Ok(()) => {
-                                                eprintln!("  {} wrote {} api_key to {}",
-                                                    colored("✓", 32), target, path.display());
+                                                eprintln!(
+                                                    "  {} wrote {} api_key to {}",
+                                                    colored("✓", 32),
+                                                    target,
+                                                    path.display()
+                                                );
 
                                                 // 4. Probe the new key. Use default_provider_meta
                                                 // for the base url (the toml has it now).
-                                                let url = phantom_mesh::keys::default_provider_meta(target)
+                                                let url =
+                                                    phantom_mesh::keys::default_provider_meta(
+                                                        target,
+                                                    )
                                                     .map(|(_, u)| u.to_string())
                                                     .unwrap_or_default();
                                                 if url.is_empty() {
@@ -3454,12 +7731,24 @@ async fn repl(
                                                     eprintln!("  {} restart phantom for the change to take effect.",
                                                         colored("›", 90));
                                                 } else {
-                                                    eprintln!("  {} probing {} → {} …",
-                                                        colored("◆", 36), target, url);
-                                                    match phantom_mesh::keys::probe_provider(target, &url, &new_key).await {
+                                                    eprintln!(
+                                                        "  {} probing {} → {} …",
+                                                        colored("◆", 36),
+                                                        target,
+                                                        url
+                                                    );
+                                                    match phantom_mesh::keys::probe_provider(
+                                                        target, &url, &new_key,
+                                                    )
+                                                    .await
+                                                    {
                                                         Ok(r) if r.ok => {
-                                                            eprintln!("  {} {} ({} ms)",
-                                                                colored("✓", 32), r.message, r.elapsed_ms);
+                                                            eprintln!(
+                                                                "  {} {} ({} ms)",
+                                                                colored("✓", 32),
+                                                                r.message,
+                                                                r.elapsed_ms
+                                                            );
                                                             if let Some(n) = r.model_count {
                                                                 eprintln!("  {} {} models available — /model fetch {} to list",
                                                                     colored("›", 90), n, target);
@@ -3470,16 +7759,25 @@ async fn repl(
                                                         Ok(r) => {
                                                             // 5. Probe failed — auto-rollback so we don't
                                                             // leave a known-bad key in toml.
-                                                            eprintln!("  {} {} — rolling back",
-                                                                colored("✗", 31), r.message);
-                                                            let _ = phantom_mesh::keys::remove_api_key(&path, target);
+                                                            eprintln!(
+                                                                "  {} {} — rolling back",
+                                                                colored("✗", 31),
+                                                                r.message
+                                                            );
+                                                            let _ =
+                                                                phantom_mesh::keys::remove_api_key(
+                                                                    &path, target,
+                                                                );
                                                             eprintln!("  {} api_key removed from agents.toml — try /keys add {} with the correct key",
                                                                 colored("›", 90), target);
                                                         }
                                                         Err(e) => {
                                                             eprintln!("  {} transport error: {} — rolling back",
                                                                 colored("✗", 31), e);
-                                                            let _ = phantom_mesh::keys::remove_api_key(&path, target);
+                                                            let _ =
+                                                                phantom_mesh::keys::remove_api_key(
+                                                                    &path, target,
+                                                                );
                                                         }
                                                     }
                                                 }
@@ -3500,7 +7798,9 @@ async fn repl(
                     let categorized = categorize_tools(&names);
                     eprintln!("  {} {} tools available", colored("◆", 36), names.len());
                     for (cat, items) in &categorized {
-                        if items.is_empty() { continue; }
+                        if items.is_empty() {
+                            continue;
+                        }
                         eprintln!();
                         eprintln!("  {}", colored(cat, 36));
                         for chunk in items.chunks(4) {
@@ -3530,21 +7830,31 @@ async fn repl(
                                 eprintln!("  {} pinging mcp server '{}'…", colored("◆", 36), name);
                                 match reg.ping_server(name).await {
                                     Ok(tools) => {
-                                        eprintln!("  {} {} returned {} tool(s)",
-                                                  colored("✓", 32), name, tools.len());
+                                        eprintln!(
+                                            "  {} {} returned {} tool(s)",
+                                            colored("✓", 32),
+                                            name,
+                                            tools.len()
+                                        );
                                         for t in tools.iter().take(20) {
                                             let n = t["name"].as_str().unwrap_or("?");
                                             eprintln!("    - {}", n);
                                         }
                                     }
-                                    Err(e) => eprintln!("  {} {}: {}", colored("error:", 31), name, e),
+                                    Err(e) => {
+                                        eprintln!("  {} {}: {}", colored("error:", 31), name, e)
+                                    }
                                 }
                             } else {
                                 let summary = reg.summary().await;
                                 if summary.is_empty() {
                                     eprintln!("  {} no mcp servers running.", colored("◆", 33));
                                 } else {
-                                    eprintln!("  {} {} mcp server(s):", colored("◆", 36), summary.len());
+                                    eprintln!(
+                                        "  {} {} mcp server(s):",
+                                        colored("◆", 36),
+                                        summary.len()
+                                    );
                                     for (name, n) in &summary {
                                         eprintln!("    {:<20} {} tool(s)", name, n);
                                     }
@@ -3587,7 +7897,9 @@ async fn repl(
                         &chat_id,
                         &history,
                         6,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok((dropped, summary_chars)) => {
                             eprintln!(
                                 "{} Compacted {} old messages → 1 summary ({} chars), kept last 6 verbatim.",
@@ -3637,25 +7949,54 @@ async fn repl(
                             .join(".phantom-mesh")
                             .join("conversations");
                         // Build (id, size, modified, msg_count) and sort by modified desc
-                        let mut rows: Vec<(String, u64, std::time::SystemTime, usize)> = ids.iter().map(|id| {
-                            let path = home.join(format!("{}.jsonl", id));
-                            let meta = std::fs::metadata(&path).ok();
-                            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                            let mtime = meta.as_ref().and_then(|m| m.modified().ok()).unwrap_or(std::time::UNIX_EPOCH);
-                            let msgs = std::fs::read_to_string(&path).map(|s| s.lines().count()).unwrap_or(0);
-                            (id.clone(), size, mtime, msgs)
-                        }).collect();
+                        let mut rows: Vec<(String, u64, std::time::SystemTime, usize)> = ids
+                            .iter()
+                            .map(|id| {
+                                let path = home.join(format!("{}.jsonl", id));
+                                let meta = std::fs::metadata(&path).ok();
+                                let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+                                let mtime = meta
+                                    .as_ref()
+                                    .and_then(|m| m.modified().ok())
+                                    .unwrap_or(std::time::UNIX_EPOCH);
+                                let msgs = std::fs::read_to_string(&path)
+                                    .map(|s| s.lines().count())
+                                    .unwrap_or(0);
+                                (id.clone(), size, mtime, msgs)
+                            })
+                            .collect();
                         rows.sort_by(|a, b| b.2.cmp(&a.2));
-                        eprintln!("  {} {} session{}:", colored("◆", 36), rows.len(),
-                            if rows.len() == 1 { "" } else { "s" });
+                        eprintln!(
+                            "  {} {} session{}:",
+                            colored("◆", 36),
+                            rows.len(),
+                            if rows.len() == 1 { "" } else { "s" }
+                        );
                         let now = std::time::SystemTime::now();
                         for (id, size, mtime, msgs) in &rows {
-                            let marker = if id == &chat_id { colored("*", 32) } else { " ".into() };
-                            let id_short = if id.len() > 28 { format!("{}…", &id[..27]) } else { id.clone() };
+                            let marker = if id == &chat_id {
+                                colored("*", 32)
+                            } else {
+                                " ".into()
+                            };
+                            let id_short = if id.len() > 28 {
+                                format!("{}…", &id[..27])
+                            } else {
+                                id.clone()
+                            };
                             let size_s = format_size(*size);
-                            let age = now.duration_since(*mtime).map(format_age).unwrap_or_else(|_| "-".into());
-                            eprintln!("    {} {:<32} {:>8}  {:>4} msg  {}",
-                                marker, id_short, size_s, msgs, colored(&age, 90));
+                            let age = now
+                                .duration_since(*mtime)
+                                .map(format_age)
+                                .unwrap_or_else(|_| "-".into());
+                            eprintln!(
+                                "    {} {:<32} {:>8}  {:>4} msg  {}",
+                                marker,
+                                id_short,
+                                size_s,
+                                msgs,
+                                colored(&age, 90)
+                            );
                         }
                         eprintln!("  {}", colored("/resume <id>  or  /resume    (latest)", 90));
                     }
@@ -3669,16 +8010,27 @@ async fn repl(
                         if ids.iter().any(|id| id == arg) {
                             Some(arg.to_string())
                         } else {
-                            let matches: Vec<&String> = ids.iter().filter(|id| id.starts_with(arg)).collect();
+                            let matches: Vec<&String> =
+                                ids.iter().filter(|id| id.starts_with(arg)).collect();
                             match matches.len() {
                                 0 => {
-                                    eprintln!("  {} no session matches '{}'", colored("error:", 31), arg);
+                                    eprintln!(
+                                        "  {} no session matches '{}'",
+                                        colored("error:", 31),
+                                        arg
+                                    );
                                     None
                                 }
                                 1 => Some(matches[0].clone()),
                                 _ => {
-                                    eprintln!("  {} '{}' is ambiguous, matches:", colored("error:", 31), arg);
-                                    for m in matches.iter().take(5) { eprintln!("    {}", m); }
+                                    eprintln!(
+                                        "  {} '{}' is ambiguous, matches:",
+                                        colored("error:", 31),
+                                        arg
+                                    );
+                                    for m in matches.iter().take(5) {
+                                        eprintln!("    {}", m);
+                                    }
                                     None
                                 }
                             }
@@ -3691,13 +8043,20 @@ async fn repl(
                         chat_id = id.clone();
                         pending_context.clear();
                         let history = conversations.get_history(&chat_id).await;
-                        eprintln!("  {} resumed session {}  ({} messages)",
-                            colored("◆", 32), &chat_id[..chat_id.len().min(28)], history.len());
+                        eprintln!(
+                            "  {} resumed session {}  ({} messages)",
+                            colored("◆", 32),
+                            &chat_id[..chat_id.len().min(28)],
+                            history.len()
+                        );
                     }
                 }
 
                 "/fork" => {
-                    let new_id = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty())
+                    let new_id = parts
+                        .get(1)
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| {
                             // default name: <src>-fork-<6-hex>
@@ -3706,7 +8065,11 @@ async fn repl(
                             let mut h = DefaultHasher::new();
                             std::time::SystemTime::now().hash(&mut h);
                             chat_id.hash(&mut h);
-                            format!("{}-fork-{:06x}", &chat_id[..chat_id.len().min(20)], h.finish() & 0xffffff)
+                            format!(
+                                "{}-fork-{:06x}",
+                                &chat_id[..chat_id.len().min(20)],
+                                h.finish() & 0xffffff
+                            )
                         });
                     if new_id == chat_id {
                         eprintln!("  {} cannot fork to the same id", colored("error:", 31));
@@ -3716,12 +8079,20 @@ async fn repl(
                                 let prev = chat_id.clone();
                                 chat_id = new_id.clone();
                                 pending_context.clear();
-                                eprintln!("  {} forked from {} → {} ({} messages copied)",
+                                eprintln!(
+                                    "  {} forked from {} → {} ({} messages copied)",
                                     colored("◆", 32),
                                     &prev[..prev.len().min(20)],
                                     colored(&new_id[..new_id.len().min(28)], 36),
-                                    n);
-                                eprintln!("  {}", colored("you're now on the fork; original session unchanged.", 90));
+                                    n
+                                );
+                                eprintln!(
+                                    "  {}",
+                                    colored(
+                                        "you're now on the fork; original session unchanged.",
+                                        90
+                                    )
+                                );
                             }
                             Err(e) => eprintln!("  {} fork failed: {}", colored("error:", 31), e),
                         }
@@ -3741,9 +8112,7 @@ async fn repl(
                         eprintln!("  {}", "-".repeat(54));
                         for id in &sessions {
                             let path = home.join(format!("{}.jsonl", id));
-                            let size = std::fs::metadata(&path)
-                                .map(|m| m.len())
-                                .unwrap_or(0);
+                            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                             let size_str = format_size(size);
                             let marker = if *id == chat_id { " *" } else { "" };
                             eprintln!("  {:<40}  {:>10}{}", id, size_str, marker);
@@ -3768,7 +8137,8 @@ async fn repl(
 
                 "/model" => {
                     let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
-                    let (action, target) = arg.split_once(' ')
+                    let (action, target) = arg
+                        .split_once(' ')
                         .map(|(a, t)| (a.trim(), t.trim()))
                         .unwrap_or((arg, ""));
 
@@ -3785,39 +8155,86 @@ async fn repl(
                                         colored("✗", 31), target);
                                 }
                                 Some(ent) => {
-                                    let key = ent.api_key.clone().filter(|s| !s.is_empty())
-                                        .or_else(|| ent.api_key_env.as_ref()
-                                            .and_then(|v| std::env::var(v).ok())
-                                            .filter(|s| !s.is_empty()));
-                                    let url = ent.url.clone()
-                                        .or_else(|| phantom_mesh::keys::default_provider_meta(target).map(|(_, u)| u.to_string()))
+                                    let key =
+                                        ent.api_key.clone().filter(|s| !s.is_empty()).or_else(
+                                            || {
+                                                ent.api_key_env
+                                                    .as_ref()
+                                                    .and_then(|v| std::env::var(v).ok())
+                                                    .filter(|s| !s.is_empty())
+                                            },
+                                        );
+                                    let url = ent
+                                        .url
+                                        .clone()
+                                        .or_else(|| {
+                                            phantom_mesh::keys::default_provider_meta(target)
+                                                .map(|(_, u)| u.to_string())
+                                        })
                                         .unwrap_or_default();
                                     match (key, url.is_empty()) {
                                         (None, _) => {
-                                            eprintln!("  {} no key for {} — /keys add {} first", colored("✗", 31), target, target);
+                                            eprintln!(
+                                                "  {} no key for {} — /keys add {} first",
+                                                colored("✗", 31),
+                                                target,
+                                                target
+                                            );
                                         }
                                         (_, true) => {
-                                            eprintln!("  {} no base url for {} — set [providers.{}].url", colored("✗", 31), target, target);
+                                            eprintln!(
+                                                "  {} no base url for {} — set [providers.{}].url",
+                                                colored("✗", 31),
+                                                target,
+                                                target
+                                            );
                                         }
                                         (Some(k), false) => {
-                                            eprintln!("  {} fetching models from {} → {} …",
-                                                colored("◆", 36), target, url);
-                                            match phantom_mesh::keys::fetch_models(target, &url, &k).await {
+                                            eprintln!(
+                                                "  {} fetching models from {} → {} …",
+                                                colored("◆", 36),
+                                                target,
+                                                url
+                                            );
+                                            match phantom_mesh::keys::fetch_models(target, &url, &k)
+                                                .await
+                                            {
                                                 Ok(ids) if ids.is_empty() => {
-                                                    eprintln!("  {} no models in response (empty list)", colored("⚠", 33));
+                                                    eprintln!(
+                                                        "  {} no models in response (empty list)",
+                                                        colored("⚠", 33)
+                                                    );
                                                 }
                                                 Ok(ids) => {
-                                                    eprintln!("  {} {} models from {}:", colored("◆", 32), ids.len(), target);
+                                                    eprintln!(
+                                                        "  {} {} models from {}:",
+                                                        colored("◆", 32),
+                                                        ids.len(),
+                                                        target
+                                                    );
                                                     for id in &ids {
-                                                        eprintln!("    {} {}", colored("•", 36), id);
+                                                        eprintln!(
+                                                            "    {} {}",
+                                                            colored("•", 36),
+                                                            id
+                                                        );
                                                     }
                                                     eprintln!();
-                                                    eprintln!("  {} /model {}:{}    switch this session",
-                                                        colored("›", 90), target,
-                                                        ids.first().map(|s| s.as_str()).unwrap_or("<id>"));
+                                                    eprintln!(
+                                                        "  {} /model {}:{}    switch this session",
+                                                        colored("›", 90),
+                                                        target,
+                                                        ids.first()
+                                                            .map(|s| s.as_str())
+                                                            .unwrap_or("<id>")
+                                                    );
                                                 }
                                                 Err(e) => {
-                                                    eprintln!("  {} fetch failed: {}", colored("✗", 31), e);
+                                                    eprintln!(
+                                                        "  {} fetch failed: {}",
+                                                        colored("✗", 31),
+                                                        e
+                                                    );
                                                 }
                                             }
                                         }
@@ -3840,26 +8257,50 @@ async fn repl(
                                         colored("✗", 31), target);
                                 }
                                 Some(ent) => {
-                                    let key = ent.api_key.clone().filter(|s| !s.is_empty())
-                                        .or_else(|| ent.api_key_env.as_ref()
-                                            .and_then(|v| std::env::var(v).ok())
-                                            .filter(|s| !s.is_empty()));
-                                    let url = ent.url.clone()
-                                        .or_else(|| phantom_mesh::keys::default_provider_meta(target).map(|(_, u)| u.to_string()))
+                                    let key =
+                                        ent.api_key.clone().filter(|s| !s.is_empty()).or_else(
+                                            || {
+                                                ent.api_key_env
+                                                    .as_ref()
+                                                    .and_then(|v| std::env::var(v).ok())
+                                                    .filter(|s| !s.is_empty())
+                                            },
+                                        );
+                                    let url = ent
+                                        .url
+                                        .clone()
+                                        .or_else(|| {
+                                            phantom_mesh::keys::default_provider_meta(target)
+                                                .map(|(_, u)| u.to_string())
+                                        })
                                         .unwrap_or_default();
                                     match (key, url.is_empty()) {
                                         (None, _) => {
-                                            eprintln!("  {} no key for {} — /keys add {} first", colored("✗", 31), target, target);
+                                            eprintln!(
+                                                "  {} no key for {} — /keys add {} first",
+                                                colored("✗", 31),
+                                                target,
+                                                target
+                                            );
                                         }
                                         (_, true) => {
-                                            eprintln!("  {} no base url for {}", colored("✗", 31), target);
+                                            eprintln!(
+                                                "  {} no base url for {}",
+                                                colored("✗", 31),
+                                                target
+                                            );
                                         }
                                         (Some(k), false) => {
                                             eprintln!("  {} fetching models …", colored("◆", 36));
-                                            match phantom_mesh::keys::fetch_models(target, &url, &k).await {
+                                            match phantom_mesh::keys::fetch_models(target, &url, &k)
+                                                .await
+                                            {
                                                 Err(e) => eprintln!("  {} {}", colored("✗", 31), e),
                                                 Ok(ids) if ids.is_empty() => {
-                                                    eprintln!("  {} no models returned", colored("⚠", 33));
+                                                    eprintln!(
+                                                        "  {} no models returned",
+                                                        colored("⚠", 33)
+                                                    );
                                                 }
                                                 Ok(ids) => {
                                                     eprintln!("  {} {} models — pick by number, or 0 to abort:",
@@ -3872,15 +8313,25 @@ async fn repl(
                                                         Err(_) => "0".into(),
                                                     };
                                                     match pick.parse::<usize>() {
-                                                        Ok(0) => eprintln!("  {} aborted.", colored("◆", 33)),
+                                                        Ok(0) => eprintln!(
+                                                            "  {} aborted.",
+                                                            colored("◆", 33)
+                                                        ),
                                                         Ok(n) if n >= 1 && n <= ids.len() => {
                                                             let chosen = &ids[n - 1];
                                                             model_override = Some(chosen.clone());
-                                                            std::env::set_var("PHANTOM_PROVIDER_OVERRIDE", target);
+                                                            std::env::set_var(
+                                                                "PHANTOM_PROVIDER_OVERRIDE",
+                                                                target,
+                                                            );
                                                             eprintln!("  {} switched to {}/{} for this session",
                                                                 colored("✓", 32), target, chosen);
                                                         }
-                                                        _ => eprintln!("  {} invalid pick '{}'", colored("✗", 31), pick),
+                                                        _ => eprintln!(
+                                                            "  {} invalid pick '{}'",
+                                                            colored("✗", 31),
+                                                            pick
+                                                        ),
                                                     }
                                                 }
                                             }
@@ -3893,42 +8344,54 @@ async fn repl(
                         // /model fast | smart | cheap — preset shortcuts
                         let cfg = app_state.agent_runtime.config();
                         let preset = match action {
-                            "fast"  => &[
-                                ("groq",       "llama-3.3-70b-versatile"),
-                                ("gemini",     "gemini-2.0-flash-exp"),
+                            "fast" => &[
+                                ("groq", "llama-3.3-70b-versatile"),
+                                ("gemini", "gemini-2.0-flash-exp"),
                                 ("openrouter", "google/gemini-2.0-flash-exp"),
-                                ("openai",     "gpt-4o-mini"),
+                                ("openai", "gpt-4o-mini"),
                             ][..],
                             "smart" => &[
-                                ("anthropic",  "claude-sonnet-4-20250514"),
-                                ("openai",     "gpt-4o"),
+                                ("anthropic", "claude-sonnet-4-20250514"),
+                                ("openai", "gpt-4o"),
                                 ("openrouter", "anthropic/claude-sonnet-4"),
-                                ("groq",       "llama-3.3-70b-versatile"),
+                                ("groq", "llama-3.3-70b-versatile"),
                             ][..],
                             "cheap" => &[
-                                ("groq",       "llama-3.1-8b-instant"),
-                                ("gemini",     "gemini-2.0-flash-lite"),
+                                ("groq", "llama-3.1-8b-instant"),
+                                ("gemini", "gemini-2.0-flash-lite"),
                                 ("openrouter", "google/gemini-2.0-flash-lite"),
-                                ("opencode",   "claude-haiku-4-5-free"),
+                                ("opencode", "claude-haiku-4-5-free"),
                             ][..],
                             _ => &[][..],
                         };
-                        let pick = preset.iter()
+                        let pick = preset
+                            .iter()
                             .find(|(p, _)| cfg.providers.contains_key(*p))
                             .copied();
                         match pick {
                             None => {
-                                eprintln!("  {} no '{}' preset available — none of [{}] are configured.",
+                                eprintln!(
+                                    "  {} no '{}' preset available — none of [{}] are configured.",
                                     colored("✗", 31),
                                     action,
-                                    preset.iter().map(|(p, _)| *p).collect::<Vec<_>>().join(", "));
+                                    preset
+                                        .iter()
+                                        .map(|(p, _)| *p)
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                );
                                 eprintln!("  {} /keys add <provider> to add one", colored("›", 90));
                             }
                             Some((pname, mname)) => {
                                 model_override = Some(mname.to_string());
                                 std::env::set_var("PHANTOM_PROVIDER_OVERRIDE", pname);
-                                eprintln!("  {} {} preset → {}/{}",
-                                    colored("✓", 32), action, pname, mname);
+                                eprintln!(
+                                    "  {} {} preset → {}/{}",
+                                    colored("✓", 32),
+                                    action,
+                                    pname,
+                                    mname
+                                );
                             }
                         }
                     } else if arg.is_empty() {
@@ -3938,17 +8401,31 @@ async fn repl(
                         let cfg = app_state.agent_runtime.config();
                         if !cfg.providers.is_empty() {
                             eprintln!();
-                            eprintln!("  {} available models (one per provider):", colored("◆", 36));
+                            eprintln!(
+                                "  {} available models (one per provider):",
+                                colored("◆", 36)
+                            );
                             for (pname, pent) in cfg.providers.iter() {
-                                let mark = if pent.default_model.is_some() { "•" } else { " " };
-                                let model = pent.default_model.as_deref().unwrap_or("<no default_model set>");
+                                let mark = if pent.default_model.is_some() {
+                                    "•"
+                                } else {
+                                    " "
+                                };
+                                let model = pent
+                                    .default_model
+                                    .as_deref()
+                                    .unwrap_or("<no default_model set>");
                                 eprintln!("    {} {:<14} {}", colored(mark, 36), pname, model);
                             }
                             eprintln!();
                             eprintln!("  switch with:  /model <model-name>          (overrides current agent's model)");
                             eprintln!("                /model <provider>:<model>    (also switches provider)");
-                            eprintln!("                /model fast | smart | cheap  (preset shortcuts)");
-                            eprintln!("                /model fetch <provider>      (live model list)");
+                            eprintln!(
+                                "                /model fast | smart | cheap  (preset shortcuts)"
+                            );
+                            eprintln!(
+                                "                /model fetch <provider>      (live model list)"
+                            );
                             eprintln!("                /model pick <provider>       (number-select from live list)");
                             eprintln!("  list providers: /provider");
                         }
@@ -3956,15 +8433,23 @@ async fn repl(
                         // Provider-qualified switch: /model groq:llama-3.3-70b
                         let cfg = app_state.agent_runtime.config();
                         if !cfg.providers.contains_key(pname) {
-                            eprintln!("  {} unknown provider '{}'. Try /provider", colored("✗", 31), pname);
+                            eprintln!(
+                                "  {} unknown provider '{}'. Try /provider",
+                                colored("✗", 31),
+                                pname
+                            );
                         } else {
                             // Set the model override + remember provider hint via env so
                             // the next turn picks it up. Persistent change still requires
                             // editing agents.toml.
                             model_override = Some(mname.to_string());
                             std::env::set_var("PHANTOM_PROVIDER_OVERRIDE", pname);
-                            eprintln!("  {} switched to {}/{} for this session",
-                                colored("✓", 32), pname, mname);
+                            eprintln!(
+                                "  {} switched to {}/{} for this session",
+                                colored("✓", 32),
+                                pname,
+                                mname
+                            );
                         }
                     } else {
                         // Plain /model <name> — model-only override (legacy behaviour).
@@ -3983,13 +8468,17 @@ async fn repl(
                 "/agent" | "/agents" => {
                     let cfg = app_state.agent_runtime.config();
                     if parts[0] == "/agent" {
-                        if let Some(name) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        if let Some(name) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty())
+                        {
                             if cfg.agent.contains_key(name) {
                                 agent_name = name.to_string();
                                 eprintln!("{} Active agent: {}", colored("◆", 32), name);
                             } else {
                                 eprintln!("{} unknown agent: {}", colored("error:", 31), name);
-                                eprintln!("  available: {}", cfg.agent.keys().cloned().collect::<Vec<_>>().join(", "));
+                                eprintln!(
+                                    "  available: {}",
+                                    cfg.agent.keys().cloned().collect::<Vec<_>>().join(", ")
+                                );
                             }
                             continue;
                         }
@@ -3998,34 +8487,51 @@ async fn repl(
                     eprintln!("  configured ({}):", cfg.agent.len());
                     for (name, ag) in cfg.agent.iter() {
                         let marker = if name == &agent_name { "*" } else { " " };
-                        let provider = if ag.provider.is_empty() { "<inherit>" } else { ag.provider.as_str() };
+                        let provider = if ag.provider.is_empty() {
+                            "<inherit>"
+                        } else {
+                            ag.provider.as_str()
+                        };
                         eprintln!("    {} {:<14} provider={}", marker, name, provider);
                     }
                 }
 
                 "/todo" => {
-                    let path = dirs::home_dir()
-                        .map(|h| h.join(".phantom-mesh").join("todos.json"));
-                    let raw = path.as_ref()
+                    let path = dirs::home_dir().map(|h| h.join(".phantom-mesh").join("todos.json"));
+                    let raw = path
+                        .as_ref()
                         .and_then(|p| std::fs::read_to_string(p).ok())
                         .unwrap_or_else(|| "[]".to_string());
-                    let parsed: serde_json::Value = serde_json::from_str(&raw)
-                        .unwrap_or(serde_json::Value::Array(vec![]));
-                    let items = parsed.get("todos").and_then(|v| v.as_array())
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&raw).unwrap_or(serde_json::Value::Array(vec![]));
+                    let items = parsed
+                        .get("todos")
+                        .and_then(|v| v.as_array())
                         .or_else(|| parsed.as_array())
                         .cloned()
                         .unwrap_or_default();
                     if items.is_empty() {
-                        eprintln!("  {} no todos. Use the todo_add tool from any agent to create one.", colored("◆", 90));
+                        eprintln!(
+                            "  {} no todos. Use the todo_add tool from any agent to create one.",
+                            colored("◆", 90)
+                        );
                     } else {
-                        eprintln!("  {} {} todo{}:", colored("◆", 32), items.len(), if items.len() == 1 { "" } else { "s" });
+                        eprintln!(
+                            "  {} {} todo{}:",
+                            colored("◆", 32),
+                            items.len(),
+                            if items.len() == 1 { "" } else { "s" }
+                        );
                         for it in items.iter() {
                             let status = it.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-                            let text   = it.get("text").and_then(|v| v.as_str()).unwrap_or("(no text)");
+                            let text = it
+                                .get("text")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("(no text)");
                             let dot = match status {
-                                "done"        => colored("●", 32),
+                                "done" => colored("●", 32),
                                 "in_progress" => colored("●", 33),
-                                _             => colored("○", 90),
+                                _ => colored("○", 90),
                             };
                             eprintln!("    {} {}", dot, text);
                         }
@@ -4036,8 +8542,10 @@ async fn repl(
                     let now = std::env::var("PHANTOM_PLAN_MODE").unwrap_or_default();
                     if now == "1" {
                         std::env::remove_var("PHANTOM_PLAN_MODE");
-                        eprintln!("  {} plan mode OFF — agents execute tools immediately.",
-                            colored("✓", 32));
+                        eprintln!(
+                            "  {} plan mode OFF — agents execute tools immediately.",
+                            colored("✓", 32)
+                        );
                     } else {
                         std::env::set_var("PHANTOM_PLAN_MODE", "1");
                         eprintln!("  {} plan mode ON — agents will preview their plan, then wait for 'go' before any tool call.",
@@ -4049,16 +8557,27 @@ async fn repl(
                     // `/show thinking` dumps the FULL reasoning trace of the
                     // most recent turn (captured even when PHANTOM_THINKING=0).
                     if parts.get(1).map(|s| s.trim()) == Some("thinking") {
-                        let buf = thinking_session.lock().ok().map(|s| s.clone()).unwrap_or_default();
+                        let buf = thinking_session
+                            .lock()
+                            .ok()
+                            .map(|s| s.clone())
+                            .unwrap_or_default();
                         if buf.is_empty() {
-                            eprintln!("  {} no reasoning trace captured for the most recent turn.", colored("◆", 90));
+                            eprintln!(
+                                "  {} no reasoning trace captured for the most recent turn.",
+                                colored("◆", 90)
+                            );
                             eprintln!("  {} (only some models — Anthropic extended-thinking, opencode/groq reasoning models — emit one)", colored("›", 90));
                         } else {
                             let dim_italic = "\x1b[2m\x1b[3m";
                             let reset = "\x1b[0m";
                             let total = buf.lines().filter(|l| !l.trim().is_empty()).count();
-                            eprintln!("  {} ⌖ thinking — full trace ({} lines, {} chars)",
-                                colored("◆", 36), total, buf.chars().count());
+                            eprintln!(
+                                "  {} ⌖ thinking — full trace ({} lines, {} chars)",
+                                colored("◆", 36),
+                                total,
+                                buf.chars().count()
+                            );
                             for line in buf.lines() {
                                 eprintln!("{}  ⌖ ┊ {}{}", dim_italic, line, reset);
                             }
@@ -4071,20 +8590,30 @@ async fn repl(
                         None => Vec::new(),
                     };
                     if entries.is_empty() {
-                        eprintln!("  {} no tool calls captured yet this session.", colored("◆", 90));
-                    } else if let Some(arg) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                        eprintln!(
+                            "  {} no tool calls captured yet this session.",
+                            colored("◆", 90)
+                        );
+                    } else if let Some(arg) =
+                        parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty())
+                    {
                         // Show full output of one entry
                         match arg.parse::<usize>() {
                             Ok(n) => {
                                 if let Some(entry) = entries.iter().find(|e| e.n == n) {
-                                    eprintln!("  {} {} {}({})",
+                                    eprintln!(
+                                        "  {} {} {}({})",
                                         colored(&format!("[#{}]", n), 90),
                                         colored("●", 36),
                                         colored(&entry.name, 36),
-                                        truncate_preview(&entry.args, 200));
+                                        truncate_preview(&entry.args, 200)
+                                    );
                                     eprintln!();
                                     if entry.output.is_empty() {
-                                        eprintln!("  {}", colored("(no output captured — still running?)", 90));
+                                        eprintln!(
+                                            "  {}",
+                                            colored("(no output captured — still running?)", 90)
+                                        );
                                     } else {
                                         // Print full output, indented
                                         for line in entry.output.lines() {
@@ -4092,23 +8621,41 @@ async fn repl(
                                         }
                                     }
                                     eprintln!();
-                                    eprintln!("  {}", colored(&format!("({} chars, {} lines)",
-                                        entry.output.chars().count(),
-                                        entry.output.lines().count()), 90));
+                                    eprintln!(
+                                        "  {}",
+                                        colored(
+                                            &format!(
+                                                "({} chars, {} lines)",
+                                                entry.output.chars().count(),
+                                                entry.output.lines().count()
+                                            ),
+                                            90
+                                        )
+                                    );
                                 } else {
-                                    eprintln!("  {} no tool call #{} (range: 1..={})",
-                                        colored("error:", 31), n, entries.last().map(|e| e.n).unwrap_or(0));
+                                    eprintln!(
+                                        "  {} no tool call #{} (range: 1..={})",
+                                        colored("error:", 31),
+                                        n,
+                                        entries.last().map(|e| e.n).unwrap_or(0)
+                                    );
                                 }
                             }
                             Err(_) => {
-                                eprintln!("  {} usage: /show <n>  (number from [#N] in tool output)", colored("error:", 31));
+                                eprintln!(
+                                    "  {} usage: /show <n>  (number from [#N] in tool output)",
+                                    colored("error:", 31)
+                                );
                             }
                         }
                     } else {
                         // List all
-                        eprintln!("  {} {} tool call{} this session:",
-                            colored("◆", 36), entries.len(),
-                            if entries.len() == 1 { "" } else { "s" });
+                        eprintln!(
+                            "  {} {} tool call{} this session:",
+                            colored("◆", 36),
+                            entries.len(),
+                            if entries.len() == 1 { "" } else { "s" }
+                        );
                         for entry in entries.iter() {
                             let arg_summary = truncate_preview(&entry.args, 60);
                             let out_lines = if entry.output.is_empty() {
@@ -4116,11 +8663,13 @@ async fn repl(
                             } else {
                                 format!("{} lines", entry.output.lines().count())
                             };
-                            eprintln!("    {} {}({})  {}",
+                            eprintln!(
+                                "    {} {}({})  {}",
                                 colored(&format!("[#{}]", entry.n), 90),
                                 colored(&entry.name, 36),
                                 arg_summary,
-                                colored(&out_lines, 90));
+                                colored(&out_lines, 90)
+                            );
                         }
                         eprintln!("  {}", colored("/show <n> to expand any one", 90));
                     }
@@ -4131,7 +8680,11 @@ async fn repl(
                     match arg {
                         Some("ask") => {
                             std::env::set_var("PHANTOM_PERM", "ask");
-                            eprintln!("  {} permission mode: {} — every tool call will prompt", colored("◆", 32), colored("ask", 33));
+                            eprintln!(
+                                "  {} permission mode: {} — every tool call will prompt",
+                                colored("◆", 32),
+                                colored("ask", 33)
+                            );
                         }
                         Some("diff") => {
                             std::env::set_var("PHANTOM_PERM", "diff");
@@ -4139,18 +8692,29 @@ async fn repl(
                         }
                         Some("allow") | Some("auto") => {
                             std::env::set_var("PHANTOM_PERM", "allow");
-                            eprintln!("  {} permission mode: {} — all tool calls auto-approved", colored("◆", 32), colored("allow", 36));
+                            eprintln!(
+                                "  {} permission mode: {} — all tool calls auto-approved",
+                                colored("◆", 32),
+                                colored("allow", 36)
+                            );
                         }
                         Some("deny") => {
                             std::env::set_var("PHANTOM_PERM", "deny");
-                            eprintln!("  {} permission mode: {} — all tool calls will be denied", colored("◆", 32), colored("deny", 31));
+                            eprintln!(
+                                "  {} permission mode: {} — all tool calls will be denied",
+                                colored("◆", 32),
+                                colored("deny", 31)
+                            );
                         }
                         Some("reset") | Some("clear") => {
-                            if let Ok(mut a) = perm_allowlist.lock() { a.clear(); }
+                            if let Ok(mut a) = perm_allowlist.lock() {
+                                a.clear();
+                            }
                             eprintln!("  {} session allow-list cleared", colored("◆", 32));
                         }
                         Some("list") | Some("show") => {
-                            let cur = std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
+                            let cur =
+                                std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
                             eprintln!("  {} mode: {}", colored("◆", 36), colored(&cur, 36));
                             if let Ok(a) = perm_allowlist.lock() {
                                 if a.is_empty() {
@@ -4164,17 +8728,44 @@ async fn repl(
                             }
                         }
                         Some(other) => {
-                            eprintln!("  {} unknown: {}. usage: /perm ask|diff|allow|deny|reset|list", colored("error:", 31), other);
+                            eprintln!(
+                                "  {} unknown: {}. usage: /perm ask|diff|allow|deny|reset|list",
+                                colored("error:", 31),
+                                other
+                            );
                         }
                         None => {
-                            let cur = std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
-                            eprintln!("  {} permission mode: {}", colored("◆", 36), colored(&cur, 36));
-                            eprintln!("  {}", colored("usage: /perm ask|diff|allow|deny|reset|list", 90));
-                            eprintln!("  {}", colored("  ask    prompt before every tool call (y/n/a/A)", 90));
-                            eprintln!("  {}", colored("  diff   like ask, but file_edit shows a unified diff first", 90));
+                            let cur =
+                                std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
+                            eprintln!(
+                                "  {} permission mode: {}",
+                                colored("◆", 36),
+                                colored(&cur, 36)
+                            );
+                            eprintln!(
+                                "  {}",
+                                colored("usage: /perm ask|diff|allow|deny|reset|list", 90)
+                            );
+                            eprintln!(
+                                "  {}",
+                                colored("  ask    prompt before every tool call (y/n/a/A)", 90)
+                            );
+                            eprintln!(
+                                "  {}",
+                                colored(
+                                    "  diff   like ask, but file_edit shows a unified diff first",
+                                    90
+                                )
+                            );
                             eprintln!("  {}", colored("  allow  auto-approve all (default)", 90));
-                            eprintln!("  {}", colored("  deny   block all tools (read-only mode)", 90));
-                            eprintln!("  {}", colored("  reset  clear the per-tool always-allow list", 90));
+                            eprintln!(
+                                "  {}",
+                                colored("  deny   block all tools (read-only mode)", 90)
+                            );
+                            eprintln!(
+                                "  {}",
+                                colored("  reset  clear the per-tool always-allow list", 90)
+                            );
                         }
                     }
                 }
@@ -4185,27 +8776,40 @@ async fn repl(
                         eprintln!("  {} no subagent tasks yet this session.", colored("◆", 90));
                     } else {
                         let running: usize = snap.iter().filter(|r| r.status == "running").count();
-                        eprintln!("  {} {} subagent task{}{}",
+                        eprintln!(
+                            "  {} {} subagent task{}{}",
                             colored("◆", 36),
                             snap.len(),
                             if snap.len() == 1 { "" } else { "s" },
-                            if running > 0 { format!(" ({} running)", running) } else { String::new() });
+                            if running > 0 {
+                                format!(" ({} running)", running)
+                            } else {
+                                String::new()
+                            }
+                        );
                         for rec in snap.iter() {
                             let badge = match rec.status.as_str() {
-                                "running" => colored("●", 33),  // amber
-                                "ok"      => colored("✓", 32),
+                                "running" => colored("●", 33), // amber
+                                "ok" => colored("✓", 32),
                                 "timeout" => colored("⏱", 33),
-                                _         => colored("✗", 31),
+                                _ => colored("✗", 31),
                             };
                             let prompt_short = rec.prompt.chars().take(50).collect::<String>();
-                            eprintln!("    {} {} {}: {}",
+                            eprintln!(
+                                "    {} {} {}: {}",
                                 badge,
                                 colored(&format!("[#{}]", rec.n), 90),
                                 colored(&rec.agent, 36),
-                                colored(&prompt_short, 90));
+                                colored(&prompt_short, 90)
+                            );
                             if rec.status != "running" {
-                                eprintln!("        {} {} rounds · ${:.4} · {:.1}s",
-                                    colored("·", 90), rec.rounds, rec.cost_usd, rec.elapsed_secs);
+                                eprintln!(
+                                    "        {} {} rounds · ${:.4} · {:.1}s",
+                                    colored("·", 90),
+                                    rec.rounds,
+                                    rec.cost_usd,
+                                    rec.elapsed_secs
+                                );
                             }
                         }
                     }
@@ -4216,18 +8820,35 @@ async fn repl(
                     match arg {
                         Some("compact") => {
                             std::env::set_var("PHANTOM_DENSITY", "compact");
-                            eprintln!("  {} display density: {} (1-line tool results)", colored("◆", 32), colored("compact", 36));
+                            eprintln!(
+                                "  {} display density: {} (1-line tool results)",
+                                colored("◆", 32),
+                                colored("compact", 36)
+                            );
                         }
                         Some("full") | Some("normal") => {
                             std::env::remove_var("PHANTOM_DENSITY");
-                            eprintln!("  {} display density: {} (multi-line tool results)", colored("◆", 32), colored("full", 36));
+                            eprintln!(
+                                "  {} display density: {} (multi-line tool results)",
+                                colored("◆", 32),
+                                colored("full", 36)
+                            );
                         }
                         Some(other) => {
-                            eprintln!("  {} unknown density: {}. usage: /density compact|full", colored("error:", 31), other);
+                            eprintln!(
+                                "  {} unknown density: {}. usage: /density compact|full",
+                                colored("error:", 31),
+                                other
+                            );
                         }
                         None => {
-                            let cur = std::env::var("PHANTOM_DENSITY").unwrap_or_else(|_| "full".into());
-                            eprintln!("  {} current density: {}", colored("◆", 36), colored(&cur, 36));
+                            let cur =
+                                std::env::var("PHANTOM_DENSITY").unwrap_or_else(|_| "full".into());
+                            eprintln!(
+                                "  {} current density: {}",
+                                colored("◆", 36),
+                                colored(&cur, 36)
+                            );
                             eprintln!("  {}", colored("usage: /density compact|full", 90));
                         }
                     }
@@ -4236,19 +8857,36 @@ async fn repl(
                 "/theme" => {
                     let arg = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty());
                     match arg {
-                        Some(name @ ("dark" | "light" | "claude" | "codex" | "gemini" | "mono")) => {
+                        Some(
+                            name @ ("dark" | "light" | "claude" | "codex" | "gemini" | "mono"),
+                        ) => {
                             std::env::set_var("PHANTOM_THEME", name);
-                            eprintln!("  {} theme: {} {}", colored("◆", 32), colored(name, 36),
-                                colored("(restart REPL to fully apply banner colors)", 90));
+                            eprintln!(
+                                "  {} theme: {} {}",
+                                colored("◆", 32),
+                                colored(name, 36),
+                                colored("(restart REPL to fully apply banner colors)", 90)
+                            );
                         }
                         Some(other) => {
                             eprintln!("  {} unknown theme: {}. options: dark / light / claude / codex / gemini / mono",
                                 colored("error:", 31), other);
                         }
                         None => {
-                            let cur = std::env::var("PHANTOM_THEME").unwrap_or_else(|_| "dark".into());
-                            eprintln!("  {} current theme: {}", colored("◆", 36), colored(&cur, 36));
-                            eprintln!("  {}", colored("options: dark / light / claude / codex / gemini / mono", 90));
+                            let cur =
+                                std::env::var("PHANTOM_THEME").unwrap_or_else(|_| "dark".into());
+                            eprintln!(
+                                "  {} current theme: {}",
+                                colored("◆", 36),
+                                colored(&cur, 36)
+                            );
+                            eprintln!(
+                                "  {}",
+                                colored(
+                                    "options: dark / light / claude / codex / gemini / mono",
+                                    90
+                                )
+                            );
                         }
                     }
                 }
@@ -4315,7 +8953,9 @@ async fn repl(
                     &chat_id,
                     &pre_history,
                     8,
-                ).await {
+                )
+                .await
+                {
                     Ok((dropped, _summary_chars)) if dropped > 0 => {
                         eprintln!(
                             "  {} compacted {} old messages → 1 summary, kept last 8.",
@@ -4353,7 +8993,11 @@ async fn repl(
         let trimmed = prompt.trim().to_lowercase();
         if plan_mode_on && approval_words.iter().any(|w| trimmed == *w) {
             plan_approved.store(true, std::sync::atomic::Ordering::Relaxed);
-            eprintln!("  {} {}", colored("◆", 32), colored("plan approved — executing this turn", 32));
+            eprintln!(
+                "  {} {}",
+                colored("◆", 32),
+                colored("plan approved — executing this turn", 32)
+            );
         }
 
         // Tool-permission gate. Two-tier:
@@ -4368,19 +9012,23 @@ async fn repl(
         let plan_approved_clone = plan_approved.clone();
         let engine_for_gate = permission_engine.clone();
         let stream_fut = runtime.run_with_callbacks_gated(
-            &agent_name, &prompt, &history,
-            Some(&effective_context), &cost_tracker, handler,
+            &agent_name,
+            &prompt,
+            &history,
+            Some(&effective_context),
+            &cost_tracker,
+            handler,
             move |tool_name, args| {
                 use phantom_mesh::permission::Decision;
                 // Plan mode: block tools unless user just approved with "go".
                 let plan_mode_on = std::env::var("PHANTOM_PLAN_MODE").as_deref() == Ok("1");
-                if plan_mode_on
-                    && !plan_approved_clone.load(std::sync::atomic::Ordering::Relaxed)
-                {
+                if plan_mode_on && !plan_approved_clone.load(std::sync::atomic::Ordering::Relaxed) {
                     return phantom_mesh::agent::ToolGateDecision::Deny(
                         "Plan mode is active — output the plan as text and stop. \
                          The user will type 'go' / 'execute' / 'yes' to approve, \
-                         then you may call tools.".into());
+                         then you may call tools."
+                            .into(),
+                    );
                 }
 
                 // Rule engine first. Allow/Deny short-circuit; Ask falls
@@ -4395,8 +9043,9 @@ async fn repl(
                 }
 
                 if gate_mode == "deny" {
-                    return phantom_mesh::agent::ToolGateDecision::Deny(
-                        format!("PHANTOM_PERM=deny — user has globally denied tool execution"));
+                    return phantom_mesh::agent::ToolGateDecision::Deny(format!(
+                        "PHANTOM_PERM=deny — user has globally denied tool execution"
+                    ));
                 }
                 if gate_mode != "ask" && gate_mode != "diff" {
                     return phantom_mesh::agent::ToolGateDecision::Allow;
@@ -4425,25 +9074,36 @@ async fn repl(
                                 };
                                 if after == content {
                                     eprintln!();
-                                    eprintln!("  {} {} (old_string not found in {})",
+                                    eprintln!(
+                                        "  {} {} (old_string not found in {})",
                                         colored("⚠", 33),
                                         colored("file_edit", 36),
-                                        colored(path_str, 90));
+                                        colored(path_str, 90)
+                                    );
                                 } else {
                                     eprintln!();
-                                    eprintln!("  {} {} preview for {}:",
+                                    eprintln!(
+                                        "  {} {} preview for {}:",
                                         colored("◆", 35),
                                         colored("file_edit", 36),
-                                        colored(path_str, 90));
-                                    eprint!("{}", phantom_mesh::diff_render::render_unified_diff(
-                                        path_str, &content, &after,
-                                    ));
+                                        colored(path_str, 90)
+                                    );
+                                    eprint!(
+                                        "{}",
+                                        phantom_mesh::diff_render::render_unified_diff(
+                                            path_str, &content, &after,
+                                        )
+                                    );
                                 }
                             }
                             Err(e) => {
                                 eprintln!();
-                                eprintln!("  {} could not read {} for diff preview: {}",
-                                    colored("⚠", 33), colored(path_str, 90), e);
+                                eprintln!(
+                                    "  {} could not read {} for diff preview: {}",
+                                    colored("⚠", 33),
+                                    colored(path_str, 90),
+                                    e
+                                );
                             }
                         }
                     }
@@ -4453,11 +9113,20 @@ async fn repl(
                 let args_summary = if args_summary.chars().count() > 200 {
                     let s: String = args_summary.chars().take(200).collect();
                     format!("{}…", s)
-                } else { args_summary };
+                } else {
+                    args_summary
+                };
                 eprintln!();
-                eprintln!("  {} run {}({}) ?",
-                    colored("⚠", 33), colored(tool_name, 36), colored(&args_summary, 90));
-                eprint!("    {}: [y]es / [n]o / [a]lways this tool / [A]llways all tools : ", colored("permission", 33));
+                eprintln!(
+                    "  {} run {}({}) ?",
+                    colored("⚠", 33),
+                    colored(tool_name, 36),
+                    colored(&args_summary, 90)
+                );
+                eprint!(
+                    "    {}: [y]es / [n]o / [a]lways this tool / [A]llways all tools : ",
+                    colored("permission", 33)
+                );
                 let _ = std::io::Write::flush(&mut std::io::stderr());
                 let mut buf = String::new();
                 let _ = std::io::stdin().read_line(&mut buf);
@@ -4465,17 +9134,29 @@ async fn repl(
                 match ans {
                     "y" | "yes" | "" => phantom_mesh::agent::ToolGateDecision::Allow,
                     "a" => {
-                        if let Ok(mut al) = allowlist.lock() { al.insert(tool_name.to_string()); }
-                        eprintln!("  {} {} added to always-allow list", colored("◆", 32), tool_name);
+                        if let Ok(mut al) = allowlist.lock() {
+                            al.insert(tool_name.to_string());
+                        }
+                        eprintln!(
+                            "  {} {} added to always-allow list",
+                            colored("◆", 32),
+                            tool_name
+                        );
                         phantom_mesh::agent::ToolGateDecision::Allow
                     }
                     "A" => {
-                        if let Ok(mut al) = allowlist.lock() { al.insert("*".to_string()); }
-                        eprintln!("  {} all tools always-allowed for this session", colored("◆", 32));
+                        if let Ok(mut al) = allowlist.lock() {
+                            al.insert("*".to_string());
+                        }
+                        eprintln!(
+                            "  {} all tools always-allowed for this session",
+                            colored("◆", 32)
+                        );
                         phantom_mesh::agent::ToolGateDecision::Allow
                     }
                     _ => phantom_mesh::agent::ToolGateDecision::Deny(
-                        "user denied this tool call".into()),
+                        "user denied this tool call".into(),
+                    ),
                 }
             },
         );
@@ -4529,9 +9210,26 @@ async fn repl(
                                         let elapsed = t0.elapsed().as_secs_f64();
                                         let last = cost_tracker.last_request_cost().await;
                                         let session = cost_tracker.session_cost().await;
-                                        eprintln!("{}", colored(&format!("[↑ ${:.4}  ∑ ${:.4}  {:.1}s]", last, session, elapsed), 90));
-                                        let user_msg = ChatMessage { role: "user".into(), content: line, tool_calls: None };
-                                        let asst_msg = ChatMessage { role: "assistant".into(), content: approved_result.output, tool_calls: None };
+                                        eprintln!(
+                                            "{}",
+                                            colored(
+                                                &format!(
+                                                    "[↑ ${:.4}  ∑ ${:.4}  {:.1}s]",
+                                                    last, session, elapsed
+                                                ),
+                                                90
+                                            )
+                                        );
+                                        let user_msg = ChatMessage {
+                                            role: "user".into(),
+                                            content: line,
+                                            tool_calls: None,
+                                        };
+                                        let asst_msg = ChatMessage {
+                                            role: "assistant".into(),
+                                            content: approved_result.output,
+                                            tool_calls: None,
+                                        };
                                         conversations.append(&chat_id, user_msg, asst_msg).await;
                                     }
                                     Err(e) => {
@@ -4551,9 +9249,23 @@ async fn repl(
                     let elapsed = t0.elapsed().as_secs_f64();
                     let last = cost_tracker.last_request_cost().await;
                     let session = cost_tracker.session_cost().await;
-                    eprintln!("{}", colored(&format!("[↑ ${:.4}  ∑ ${:.4}  {:.1}s]", last, session, elapsed), 90));
-                    let user_msg = ChatMessage { role: "user".into(), content: line, tool_calls: None };
-                    let asst_msg = ChatMessage { role: "assistant".into(), content: result.output, tool_calls: None };
+                    eprintln!(
+                        "{}",
+                        colored(
+                            &format!("[↑ ${:.4}  ∑ ${:.4}  {:.1}s]", last, session, elapsed),
+                            90
+                        )
+                    );
+                    let user_msg = ChatMessage {
+                        role: "user".into(),
+                        content: line,
+                        tool_calls: None,
+                    };
+                    let asst_msg = ChatMessage {
+                        role: "assistant".into(),
+                        content: result.output,
+                        tool_calls: None,
+                    };
                     conversations.append(&chat_id, user_msg, asst_msg).await;
                 }
             }
@@ -4581,10 +9293,15 @@ fn print_model_status(agent_name: &str, model_override: &Option<String>) {
 /// Render a Duration as a short relative-time string ("3h ago", "12d ago").
 fn format_age(d: std::time::Duration) -> String {
     let s = d.as_secs();
-    if s < 60 { format!("{}s ago", s) }
-    else if s < 3600 { format!("{}m ago", s / 60) }
-    else if s < 86400 { format!("{}h ago", s / 3600) }
-    else { format!("{}d ago", s / 86400) }
+    if s < 60 {
+        format!("{}s ago", s)
+    } else if s < 3600 {
+        format!("{}m ago", s / 60)
+    } else if s < 86400 {
+        format!("{}h ago", s / 3600)
+    } else {
+        format!("{}d ago", s / 86400)
+    }
 }
 
 fn format_size(bytes: u64) -> String {
@@ -4637,17 +9354,32 @@ fn render_thinking_block(buf: &str) -> String {
     let dim_italic = "\x1b[2m\x1b[3m";
     let reset = "\x1b[0m";
     let mut out = String::new();
-    out.push_str(&format!("{}  ⌖ thinking ({} line{}){}\n",
-        dim_italic, total, if total == 1 { "" } else { "s" }, reset));
+    out.push_str(&format!(
+        "{}  ⌖ thinking ({} line{}){}\n",
+        dim_italic,
+        total,
+        if total == 1 { "" } else { "s" },
+        reset
+    ));
     for line in lines.iter().take(3) {
         let truncated: String = line.chars().take(160).collect();
-        let suffix = if line.chars().count() > 160 { "…" } else { "" };
-        out.push_str(&format!("{}  ⌖ ┊ {}{}{}\n",
-            dim_italic, truncated, suffix, reset));
+        let suffix = if line.chars().count() > 160 {
+            "…"
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "{}  ⌖ ┊ {}{}{}\n",
+            dim_italic, truncated, suffix, reset
+        ));
     }
     if total > 3 {
-        out.push_str(&format!("{}  ⌖ … +{} more · /show thinking{}\n",
-            dim_italic, total - 3, reset));
+        out.push_str(&format!(
+            "{}  ⌖ … +{} more · /show thinking{}\n",
+            dim_italic,
+            total - 3,
+            reset
+        ));
     }
     out
 }
@@ -4678,17 +9410,26 @@ fn make_stream_handler_with_thinking(
         && atty_stdout();
     let state = std::sync::Mutex::new(MdState::default());
     let thinking_buf: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-    let render_thinking = std::env::var("PHANTOM_THINKING").map(|v| v != "0").unwrap_or(true);
+    let render_thinking = std::env::var("PHANTOM_THINKING")
+        .map(|v| v != "0")
+        .unwrap_or(true);
 
     move |ev: AgentEvent| {
         // Helper: flush the per-turn thinking buffer (called at every
         // boundary into a non-Thinking event). Mirrors to the shared
         // session buffer for /show thinking.
         let flush = || {
-            let mut b = match thinking_buf.lock() { Ok(b) => b, Err(_) => return };
-            if b.is_empty() { return; }
+            let mut b = match thinking_buf.lock() {
+                Ok(b) => b,
+                Err(_) => return,
+            };
+            if b.is_empty() {
+                return;
+            }
             if let Some(ref s) = thinking_session {
-                if let Ok(mut sb) = s.lock() { *sb = b.clone(); }
+                if let Ok(mut sb) = s.lock() {
+                    *sb = b.clone();
+                }
             }
             if render_thinking {
                 eprint!("{}", render_thinking_block(&b));
@@ -4698,131 +9439,222 @@ fn make_stream_handler_with_thinking(
         };
 
         match ev {
-        AgentEvent::Thinking { content } => {
-            if let Ok(mut b) = thinking_buf.lock() { b.push_str(&content); }
-        }
-        AgentEvent::Token { content } => {
-            flush();
-            if !content.is_empty() {
-                streamed.store(true, Ordering::Relaxed);
-                if decorate_md {
-                    let rendered = state.lock().map(|mut s| s.feed(&content)).unwrap_or(content);
-                    print!("{}", rendered);
+            AgentEvent::Thinking { content } => {
+                if let Ok(mut b) = thinking_buf.lock() {
+                    b.push_str(&content);
+                }
+            }
+            AgentEvent::Token { content } => {
+                flush();
+                if !content.is_empty() {
+                    streamed.store(true, Ordering::Relaxed);
+                    if decorate_md {
+                        let rendered = state
+                            .lock()
+                            .map(|mut s| s.feed(&content))
+                            .unwrap_or(content);
+                        print!("{}", rendered);
+                    } else {
+                        print!("{}", content);
+                    }
+                    let _ = std::io::stdout().flush();
+                }
+            }
+            AgentEvent::ToolStart { name, args_preview } => {
+                phantom_mesh::diag::record(
+                    "tool_start",
+                    format!(
+                        "{} {}",
+                        name,
+                        args_preview.chars().take(80).collect::<String>()
+                    ),
+                );
+                flush();
+                if streamed.swap(false, Ordering::Relaxed) {
+                    if decorate_md {
+                        if let Ok(mut s) = state.lock() {
+                            print!("{}", s.reset_styles());
+                        }
+                    }
+                    println!();
+                }
+                // Append a placeholder entry; output filled in on ToolDone.
+                let n = if let Some(ref hist) = tool_history {
+                    if let Ok(mut h) = hist.lock() {
+                        let n = h.len() + 1;
+                        h.push(ToolEntry {
+                            n,
+                            name: name.clone(),
+                            args: args_preview.clone(),
+                            output: String::new(),
+                        });
+                        n
+                    } else {
+                        0
+                    }
                 } else {
-                    print!("{}", content);
-                }
-                let _ = std::io::stdout().flush();
+                    0
+                };
+                let preview = truncate_preview(&args_preview, 80);
+                let n_label = if n > 0 {
+                    format!("{} ", colored(&format!("[#{}]", n), 90))
+                } else {
+                    String::new()
+                };
+                eprintln!(
+                    "{} {}{}({})",
+                    colored("●", 36),
+                    n_label,
+                    colored(&name, 36),
+                    preview
+                );
             }
-        }
-        AgentEvent::ToolStart { name, args_preview } => {
-            phantom_mesh::diag::record("tool_start",
-                format!("{} {}", name, args_preview.chars().take(80).collect::<String>()));
-            flush();
-            if streamed.swap(false, Ordering::Relaxed) {
-                if decorate_md {
-                    if let Ok(mut s) = state.lock() { print!("{}", s.reset_styles()); }
+            AgentEvent::ToolDone {
+                name,
+                output_preview,
+            } => {
+                // Capture FULL output into history for /show <n>
+                if let Some(ref hist) = tool_history {
+                    if let Ok(mut h) = hist.lock() {
+                        if let Some(last) = h.last_mut() {
+                            last.output = output_preview.clone();
+                        }
+                    }
                 }
-                println!();
-            }
-            // Append a placeholder entry; output filled in on ToolDone.
-            let n = if let Some(ref hist) = tool_history {
-                if let Ok(mut h) = hist.lock() {
-                    let n = h.len() + 1;
-                    h.push(ToolEntry {
-                        n,
-                        name: name.clone(),
-                        args: args_preview.clone(),
-                        output: String::new(),
-                    });
-                    n
-                } else { 0 }
-            } else { 0 };
-            let preview = truncate_preview(&args_preview, 80);
-            let n_label = if n > 0 {
-                format!("{} ", colored(&format!("[#{}]", n), 90))
-            } else { String::new() };
-            eprintln!("{} {}{}({})", colored("●", 36), n_label, colored(&name, 36), preview);
-        }
-        AgentEvent::ToolDone { name, output_preview } => {
-            // Capture FULL output into history for /show <n>
-            if let Some(ref hist) = tool_history {
-                if let Ok(mut h) = hist.lock() {
-                    if let Some(last) = h.last_mut() {
-                        last.output = output_preview.clone();
+                // Compact mode (PHANTOM_DENSITY=compact): show only the first
+                // line; full mode shows up to 5 non-empty lines.
+                // task / subagent results are user-facing: show much more (40
+                // lines) so the user sees the full subagent answer inline
+                // instead of having to /show <n> every time.
+                let is_subagent = name == "task" || name == "subagent";
+                let max_lines = if std::env::var("PHANTOM_DENSITY").as_deref() == Ok("compact") {
+                    1
+                } else if is_subagent {
+                    40
+                } else {
+                    5
+                };
+                let cleaned: Vec<String> = output_preview
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .take(max_lines)
+                    .map(|l| {
+                        let s: String = l.chars().take(120).collect();
+                        if l.chars().count() > 120 {
+                            format!("{}…", s)
+                        } else {
+                            s
+                        }
+                    })
+                    .collect();
+                let total_lines = output_preview
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .count();
+                if cleaned.is_empty() {
+                    eprintln!("  {}", colored("✓", 32));
+                } else {
+                    eprintln!("  {} {}", colored("✓", 32), colored(&cleaned[0], 90));
+                    for line in cleaned.iter().skip(1) {
+                        eprintln!("    {}", colored(line, 90));
+                    }
+                    if total_lines > cleaned.len() {
+                        let n_hint = if let Some(ref hist) = tool_history {
+                            hist.lock()
+                                .ok()
+                                .and_then(|h| h.last().map(|e| e.n))
+                                .unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        let hint = if n_hint > 0 {
+                            format!(
+                                "… +{} more line{}  ·  /show {} for full",
+                                total_lines - cleaned.len(),
+                                if total_lines - cleaned.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                },
+                                n_hint
+                            )
+                        } else {
+                            format!("… +{} more lines", total_lines - cleaned.len())
+                        };
+                        eprintln!("    {}", colored(&hint, 90));
                     }
                 }
             }
-            // Compact mode (PHANTOM_DENSITY=compact): show only the first
-            // line; full mode shows up to 5 non-empty lines.
-            // task / subagent results are user-facing: show much more (40
-            // lines) so the user sees the full subagent answer inline
-            // instead of having to /show <n> every time.
-            let is_subagent = name == "task" || name == "subagent";
-            let max_lines = if std::env::var("PHANTOM_DENSITY").as_deref() == Ok("compact") {
-                1
-            } else if is_subagent {
-                40
-            } else {
-                5
-            };
-            let cleaned: Vec<String> = output_preview.lines()
-                .filter(|l| !l.trim().is_empty())
-                .take(max_lines)
-                .map(|l| {
-                    let s: String = l.chars().take(120).collect();
-                    if l.chars().count() > 120 { format!("{}…", s) } else { s }
-                })
-                .collect();
-            let total_lines = output_preview.lines().filter(|l| !l.trim().is_empty()).count();
-            if cleaned.is_empty() {
-                eprintln!("  {}", colored("✓", 32));
-            } else {
-                eprintln!("  {} {}", colored("✓", 32), colored(&cleaned[0], 90));
-                for line in cleaned.iter().skip(1) {
-                    eprintln!("    {}", colored(line, 90));
-                }
-                if total_lines > cleaned.len() {
-                    let n_hint = if let Some(ref hist) = tool_history {
-                        hist.lock().ok().and_then(|h| h.last().map(|e| e.n)).unwrap_or(0)
-                    } else { 0 };
-                    let hint = if n_hint > 0 {
-                        format!("… +{} more line{}  ·  /show {} for full",
-                            total_lines - cleaned.len(),
-                            if total_lines - cleaned.len() == 1 { "" } else { "s" },
-                            n_hint)
-                    } else {
-                        format!("… +{} more lines", total_lines - cleaned.len())
-                    };
-                    eprintln!("    {}", colored(&hint, 90));
+            AgentEvent::Done {
+                output,
+                cost_usd,
+                elapsed_secs,
+            } => {
+                phantom_mesh::diag::record(
+                    "agent_done",
+                    format!(
+                        "{:.1}s · ${:.4} · {} chars",
+                        elapsed_secs,
+                        cost_usd,
+                        output.chars().count()
+                    ),
+                );
+                flush();
+                if streamed.swap(false, Ordering::Relaxed) {
+                    if decorate_md {
+                        if let Ok(mut s) = state.lock() {
+                            print!("{}", s.reset_styles());
+                        }
+                    }
+                    println!();
                 }
             }
-        }
-        AgentEvent::Done { output, cost_usd, elapsed_secs } => {
-            phantom_mesh::diag::record("agent_done",
-                format!("{:.1}s · ${:.4} · {} chars", elapsed_secs, cost_usd, output.chars().count()));
-            flush();
-            if streamed.swap(false, Ordering::Relaxed) {
-                if decorate_md {
-                    if let Ok(mut s) = state.lock() { print!("{}", s.reset_styles()); }
+            AgentEvent::Notice { message } => {
+                // Surface the heads-up inline in the CLI stream so users running
+                // `phantom run / evolve` see truncation warnings just like TUI
+                // users see the red ⚠ row. Eprintln keeps it on stderr so it
+                // doesn't pollute stdout when callers pipe the response.
+                phantom_mesh::diag::record("agent_notice", message.clone());
+                flush();
+                if streamed.swap(false, Ordering::Relaxed) {
+                    if decorate_md {
+                        if let Ok(mut s) = state.lock() {
+                            print!("{}", s.reset_styles());
+                        }
+                    }
+                    println!();
                 }
-                println!();
+                eprintln!("{}", colored(&format!("⚠ {}", message), 31));
             }
-        }
-        AgentEvent::Notice { message } => {
-            // Surface the heads-up inline in the CLI stream so users running
-            // `phantom run / evolve` see truncation warnings just like TUI
-            // users see the red ⚠ row. Eprintln keeps it on stderr so it
-            // doesn't pollute stdout when callers pipe the response.
-            phantom_mesh::diag::record("agent_notice", message.clone());
-            flush();
-            if streamed.swap(false, Ordering::Relaxed) {
-                if decorate_md {
-                    if let Ok(mut s) = state.lock() { print!("{}", s.reset_styles()); }
+            #[cfg(feature = "experimental-anti-hallucination")]
+            AgentEvent::ConsistencyWarning { unbacked_claims } => {
+                // T22 — render as a red inline warning so the user sees that the
+                // agent claimed a side effect without making any tool call.
+                phantom_mesh::diag::record(
+                    "anti_halluc_warning",
+                    format!("{} claim(s)", unbacked_claims.len()),
+                );
+                flush();
+                if streamed.swap(false, Ordering::Relaxed) {
+                    if decorate_md {
+                        if let Ok(mut s) = state.lock() {
+                            print!("{}", s.reset_styles());
+                        }
+                    }
+                    println!();
                 }
-                println!();
+                eprintln!(
+                    "{}",
+                    colored(
+                        &format!(
+                            "⚠ anti-hallucination: {} unbacked claim(s) — {}",
+                            unbacked_claims.len(),
+                            unbacked_claims.join(" | ")
+                        ),
+                        31,
+                    ),
+                );
             }
-            eprintln!("{}", colored(&format!("⚠ {}", message), 31));
-        }
         }
     }
 }
@@ -4838,33 +9670,42 @@ fn atty_stdout() -> bool {
 /// tokens — never has to see the whole document.
 #[derive(Default)]
 struct MdState {
-    in_fence: bool,        // inside ```...``` block
-    in_inline: bool,       // inside `...` span
-    bold: bool,            // inside **...**
-    italic: bool,          // inside *...* (single)
-    line_start: bool,      // we just emitted a newline; next char is start-of-line
-    fence_marks: u8,       // backtick run length when scanning ```
+    in_fence: bool,   // inside ```...``` block
+    in_inline: bool,  // inside `...` span
+    bold: bool,       // inside **...**
+    italic: bool,     // inside *...* (single)
+    line_start: bool, // we just emitted a newline; next char is start-of-line
+    fence_marks: u8,  // backtick run length when scanning ```
 }
 
-const ANSI_RESET:   &str = "\x1b[0m";
-const ANSI_BOLD:    &str = "\x1b[1m";
-const ANSI_ITALIC:  &str = "\x1b[3m";
-const ANSI_DIM:     &str = "\x1b[2m";
-const ANSI_CYAN:    &str = "\x1b[36m";
-const ANSI_PURPLE:  &str = "\x1b[35m";
-const ANSI_GREEN:   &str = "\x1b[32m";
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_BOLD: &str = "\x1b[1m";
+const ANSI_ITALIC: &str = "\x1b[3m";
+const ANSI_DIM: &str = "\x1b[2m";
+const ANSI_CYAN: &str = "\x1b[36m";
+const ANSI_PURPLE: &str = "\x1b[35m";
+const ANSI_GREEN: &str = "\x1b[32m";
 
 impl MdState {
     fn reset_styles(&mut self) -> String {
         let need = self.in_fence || self.in_inline || self.bold || self.italic;
-        self.in_fence = false; self.in_inline = false;
-        self.bold = false; self.italic = false;
-        self.line_start = true; self.fence_marks = 0;
-        if need { ANSI_RESET.to_string() } else { String::new() }
+        self.in_fence = false;
+        self.in_inline = false;
+        self.bold = false;
+        self.italic = false;
+        self.line_start = true;
+        self.fence_marks = 0;
+        if need {
+            ANSI_RESET.to_string()
+        } else {
+            String::new()
+        }
     }
 
     fn feed(&mut self, chunk: &str) -> String {
-        if self.line_start && chunk.is_empty() { return String::new(); }
+        if self.line_start && chunk.is_empty() {
+            return String::new();
+        }
         let mut out = String::with_capacity(chunk.len() + 16);
         let mut chars = chunk.chars().peekable();
         // Initialize line_start if this is first chunk we ever see
@@ -4872,9 +9713,18 @@ impl MdState {
         while let Some(c) = chars.next() {
             // Newline: terminate inline styles that don't span lines
             if c == '\n' {
-                if self.in_inline { out.push_str(ANSI_RESET); self.in_inline = false; }
-                if self.bold      { out.push_str(ANSI_RESET); self.bold = false; }
-                if self.italic    { out.push_str(ANSI_RESET); self.italic = false; }
+                if self.in_inline {
+                    out.push_str(ANSI_RESET);
+                    self.in_inline = false;
+                }
+                if self.bold {
+                    out.push_str(ANSI_RESET);
+                    self.bold = false;
+                }
+                if self.italic {
+                    out.push_str(ANSI_RESET);
+                    self.italic = false;
+                }
                 out.push('\n');
                 self.line_start = true;
                 continue;
@@ -4890,7 +9740,10 @@ impl MdState {
                         self.in_fence = false;
                     } else {
                         // Close any inline styles before entering fenced block
-                        if self.in_inline { out.push_str(ANSI_RESET); self.in_inline = false; }
+                        if self.in_inline {
+                            out.push_str(ANSI_RESET);
+                            self.in_inline = false;
+                        }
                         out.push_str(ANSI_DIM);
                         out.push_str(ANSI_GREEN);
                         self.in_fence = true;
@@ -4929,7 +9782,9 @@ impl MdState {
                 continue;
             }
             // Reset fence_marks if we accumulated 1-2 ticks without third
-            if self.fence_marks > 0 && c != '`' { self.fence_marks = 0; }
+            if self.fence_marks > 0 && c != '`' {
+                self.fence_marks = 0;
+            }
 
             // ATX heading (# at line start)
             if self.line_start && c == '#' && !self.in_fence {
@@ -4976,7 +9831,9 @@ impl MdState {
                     if next.is_ascii_digit() && idx < 4 {
                         digits.push(chars.next().unwrap());
                         idx += 1;
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 if let Some(&'.') = chars.peek() {
                     let mut iter_clone = chars.clone();
@@ -5021,8 +9878,13 @@ impl MdState {
                 let mut text = String::new();
                 let mut found_close = false;
                 while let Some(&pc) = iter_clone.peek() {
-                    if pc == ']' { found_close = true; break; }
-                    if pc == '\n' { break; }
+                    if pc == ']' {
+                        found_close = true;
+                        break;
+                    }
+                    if pc == '\n' {
+                        break;
+                    }
                     text.push(pc);
                     iter_clone.next();
                 }
@@ -5033,17 +9895,24 @@ impl MdState {
                         let mut url = String::new();
                         let mut url_done = false;
                         while let Some(&pc) = iter_clone.peek() {
-                            if pc == ')' { url_done = true; break; }
-                            if pc == '\n' { break; }
+                            if pc == ')' {
+                                url_done = true;
+                                break;
+                            }
+                            if pc == '\n' {
+                                break;
+                            }
                             url.push(pc);
                             iter_clone.next();
                         }
                         if url_done && !url.is_empty() {
                             // Commit the consumption
-                            for _ in 0..(text.len() + 2 + url.len() + 1) { chars.next(); }
+                            for _ in 0..(text.len() + 2 + url.len() + 1) {
+                                chars.next();
+                            }
                             // text.chars().count() may differ from text.len() in bytes — use chars
                             let _ = url;
-                            out.push_str("\x1b[4m");      // underline
+                            out.push_str("\x1b[4m"); // underline
                             out.push_str(ANSI_CYAN);
                             out.push_str(&text);
                             out.push_str(ANSI_RESET);
@@ -5091,19 +9960,25 @@ impl MdState {
 /// Group tool names into logical categories for /tools display.
 fn categorize_tools(names: &[String]) -> Vec<(&'static str, Vec<String>)> {
     let mut filesystem = Vec::new();
-    let mut search     = Vec::new();
+    let mut search = Vec::new();
     let mut shell_bash = Vec::new();
-    let mut git        = Vec::new();
-    let mut web        = Vec::new();
-    let mut memory     = Vec::new();
-    let mut diag       = Vec::new();
-    let mut todo       = Vec::new();
-    let mut mesh       = Vec::new();
-    let mut other      = Vec::new();
+    let mut git = Vec::new();
+    let mut web = Vec::new();
+    let mut memory = Vec::new();
+    let mut diag = Vec::new();
+    let mut todo = Vec::new();
+    let mut mesh = Vec::new();
+    let mut other = Vec::new();
     for name in names {
         let n = name.as_str();
-        if n.starts_with("file_") || n == "ls" || n == "stat" || n == "apply_patch"
-            || n == "multi_file_edit" || n == "diff_files" || n == "diff_strings" {
+        if n.starts_with("file_")
+            || n == "ls"
+            || n == "stat"
+            || n == "apply_patch"
+            || n == "multi_file_edit"
+            || n == "diff_files"
+            || n == "diff_strings"
+        {
             filesystem.push(name.clone());
         } else if n.contains("search") || n.contains("grep") || n.contains("glob") {
             search.push(name.clone());
@@ -5125,21 +10000,31 @@ fn categorize_tools(names: &[String]) -> Vec<(&'static str, Vec<String>)> {
             other.push(name.clone());
         }
     }
-    for v in [&mut filesystem, &mut search, &mut shell_bash, &mut git, &mut web,
-              &mut memory, &mut diag, &mut todo, &mut mesh, &mut other] {
+    for v in [
+        &mut filesystem,
+        &mut search,
+        &mut shell_bash,
+        &mut git,
+        &mut web,
+        &mut memory,
+        &mut diag,
+        &mut todo,
+        &mut mesh,
+        &mut other,
+    ] {
         v.sort();
     }
     vec![
-        ("filesystem",  filesystem),
-        ("search",      search),
-        ("shell/bash",  shell_bash),
-        ("git",         git),
-        ("web",         web),
-        ("memory",      memory),
+        ("filesystem", filesystem),
+        ("search", search),
+        ("shell/bash", shell_bash),
+        ("git", git),
+        ("web", web),
+        ("memory", memory),
         ("diagnostics", diag),
-        ("todo",        todo),
-        ("mesh",        mesh),
-        ("other",       other),
+        ("todo", todo),
+        ("mesh", mesh),
+        ("other", other),
     ]
 }
 
@@ -5178,7 +10063,9 @@ fn flush_stdin_input() {
         let fd = std::io::stdin().as_raw_fd();
         // TCIFLUSH = 0 on Linux/macOS; flush input only.
         // Errors (e.g. stdin not a TTY when piped from a file) are non-fatal.
-        unsafe { libc::tcflush(fd, libc::TCIFLUSH); }
+        unsafe {
+            libc::tcflush(fd, libc::TCIFLUSH);
+        }
     }
     // No-op on Windows for now — rustyline + Windows console mode handle
     // this differently and we haven't seen the eaten-input symptom there.
@@ -5195,12 +10082,41 @@ fn flush_stdin_input() {
 //     paths relative to the current working directory.
 
 const SLASH_COMMANDS: &[&str] = &[
-    "/help", "/exit", "/quit", "/clear", "/compact",
-    "/add", "/cost", "/copy", "/settings", "/provider", "/undo",
-    "/login", "/logout", "/whoami",
-    "/tools", "/sessions", "/session", "/resume", "/fork", "/list",
-    "/init", "/model", "/agent", "/agents", "/todo", "/plan",
-    "/show", "/density", "/theme", "/perm", "/mcp", "/tasks", "/keys", "/export", "/diag",
+    "/help",
+    "/exit",
+    "/quit",
+    "/clear",
+    "/compact",
+    "/add",
+    "/cost",
+    "/copy",
+    "/settings",
+    "/provider",
+    "/undo",
+    "/login",
+    "/logout",
+    "/whoami",
+    "/tools",
+    "/sessions",
+    "/session",
+    "/resume",
+    "/fork",
+    "/list",
+    "/init",
+    "/model",
+    "/agent",
+    "/agents",
+    "/todo",
+    "/plan",
+    "/show",
+    "/density",
+    "/theme",
+    "/perm",
+    "/mcp",
+    "/tasks",
+    "/keys",
+    "/export",
+    "/diag",
 ];
 
 struct PhantomHelper;
@@ -5209,8 +10125,12 @@ impl Helper for PhantomHelper {}
 impl Validator for PhantomHelper {}
 impl Highlighter for PhantomHelper {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
-        &'s self, prompt: &'p str, _default: bool,
-    ) -> Cow<'b, str> { Cow::Borrowed(prompt) }
+        &'s self,
+        prompt: &'p str,
+        _default: bool,
+    ) -> Cow<'b, str> {
+        Cow::Borrowed(prompt)
+    }
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
         // dim the ghost-text suggestion (kept dim — that's the convention)
         Cow::Owned(format!("\x1b[90m{}\x1b[0m", hint))
@@ -5232,7 +10152,9 @@ impl Hinter for PhantomHelper {
     type Hint = String;
     fn hint(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Option<String> {
         // only hint when the cursor is at end of input
-        if pos != line.len() { return None; }
+        if pos != line.len() {
+            return None;
+        }
         let token = current_token(line, pos);
         if token.starts_with('/') && token.len() > 1 {
             for cmd in SLASH_COMMANDS {
@@ -5248,16 +10170,23 @@ impl Completer for PhantomHelper {
     type Candidate = Pair;
 
     fn complete(
-        &self, line: &str, pos: usize, _ctx: &Context<'_>,
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Pair>)> {
         let token = current_token(line, pos);
         let token_start = pos.saturating_sub(token.len());
 
         // Slash command completion
         if token.starts_with('/') {
-            let matches: Vec<Pair> = SLASH_COMMANDS.iter()
+            let matches: Vec<Pair> = SLASH_COMMANDS
+                .iter()
                 .filter(|c| c.starts_with(token))
-                .map(|c| Pair { display: (*c).into(), replacement: (*c).into() })
+                .map(|c| Pair {
+                    display: (*c).into(),
+                    replacement: (*c).into(),
+                })
                 .collect();
             return Ok((token_start, matches));
         }
@@ -5274,7 +10203,8 @@ impl Completer for PhantomHelper {
 /// Extract the whitespace-bounded token that ends at `pos`.
 fn current_token(line: &str, pos: usize) -> &str {
     let prefix = &line[..pos];
-    let start = prefix.rfind(|c: char| c.is_whitespace())
+    let start = prefix
+        .rfind(|c: char| c.is_whitespace())
         .map(|i| i + 1)
         .unwrap_or(0);
     &line[start..pos]
@@ -5287,7 +10217,11 @@ fn complete_path(partial: &str) -> Vec<Pair> {
         Some((d, f)) => (d.to_string(), f.to_string()),
         None => (".".to_string(), partial.to_string()),
     };
-    let dir = if dir_part.is_empty() { "/" } else { dir_part.as_str() };
+    let dir = if dir_part.is_empty() {
+        "/"
+    } else {
+        dir_part.as_str()
+    };
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return vec![],
@@ -5296,9 +10230,13 @@ fn complete_path(partial: &str) -> Vec<Pair> {
     for entry in entries.flatten() {
         let name_os = entry.file_name();
         let name = name_os.to_string_lossy();
-        if !name.starts_with(&file_prefix) { continue; }
+        if !name.starts_with(&file_prefix) {
+            continue;
+        }
         // skip hidden unless user typed the leading `.`
-        if name.starts_with('.') && !file_prefix.starts_with('.') { continue; }
+        if name.starts_with('.') && !file_prefix.starts_with('.') {
+            continue;
+        }
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
         let suffix = if is_dir { "/" } else { "" };
         let display_path = if dir_part == "." || dir_part.is_empty() {
@@ -5310,7 +10248,9 @@ fn complete_path(partial: &str) -> Vec<Pair> {
             display: display_path.clone(),
             replacement: format!("@{}", display_path),
         });
-        if out.len() >= 50 { break; }
+        if out.len() >= 50 {
+            break;
+        }
     }
     out.sort_by(|a, b| a.display.cmp(&b.display));
     out
@@ -5326,7 +10266,9 @@ async fn run_web_onboarding() -> Result<()> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
     let cfg_path = home.join(".phantom-mesh").join("agents.toml");
     let already_existed = cfg_path.exists();
-    let initial_mtime = std::fs::metadata(&cfg_path).ok().and_then(|m| m.modified().ok());
+    let initial_mtime = std::fs::metadata(&cfg_path)
+        .ok()
+        .and_then(|m| m.modified().ok());
 
     // Pick a port: 7878 default, but try 7879..7888 if taken.
     let mut bind_port = 7878;
@@ -5347,14 +10289,30 @@ async fn run_web_onboarding() -> Result<()> {
     let addr: std::net::SocketAddr = ([127, 0, 0, 1], bind_port).into();
 
     eprintln!();
-    eprintln!("  {} {}", colored("phantom", 35), colored("— web onboarding", 90));
-    eprintln!("  {} opening http://127.0.0.1:{}/#settings", colored("›", 90), bind_port);
+    eprintln!(
+        "  {} {}",
+        colored("phantom", 35),
+        colored("— web onboarding", 90)
+    );
+    eprintln!(
+        "  {} opening http://127.0.0.1:{}/#settings",
+        colored("›", 90),
+        bind_port
+    );
 
     // Spawn the server task
     let server_handle = tokio::spawn(async move {
-        let listener = tokio::net::TcpListener::bind(addr).await
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
             .expect("bind failed");
-        axum::serve(listener, router).await.ok();
+        // ConnectInfo so `/api/chat`'s SPEC-46 I3 loopback exemption works here too
+        // (this onboarding serve mounts the full serve::router). Backward-compatible.
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .ok();
     });
 
     // Give the server a moment to start
@@ -5364,18 +10322,27 @@ async fn run_web_onboarding() -> Result<()> {
     let url = format!("http://127.0.0.1:{}/#settings", bind_port);
     open_browser(&url);
 
-    eprintln!("  {} fill in the form and click Save. Press Ctrl-C here when done.", colored("›", 90));
+    eprintln!(
+        "  {} fill in the form and click Save. Press Ctrl-C here when done.",
+        colored("›", 90)
+    );
     eprintln!();
 
     // Poll for config file change
     loop {
         tokio::time::sleep(Duration::from_millis(800)).await;
         let exists = cfg_path.exists();
-        let new_mtime = std::fs::metadata(&cfg_path).ok().and_then(|m| m.modified().ok());
-        let changed = (!already_existed && exists) ||
-                      (already_existed && new_mtime != initial_mtime);
+        let new_mtime = std::fs::metadata(&cfg_path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        let changed =
+            (!already_existed && exists) || (already_existed && new_mtime != initial_mtime);
         if changed {
-            eprintln!("  {} {}", colored("✓", 32), format!("wrote {}", cfg_path.display()));
+            eprintln!(
+                "  {} {}",
+                colored("✓", 32),
+                format!("wrote {}", cfg_path.display())
+            );
             eprintln!("  {} run `phantom` to start.", colored("›", 90));
             eprintln!();
             break;
@@ -5386,14 +10353,58 @@ async fn run_web_onboarding() -> Result<()> {
     Ok(())
 }
 
-fn open_browser(url: &str) {
+/// True if a graphical session is likely available to open a browser on Linux
+/// (X11 `$DISPLAY` or Wayland `$WAYLAND_DISPLAY` set). Used by `open_browser`
+/// to avoid spawning `xdg-open` into the void on a headless box (D5).
+#[cfg(target_os = "linux")]
+fn graphical_display_available() -> bool {
+    display_available_from(
+        std::env::var_os("DISPLAY"),
+        std::env::var_os("WAYLAND_DISPLAY"),
+    )
+}
+
+/// Pure core of [`graphical_display_available`] — a display is available if
+/// either the X11 `DISPLAY` or Wayland `WAYLAND_DISPLAY` value is present and
+/// non-empty. Separated so it can be unit-tested without mutating process env.
+#[cfg(target_os = "linux")]
+fn display_available_from(
+    display: Option<std::ffi::OsString>,
+    wayland: Option<std::ffi::OsString>,
+) -> bool {
+    let nonempty = |v: &Option<std::ffi::OsString>| v.as_ref().map_or(false, |s| !s.is_empty());
+    nonempty(&display) || nonempty(&wayland)
+}
+
+/// Try to open `url` in a browser. Returns `true` if a browser was launched,
+/// `false` if not (e.g. headless Linux with no display) — in which case the URL
+/// is printed with manual-open guidance so callers don't silently hang waiting
+/// on an OAuth loopback callback that will never arrive.
+fn open_browser(url: &str) -> bool {
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open").arg(url).spawn();
+        return true;
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+        // D5: on a headless box xdg-open can't reach a browser, so the OAuth
+        // loopback would wait forever. Surface the URL + guidance, report
+        // not-opened.
+        if !graphical_display_available() {
+            eprintln!("  no graphical display detected ($DISPLAY / $WAYLAND_DISPLAY unset).");
+            eprintln!("  open this URL manually in a browser that can reach this host:");
+            eprintln!("    {}", url);
+            return false;
+        }
+        match std::process::Command::new("xdg-open").arg(url).spawn() {
+            Ok(_) => return true,
+            Err(_) => {
+                eprintln!("  couldn't launch a browser (xdg-open missing?) — open this URL manually:");
+                eprintln!("    {}", url);
+                return false;
+            }
+        }
     }
     // Windows is the awkward one. Three layered traps:
     //   1. `cmd /C start <url>` — cmd.exe parses `&` as a command
@@ -5418,58 +10429,115 @@ fn open_browser(url: &str) {
         // any future caller that might pass user-controlled input.
         let safe_url = url.replace('"', "\"\"");
         let cmdline = format!("/C start \"\" \"{}\"", safe_url);
-        let _ = std::process::Command::new("cmd")
-            .raw_arg(&cmdline)
-            .spawn();
+        let _ = std::process::Command::new("cmd").raw_arg(&cmdline).spawn();
+        return true;
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = url;
+        return false;
     }
+    // Unreachable on every target above (each cfg arm returns); satisfies the
+    // bool return type for any hypothetical target none of the arms match.
+    #[allow(unreachable_code)]
+    false
 }
 
 /// First-time interactive onboarding. Walks the user through provider setup
 /// and writes a minimal ~/.phantom-mesh/agents.toml. Skipped if a config
 /// already exists somewhere on the search path.
 fn run_first_time_onboarding() -> Result<()> {
-    use std::io::Write;
+    use phantom_mesh::i18n::{self, Lang};
     use rustyline::DefaultEditor;
+    use std::io::Write;
 
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
     let cfg_dir = home.join(".phantom-mesh");
     std::fs::create_dir_all(&cfg_dir)?;
     let cfg_path = cfg_dir.join("agents.toml");
 
-    eprintln!();
-    eprintln!("  {} {}", colored("phantom", 35), colored("— first-time setup", 90));
-    eprintln!();
-    eprintln!("  Welcome. Let's configure at least one LLM provider.");
-    eprintln!("  This will create {}", cfg_path.display());
-    eprintln!();
-    eprintln!("  Free options:");
-    eprintln!("    {} Groq    — {} (Llama 3.3 70B, ~250 tok/s)",
-        colored("•", 36), colored("https://console.groq.com", 90));
-    eprintln!("    {} Gemini  — {} (long-context, daily quota)",
-        colored("•", 36), colored("https://aistudio.google.com", 90));
-    eprintln!();
-
     let mut rl = DefaultEditor::new()?;
 
-    let groq_key = match rl.readline("  Groq API key (paste, or leave blank to skip): ") {
+    // ── Step 0: language ──────────────────────────────────────────────
+    // Ask first + persist immediately so the choice drives every later run +
+    // the TUI. `current_lang()` is process-cached, so we ALSO thread the picked
+    // value through a local `t()` to localize the rest of THIS session's prose.
+    eprintln!();
+    eprintln!("  {} / {}", colored("Language", 36), colored("語言", 36));
+    eprintln!("    1) English");
+    eprintln!("    2) 繁體中文 (Traditional Chinese)");
+    let lang = match rl.readline("  Choose / 選擇 [1/2] (default 1): ") {
+        Ok(s) if s.trim() == "2" => Lang::ZhTw,
+        _ => Lang::En,
+    };
+    if let Err(e) = i18n::set_persisted_lang(lang) {
+        eprintln!("  {} could not save language / 無法儲存語言: {}", colored("⚠", 33), e);
+    }
+    let t = |en: &'static str, zh: &'static str| if lang == Lang::ZhTw { zh } else { en };
+
+    eprintln!();
+    eprintln!(
+        "  {} {}",
+        colored("phantom", 35),
+        colored(t("— first-time setup", "— 初次設定"), 90)
+    );
+    eprintln!();
+    eprintln!(
+        "  {}",
+        t(
+            "Welcome. Let's configure at least one LLM provider.",
+            "歡迎。先設定至少一個 LLM（大型語言模型）供應商。",
+        )
+    );
+    eprintln!("  {}{}", t("This will create ", "這會建立 "), cfg_path.display());
+    eprintln!();
+    eprintln!("  {}", t("Free options:", "免費選項："));
+    eprintln!(
+        "    {} Groq    — {} (Llama 3.3 70B, ~250 tok/s)",
+        colored("•", 36),
+        colored("https://console.groq.com", 90)
+    );
+    eprintln!(
+        "    {} Gemini  — {} (long-context, daily quota)",
+        colored("•", 36),
+        colored("https://aistudio.google.com", 90)
+    );
+    eprintln!();
+
+    let groq_key = match rl.readline(t(
+        "  Groq API key (paste, or leave blank to skip): ",
+        "  Groq API 金鑰（貼上，或留空略過）：",
+    )) {
         Ok(s) => s.trim().to_string(),
         Err(_) => String::new(),
     };
-    let gemini_key = match rl.readline("  Gemini API key (paste, or leave blank to skip): ") {
+    let gemini_key = match rl.readline(t(
+        "  Gemini API key (paste, or leave blank to skip): ",
+        "  Gemini API 金鑰（貼上，或留空略過）：",
+    )) {
         Ok(s) => s.trim().to_string(),
         Err(_) => String::new(),
     };
 
     if groq_key.is_empty() && gemini_key.is_empty() {
         eprintln!();
-        eprintln!("  {} no providers configured — phantom will start but cannot call any LLM.", colored("⚠", 33));
-        eprintln!("  Edit {} later to add providers.", cfg_path.display());
+        eprintln!(
+            "  {} {}",
+            colored("⚠", 33),
+            t(
+                "no providers configured — phantom will start but cannot call any LLM.",
+                "未設定供應商 — phantom 仍會啟動，但無法呼叫任何 LLM。",
+            )
+        );
+        eprintln!(
+            "  {}{}{}",
+            t("Edit ", "之後可編輯 "),
+            cfg_path.display(),
+            t(" later to add providers.", " 來新增供應商。")
+        );
         // Still write a stub so subsequent runs don't re-prompt
-        let stub = "# phantom-mesh agents.toml — add at least one [[providers]] block to use phantom.\n\
+        let stub =
+            "# phantom-mesh agents.toml — add at least one [[providers]] block to use phantom.\n\
                     # See: https://github.com/markl-a/phantom-mesh/blob/main/docs/INTEGRATIONS.md\n\
                     \n\
                     [core]\n\
@@ -5486,7 +10554,11 @@ fn run_first_time_onboarding() -> Result<()> {
     toml.push_str("host = \"127.0.0.1\"\n");
     toml.push_str("port = 7878\n\n");
 
-    let primary_provider = if !groq_key.is_empty() { "groq" } else { "gemini" };
+    let primary_provider = if !groq_key.is_empty() {
+        "groq"
+    } else {
+        "gemini"
+    };
 
     if !groq_key.is_empty() {
         toml.push_str("[providers.groq]\n");
@@ -5510,28 +10582,34 @@ fn run_first_time_onboarding() -> Result<()> {
     f.write_all(toml.as_bytes())?;
 
     eprintln!();
-    eprintln!("  {} wrote {}", colored("✓", 32), cfg_path.display());
+    eprintln!("  {} {}{}", colored("✓", 32), t("wrote ", "已寫入 "), cfg_path.display());
     eprintln!();
 
     // Run a one-shot health check so the user sees green ticks before
     // the REPL starts. Captures stdout/stderr from the subprocess so we
     // can present it inside our outer ceremony.
-    eprintln!("  {} running `phantom doctor` to verify…",
-        colored("◆", 36));
+    eprintln!(
+        "  {} {}",
+        colored("◆", 36),
+        t("running `phantom doctor` to verify…", "執行 `phantom doctor` 驗證中…")
+    );
     if let Ok(self_exe) = std::env::current_exe() {
         let _ = std::process::Command::new(&self_exe).arg("doctor").status();
     }
     eprintln!();
 
     // Surface the next 3 things the user can do, sorted by impact.
-    eprintln!("  {} {}", colored("→", 36), colored("Next steps:", 36));
-    eprintln!("    {} Take phantom for a spin:",   colored("1.", 36));
+    eprintln!("  {} {}", colored("→", 36), colored(t("Next steps:", "接下來："), 36));
+    eprintln!("    {} {}", colored("1.", 36), t("Take phantom for a spin:", "試用 phantom："));
     eprintln!("       phantom              # interactive TUI");
     eprintln!("       phantom 'summarize this repo'   # one-shot");
     eprintln!();
-    eprintln!("    {} Make it survive a reboot ({}):",
+    eprintln!(
+        "    {} {} ({}):",
         colored("2.", 36),
-        std::env::consts::OS);
+        t("Make it survive a reboot", "讓它在重開機後自動啟動"),
+        std::env::consts::OS
+    );
     #[cfg(target_os = "macos")]
     eprintln!("       phantom service install      # launchd auto-start");
     #[cfg(target_os = "linux")]
@@ -5539,21 +10617,39 @@ fn run_first_time_onboarding() -> Result<()> {
     #[cfg(target_os = "windows")]
     eprintln!("       phantom service install      # Scheduled Task");
     eprintln!();
-    eprintln!("    {} (Optional) hourly self-improvement loop:",
-        colored("3.", 36));
+    eprintln!(
+        "    {} {}",
+        colored("3.", 36),
+        t("(Optional) hourly self-improvement loop:", "（選用）每小時自我改進迴圈：")
+    );
     eprintln!("       phantom autoevolve schedule install");
     eprintln!();
 
     // Offer login as a final step — this lets the user reach the
     // phantommesh.io broker (or local-only email) right out of the
     // wizard, saving a separate `phantom login` invocation.
-    eprintln!("    {} (Optional) link this device to your phantom-mesh account",
-        colored("4.", 36));
-    eprintln!("       — needed for cross-device mesh discovery + iPhone access");
+    eprintln!(
+        "    {} {}",
+        colored("4.", 36),
+        t(
+            "(Optional) link this device to your phantom-mesh account",
+            "（選用）將此裝置連結到你的 phantom-mesh 帳號",
+        )
+    );
+    eprintln!(
+        "       {}",
+        t(
+            "— needed for cross-device mesh discovery + iPhone access",
+            "— 跨裝置 mesh 探索與 iPhone 存取所需",
+        )
+    );
     let already = phantom_mesh::auth::load().is_some();
     if already {
         let s = phantom_mesh::auth::load().unwrap();
-        eprintln!("       (already logged in: {})", phantom_mesh::auth::human_summary(&s));
+        eprintln!(
+            "       (already logged in: {})",
+            phantom_mesh::auth::human_summary(&s)
+        );
     } else {
         // Inline prompt — readline is fine here, this whole onboarding
         // function already uses it above.
@@ -5566,17 +10662,17 @@ fn run_first_time_onboarding() -> Result<()> {
             // implementation in one place. stdio inherits, so the user
             // gets the full flow (browser, prompts).
             if let Ok(self_exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(&self_exe)
-                    .arg("login")
-                    .status();
+                let _ = std::process::Command::new(&self_exe).arg("login").status();
             }
         } else {
             eprintln!("       (skip — run `phantom login` later)");
         }
     }
     eprintln!();
-    eprintln!("  {}  more docs at ~/.phantom-mesh/agents.toml + docs/",
-        colored("›", 90));
+    eprintln!(
+        "  {}  more docs at ~/.phantom-mesh/agents.toml + docs/",
+        colored("›", 90)
+    );
     eprintln!();
     Ok(())
 }
@@ -5591,7 +10687,8 @@ fn find_last_session() -> Option<String> {
         .ok()?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path().extension()
+            e.path()
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| ext == "jsonl")
                 .unwrap_or(false)
@@ -5627,81 +10724,47 @@ fn find_config() -> Option<String> {
 //
 // Implements Sprint 1 / Task 1.1 of MAC-DEEP-EXECUTION-PLAN.md.
 
-/// Env vars phantom propagates from the user's interactive shell into the
-/// LaunchAgent / systemd unit's environment block at `service install` time.
-///
-/// Why a whitelist instead of "copy everything":
-/// 1. macOS plist files end up in `~/Library/LaunchAgents/` — readable by
-///    the user only, but still on disk. Copying every env var would dump
-///    things like SSH agent auth socket paths and unrelated secrets into
-///    that file. We keep the surface area to known LLM keys + phantom's
-///    own knobs.
-/// 2. Future-proofing: when phantom adds support for a new provider, the
-///    list grows here in one place. Users never need to edit their plist
-///    by hand again — that was the bug we just chased ("為啥不用 opencode").
-///
-/// The actual values are NEVER printed to the install log; only the names.
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-const PROPAGATED_ENV_KEYS: &[&str] = &[
-    // LLM provider keys
-    "OPENCODE_API_KEY",
-    "OPENROUTER_API_KEY",
-    "GROQ_API_KEY",
-    "GEMINI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
-    "CEREBRAS_API_KEY",
-    "DEEPSEEK_API_KEY",
-    // phantom runtime knobs
-    "PHANTOM_MAX_TOKENS",
-    "PHANTOM_NODE_NAME",
-];
+// `PROPAGATED_ENV_KEYS` const moved to `phantom_mesh::service` (PF-2b);
+// imported via `use phantom_mesh::service::PROPAGATED_ENV_KEYS` at top
+// of this file. See `core/src/service/mod.rs` for the canonical list.
 
 /// Build the macOS LaunchAgent EnvironmentVariables fragment from the
 /// current process's env. Returns (xml_fragment, names_included).
 /// Each entry is indented to match the surrounding `<dict>` block.
 #[cfg(target_os = "macos")]
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn build_extra_env_plist_xml() -> (String, Vec<&'static str>) {
     let mut xml = String::new();
     let mut included: Vec<&'static str> = Vec::new();
     for &k in PROPAGATED_ENV_KEYS {
         if let Ok(v) = std::env::var(k) {
-            if v.is_empty() { continue; }
+            if v.is_empty() {
+                continue;
+            }
             // XML-escape the value. plist <string> permits raw `&`/`<`/`>`
             // only via entity refs. Most API keys are alnum+`-_=` so this
             // rarely fires in practice — but we should never silently
             // produce an invalid plist.
-            let esc = v.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-            xml.push_str(&format!("    <key>{}</key>\n    <string>{}</string>\n", k, esc));
+            let esc = v
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;");
+            xml.push_str(&format!(
+                "    <key>{}</key>\n    <string>{}</string>\n",
+                k, esc
+            ));
             included.push(k);
         }
     }
     // Trim trailing newline so the closing </dict> stays aligned.
-    if xml.ends_with('\n') { xml.pop(); }
+    if xml.ends_with('\n') {
+        xml.pop();
+    }
     (xml, included)
 }
 
-/// Build the Linux systemd `Environment=...` lines fragment.
-#[cfg(target_os = "linux")]
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn build_extra_env_systemd() -> (String, Vec<&'static str>) {
-    let mut s = String::new();
-    let mut included: Vec<&'static str> = Vec::new();
-    for &k in PROPAGATED_ENV_KEYS {
-        if let Ok(v) = std::env::var(k) {
-            if v.is_empty() { continue; }
-            // systemd Environment= line: quote the value so spaces and
-            // shell metachars survive intact. Inner double-quotes get
-            // backslash-escaped per systemd.exec(5).
-            let esc = v.replace('\\', "\\\\").replace('"', "\\\"");
-            s.push_str(&format!("Environment=\"{}={}\"\n", k, esc));
-            included.push(k);
-        }
-    }
-    if s.ends_with('\n') { s.pop(); }
-    (s, included)
-}
+// `build_extra_env_systemd` (Linux) moved to
+// `core/src/service/linux.rs` (PF-2b). The Linux service install path
+// now calls it as a private helper inside that module.
 
 #[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
 mod env_propagation_tests {
@@ -5711,12 +10774,18 @@ mod env_propagation_tests {
     /// values, run f, restore originals. Avoids polluting cargo test's
     /// shared process env across tests.
     fn with_env<F: FnOnce()>(set: &[(&str, &str)], unset: &[&str], f: F) {
-        let snapshot: Vec<(&str, Option<String>)> = set.iter().map(|(k, _)| *k)
+        let snapshot: Vec<(&str, Option<String>)> = set
+            .iter()
+            .map(|(k, _)| *k)
             .chain(unset.iter().copied())
             .map(|k| (k, std::env::var(k).ok()))
             .collect();
-        for &k in unset { std::env::remove_var(k); }
-        for (k, v) in set { std::env::set_var(k, v); }
+        for &k in unset {
+            std::env::remove_var(k);
+        }
+        for (k, v) in set {
+            std::env::set_var(k, v);
+        }
         f();
         for (k, prev) in snapshot {
             match prev {
@@ -5730,8 +10799,10 @@ mod env_propagation_tests {
     #[cfg(target_os = "macos")]
     fn extra_env_plist_xml_emits_keys_present_in_env() {
         with_env(
-            &[("OPENCODE_API_KEY", "sk-test-opencode"),
-              ("PHANTOM_MAX_TOKENS", "16384")],
+            &[
+                ("OPENCODE_API_KEY", "sk-test-opencode"),
+                ("PHANTOM_MAX_TOKENS", "16384"),
+            ],
             &["OPENROUTER_API_KEY", "GROQ_API_KEY"],
             || {
                 let (xml, names) = build_extra_env_plist_xml();
@@ -5764,34 +10835,131 @@ mod env_propagation_tests {
     #[test]
     #[cfg(target_os = "macos")]
     fn extra_env_plist_xml_skips_empty_values() {
-        with_env(
-            &[("OPENCODE_API_KEY", "")],
-            &[],
-            || {
-                let (xml, names) = build_extra_env_plist_xml();
-                assert!(!names.contains(&"OPENCODE_API_KEY"));
-                assert!(!xml.contains("OPENCODE_API_KEY"));
-            },
-        );
+        with_env(&[("OPENCODE_API_KEY", "")], &[], || {
+            let (xml, names) = build_extra_env_plist_xml();
+            assert!(!names.contains(&"OPENCODE_API_KEY"));
+            assert!(!xml.contains("OPENCODE_API_KEY"));
+        });
     }
 
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn extra_env_systemd_emits_quoted_environment_lines() {
-        with_env(
-            &[("GROQ_API_KEY", "gsk_test_value")],
-            &[],
-            || {
-                let (s, names) = build_extra_env_systemd();
-                assert!(names.contains(&"GROQ_API_KEY"));
-                assert!(s.contains(r#"Environment="GROQ_API_KEY=gsk_test_value""#));
-            },
-        );
+    // `extra_env_systemd_emits_quoted_environment_lines` test moved to
+    // `core/src/service/linux.rs::tests` (PF-2b).
+}
+
+// ── T10: `phantom skill run` implementation ──────────────────────────────
+//
+// Feature-gated: when `experimental-hermes-curator` is OFF, the function
+// just prints a friendly error and exits 1.
+
+#[cfg(feature = "experimental-hermes-curator")]
+async fn run_phantom_skill(
+    path: &str,
+    dry_run: bool,
+    mode: phantom_mesh::hermes::ExecutionMode,
+) -> anyhow::Result<()> {
+    use phantom_mesh::hermes::skill::parse_str;
+    use phantom_mesh::hermes::{ExecutionOpts, SkillExecutor, StepOutcome};
+
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("read skill file {path}: {e}"))?;
+    let doc = parse_str(&raw).map_err(|e| anyhow::anyhow!("parse skill {path}: {e}"))?;
+
+    let opts = ExecutionOpts {
+        dry_run,
+        mode,
+        ..Default::default()
+    };
+    let result = SkillExecutor::execute(&doc, opts)
+        .map_err(|e| anyhow::anyhow!("execute skill {path}: {e}"))?;
+
+    eprintln!(
+        "  {} skill {} (v{}) — {} steps {}",
+        colored("◆", 35),
+        doc.frontmatter.name,
+        doc.frontmatter.version,
+        result.steps_run,
+        if dry_run { "(dry-run)" } else { "(live)" }
+    );
+    for (i, outcome) in result.outcomes.iter().enumerate() {
+        match outcome {
+            StepOutcome::BashRan {
+                exit_code,
+                stdout,
+                stderr,
+            } => {
+                let glyph = if *exit_code == 0 {
+                    colored("✓", 32)
+                } else {
+                    colored("✗", 31)
+                };
+                eprintln!("  {} step {} bash (exit {})", glyph, i, exit_code);
+                if !stdout.trim().is_empty() {
+                    for line in stdout.lines().take(20) {
+                        eprintln!("      {} {}", colored("│", 90), line);
+                    }
+                }
+                if !stderr.trim().is_empty() {
+                    for line in stderr.lines().take(20) {
+                        eprintln!("      {} {}", colored("│ err", 31), line);
+                    }
+                }
+            }
+            StepOutcome::BashDryRun { code } => {
+                eprintln!("  {} step {} bash (dry-run):", colored("·", 90), i);
+                for line in code.lines().take(20) {
+                    eprintln!("      {} {}", colored("│", 90), line);
+                }
+            }
+            StepOutcome::NoteLogged { text } => {
+                let preview: String = text.lines().next().unwrap_or("").chars().take(80).collect();
+                eprintln!("  {} step {} note: {}", colored("·", 90), i, preview);
+            }
+            StepOutcome::PromptDeferred { text } => {
+                let preview: String = text.lines().next().unwrap_or("").chars().take(80).collect();
+                eprintln!(
+                    "  {} step {} prompt (deferred to caller): {}",
+                    colored("▶", 33),
+                    i,
+                    preview
+                );
+            }
+            StepOutcome::BashError { message } => {
+                eprintln!("  {} step {} bash error: {}", colored("✗", 31), i, message);
+            }
+            StepOutcome::BashRejected { reason } => {
+                eprintln!(
+                    "  {} step {} bash rejected (sandbox): {}",
+                    colored("✗", 31),
+                    i,
+                    reason
+                );
+            }
+        }
     }
+    if !result.errors.is_empty() {
+        eprintln!();
+        eprintln!("  {} {} error(s):", colored("⚠", 33), result.errors.len());
+        for e in &result.errors {
+            eprintln!("      - {e}");
+        }
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "experimental-hermes-curator"))]
+async fn run_phantom_skill(_path: &str, _dry_run: bool, _mode: ()) -> anyhow::Result<()> {
+    eprintln!(
+        "  {} this binary was built without `experimental-hermes-curator`.",
+        colored("✗", 31)
+    );
+    eprintln!("      Rebuild with: cargo build --features experimental-hermes-curator");
+    std::process::exit(1);
 }
 
 #[cfg(target_os = "macos")]
-const LAUNCH_AGENT_PLIST_TMPL: &str = include_str!("../../../templates/ai.phantommesh.serve.plist.tmpl");
+const LAUNCH_AGENT_PLIST_TMPL: &str =
+    include_str!("../../../templates/ai.phantommesh.serve.plist.tmpl");
 
 #[cfg(target_os = "macos")]
 const LAUNCH_AGENT_LABEL: &str = "ai.phantommesh.serve";
@@ -5837,7 +11005,9 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             //      bootstrap returns the same EIO.
             // We ignore the bootout exit code because "service not loaded"
             // is a fine starting state.
-            let _ = Command::new("launchctl").args(["bootout", &target]).output();
+            let _ = Command::new("launchctl")
+                .args(["bootout", &target])
+                .output();
             // Brief wait for launchd to release the binary mapping.
             std::thread::sleep(std::time::Duration::from_millis(300));
 
@@ -5863,7 +11033,12 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             #[cfg(target_os = "macos")]
             {
                 let _ = Command::new("codesign")
-                    .args(["--force", "--sign", "-", installed_bin.to_str().unwrap_or("")])
+                    .args([
+                        "--force",
+                        "--sign",
+                        "-",
+                        installed_bin.to_str().unwrap_or(""),
+                    ])
                     .output();
             }
 
@@ -5897,10 +11072,7 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                             let _ = std::fs::copy(&from, &to);
                             #[cfg(unix)]
                             if let Ok(meta) = std::fs::metadata(&from) {
-                                let _ = std::fs::set_permissions(
-                                    &to,
-                                    meta.permissions(),
-                                );
+                                let _ = std::fs::set_permissions(&to, meta.permissions());
                             }
                         }
                     }
@@ -5925,16 +11097,14 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             // (which calls `std::env::current_dir`) hangs forever. So if
             // the install was launched from one of those, fall back to the
             // app-support dir we already created above.
-            let cwd_now = std::env::current_dir()
-                .unwrap_or_else(|_| home.clone());
-            let in_tcc_protected = ["Documents", "Downloads", "Desktop"]
-                .iter()
-                .any(|seg| {
-                    let p = home.join(seg);
-                    cwd_now.starts_with(&p)
-                });
+            let cwd_now = std::env::current_dir().unwrap_or_else(|_| home.clone());
+            let in_tcc_protected = ["Documents", "Downloads", "Desktop"].iter().any(|seg| {
+                let p = home.join(seg);
+                cwd_now.starts_with(&p)
+            });
             let work_dir = if in_tcc_protected {
-                install_dir.parent()
+                install_dir
+                    .parent()
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| home.display().to_string())
             } else {
@@ -5952,18 +11122,28 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 .replace("__EXTRA_ENV__", &extra_env);
             std::fs::write(&plist_path, &rendered)?;
             if env_names.is_empty() {
-                eprintln!("    {} no API keys propagated — daemon will run with PATH+HOME only.",
-                          colored("⚠", 33));
-                eprintln!("       Set keys in your shell rcfile (e.g. `export OPENCODE_API_KEY=…`),");
+                eprintln!(
+                    "    {} no API keys propagated — daemon will run with PATH+HOME only.",
+                    colored("⚠", 33)
+                );
+                eprintln!(
+                    "       Set keys in your shell rcfile (e.g. `export OPENCODE_API_KEY=…`),"
+                );
                 eprintln!("       open a new shell, then re-run `phantom service install`.");
             } else {
-                eprintln!("    propagated env: {} key(s) → {}",
-                          env_names.len(),
-                          env_names.join(", "));
+                eprintln!(
+                    "    propagated env: {} key(s) → {}",
+                    env_names.len(),
+                    env_names.join(", ")
+                );
             }
 
             eprintln!("{} Wrote {}", colored("◆", 35), plist_path.display());
-            eprintln!("    binary:    {} (copied from {})", bin_str, bin_real.display());
+            eprintln!(
+                "    binary:    {} (copied from {})",
+                bin_str,
+                bin_real.display()
+            );
             eprintln!("    cwd:       {}", work_dir);
             eprintln!("    log:       {}/phantom-serve.log", log_dir.display());
 
@@ -5979,15 +11159,22 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 );
             }
             let _ = Command::new("launchctl").args(["enable", &target]).output();
-            let _ = Command::new("launchctl").args(["kickstart", "-kp", &target]).output();
+            let _ = Command::new("launchctl")
+                .args(["kickstart", "-kp", &target])
+                .output();
 
             // Wait briefly and verify.
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            let print = Command::new("launchctl").args(["print", &target]).output()?;
+            let print = Command::new("launchctl")
+                .args(["print", &target])
+                .output()?;
             if print.status.success() {
                 eprintln!("{} Service registered.", colored("✓", 32));
                 eprintln!("    Verify:    curl http://127.0.0.1:7878/healthz");
-                eprintln!("    Logs:      tail -f {}/phantom-serve.log", log_dir.display());
+                eprintln!(
+                    "    Logs:      tail -f {}/phantom-serve.log",
+                    log_dir.display()
+                );
                 eprintln!("    Uninstall: phantom service uninstall");
                 eprintln!();
                 eprintln!(
@@ -6005,14 +11192,15 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
         }
 
         "uninstall" => {
-            let _ = Command::new("launchctl").args(["bootout", &target]).output();
+            let _ = Command::new("launchctl")
+                .args(["bootout", &target])
+                .output();
             if plist_path.exists() {
                 std::fs::remove_file(&plist_path)?;
                 eprintln!("{} Removed {}", colored("◆", 35), plist_path.display());
             }
             // Best-effort: clean the copied binary too. Ignore failures.
-            let installed_bin = home
-                .join("Library/Application Support/phantom-mesh/bin/phantom");
+            let installed_bin = home.join("Library/Application Support/phantom-mesh/bin/phantom");
             if installed_bin.exists() {
                 let _ = std::fs::remove_file(&installed_bin);
             }
@@ -6021,7 +11209,9 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
         }
 
         "status" => {
-            let print = Command::new("launchctl").args(["print", &target]).output()?;
+            let print = Command::new("launchctl")
+                .args(["print", &target])
+                .output()?;
             let registered = print.status.success();
             let body = String::from_utf8_lossy(&print.stdout);
             let pid = body
@@ -6073,7 +11263,11 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 } else {
                     colored("unreachable", 31)
                 },
-                if healthz_code.is_empty() { "no response".into() } else { format!("HTTP {}", healthz_code) }
+                if healthz_code.is_empty() {
+                    "no response".into()
+                } else {
+                    format!("HTTP {}", healthz_code)
+                }
             );
             if registered && healthz_code != "200" {
                 println!(
@@ -6113,6 +11307,7 @@ async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
 // later.
 
 async fn run_login(args: &[String]) -> anyhow::Result<()> {
+    use phantom_mesh::i18n::{tr, tr_owned};
     use rustyline::DefaultEditor;
 
     // Routing logic:
@@ -6135,7 +11330,10 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
             let broker = std::env::var("PHANTOM_AUTH_URL")
                 .unwrap_or_else(|_| "https://phantommesh.io".to_string());
             if !broker.is_empty() {
-                eprintln!("{} probing broker {} …", colored("◆", 35), broker);
+                eprintln!("{} {}", colored("◆", 35), tr_owned(
+                    format!("probing broker {} …", broker),
+                    format!("正在探測中介伺服器 {} …", broker),
+                ));
                 let probe = reqwest::Client::builder()
                     .timeout(std::time::Duration::from_secs(3))
                     .build()
@@ -6146,39 +11344,61 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
                     });
                 let online = if let Some(c) = probe {
                     let url = format!("{}/api/health", broker.trim_end_matches('/'));
-                    c.get(&url).send().await
+                    c.get(&url)
+                        .send()
+                        .await
                         .map(|r| r.status().is_success())
                         .unwrap_or(false)
-                } else { false };
+                } else {
+                    false
+                };
 
                 if online {
                     return login_broker(&broker).await;
                 }
-                eprintln!("  {} broker offline — falling back to direct provider menu",
-                    colored("◇", 90));
-                eprintln!("    (set PHANTOM_AUTH_URL='' to suppress broker probe)");
+                eprintln!(
+                    "  {} {}",
+                    colored("◇", 90),
+                    tr(
+                        "broker offline — falling back to direct provider menu",
+                        "中介伺服器離線 — 改用直接的供應商選單",
+                    )
+                );
+                eprintln!("    {}", tr(
+                    "(set PHANTOM_AUTH_URL='' to suppress broker probe)",
+                    "（設 PHANTOM_AUTH_URL='' 可略過中介伺服器探測）",
+                ));
                 eprintln!();
             }
-            eprintln!("{}", colored("phantom login — pick an identity provider", 35));
-            eprintln!("  1. email    — local password (no cloud)");
-            eprintln!("  2. google   — OAuth loopback (opens browser)");
-            eprintln!("  3. apple    — needs broker relay (planned)");
-            eprintln!("  4. broker   — re-try {}", broker);
+            eprintln!(
+                "{}",
+                colored(tr("phantom login — pick an identity provider", "phantom login — 選擇身分供應商"), 35)
+            );
+            eprintln!("  1. email    — {}", tr("local password (no cloud)", "本機密碼（不上雲）"));
+            eprintln!("  2. google   — {}", tr("OAuth loopback (opens browser)", "OAuth 迴路（開啟瀏覽器）"));
+            eprintln!("  3. apple    — {}", tr("needs broker relay (planned)", "需要中介伺服器中繼（規劃中）"));
+            eprintln!("  4. broker   — {}{}", tr("re-try ", "重試 "), broker);
             let mut rl = DefaultEditor::new()?;
-            let pick = rl.readline("  choose [1-4]: ").unwrap_or_default();
+            let pick = rl.readline(tr("  choose [1-4]: ", "  選擇 [1-4]：")).unwrap_or_default();
             match pick.trim() {
-                "1" | "email"  => "email".to_string(),
+                "1" | "email" => "email".to_string(),
                 "2" | "google" => "google".to_string(),
-                "3" | "apple"  => "apple".to_string(),
+                "3" | "apple" => "apple".to_string(),
                 "4" | "broker" => "broker".to_string(),
-                _ => anyhow::bail!("cancelled"),
+                _ => anyhow::bail!("{}", tr("cancelled", "已取消")),
             }
         }
-        other => anyhow::bail!("unknown provider '{}'. Use email / google / apple / broker.", other),
+        other => anyhow::bail!(
+            "{}",
+            tr_owned(
+                format!("unknown provider '{}'. Use email / google / apple / broker.", other),
+                format!("未知的供應商 '{}'。可用 email / google / apple / broker。", other),
+            )
+        ),
     };
 
     match provider.as_str() {
-        "email"  => login_email().await,
+        "email" => login_email().await,
         "google" => login_google().await,
         "broker" => {
             let broker = std::env::var("PHANTOM_AUTH_URL")
@@ -6186,8 +11406,10 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
             login_broker(&broker).await
         }
         "apple" => {
-            eprintln!("{} Apple login requires an HTTPS redirect server.",
-                colored("⚠", 33));
+            eprintln!(
+                "{} Apple login requires an HTTPS redirect server.",
+                colored("⚠", 33)
+            );
             eprintln!("    Lands when the phantommesh.io broker exposes /auth/apple.");
             eprintln!("    For now, use:");
             eprintln!("      phantom login email     # local-only");
@@ -6221,7 +11443,9 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
     // `phantom login` calls during routine work) be near-instant.
     // 60s safety margin against clock skew. Force re-OAuth via
     // `phantom logout` first, or PHANTOM_FORCE_LOGIN=1.
-    let force = std::env::var("PHANTOM_FORCE_LOGIN").map(|v| v == "1").unwrap_or(false);
+    let force = std::env::var("PHANTOM_FORCE_LOGIN")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     if !force {
         if let Some(ref p) = prior {
             let now_ms = auth::now_ms();
@@ -6229,31 +11453,46 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
                 && p.broker_token_expires_at_ms > now_ms + 60_000
                 && p.broker_url.trim_end_matches('/') == broker_url.trim_end_matches('/');
             if still_fresh {
-                eprintln!("{} already logged in as {} — refreshing keys instead of re-OAuthing",
-                    colored("◆", 35), p.email);
+                eprintln!(
+                    "{} already logged in as {} — refreshing keys instead of re-OAuthing",
+                    colored("◆", 35),
+                    p.email
+                );
                 eprintln!("  (force re-login with: phantom logout && phantom login,");
                 eprintln!("   or: PHANTOM_FORCE_LOGIN=1 phantom login)");
                 eprintln!();
-                match phantom_mesh::cli_config::config_pull_lines(broker_url, &p.broker_token).await {
+                match phantom_mesh::cli_config::config_pull_lines(broker_url, &p.broker_token).await
+                {
                     Ok(lines) => {
-                        for l in lines { eprintln!("{}", l); }
+                        for l in lines {
+                            eprintln!("{}", l);
+                        }
                         // Short-circuit path also runs auto-register +
                         // cluster join so re-running `phantom login` on
                         // a working install still keeps the broker peer
                         // registry + local [cluster] block fresh (e.g.
                         // Tailscale IP just rotated).
                         eprintln!();
-                        eprintln!("{} auto-registering this machine on cluster…", colored("◆", 35));
+                        eprintln!(
+                            "{} auto-registering this machine on cluster…",
+                            colored("◆", 35)
+                        );
                         for l in phantom_mesh::cli_config::login_post_register_lines(
-                            broker_url, &p.broker_token,
-                        ).await {
+                            broker_url,
+                            &p.broker_token,
+                        )
+                        .await
+                        {
                             eprintln!("{}", l);
                         }
                         return Ok(());
                     }
                     Err(e) => {
-                        eprintln!("{} key refresh failed: {} — falling through to full OAuth",
-                            colored("⚠", 33), e);
+                        eprintln!(
+                            "{} key refresh failed: {} — falling through to full OAuth",
+                            colored("⚠", 33),
+                            e
+                        );
                         eprintln!();
                         // Fall through to the OAuth flow below.
                     }
@@ -6262,7 +11501,9 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
         }
     }
 
-    let device_id = prior.as_ref().map(|s| s.device_id.clone())
+    let device_id = prior
+        .as_ref()
+        .map(|s| s.device_id.clone())
         .unwrap_or_else(auth::random_device_id);
 
     let auth_url = format!(
@@ -6274,65 +11515,83 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
     );
 
     eprintln!("{} opening {}", colored("◆", 35), auth_url);
-    open_browser(&auth_url);
-    eprintln!("  (if the browser didn't open, paste the URL above)");
-    eprintln!("  waiting for the broker to call back on :{} … (Ctrl-C to cancel)", PORT);
+    if open_browser(&auth_url) {
+        eprintln!("  (if the browser didn't open, paste the URL above)");
+    } else {
+        // D5: headless — open_browser already printed the URL + manual note.
+        // Make the loopback constraint explicit so the user isn't left wondering
+        // why the wait below never returns.
+        eprintln!(
+            "  → headless: open that URL on a device that can reach this host's :{} loopback,",
+            PORT
+        );
+        eprintln!("    or press Ctrl-C and run `phantom login email` for a local-only login.");
+    }
+    eprintln!(
+        "  waiting for the broker to call back on :{} … (Ctrl-C to cancel)",
+        PORT
+    );
 
     let (tx, rx) = tokio::sync::oneshot::channel::<serde_json::Value>();
-    let app = axum::Router::new().route("/oauth/callback", axum::routing::any({
-        let tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(tx)));
-        move |req: axum::http::Request<axum::body::Body>| {
-            let tx = tx.clone();
-            async move {
-                // Accept either:
-                //   POST with JSON body (legacy / direct provider flow)
-                //   GET ?p=<base64url(json)>  (current broker meta-refresh)
-                //   GET ?<key>=<value>&...    (legacy URL-encoded form)
-                use axum::body::Body;
-                let (parts, body) = req.into_parts();
-                let bytes = match axum::body::to_bytes(body, 64 * 1024).await {
-                    Ok(b) => b.to_vec(),
-                    Err(_) => Vec::new(),
-                };
-                let payload: serde_json::Value = if !bytes.is_empty() {
-                    serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
-                } else if let Some(q) = parts.uri.query() {
-                    // First try to decode the broker's `?p=<base64-json>`
-                    // form. base64url decode → UTF-8 → serde_json. If any
-                    // step fails, fall through to "raw query string" so
-                    // older callers still work.
-                    let p = q.split('&')
-                        .find_map(|kv| kv.strip_prefix("p="));
-                    let decoded = p.and_then(|p_val| {
-                        // urldecode the param first (e.g. %3D → '=')
-                        let urldec = urlencoding::decode(p_val).ok()?;
-                        // base64url alphabet: '-' → '+', '_' → '/', no padding
-                        let std_b64 = urldec.replace('-', "+").replace('_', "/");
-                        // Re-pad to a multiple of 4 (base64 standard)
-                        let pad = (4 - std_b64.len() % 4) % 4;
-                        let padded = format!("{}{}", std_b64, "=".repeat(pad));
-                        let bytes = base64::Engine::decode(
-                            &base64::engine::general_purpose::STANDARD, padded
-                        ).ok()?;
-                        let text = String::from_utf8(bytes).ok()?;
-                        serde_json::from_str::<serde_json::Value>(&text).ok()
-                    });
-                    decoded.unwrap_or_else(|| serde_json::Value::String(q.to_string()))
-                } else {
-                    serde_json::Value::Null
-                };
-                if let Some(t) = tx.lock().await.take() {
-                    let _ = t.send(payload);
+    let app = axum::Router::new().route(
+        "/oauth/callback",
+        axum::routing::any({
+            let tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(tx)));
+            move |req: axum::http::Request<axum::body::Body>| {
+                let tx = tx.clone();
+                async move {
+                    // Accept either:
+                    //   POST with JSON body (legacy / direct provider flow)
+                    //   GET ?p=<base64url(json)>  (current broker meta-refresh)
+                    //   GET ?<key>=<value>&...    (legacy URL-encoded form)
+                    use axum::body::Body;
+                    let (parts, body) = req.into_parts();
+                    let bytes = match axum::body::to_bytes(body, 64 * 1024).await {
+                        Ok(b) => b.to_vec(),
+                        Err(_) => Vec::new(),
+                    };
+                    let payload: serde_json::Value = if !bytes.is_empty() {
+                        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+                    } else if let Some(q) = parts.uri.query() {
+                        // First try to decode the broker's `?p=<base64-json>`
+                        // form. base64url decode → UTF-8 → serde_json. If any
+                        // step fails, fall through to "raw query string" so
+                        // older callers still work.
+                        let p = q.split('&').find_map(|kv| kv.strip_prefix("p="));
+                        let decoded = p.and_then(|p_val| {
+                            // urldecode the param first (e.g. %3D → '=')
+                            let urldec = urlencoding::decode(p_val).ok()?;
+                            // base64url alphabet: '-' → '+', '_' → '/', no padding
+                            let std_b64 = urldec.replace('-', "+").replace('_', "/");
+                            // Re-pad to a multiple of 4 (base64 standard)
+                            let pad = (4 - std_b64.len() % 4) % 4;
+                            let padded = format!("{}{}", std_b64, "=".repeat(pad));
+                            let bytes = base64::Engine::decode(
+                                &base64::engine::general_purpose::STANDARD,
+                                padded,
+                            )
+                            .ok()?;
+                            let text = String::from_utf8(bytes).ok()?;
+                            serde_json::from_str::<serde_json::Value>(&text).ok()
+                        });
+                        decoded.unwrap_or_else(|| serde_json::Value::String(q.to_string()))
+                    } else {
+                        serde_json::Value::Null
+                    };
+                    if let Some(t) = tx.lock().await.take() {
+                        let _ = t.send(payload);
+                    }
+                    let _ = parts; // silence dead_code on body
+                    let _ = Body::empty();
+                    axum::response::Html(
+                        "<h1>✓ Login complete</h1>\
+                     <p>You can close this window and return to phantom.</p>"
+                            .to_string(),
+                    )
                 }
-                let _ = parts;  // silence dead_code on body
-                let _ = Body::empty();
-                axum::response::Html(
-                    "<h1>✓ Login complete</h1>\
-                     <p>You can close this window and return to phantom.</p>".to_string()
-                )
             }
-        }
-    }));
+        }),
+    );
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", PORT)).await?;
     let server = tokio::spawn(async move {
@@ -6347,14 +11606,21 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
     };
     server.abort();
 
-    eprintln!("{} broker callback received, parsing identity…", colored("◆", 35));
+    eprintln!(
+        "{} broker callback received, parsing identity…",
+        colored("◆", 35)
+    );
 
-    let email = payload["email"].as_str()
+    let email = payload["email"]
+        .as_str()
         .or(payload["user"]["email"].as_str())
         .unwrap_or("")
         .to_string();
     if email.is_empty() {
-        anyhow::bail!("broker payload had no email field — refusing to save: {}", payload);
+        anyhow::bail!(
+            "broker payload had no email field — refusing to save: {}",
+            payload
+        );
     }
 
     let now = auth::now_ms();
@@ -6362,9 +11628,15 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
     let state = auth::AuthState {
         provider: payload["provider"].as_str().unwrap_or("broker").to_string(),
         email,
-        display_name: payload["name"].as_str().or(payload["user"]["name"].as_str()).map(str::to_string),
+        display_name: payload["name"]
+            .as_str()
+            .or(payload["user"]["name"].as_str())
+            .map(str::to_string),
         sub: payload["sub"].as_str().map(str::to_string),
-        avatar_url: payload["picture"].as_str().or(payload["avatar_url"].as_str()).map(str::to_string),
+        avatar_url: payload["picture"]
+            .as_str()
+            .or(payload["avatar_url"].as_str())
+            .map(str::to_string),
         device_id,
         created_at_ms: prior.as_ref().map(|s| s.created_at_ms).unwrap_or(now),
         last_login_ms: now,
@@ -6373,12 +11645,15 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
         id_token: payload["id_token"].as_str().unwrap_or("").to_string(),
         access_token: payload["access_token"].as_str().unwrap_or("").to_string(),
         broker_token: broker_token.clone(),
-        broker_token_expires_at_ms: payload["broker_token_expires_at_ms"]
-            .as_i64().unwrap_or(0),
+        broker_token_expires_at_ms: payload["broker_token_expires_at_ms"].as_i64().unwrap_or(0),
         broker_url: broker_url.trim_end_matches('/').to_string(),
     };
     auth::save(&state)?;
-    eprintln!("{} logged in as {}", colored("✓", 32), auth::human_summary(&state));
+    eprintln!(
+        "{} logged in as {}",
+        colored("✓", 32),
+        auth::human_summary(&state)
+    );
     eprintln!("  saved to {} (mode 0600)", auth::auth_path().display());
 
     // Auto-pull LLM keys from the broker's vault now that we have a fresh
@@ -6388,16 +11663,22 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
     // doesn't include it, or future provider that returns identity-only).
     if !broker_token.is_empty() {
         eprintln!();
-        eprintln!("{} pulling LLM provider keys from broker vault…", colored("◆", 35));
+        eprintln!(
+            "{} pulling LLM provider keys from broker vault…",
+            colored("◆", 35)
+        );
         match phantom_mesh::cli_config::config_pull_lines(broker_url, &broker_token).await {
             Ok(lines) => {
-                for l in lines { eprintln!("{}", l); }
+                for l in lines {
+                    eprintln!("{}", l);
+                }
                 // Persist for `phantom config pull` (zero-arg) re-runs.
                 let _ = phantom_mesh::cli_config::write_broker_config(
                     &phantom_mesh::cli_config::BrokerConfig {
                         url: broker_url.trim_end_matches('/').to_string(),
                         token: broker_token.clone(),
-                    });
+                    },
+                );
             }
             Err(e) => {
                 eprintln!("{} vault pull skipped: {}", colored("⚠", 33), e);
@@ -6406,10 +11687,13 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
         }
 
         eprintln!();
-        eprintln!("{} auto-registering this machine on cluster…", colored("◆", 35));
-        for l in phantom_mesh::cli_config::login_post_register_lines(
-            broker_url, &broker_token,
-        ).await {
+        eprintln!(
+            "{} auto-registering this machine on cluster…",
+            colored("◆", 35)
+        );
+        for l in
+            phantom_mesh::cli_config::login_post_register_lines(broker_url, &broker_token).await
+        {
             eprintln!("{}", l);
         }
     }
@@ -6422,16 +11706,19 @@ async fn login_email() -> anyhow::Result<()> {
 
     // Non-interactive flags for scripts / CI:
     //   phantom login email --email a@b.c --password X --no-confirm
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = args_lossy();
     let arg_email = parse_flag(&args, "--email");
-    let arg_pw    = parse_flag(&args, "--password");
+    let arg_pw = parse_flag(&args, "--password");
     let no_confirm = args.iter().any(|a| a == "--no-confirm");
 
     let email = if let Some(e) = arg_email {
         e
     } else {
         let mut rl = DefaultEditor::new()?;
-        rl.readline("  email: ").unwrap_or_default().trim().to_string()
+        rl.readline("  email: ")
+            .unwrap_or_default()
+            .trim()
+            .to_string()
     };
     if email.is_empty() || !email.contains('@') {
         anyhow::bail!("email is required (and must contain '@')");
@@ -6439,7 +11726,10 @@ async fn login_email() -> anyhow::Result<()> {
 
     // Reuse existing device_id when re-logging-in from this machine.
     let prior = auth::load();
-    let device_id = prior.as_ref().map(|s| s.device_id.clone()).unwrap_or_else(auth::random_device_id);
+    let device_id = prior
+        .as_ref()
+        .map(|s| s.device_id.clone())
+        .unwrap_or_else(auth::random_device_id);
 
     let pw_was_flag = arg_pw.is_some();
     let pw1 = if let Some(p) = arg_pw {
@@ -6480,7 +11770,11 @@ async fn login_email() -> anyhow::Result<()> {
     };
     auth::save(&state)?;
     eprintln!();
-    eprintln!("{} logged in as {}", colored("✓", 32), auth::human_summary(&state));
+    eprintln!(
+        "{} logged in as {}",
+        colored("✓", 32),
+        auth::human_summary(&state)
+    );
     eprintln!("  saved to {} (mode 0600)", auth::auth_path().display());
     Ok(())
 }
@@ -6536,10 +11830,10 @@ fn atty_stdin() -> bool {
 }
 
 async fn login_google() -> anyhow::Result<()> {
-    use phantom_mesh::auth;
-    use sha2::{Digest, Sha256};
     use base64::Engine;
+    use phantom_mesh::auth;
     use rand::RngCore;
+    use sha2::{Digest, Sha256};
 
     // The same client_id used by the Tauri app (oauth.rs). The OAuth
     // client must be configured as 'Desktop App' type in Google Cloud
@@ -6548,7 +11842,8 @@ async fn login_google() -> anyhow::Result<()> {
     // localhost:5173; if the loopback path 401s here, the user needs
     // to add this URI to the Google Cloud Console authorized redirects:
     //   http://127.0.0.1:48181/oauth/callback
-    const GOOGLE_CLIENT_ID: &str = "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
+    const GOOGLE_CLIENT_ID: &str =
+        "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
     const PORT: u16 = 48181;
     const REDIRECT: &str = "http://127.0.0.1:48181/oauth/callback";
 
@@ -6584,36 +11879,54 @@ async fn login_google() -> anyhow::Result<()> {
 
     eprintln!("{} opening browser for Google sign-in…", colored("◆", 35));
     eprintln!("  redirect: {}", REDIRECT);
-    open_browser(&auth_url);
-    eprintln!("  (if the browser didn't open, paste this in:)");
-    eprintln!("  {}", colored(&auth_url, 90));
+    if open_browser(&auth_url) {
+        eprintln!("  (if the browser didn't open, paste this in:)");
+        eprintln!("  {}", colored(&auth_url, 90));
+    } else {
+        // D5: headless — open_browser already printed the URL + manual note;
+        // add the loopback constraint + local-only escape hatch.
+        eprintln!(
+            "  → headless: open that URL on a device that can reach this host's :{} loopback,",
+            PORT
+        );
+        eprintln!("    or press Ctrl-C and run `phantom login email` for a local-only login.");
+    }
     eprintln!();
-    eprintln!("  waiting for the OAuth callback on :{} … (Ctrl-C to cancel)", PORT);
+    eprintln!(
+        "  waiting for the OAuth callback on :{} … (Ctrl-C to cancel)",
+        PORT
+    );
 
     // Spin up a one-shot listener.
     let (tx, rx) = tokio::sync::oneshot::channel::<(String, String)>();
     let csrf_check = csrf.clone();
-    let app = axum::Router::new().route("/oauth/callback", axum::routing::get({
-        let tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(tx)));
-        move |query: axum::extract::Query<std::collections::HashMap<String, String>>| {
-            let tx = tx.clone();
-            let csrf_check = csrf_check.clone();
-            async move {
-                let code = query.get("code").cloned().unwrap_or_default();
-                let state = query.get("state").cloned().unwrap_or_default();
-                if state != csrf_check {
-                    return axum::response::Html("<h1>State mismatch — possible CSRF. Login aborted.</h1>".to_string());
+    let app = axum::Router::new().route(
+        "/oauth/callback",
+        axum::routing::get({
+            let tx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(tx)));
+            move |query: axum::extract::Query<std::collections::HashMap<String, String>>| {
+                let tx = tx.clone();
+                let csrf_check = csrf_check.clone();
+                async move {
+                    let code = query.get("code").cloned().unwrap_or_default();
+                    let state = query.get("state").cloned().unwrap_or_default();
+                    if state != csrf_check {
+                        return axum::response::Html(
+                            "<h1>State mismatch — possible CSRF. Login aborted.</h1>".to_string(),
+                        );
+                    }
+                    if let Some(t) = tx.lock().await.take() {
+                        let _ = t.send((code.clone(), state));
+                    }
+                    axum::response::Html(
+                        "<h1>✓ Login complete</h1>\
+                     <p>You can close this window and return to phantom.</p>"
+                            .to_string(),
+                    )
                 }
-                if let Some(t) = tx.lock().await.take() {
-                    let _ = t.send((code.clone(), state));
-                }
-                axum::response::Html(
-                    "<h1>✓ Login complete</h1>\
-                     <p>You can close this window and return to phantom.</p>".to_string()
-                )
             }
-        }
-    }));
+        }),
+    );
 
     let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", PORT)).await?;
     let server = tokio::spawn(async move {
@@ -6628,16 +11941,19 @@ async fn login_google() -> anyhow::Result<()> {
     };
     server.abort();
 
-    eprintln!("{} got authorization code, exchanging for tokens…", colored("◆", 35));
+    eprintln!(
+        "{} got authorization code, exchanging for tokens…",
+        colored("◆", 35)
+    );
 
     let client = reqwest::Client::new();
     let resp = client
         .post("https://oauth2.googleapis.com/token")
         .form(&[
-            ("client_id",     GOOGLE_CLIENT_ID),
-            ("redirect_uri",  REDIRECT),
-            ("grant_type",    "authorization_code"),
-            ("code",          &code),
+            ("client_id", GOOGLE_CLIENT_ID),
+            ("redirect_uri", REDIRECT),
+            ("grant_type", "authorization_code"),
+            ("code", &code),
             ("code_verifier", &verifier),
         ])
         .send()
@@ -6647,24 +11963,33 @@ async fn login_google() -> anyhow::Result<()> {
         anyhow::bail!("token exchange failed: {}", body);
     }
     let token_json: serde_json::Value = resp.json().await?;
-    let id_token     = token_json["id_token"].as_str().unwrap_or_default().to_string();
-    let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
+    let id_token = token_json["id_token"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    let access_token = token_json["access_token"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
 
     // Decode the id_token JWT (no signature check — Google would reject
     // a forged id_token at the userinfo endpoint anyway, and we hit that
     // next as a sanity).
     let claims = decode_jwt_payload(&id_token).unwrap_or_default();
-    let email   = claims["email"].as_str().unwrap_or("").to_string();
-    let name    = claims["name"].as_str().map(|s| s.to_string());
+    let email = claims["email"].as_str().unwrap_or("").to_string();
+    let name = claims["name"].as_str().map(|s| s.to_string());
     let picture = claims["picture"].as_str().map(|s| s.to_string());
-    let sub     = claims["sub"].as_str().map(|s| s.to_string());
+    let sub = claims["sub"].as_str().map(|s| s.to_string());
 
     if email.is_empty() {
         anyhow::bail!("Google id_token had no email claim — cannot proceed");
     }
 
     let prior = auth::load();
-    let device_id = prior.as_ref().map(|s| s.device_id.clone()).unwrap_or_else(auth::random_device_id);
+    let device_id = prior
+        .as_ref()
+        .map(|s| s.device_id.clone())
+        .unwrap_or_else(auth::random_device_id);
     let now = auth::now_ms();
     let state = auth::AuthState {
         provider: "google".into(),
@@ -6690,7 +12015,11 @@ async fn login_google() -> anyhow::Result<()> {
     auth::save(&state)?;
 
     eprintln!();
-    eprintln!("{} logged in as {}", colored("✓", 32), auth::human_summary(&state));
+    eprintln!(
+        "{} logged in as {}",
+        colored("✓", 32),
+        auth::human_summary(&state)
+    );
     eprintln!("  saved to {} (mode 0600)", auth::auth_path().display());
     Ok(())
 }
@@ -6702,7 +12031,8 @@ fn decode_jwt_payload(jwt: &str) -> Option<serde_json::Value> {
     let _h = parts.next()?;
     let payload = parts.next()?;
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload).ok()?;
+        .decode(payload)
+        .ok()?;
     serde_json::from_slice(&bytes).ok()
 }
 
@@ -6734,8 +12064,15 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
-            "--source" => { i += 1; if let Some(u) = args.get(i) { explicit_url = Some(u.clone()); } }
-            "--dry-run" => { dry_run = true; }
+            "--source" => {
+                i += 1;
+                if let Some(u) = args.get(i) {
+                    explicit_url = Some(u.clone());
+                }
+            }
+            "--dry-run" => {
+                dry_run = true;
+            }
             "-h" | "--help" => {
                 eprintln!("phantom self-update [--source URL] [--dry-run]");
                 eprintln!();
@@ -6751,14 +12088,19 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
 
     // Detect target.
     let target_file = match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos",   "aarch64") => "phantom-aarch64-apple-darwin",
-        ("macos",   "x86_64")  => "phantom-x86_64-apple-darwin",
-        ("linux",   "aarch64") => "phantom-aarch64-unknown-linux",
-        ("linux",   "x86_64")  => "phantom-x86_64-unknown-linux",
-        ("windows", "x86_64")  => "phantom-x86_64-pc-windows.exe",
+        ("macos", "aarch64") => "phantom-aarch64-apple-darwin",
+        ("macos", "x86_64") => "phantom-x86_64-apple-darwin",
+        ("linux", "aarch64") => "phantom-aarch64-unknown-linux",
+        ("linux", "x86_64") => "phantom-x86_64-unknown-linux",
+        ("windows", "x86_64") => "phantom-x86_64-pc-windows.exe",
         ("android", "aarch64") => "phantom-aarch64-linux-android",
         (os, arch) => {
-            eprintln!("{} no published binary for {}-{}", colored("✗", 31), os, arch);
+            eprintln!(
+                "{} no published binary for {}-{}",
+                colored("✗", 31),
+                os,
+                arch
+            );
             std::process::exit(1);
         }
     };
@@ -6776,7 +12118,8 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
             .skip_while(|l| !l.trim_start().starts_with("[cluster]"))
             .find_map(|l| {
                 let t = l.trim();
-                t.strip_prefix("\"").and_then(|x| x.strip_suffix("\","))
+                t.strip_prefix("\"")
+                    .and_then(|x| x.strip_suffix("\","))
                     .or_else(|| t.strip_prefix("\"").and_then(|x| x.strip_suffix("\"")))
                     .map(|x| x.to_string())
             })
@@ -6792,14 +12135,23 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
         format!("{}/dist/{}", coord.trim_end_matches('/'), target_file)
     };
 
-    eprintln!("{} {}", colored("◆ phantom self-update", 35), colored(target_file, 90));
-    eprintln!("  current : {} ({})",
+    eprintln!(
+        "{} {}",
+        colored("◆ phantom self-update", 35),
+        colored(target_file, 90)
+    );
+    eprintln!(
+        "  current : {} ({})",
         env!("CARGO_PKG_VERSION"),
-        option_env!("PHANTOM_GIT_HASH").unwrap_or("?"));
+        option_env!("PHANTOM_GIT_HASH").unwrap_or("?")
+    );
     eprintln!("  source  : {}", url);
 
     if dry_run {
-        eprintln!("  {} dry-run — would download but not install", colored("◇", 90));
+        eprintln!(
+            "  {} dry-run — would download but not install",
+            colored("◇", 90)
+        );
         return Ok(());
     }
 
@@ -6815,16 +12167,25 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
     let install_dir: std::path::PathBuf = {
         #[cfg(target_os = "macos")]
         {
-            dirs::home_dir().unwrap().join("Library/Application Support/phantom-mesh/bin")
+            dirs::home_dir()
+                .unwrap()
+                .join("Library/Application Support/phantom-mesh/bin")
         }
         #[cfg(not(target_os = "macos"))]
         {
-            exe_canon.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| ".".into())
+            exe_canon
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| ".".into())
         }
     };
     std::fs::create_dir_all(&install_dir)?;
     let new_bin = install_dir.join("phantom.new");
-    let cur_bin = install_dir.join(if cfg!(target_os = "windows") { "phantom.exe" } else { "phantom" });
+    let cur_bin = install_dir.join(if cfg!(target_os = "windows") {
+        "phantom.exe"
+    } else {
+        "phantom"
+    });
     let bak_bin = install_dir.join("phantom.bak");
 
     // Download via curl (already on PATH everywhere we ship).
@@ -6838,8 +12199,12 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
         anyhow::bail!("download failed (curl exit {:?})", s.code());
     }
     let size = std::fs::metadata(&new_bin)?.len();
-    eprintln!("  {} got {} ({:.1} MB)",
-        colored("✓", 32), new_bin.display(), size as f64 / 1024.0 / 1024.0);
+    eprintln!(
+        "  {} got {} ({:.1} MB)",
+        colored("✓", 32),
+        new_bin.display(),
+        size as f64 / 1024.0 / 1024.0
+    );
 
     // chmod +x on Unix.
     #[cfg(unix)]
@@ -6856,7 +12221,11 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
     match v {
         Ok(o) if o.status.success() => {
             let new_ver = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            eprintln!("  {} new binary identifies as: {}", colored("✓", 32), new_ver);
+            eprintln!(
+                "  {} new binary identifies as: {}",
+                colored("✓", 32),
+                new_ver
+            );
         }
         Ok(o) => {
             anyhow::bail!(
@@ -6877,7 +12246,11 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
         std::fs::rename(&cur_bin, &bak_bin)?;
     }
     std::fs::rename(&new_bin, &cur_bin)?;
-    eprintln!("  {} {} now points at fresh binary", colored("✓", 32), cur_bin.display());
+    eprintln!(
+        "  {} {} now points at fresh binary",
+        colored("✓", 32),
+        cur_bin.display()
+    );
 
     // Restart the auto-start service if installed.
     #[cfg(target_os = "macos")]
@@ -6888,7 +12261,11 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
             let _ = Command::new("launchctl")
                 .args(["kickstart", "-k", &target])
                 .status();
-            eprintln!("  {} relaunched launchd service ({})", colored("✓", 32), target);
+            eprintln!(
+                "  {} relaunched launchd service ({})",
+                colored("✓", 32),
+                target
+            );
         }
     }
     #[cfg(target_os = "linux")]
@@ -6900,7 +12277,10 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
             let _ = Command::new("systemctl")
                 .args(["--user", "restart", "phantom-mesh.service"])
                 .status();
-            eprintln!("  {} restarted systemd unit phantom-mesh.service", colored("✓", 32));
+            eprintln!(
+                "  {} restarted systemd unit phantom-mesh.service",
+                colored("✓", 32)
+            );
         }
     }
     #[cfg(target_os = "windows")]
@@ -6921,9 +12301,7 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
 
     eprintln!();
     eprintln!("{} self-update complete. Roll back with:", colored("◆", 35));
-    eprintln!("    mv {} {}",
-        bak_bin.display(),
-        cur_bin.display());
+    eprintln!("    mv {} {}", bak_bin.display(), cur_bin.display());
     Ok(())
 }
 
@@ -6978,7 +12356,9 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
-            if ok { return Some(py.to_string()); }
+            if ok {
+                return Some(py.to_string());
+            }
         }
         None
     }
@@ -6986,18 +12366,40 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
     match action {
         "pull" => {
             let model = args.get(3).map(String::as_str).unwrap_or(MLX_DEFAULT_MODEL);
-            // huggingface-cli is the canonical downloader; mlx-lm depends on
-            // huggingface_hub which ships it as `huggingface-cli`.
-            let hf = Command::new("huggingface-cli").arg("--version").output();
-            if hf.is_err() || !hf.unwrap().status.success() {
+            // huggingface_hub 1.0 (2026-04) deprecated `huggingface-cli` and
+            // renamed it to `hf`. Old huggingface-cli now exits 1 with a
+            // deprecation banner pointing at `hf`. Pick whichever the host
+            // has working — prefer the new `hf` so we don't burn its
+            // deprecation messages into trace logs.
+            let downloader: &str = if Command::new("hf")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                "hf"
+            } else if Command::new("huggingface-cli")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                "huggingface-cli"
+            } else {
                 anyhow::bail!(
-                    "huggingface-cli not found. Install with:\n    \
-                     pip install huggingface_hub  (or `pip install mlx-lm` which pulls it in)"
+                    "neither `hf` (huggingface_hub ≥ 1.0) nor `huggingface-cli` \
+                     (legacy) found on PATH. Install with:\n    \
+                     pip install -U huggingface_hub  (or `pip install -U mlx-lm` \
+                     which pulls it in)"
                 );
-            }
-            eprintln!("{} pulling {} (this can take a while — 5-40 GB depending on model)…",
-                colored("◆", 35), model);
-            let s = Command::new("huggingface-cli")
+            };
+            eprintln!(
+                "{} pulling {} via {} (5-40 GB depending on model)…",
+                colored("◆", 35),
+                model,
+                downloader
+            );
+            let s = Command::new(downloader)
                 .args(["download", model])
                 .status()?;
             if s.success() {
@@ -7013,22 +12415,37 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
-                    "--model" => { i += 1; if let Some(m) = args.get(i) { model = m.clone(); } }
-                    "--port"  => { i += 1; if let Some(p) = args.get(i).and_then(|s| s.parse().ok()) { port = p; } }
+                    "--model" => {
+                        i += 1;
+                        if let Some(m) = args.get(i) {
+                            model = m.clone();
+                        }
+                    }
+                    "--port" => {
+                        i += 1;
+                        if let Some(p) = args.get(i).and_then(|s| s.parse().ok()) {
+                            port = p;
+                        }
+                    }
                     _ => {}
                 }
                 i += 1;
             }
-            let py = locate_mlx_python().ok_or_else(|| anyhow::anyhow!(
-                "mlx_lm not importable from python3 / python.\n    \
+            let py = locate_mlx_python().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "mlx_lm not importable from python3 / python.\n    \
                  Install with:\n        pip install mlx-lm\n    \
                  Or, on Apple-Silicon-only and uv-friendly:\n        \
                  uv tool install mlx-lm"
-            ))?;
+                )
+            })?;
             eprintln!("{} {} → starting mlx_lm.server", colored("◆", 35), py);
             eprintln!("    model : {}", colored(&model, 36));
             eprintln!("    port  : {}", port);
-            eprintln!("    api   : http://127.0.0.1:{}/v1 (OpenAI-compatible)", port);
+            eprintln!(
+                "    api   : http://127.0.0.1:{}/v1 (OpenAI-compatible)",
+                port
+            );
             eprintln!();
             eprintln!("    Add to ~/.phantom-mesh/agents.toml:");
             eprintln!("      [providers.mlx-local]");
@@ -7049,10 +12466,14 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             // Foreground mlx_lm.server — Ctrl-C exits cleanly.
             let s = Command::new(&py)
                 .args([
-                    "-m", "mlx_lm.server",
-                    "--model", &model,
-                    "--port", &port.to_string(),
-                    "--host", "127.0.0.1",
+                    "-m",
+                    "mlx_lm.server",
+                    "--model",
+                    &model,
+                    "--port",
+                    &port.to_string(),
+                    "--host",
+                    "127.0.0.1",
                 ])
                 .status()?;
             if !s.success() {
@@ -7064,7 +12485,10 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             // Locate python with mlx_lm
             match locate_mlx_python() {
                 Some(py) => println!("  {} mlx_lm: importable from {}", colored("✓", 32), py),
-                None     => println!("  {} mlx_lm: NOT installed (`pip install mlx-lm`)", colored("✗", 31)),
+                None => println!(
+                    "  {} mlx_lm: NOT installed (`pip install mlx-lm`)",
+                    colored("✗", 31)
+                ),
             }
             // Last config
             if let Some(home) = dirs::home_dir() {
@@ -7078,13 +12502,27 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
                         // Probe /v1/models on the saved port.
                         let url = format!("http://127.0.0.1:{}/v1/models", port);
                         let probe = Command::new("curl")
-                            .args(["-s", "--max-time", "2", "-o", "/dev/null", "-w", "%{http_code}", &url])
+                            .args([
+                                "-s",
+                                "--max-time",
+                                "2",
+                                "-o",
+                                "/dev/null",
+                                "-w",
+                                "%{http_code}",
+                                &url,
+                            ])
                             .output();
-                        let code = probe.ok()
+                        let code = probe
+                            .ok()
                             .and_then(|o| String::from_utf8(o.stdout).ok())
                             .unwrap_or_default();
                         if code == "200" {
-                            println!("  {} server reachable on :{} (HTTP 200)", colored("✓", 32), port);
+                            println!(
+                                "  {} server reachable on :{} (HTTP 200)",
+                                colored("✓", 32),
+                                port
+                            );
                         } else {
                             println!("  {} server unreachable on :{} (HTTP {}) — `phantom mlx serve` to start",
                                 colored("⚠", 33), port,
@@ -7092,8 +12530,10 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
                         }
                     }
                 } else {
-                    println!("  {} no last-served config — run `phantom mlx serve` once",
-                        colored("◇", 90));
+                    println!(
+                        "  {} no last-served config — run `phantom mlx serve` once",
+                        colored("◇", 90)
+                    );
                 }
             }
             Ok(())
@@ -7102,14 +12542,17 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             let s = Command::new("pkill").args(["-f", "mlx_lm.server"]).status();
             match s {
                 Ok(st) if st.success() => eprintln!("{} stopped mlx_lm.server", colored("✓", 32)),
-                _                       => eprintln!("{} no mlx_lm.server process found", colored("◇", 90)),
+                _ => eprintln!("{} no mlx_lm.server process found", colored("◇", 90)),
             }
             Ok(())
         }
         "-h" | "--help" => {
             eprintln!("phantom mlx <action> [options]");
             eprintln!("  pull [MODEL]                huggingface-cli download MODEL");
-            eprintln!("                              (default: {})", MLX_DEFAULT_MODEL);
+            eprintln!(
+                "                              (default: {})",
+                MLX_DEFAULT_MODEL
+            );
             eprintln!("  serve [--model M] [--port P] foreground mlx_lm.server");
             eprintln!("  status                       check mlx_lm install + reachable server");
             eprintln!("  stop                         pkill mlx_lm.server");
@@ -7122,162 +12565,10 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => {
-            eprintln!("{} Unknown mlx action '{}'. Try `phantom mlx --help`.",
-                colored("✗", 31), other);
-            std::process::exit(1);
-        }
-    }
-}
-
-// ── `phantom service` — Linux systemd-user implementation ─────────────────
-//
-// Mirrors the macOS launchd path but uses `systemctl --user` and a
-// generated `~/.config/systemd/user/phantom-mesh.service` unit. Survives
-// reboot via `loginctl enable-linger $USER` (mentioned in install output
-// but not auto-run because it needs sudo).
-//
-// Usage:
-//   phantom service install     write unit + daemon-reload + start
-//   phantom service uninstall   stop + disable + remove unit
-//   phantom service status      systemctl --user status (parsed) + healthz
-
-#[cfg(target_os = "linux")]
-const LINUX_UNIT_NAME: &str = "phantom-mesh.service";
-
-#[cfg(target_os = "linux")]
-async fn run_service_subcommand_linux(action: &str) -> anyhow::Result<()> {
-    use std::process::Command;
-
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("$HOME not set"))?;
-    let unit_dir = home.join(".config/systemd/user");
-    let unit_path = unit_dir.join(LINUX_UNIT_NAME);
-    let log_path = home.join(".phantom-mesh/data/phantom-serve.log");
-
-    match action {
-        "install" => {
-            // Use the running binary's canonical path. Linux has no TCC so
-            // it can stay wherever the user installed it.
-            let bin_self = std::env::current_exe()?;
-            let bin = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
-            let bin_str = bin.display().to_string();
-
-            // Working directory: prefer current dir if it has dist/scripts/
-            // (so /scripts/* /dist/* serving works without copying), else
-            // fall back to ~/.phantom-mesh/.
-            let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
-            let work_dir = if cwd.join("dist").is_dir() && cwd.join("scripts").is_dir() {
-                cwd.display().to_string()
-            } else {
-                home.join(".phantom-mesh").display().to_string()
-            };
-
-            std::fs::create_dir_all(&unit_dir)?;
-            std::fs::create_dir_all(log_path.parent().unwrap())?;
-
-            let tmpl: &str = include_str!("../../../templates/phantom-mesh.service.tmpl");
-            let (extra_env, env_names) = build_extra_env_systemd();
-            let rendered = tmpl
-                .replace("__PHANTOM_BIN__", &bin_str)
-                .replace("__WORK_DIR__",   &work_dir)
-                .replace("__HOME__",       &home.display().to_string())
-                .replace("__LOG__",        &log_path.display().to_string())
-                .replace("__EXTRA_ENV__",  &extra_env);
-            std::fs::write(&unit_path, &rendered)?;
-            eprintln!("{} Wrote {}", colored("◆", 35), unit_path.display());
-            if !env_names.is_empty() {
-                eprintln!("    propagated env: {} key(s) → {}",
-                          env_names.len(), env_names.join(", "));
-            }
-
-            let _ = Command::new("systemctl")
-                .args(["--user", "daemon-reload"])
-                .status();
-            let s_enable = Command::new("systemctl")
-                .args(["--user", "enable", "--now", LINUX_UNIT_NAME])
-                .status()?;
-            if !s_enable.success() {
-                anyhow::bail!("systemctl --user enable --now failed");
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            eprintln!("{} Enabled and started '{}'", colored("✓", 32), LINUX_UNIT_NAME);
-            eprintln!("    binary:    {}", bin_str);
-            eprintln!("    cwd:       {}", work_dir);
-            eprintln!("    log:       {}", log_path.display());
-            eprintln!("    Verify:    curl http://127.0.0.1:7878/healthz");
-            eprintln!();
             eprintln!(
-                "{} run `loginctl enable-linger $USER` (needs sudo) so the \
-                 service stays alive between logins.",
-                colored("⚠", 33)
-            );
-            eprintln!();
-            eprintln!(
-                "{} {} for a full environment health check.",
-                colored("→", 36),
-                colored("phantom doctor", 33)
-            );
-            Ok(())
-        }
-        "uninstall" => {
-            let _ = Command::new("systemctl")
-                .args(["--user", "disable", "--now", LINUX_UNIT_NAME])
-                .status();
-            if unit_path.exists() {
-                std::fs::remove_file(&unit_path)?;
-                eprintln!("{} Removed {}", colored("◆", 35), unit_path.display());
-            }
-            let _ = Command::new("systemctl")
-                .args(["--user", "daemon-reload"])
-                .status();
-            eprintln!("{} Uninstalled.", colored("✓", 32));
-            Ok(())
-        }
-        "status" => {
-            let q = Command::new("systemctl")
-                .args(["--user", "status", LINUX_UNIT_NAME, "--no-pager"])
-                .output()?;
-            let body = String::from_utf8_lossy(&q.stdout).to_string();
-            // exit 0 = active, 3 = inactive — both still mean "registered"
-            let registered = unit_path.exists();
-            let active = body.lines().any(|l| l.contains("Active:") && l.contains("active (running)"));
-            let pid = body
-                .lines()
-                .find(|l| l.trim_start().starts_with("Main PID:"))
-                .and_then(|l| l.split(':').nth(1))
-                .and_then(|s| s.split_whitespace().next())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "?".into());
-
-            let probe = Command::new("curl")
-                .args(["-s", "--max-time", "2", "-o", "/dev/null", "-w", "%{http_code}",
-                       "http://127.0.0.1:7878/healthz"])
-                .output();
-            let healthz_code = probe
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .unwrap_or_default();
-
-            println!("{} {}",
-                colored("phantom service status", 36),
-                colored(LINUX_UNIT_NAME, 90));
-            println!("  registered : {}", if registered { colored("yes", 32) } else { colored("no", 31) });
-            if registered {
-                println!("  active     : {}", if active { colored("yes (running)", 32) } else { colored("no", 31) });
-                if active { println!("  pid        : {}", pid); }
-                println!("  unit       : {}", unit_path.display());
-            }
-            println!("  healthz    : {} ({})",
-                if healthz_code == "200" { colored("ok", 32) } else { colored("unreachable", 31) },
-                if healthz_code.is_empty() { "no response".into() } else { format!("HTTP {}", healthz_code) });
-            if registered && healthz_code != "200" {
-                println!("  hint       : journalctl --user -u {} -n 20", LINUX_UNIT_NAME);
-            }
-            Ok(())
-        }
-        other => {
-            eprintln!(
-                "{} Unknown service action: '{}'.\n    Use one of: install, uninstall, status",
-                colored("✗", 31), other
+                "{} Unknown mlx action '{}'. Try `phantom mlx --help`.",
+                colored("✗", 31),
+                other
             );
             std::process::exit(1);
         }
@@ -7317,19 +12608,23 @@ async fn run_service_subcommand_linux(action: &str) -> anyhow::Result<()> {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct AutoEvolveLogEntry {
     started_at_ms: i64,
-    target: String,             // "check" | "test"
-    status: String,             // "green" | "fixed" | "failed" | "skip"
+    target: String, // "check" | "test"
+    status: String, // "green" | "fixed" | "failed" | "skip"
     rounds: usize,
     elapsed_secs: f64,
-    commit: Option<String>,     // sha if we committed; None on dry-run / no-op
-    summary: String,            // first 200 chars of evolve output
+    commit: Option<String>, // sha if we committed; None on dry-run / no-op
+    summary: String,        // first 200 chars of evolve output
 }
 
 /// Path to the user's autoevolve task queue (`~/.phantom-mesh/autoevolve.queue.txt`).
 /// One task per line. `#`-prefixed lines are comments (ignored). Blank lines
 /// are skipped silently. The queue is consumed FIFO.
 fn autoevolve_queue_path() -> Option<std::path::PathBuf> {
-    Some(dirs::home_dir()?.join(".phantom-mesh").join("autoevolve.queue.txt"))
+    Some(
+        dirs::home_dir()?
+            .join(".phantom-mesh")
+            .join("autoevolve.queue.txt"),
+    )
 }
 
 /// Pop the first non-comment, non-blank task from the queue. Atomically
@@ -7369,8 +12664,12 @@ fn autoevolve_pop_queue() -> Option<String> {
 /// are silently dropped because losing this log shouldn't crash the
 /// scheduler loop.
 fn autoevolve_record_failed_task(task: &str, reason: &str) {
-    let Some(home) = dirs::home_dir() else { return; };
-    let log = home.join(".phantom-mesh").join("autoevolve.queue.failed.log");
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    let log = home
+        .join(".phantom-mesh")
+        .join("autoevolve.queue.failed.log");
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -7378,7 +12677,9 @@ fn autoevolve_record_failed_task(task: &str, reason: &str) {
     let line = format!("{}\t{}\t{}\n", ts, reason, task);
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&log)
+        .create(true)
+        .append(true)
+        .open(&log)
     {
         let _ = f.write_all(line.as_bytes());
     }
@@ -7415,21 +12716,43 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
     let mut i = 2usize;
     while i < args.len() {
         match args[i].as_str() {
-            "--once"      => watch = false,
-            "--watch"     => watch = true,
+            "--once" => watch = false,
+            "--watch" => watch = true,
             "--no-commit" => no_commit = true,
             "--distributed" | "-D" => distributed = true,
-            "--interval"  => { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { interval_secs = n; } }
-            "--max-rounds"=> { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { max_rounds = n; } }
-            "--target"    => { i += 1; if let Some(t) = args.get(i) { target = t.clone(); } }
-            "--agent"     => { i += 1; if let Some(a) = args.get(i) { agent_name = a.clone(); } }
+            "--interval" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                    interval_secs = n;
+                }
+            }
+            "--max-rounds" => {
+                i += 1;
+                if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                    max_rounds = n;
+                }
+            }
+            "--target" => {
+                i += 1;
+                if let Some(t) = args.get(i) {
+                    target = t.clone();
+                }
+            }
+            "--agent" => {
+                i += 1;
+                if let Some(a) = args.get(i) {
+                    agent_name = a.clone();
+                }
+            }
             "-h" | "--help" => {
                 eprintln!("phantom autoevolve [--once|--watch] [--interval N] [--max-rounds N]");
                 eprintln!("                   [--target check|test] [--agent NAME] [--no-commit]");
                 eprintln!("                   [--distributed|-D]");
                 eprintln!();
                 eprintln!("Subcommands:");
-                eprintln!("  schedule install|uninstall|status   manage hourly LaunchAgent (macOS)");
+                eprintln!(
+                    "  schedule install|uninstall|status   manage hourly LaunchAgent (macOS)"
+                );
                 eprintln!("  log     [--n 10]                    show recent JSONL log entries");
                 eprintln!("  digest  [--since-hours 24] [--json] morning-commute summary");
                 eprintln!();
@@ -7444,28 +12767,63 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                 eprintln!("                   winning fix.");
                 return Ok(());
             }
-            _ => {}
+            // D31: reject any unmatched token instead of silently ignoring it.
+            // The subcommands (schedule / log / digest) are intercepted before
+            // this loop, so a stray bareword here (`autoevolve zzzz`) is a typo —
+            // NOT a reason to silently kick off the autonomous evolve loop. Also
+            // catches unknown flags (`autoevolve --bogus`).
+            unknown => {
+                eprintln!(
+                    "{} unknown `phantom autoevolve` argument: {}",
+                    colored("✗", 31),
+                    unknown
+                );
+                eprintln!(
+                    "  subcommands: schedule | log | digest · run `phantom autoevolve --help` for flags"
+                );
+                std::process::exit(2);
+            }
         }
         i += 1;
     }
 
-    eprintln!("{} {}",
+    eprintln!(
+        "{} {}",
         colored("◆ phantom autoevolve", 35),
-        colored(env!("CARGO_PKG_VERSION"), 90));
-    eprintln!("  mode       : {}", if watch { format!("watch (every {}s)", interval_secs) } else { "once".into() });
+        colored(env!("CARGO_PKG_VERSION"), 90)
+    );
+    eprintln!(
+        "  mode       : {}",
+        if watch {
+            format!("watch (every {}s)", interval_secs)
+        } else {
+            "once".into()
+        }
+    );
     eprintln!("  target     : cargo {}", target);
     eprintln!("  agent      : {}", agent_name);
     eprintln!("  max rounds : {}", max_rounds);
-    eprintln!("  commit     : {}", if no_commit { "off (dry-run)" } else { "on" });
-    eprintln!("  topology   : {}",
-        if distributed { colored("distributed (all cluster peers)", 36) } else { "local".into() });
+    eprintln!(
+        "  commit     : {}",
+        if no_commit { "off (dry-run)" } else { "on" }
+    );
+    eprintln!(
+        "  topology   : {}",
+        if distributed {
+            colored("distributed (all cluster peers)", 36)
+        } else {
+            "local".into()
+        }
+    );
     eprintln!();
 
     let interrupted = Arc::new(AtomicBool::new(false));
     {
         let flag = interrupted.clone();
         tokio::spawn(async move {
-            if tokio::signal::ctrl_c().await.is_ok() { flag.store(true, Ordering::Relaxed); }
+            if tokio::signal::ctrl_c().await.is_ok() {
+                flag.store(true, Ordering::Relaxed);
+            }
         });
     }
 
@@ -7481,10 +12839,15 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
         // its trailer into the auto-commit message so `git log` carries
         // the autonomous decision history. Mesh-aware: origin_node /
         // current_node fields let a peer pick this up across machines.
-        use phantom_mesh::evolve_checkpoint::{EvolveCheckpoint, EvolvePhase, EvolveOutcome, ArtifactKind};
+        use phantom_mesh::evolve_checkpoint::{
+            ArtifactKind, EvolveCheckpoint, EvolveOutcome, EvolvePhase,
+        };
         let node_name = std::env::var("PHANTOM_NODE_NAME")
             .ok()
-            .or_else(|| dirs::home_dir().and_then(|h| h.file_name().map(|s| s.to_string_lossy().into_owned())))
+            .or_else(|| {
+                dirs::home_dir()
+                    .and_then(|h| h.file_name().map(|s| s.to_string_lossy().into_owned()))
+            })
             .unwrap_or_else(|| "local".into());
         let mut checkpoint = EvolveCheckpoint::new(
             format!("autoevolve cargo {} → restore green", target),
@@ -7536,8 +12899,10 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                     .map(|o| !o.stdout.is_empty())
                     .unwrap_or(false);
                 if pre_dirty {
-                    eprintln!("{} skipping queued task — working tree is dirty (commit or stash first):",
-                        colored("⚠", 33));
+                    eprintln!(
+                        "{} skipping queued task — working tree is dirty (commit or stash first):",
+                        colored("⚠", 33)
+                    );
                     eprintln!("    task: {}", task);
                     autoevolve_record_failed_task(
                         &task,
@@ -7560,8 +12925,10 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                     // outer loop's --watch mode keeps polling. The user can
                     // commit / stash and the next iteration will retry.
                     AutoEvolveLogEntry {
-                        started_at_ms, target: target.clone(),
-                        status: "queued-task-skipped-dirty".into(), rounds: 0,
+                        started_at_ms,
+                        target: target.clone(),
+                        status: "queued-task-skipped-dirty".into(),
+                        rounds: 0,
                         elapsed_secs: started_at.elapsed().as_secs_f64(),
                         commit: None,
                         summary: format!(
@@ -7571,122 +12938,152 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                         ),
                     }
                 } else {
-                eprintln!("{} cargo {} green — dispatching queued task: {}",
-                    colored("◆", 35), target,
-                    colored(&task.chars().take(80).collect::<String>(), 36));
-                checkpoint.set_phase(EvolvePhase::Editing);
-                let _ = checkpoint.save();
-
-                let history_hint = autoevolve_history_hint(8);
-                let exe = std::env::current_exe()?;
-                let mut cmd = tokio::process::Command::new(exe);
-                let mut argv = vec![
-                    "evolve".to_string(),
-                    "--max-rounds".to_string(), max_rounds.to_string(),
-                    "--agent".to_string(), agent_name.clone(),
-                ];
-                if distributed { argv.push("--distributed".to_string()); }
-                argv.push(task.clone());
-                cmd.args(&argv);
-                if !history_hint.is_empty() {
-                    cmd.env("PHANTOM_AUTOEVOLVE_HISTORY", &history_hint);
-                }
-                cmd.stdout(std::process::Stdio::inherit());
-                cmd.stderr(std::process::Stdio::inherit());
-                if let Some(manifest) = find_cargo_manifest() {
-                    if let Some(parent) = manifest.parent() {
-                        cmd.current_dir(parent);
-                    }
-                }
-                let evolve_status = cmd.status().await.ok();
-                let evolve_ok = evolve_status.map(|s| s.success()).unwrap_or(false);
-
-                // Post-check: don't ship a commit that broke the build.
-                let post = run_cargo_target(&target).await;
-                let still_green = post.success;
-
-                let mut commit_sha: Option<String> = None;
-                if still_green && evolve_ok {
-                    let dirty = std::process::Command::new("git")
-                        .args(["status", "--porcelain"])
-                        .output()
-                        .ok()
-                        .map(|o| !o.stdout.is_empty())
-                        .unwrap_or(false);
-                    if dirty && !no_commit {
-                        let _ = std::process::Command::new("git").args(["add", "-A"]).status();
-                        let trailer = checkpoint.render_commit_trailer();
-                        let task_preview: String = task.chars().take(72).collect();
-                        let msg = format!(
-                            "autoevolve(queue): {}\n\nfull task: {}\n\n{}",
-                            task_preview,
-                            task,
-                            trailer.trim_end(),
-                        );
-                        let commit_ok = std::process::Command::new("git")
-                            .args(["commit", "-m", &msg])
-                            .status()
-                            .map(|s| s.success())
-                            .unwrap_or(false);
-                        if commit_ok {
-                            commit_sha = std::process::Command::new("git")
-                                .args(["rev-parse", "--short=10", "HEAD"])
-                                .output()
-                                .ok()
-                                .and_then(|o| String::from_utf8(o.stdout).ok())
-                                .map(|s| s.trim().to_string());
-                            eprintln!("{} committed: {}", colored("✓", 32),
-                                commit_sha.as_deref().unwrap_or("?"));
-                        } else {
-                            eprintln!("{} git commit failed (pre-commit hook?)", colored("⚠", 33));
-                            autoevolve_record_failed_task(&task, "git commit failed");
-                        }
-                    } else if dirty && no_commit {
-                        eprintln!("{} would commit; --no-commit set", colored("⚠", 33));
-                    } else {
-                        eprintln!("{} task done — no file changes to commit", colored("◆", 36));
-                    }
-                    checkpoint.set_phase(EvolvePhase::Done {
-                        outcome: EvolveOutcome::Success {
-                            commit_sha: commit_sha.clone().unwrap_or_else(|| "(uncommitted)".into()),
-                            rounds: 0,
-                        },
-                    });
-                } else {
-                    eprintln!("{} task ran but cargo {} now red — task put in failed log, not committed",
-                        colored("✗", 31), target);
-                    autoevolve_record_failed_task(
-                        &task,
-                        &format!("post-task cargo {} red", target),
+                    eprintln!(
+                        "{} cargo {} green — dispatching queued task: {}",
+                        colored("◆", 35),
+                        target,
+                        colored(&task.chars().take(80).collect::<String>(), 36)
                     );
-                    // Drop any partial work so the next iteration starts clean.
-                    let _ = std::process::Command::new("git")
-                        .args(["restore", "--staged", "."]).status();
-                    let _ = std::process::Command::new("git")
-                        .args(["restore", "."]).status();
-                    checkpoint.set_phase(EvolvePhase::Done {
-                        outcome: EvolveOutcome::Stuck {
-                            reason: format!("queued task broke cargo {}", target),
-                            last_error: None,
+                    checkpoint.set_phase(EvolvePhase::Editing);
+                    let _ = checkpoint.save();
+
+                    let history_hint = autoevolve_history_hint(8);
+                    let exe = std::env::current_exe()?;
+                    let mut cmd = tokio::process::Command::new(exe);
+                    let mut argv = vec![
+                        "evolve".to_string(),
+                        "--max-rounds".to_string(),
+                        max_rounds.to_string(),
+                        "--agent".to_string(),
+                        agent_name.clone(),
+                    ];
+                    if distributed {
+                        argv.push("--distributed".to_string());
+                    }
+                    argv.push(task.clone());
+                    cmd.args(&argv);
+                    if !history_hint.is_empty() {
+                        cmd.env("PHANTOM_AUTOEVOLVE_HISTORY", &history_hint);
+                    }
+                    cmd.stdout(std::process::Stdio::inherit());
+                    cmd.stderr(std::process::Stdio::inherit());
+                    if let Some(manifest) = find_cargo_manifest() {
+                        if let Some(parent) = manifest.parent() {
+                            cmd.current_dir(parent);
+                        }
+                    }
+                    let evolve_status = cmd.status().await.ok();
+                    let evolve_ok = evolve_status.map(|s| s.success()).unwrap_or(false);
+
+                    // Post-check: don't ship a commit that broke the build.
+                    let post = run_cargo_target(&target).await;
+                    let still_green = post.success;
+
+                    let mut commit_sha: Option<String> = None;
+                    if still_green && evolve_ok {
+                        let dirty = std::process::Command::new("git")
+                            .args(["status", "--porcelain"])
+                            .output()
+                            .ok()
+                            .map(|o| !o.stdout.is_empty())
+                            .unwrap_or(false);
+                        if dirty && !no_commit {
+                            let _ = std::process::Command::new("git")
+                                .args(["add", "-A"])
+                                .status();
+                            let trailer = checkpoint.render_commit_trailer();
+                            let task_preview: String = task.chars().take(72).collect();
+                            let msg = format!(
+                                "autoevolve(queue): {}\n\nfull task: {}\n\n{}",
+                                task_preview,
+                                task,
+                                trailer.trim_end(),
+                            );
+                            let commit_ok = std::process::Command::new("git")
+                                .args(["commit", "-m", &msg])
+                                .status()
+                                .map(|s| s.success())
+                                .unwrap_or(false);
+                            if commit_ok {
+                                commit_sha = std::process::Command::new("git")
+                                    .args(["rev-parse", "--short=10", "HEAD"])
+                                    .output()
+                                    .ok()
+                                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                                    .map(|s| s.trim().to_string());
+                                eprintln!(
+                                    "{} committed: {}",
+                                    colored("✓", 32),
+                                    commit_sha.as_deref().unwrap_or("?")
+                                );
+                            } else {
+                                eprintln!(
+                                    "{} git commit failed (pre-commit hook?)",
+                                    colored("⚠", 33)
+                                );
+                                autoevolve_record_failed_task(&task, "git commit failed");
+                            }
+                        } else if dirty && no_commit {
+                            eprintln!("{} would commit; --no-commit set", colored("⚠", 33));
+                        } else {
+                            eprintln!("{} task done — no file changes to commit", colored("◆", 36));
+                        }
+                        checkpoint.set_phase(EvolvePhase::Done {
+                            outcome: EvolveOutcome::Success {
+                                commit_sha: commit_sha
+                                    .clone()
+                                    .unwrap_or_else(|| "(uncommitted)".into()),
+                                rounds: 0,
+                            },
+                        });
+                    } else {
+                        eprintln!("{} task ran but cargo {} now red — task put in failed log, not committed",
+                        colored("✗", 31), target);
+                        autoevolve_record_failed_task(
+                            &task,
+                            &format!("post-task cargo {} red", target),
+                        );
+                        // Drop any partial work so the next iteration starts clean.
+                        let _ = std::process::Command::new("git")
+                            .args(["restore", "--staged", "."])
+                            .status();
+                        let _ = std::process::Command::new("git")
+                            .args(["restore", "."])
+                            .status();
+                        checkpoint.set_phase(EvolvePhase::Done {
+                            outcome: EvolveOutcome::Stuck {
+                                reason: format!("queued task broke cargo {}", target),
+                                last_error: None,
+                            },
+                        });
+                    }
+                    let _ = checkpoint.save();
+                    AutoEvolveLogEntry {
+                        started_at_ms,
+                        target: target.clone(),
+                        status: if commit_sha.is_some() {
+                            "queued-task-done".into()
+                        } else if still_green {
+                            "queued-task-noop".into()
+                        } else {
+                            "queued-task-failed".into()
                         },
-                    });
-                }
-                let _ = checkpoint.save();
-                AutoEvolveLogEntry {
-                    started_at_ms, target: target.clone(),
-                    status: if commit_sha.is_some() { "queued-task-done".into() }
-                            else if still_green { "queued-task-noop".into() }
-                            else { "queued-task-failed".into() },
-                    rounds: 0,
-                    elapsed_secs: started_at.elapsed().as_secs_f64(),
-                    commit: commit_sha,
-                    summary: format!("queued task: {} [checkpoint: {}]",
-                        task.chars().take(60).collect::<String>(),
-                        checkpoint.session_id),
-                }
+                        rounds: 0,
+                        elapsed_secs: started_at.elapsed().as_secs_f64(),
+                        commit: commit_sha,
+                        summary: format!(
+                            "queued task: {} [checkpoint: {}]",
+                            task.chars().take(60).collect::<String>(),
+                            checkpoint.session_id
+                        ),
+                    }
                 } // closes the `else` of pre_dirty guard
             } else {
-                eprintln!("{} cargo {} green — nothing to evolve.", colored("✓", 32), target);
+                eprintln!(
+                    "{} cargo {} green — nothing to evolve.",
+                    colored("✓", 32),
+                    target
+                );
                 checkpoint.set_phase(EvolvePhase::Done {
                     outcome: EvolveOutcome::Success {
                         commit_sha: "(no-op)".into(),
@@ -7695,20 +13092,28 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                 });
                 let _ = checkpoint.save();
                 AutoEvolveLogEntry {
-                    started_at_ms, target: target.clone(),
-                    status: "green".into(), rounds: 0,
+                    started_at_ms,
+                    target: target.clone(),
+                    status: "green".into(),
+                    rounds: 0,
                     elapsed_secs: started_at.elapsed().as_secs_f64(),
                     commit: None,
-                    summary: format!("no-op (already green) [checkpoint: {}]", checkpoint.session_id),
+                    summary: format!(
+                        "no-op (already green) [checkpoint: {}]",
+                        checkpoint.session_id
+                    ),
                 }
             }
         } else {
             checkpoint.set_phase(EvolvePhase::Hypothesizing);
-            checkpoint.current_hypothesis = Some(
-                "cargo target is red — agent will diagnose via shell + file_read".into()
-            );
+            checkpoint.current_hypothesis =
+                Some("cargo target is red — agent will diagnose via shell + file_read".into());
             let _ = checkpoint.save();
-            eprintln!("{} cargo {} failing — spawning evolve…", colored("✗", 31), target);
+            eprintln!(
+                "{} cargo {} failing — spawning evolve…",
+                colored("✗", 31),
+                target
+            );
             let goal = format!(
                 "Run cargo {} and fix the failures. Use file_edit / multi_file_edit / shell. \
                  When everything is green, end your response with EVOLVE_DONE.",
@@ -7731,10 +13136,14 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
             let mut cmd = tokio::process::Command::new(exe);
             let mut argv = vec![
                 "evolve".to_string(),
-                "--max-rounds".to_string(), max_rounds.to_string(),
-                "--agent".to_string(), agent_name.clone(),
+                "--max-rounds".to_string(),
+                max_rounds.to_string(),
+                "--agent".to_string(),
+                agent_name.clone(),
             ];
-            if distributed { argv.push("--distributed".to_string()); }
+            if distributed {
+                argv.push("--distributed".to_string());
+            }
             argv.push(goal.clone());
             cmd.args(&argv);
             if !history_hint.is_empty() {
@@ -7755,7 +13164,11 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
             }
 
             checkpoint.set_phase(EvolvePhase::Editing);
-            checkpoint.append_step("dispatched evolve subprocess (LLM agent)", Some("phantom evolve".into()), true);
+            checkpoint.append_step(
+                "dispatched evolve subprocess (LLM agent)",
+                Some("phantom evolve".into()),
+                true,
+            );
             let _ = checkpoint.save();
 
             let evolve_status = cmd.status().await.ok();
@@ -7775,7 +13188,10 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
             if !now_green {
                 checkpoint.record_dead_end(
                     "evolve subprocess thought it fixed the issue",
-                    format!("cargo {} still failing after {} round subprocess", target, rounds_used),
+                    format!(
+                        "cargo {} still failing after {} round subprocess",
+                        target, rounds_used
+                    ),
                 );
             }
             let _ = checkpoint.save();
@@ -7797,11 +13213,14 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                     // breadcrumb (session id, target, rounds, dead-ends,
                     // binary swaps, mesh hops). This is what makes the
                     // autonomous decision history auditable later.
-                    let _ = std::process::Command::new("git").args(["add", "-A"]).status();
+                    let _ = std::process::Command::new("git")
+                        .args(["add", "-A"])
+                        .status();
                     let trailer = checkpoint.render_commit_trailer();
                     let msg = format!(
                         "autoevolve: cargo {} restored green ({} rounds, {:.1}s)\n\n{}",
-                        target, rounds_used,
+                        target,
+                        rounds_used,
                         started_at.elapsed().as_secs_f64(),
                         trailer.trim_end(),
                     );
@@ -7817,7 +13236,11 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                             .ok()
                             .and_then(|o| String::from_utf8(o.stdout).ok())
                             .map(|s| s.trim().to_string());
-                        eprintln!("{} committed: {}", colored("✓", 32), commit_sha.as_deref().unwrap_or("?"));
+                        eprintln!(
+                            "{} committed: {}",
+                            colored("✓", 32),
+                            commit_sha.as_deref().unwrap_or("?")
+                        );
                         if let Some(sha) = commit_sha.as_deref() {
                             checkpoint.record_artifact(ArtifactKind::Commit {
                                 sha: sha.to_string(),
@@ -7825,10 +13248,16 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                             });
                         }
                     } else {
-                        eprintln!("{} git commit failed (pre-commit hook? see git output above)", colored("⚠", 33));
+                        eprintln!(
+                            "{} git commit failed (pre-commit hook? see git output above)",
+                            colored("⚠", 33)
+                        );
                     }
                 } else if dirty && no_commit {
-                    eprintln!("{} would commit; --no-commit set, leaving working tree dirty", colored("⚠", 33));
+                    eprintln!(
+                        "{} would commit; --no-commit set, leaving working tree dirty",
+                        colored("⚠", 33)
+                    );
                 }
                 checkpoint.set_phase(EvolvePhase::Done {
                     outcome: EvolveOutcome::Success {
@@ -7838,14 +13267,19 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                 });
                 let _ = checkpoint.save();
                 AutoEvolveLogEntry {
-                    started_at_ms, target: target.clone(),
-                    status: "fixed".into(), rounds: rounds_used,
+                    started_at_ms,
+                    target: target.clone(),
+                    status: "fixed".into(),
+                    rounds: rounds_used,
                     elapsed_secs: started_at.elapsed().as_secs_f64(),
                     commit: commit_sha,
                     summary: format!("cargo {} green after evolve", target),
                 }
             } else {
-                eprintln!("{} evolve did not restore green; leaving repo as-is.", colored("✗", 31));
+                eprintln!(
+                    "{} evolve did not restore green; leaving repo as-is.",
+                    colored("✗", 31)
+                );
                 checkpoint.set_phase(EvolvePhase::Done {
                     outcome: EvolveOutcome::Stuck {
                         reason: format!("evolve unable to restore cargo {}", target),
@@ -7854,12 +13288,16 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
                 });
                 let _ = checkpoint.save();
                 AutoEvolveLogEntry {
-                    started_at_ms, target: target.clone(),
-                    status: "failed".into(), rounds: rounds_used,
+                    started_at_ms,
+                    target: target.clone(),
+                    status: "failed".into(),
+                    rounds: rounds_used,
                     elapsed_secs: started_at.elapsed().as_secs_f64(),
                     commit: None,
-                    summary: format!("evolve unable to restore cargo {} [checkpoint: {}]",
-                                     target, checkpoint.session_id),
+                    summary: format!(
+                        "evolve unable to restore cargo {} [checkpoint: {}]",
+                        target, checkpoint.session_id
+                    ),
                 }
             }
         };
@@ -7869,7 +13307,9 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
             let log_path = home.join(".phantom-mesh/autoevolve.log");
             let _ = std::fs::create_dir_all(log_path.parent().unwrap());
             if let Ok(mut f) = std::fs::OpenOptions::new()
-                .create(true).append(true).open(&log_path)
+                .create(true)
+                .append(true)
+                .open(&log_path)
             {
                 use std::io::Write;
                 if let Ok(line) = serde_json::to_string(&entry) {
@@ -7878,26 +13318,40 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
             }
         }
 
-        if !watch || interrupted.load(Ordering::Relaxed) { break; }
+        if !watch || interrupted.load(Ordering::Relaxed) {
+            break;
+        }
         eprintln!("{} sleeping {}s …", colored("◇", 90), interval_secs);
         for _ in 0..interval_secs {
-            if interrupted.load(Ordering::Relaxed) { break; }
+            if interrupted.load(Ordering::Relaxed) {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         }
-        if interrupted.load(Ordering::Relaxed) { break; }
+        if interrupted.load(Ordering::Relaxed) {
+            break;
+        }
     }
     Ok(())
 }
 
-struct CargoRunOutcome { success: bool }
+struct CargoRunOutcome {
+    success: bool,
+}
 
 /// Read up to `n` recent JSONL entries from ~/.phantom-mesh/autoevolve.log
 /// and format them as a one-line-per-entry hint suitable for embedding in
 /// the evolve system prompt.
 fn autoevolve_history_hint(n: usize) -> String {
-    let home = match dirs::home_dir() { Some(h) => h, None => return String::new() };
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return String::new(),
+    };
     let path = home.join(".phantom-mesh/autoevolve.log");
-    let content = match std::fs::read_to_string(&path) { Ok(s) => s, Err(_) => return String::new() };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return String::new(),
+    };
 
     let lines: Vec<&str> = content.lines().filter(|l| !l.is_empty()).collect();
     let take = lines.len().saturating_sub(n);
@@ -7908,13 +13362,7 @@ fn autoevolve_history_hint(n: usize) -> String {
         if let Ok(entry) = serde_json::from_str::<AutoEvolveLogEntry>(line) {
             // Compact format: ISO-ish date + status + commit + summary
             let secs = entry.started_at_ms / 1000;
-            let when = std::process::Command::new("date")
-                .args(["-r", &secs.to_string(), "+%Y-%m-%dT%H:%M"])
-                .output()
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| "?".into());
+            let when = fmt_local_epoch(secs, "%Y-%m-%dT%H:%M");
             let commit = entry.commit.unwrap_or_else(|| "-".into());
             summary.push_str(&format!(
                 "  • [{when}] cargo {target} → {status} ({rounds}r, {commit}): {summary}\n",
@@ -7930,6 +13378,33 @@ fn autoevolve_history_hint(n: usize) -> String {
     summary
 }
 
+/// Format a Unix epoch (seconds) in LOCAL time with a chrono/strftime pattern.
+/// (D12) Replaces shelling to `date -r <secs>`, which is BSD/macOS-only — on
+/// Linux `date -r` treats its argument as a FILE whose mtime to read, so the
+/// autoevolve log/digest timestamps rendered as `?` (or garbage). Pure chrono:
+/// cross-platform, no subprocess, falls back to the raw epoch on overflow.
+fn fmt_local_epoch(secs: i64, fmt: &str) -> String {
+    use chrono::{Local, TimeZone};
+    match Local.timestamp_opt(secs, 0).single() {
+        Some(dt) => dt.format(fmt).to_string(),
+        None => secs.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod fmt_local_epoch_tests {
+    #[test]
+    fn formats_epoch_in_local_time_no_subprocess() {
+        // 1_700_000_000 = 2023-11-14T22:13:20Z — the YEAR is 2023 in every
+        // timezone (UTC-14..+14), so this is deterministic across CI machines.
+        assert_eq!(super::fmt_local_epoch(1_700_000_000, "%Y"), "2023");
+        // Pattern shape is preserved (len of "YYYY-MM-DD HH:MM" = 16).
+        let s = super::fmt_local_epoch(1_700_000_000, "%Y-%m-%d %H:%M");
+        assert_eq!(s.len(), 16, "unexpected format: {s}");
+        assert!(s.starts_with("2023-11-1"), "unexpected date: {s}");
+    }
+}
+
 /// Print the recent JSONL log to stdout for quick inspection.
 fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
     // Default: last 10 entries. `phantom autoevolve log --n 30` overrides.
@@ -7938,7 +13413,9 @@ fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
     while i < args.len() {
         if args[i] == "--n" {
             i += 1;
-            if let Some(parsed) = args.get(i).and_then(|s| s.parse().ok()) { n = parsed; }
+            if let Some(parsed) = args.get(i).and_then(|s| s.parse().ok()) {
+                n = parsed;
+            }
         }
         i += 1;
     }
@@ -7948,7 +13425,13 @@ fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
-            println!("{}", colored("(no autoevolve log yet — `phantom autoevolve --once` to start one)", 90));
+            println!(
+                "{}",
+                colored(
+                    "(no autoevolve log yet — `phantom autoevolve --once` to start one)",
+                    90
+                )
+            );
             return Ok(());
         }
     };
@@ -7956,22 +13439,20 @@ fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
     let take = lines.len().saturating_sub(n);
     let recent = &lines[take..];
 
-    println!("{} last {} of {} autoevolve runs:",
-        colored("◆", 35), recent.len(), lines.len());
+    println!(
+        "{} last {} of {} autoevolve runs:",
+        colored("◆", 35),
+        recent.len(),
+        lines.len()
+    );
     for line in recent {
         if let Ok(entry) = serde_json::from_str::<AutoEvolveLogEntry>(line) {
             let secs = entry.started_at_ms / 1000;
-            let when = std::process::Command::new("date")
-                .args(["-r", &secs.to_string(), "+%m-%d %H:%M"])
-                .output()
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|| "?".into());
+            let when = fmt_local_epoch(secs, "%m-%d %H:%M");
             let status_color = match entry.status.as_str() {
                 "green" | "fixed" => 32,
-                "failed"          => 31,
-                _                 => 33,
+                "failed" => 31,
+                _ => 33,
             };
             let commit = entry.commit.unwrap_or_else(|| "-".into());
             println!(
@@ -8003,7 +13484,9 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
         match args[i].as_str() {
             "--since-hours" => {
                 i += 1;
-                if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { since_hours = n; }
+                if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                    since_hours = n;
+                }
             }
             "--json" => json_out = true,
             _ => {}
@@ -8022,10 +13505,12 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
     // Parse all log entries newer than cutoff.
     let entries: Vec<AutoEvolveLogEntry> = std::fs::read_to_string(&log_path)
         .ok()
-        .map(|s| s.lines()
-            .filter_map(|l| serde_json::from_str::<AutoEvolveLogEntry>(l).ok())
-            .filter(|e| e.started_at_ms >= cutoff_ms)
-            .collect())
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| serde_json::from_str::<AutoEvolveLogEntry>(l).ok())
+                .filter(|e| e.started_at_ms >= cutoff_ms)
+                .collect()
+        })
         .unwrap_or_default();
 
     // Bucket by status — same coarse buckets as the print-log command, plus
@@ -8043,27 +13528,31 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
     let failed_log = home.join(".phantom-mesh/autoevolve.queue.failed.log");
     let recent_failures: Vec<(i64, String, String)> = std::fs::read_to_string(&failed_log)
         .ok()
-        .map(|s| s.lines()
-            .filter_map(|l| {
-                let mut parts = l.splitn(3, '\t');
-                let ts: i64 = parts.next()?.parse().ok()?;
-                let reason = parts.next()?.to_string();
-                let task = parts.next()?.to_string();
-                Some((ts * 1000, reason, task))
-            })
-            .filter(|(ts_ms, _, _)| *ts_ms >= cutoff_ms)
-            .collect())
+        .map(|s| {
+            s.lines()
+                .filter_map(|l| {
+                    let mut parts = l.splitn(3, '\t');
+                    let ts: i64 = parts.next()?.parse().ok()?;
+                    let reason = parts.next()?.to_string();
+                    let task = parts.next()?.to_string();
+                    Some((ts * 1000, reason, task))
+                })
+                .filter(|(ts_ms, _, _)| *ts_ms >= cutoff_ms)
+                .collect()
+        })
         .unwrap_or_default();
 
     // Pending queue depth.
     let queue_pending: usize = autoevolve_queue_path()
         .and_then(|p| std::fs::read_to_string(&p).ok())
-        .map(|c| c.lines()
-            .filter(|l| {
-                let t = l.trim();
-                !t.is_empty() && !t.starts_with('#')
-            })
-            .count())
+        .map(|c| {
+            c.lines()
+                .filter(|l| {
+                    let t = l.trim();
+                    !t.is_empty() && !t.starts_with('#')
+                })
+                .count()
+        })
         .unwrap_or(0);
 
     if json_out {
@@ -8083,29 +13572,23 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let fmt_when = |ms: i64| -> String {
-        let s = ms / 1000;
-        std::process::Command::new("date")
-            .args(["-r", &s.to_string(), "+%m-%d %H:%M"])
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "?".into())
-    };
+    let fmt_when = |ms: i64| -> String { fmt_local_epoch(ms / 1000, "%m-%d %H:%M") };
 
-    println!("{} {}",
+    println!(
+        "{} {}",
         colored("◆ phantom autoevolve digest", 35),
-        colored(&format!("last {}h", since_hours), 90));
+        colored(&format!("last {}h", since_hours), 90)
+    );
     println!("  window  : {} → {}", fmt_when(cutoff_ms), fmt_when(now_ms));
     println!("  runs    : {} total", entries.len());
     if !counts.is_empty() {
-        let mut parts: Vec<String> = counts.iter()
+        let mut parts: Vec<String> = counts
+            .iter()
             .map(|(k, v)| {
                 let c = match k.as_str() {
                     "green" | "fixed" | "queued-task-done" => 32,
-                    "queued-task-failed" | "failed"        => 31,
-                    _                                       => 33,
+                    "queued-task-failed" | "failed" => 31,
+                    _ => 33,
                 };
                 format!("{} {}", colored(&v.to_string(), c), k)
             })
@@ -8119,22 +13602,30 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
         println!("  {} commits ({})", colored("✓", 32), commits.len());
         for (ts, sha, sum) in &commits {
             let preview: String = sum.chars().take(72).collect();
-            println!("    {}  {}  {}",
+            println!(
+                "    {}  {}  {}",
                 colored(&fmt_when(*ts), 90),
                 colored(sha, 36),
-                preview);
+                preview
+            );
         }
     }
 
     if !recent_failures.is_empty() {
         println!();
-        println!("  {} failed tasks ({})", colored("⚠", 33), recent_failures.len());
+        println!(
+            "  {} failed tasks ({})",
+            colored("⚠", 33),
+            recent_failures.len()
+        );
         for (ts, reason, task) in &recent_failures {
             let task_preview: String = task.chars().take(60).collect();
-            println!("    {}  {} — {}",
+            println!(
+                "    {}  {} — {}",
                 colored(&fmt_when(*ts), 90),
                 colored(reason, 33),
-                task_preview);
+                task_preview
+            );
         }
     }
 
@@ -8157,7 +13648,9 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
 
     let label = "ai.phantommesh.autoevolve";
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home"))?;
-    let plist_path = home.join("Library/LaunchAgents").join(format!("{}.plist", label));
+    let plist_path = home
+        .join("Library/LaunchAgents")
+        .join(format!("{}.plist", label));
     let log_dir = home.join("Library/Logs");
     let uid = nix_uid();
     let domain = format!("gui/{}", uid);
@@ -8173,10 +13666,30 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             let mut i = 4;
             while i < args.len() {
                 match args[i].as_str() {
-                    "--interval"   => { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { interval_secs = n; } }
-                    "--target"     => { i += 1; if let Some(t) = args.get(i) { target_kind = t.clone(); } }
-                    "--max-rounds" => { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { max_rounds = n; } }
-                    "--agent"      => { i += 1; if let Some(a) = args.get(i) { agent_name = a.clone(); } }
+                    "--interval" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            interval_secs = n;
+                        }
+                    }
+                    "--target" => {
+                        i += 1;
+                        if let Some(t) = args.get(i) {
+                            target_kind = t.clone();
+                        }
+                    }
+                    "--max-rounds" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            max_rounds = n;
+                        }
+                    }
+                    "--agent" => {
+                        i += 1;
+                        if let Some(a) = args.get(i) {
+                            agent_name = a.clone();
+                        }
+                    }
                     _ => {}
                 }
                 i += 1;
@@ -8190,7 +13703,8 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             std::fs::create_dir_all(&install_dir)?;
             let installed_bin = install_dir.join("phantom");
             std::fs::copy(&bin_real, &installed_bin)?;
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
                 let mut p = std::fs::metadata(&installed_bin)?.permissions();
                 p.set_mode(0o755);
@@ -8201,7 +13715,12 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             #[cfg(target_os = "macos")]
             {
                 let _ = Command::new("codesign")
-                    .args(["--force", "--sign", "-", installed_bin.to_str().unwrap_or("")])
+                    .args([
+                        "--force",
+                        "--sign",
+                        "-",
+                        installed_bin.to_str().unwrap_or(""),
+                    ])
                     .output();
             }
             let bin_str = installed_bin.display().to_string();
@@ -8214,39 +13733,60 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             std::fs::create_dir_all(plist_path.parent().unwrap())?;
             std::fs::create_dir_all(&log_dir)?;
 
-            let tmpl: &str = include_str!("../../../templates/ai.phantommesh.autoevolve.plist.tmpl");
+            let tmpl: &str =
+                include_str!("../../../templates/ai.phantommesh.autoevolve.plist.tmpl");
             let (extra_env, env_names) = build_extra_env_plist_xml();
             let rendered = tmpl
                 .replace("__PHANTOM_BIN__", &bin_str)
-                .replace("__REPO_ROOT__",   &repo_root)
-                .replace("__HOME__",        &home.display().to_string())
+                .replace("__REPO_ROOT__", &repo_root)
+                .replace("__HOME__", &home.display().to_string())
                 .replace("__INTERVAL_SECS__", &interval_secs.to_string())
-                .replace("__TARGET__",      &target_kind)
-                .replace("__MAX_ROUNDS__",  &max_rounds.to_string())
-                .replace("__AGENT__",       &agent_name)
-                .replace("__EXTRA_ENV__",   &extra_env);
+                .replace("__TARGET__", &target_kind)
+                .replace("__MAX_ROUNDS__", &max_rounds.to_string())
+                .replace("__AGENT__", &agent_name)
+                .replace("__EXTRA_ENV__", &extra_env);
             std::fs::write(&plist_path, &rendered)?;
             eprintln!("{} Wrote {}", colored("◆", 35), plist_path.display());
             if !env_names.is_empty() {
-                eprintln!("    propagated env: {} key(s) → {}",
-                          env_names.len(), env_names.join(", "));
+                eprintln!(
+                    "    propagated env: {} key(s) → {}",
+                    env_names.len(),
+                    env_names.join(", ")
+                );
             }
 
-            let _ = Command::new("launchctl").args(["bootout", &target]).output();
-            let s = Command::new("launchctl").args(["bootstrap", &domain, plist_path.to_str().unwrap()]).status()?;
-            if !s.success() { anyhow::bail!("launchctl bootstrap failed"); }
+            let _ = Command::new("launchctl")
+                .args(["bootout", &target])
+                .output();
+            let s = Command::new("launchctl")
+                .args(["bootstrap", &domain, plist_path.to_str().unwrap()])
+                .status()?;
+            if !s.success() {
+                anyhow::bail!("launchctl bootstrap failed");
+            }
             let _ = Command::new("launchctl").args(["enable", &target]).output();
 
-            eprintln!("{} Scheduled autoevolve every {}s (cargo {}, agent {}, max {} rounds)",
-                colored("✓", 32), interval_secs, target_kind, agent_name, max_rounds);
-            eprintln!("    Log:        {}/phantom-autoevolve.log", log_dir.display());
+            eprintln!(
+                "{} Scheduled autoevolve every {}s (cargo {}, agent {}, max {} rounds)",
+                colored("✓", 32),
+                interval_secs,
+                target_kind,
+                agent_name,
+                max_rounds
+            );
+            eprintln!(
+                "    Log:        {}/phantom-autoevolve.log",
+                log_dir.display()
+            );
             eprintln!("    Status:     phantom autoevolve schedule status");
             eprintln!("    Run-now:    launchctl kickstart {}", target);
             eprintln!("    Uninstall:  phantom autoevolve schedule uninstall");
             Ok(())
         }
         "uninstall" => {
-            let _ = Command::new("launchctl").args(["bootout", &target]).output();
+            let _ = Command::new("launchctl")
+                .args(["bootout", &target])
+                .output();
             if plist_path.exists() {
                 std::fs::remove_file(&plist_path)?;
                 eprintln!("{} Removed {}", colored("◆", 35), plist_path.display());
@@ -8255,10 +13795,23 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "status" => {
-            let print = Command::new("launchctl").args(["print", &target]).output()?;
+            let print = Command::new("launchctl")
+                .args(["print", &target])
+                .output()?;
             let registered = print.status.success();
-            println!("{} {}", colored("phantom autoevolve schedule", 36), colored(label, 90));
-            println!("  registered : {}", if registered { colored("yes", 32) } else { colored("no", 31) });
+            println!(
+                "{} {}",
+                colored("phantom autoevolve schedule", 36),
+                colored(label, 90)
+            );
+            println!(
+                "  registered : {}",
+                if registered {
+                    colored("yes", 32)
+                } else {
+                    colored("no", 31)
+                }
+            );
             if registered {
                 let body = String::from_utf8_lossy(&print.stdout);
                 // launchctl print emits the line as `\trun interval = 3600 seconds`.
@@ -8267,15 +13820,24 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
                 // prefix) and silently fell back to `?`. Match the real key
                 // and strip the trailing ` seconds` suffix so we display
                 // `3600s` cleanly.
-                let interval = body.lines()
+                let interval = body
+                    .lines()
                     .map(str::trim_start)
                     .find(|l| l.starts_with("run interval ="))
                     .and_then(|l| l.split('=').nth(1))
-                    .map(|s| s.trim().trim_end_matches(" seconds").trim_end_matches(" second").to_string())
+                    .map(|s| {
+                        s.trim()
+                            .trim_end_matches(" seconds")
+                            .trim_end_matches(" second")
+                            .to_string()
+                    })
                     .unwrap_or_else(|| "?".into());
                 println!("  interval   : {}s", interval);
                 println!("  plist      : {}", plist_path.display());
-                println!("  log        : {}/phantom-autoevolve.log", log_dir.display());
+                println!(
+                    "  log        : {}/phantom-autoevolve.log",
+                    log_dir.display()
+                );
                 // Queue summary — lets the user check at a glance whether
                 // tomorrow morning's commute review will have anything
                 // worth looking at, OR whether the queue is empty and
@@ -8284,16 +13846,20 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
                 // considers "real tasks").
                 if let Some(qp) = autoevolve_queue_path() {
                     let pending = std::fs::read_to_string(&qp)
-                        .map(|c| c.lines()
-                            .filter(|l| {
-                                let t = l.trim();
-                                !t.is_empty() && !t.starts_with('#')
-                            })
-                            .count())
+                        .map(|c| {
+                            c.lines()
+                                .filter(|l| {
+                                    let t = l.trim();
+                                    !t.is_empty() && !t.starts_with('#')
+                                })
+                                .count()
+                        })
                         .unwrap_or(0);
                     println!("  queue      : {} pending", pending);
                 }
-                let failed_log = home.join(".phantom-mesh").join("autoevolve.queue.failed.log");
+                let failed_log = home
+                    .join(".phantom-mesh")
+                    .join("autoevolve.queue.failed.log");
                 if failed_log.exists() {
                     let n = std::fs::read_to_string(&failed_log)
                         .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
@@ -8306,8 +13872,11 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => {
-            eprintln!("{} Unknown schedule action '{}'. Use install / uninstall / status.",
-                colored("✗", 31), other);
+            eprintln!(
+                "{} Unknown schedule action '{}'. Use install / uninstall / status.",
+                colored("✗", 31),
+                other
+            );
             std::process::exit(1);
         }
     }
@@ -8333,10 +13902,30 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             let mut i = 4;
             while i < args.len() {
                 match args[i].as_str() {
-                    "--interval"   => { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { interval_secs = n; } }
-                    "--target"     => { i += 1; if let Some(t) = args.get(i) { target_kind = t.clone(); } }
-                    "--max-rounds" => { i += 1; if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) { max_rounds = n; } }
-                    "--agent"      => { i += 1; if let Some(a) = args.get(i) { agent_name = a.clone(); } }
+                    "--interval" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            interval_secs = n;
+                        }
+                    }
+                    "--target" => {
+                        i += 1;
+                        if let Some(t) = args.get(i) {
+                            target_kind = t.clone();
+                        }
+                    }
+                    "--max-rounds" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            max_rounds = n;
+                        }
+                    }
+                    "--agent" => {
+                        i += 1;
+                        if let Some(a) = args.get(i) {
+                            agent_name = a.clone();
+                        }
+                    }
                     _ => {}
                 }
                 i += 1;
@@ -8364,12 +13953,17 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             let status = Command::new("schtasks")
                 .args([
                     "/Create",
-                    "/TN", WINDOWS_AUTOEVOLVE_TASK_NAME,
-                    "/SC", "MINUTE",
-                    "/MO", &interval_minutes.to_string(),
-                    "/RL", "LIMITED",
+                    "/TN",
+                    WINDOWS_AUTOEVOLVE_TASK_NAME,
+                    "/SC",
+                    "MINUTE",
+                    "/MO",
+                    &interval_minutes.to_string(),
+                    "/RL",
+                    "LIMITED",
                     "/F",
-                    "/TR", &tr,
+                    "/TR",
+                    &tr,
                 ])
                 .status()?;
             if !status.success() {
@@ -8378,11 +13972,18 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
 
             eprintln!(
                 "{} Scheduled autoevolve every {}min (cargo {}, agent {}, max {} rounds)",
-                colored("✓", 32), interval_minutes, target_kind, agent_name, max_rounds
+                colored("✓", 32),
+                interval_minutes,
+                target_kind,
+                agent_name,
+                max_rounds
             );
             eprintln!("    binary:    {}", bin_str);
             eprintln!("    Status:    phantom autoevolve schedule status");
-            eprintln!("    Run-now:   schtasks /Run /TN {}", WINDOWS_AUTOEVOLVE_TASK_NAME);
+            eprintln!(
+                "    Run-now:   schtasks /Run /TN {}",
+                WINDOWS_AUTOEVOLVE_TASK_NAME
+            );
             eprintln!("    Uninstall: phantom autoevolve schedule uninstall");
             Ok(())
         }
@@ -8391,11 +13992,16 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
                 .args(["/Delete", "/TN", WINDOWS_AUTOEVOLVE_TASK_NAME, "/F"])
                 .status()?;
             if status.success() {
-                eprintln!("{} Removed Scheduled Task '{}'", colored("◆", 35), WINDOWS_AUTOEVOLVE_TASK_NAME);
+                eprintln!(
+                    "{} Removed Scheduled Task '{}'",
+                    colored("◆", 35),
+                    WINDOWS_AUTOEVOLVE_TASK_NAME
+                );
             } else {
                 eprintln!(
                     "{} schtasks /Delete returned exit {:?} — task may not have existed.",
-                    colored("⚠", 33), status.code()
+                    colored("⚠", 33),
+                    status.code()
                 );
             }
             eprintln!("{} Unscheduled.", colored("✓", 32));
@@ -8414,7 +14020,11 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             );
             println!(
                 "  registered : {}",
-                if registered { colored("yes", 32) } else { colored("no", 31) }
+                if registered {
+                    colored("yes", 32)
+                } else {
+                    colored("no", 31)
+                }
             );
             if registered {
                 let (last_run_time, next_run_time, last_result) =
@@ -8436,8 +14046,14 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
                     })
                     .unwrap_or_else(|| "?".into());
                 println!("  interval   : {}", interval);
-                println!("  last run   : {}", last_run_time.unwrap_or_else(|| "?".into()));
-                println!("  next run   : {}", next_run_time.unwrap_or_else(|| "?".into()));
+                println!(
+                    "  last run   : {}",
+                    last_run_time.unwrap_or_else(|| "?".into())
+                );
+                println!(
+                    "  next run   : {}",
+                    next_run_time.unwrap_or_else(|| "?".into())
+                );
                 if let Some(r) = last_result {
                     let (code, label) = windows_task_result_label(r);
                     println!("  last state : {}", colored(&label, code));
@@ -8446,25 +14062,310 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => {
-            eprintln!("{} Unknown schedule action '{}'. Use install / uninstall / status.",
-                colored("✗", 31), other);
+            eprintln!(
+                "{} Unknown schedule action '{}'. Use install / uninstall / status.",
+                colored("✗", 31),
+                other
+            );
             std::process::exit(1);
         }
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Pure helper: render the systemd `--user` (.service, .timer) unit pair for
+/// `autoevolve schedule` on Linux. Separated so rendering is unit-testable
+/// without spawning systemctl or touching disk. (D2)
+#[cfg(target_os = "linux")]
+fn render_autoevolve_systemd_units(
+    bin: &str,
+    repo_root: &str,
+    home: &str,
+    interval_secs: u64,
+    target: &str,
+    max_rounds: usize,
+    agent: &str,
+) -> (String, String) {
+    let service = format!(
+        "[Unit]\n\
+         Description=Phantom Mesh autoevolve (one-shot self-improvement)\n\
+         After=network-online.target\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         WorkingDirectory={repo_root}\n\
+         Environment=HOME={home}\n\
+         EnvironmentFile=-{home}/.phantom-mesh/env\n\
+         ExecStart={bin} autoevolve --once --target {target} --max-rounds {max_rounds} --agent {agent}\n\
+         StandardOutput=append:{home}/.phantom-mesh/autoevolve.log\n\
+         StandardError=append:{home}/.phantom-mesh/autoevolve.log\n"
+    );
+    let timer = format!(
+        "[Unit]\n\
+         Description=Phantom Mesh autoevolve timer (every {interval_secs}s)\n\
+         \n\
+         [Timer]\n\
+         OnBootSec={interval_secs}\n\
+         OnUnitActiveSec={interval_secs}\n\
+         Unit=phantom-autoevolve.service\n\
+         \n\
+         [Install]\n\
+         WantedBy=timers.target\n"
+    );
+    (service, timer)
+}
+
+/// `phantom autoevolve schedule [install|uninstall|status]` — Linux systemd
+/// `--user` timer that periodically runs `autoevolve --once` (D2: parity with
+/// the macOS LaunchAgent / Windows Scheduled Task variants).
+#[cfg(target_os = "linux")]
+async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
+    use std::process::Command;
+    let action = args.get(3).map(|s| s.as_str()).unwrap_or("status");
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home"))?;
+    let unit_dir = home.join(".config/systemd/user");
+    let service_path = unit_dir.join("phantom-autoevolve.service");
+    let timer_path = unit_dir.join("phantom-autoevolve.timer");
+    const TIMER: &str = "phantom-autoevolve.timer";
+
+    match action {
+        "install" => {
+            let mut interval_secs: u64 = 3600;
+            let mut target_kind = "check".to_string();
+            let mut max_rounds = 5usize;
+            let mut agent_name = "master".to_string();
+            let mut i = 4;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--interval" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            interval_secs = n;
+                        }
+                    }
+                    "--target" => {
+                        i += 1;
+                        if let Some(t) = args.get(i) {
+                            target_kind = t.clone();
+                        }
+                    }
+                    "--max-rounds" => {
+                        i += 1;
+                        if let Some(n) = args.get(i).and_then(|s| s.parse().ok()) {
+                            max_rounds = n;
+                        }
+                    }
+                    "--agent" => {
+                        i += 1;
+                        if let Some(a) = args.get(i) {
+                            agent_name = a.clone();
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            if interval_secs == 0 {
+                anyhow::bail!("--interval must be > 0 seconds");
+            }
+
+            let bin_self = std::env::current_exe()?;
+            let bin_real = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
+            let bin_str = bin_real.display().to_string();
+            // WorkingDirectory for the `cargo check/test` autoevolve runs: use cwd
+            // when it looks like the repo (dist/ + scripts/), else fall back to
+            // ~/.phantom-mesh (mirrors service/linux.rs install).
+            let cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
+            let repo_root = if cwd.join("dist").is_dir() && cwd.join("scripts").is_dir() {
+                cwd.display().to_string()
+            } else {
+                home.join(".phantom-mesh").display().to_string()
+            };
+
+            std::fs::create_dir_all(&unit_dir)?;
+            std::fs::create_dir_all(home.join(".phantom-mesh"))?;
+            let (svc, tmr) = render_autoevolve_systemd_units(
+                &bin_str,
+                &repo_root,
+                &home.display().to_string(),
+                interval_secs,
+                &target_kind,
+                max_rounds,
+                &agent_name,
+            );
+            std::fs::write(&service_path, &svc)?;
+            std::fs::write(&timer_path, &tmr)?;
+            eprintln!(
+                "{} Wrote {} + {}",
+                colored("◆", 35),
+                service_path.display(),
+                timer_path.display()
+            );
+
+            let _ = Command::new("systemctl")
+                .args(["--user", "daemon-reload"])
+                .status();
+            let s = Command::new("systemctl")
+                .args(["--user", "enable", "--now", TIMER])
+                .status()?;
+            if !s.success() {
+                anyhow::bail!("systemctl --user enable --now {} failed", TIMER);
+            }
+
+            eprintln!(
+                "{} Scheduled autoevolve every {}s (cargo {}, agent {}, max {} rounds)",
+                colored("✓", 32),
+                interval_secs,
+                target_kind,
+                agent_name,
+                max_rounds
+            );
+            eprintln!("    Log:       {}/.phantom-mesh/autoevolve.log", home.display());
+            eprintln!("    Status:    phantom autoevolve schedule status");
+            eprintln!("    Run-now:   systemctl --user start phantom-autoevolve.service");
+            eprintln!("    Uninstall: phantom autoevolve schedule uninstall");
+            eprintln!(
+                "{} run `loginctl enable-linger $USER` (needs sudo) so the timer fires while logged out.",
+                colored("⚠", 33)
+            );
+            Ok(())
+        }
+        "uninstall" => {
+            let _ = Command::new("systemctl")
+                .args(["--user", "disable", "--now", TIMER])
+                .status();
+            let mut removed = false;
+            for p in [&timer_path, &service_path] {
+                if p.exists() {
+                    std::fs::remove_file(p)?;
+                    removed = true;
+                }
+            }
+            let _ = Command::new("systemctl")
+                .args(["--user", "daemon-reload"])
+                .status();
+            if removed {
+                eprintln!("{} Removed autoevolve units.", colored("◆", 35));
+            }
+            eprintln!("{} Unscheduled.", colored("✓", 32));
+            Ok(())
+        }
+        "status" => {
+            let registered = timer_path.exists();
+            println!(
+                "{} {}",
+                colored("phantom autoevolve schedule", 36),
+                colored("phantom-autoevolve.timer", 90)
+            );
+            println!(
+                "  registered : {}",
+                if registered {
+                    colored("yes", 32)
+                } else {
+                    colored("no", 31)
+                }
+            );
+            let enabled = Command::new("systemctl")
+                .args(["--user", "is-enabled", TIMER])
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "enabled")
+                .unwrap_or(false);
+            println!(
+                "  enabled    : {}",
+                if enabled {
+                    colored("yes", 32)
+                } else {
+                    colored("no", 90)
+                }
+            );
+            if let Ok(o) = Command::new("systemctl")
+                .args(["--user", "list-timers", TIMER, "--no-pager"])
+                .output()
+            {
+                for line in String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .filter(|l| l.contains("phantom-autoevolve"))
+                {
+                    println!("  next       : {}", line.trim());
+                }
+            }
+            println!(
+                "  units      : {} , {}",
+                timer_path.display(),
+                service_path.display()
+            );
+            println!("  log        : {}/.phantom-mesh/autoevolve.log", home.display());
+            if let Some(qp) = autoevolve_queue_path() {
+                let pending = std::fs::read_to_string(&qp)
+                    .map(|c| {
+                        c.lines()
+                            .filter(|l| {
+                                let t = l.trim();
+                                !t.is_empty() && !t.starts_with('#')
+                            })
+                            .count()
+                    })
+                    .unwrap_or(0);
+                println!("  queue      : {} pending", pending);
+            }
+            Ok(())
+        }
+        other => {
+            eprintln!(
+                "{} Unknown schedule action '{}'. Use install / uninstall / status.",
+                colored("✗", 31),
+                other
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 async fn run_autoevolve_schedule(_args: &[String]) -> anyhow::Result<()> {
-    eprintln!("{} `phantom autoevolve schedule` is currently macOS + Windows only.\n   On Linux use cron / systemd timer.",
-        colored("⚠", 33));
-    eprintln!("\n   Linux example (cron):\n     0 * * * * /usr/local/bin/phantom autoevolve --once --target check");
+    eprintln!(
+        "{} `phantom autoevolve schedule` is not supported on this OS.",
+        colored("⚠", 33)
+    );
     Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod autoevolve_schedule_tests {
+    use super::render_autoevolve_systemd_units;
+
+    #[test]
+    fn renders_oneshot_service_and_interval_timer_from_args() {
+        let (svc, tmr) = render_autoevolve_systemd_units(
+            "/opt/phantom/phantom",
+            "/home/u/repo",
+            "/home/u",
+            1800,
+            "test",
+            7,
+            "coder",
+        );
+        // .service: oneshot + ExecStart threading every arg + journal-to-log
+        assert!(svc.contains("Type=oneshot"), "service must be oneshot:\n{svc}");
+        assert!(
+            svc.contains(
+                "ExecStart=/opt/phantom/phantom autoevolve --once --target test --max-rounds 7 --agent coder"
+            ),
+            "ExecStart must thread all args:\n{svc}"
+        );
+        assert!(svc.contains("WorkingDirectory=/home/u/repo"));
+        assert!(svc.contains("append:/home/u/.phantom-mesh/autoevolve.log"));
+        // .timer: interval on both boot + active, persistent, installs to timers.target
+        assert!(tmr.contains("OnUnitActiveSec=1800"), "timer interval:\n{tmr}");
+        assert!(tmr.contains("OnBootSec=1800"));
+        assert!(tmr.contains("Unit=phantom-autoevolve.service"));
+        assert!(tmr.contains("WantedBy=timers.target"));
+    }
 }
 
 async fn run_cargo_target(target: &str) -> CargoRunOutcome {
     let mut cargo_args: Vec<String> = match target {
         "test" => vec!["test".into(), "--quiet".into()],
-        _      => vec!["check".into(), "--quiet".into()],
+        _ => vec!["check".into(), "--quiet".into()],
     };
 
     // Locate Cargo.toml. Cargo itself walks parents from cwd, but in workspace
@@ -8504,12 +14405,14 @@ async fn run_cargo_target(target: &str) -> CargoRunOutcome {
     let out = cmd.output().await;
     match out {
         Ok(o) if o.status.success() => CargoRunOutcome { success: true },
-        Ok(_o) => {
+        Ok(o) => {
             // Distinguish Windows-AV transients from real compile errors.
             // If the only failure is "<X>: Access Denied" / "failed to
             // remove file" / "failed to link or copy", the build artefact
             // is locked, not broken — pretend success and let the next
             // poll succeed once the AV releases.
+            #[cfg(not(target_os = "windows"))]
+            let _ = &o; // silence unused on non-Windows
             #[cfg(target_os = "windows")]
             {
                 let stderr = String::from_utf8_lossy(&o.stderr).to_string();
@@ -8540,18 +14443,22 @@ async fn run_cargo_target(target: &str) -> CargoRunOutcome {
 fn find_cargo_manifest() -> Option<std::path::PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     if cwd.join("Cargo.toml").exists() {
-        return None;  // cargo's own walk handles this
+        return None; // cargo's own walk handles this
     }
     for sub in ["core", "src"].iter() {
         let p = cwd.join(sub).join("Cargo.toml");
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     for parent in ["crates", "packages"].iter() {
         let parent_dir = cwd.join(parent);
         if let Ok(rd) = std::fs::read_dir(&parent_dir) {
             for entry in rd.flatten() {
                 let p = entry.path().join("Cargo.toml");
-                if p.exists() { return Some(p); }
+                if p.exists() {
+                    return Some(p);
+                }
             }
         }
     }
@@ -8624,10 +14531,7 @@ async fn run_snapshot_subcommand(args: &[String]) -> anyhow::Result<()> {
             let id = match args.get(3) {
                 Some(id) => id.clone(),
                 None => {
-                    eprintln!(
-                        "{} usage: phantom snapshot delete <id>",
-                        colored("✗", 31)
-                    );
+                    eprintln!("{} usage: phantom snapshot delete <id>", colored("✗", 31));
                     std::process::exit(1);
                 }
             };
@@ -8636,10 +14540,7 @@ async fn run_snapshot_subcommand(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "prune" => {
-            let hours: u64 = args
-                .get(3)
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(24);
+            let hours: u64 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(24);
             let n = snapshot::prune_older_than(hours * 3600).await?;
             println!(
                 "{} Pruned {} snapshot(s) older than {}h",
@@ -8653,10 +14554,7 @@ async fn run_snapshot_subcommand(args: &[String]) -> anyhow::Result<()> {
             let id = match args.get(3) {
                 Some(id) => id.clone(),
                 None => {
-                    eprintln!(
-                        "{} usage: phantom snapshot rollback <id>",
-                        colored("✗", 31)
-                    );
+                    eprintln!("{} usage: phantom snapshot rollback <id>", colored("✗", 31));
                     std::process::exit(1);
                 }
             };
@@ -8698,14 +14596,18 @@ async fn run_snapshot_subcommand(args: &[String]) -> anyhow::Result<()> {
             let mut i = 4;
             while i < args.len() {
                 match args[i].as_str() {
-                    "--cwd" => { target_path = Some(std::env::current_dir()?); }
+                    "--cwd" => {
+                        target_path = Some(std::env::current_dir()?);
+                    }
                     "--path" => {
                         i += 1;
                         if let Some(p) = args.get(i) {
                             target_path = Some(std::path::PathBuf::from(p));
                         }
                     }
-                    "--execute" => { execute = true; }
+                    "--execute" => {
+                        execute = true;
+                    }
                     _ => {}
                 }
                 i += 1;
@@ -8755,6 +14657,7 @@ async fn run_snapshot_subcommand(args: &[String]) -> anyhow::Result<()> {
 ///   - tailscale.{installed, connected}
 ///   - tools.{builtin_count, mcp_count}
 ///   - identity.{logged_in, email, provider}
+///   - life_node.{encrypted_at_rest, total, by_kind, earliest, latest, last_7d}
 ///   - status: "ok" | "warn" | "fail" — overall rollup
 async fn run_doctor_json() -> anyhow::Result<()> {
     use serde_json::{json, Value};
@@ -8762,22 +14665,33 @@ async fn run_doctor_json() -> anyhow::Result<()> {
 
     // Binary provenance — same data the colored "binary" section emits.
     o.insert("version".into(), json!(env!("CARGO_PKG_VERSION")));
-    o.insert("git".into(),     json!(option_env!("PHANTOM_GIT_HASH").unwrap_or("nogit")));
-    o.insert("os".into(),      json!(std::env::consts::OS));
-    o.insert("arch".into(),    json!(std::env::consts::ARCH));
-    o.insert("build_date".into(), json!(option_env!("PHANTOM_BUILD_DATE").unwrap_or("?")));
+    o.insert(
+        "git".into(),
+        json!(option_env!("PHANTOM_GIT_HASH").unwrap_or("nogit")),
+    );
+    o.insert("os".into(), json!(std::env::consts::OS));
+    o.insert("arch".into(), json!(std::env::consts::ARCH));
+    o.insert(
+        "build_date".into(),
+        json!(option_env!("PHANTOM_BUILD_DATE").unwrap_or("?")),
+    );
 
     // Config
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let cfg_candidates = [
-        std::env::current_dir().unwrap_or_else(|_| home.clone()).join("agents.toml"),
+        std::env::current_dir()
+            .unwrap_or_else(|_| home.clone())
+            .join("agents.toml"),
         home.join(".phantom-mesh/agents.toml"),
     ];
     let cfg_found = cfg_candidates.iter().find(|p| p.exists());
-    o.insert("config".into(), json!({
-        "path":   cfg_found.map(|p| p.display().to_string()),
-        "exists": cfg_found.is_some(),
-    }));
+    o.insert(
+        "config".into(),
+        json!({
+            "path":   cfg_found.map(|p| p.display().to_string()),
+            "exists": cfg_found.is_some(),
+        }),
+    );
 
     // Permissions — parse rules + surface stats.
     let perm_cfg = phantom_mesh::config::AgentsConfig::find_and_load()
@@ -8791,8 +14705,8 @@ async fn run_doctor_json() -> anyhow::Result<()> {
             "errors": null,
         })
     } else {
-        let deny:  Vec<&str> = perm_cfg.deny.iter().map(String::as_str).collect();
-        let ask:   Vec<&str> = perm_cfg.ask.iter().map(String::as_str).collect();
+        let deny: Vec<&str> = perm_cfg.deny.iter().map(String::as_str).collect();
+        let ask: Vec<&str> = perm_cfg.ask.iter().map(String::as_str).collect();
         let allow: Vec<&str> = perm_cfg.allow.iter().map(String::as_str).collect();
         match phantom_mesh::permission::Engine::from_lists(&deny, &ask, &allow) {
             Ok(e) => {
@@ -8818,48 +14732,59 @@ async fn run_doctor_json() -> anyhow::Result<()> {
 
     // Providers — env or agents.toml availability.
     let provider_keys = [
-        ("ANTHROPIC_API_KEY",  "anthropic"),
-        ("OPENAI_API_KEY",     "openai"),
-        ("GROQ_API_KEY",       "groq"),
-        ("GEMINI_API_KEY",     "gemini"),
+        ("ANTHROPIC_API_KEY", "anthropic"),
+        ("OPENAI_API_KEY", "openai"),
+        ("GROQ_API_KEY", "groq"),
+        ("GEMINI_API_KEY", "gemini"),
         ("OPENROUTER_API_KEY", "openrouter"),
-        ("OPENCODE_API_KEY",   "opencode"),
-        ("CEREBRAS_API_KEY",   "cerebras"),
+        ("OPENCODE_API_KEY", "opencode"),
+        ("CEREBRAS_API_KEY", "cerebras"),
     ];
-    let providers: Vec<Value> = provider_keys.iter().map(|(env_var, name)| {
-        let env_val = std::env::var(env_var).ok();
-        json!({
-            "name":      name,
-            "available": env_val.is_some(),
-            "source":    if env_val.is_some() { Some("env") } else { None::<&str> },
+    let providers: Vec<Value> = provider_keys
+        .iter()
+        .map(|(env_var, name)| {
+            let env_val = std::env::var(env_var).ok();
+            json!({
+                "name":      name,
+                "available": env_val.is_some(),
+                "source":    if env_val.is_some() { Some("env") } else { None::<&str> },
+            })
         })
-    }).collect();
+        .collect();
     o.insert("providers".into(), json!(providers));
 
     // Serve health
     let port = phantom_mesh::config::AgentsConfig::find_and_load()
-        .map(|c| c.core.port).unwrap_or(7878);
+        .map(|c| c.core.port)
+        .unwrap_or(7878);
     let healthz_url = format!("http://127.0.0.1:{}/healthz", port);
     let healthz_status = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(2)).build().ok()
-        .and_then(|c| futures::executor::block_on(async {
-            c.get(&healthz_url).send().await.ok()
-        }))
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()
+        .and_then(|c| futures::executor::block_on(async { c.get(&healthz_url).send().await.ok() }))
         .map(|r| r.status().as_u16());
-    o.insert("serve".into(), json!({
-        "port":    port,
-        "url":     healthz_url,
-        "running": healthz_status == Some(200),
-        "status":  healthz_status,
-    }));
+    o.insert(
+        "serve".into(),
+        json!({
+            "port":    port,
+            "url":     healthz_url,
+            "running": healthz_status == Some(200),
+            "status":  healthz_status,
+        }),
+    );
 
     // Autoevolve schedule + queue + log summary
     let queue_pending = home.join(".phantom-mesh/autoevolve.queue.txt");
     let queue_pending_n = std::fs::read_to_string(&queue_pending)
-        .map(|c| c.lines().filter(|l| {
-            let t = l.trim();
-            !t.is_empty() && !t.starts_with('#')
-        }).count())
+        .map(|c| {
+            c.lines()
+                .filter(|l| {
+                    let t = l.trim();
+                    !t.is_empty() && !t.starts_with('#')
+                })
+                .count()
+        })
         .unwrap_or(0);
     let failed_log = home.join(".phantom-mesh/autoevolve.queue.failed.log");
     let failed_n = std::fs::read_to_string(&failed_log)
@@ -8870,11 +14795,14 @@ async fn run_doctor_json() -> anyhow::Result<()> {
         .and_then(|c| c.lines().last().map(|s| s.to_string()))
         .and_then(|line| serde_json::from_str::<Value>(&line).ok())
         .and_then(|v| v.get("started_at_ms").and_then(|x| x.as_i64()));
-    o.insert("autoevolve".into(), json!({
-        "queue_pending":  queue_pending_n,
-        "failed_count":   failed_n,
-        "last_run_ts_ms": last_run_ts,
-    }));
+    o.insert(
+        "autoevolve".into(),
+        json!({
+            "queue_pending":  queue_pending_n,
+            "failed_count":   failed_n,
+            "last_run_ts_ms": last_run_ts,
+        }),
+    );
 
     // Tailscale state — pure best-effort. Use the spawn-attempt itself
     // as the installed-check since we don't have the `which` crate in
@@ -8887,36 +14815,88 @@ async fn run_doctor_json() -> anyhow::Result<()> {
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .unwrap_or_default();
-    let ts_connected = ts_installed && !ts_status_str.is_empty()
+    let ts_connected = ts_installed
+        && !ts_status_str.is_empty()
         && !ts_status_str.contains("Logged out")
         && !ts_status_str.contains("stopped");
-    o.insert("tailscale".into(), json!({
-        "installed": ts_installed,
-        "connected": ts_connected,
-    }));
+    o.insert(
+        "tailscale".into(),
+        json!({
+            "installed": ts_installed,
+            "connected": ts_connected,
+        }),
+    );
 
     // Tools registered (built-in + MCP)
     let builtin = phantom_mesh::tools::all_tool_names().len();
-    o.insert("tools".into(), json!({
-        "builtin_count": builtin,
-    }));
+    o.insert(
+        "tools".into(),
+        json!({
+            "builtin_count": builtin,
+        }),
+    );
 
     // Identity (best effort — load auth.json if it exists)
     if let Some(s) = phantom_mesh::auth::load() {
-        o.insert("identity".into(), json!({
-            "logged_in": true,
-            "email":     s.email,
-            "provider":  s.provider,
-        }));
+        o.insert(
+            "identity".into(),
+            json!({
+                "logged_in": true,
+                "email":     s.email,
+                "provider":  s.provider,
+            }),
+        );
     } else {
         o.insert("identity".into(), json!({"logged_in": false}));
     }
 
+    // Life Node — encryption posture + capture volume. Mirrors the human
+    // doctor's "events at rest" + "Life Node" lines so dashboards / tooling
+    // consuming `doctor --json` see the same data. Read-only.
+    {
+        let key_ok = phantom_mesh::life_node::key_derivation::load_event_key(
+            &home.join(".phantom-mesh").join("identity.key"),
+        )
+        .is_ok();
+        let stats = phantom_mesh::life_node::data_cli::compute_stats(&home).ok();
+        let by_kind: Value = stats
+            .as_ref()
+            .map(|s| {
+                Value::Object(
+                    s.by_kind
+                        .iter()
+                        .map(|(k, n)| (k.clone(), json!(n)))
+                        .collect(),
+                )
+            })
+            .unwrap_or(Value::Null);
+        o.insert(
+            "life_node".into(),
+            json!({
+                "encrypted_at_rest": key_ok,
+                "total":    stats.as_ref().map(|s| s.total),
+                "by_kind":  by_kind,
+                "earliest": stats.as_ref().and_then(|s| s.earliest.clone()),
+                "latest":   stats.as_ref().and_then(|s| s.latest.clone()),
+                "last_7d":  stats.as_ref().map(|s| s.last_7d),
+            }),
+        );
+    }
+
     // Overall status — simple rollup.
-    let any_fail = !o.get("config").and_then(|c| c.get("exists")).and_then(|v| v.as_bool()).unwrap_or(false);
-    let any_warn = ts_installed && !ts_connected
-                || queue_pending_n == 0 && failed_n > 0;
-    let status = if any_fail { "fail" } else if any_warn { "warn" } else { "ok" };
+    let any_fail = !o
+        .get("config")
+        .and_then(|c| c.get("exists"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let any_warn = ts_installed && !ts_connected || queue_pending_n == 0 && failed_n > 0;
+    let status = if any_fail {
+        "fail"
+    } else if any_warn {
+        "warn"
+    } else {
+        "ok"
+    };
     o.insert("status".into(), json!(status));
 
     println!("{}", serde_json::to_string_pretty(&Value::Object(o))?);
@@ -8937,6 +14917,111 @@ fn doctor_section(name: &str) {
     println!("{}", colored(name, 35));
 }
 
+/// Exit code for `phantom doctor --mesh`: `2` if any peer is offline (broken),
+/// `1` if all online but ≥1 runs a different build than this one (degraded /
+/// version-skew), else `0` (all green). Pure + unit-testable. A peer that is
+/// online but reported no version string is NOT counted as skew (unknown ≠
+/// mismatch). Empty input → 0 (handled by the caller as "nothing to check").
+fn mesh_exit_code(peers: &[phantom_mesh::mesh::PeerStatus], own_version: &str) -> i32 {
+    if peers.iter().any(|p| !p.online) {
+        2
+    } else if peers
+        .iter()
+        .any(|p| p.online && !p.version.is_empty() && p.version != own_version)
+    {
+        1
+    } else {
+        0
+    }
+}
+
+/// `phantom doctor --mesh` — ping every configured peer + print a health table,
+/// then exit with `mesh_exit_code`. Read-only: uses the same cluster client as
+/// `phantom peer list`. (Follow-ons per EVOLVE-GOALS L14: core_sha parsing, a
+/// `--fix` auto-recovery flag, and the `.phantom-core-lock.json` staleness warn.)
+async fn run_doctor_mesh() -> anyhow::Result<()> {
+    use phantom_mesh::i18n::{tr, tr_owned};
+    let mut app_state = AppState::new();
+    if let Some(content) = find_config() {
+        app_state.load_config_toml(&content);
+    }
+    let manager = &app_state.cluster_manager;
+    if manager.config.peers.is_empty() {
+        eprintln!(
+            "{}",
+            tr(
+                "no peers configured — nothing to check (add [cluster] peers to agents.toml)",
+                "尚未設定任何節點 — 無可檢查項目（在 agents.toml 的 [cluster] 加入 peers）",
+            )
+        );
+        return Ok(());
+    }
+    eprintln!(
+        "{}",
+        tr_owned(
+            format!("pinging {} peer(s)…", manager.config.peers.len()),
+            format!("正在 ping {} 個節點…", manager.config.peers.len()),
+        )
+    );
+    let peers = manager.refresh_all().await;
+    let own_version = env!("CARGO_PKG_VERSION");
+
+    println!();
+    println!(
+        "{:<40} {:<18} {:<10} {:>6}",
+        "PEER", "NAME", "VERSION", "TASKS"
+    );
+    println!("{}", "─".repeat(78));
+    for p in &peers {
+        let dash = "—".to_string();
+        // An offline peer can't report a name, so the old code echoed its URL
+        // into NAME — redundant with the PEER column and wide enough to overflow
+        // the {:<18} field and misalign the rest of the row. Show "—" instead,
+        // consistent with the version/tasks dashes.
+        let (glyph, name, version, tasks) = if !p.online {
+            (colored("✗", 31), dash.clone(), dash.clone(), dash.clone())
+        } else if !p.version.is_empty() && p.version != own_version {
+            (
+                colored("⚠", 33),
+                p.name.clone(),
+                p.version.clone(),
+                p.active_tasks.to_string(),
+            )
+        } else {
+            (
+                colored("✓", 32),
+                p.name.clone(),
+                p.version.clone(),
+                p.active_tasks.to_string(),
+            )
+        };
+        println!(
+            "{} {:<38} {:<18} {:<10} {:>6}",
+            glyph, p.url, name, version, tasks
+        );
+    }
+
+    let code = mesh_exit_code(&peers, own_version);
+    let online = peers.iter().filter(|p| p.online).count();
+    println!();
+    let summary = match code {
+        0 => tr_owned(
+            format!("✓ all {} peer(s) online + on this build ({})", peers.len(), own_version),
+            format!("✓ 全部 {} 個節點都在線且為同一版本（{}）", peers.len(), own_version),
+        ),
+        1 => tr_owned(
+            format!("⚠ {}/{} online but ≥1 on a different build than {}", online, peers.len(), own_version),
+            format!("⚠ {}/{} 在線，但至少一個節點的版本與 {} 不同", online, peers.len(), own_version),
+        ),
+        _ => tr_owned(
+            format!("✗ {}/{} peer(s) offline", peers.len() - online, peers.len()),
+            format!("✗ {}/{} 個節點離線", peers.len() - online, peers.len()),
+        ),
+    };
+    println!("{}", summary);
+    std::process::exit(code);
+}
+
 async fn run_doctor() -> anyhow::Result<()> {
     println!(
         "{} {}",
@@ -8945,7 +15030,7 @@ async fn run_doctor() -> anyhow::Result<()> {
     );
 
     // ── binary provenance ────────────────────────────────────────────────
-    doctor_section("binary");
+    doctor_section(phantom_mesh::i18n::tr("binary", "執行檔"));
     doctor_ok(
         "version",
         &format!(
@@ -8960,17 +15045,22 @@ async fn run_doctor() -> anyhow::Result<()> {
     if let Ok(exe) = std::env::current_exe() {
         let real = std::fs::canonicalize(&exe).unwrap_or(exe.clone());
         if real != exe {
-            doctor_ok("path", &format!("{}\n               → {}", exe.display(), real.display()));
+            doctor_ok(
+                "path",
+                &format!("{}\n               → {}", exe.display(), real.display()),
+            );
         } else {
             doctor_ok("path", &exe.display().to_string());
         }
     }
 
     // ── config ───────────────────────────────────────────────────────────
-    doctor_section("config");
+    doctor_section(phantom_mesh::i18n::tr("config", "設定"));
     let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     let cfg_candidates = [
-        std::env::current_dir().unwrap_or_else(|_| home.clone()).join("agents.toml"),
+        std::env::current_dir()
+            .unwrap_or_else(|_| home.clone())
+            .join("agents.toml"),
         home.join(".phantom-mesh/agents.toml"),
     ];
     let cfg_found = cfg_candidates.iter().find(|p| p.exists());
@@ -8978,14 +15068,23 @@ async fn run_doctor() -> anyhow::Result<()> {
         Some(p) => doctor_ok("agents.toml", &p.display().to_string()),
         None => doctor_fail(
             "agents.toml",
-            "not found in cwd or ~/.phantom-mesh — run `phantom init` or `phantom onboarding`",
+            phantom_mesh::i18n::tr(
+                "not found in cwd or ~/.phantom-mesh — run `phantom onboarding` (writes ~/.phantom-mesh/agents.toml). Note: `phantom init` writes a PHANTOM.md project file, not agents.toml.",
+                "在目前目錄與 ~/.phantom-mesh 都找不到 — 請執行 `phantom onboarding`（會寫入 ~/.phantom-mesh/agents.toml）。注意：`phantom init` 產生的是 PHANTOM.md 專案檔，不是 agents.toml。",
+            ),
         ),
     }
     let phantom_dir = home.join(".phantom-mesh");
     if phantom_dir.exists() {
-        doctor_ok("~/.phantom-mesh", "exists");
+        doctor_ok("~/.phantom-mesh", phantom_mesh::i18n::tr("exists", "已存在"));
     } else {
-        doctor_warn("~/.phantom-mesh", "missing — will be created on first run");
+        doctor_warn(
+            "~/.phantom-mesh",
+            phantom_mesh::i18n::tr(
+                "missing — will be created on first run",
+                "尚未建立 — 首次執行時會自動建立",
+            ),
+        );
     }
 
     // ── [permissions] ────────────────────────────────────────────────────
@@ -8993,33 +15092,50 @@ async fn run_doctor() -> anyhow::Result<()> {
     // can debug their config before a turn fails. Empty/missing block →
     // legacy "allow all" mode. Parse error → falls back to empty engine
     // at REPL boot; doctor flags the offending rule.
-    doctor_section("permissions");
+    doctor_section(phantom_mesh::i18n::tr("permissions", "權限"));
     let perm_cfg = phantom_mesh::config::AgentsConfig::find_and_load()
         .map(|c| c.permissions)
         .unwrap_or_default();
     let total_rules = perm_cfg.deny.len() + perm_cfg.ask.len() + perm_cfg.allow.len();
     if total_rules == 0 {
-        doctor_warn("[permissions]", "no rules → allow all (legacy default). \
-            See docs/PERMISSIONS.md for the Tool(specifier) DSL.");
+        doctor_warn(
+            "[permissions]",
+            phantom_mesh::i18n::tr(
+                "no rules → allow all (legacy default). \
+            See docs/PERMISSIONS.md for the Tool(specifier) DSL.",
+                "未設定規則 → 全部允許（舊版預設）。\
+            Tool(specifier) 規則語法見 docs/PERMISSIONS.md。",
+            ),
+        );
     } else {
-        let deny: Vec<&str>  = perm_cfg.deny.iter().map(String::as_str).collect();
-        let ask: Vec<&str>   = perm_cfg.ask.iter().map(String::as_str).collect();
+        let deny: Vec<&str> = perm_cfg.deny.iter().map(String::as_str).collect();
+        let ask: Vec<&str> = perm_cfg.ask.iter().map(String::as_str).collect();
         let allow: Vec<&str> = perm_cfg.allow.iter().map(String::as_str).collect();
         match phantom_mesh::permission::Engine::from_lists(&deny, &ask, &allow) {
             Ok(e) => {
-                doctor_ok("[permissions]", &format!(
-                    "{} rules parsed ({} deny, {} ask, {} allow)",
-                    e.rules().len(),
-                    perm_cfg.deny.len(), perm_cfg.ask.len(), perm_cfg.allow.len()
-                ));
+                doctor_ok(
+                    "[permissions]",
+                    &format!(
+                        "{} rules parsed ({} deny, {} ask, {} allow)",
+                        e.rules().len(),
+                        perm_cfg.deny.len(),
+                        perm_cfg.ask.len(),
+                        perm_cfg.allow.len()
+                    ),
+                );
                 let denied = e.statically_denied_tools();
                 if !denied.is_empty() {
                     let mut names: Vec<&String> = denied.iter().collect();
                     names.sort();
-                    let list = names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ");
-                    doctor_ok("statically denied", &format!(
-                        "{} (will be hidden from LLM tool list)", list
-                    ));
+                    let list = names
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    doctor_ok(
+                        "statically denied",
+                        &format!("{} (will be hidden from LLM tool list)", list),
+                    );
                 }
             }
             Err(err) => doctor_fail("[permissions]", &format!("parse error: {}", err)),
@@ -9027,19 +15143,19 @@ async fn run_doctor() -> anyhow::Result<()> {
     }
 
     // ── provider API keys ───────────────────────────────────────────────
-    doctor_section("provider keys");
+    doctor_section(phantom_mesh::i18n::tr("provider keys", "供應商金鑰"));
     let keys = [
-        ("ANTHROPIC_API_KEY",   "Anthropic",  "anthropic"),
-        ("OPENAI_API_KEY",      "OpenAI",     "openai"),
-        ("GROQ_API_KEY",        "Groq",       "groq"),
-        ("GEMINI_API_KEY",      "Gemini",     "gemini"),
-        ("OPENROUTER_API_KEY",  "OpenRouter", "openrouter"),
-        ("OPENCODE_API_KEY",    "OpenCode",   "opencode"),
-        ("CEREBRAS_API_KEY",    "Cerebras",   "cerebras"),
-        ("DEEPSEEK_API_KEY",    "DeepSeek",   "deepseek"),
-        ("MISTRAL_API_KEY",     "Mistral",    "mistral"),
-        ("TOGETHER_API_KEY",    "Together",   "together"),
-        ("NVIDIA_NIM_API_KEY",  "NVIDIA NIM", "nvidia"),
+        ("ANTHROPIC_API_KEY", "Anthropic", "anthropic"),
+        ("OPENAI_API_KEY", "OpenAI", "openai"),
+        ("GROQ_API_KEY", "Groq", "groq"),
+        ("GEMINI_API_KEY", "Gemini", "gemini"),
+        ("OPENROUTER_API_KEY", "OpenRouter", "openrouter"),
+        ("OPENCODE_API_KEY", "OpenCode", "opencode"),
+        ("CEREBRAS_API_KEY", "Cerebras", "cerebras"),
+        ("DEEPSEEK_API_KEY", "DeepSeek", "deepseek"),
+        ("MISTRAL_API_KEY", "Mistral", "mistral"),
+        ("TOGETHER_API_KEY", "Together", "together"),
+        ("NVIDIA_NIM_API_KEY", "NVIDIA NIM", "nvidia"),
     ];
 
     // Also inspect agents.toml so the report reflects reality: many users keep
@@ -9049,13 +15165,22 @@ async fn run_doctor() -> anyhow::Result<()> {
     let toml_providers: std::collections::HashMap<String, bool> = find_config()
         .and_then(|c| toml::from_str::<phantom_mesh::config::AgentsConfig>(&c).ok())
         .map(|cfg| {
-            cfg.providers.iter().map(|(name, entry)| {
-                let has_inline = entry.api_key.as_deref().map(|k| !k.is_empty()).unwrap_or(false);
-                let has_env_ref = entry.api_key_env.as_deref()
-                    .map(|var| std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false))
-                    .unwrap_or(false);
-                (name.to_lowercase(), has_inline || has_env_ref)
-            }).collect()
+            cfg.providers
+                .iter()
+                .map(|(name, entry)| {
+                    let has_inline = entry
+                        .api_key
+                        .as_deref()
+                        .map(|k| !k.is_empty())
+                        .unwrap_or(false);
+                    let has_env_ref = entry
+                        .api_key_env
+                        .as_deref()
+                        .map(|var| std::env::var(var).map(|v| !v.is_empty()).unwrap_or(false))
+                        .unwrap_or(false);
+                    (name.to_lowercase(), has_inline || has_env_ref)
+                })
+                .collect()
         })
         .unwrap_or_default();
 
@@ -9076,8 +15201,11 @@ async fn run_doctor() -> anyhow::Result<()> {
     }
     if !any_configured {
         doctor_warn(
-            "hint",
-            "set keys via agents.toml (preferred) or `set -a; source ~/.phantom-mesh/env; set +a`",
+            phantom_mesh::i18n::tr("hint", "提示"),
+            phantom_mesh::i18n::tr(
+                "set keys via agents.toml (preferred) or `set -a; source ~/.phantom-mesh/env; set +a`",
+                "透過 agents.toml 設定金鑰（建議），或 `set -a; source ~/.phantom-mesh/env; set +a`",
+            ),
         );
     }
 
@@ -9103,11 +15231,23 @@ async fn run_doctor() -> anyhow::Result<()> {
         None
     };
     match healthz.as_ref().map(|r| r.status().as_u16()) {
-        Some(200)  => doctor_ok("healthz", &format!("200 OK on {}", healthz_url)),
-        Some(code) => doctor_warn("healthz", &format!("HTTP {} on {} (expected 200)", code, healthz_url)),
+        Some(200) => doctor_ok("healthz", &format!("200 OK on {}", healthz_url)),
+        Some(code) => doctor_warn(
+            "healthz",
+            &format!("HTTP {} on {} (expected 200)", code, healthz_url),
+        ),
         None => doctor_warn(
             "healthz",
-            &format!("unreachable on :{} — start with `phantom service install` or `phantom serve &`", configured_port),
+            &phantom_mesh::i18n::tr_owned(
+                format!(
+                    "unreachable on :{} — start with `phantom service install` or `phantom serve &`",
+                    configured_port
+                ),
+                format!(
+                    "無法連線到 :{} — 請以 `phantom service install` 或 `phantom serve &` 啟動",
+                    configured_port
+                ),
+            ),
         ),
     }
 
@@ -9144,25 +15284,34 @@ async fn run_doctor() -> anyhow::Result<()> {
         let q = std::process::Command::new("systemctl")
             .args(["--user", "is-active", LINUX_UNIT_NAME])
             .output();
-        let active = q
-            .as_ref()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        let active = q.as_ref().map(|o| o.status.success()).unwrap_or(false);
         let unit_path = dirs::home_dir()
             .map(|h| h.join(".config/systemd/user").join(LINUX_UNIT_NAME))
             .unwrap_or_default();
         let registered = unit_path.exists();
         if registered && active {
-            doctor_ok("systemd", &format!("{} active", LINUX_UNIT_NAME));
+            doctor_ok(
+                "systemd",
+                &phantom_mesh::i18n::tr_owned(
+                    format!("{} active", LINUX_UNIT_NAME),
+                    format!("{} 執行中", LINUX_UNIT_NAME),
+                ),
+            );
         } else if registered {
             doctor_warn(
                 "systemd",
-                &format!("{} unit present but not running", LINUX_UNIT_NAME),
+                &phantom_mesh::i18n::tr_owned(
+                    format!("{} unit present but not running", LINUX_UNIT_NAME),
+                    format!("{} 服務單元已安裝但未執行", LINUX_UNIT_NAME),
+                ),
             );
         } else {
             doctor_warn(
                 "systemd",
-                "no unit installed — `phantom service install` for systemd --user auto-start",
+                phantom_mesh::i18n::tr(
+                    "no unit installed — `phantom service install` for systemd --user auto-start",
+                    "未安裝服務單元 — 執行 `phantom service install` 以設定 systemd --user 開機自動啟動",
+                ),
             );
         }
     }
@@ -9179,7 +15328,10 @@ async fn run_doctor() -> anyhow::Result<()> {
             let (last_run, _, _) = windows_task_info(WINDOWS_TASK_NAME);
             doctor_ok(
                 "Scheduled Task",
-                &format!("registered (last run {})", last_run.unwrap_or_else(|| "?".into())),
+                &format!(
+                    "registered (last run {})",
+                    last_run.unwrap_or_else(|| "?".into())
+                ),
             );
         } else {
             doctor_warn(
@@ -9190,7 +15342,7 @@ async fn run_doctor() -> anyhow::Result<()> {
     }
 
     // ── Tailscale ────────────────────────────────────────────────────────
-    doctor_section("network");
+    doctor_section(phantom_mesh::i18n::tr("network", "網路"));
     let ts = std::process::Command::new("tailscale")
         .args(["status", "--peers=false", "--self=true"])
         .output();
@@ -9198,11 +15350,20 @@ async fn run_doctor() -> anyhow::Result<()> {
         Ok(o) if o.status.success() => {
             let body = String::from_utf8_lossy(&o.stdout);
             let line = body.lines().next().unwrap_or("").trim();
-            doctor_ok("Tailscale", &format!("connected ({})", line));
+            doctor_ok(
+                "Tailscale",
+                &phantom_mesh::i18n::tr_owned(
+                    format!("connected ({})", line),
+                    format!("已連線（{}）", line),
+                ),
+            );
         }
         Ok(_) | Err(_) => doctor_warn(
             "Tailscale",
-            "not in PATH or not connected — `tailscale up`",
+            phantom_mesh::i18n::tr(
+                "not in PATH or not connected — `tailscale up`",
+                "不在 PATH 中或尚未連線 — 執行 `tailscale up`",
+            ),
         ),
     }
 
@@ -9234,10 +15395,19 @@ async fn run_doctor() -> anyhow::Result<()> {
                     let model = v["model"].as_str().unwrap_or("?");
                     let port = v["port"].as_u64().unwrap_or(8080);
                     let probe = std::process::Command::new("curl")
-                        .args(["-s", "--max-time", "1", "-o", "/dev/null", "-w", "%{http_code}",
-                               &format!("http://127.0.0.1:{}/v1/models", port)])
+                        .args([
+                            "-s",
+                            "--max-time",
+                            "1",
+                            "-o",
+                            "/dev/null",
+                            "-w",
+                            "%{http_code}",
+                            &format!("http://127.0.0.1:{}/v1/models", port),
+                        ])
                         .output();
-                    let code = probe.ok()
+                    let code = probe
+                        .ok()
                         .and_then(|o| String::from_utf8(o.stdout).ok())
                         .unwrap_or_default();
                     if code == "200" {
@@ -9245,7 +15415,10 @@ async fn run_doctor() -> anyhow::Result<()> {
                     } else {
                         doctor_warn(
                             "server",
-                            &format!("not reachable (last config: {} on :{}) — `phantom mlx serve`", model, port),
+                            &format!(
+                                "not reachable (last config: {} on :{}) — `phantom mlx serve`",
+                                model, port
+                            ),
                         );
                     }
                 }
@@ -9263,25 +15436,31 @@ async fn run_doctor() -> anyhow::Result<()> {
             match last_line.and_then(|l| serde_json::from_str::<AutoEvolveLogEntry>(l).ok()) {
                 Some(entry) => {
                     let secs = entry.started_at_ms / 1000;
-                    let when = std::process::Command::new("date")
-                        .args(["-r", &secs.to_string(), "+%Y-%m-%d %H:%M"])
-                        .output()
-                        .ok()
-                        .and_then(|o| String::from_utf8(o.stdout).ok())
-                        .map(|s| s.trim().to_string())
-                        .unwrap_or_else(|| "?".into());
+                    let when = fmt_local_epoch(secs, "%Y-%m-%d %H:%M");
                     let total = content.lines().filter(|l| !l.is_empty()).count();
                     let label = format!("last run @ {} → {} ({} total)", when, entry.status, total);
                     match entry.status.as_str() {
                         "green" | "fixed" => doctor_ok("history", &label),
-                        "failed"          => doctor_fail("history", &label),
-                        _                 => doctor_warn("history", &label),
+                        "failed" => doctor_fail("history", &label),
+                        _ => doctor_warn("history", &label),
                     }
                 }
-                None => doctor_warn("history", "log exists but unparseable"),
+                None => doctor_warn(
+                    "history",
+                    phantom_mesh::i18n::tr(
+                        "log exists but unparseable",
+                        "記錄檔存在但無法解析",
+                    ),
+                ),
             }
         } else {
-            doctor_warn("history", "no runs yet — `phantom autoevolve --once`");
+            doctor_warn(
+                "history",
+                phantom_mesh::i18n::tr(
+                    "no runs yet — `phantom autoevolve --once`",
+                    "尚未執行過 — 執行 `phantom autoevolve --once`",
+                ),
+            );
         }
     }
     #[cfg(target_os = "macos")]
@@ -9296,7 +15475,10 @@ async fn run_doctor() -> anyhow::Result<()> {
         if registered {
             doctor_ok("schedule", "registered (LaunchAgent)");
         } else {
-            doctor_warn("schedule", "not scheduled — `phantom autoevolve schedule install`");
+            doctor_warn(
+                "schedule",
+                "not scheduled — `phantom autoevolve schedule install`",
+            );
         }
     }
     #[cfg(target_os = "windows")]
@@ -9309,12 +15491,15 @@ async fn run_doctor() -> anyhow::Result<()> {
         if registered {
             doctor_ok("schedule", "registered (Scheduled Task)");
         } else {
-            doctor_warn("schedule", "not scheduled — `phantom autoevolve schedule install`");
+            doctor_warn(
+                "schedule",
+                "not scheduled — `phantom autoevolve schedule install`",
+            );
         }
     }
 
     // ── identity ─────────────────────────────────────────────────────────
-    doctor_section("identity");
+    doctor_section(phantom_mesh::i18n::tr("identity", "身分"));
     match phantom_mesh::auth::load() {
         Some(s) => doctor_ok("logged in", &phantom_mesh::auth::human_summary(&s)),
         None => {
@@ -9333,26 +15518,105 @@ async fn run_doctor() -> anyhow::Result<()> {
                 None => false,
             };
             if broker_live {
-                doctor_warn("logged in", "no — broker live, run `phantom login`");
+                doctor_warn(
+                    "logged in",
+                    phantom_mesh::i18n::tr(
+                        "no — broker live, run `phantom login`",
+                        "未登入 — 中介伺服器已上線，請執行 `phantom login`",
+                    ),
+                );
             } else {
                 doctor_ok(
                     "identity",
-                    "local-only (broker not deployed yet — login becomes available once phantommesh.io/healthz returns 200)",
+                    phantom_mesh::i18n::tr(
+                        "local-only (broker not deployed yet — login becomes available once phantommesh.io/healthz returns 200)",
+                        "僅限本機（中介伺服器尚未部署 — 當 phantommesh.io/healthz 回傳 200 後即可登入）",
+                    ),
+                );
+            }
+        }
+    }
+
+    // Life Node encryption-at-rest state (P4). The per-device key derives from
+    // ~/.phantom-mesh/identity.key; without a usable one, captured events are
+    // written PLAINTEXT. Surface it honestly (matches the /identity TUI pane).
+    {
+        let key_ok = dirs::home_dir()
+            .map(|h| {
+                phantom_mesh::life_node::key_derivation::load_event_key(
+                    &h.join(".phantom-mesh").join("identity.key"),
+                )
+                .is_ok()
+            })
+            .unwrap_or(false);
+        if key_ok {
+            doctor_ok(
+                "events at rest",
+                phantom_mesh::i18n::tr(
+                    "encrypted (age v1, per-device identity.key)",
+                    "已加密（age v1，每裝置 identity.key）",
+                ),
+            );
+        } else {
+            doctor_warn(
+                "events at rest",
+                phantom_mesh::i18n::tr(
+                    "PLAINTEXT — no usable ~/.phantom-mesh/identity.key (Life Node events not encrypted yet)",
+                    "明文 — 沒有可用的 ~/.phantom-mesh/identity.key（生活節點事件尚未加密）",
+                ),
+            );
+        }
+    }
+
+    // Life Node capture volume — how much has actually been logged (a rollup
+    // via the same compute_stats `phantom data stats` / TUI /stats use). Makes
+    // the health check reflect real data, not just the encryption posture.
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(s) = phantom_mesh::life_node::data_cli::compute_stats(&home) {
+            if s.total == 0 {
+                doctor_ok(
+                    "Life Node",
+                    phantom_mesh::i18n::tr(
+                        "no events captured yet — try `phantom note \"<text>\"`",
+                        "尚未擷取任何事件 — 試試 `phantom note \"<文字>\"`",
+                    ),
+                );
+            } else {
+                let span = match (&s.earliest, &s.latest) {
+                    (Some(e), Some(l)) => format!("{} → {}", e, l),
+                    _ => "—".to_string(),
+                };
+                let kinds = s
+                    .by_kind
+                    .iter()
+                    .map(|(k, n)| format!("{} {}", k, n))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                doctor_ok(
+                    "Life Node",
+                    &phantom_mesh::i18n::tr_owned(
+                        format!("{} events · {} · {} in last 7d · {}", s.total, span, s.last_7d, kinds),
+                        format!("{} 筆事件 · {} · 近 7 天 {} 筆 · {}", s.total, span, s.last_7d, kinds),
+                    ),
                 );
             }
         }
     }
 
     // ── diagnostics — surface recent crashes + event log path ────────────
-    doctor_section("diagnostics");
+    doctor_section(phantom_mesh::i18n::tr("diagnostics", "診斷"));
     {
         let crash_dir = dirs::home_dir().map(|h| h.join(".phantom-mesh/crashes"));
-        let crash_count = crash_dir.as_ref()
+        let crash_count = crash_dir
+            .as_ref()
             .and_then(|d| std::fs::read_dir(d).ok())
             .map(|it| it.flatten().count())
             .unwrap_or(0);
         if crash_count == 0 {
-            doctor_ok("crash logs", "0 (no panics recorded)");
+            doctor_ok(
+                "crash logs",
+                phantom_mesh::i18n::tr("0 (no panics recorded)", "0（未記錄任何當機）"),
+            );
         } else {
             let latest = phantom_mesh::diag::last_crash_path()
                 .map(|p| p.display().to_string())
@@ -9371,14 +15635,11 @@ async fn run_doctor() -> anyhow::Result<()> {
             .and_then(|p| std::fs::metadata(&p).ok())
             .map(|m| m.len())
             .unwrap_or(0);
-        doctor_ok(
-            "events log",
-            &format!("{} ({} bytes)", events_path, bytes),
-        );
+        doctor_ok("events log", &format!("{} ({} bytes)", events_path, bytes));
     }
 
     // ── tool surface ─────────────────────────────────────────────────────
-    doctor_section("tools");
+    doctor_section(phantom_mesh::i18n::tr("tools", "工具"));
     let base = phantom_mesh::tools::all_tool_names().len();
     // mcp.rs synthesises two cluster-only tools (phantom_swarm,
     // phantom_evolve_distributed) on top of the base set when serving
@@ -9433,11 +15694,17 @@ async fn run_doctor() -> anyhow::Result<()> {
             .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
             .unwrap_or_default();
         if mdutil.contains("Indexing enabled") {
-            doctor_ok("Spotlight", &format!("indexing enabled for {}", cwd.display()));
+            doctor_ok(
+                "Spotlight",
+                &format!("indexing enabled for {}", cwd.display()),
+            );
         } else {
             doctor_warn(
                 "Spotlight",
-                &format!("not indexing {} (spotlight_search will fall back)", cwd.display()),
+                &format!(
+                    "not indexing {} (spotlight_search will fall back)",
+                    cwd.display()
+                ),
             );
         }
 
@@ -9467,11 +15734,18 @@ async fn run_doctor() -> anyhow::Result<()> {
         let cfg_port = phantom_mesh::config::AgentsConfig::find_and_load()
             .map(|c| c.core.port)
             .unwrap_or(7878);
-        doctor_ok("configured port", &format!("{} (from agents.toml [core].port)", cfg_port));
+        doctor_ok(
+            "configured port",
+            &format!("{} (from agents.toml [core].port)", cfg_port),
+        );
 
         // OpenSSH server (so Mac can ssh into this node)
         let sshd = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", "Get-Service sshd | Select-Object -ExpandProperty Status"])
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-Service sshd | Select-Object -ExpandProperty Status",
+            ])
             .output();
         match sshd {
             Ok(o) if o.status.success() => {
@@ -9548,7 +15822,7 @@ async fn run_doctor() -> anyhow::Result<()> {
 
     // ── footer ────────────────────────────────────────────────────────────
     println!();
-    println!("{}", colored("done.", 36));
+    println!("{}", colored(phantom_mesh::i18n::tr("done.", "完成。"), 36));
     Ok(())
 }
 
@@ -9619,6 +15893,24 @@ fn run_selftest(args: &[String]) -> anyhow::Result<()> {
     };
 
     let mut cmd = std::process::Command::new(&bash);
+    // D19: make selftest exercise THE BINARY THAT LAUNCHED IT, not whatever
+    // `phantom` is on PATH. scripts/selftest.sh defaults `PHANTOM_BIN` to
+    // ~/.cargo/bin/phantom — a likely-stale install — so without this the suite
+    // can silently validate a different build than the one you ran. Only set it
+    // when the caller hasn't explicitly overridden PHANTOM_BIN.
+    if std::env::var_os("PHANTOM_BIN").is_none() {
+        if let Ok(exe) = std::env::current_exe() {
+            let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+            cmd.env("PHANTOM_BIN", exe);
+        }
+    }
+    // On Windows the script path has backslashes (D:\...\selftest.sh). Git Bash
+    // treats `\` in an argument as an escape, so the path arrives mangled
+    // (D:Projects...selftest.sh) and bash reports "No such file". Forward
+    // slashes resolve correctly in Git Bash (D:/.../selftest.sh).
+    #[cfg(target_os = "windows")]
+    cmd.arg(script.to_string_lossy().replace('\\', "/"));
+    #[cfg(not(target_os = "windows"))]
     cmd.arg(&script);
     // Forward every arg after `selftest`.
     for a in args.iter().skip(2) {
@@ -9626,7 +15918,12 @@ fn run_selftest(args: &[String]) -> anyhow::Result<()> {
     }
 
     let status = cmd.status().map_err(|e| {
-        anyhow::anyhow!("failed to invoke {} {}: {}", bash.display(), script.display(), e)
+        anyhow::anyhow!(
+            "failed to invoke {} {}: {}",
+            bash.display(),
+            script.display(),
+            e
+        )
     })?;
     std::process::exit(status.code().unwrap_or(1));
 }
@@ -9640,18 +15937,23 @@ fn find_bash() -> Option<PathBuf> {
     // override should be a visible error, not silent best-effort.
     if let Ok(p) = std::env::var("PHANTOM_BASH") {
         let path = PathBuf::from(&p);
-        if path.is_file() { return Some(path); }
-        eprintln!("{} PHANTOM_BASH points to a missing file: {}",
-            colored("✗", 31), p);
+        if path.is_file() {
+            return Some(path);
+        }
+        eprintln!(
+            "{} PHANTOM_BASH points to a missing file: {}",
+            colored("✗", 31),
+            p
+        );
         eprintln!("  Either fix the path or unset PHANTOM_BASH to fall back to PATH search.");
         std::process::exit(2);
     }
 
-    // PATH search (uses PATHEXT-style extensions on Windows).
-    if let Some(p) = path_search("bash") {
-        return Some(p);
-    }
-
+    // On Windows, prefer a real Git Bash install BEFORE the generic PATH
+    // search. The WSL launcher (C:\Windows\System32\bash.exe) is usually first
+    // on PATH but it needs /mnt/<drive>/ paths, not the D:/... form the
+    // selftest invocation passes, so it reports "No such file". Git Bash
+    // resolves D:/... correctly. PATH search stays as the last-resort fallback.
     #[cfg(target_os = "windows")]
     {
         let mut candidates: Vec<PathBuf> = vec![
@@ -9668,8 +15970,15 @@ fn find_bash() -> Option<PathBuf> {
             candidates.push(PathBuf::from(p).join(r"Programs\Git\bin\bash.exe"));
         }
         for c in candidates {
-            if c.is_file() { return Some(c); }
+            if c.is_file() {
+                return Some(c);
+            }
         }
+    }
+
+    // PATH search (uses PATHEXT-style extensions on Windows).
+    if let Some(p) = path_search("bash") {
+        return Some(p);
     }
 
     None
@@ -9691,7 +16000,9 @@ fn path_search(name: &str) -> Option<PathBuf> {
             } else {
                 dir.join(format!("{}{}", name, ext))
             };
-            if candidate.is_file() { return Some(candidate); }
+            if candidate.is_file() {
+                return Some(candidate);
+            }
         }
     }
     None
@@ -9701,20 +16012,28 @@ fn locate_selftest_script() -> Option<PathBuf> {
     // 1. explicit override
     if let Ok(p) = std::env::var("PHANTOM_SELFTEST_SCRIPT") {
         let path = PathBuf::from(p);
-        if path.is_file() { return Some(path); }
+        if path.is_file() {
+            return Some(path);
+        }
     }
 
     // helper: probe `<dir>/scripts/selftest.sh`
     let probe = |dir: &std::path::Path| -> Option<PathBuf> {
         let p = dir.join("scripts").join("selftest.sh");
-        if p.is_file() { Some(p) } else { None }
+        if p.is_file() {
+            Some(p)
+        } else {
+            None
+        }
     };
 
     // 2 + 3. walk up from cwd
     if let Ok(cwd) = std::env::current_dir() {
         let mut cur: Option<&std::path::Path> = Some(cwd.as_path());
         while let Some(d) = cur {
-            if let Some(p) = probe(d) { return Some(p); }
+            if let Some(p) = probe(d) {
+                return Some(p);
+            }
             cur = d.parent();
         }
     }
@@ -9724,7 +16043,9 @@ fn locate_selftest_script() -> Option<PathBuf> {
         let real = std::fs::canonicalize(&exe).unwrap_or(exe);
         let mut cur: Option<&std::path::Path> = real.parent();
         while let Some(d) = cur {
-            if let Some(p) = probe(d) { return Some(p); }
+            if let Some(p) = probe(d) {
+                return Some(p);
+            }
             cur = d.parent();
         }
     }
@@ -9732,291 +16053,12 @@ fn locate_selftest_script() -> Option<PathBuf> {
     // 5. user copy
     if let Some(home) = dirs::home_dir() {
         let p = home.join(".phantom-mesh/scripts/selftest.sh");
-        if p.is_file() { return Some(p); }
+        if p.is_file() {
+            return Some(p);
+        }
     }
 
     None
-}
-
-// ── `phantom service` — Windows Task Scheduler implementation ───────────────
-//
-// Subcommands mirror the macOS variant:
-//   install   register a logon-triggered Scheduled Task that runs
-//             `phantom serve` every time the user logs in
-//   uninstall delete the Scheduled Task
-//   status    show whether the task is registered + healthz reachability
-//
-// We use schtasks.exe (the user-mode counterpart of sc.exe) because it
-// works without admin elevation when running as the logged-in user. The
-// task XML embeds RestartOnFailure with a 30-second cool-down, which gives
-// us the "auto-relaunch if phantom serve crashes" behaviour without us
-// implementing the Windows Service Control Manager interface.
-
-#[cfg(target_os = "windows")]
-// Aligned with `docs/SESSION-ONBOARDING.md` §3.1 and the Z13 deploy
-// instruction set, which both already speak of "PhantomServe". The
-// shorter "PhantomMesh" was a vestige from before the doc was written.
-const WINDOWS_TASK_NAME: &str = "PhantomServe";
-
-/// Configured serve port from agents.toml, defaulting to 7878 if no
-/// config is found. The hardcoded :7878 used to mismatch any user with
-/// `[core] port = 7879` in agents.toml — healthz probe would always
-/// report unreachable even though phantom serve was running.
-#[cfg(target_os = "windows")]
-fn configured_port() -> u16 {
-    phantom_mesh::config::AgentsConfig::find_and_load()
-        .map(|c| c.core.port)
-        .unwrap_or(7878)
-}
-
-/// Locale-independent Scheduled Task runtime info via PowerShell
-/// `Get-ScheduledTaskInfo`. Returns `(last_run, next_run, last_result)`,
-/// each `None` when the task is missing, the field is empty, or the call
-/// fails. Used instead of parsing localized strings out of `schtasks
-/// /Query /V /FO LIST`, whose field labels (e.g. "Last Run Time") are
-/// translated on non-English Windows installs and never matched the
-/// English-only `starts_with(...)` predicates.
-#[cfg(target_os = "windows")]
-fn windows_task_info(task_name: &str) -> (Option<String>, Option<String>, Option<i64>) {
-    let escaped = task_name.replace('\'', "''");
-    // Windows uses 1899-12-30 / 1999-11-30 / similar pre-2000 placeholders
-    // for "never run". Filter those server-side so callers can render "?"
-    // without false-positive 1999 dates leaking through.
-    let ps_script = format!(
-        "$i = Get-ScheduledTaskInfo -TaskName '{}' -ErrorAction SilentlyContinue; \
-         if ($i) {{ \
-            $cutoff = [DateTime]'2000-01-01'; \
-            $last = if ($i.LastRunTime -gt $cutoff) {{ $i.LastRunTime }} else {{ '' }}; \
-            $next = if ($i.NextRunTime -gt $cutoff) {{ $i.NextRunTime }} else {{ '' }}; \
-            \"LastRun=$last\"; \"NextRun=$next\"; \"Result=$($i.LastTaskResult)\" \
-         }}",
-        escaped
-    );
-    let out = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", &ps_script])
-        .output()
-        .ok();
-    let body = out
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default();
-    let last = body
-        .lines()
-        .find_map(|l| l.strip_prefix("LastRun="))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let next = body
-        .lines()
-        .find_map(|l| l.strip_prefix("NextRun="))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let result = body
-        .lines()
-        .find_map(|l| l.strip_prefix("Result="))
-        .and_then(|s| s.trim().parse().ok());
-    (last, next, result)
-}
-
-/// Translate a LastTaskResult HRESULT-style code into a short human label.
-/// Returns ("color-code", "label") so callers can render with the right
-/// ANSI colour. Constants from the Windows Task Scheduler return-code set.
-#[cfg(target_os = "windows")]
-fn windows_task_result_label(result: i64) -> (u8, String) {
-    match result {
-        0           => (32, "succeeded".into()),                      // S_OK
-        0x00041300  => (32, "ready".into()),                          // SCHED_S_TASK_READY
-        0x00041301  => (33, "running".into()),                        // SCHED_S_TASK_RUNNING
-        0x00041303  => (90, "never run".into()),                      // SCHED_S_TASK_HAS_NOT_RUN
-        0x00041305  => (33, "no more runs".into()),                   // SCHED_S_TASK_NO_MORE_RUNS
-        0x00041306  => (33, "disabled".into()),                       // SCHED_S_TASK_DISABLED
-        0x00041325  => (33, "queued".into()),                         // SCHED_S_TASK_QUEUED
-        other if other > 0 => (31, format!("error 0x{:08X}", other)), // any other HRESULT
-        other       => (31, format!("error {}", other)),
-    }
-}
-
-#[cfg(target_os = "windows")]
-async fn run_service_subcommand_windows(action: &str) -> anyhow::Result<()> {
-    use std::process::Command;
-
-    match action {
-        "install" => {
-            let bin_self = std::env::current_exe()?;
-            let bin = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
-            let bin_str = bin.display().to_string();
-
-            // Delete any prior registration first so re-installs always
-            // pick up the fresh binary path.
-            let _ = Command::new("schtasks")
-                .args(["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"])
-                .output();
-
-            // schtasks /Create /SC ONLOGON is rejected with "Access Denied"
-            // on Enterprise / managed Windows where user-level ONLOGON
-            // tasks are blocked by policy. PowerShell's
-            // Register-ScheduledTask + New-ScheduledTaskTrigger -AtLogOn
-            // -User <current user> works in those environments because it
-            // creates the task in the current user's hive instead of the
-            // system tree. RestartCount/RestartInterval gives us the
-            // "auto-relaunch if phantom serve crashes" behaviour the old
-            // schtasks XML embedding promised.
-            let bin_for_ps = bin_str.replace('\'', "''");
-            let task_for_ps = WINDOWS_TASK_NAME.replace('\'', "''");
-            let ps_script = format!(
-                "$action = New-ScheduledTaskAction -Execute '{}' -Argument 'serve'; \
-                 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; \
-                 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); \
-                 Register-ScheduledTask -TaskName '{}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null",
-                bin_for_ps, task_for_ps
-            );
-
-            let status = Command::new("powershell")
-                .args(["-NoProfile", "-Command", &ps_script])
-                .status()?;
-            if !status.success() {
-                anyhow::bail!("Register-ScheduledTask failed (exit {:?})", status.code());
-            }
-
-            // Trigger it once so the service is up immediately, not only on
-            // next logon.
-            let _ = Command::new("schtasks")
-                .args(["/Run", "/TN", WINDOWS_TASK_NAME])
-                .status();
-
-            let verify_port = configured_port();
-
-            // Tailscale-scoped Defender firewall rule, mirroring step [3/5]
-            // of install-phantom-windows.ps1. Best-effort — New-NetFirewallRule
-            // needs admin; on a non-admin shell we report the skip but don't
-            // fail the install.
-            let fw_script = format!(
-                "$ErrorActionPreference = 'Stop'; \
-                 try {{ \
-                    Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue; \
-                    New-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {} -RemoteAddress '100.64.0.0/10' -Profile Any | Out-Null; \
-                    Write-Output 'OK' \
-                 }} catch {{ \
-                    Write-Output (\"FAIL: \" + $_.Exception.Message) \
-                 }}",
-                verify_port
-            );
-            let fw_msg = Command::new("powershell")
-                .args(["-NoProfile", "-Command", &fw_script])
-                .output()
-                .ok()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                .unwrap_or_default();
-            let fw_status = if fw_msg == "OK" {
-                format!("PhantomMesh-Inbound TCP {} ← 100.64.0.0/10 (Tailscale)", verify_port)
-            } else if let Some(reason) = fw_msg.strip_prefix("FAIL:") {
-                format!("skipped — re-run from admin PowerShell ({})", reason.trim())
-            } else {
-                "skipped — PowerShell unavailable".into()
-            };
-
-            eprintln!("{} Registered Scheduled Task '{}'", colored("✓", 32), WINDOWS_TASK_NAME);
-            eprintln!("    binary:   {}", bin_str);
-            eprintln!("    trigger:  at user logon (auto-restart up to 3× on failure)");
-            eprintln!("    firewall: {}", fw_status);
-            eprintln!("    Verify:   curl http://127.0.0.1:{}/healthz", verify_port);
-            eprintln!("    Uninstall: phantom service uninstall");
-            eprintln!();
-            eprintln!(
-                "{} {} for a full environment health check.",
-                colored("→", 36),
-                colored("phantom doctor", 33)
-            );
-            Ok(())
-        }
-        "uninstall" => {
-            let status = Command::new("schtasks")
-                .args(["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"])
-                .status()?;
-            if status.success() {
-                eprintln!("{} Removed Scheduled Task '{}'", colored("◆", 35), WINDOWS_TASK_NAME);
-            } else {
-                eprintln!(
-                    "{} schtasks /Delete returned exit {:?} — task may not have existed.",
-                    colored("⚠", 33),
-                    status.code()
-                );
-            }
-            // Best-effort firewall rule cleanup. Silent so non-admin
-            // uninstalls don't add noise (the rule was probably never
-            // installed in that case).
-            let _ = Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-Command",
-                    "Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
-                ])
-                .output();
-
-            // Also kill any running phantom serve so the next logon starts fresh.
-            let _ = Command::new("taskkill")
-                .args(["/F", "/IM", "phantom.exe"])
-                .output();
-            eprintln!("{} Uninstalled.", colored("✓", 32));
-            Ok(())
-        }
-        "status" => {
-            let q = Command::new("schtasks")
-                .args(["/Query", "/TN", WINDOWS_TASK_NAME])
-                .output()?;
-            let registered = q.status.success();
-
-            let port = configured_port();
-            let healthz_url = format!("http://127.0.0.1:{}/healthz", port);
-            let probe = Command::new("curl.exe")
-                .args([
-                    "-s", "--max-time", "2",
-                    "-o", "NUL",
-                    "-w", "%{http_code}",
-                    &healthz_url,
-                ])
-                .output();
-            let healthz_code = probe
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .unwrap_or_default();
-
-            println!(
-                "{} {}",
-                colored("phantom service status", 36),
-                colored(WINDOWS_TASK_NAME, 90)
-            );
-            println!(
-                "  registered : {}",
-                if registered { colored("yes", 32) } else { colored("no", 31) }
-            );
-            if registered {
-                let (last_run_time, next_run_time, last_result) =
-                    windows_task_info(WINDOWS_TASK_NAME);
-                println!("  last run   : {}", last_run_time.unwrap_or_else(|| "?".into()));
-                println!("  next run   : {}", next_run_time.unwrap_or_else(|| "?".into()));
-                if let Some(r) = last_result {
-                    let (code, label) = windows_task_result_label(r);
-                    println!("  last state : {}", colored(&label, code));
-                }
-            }
-            println!(
-                "  healthz    : {} ({})",
-                if healthz_code == "200" { colored("ok", 32) } else { colored("unreachable", 31) },
-                if healthz_code.is_empty() { "no response".into() } else { format!("HTTP {}", healthz_code) }
-            );
-            if registered && healthz_code != "200" {
-                println!("  hint       : Get-EventLog Application -Newest 20 | findstr phantom");
-            }
-            Ok(())
-        }
-        other => {
-            eprintln!(
-                "{} Unknown service action: '{}'.\n    Use one of: install, uninstall, status",
-                colored("✗", 31),
-                other
-            );
-            std::process::exit(1);
-        }
-    }
 }
 
 /// Best-effort: locate the phantom-mesh repo root, given the canonical path
@@ -10060,58 +16102,122 @@ fn nix_uid() -> u32 {
         .unwrap_or(0)
 }
 
-#[cfg(all(test, target_os = "windows"))]
-mod windows_helper_tests {
-    use super::*;
+// ── A3/T93: post-judge decision snapshot tests ────────────────────────────
+//
+// These tests pin the exact stderr text emitted for both verdict cohorts
+// (above-θ → no extraction; below-θ → triggering extraction) so that the
+// downstream consumers of this CLI surface (operator dashboards, autoevolve
+// JSONL parser, future test-harness asserts) can rely on stable line shape.
+//
+// Gated behind `experimental-hermes-curator` because the symbol it tests
+// (`report_post_judge_to`) only compiles under that feature.
+#[cfg(all(test, feature = "experimental-hermes-curator"))]
+mod a3_post_judge_tests {
+    use super::report_post_judge_to;
 
+    /// Above-θ path, EXTRACTION OFF.
+    /// Operator did not opt into extraction; verdict is comfortably above θ.
+    /// Expectation: a single "no skill extracted" line, no secondary lines.
     #[test]
-    fn task_result_label_known_codes_render_with_color() {
-        // Concrete known SCHED_S_* constants — make sure each maps to the
-        // right human label and ANSI colour, otherwise localized status
-        // output silently regresses to "?" on every Windows install.
-        assert_eq!(windows_task_result_label(0), (32, "succeeded".into()));
-        assert_eq!(windows_task_result_label(0x00041300), (32, "ready".into()));
-        assert_eq!(windows_task_result_label(0x00041301), (33, "running".into()));
-        assert_eq!(windows_task_result_label(0x00041303), (90, "never run".into()));
-        assert_eq!(windows_task_result_label(0x00041305), (33, "no more runs".into()));
-        assert_eq!(windows_task_result_label(0x00041306), (33, "disabled".into()));
-        assert_eq!(windows_task_result_label(0x00041325), (33, "queued".into()));
+    fn snapshot_above_threshold_extract_off() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(
+            &mut buf,
+            /*score=*/ 9,
+            /*threshold=*/ 7,
+            /*rationale=*/ "clean fix, all tests green",
+            /*extract_skills=*/ false,
+            /*session_id=*/ "evolve-test-001",
+        )
+        .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        let expected = "  ✓ score 9/10 above θ=7 — no skill extracted\n";
+        assert_eq!(got, expected, "above-θ snapshot drift");
     }
 
+    /// Above-θ path, EXTRACTION ON.
+    /// Operator did opt in, but the verdict didn't qualify — we must
+    /// surface that we considered it and explain why we skipped, NOT
+    /// silently drop the request.
     #[test]
-    fn task_result_label_unknown_positive_renders_as_hex_error() {
-        // Any other positive HRESULT should fall through to a red hex
-        // dump so the user can google it directly. Pick a couple plausible
-        // failure codes.
-        let (color, label) = windows_task_result_label(0x80070005); // E_ACCESSDENIED
-        assert_eq!(color, 31);
-        assert_eq!(label, "error 0x80070005");
-
-        let (color, label) = windows_task_result_label(0x800704C7); // ERROR_CANCELLED
-        assert_eq!(color, 31);
-        assert_eq!(label, "error 0x800704C7");
+    fn snapshot_above_threshold_extract_on_explains_skip() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(&mut buf, 8, 7, "good progress", true, "evolve-test-002")
+            .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        let expected = "  ✓ score 8/10 above θ=7 — no skill extracted\n  \
+                        · --extract-skills set, but verdict is above threshold; skipping\n";
+        assert_eq!(got, expected, "above-θ + extract-on snapshot drift");
     }
 
+    /// Below-θ path, EXTRACTION OFF.
+    /// Verdict says the agent struggled, but operator didn't ask for
+    /// extraction. Expectation: state the verdict, surface the rationale,
+    /// AND tell the operator how to enable extraction (never silent).
     #[test]
-    fn task_result_label_unknown_negative_renders_as_decimal_error() {
-        // Negative results should render decimal — they are not
-        // HRESULT-shaped and hex would mislead.
-        let (color, label) = windows_task_result_label(-1);
-        assert_eq!(color, 31);
-        assert_eq!(label, "error -1");
+    fn snapshot_below_threshold_extract_off() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(
+            &mut buf,
+            3,
+            7,
+            "got stuck on a wrong hypothesis for 6 rounds",
+            false,
+            "evolve-test-003",
+        )
+        .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        let expected = "  ✗ score 3/10 below θ=7 → triggering extraction\n  \
+                        rationale: got stuck on a wrong hypothesis for 6 rounds\n  \
+                        · extraction NOT performed (re-run with --extract-skills to enable)\n";
+        assert_eq!(got, expected, "below-θ + extract-off snapshot drift");
     }
 
+    /// Below-θ path, EXTRACTION ON — the happy below-θ path.
+    /// Until A1 lands the real extractor, this prints the logged-no-op
+    /// stub. When A1 lands, this snapshot will need updating to reflect
+    /// the new "extracted skill at <path>" line — that's intentional;
+    /// the snapshot is the canary that flags the wire-up moment.
     #[test]
-    fn configured_port_falls_back_to_7878_when_no_config() {
-        // If find_and_load returns None (no agents.toml anywhere reachable),
-        // configured_port must default to the documented 7878. We can't
-        // easily nuke the filesystem mid-test, but if the current process
-        // *does* see a config the default branch is unreachable. So this
-        // test asserts the fallback code path compiles + the value is
-        // a sane u16. Keeps the const visible to the test file so a
-        // future refactor that drops the default trips this.
-        let port = configured_port();
-        assert!(port > 0, "configured_port must yield a valid u16");
-        assert_ne!(port, u16::MAX, "u16::MAX is unreachable from agents.toml");
+    fn snapshot_below_threshold_extract_on_triggers_pipeline() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(&mut buf, 2, 7, "wrong direction", true, "evolve-test-004")
+            .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        let expected = "  ✗ score 2/10 below θ=7 → triggering extraction\n  \
+                        rationale: wrong direction\n  \
+                        ◇ extract::extract_skill(...) for session evolve-test-004 — A1 not yet wired; logged no-op\n  \
+                        › skill extraction will fire here once A1 + A2 land\n";
+        assert_eq!(got, expected, "below-θ + extract-on snapshot drift");
+    }
+
+    /// Boundary: score EQUAL to threshold counts as ABOVE (we used `>=`).
+    /// This pins that convention so a future refactor can't accidentally
+    /// flip the comparison and start extracting on borderline-acceptable runs.
+    #[test]
+    fn boundary_score_equal_to_threshold_is_above() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(&mut buf, 7, 7, "right at the line", false, "evolve-b1")
+            .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        assert!(
+            got.starts_with("  ✓ score 7/10 above θ=7"),
+            "score==threshold must classify as ABOVE, got: {}",
+            got
+        );
+    }
+
+    /// Boundary: score ONE less than threshold counts as BELOW.
+    #[test]
+    fn boundary_score_one_below_threshold_is_below() {
+        let mut buf: Vec<u8> = Vec::new();
+        report_post_judge_to(&mut buf, 6, 7, "almost", false, "evolve-b2")
+            .expect("write must succeed");
+        let got = String::from_utf8(buf).expect("ascii");
+        assert!(
+            got.starts_with("  ✗ score 6/10 below θ=7 → triggering extraction"),
+            "score==threshold-1 must classify as BELOW, got: {}",
+            got
+        );
     }
 }

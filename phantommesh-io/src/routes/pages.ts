@@ -45,6 +45,22 @@ const STYLE = `
   .footer a{color:#6a6a78}
 `;
 
+/// Cloudflare Web Analytics beacon. Returns an empty string when the
+/// token is unset (dev/staging) so we don't ship a broken script tag
+/// pointing at a "" token. Defer-loaded so the page renders before
+/// the beacon JS is evaluated. Privacy-friendly: no cookies, no
+/// fingerprinting; just page-view + load-time aggregates that show
+/// up on the Cloudflare dashboard.
+function analyticsBeacon(env: Env): string {
+  if (!env.CF_ANALYTICS_TOKEN) return "";
+  // Token escaping: the value goes inside a JSON literal embedded
+  // in HTML attribute, so we need to be safe against both " and <.
+  // Cloudflare-issued tokens are 32-char hex, but better to be
+  // defensive in case the format changes.
+  const token = env.CF_ANALYTICS_TOKEN.replace(/[<>"'&]/g, "");
+  return `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"${token}"}'></script>`;
+}
+
 export function landingPage(c: Context<{ Bindings: Env }>) {
   return c.html(`<!doctype html>
 <html><head>
@@ -98,6 +114,7 @@ export function landingPage(c: Context<{ Bindings: Env }>) {
     });
   });
   </script>
+  ${analyticsBeacon(c.env)}
 </body></html>`);
 }
 
@@ -151,6 +168,7 @@ export function loginPage(c: Context<{ Bindings: Env }>) {
       Privacy: we store email + device ids only. We never see your prompts, files, or LLM API keys.
     </div>
   </div>
+  ${analyticsBeacon(c.env)}
 </body></html>`);
 }
 
@@ -454,7 +472,7 @@ export async function accountPage(c: Context<{ Bindings: Env }>) {
         wrap.style.cssText = 'display:flex;flex-direction:column;gap:4px;width:100%';
         wrap.innerHTML =
           '<div style="display:flex;align-items:center;gap:8px">' +
-            '<input class="peer-name"  placeholder="name (e.g. ayaneo)"   value="' + escapeAttr(p.name)  + '" style="flex:0 0 130px">' +
+            '<input class="peer-name"  placeholder="name (e.g. node-a)"   value="' + escapeAttr(p.name)  + '" style="flex:0 0 130px">' +
             '<input class="peer-url"   placeholder="http://100.x.y.z:7878" value="' + escapeAttr(p.url)   + '" style="flex:1">' +
             badge + lastSeen +
             '<button type="button" class="ghost peer-rm" style="width:auto;flex:0 0 auto">×</button>' +
@@ -507,6 +525,7 @@ export async function accountPage(c: Context<{ Bindings: Env }>) {
       });
     })();
   </script>
+  ${analyticsBeacon(c.env)}
 </body></html>`);
 }
 

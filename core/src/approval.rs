@@ -127,10 +127,8 @@ fn canonicalise(v: &Value) -> String {
     fn walk(v: &Value) -> Value {
         match v {
             Value::Object(map) => {
-                let sorted: std::collections::BTreeMap<String, Value> = map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), walk(v)))
-                    .collect();
+                let sorted: std::collections::BTreeMap<String, Value> =
+                    map.iter().map(|(k, v)| (k.clone(), walk(v))).collect();
                 serde_json::to_value(sorted).unwrap_or_else(|_| Value::Null)
             }
             Value::Array(arr) => Value::Array(arr.iter().map(walk).collect()),

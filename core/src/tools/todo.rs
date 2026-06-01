@@ -66,7 +66,11 @@ async fn save_tasks(session: &str, tasks: &[Task]) {
     if let Some(parent) = path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    let _ = tokio::fs::write(&path, serde_json::to_string_pretty(tasks).unwrap_or_default()).await;
+    let _ = tokio::fs::write(
+        &path,
+        serde_json::to_string_pretty(tasks).unwrap_or_default(),
+    )
+    .await;
 }
 
 fn now_iso() -> String {
@@ -155,7 +159,12 @@ pub async fn update(args: &Value) -> String {
     };
     let new_status = match TaskStatus::from_str(status_str) {
         Some(s) => s,
-        None => return format!("Error: invalid status '{}'. Use todo|in_progress|done", status_str),
+        None => {
+            return format!(
+                "Error: invalid status '{}'. Use todo|in_progress|done",
+                status_str
+            )
+        }
     };
     let session = resolve_session(args);
     let mut tasks = load_tasks(&session).await;
@@ -192,11 +201,19 @@ pub async fn list(args: &Value) -> String {
     }
 
     let total = filtered.len();
-    let done_count = filtered.iter().filter(|t| t.status == TaskStatus::Done).count();
+    let done_count = filtered
+        .iter()
+        .filter(|t| t.status == TaskStatus::Done)
+        .count();
 
     let mut lines = vec![format!("Tasks ({} total, {} done):", total, done_count)];
     for task in &filtered {
-        lines.push(format!("  #{} [{}] {}", task.id, task.status.as_str(), task.description));
+        lines.push(format!(
+            "  #{} [{}] {}",
+            task.id,
+            task.status.as_str(),
+            task.description
+        ));
     }
     lines.join("\n")
 }
@@ -215,5 +232,9 @@ pub async fn clear(args: &Value) -> String {
     }
     let removed = before - tasks.len();
     save_tasks(&session, &tasks).await;
-    format!("Cleared {} task{}", removed, if removed == 1 { "" } else { "s" })
+    format!(
+        "Cleared {} task{}",
+        removed,
+        if removed == 1 { "" } else { "s" }
+    )
 }

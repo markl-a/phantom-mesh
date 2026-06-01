@@ -1,0 +1,110 @@
+# promptfooconfig.yaml — LOCAL-FIRST, OFFLINE-BY-DEFAULT eval harness for
+# phantom-mesh's agent/provider layer.
+#
+# Privacy & offline guarantees:
+#   - sharing: false           → never uploads results to app.promptfoo.dev
+#   - PROMPTFOO_DISABLE_TELEMETRY=1 (set by run.sh)  → no usage analytics
+#   - The default provider is a local Node harness (scripts/eval/phantom_harness.js)
+#     that drives the local `phantom` CLI for DETERMINISTIC output and runs a
+#     pure in-process route-resolution check. NO cloud, NO API key, NO network.
+#   - The single LLM-dependent case is GATED behind PROMPTFOO_LLM=1 and SKIPPED
+#     by default (see the `if:` guard on its assert).
+#
+# Run:  npx promptfoo eval -c scripts/eval/promptfooconfig.yaml
+# CI:   bash scripts/eval/run.sh
+
+description: phantom-mesh offline agent/provider eval suite
+
+# Disable result sharing/upload. Telemetry is additionally killed via env in run.sh.
+sharing: false
+
+# Default provider: our deterministic, offline Node harness (NOT an LLM).
+# Loaded as a class with id() + callApi() (the stable custom-provider interface).
+providers:
+  - id: file://phantom_harness.js
+    label: phantom-offline-harness
+
+# A trivial prompt; the harness ignores prompt content and dispatches on vars.cmd.
+prompts:
+  - '{{cmd}}'
+
+tests:
+  # ── Case 1: version banner is well-formed (deterministic CLI output) ─────────
+  - description: 'phantom --version emits a semver build banner'
+    vars:
+      cmd: version
+    assert:
+      - type: contains
+        value: 'phantom '
+      # phantom <semver>[-prerelease] (<gitsha>+, <target>, built <date>)
+      # allow an optional -rc.N / -beta.N pre-release suffix (e.g. 0.6.0-rc.1)
+      - type: regex
+        value: 'phantom \d+\.\d+\.\d+(-[a-zA-Z0-9.]+)? \([0-9a-f]+\+?, [^,]+, built \d{4}-\d{2}-\d{2}\)'
+
+  # ── Case 2: top-level help advertises the core command surface ──────────────
+  - description: 'phantom --help lists the headless exec + serve + selftest commands'
+    vars:
+      cmd: help
+    assert:
+      - type: contains
+        value: 'phantom exec'
+      - type: contains
+        value: 'phantom serve'
+      - type: contains
+        value: 'phantom selftest'
+
+  # ── Case 3: exec subcommand documents its headless CI contract ──────────────
+  - description: 'phantom exec --help documents stdin prompt + --json machine output'
+    vars:
+      cmd: exec-help
+    assert:
+      - type: contains
+        value: 'Headless'
+      - type: regex
+        value: '--json'
+      - type: contains
+        value: 'stdin'
+
+  # ── Case 4: provider:model route resolution (pure, in-process, no I/O) ──────
+  - description: 'provider:model spec pins a model; bare provider falls to default'
+    vars:
+      cmd: route
+      spec: 'groq:llama-3.1-8b-instant'
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.provider === 'groq'
+            && r.model === 'llama-3.1-8b-instant'
+            && r.pinned === true;
+
+  # ── Case 5: bare-provider route falls back to provider default model ────────
+  - description: 'bare provider spec leaves model null and pinned=false'
+    vars:
+      cmd: route
+      spec: 'groq'
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          return r.provider === 'groq' && r.model === null && r.pinned === false;
+
+  # ── Case 6 (OPT-IN, SKIPPED OFFLINE): real LLM smoke test ────────────────────
+  # Only meaningful when PROMPTFOO_LLM=1 AND a local Ollama is reachable. The
+  # javascript assert short-circuits to PASS when the gate env is absent, so the
+  # default offline run never requires a model, key, or network.
+  - description: '[gated] LLM echo smoke — skipped unless PROMPTFOO_LLM=1'
+    vars:
+      cmd: version # harness still returns deterministic text offline
+    assert:
+      - type: javascript
+        value: |
+          // Gate: when PROMPTFOO_LLM is not set, treat as a pass (skipped).
+          if (process.env.PROMPTFOO_LLM !== '1') {
+            return { pass: true, score: 1, reason: 'skipped: PROMPTFOO_LLM!=1 (offline default)' };
+          }
+          // When opted in, require the deterministic banner to still be present
+          // (placeholder for a real local-Ollama assertion the operator can wire).
+          return /phantom \d+\.\d+\.\d+/.test(output);

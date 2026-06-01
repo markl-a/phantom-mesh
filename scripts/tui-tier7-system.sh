@@ -38,20 +38,20 @@ assert len(d) >= 1, 'no peers configured'
   && ok "/api/nodes returns peer list" "$(echo "$nodes" | head -c 100)..." \
   || fail "/api/nodes returns peer list" "$(cat $TMP/nodes.err)"
 
-# Try reaching yoyogood (Z13) — Tailscale 100.87.70.65 port 7879
-Z13_HEALTHZ="http://100.87.70.65:7879/healthz"
+# Try reaching node-b (node-a) — example Tailscale 100.64.0.11 port 7879
+Z13_HEALTHZ="${Z13_HEALTHZ:-http://100.64.0.11:7879/healthz}"
 if timeout 3 curl -sf "$Z13_HEALTHZ" >/dev/null 2>&1; then
-  ok "Z13 (yoyogood:7879) phantom serve reachable" ""
+  ok "node-a (node-b:7879) phantom serve reachable" ""
 else
-  skip "Z13 (yoyogood:7879) unreachable" "node offline / Tailscale issue"
+  skip "node-a (node-b:7879) unreachable" "node offline / Tailscale issue"
 fi
 
-# Try ayaneo node 100.107.205.98 port 7878
-AYANEO_HZ="http://100.107.205.98:7878/healthz"
-if timeout 3 curl -sf "$AYANEO_HZ" >/dev/null 2>&1; then
-  ok "ayaneo (:7878) phantom serve reachable" ""
+# Try node-a — example 100.64.0.12 port 7878
+NODEA_HZ="${NODEA_HZ:-http://100.64.0.12:7878/healthz}"
+if timeout 3 curl -sf "$NODEA_HZ" >/dev/null 2>&1; then
+  ok "node-a (:7878) phantom serve reachable" ""
 else
-  skip "ayaneo (:7878) unreachable" "node offline"
+  skip "node-a (:7878) unreachable" "node offline"
 fi
 
 # ─── autoevolve actually red → green ──────────────────────────────────────

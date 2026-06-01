@@ -1,0 +1,75 @@
+name: CI E001 Integration (heartbeat × selection)
+
+# F006: PR gate for E001 in-process integration test (F001).
+#
+# This wires F001 (`core/tests/cluster_heartbeat_selection.rs`) into the
+# default PR matrix so the heartbeat-loop × peer-selector interaction is
+# caught on every change. The cross-host e2e scenarios (F002/F003) live in
+# the separate `e001-cross-host.yml` workflow and are operator-triggered
+# only — per E001 risk register "Tailscale flakiness in CI | Run the e2e
+# only on operator-triggered workflow_dispatch; CI runs single-host
+# integration only."
+#
+# Linux-only per CI-COST PR #161 (macOS/Windows are on-demand). The test
+# uses OS-assigned loopback ports and a tight heartbeat config (1s × 3),
+# so total wall time should be < 30s including build.
+#
+# Spec: docs/superpowers/features/F006-ci-cross-host-workflow-dispatch.md
+# Test: docs/superpowers/features/F001-cluster-heartbeat-selection-integration-test.md
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-e001-integration.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-e001-integration.yml'
+
+# Cancel superseded runs on the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: full
+
+permissions:
+  contents: read
+
+jobs:
+  cluster-heartbeat-selection:
+    name: F001 cluster_heartbeat_selection integration test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      # F001 integration test requires `experimental-cluster-heartbeat` —
+      # the feature flag C4 (PR #175) introduced for heartbeat state
+      # transitions. F001 tests are `#[cfg(feature = "experimental-cluster-heartbeat")]`
+      # so they're a no-op without this flag.
+      #
+      # The F001 spec mentioned `--features hermes` but that was a typo —
+      # `hermes` doesn't exist; C4's actual flag name is
+      # `experimental-cluster-heartbeat`. F001's PR #191 implementation uses
+      # the correct flag; this YAML is corrected to match.
+      - name: cargo test cluster_heartbeat_selection (experimental-cluster-heartbeat)
+        working-directory: core
+        run: cargo test --features experimental-cluster-heartbeat --test cluster_heartbeat_selection -- --nocapture

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { usePageStore } from '../stores/pageStore';
+import { filterCommands, moveSelection } from './commandPalette.helpers';
 
 interface CommandItem {
   id: string;
@@ -26,10 +27,8 @@ export function CommandPalette() {
     { ...defaultCommands[2], action: () => { setArea('settings'); closeCommandPalette(); } },
   ];
 
-  // Fuzzy filter
-  const filtered = query
-    ? commands.filter((c) => c.label.toLowerCase().includes(query.toLowerCase()))
-    : commands;
+  // Fuzzy filter (case-insensitive label substring match)
+  const filtered = filterCommands(commands, query);
 
   // Keyboard shortcut: Cmd+K / Ctrl+K
   useEffect(() => {
@@ -64,11 +63,12 @@ export function CommandPalette() {
     (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, filtered.length - 1));
+        setSelectedIndex((i) => moveSelection(i, 1, filtered.length));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndex((i) => moveSelection(i, -1, filtered.length));
       } else if (e.key === 'Enter' && filtered[selectedIndex]) {
+        e.preventDefault();
         filtered[selectedIndex].action();
       }
     },

@@ -1,5 +1,5 @@
-use serde_json::Value;
 use crate::config::ToolsConfig;
+use serde_json::Value;
 
 pub async fn search(args: &Value, config: &ToolsConfig) -> String {
     let query = match args["query"].as_str() {
@@ -167,11 +167,7 @@ fn push_ddg_topic(results: &mut Vec<(String, String, String)>, topic: &Value) {
     results.push((title, url_str, text));
 }
 
-async fn ddg_html_search(
-    client: &reqwest::Client,
-    query: &str,
-    num_results: usize,
-) -> String {
+async fn ddg_html_search(client: &reqwest::Client, query: &str, num_results: usize) -> String {
     let encoded = urlencoding::encode(query);
     let url = format!("https://html.duckduckgo.com/html/?q={}", encoded);
     let html = match client
@@ -229,9 +225,10 @@ fn parse_ddg_html(html: &str, num_results: usize) -> Vec<(String, String, String
                         .find("result__a\"")
                         .unwrap_or(html.len() - snippet_search_start);
 
-                let snippet = if let Some(snip_pos) =
-                    find_bytes(&html[snippet_search_start..snippet_end], b"result__snippet\"")
-                {
+                let snippet = if let Some(snip_pos) = find_bytes(
+                    &html[snippet_search_start..snippet_end],
+                    b"result__snippet\"",
+                ) {
                     let snip_abs = snippet_search_start + snip_pos;
                     extract_anchor_text(&html[snip_abs..]).unwrap_or_default()
                 } else {

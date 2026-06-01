@@ -297,14 +297,73 @@ pub async fn read_claude_cli_token() -> Result<ClaudeCliStatus, String> {
     Ok(ClaudeCliStatus { found: false })
 }
 
-#[tauri::command]
-pub async fn open_external_url(url: String) -> Result<(), String> {
-    tracing::info!("[open_external_url] Called with url={}", url);
-    if !url.starts_with("https://") && !url.starts_with("http://localhost") {
-        tracing::error!("[open_external_url] Rejected: not HTTPS or localhost");
-        return Err("Only HTTPS or localhost URLs are allowed".to_string());
+/// Validates a URL string for the `open_external_url` command.
+///
+/// Accepts only:
+///   - `https://<host>...` with any host
+///   - `http://<host>...` where host is exactly `localhost` or `127.0.0.1`
+///
+/// Rejects:
+///   - Any other scheme (file://, javascript:, vscode://, phantom://, ...)
+///   - URLs with a userinfo component (e.g. `http://localhost@attacker.com`)
+///     because browsers route those to the userinfo-stripped authority.
+///   - Hosts that *look* like localhost but aren't, e.g. `localhost.attacker.com`,
+///     `localhost.evil`, or any subdomain of localhost. The previous
+///     `starts_with("http://localhost")` check matched these.
+fn validate_external_url(url: &str) -> Result<(), &'static str> {
+    // Split scheme.
+    let (scheme, rest) = match url.split_once("://") {
+        Some(parts) => parts,
+        None => return Err("URL missing scheme"),
+    };
+
+    // Take the authority (everything before the first '/', '?', or '#').
+    let authority_end = rest
+        .find(|c: char| c == '/' || c == '?' || c == '#')
+        .unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+
+    // Reject userinfo (anything before '@' in the authority).
+    if authority.contains('@') {
+        return Err("URLs with userinfo are not allowed");
     }
-    match open::that(&url) {
+
+    // Strip port for host comparison.
+    let host = authority.split(':').next().unwrap_or("");
+
+    match scheme {
+        "https" => {
+            if host.is_empty() {
+                return Err("https URL missing host");
+            }
+            Ok(())
+        }
+        "http" => {
+            // Exact-match localhost / 127.0.0.1 only.
+            if host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" {
+                Ok(())
+            } else {
+                Err("Only HTTPS or http://localhost (exact host) URLs are allowed")
+            }
+        }
+        _ => Err("Only HTTPS or http://localhost URLs are allowed"),
+    }
+}
+
+#[tauri::command]
+pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    tracing::info!("[open_external_url] Called with url={}", url);
+    if let Err(reason) = validate_external_url(&url) {
+        tracing::error!("[open_external_url] Rejected: {}", reason);
+        return Err(reason.to_string());
+    }
+    // Use tauri-plugin-opener (cross-platform). On iOS this routes through
+    // UIApplication.openURL: so the URL opens in Safari — the previous `open`
+    // crate spawned a subprocess that the iOS sandbox blocks, which made the
+    // JS-side openExternal() fall back to navigating the embedded WKWebView,
+    // and Google rejects embedded-webview OAuth (403 disallowed_useragent).
+    match app.opener().open_url(url.clone(), None::<&str>) {
         Ok(()) => {
             tracing::info!("[open_external_url] Browser opened successfully");
             Ok(())
@@ -313,6 +372,63 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
             tracing::error!("[open_external_url] Failed: {}", e);
             Err(format!("Cannot open browser: {}", e))
         }
+    }
+}
+
+#[cfg(test)]
+mod open_external_url_tests {
+    use super::validate_external_url;
+
+    #[test]
+    fn accepts_https() {
+        assert!(validate_external_url("https://example.com").is_ok());
+        assert!(validate_external_url("https://example.com/path?q=1").is_ok());
+        assert!(validate_external_url("https://api.openai.com/v1/models").is_ok());
+    }
+
+    #[test]
+    fn accepts_http_localhost_and_loopback() {
+        assert!(validate_external_url("http://localhost").is_ok());
+        assert!(validate_external_url("http://localhost/").is_ok());
+        assert!(validate_external_url("http://localhost:7878/oauth/google").is_ok());
+        assert!(validate_external_url("http://127.0.0.1:7878/").is_ok());
+        assert!(validate_external_url("http://LOCALHOST/").is_ok()); // case-insensitive
+    }
+
+    #[test]
+    fn rejects_localhost_lookalikes() {
+        // H-2: the old `starts_with("http://localhost")` check let these through.
+        assert!(validate_external_url("http://localhost.attacker.com/").is_err());
+        assert!(validate_external_url("http://localhost.evil/").is_err());
+        assert!(validate_external_url("http://localhostX/").is_err());
+    }
+
+    #[test]
+    fn rejects_userinfo() {
+        // H-2: `http://localhost@attacker.com/` routes to attacker.com.
+        assert!(validate_external_url("http://localhost@attacker.com/").is_err());
+        assert!(validate_external_url("https://user:pass@example.com/").is_err());
+    }
+
+    #[test]
+    fn rejects_other_schemes() {
+        assert!(validate_external_url("file:///etc/passwd").is_err());
+        assert!(validate_external_url("javascript:alert(1)").is_err());
+        assert!(validate_external_url("vscode://path").is_err());
+        assert!(validate_external_url("phantom://oauth/callback").is_err());
+        assert!(validate_external_url("ftp://example.com/").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed() {
+        assert!(validate_external_url("not a url").is_err());
+        assert!(validate_external_url("https://").is_err());
+    }
+
+    #[test]
+    fn rejects_non_loopback_http() {
+        assert!(validate_external_url("http://example.com/").is_err());
+        assert!(validate_external_url("http://10.0.0.1/").is_err());
     }
 }
 

@@ -175,19 +175,19 @@ pub fn set_provider_keys_bulk(
 //
 // Without an agents.toml, the agent runtime knows nothing about how to
 // translate `OPENAI_API_KEY` env vars into provider config (model,
-// endpoint, fallback chain). This template covers the 6 free-tier
-// providers with the keys vault sync ships, pinned to a master agent
-// that prefers opencode → groq → cerebras (3-way failover).
+// endpoint, fallback chain). This template covers 3 providers (groq /
+// gemini / opencode) with the keys vault sync ships, pinned to a master
+// agent that prefers groq → gemini → opencode (3-way failover).
 //
 // Sized to be useful out of the box; a power user can edit ~/.phantom-
 // mesh/agents.toml later without re-running this seed.
 
-// Schema match: AgentEntry takes singular `provider: String` + `model:
-// String` (see core/src/config.rs:451). Provider-block `type` strings
-// must match what core/src/providers/mod.rs registers ("opencode" /
-// "groq" / "gemini" / "openai" / "anthropic"). Format mirrors the Mac
-// agents.toml that's already working in production — opencode zen
-// endpoint, minimax-m2.5-free model (verified to call tools).
+// Schema: AgentEntry supports a `providers: Vec<String>` failover list of
+// "provider:model" entries (core/src/config.rs). Each entry uses its OWN
+// valid model — precedence is provider:model > agent.model >
+// provider.default_model (core/src/agent.rs). Provider-block `type` strings
+// must match core/src/providers/mod.rs ("opencode" / "groq" / "gemini" /
+// "openai" / "anthropic").
 const DEFAULT_AGENTS_TOML: &str = r#"# phantom-mesh — auto-seeded on iOS first launch.
 # Edit freely; this file won't be regenerated unless you delete it.
 
@@ -211,11 +211,17 @@ type = "gemini"
 api_key_env = "GEMINI_API_KEY"
 default_model = "gemini-2.0-flash"
 
-# ── Master agent — single-provider; iOS UI dispatches chats here. ─────────
-# Switch provider by editing this block: opencode | groq | gemini.
+# ── Master agent — failover chain; iOS UI dispatches chats here. ──────────
+# provider:model syntax so each fallback uses ITS OWN valid model (a bare
+# `model = "minimax-m2.5-free"` overrides every provider's default_model and
+# 404s on groq/gemini, which don't have that model). Order: groq (fastest +
+# free, real key) → gemini → opencode LAST (its MiniMax free tier has lapsed
+# → 401; kept only as a final fallback if a future relay key is set).
+# NOTE: needs at least ONE provider key — the agent skips any provider whose
+# api_key_env is empty, so a truly zero-key install has no LLM until a key is
+# pasted in Settings → 手動填 LLM API key (or synced from a broker login).
 [agent.master]
-provider = "opencode"
-model = "minimax-m2.5-free"
+providers = ["groq:llama-3.3-70b-versatile", "gemini:gemini-2.0-flash", "opencode:minimax-m2.5-free"]
 instructions = "You are phantom, a helpful AI agent. Be concise and direct."
 "#;
 
