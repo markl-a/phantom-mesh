@@ -46,3 +46,11 @@ curl -fsSL https://phantommesh.io/install.sh | sh
 - 行動 app 與網頁控制台
 
 > 方向仍在探索,隨時可能調整。 / Direction is still exploratory and may change at any time.
+
+## 回饋 / Feedback
+
+如果你試用了,願意把結果或遇到的問題告訴我,都非常歡迎 🙏
+If you give it a try and would like to share how it went (good or bad), it's very welcome:
+
+- 開 issue / Open an issue: <https://github.com/markl-a/phantom-mesh/issues>
+- 或寄信 / Or email: m4932981@gmail.com
