@@ -23,7 +23,7 @@
     "@tauri-apps/plugin-store": "^2.4",
     "@tauri-apps/plugin-updater": "~2.10",
     "highlight.js": "^11.11.1",
-    "lucide-react": "^0.500",
+    "lucide-react": "^1.17",
     "qrcode.react": "^4.2.0",
     "react": "^19",
     "react-dom": "^19",
