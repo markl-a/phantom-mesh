@@ -41,7 +41,7 @@ curl -fsSL https://phantommesh.io/install.sh | sh
 ## 大致規劃 / Rough direction
 
 - 單一 binary 的跨裝置 mesh:Mac · Linux · Windows · Android · iOS
-- 多模態的生活 / 工作記錄 + 每日教練回顧
+- 多模態的生活 / 工作記錄跟提醒 + 每日教練回顧
 - 隨用隨學、會自我累積的 skill
 - 行動 app 與網頁控制台
 
