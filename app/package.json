@@ -47,7 +47,7 @@
     "postcss": "^8",
     "promptfoo": "^0.121.13",
     "sharp": "^0.34.5",
-    "tailwindcss": "^3",
+    "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "^6",
     "vitest": "^4.1.1"
