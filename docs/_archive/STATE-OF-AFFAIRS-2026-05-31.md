@@ -1,3 +1,5 @@
+> ARCHIVED 2026-06-19 — historical; current status lives in /ROADMAP.md
+
 # Phantom-mesh — State of affairs (2026-05-31)
 
 > 從 BIG-GOAL 凍結版 ([`docs/superpowers/BIG-GOAL.md`](superpowers/BIG-GOAL.md)) 起，逐層往下對映到 45 條 active SPEC、5 條 CUJ、實作狀態、test 覆蓋。

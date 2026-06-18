@@ -18,8 +18,12 @@
 > Direction, interfaces, and architecture may still change significantly. **Not stable yet, and not recommended for others to use** — please wait for a stable release. For now this repo is just a public look at the work in progress.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/status-exploratory-orange.svg" alt="status: exploratory"> ·
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green.svg" alt="license">
+</p>
+
+<p align="center">
+  📊 <strong>Status / 狀態</strong>: see <a href="ROADMAP.md">ROADMAP.md</a> ·
+  📚 <strong>Docs / 文件</strong>: see <a href="docs/INDEX.md">docs/INDEX.md</a>
 </p>
 
 ---
@@ -40,10 +44,14 @@ curl -fsSL https://phantommesh.io/install.sh | sh
 
 ## 大致規劃 / Rough direction
 
-- 單一 binary 的跨裝置 mesh:Mac · Linux · Windows · Android · iOS
-- 多模態的生活 / 工作記錄跟提醒 + 每日教練回顧
-- 隨用隨學、會自我累積的 skill
-- 行動 app 與網頁控制台
+單一 binary 的跨裝置 mesh、多模態生活/工作記錄、每日教練回顧、會自我累積的
+skill、行動 app 與網頁控制台。完整的「已完成 / 進行中 / 規劃中」狀態請見
+[ROADMAP.md](ROADMAP.md);文件導覽請見 [docs/INDEX.md](docs/INDEX.md)。
+
+A single-binary cross-device mesh with multimodal life/work logging, a daily
+coach review, self-accumulating skills, and mobile + web control. For the full
+**shipped / in progress / planned** status, see [ROADMAP.md](ROADMAP.md); for a
+documentation map, see [docs/INDEX.md](docs/INDEX.md).
 
 > 方向仍在探索,隨時可能調整。 / Direction is still exploratory and may change at any time.
 
