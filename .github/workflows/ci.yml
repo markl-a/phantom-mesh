@@ -14,3 +14,5 @@ jobs:
         with:
           python-version: "3.11"
       - run: python scripts/qa_static_site.py
+      - run: pip install pytest
+      - run: python -m pytest scripts/tests/test_qa_static_site.py -q
