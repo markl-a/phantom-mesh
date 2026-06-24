@@ -1,3 +1,12 @@
+"""Static-site QA gate for the published phantommesh.io landing page.
+
+Run as ``python scripts/qa_static_site.py``; prints ``ERROR: ...`` lines and
+exits non-zero when the ``site/`` deliverable is broken, otherwise prints
+``static site QA passed`` and exits 0. The checks live in small helpers and are
+aggregated by :func:`collect_errors`, which is also exercised by
+``scripts/tests/test_qa_static_site.py``.
+"""
+
 from __future__ import annotations
 
 import re

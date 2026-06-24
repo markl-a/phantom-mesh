@@ -35,6 +35,14 @@ def test_main_returns_zero_on_clean_repo():
     assert qa.main() == 0
 
 
+def test_main_reports_errors_and_returns_one(monkeypatch, capsys):
+    monkeypatch.setattr(qa, "collect_errors", lambda: ["boom: bad thing"])
+    rc = qa.main()
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "ERROR: boom: bad thing" in out
+
+
 # --- local asset reference extraction -------------------------------------
 
 def test_local_asset_refs_extracts_relative_paths():
