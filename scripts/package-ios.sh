@@ -221,7 +221,8 @@ if [[ -d "$APPLE_DIR" ]] && command -v xcodegen &>/dev/null; then
   (cd "$APPLE_DIR" && xcodegen generate --spec project.yml --quiet 2>/dev/null) || true
 fi
 
-# Export method:
+# Export method (computed FIRST so the build-number stamp below keys off the
+# EFFECTIVE method, not just the TESTFLIGHT shortcut):
 #   debugging        - development cert; install via xcrun devicectl (default,
 #                      requires devices to be paired/registered)
 #   app-store-connect - distribution cert; for TestFlight or App Store upload;
@@ -232,6 +233,29 @@ if [[ "${TESTFLIGHT:-0}" == "1" ]]; then
   EXPORT_METHOD="app-store-connect"
 fi
 echo "◆ Export method: $EXPORT_METHOD"
+
+# Build number: App Store Connect rejects a DUPLICATE CFBundleVersion within the same
+# marketing version, so EVERY upload (weekly auto-rebuild OR a same-commit rebuild)
+# must be unique + strictly increasing. Gate on the EFFECTIVE export method so BOTH
+# the TESTFLIGHT=1 shortcut AND a direct EXPORT_METHOD=app-store-connect upload get a
+# fresh number (single build runner assumed). Epoch seconds: always larger than the
+# last build, unique, a valid integer well under Apple's 2^32 ceiling — beats a git
+# commit-count (which collides on a same-commit rebuild). Stamp the freshly generated
+# Info.plist, then READ BACK and fail-fast if it didn't take (silently shipping the
+# static "1" would re-collide).
+if [[ "$EXPORT_METHOD" == "app-store-connect" ]]; then
+  BUILD_NUMBER="$(date +%s)"
+  PLIST="$APPLE_DIR/phantom-mesh-app_iOS/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST" 2>/dev/null
+  GOT="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST" 2>/dev/null)"
+  if [[ "$GOT" != "$BUILD_NUMBER" ]]; then
+    echo "❌  Could not stamp CFBundleVersion in $PLIST — an App Store Connect upload" >&2
+    echo "    would collide on the build number. Fix the Info.plist path first." >&2
+    exit 1
+  fi
+  echo "◆ App Store Connect build number: $BUILD_NUMBER"
+fi
 
 cd "$APP_DIR"
 DEVELOPMENT_TEAM="$TEAM" APPLE_TEAM_ID="$TEAM" \

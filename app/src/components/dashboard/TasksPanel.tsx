@@ -9,7 +9,47 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string }> = {
   running: { label: "執行中", color: "bg-phantom-primary/20 text-phantom-primary" },
   done: { label: "完成", color: "bg-phantom-success/20 text-phantom-success" },
   failed: { label: "失敗", color: "bg-phantom-danger/20 text-phantom-danger" },
+  cancelled: { label: "已取消", color: "bg-phantom-muted/20 text-phantom-muted" },
 };
+
+// Daemon `GET /tasks` rows are raw `pm_types::TaskRecord`s (crates/pm-types/
+// src/task.rs): { task_id, prompt, agent_name, status, ... } with statuses
+// pending | awaiting_approval | running | completed | failed | cancelled.
+// Map them to the panel's display shape; unknown statuses fall back to
+// "pending" so a future enum variant can never crash the render
+// (STATUS_CONFIG[undefined].color would throw).
+const DAEMON_STATUS_MAP: Record<string, TaskStatus> = {
+  pending: "pending",
+  awaiting_approval: "pending",
+  running: "running",
+  completed: "done",
+  done: "done",
+  failed: "failed",
+  cancelled: "cancelled",
+};
+
+interface RawTaskRow {
+  task_id?: unknown;
+  id?: unknown;
+  prompt?: unknown;
+  title?: unknown;
+  agent_name?: unknown;
+  agent?: unknown;
+  status?: unknown;
+}
+
+export function toTaskItems(raw: unknown): TaskItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((row, i) => {
+    const r = (row ?? {}) as RawTaskRow;
+    return {
+      id: String(r.task_id ?? r.id ?? i),
+      title: String(r.prompt ?? r.title ?? "(無標題)"),
+      agent: String(r.agent_name ?? r.agent ?? "-"),
+      status: DAEMON_STATUS_MAP[String(r.status)] ?? "pending",
+    };
+  });
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -22,8 +62,8 @@ export default function TasksPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<{ tasks: TaskItem[] }>("get_tasks");
-      setTasks(res.tasks);
+      const res = await invoke<{ tasks: unknown[] }>("get_task_history");
+      setTasks(toTaskItems(res.tasks));
     } catch (e) {
       setError(String(e));
       setTasks([]);
@@ -37,7 +77,9 @@ export default function TasksPanel() {
   }, [fetchTasks]);
 
   const running = tasks.filter((t) => t.status === "running");
-  const recent = tasks.filter((t) => t.status === "done" || t.status === "failed");
+  const recent = tasks.filter(
+    (t) => t.status === "done" || t.status === "failed" || t.status === "cancelled"
+  );
 
   if (loading) {
     return (

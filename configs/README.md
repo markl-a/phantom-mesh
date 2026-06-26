@@ -1,7 +1,7 @@
 # Per-Machine Config Templates
 
 > **這個目錄是「每台機器要放哪個 agents.toml」的選擇表。**
-> 完整多機協作架構見 [`docs/MULTI-DEVICE-COORDINATION.md`](../docs/MULTI-DEVICE-COORDINATION.md)。
+> 完整多機協作架構見 [`docs/mesh/MULTI-DEVICE-COORDINATION.md`](../docs/mesh/MULTI-DEVICE-COORDINATION.md)。
 
 ## 機器 → 模板對照
 
@@ -72,4 +72,4 @@ phantom cluster status
 curl -sSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/ai/coord/bootstrap-remote.sh | bash -s -- --host <name>
 ```
 
-詳見 [`docs/MULTI-DEVICE-COORDINATION.md`](../docs/MULTI-DEVICE-COORDINATION.md) §4 bootstrap 章節。
+詳見 [`docs/mesh/MULTI-DEVICE-COORDINATION.md`](../docs/mesh/MULTI-DEVICE-COORDINATION.md) §4 bootstrap 章節。

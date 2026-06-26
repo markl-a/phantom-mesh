@@ -1,0 +1,32 @@
+# debrand-allowlist.txt — regexes for KNOWN, ACCEPTED "hermes"/"openclaw" residue.
+# Used by scripts/ci/check-debrand.sh. Each regex is matched against a full
+# ripgrep "path:line:text" line, so a pattern can target a path prefix
+# (use [\\/] for the OS-agnostic separator) OR specific content.
+#
+# Anything NOT matched here fails the gate. As phases land, DELETE the
+# corresponding section so the gate tightens. End state = only the
+# [DB / MIGRATION — PERMANENT] section remains.
+# GOAL: docs/superpowers/GOAL-debrand-oss.md
+
+# ─────────────────────────────────────────────────────────────────────────
+# [EXTERNAL GATEWAY REGISTRY — intentional, consolidated brand residue]
+# Brand command strings are concentrated in this one file by design (D4).
+# All other core files are brand-free. To add or remove a gateway, edit only
+# this registry. To produce a brand-free build, replace REGISTRY with &[].
+core[\\/]src[\\/]cli_session[\\/]external_gateway\.rs
+
+# ─────────────────────────────────────────────────────────────────────────
+# [DB / MIGRATION — PERMANENT (per GOAL D2 / G2)]
+# DB table/column names and migration filenames are ledger-immutable: renaming
+# breaks migration idempotency + existing installs' data. These stay.
+# Table/column name references (in SQL queries, doc-comments, test assertions):
+hermes_memory
+hermes_skills
+hermes_fts
+# Migration files are ledger-immutable (tracked by filename/hash): editing one —
+# even a comment — breaks idempotency for installs that already applied it. So
+# the ENTIRE migrations dir is allowlisted, incl. brand refs in SQL comments.
+core[\\/]migrations[\\/]
+# DB file paths next to the table identifiers (runtime + test):
+hermes-runtime\.db
+hermes\.db

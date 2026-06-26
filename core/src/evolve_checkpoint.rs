@@ -33,8 +33,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Where evolve checkpoints live, keyed by session_id.
 pub fn checkpoints_dir() -> Result<PathBuf> {
-    let home = dirs::home_dir().context("home dir not resolved")?;
-    let dir = home.join(".phantom-mesh/evolve-checkpoints");
+    let data = crate::cli_config::phantom_data_dir().context("home dir not resolved")?;
+    let dir = data.join("evolve-checkpoints");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -327,7 +327,7 @@ impl EvolveCheckpoint {
             }
             out.push(ck);
         }
-        out.sort_by(|a, b| b.last_updated_ms.cmp(&a.last_updated_ms));
+        out.sort_by_key(|ck| std::cmp::Reverse(ck.last_updated_ms));
         Ok(out)
     }
 

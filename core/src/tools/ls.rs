@@ -221,8 +221,8 @@ fn read_dir_sorted(path: &Path, hidden: bool) -> std::io::Result<Vec<(String, fs
         }
     }
 
-    dirs.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
-    files.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    dirs.sort_by_key(|a| a.0.to_lowercase());
+    files.sort_by_key(|a| a.0.to_lowercase());
     dirs.extend(files);
     Ok(dirs)
 }

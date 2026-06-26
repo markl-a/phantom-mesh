@@ -1,0 +1,18 @@
+
+running 3 tests
+test tests::alpha ... ok
+test tests::beta ... FAILED
+test tests::gamma ... ignored
+
+failures:
+
+---- tests::beta stdout ----
+thread 'tests::beta' panicked at core/tests/example.rs:10:5:
+assertion `left == right` failed
+  left: 1
+ right: 2
+
+failures:
+    tests::beta
+
+test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.02s

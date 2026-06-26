@@ -2,7 +2,7 @@
 //!
 //! A7 / T95 — pure-function micro-benchmarks for the V2 ensemble curator's
 //! aggregation path. Only the three pure functions exported by
-//! `core::hermes::curator_ensemble` are exercised here:
+//! `core::skillbank::curator_ensemble` are exercised here:
 //!
 //!   * `median_score(&[u8]) -> f32`
 //!   * `population_stddev(&[u8]) -> f32`
@@ -38,30 +38,30 @@
 //! Run:
 //! ```
 //! cargo bench --bench curator_v2_consensus \
-//!   --features experimental-hermes-curator \
+//!   --features experimental-curator \
 //!   -- --noise-threshold 0.05
 //! ```
 
 #[path = "common/mod.rs"]
 mod common;
 
-#[cfg(not(feature = "experimental-hermes-curator"))]
+#[cfg(not(feature = "experimental-curator"))]
 fn main() {
-    common::print_disabled_and_exit("experimental-hermes-curator");
+    common::print_disabled_and_exit("experimental-curator");
 }
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 use phantom_mesh::evolve_checkpoint::JudgeVerdict;
-#[cfg(feature = "experimental-hermes-curator")]
-use phantom_mesh::hermes::{aggregate, median_score, population_stddev};
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
+use phantom_mesh::skillbank::{aggregate, median_score, population_stddev};
+#[cfg(feature = "experimental-curator")]
 use serde::Deserialize;
 
 // ─── Fixture loader (off the hot path) ───────────────────────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 #[derive(Debug, Clone, Deserialize)]
 struct FixtureTranscript {
     #[allow(dead_code)]
@@ -71,7 +71,7 @@ struct FixtureTranscript {
     judges: Vec<JudgeVerdict>,
 }
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn load_fixtures() -> Vec<FixtureTranscript> {
     // Path is relative to the crate root (CARGO_MANIFEST_DIR is set by cargo
     // when invoking benches, so this resolves the same way the test harness
@@ -94,7 +94,7 @@ fn load_fixtures() -> Vec<FixtureTranscript> {
 
 // ─── Synthetic helpers (also off the hot path) ───────────────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn mk_verdict(score: u8, idx: usize) -> JudgeVerdict {
     JudgeVerdict {
         score,
@@ -109,7 +109,7 @@ fn mk_verdict(score: u8, idx: usize) -> JudgeVerdict {
 /// `spread=0` ⇒ all judges return `base` (unanimous).
 /// `spread=2` ⇒ scores alternate base-1 / base / base+1 (consensus-bucket).
 /// `spread=8` ⇒ scores alternate low / high (disagreement-bucket).
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn synthetic_verdicts(n: usize, base: u8, spread: i8) -> Vec<JudgeVerdict> {
     (0..n)
         .map(|i| {
@@ -122,7 +122,7 @@ fn synthetic_verdicts(n: usize, base: u8, spread: i8) -> Vec<JudgeVerdict> {
         .collect()
 }
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn synthetic_scores(n: usize, base: u8, spread: i8) -> Vec<u8> {
     synthetic_verdicts(n, base, spread)
         .into_iter()
@@ -137,7 +137,7 @@ fn synthetic_scores(n: usize, base: u8, spread: i8) -> Vec<u8> {
 /// `threshold` whose max-min ≤ 1 indicates a clustered majority. Sorted scan
 /// is O(n log n) for the sort + O(n) for the sweep — dominated by the sort
 /// at n ≤ 10 (so essentially constant for our judge counts).
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn within_one_point_majority(scores: &[u8]) -> bool {
     if scores.is_empty() {
         return false;
@@ -156,7 +156,7 @@ fn within_one_point_majority(scores: &[u8]) -> bool {
 /// Compute agreement rate (0.0..1.0) across the full fixture set. This is
 /// the per-iteration workload for the agreement-rate bench: 50 sliding-window
 /// passes, one per transcript.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn agreement_rate(fixtures: &[FixtureTranscript]) -> f32 {
     let n = fixtures.len();
     if n == 0 {
@@ -177,7 +177,7 @@ fn agreement_rate(fixtures: &[FixtureTranscript]) -> f32 {
 /// Catch fixture drift loudly at bench startup (NOT in the timed loop). If
 /// the fixture file is replaced and these no longer hold, the user sees a
 /// crisp panic rather than silently regressed numbers.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn assert_fixture_invariants(fixtures: &[FixtureTranscript]) {
     assert_eq!(
         fixtures.len(),
@@ -205,7 +205,7 @@ fn assert_fixture_invariants(fixtures: &[FixtureTranscript]) {
 
 // ─── Bench: median_score isolated, 3 / 5 / 10 scores ─────────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn bench_median_score(c: &mut Criterion) {
     let mut g = c.benchmark_group("median_score");
     for &n in &[3usize, 5, 10] {
@@ -222,7 +222,7 @@ fn bench_median_score(c: &mut Criterion) {
 
 // ─── Bench: population_stddev isolated, 3 / 5 / 10 scores ────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn bench_population_stddev(c: &mut Criterion) {
     let mut g = c.benchmark_group("population_stddev");
     for &n in &[3usize, 5, 10] {
@@ -239,7 +239,7 @@ fn bench_population_stddev(c: &mut Criterion) {
 
 // ─── Bench: aggregate end-to-end, 3 / 5 / 10 judges ──────────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn bench_aggregate(c: &mut Criterion) {
     let mut g = c.benchmark_group("aggregate");
     for &n in &[3usize, 5, 10] {
@@ -260,7 +260,7 @@ fn bench_aggregate(c: &mut Criterion) {
 
 // ─── Bench: agreement-rate over the full 50-fixture set ──────────────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn bench_agreement_rate(c: &mut Criterion) {
     let fixtures = load_fixtures();
     assert_fixture_invariants(&fixtures);
@@ -292,7 +292,7 @@ fn bench_agreement_rate(c: &mut Criterion) {
 
 // ─── Bench: aggregate driven by every fixture transcript (batch) ─────────
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn bench_aggregate_over_fixtures(c: &mut Criterion) {
     let fixtures = load_fixtures();
     assert_fixture_invariants(&fixtures);
@@ -313,7 +313,7 @@ fn bench_aggregate_over_fixtures(c: &mut Criterion) {
     g.finish();
 }
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 criterion_group! {
     name = consensus;
     config = common::standard_criterion();
@@ -325,5 +325,5 @@ criterion_group! {
         bench_aggregate_over_fixtures
 }
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 criterion_main!(consensus);

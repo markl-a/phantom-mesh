@@ -16,9 +16,7 @@ pub struct TaskStore {
 impl TaskStore {
     /// Open (or create) the store at `~/.phantom-mesh/phantom.db`.
     pub fn open_default() -> Result<Self> {
-        let dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".phantom-mesh");
+        let dir = crate::cli_config::phantom_data_dir()?;
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         Self::open_at(dir.join("phantom.db"))
     }
@@ -39,6 +37,14 @@ impl TaskStore {
             Self::init_schema(&guard)?;
         }
         Ok(Self { conn })
+    }
+
+    /// Shared connection handle, so sibling stores (e.g. the append-only
+    /// [`super::events::EventStore`]) can live in the same SQLite DB without a
+    /// second file. Returns a clone of the `Arc`; the underlying connection is
+    /// unchanged.
+    pub fn conn(&self) -> Arc<Mutex<Connection>> {
+        Arc::clone(&self.conn)
     }
 
     fn init_schema(conn: &Connection) -> Result<()> {
@@ -67,6 +73,28 @@ impl TaskStore {
              CREATE INDEX IF NOT EXISTS tasks_trace_id
                  ON tasks(trace_id);",
         )?;
+        // Additive migration (DISPATCH-MESH-DURABILITY gap-a): the `tasks`
+        // table historically had no column for an agent's output text, so the
+        // durable async-dispatch job store had nowhere to persist a completed
+        // job's result. Add a nullable `output TEXT` column. Guarded by a
+        // `PRAGMA table_info` check so it is a no-op on already-migrated DBs
+        // (SQLite `ADD COLUMN` errors if the column exists) and non-destructive
+        // on old rows (existing rows simply get NULL output).
+        if !column_exists(conn, "tasks", "output")? {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN output TEXT;")?;
+        }
+        // Additive migration: the governance `ExecutionContract.id` that parked a
+        // task in `AwaitingApproval`, so a desktop/phone client can correlate the
+        // task row with its pending approval card. Same idempotent `PRAGMA
+        // table_info` guard as `output`; old rows get NULL approval_id.
+        if !column_exists(conn, "tasks", "approval_id")? {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN approval_id TEXT;")?;
+        }
+        // S0 lane F1: additive, append-only `task_events` table living in the
+        // same DB. This does NOT alter the `tasks` schema. Runs on the raw
+        // connection here (no lock) so the sibling EventStore is ready before
+        // the Mutex wrap.
+        super::events::EventStore::init_schema(conn)?;
         Ok(())
     }
 
@@ -76,8 +104,8 @@ impl TaskStore {
             "INSERT INTO tasks (
                  task_id, workspace_id, session_id, agent_name, prompt, status,
                  created_at, started_at, finished_at, parent_task_id, assigned_node,
-                 cost_usd, turns, error, trace_id
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                 cost_usd, turns, error, output, approval_id, trace_id
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 task.task_id.to_string(),
                 task.workspace_id,
@@ -93,6 +121,8 @@ impl TaskStore {
                 task.cost_usd,
                 task.turns as i64,
                 task.error,
+                task.output,
+                task.approval_id,
                 task.trace_id.to_string(),
             ],
         )?;
@@ -202,15 +232,59 @@ impl TaskStore {
         )?;
         Ok(())
     }
+
+    /// Persist an agent's output text for a finished async dispatch job
+    /// (DISPATCH-MESH-DURABILITY gap-a). Does not change `status` — callers
+    /// transition separately (see `TaskQueue::record_result`).
+    pub async fn set_output(&self, task_id: Uuid, output: &str) -> Result<()> {
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "UPDATE tasks SET output = ?1 WHERE task_id = ?2",
+            params![output, task_id.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Correlate a pending governance approval onto a task by persisting the
+    /// `ExecutionContract.id` (the per-action approval id the escalator matches a
+    /// phone reply against) into `approval_id`. Called when a task enters
+    /// `AwaitingApproval` because the governor raised an approval, so the `/tasks`
+    /// rows let a desktop/phone client map the awaiting-approval task to its
+    /// pending approval card. Does not change `status` — the caller transitions
+    /// separately. Idempotent: a later call overwrites with the latest contract.
+    pub async fn set_approval_id(&self, task_id: Uuid, approval_id: &str) -> Result<()> {
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "UPDATE tasks SET approval_id = ?1 WHERE task_id = ?2",
+            params![approval_id, task_id.to_string()],
+        )?;
+        Ok(())
+    }
+}
+
+/// Return true if `table` has a column named `column`. Used to make the
+/// `output` migration in [`TaskStore::init_schema`] idempotent. The table name
+/// is a compile-time literal here (`tasks`), so the `PRAGMA` format is not an
+/// injection surface.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 const SELECT_BASE: &str = "SELECT task_id, workspace_id, session_id, agent_name, prompt, status, \
      created_at, started_at, finished_at, parent_task_id, assigned_node, cost_usd, turns, error, \
-     trace_id FROM tasks";
+     output, approval_id, trace_id FROM tasks";
 
 const SELECT_FULL: &str = "SELECT task_id, workspace_id, session_id, agent_name, prompt, status, \
      created_at, started_at, finished_at, parent_task_id, assigned_node, cost_usd, turns, error, \
-     trace_id FROM tasks WHERE task_id = ?1";
+     output, approval_id, trace_id FROM tasks WHERE task_id = ?1";
 
 fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
     let task_id: String = row.get(0)?;
@@ -227,7 +301,9 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
     let cost_usd: f64 = row.get(11)?;
     let turns: i64 = row.get(12)?;
     let error: Option<String> = row.get(13)?;
-    let trace_id: String = row.get(14)?;
+    let output: Option<String> = row.get(14)?;
+    let approval_id: Option<String> = row.get(15)?;
+    let trace_id: String = row.get(16)?;
 
     let status = TaskStatus::from_str(&status_str).unwrap_or_else(|| {
         tracing::warn!(status_str = %status_str, task_id = %task_id, "TaskStatus::from_str unknown variant — coerced to Failed");
@@ -262,6 +338,8 @@ fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRecord> {
         cost_usd,
         turns: turns as u32,
         error,
+        output,
+        approval_id,
         trace_id,
     })
 }
@@ -366,6 +444,87 @@ mod tests {
         let got = store.get(t.task_id).await.unwrap().unwrap();
         assert_eq!(got.turns, 2);
         assert!((got.cost_usd - 0.03).abs() < 1e-9);
+    }
+
+    #[tokio::test]
+    async fn output_column_round_trips() {
+        // gap-a: a completed async dispatch job persists its output text.
+        let dir = tempdir().unwrap();
+        let store = TaskStore::open_at(dir.path().join("t.db")).unwrap();
+
+        let t = mk_task("ws1");
+        store.insert(&t).await.unwrap();
+        // Fresh row has no output yet.
+        assert_eq!(store.get(t.task_id).await.unwrap().unwrap().output, None);
+
+        store.set_output(t.task_id, "the agent result").await.unwrap();
+        let got = store.get(t.task_id).await.unwrap().unwrap();
+        assert_eq!(got.output.as_deref(), Some("the agent result"));
+    }
+
+    #[tokio::test]
+    async fn output_migration_is_idempotent_on_reopen() {
+        // Re-opening the same DB file must not fail on the additive `output`
+        // migration (PRAGMA table_info guard) and must preserve prior data.
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let t = {
+            let store = TaskStore::open_at(db.clone()).unwrap();
+            let t = mk_task("ws1");
+            store.insert(&t).await.unwrap();
+            store.set_output(t.task_id, "persisted").await.unwrap();
+            t
+        };
+        // Reopen — init_schema runs again; ADD COLUMN must be skipped.
+        let reopened = TaskStore::open_at(db).unwrap();
+        let got = reopened.get(t.task_id).await.unwrap().unwrap();
+        assert_eq!(got.output.as_deref(), Some("persisted"));
+    }
+
+    #[tokio::test]
+    async fn approval_id_round_trips_and_flows_through_tasks_list_json() {
+        // The REAL fix for the batch-3 fake-green: prove that an awaiting-approval
+        // task's governance contract id (1) is persisted by the PRODUCTION setter
+        // `set_approval_id`, (2) survives the store round-trip, and (3) appears in
+        // the exact JSON shape `tasks_list` emits — `json!({ "tasks": <list> })` —
+        // so a desktop client can correlate the task with its pending approval.
+        let dir = tempdir().unwrap();
+        let store = TaskStore::open_at(dir.path().join("t.db")).unwrap();
+
+        let t = mk_task("ws1");
+        store.insert(&t).await.unwrap();
+        // Fresh row carries no approval correlation.
+        assert_eq!(store.get(t.task_id).await.unwrap().unwrap().approval_id, None);
+
+        // The contract id is what the governor mints (ExecutionContract::new) and
+        // what the escalator correlates a phone reply against; set it via the REAL
+        // setter — NOT by mutating the struct field directly in the test.
+        let contract_id = "contract-7f3c-awaiting";
+        store
+            .set_approval_id(t.task_id, contract_id)
+            .await
+            .unwrap();
+
+        // Serialize the way `tasks_list` does: a list of TaskRecord under "tasks".
+        let listed = store.list(Some("ws1"), None, 100).await.unwrap();
+        let body = serde_json::json!({ "tasks": listed });
+        let approval_in_json = body["tasks"][0]["approval_id"].as_str();
+        assert_eq!(
+            approval_in_json,
+            Some(contract_id),
+            "the /tasks JSON must carry the approval_id set via the production setter"
+        );
+
+        // Control: a normal task (no setter call) has NO approval_id key in the
+        // emitted JSON (skip_serializing_if), so a client makes no false match.
+        let t2 = mk_task("ws2");
+        store.insert(&t2).await.unwrap();
+        let listed2 = store.list(Some("ws2"), None, 100).await.unwrap();
+        let body2 = serde_json::json!({ "tasks": listed2 });
+        assert!(
+            body2["tasks"][0].get("approval_id").is_none(),
+            "a task with no governance approval must emit no approval_id key"
+        );
     }
 
     #[tokio::test]

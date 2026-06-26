@@ -9,7 +9,7 @@ import { getVersion } from "../../lib/api";
 
 const LINKS: { label: string; url: string }[] = [
   { label: "Source（GitHub）", url: "https://github.com/markl-a/phantom-mesh" },
-  { label: "License（Apache-2.0）", url: "https://github.com/markl-a/phantom-mesh/blob/main/LICENSE" },
+  { label: "License（AGPL-3.0）", url: "https://github.com/markl-a/phantom-mesh/blob/main/LICENSE" },
 ];
 
 export default function MobileAbout() {

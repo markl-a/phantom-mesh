@@ -21,12 +21,21 @@ fn phantom_bin() -> &'static str {
 }
 
 /// LIN P0 — `phantom serve` must bind a TCP port and respond 200 to
-/// GET /healthz within 10 s. Uses :17878 to avoid the canonical
-/// :7878 that a long-running dev/cluster instance is likely on.
+/// GET /healthz within 10 s. Uses an OS-assigned ephemeral port (bind
+/// 127.0.0.1:0 → take the port → drop) instead of a fixed one, so the test
+/// can't fail spuriously when a long-running dev/cluster node (or a leftover
+/// serve from a crashed run) already holds the port — the previous fixed
+/// :17878 is itself a used mesh address.
 #[tokio::test(flavor = "current_thread")]
 async fn serve_starts_linux() {
     let bin = phantom_bin();
-    let port: u16 = 17878;
+    // Bind :0 to let the OS pick a free port, then drop the listener so
+    // `phantom serve` can bind it (mirrors life_node_capture_e2e.rs / test_rpc_forwarding.rs).
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral port for serve_starts_linux");
+    let port: u16 = listener.local_addr().unwrap().port();
+    drop(listener);
 
     let mut child = tokio::process::Command::new(bin)
         .arg("serve")

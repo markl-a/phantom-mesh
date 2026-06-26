@@ -10,7 +10,12 @@ pub async fn get_task_history(
     http: State<'_, HttpClient>,
 ) -> Result<Value, String> {
     let config = config.read().clone();
-    let url = format!("{}/task/history", config.hub_url);
+    // `/tasks` is the real persisted task queue (core/src/main.rs `tasks_list`,
+    // backed by the `tasks` SQLite table). The older `/task/history` route is a
+    // hardcoded legacy stub that always returns `{"tasks": []}`, so proxying it
+    // rendered the dashboard TasksPanel permanently empty. Rows are raw
+    // `pm_types::TaskRecord`s; the panel maps them to its display shape.
+    let url = format!("{}/tasks?limit=50", config.hub_url);
     let resp = http
         .0
         .get(&url)

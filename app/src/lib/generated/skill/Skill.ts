@@ -2,7 +2,7 @@
 import type { SkillExample } from "./SkillExample";
 
 /**
- * 一筆 skill bank（技能銀行）row — hermes 從過去 events 抽出的可重用 user
+ * 一筆 skill bank（技能銀行）row — skillbank 從過去 events 抽出的可重用 user
  * 行為模式。`id` UUIDv7；`trigger_pattern` 自然語言 + 可選 regex；`steps`
  * 有序動作（1-10 條）；`examples` **已 redact** 過的事件樣本（hash +
  * 過濾後 snippet，**不是** raw event）；`quality_score` 0.0-1.0 measure

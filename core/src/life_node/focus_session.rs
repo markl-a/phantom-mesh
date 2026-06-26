@@ -61,15 +61,21 @@ pub struct FocusStopResult {
     pub event_id: Option<String>,
 }
 
+/// Clock-injectable epoch-millis reading — the hermetic core. Tests pass a
+/// `MockClock` to pin `started_at_ms` / interruption `at_ms` deterministically.
+fn now_ms_on(clock: &dyn crate::clock::Clock) -> u64 {
+    clock.now_ms()
+}
+
+/// Production wall-clock reading. Delegates to [`SystemClock`], which reproduces
+/// the previous `SystemTime::now() - UNIX_EPOCH` behavior byte-for-byte, so the
+/// disk session timestamps are identical to before this refactor.
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    now_ms_on(&crate::clock::SystemClock)
 }
 
 fn phantom_dir(base: &Path) -> PathBuf {
-    base.join(".phantom-mesh")
+    crate::cli_config::phantom_dir_under(base)
 }
 
 fn session_path(base: &Path) -> PathBuf {
@@ -234,6 +240,22 @@ fn write_focus_event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn now_ms_on_reads_the_injected_clock() {
+        use crate::clock::{MockClock, SystemClock};
+        // Injected mock clock → now_ms_on returns exactly the pinned instant.
+        let mock = MockClock::new(1_700_000_000_123);
+        assert_eq!(super::now_ms_on(&mock), 1_700_000_000_123);
+        mock.advance_ms(1_000);
+        assert_eq!(super::now_ms_on(&mock), 1_700_000_001_123);
+        // The legacy free fn still reads the real wall clock (production path
+        // unchanged): it must equal SystemClock::now_ms within a small skew.
+        let sys = SystemClock;
+        let a = super::now_ms();
+        let b = crate::clock::Clock::now_ms(&sys);
+        assert!(a.abs_diff(b) < 5_000, "legacy now_ms must still read the real clock");
+    }
 
     #[test]
     fn start_status_interrupt_stop_round_trip() {

@@ -762,15 +762,17 @@ fn unseal_vault_value_local(
 ///   3. recomputes the HMAC from the unsealed payload to detect tampering,
 ///   4. unseals locally with the device-held `VaultSealKey` (NEVER uploaded).
 ///
-/// TODO(spec15-e2ee, blocking): two core primitives are not yet public:
-///   (a) `broker_vault_wire::unseal_vault_value(...)` — the read-path inverse
-///       of `seal_vault_value` (contract §9: "DOES NOT EXIST — must be added").
-///   (b) a loader returning the locally-persisted `VaultSealKey` from the OS
-///       Keychain (`VaultSealKey.bytes` is `pub(crate)`; no public ctor/loader
-///       exists yet).
-/// Until both land, this command refuses to fall back to plaintext and
-/// returns a clear migration error instead of leaking secrets. Do NOT
-/// re-introduce the `settings/raw` plaintext call to "make it work".
+/// E2EE read path (LANDED): the two core primitives this used to wait on are
+/// now public and wired here via `unseal_vault_value_local`:
+///   (a) `broker_vault_wire::unseal_vault_value(value_sealed, &seal_key)` — the
+///       read-path inverse of `seal_vault_value` (age v1 symmetric decrypt).
+///   (b) `broker_vault_wire::load_vault_seal_key()` — public loader for the
+///       device-held `VaultSealKey` (the `bytes` field stays `pub(crate)`; the
+///       loader is the sanctioned accessor).
+/// The HMAC is recomputed + constant-time-compared (`verify_client_hmac`) before
+/// any decrypt, so a tampered item fails closed. This command NEVER falls back to
+/// the retired plaintext `settings/raw` path — do NOT re-introduce it "to make it
+/// work"; under true E2EE the broker only ever hands us `value_sealed`.
 #[tauri::command]
 pub async fn broker_sync_from_vault(
     broker_url: Option<String>,

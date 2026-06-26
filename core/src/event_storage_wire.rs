@@ -44,6 +44,41 @@ use ts_rs::TS;
 // Audio, Coach, Skill, Memory }.
 pub use crate::rpc_wire::EventKind;
 
+// ─── Machine-origin isolation (R1 write / R2 read) — import-only, no edit ─────
+//
+// `partner::MessageOrigin` is the single source of truth for "did a human or a
+// bot produce this?" (Human vs Machine). We IMPORT it here and thread it through
+// the event-capture path so the store can segregate autonomous-loop / classifier
+// captures from genuine human captures — mirroring the `.machine.jsonl` ledger
+// split partner.rs already does for the human-usage moat. We deliberately do NOT
+// modify partner.rs (another machine owns it); `MessageOrigin` derives only
+// `Copy/Eq`, so the serde mapping to/from the on-disk `"human"`/`"machine"`
+// strings lives entirely in THIS file (see `origin_to_wire` / `origin_from_wire`).
+//
+// 中文: 只 import partner::MessageOrigin（不改 partner.rs），把來源一路 thread
+// 進 write_event/index_fts5/召回，讓自治 loop/classifier 的事件不汙染人類 recall。
+pub use crate::partner::MessageOrigin;
+
+/// Map a [`MessageOrigin`] to its stable on-disk / FTS5 wire string. The FTS5
+/// `origin` column stores this verbatim so the read-side filter can match
+/// `origin LIKE 'human%'`. Kept here (not in partner.rs) so partner.rs stays
+/// untouched. `Human` → `"human"`, `Machine` → `"machine"`.
+pub fn origin_to_wire(origin: MessageOrigin) -> &'static str {
+    match origin {
+        MessageOrigin::Human => "human",
+        MessageOrigin::Machine => "machine",
+    }
+}
+
+/// Parse an on-disk origin marker back into [`MessageOrigin`], defaulting to
+/// `Human` for an absent / unknown value. This is the SAFE backward-compat
+/// default: pre-origin events (no sidecar / NULL column) and any drift resolve
+/// to `Human`, so we NEVER mislabel a genuine human capture as machine and drop
+/// it from recall. Mirrors `partner::resolve_origin`'s "no marker → Human" rule.
+pub fn origin_from_wire(s: &str) -> MessageOrigin {
+    MessageOrigin::from_wire(s).unwrap_or(MessageOrigin::Human)
+}
+
 // ─── §7.1.2-equivalent EventMeta (wire-shape) ─────────────────────────────────
 
 /// Lightweight, queryable metadata pulled out of an `EventRecord` for indexing
@@ -253,6 +288,31 @@ pub fn write_event(
     encrypted_body: &[u8],
     analysis: Option<&AnalysisResult>,
 ) -> Result<String, EventStoreError> {
+    // Backward-compatible delegate: callers that don't yet thread a
+    // `MessageOrigin` get the SAFE default (`Human`) — same precedence as
+    // `partner::resolve_origin` (no marker → Human). The machine-origin path is
+    // the explicit `write_event_with_origin` below.
+    write_event_with_origin(meta, encrypted_body, analysis, MessageOrigin::Human)
+}
+
+/// Origin-aware twin of [`write_event`]: persists everything `write_event` does
+/// PLUS an `origin` sidecar (`events/<uuid>/origin`) carrying the
+/// `"human"`/`"machine"` marker. We use a sidecar rather than a new `EventMeta`
+/// struct field so the wire `EventMeta` (consumed by coach/skill/tui/daily_review
+/// + ts-rs export) stays byte-compatible and no other file needs editing; an
+/// ABSENT sidecar reads back as `Human` (see [`read_origin_only`]), giving free
+/// backward-compat for every pre-existing event. The FTS5 read-side gate
+/// ([`search_fts5_hits_at_with_filter`]) is the primary R2 filter; this sidecar
+/// is the durable, rebuild-friendly record (R1) and a secondary read source.
+///
+/// 中文: 帶 origin 的 write_event。除了 meta.json/body.age/analysis.json,額外寫
+/// `origin` sidecar(human/machine);不動 EventMeta 結構=不波及其他檔。缺檔→Human。
+pub fn write_event_with_origin(
+    meta: &EventMeta,
+    encrypted_body: &[u8],
+    analysis: Option<&AnalysisResult>,
+    origin: MessageOrigin,
+) -> Result<String, EventStoreError> {
     // Step 1: ensure ~/.phantom-mesh/events/<uuid>/ directory exists
     let event_dir = format!("~/.phantom-mesh/events/{}", meta.event_id);
     mkdir_p_pseudo(&event_dir)?;
@@ -264,7 +324,15 @@ pub fn write_event(
     if let Some(a) = analysis {
         write_json_pseudo(&format!("{}/analysis.json", event_dir), a)?;
     }
-    // Step 5: return the assigned event_id (UUIDv7) to the caller
+    // Step 5: write the origin marker sidecar (plaintext, non-PII: just
+    // "human"/"machine"). Best-effort is NOT acceptable for the machine case —
+    // if we can't record that a bot wrote this, it would silently re-enter the
+    // human moat — so a write failure surfaces as IoError.
+    write_bytes_pseudo(
+        &format!("{}/origin", event_dir),
+        origin_to_wire(origin).as_bytes(),
+    )?;
+    // Step 6: return the assigned event_id (UUIDv7) to the caller
     Ok(meta.event_id.clone())
 }
 
@@ -604,13 +672,66 @@ pub fn index_fts5(
     event_id: &str,
     plaintext_summary: &str,
 ) -> Result<FTS5Index, EventStoreError> {
+    // Backward-compatible delegate: an un-tagged index call defaults to `Human`
+    // (no marker → Human, matching `partner::resolve_origin`). Machine captures
+    // call `index_fts5_with_origin` so they carry the `"machine"` marker that
+    // the recall gate filters out.
+    index_fts5_with_origin(event_id, plaintext_summary, MessageOrigin::Human)
+}
+
+/// Origin-aware twin of [`index_fts5`]: writes the same FTS5 row PLUS the
+/// `"human"`/`"machine"` marker into the new `origin UNINDEXED` column. The
+/// content is STILL indexed (we mark, not skip — per the doc Phase-1 "標記"
+/// option, which keeps a rebuild/audit path) so a machine event remains
+/// searchable for an explicit machine-inclusive query, while
+/// [`search_fts5_hits_at_with_filter`] with `human_only=true` excludes it from
+/// the human recall result set (R2 gate).
+///
+/// 中文: 帶 origin 的 index_fts5;origin 寫進 FTS5 新欄 `origin UNINDEXED`,內容
+/// 仍索引但帶標記。human_only 召回時被 `origin LIKE 'human%'` 過濾掉。
+pub fn index_fts5_with_origin(
+    event_id: &str,
+    plaintext_summary: &str,
+    origin: MessageOrigin,
+) -> Result<FTS5Index, EventStoreError> {
     // Step 1: open the sqlite handle for ~/.phantom-mesh/events.sqlite
     let conn = sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")?;
-    // Step 2: prepare idempotent upsert into the FTS5 contentless virtual table
-    let sql = "INSERT OR REPLACE INTO fts5_events(event_id, content) VALUES(?, ?)";
-    // Step 3: execute with (event_id, plaintext_summary) bound; assemble the
-    // FTS5Index meta-about-meta receipt for the caller
-    sqlite_execute_pseudo(&conn, sql, &[event_id, plaintext_summary])?;
+    // Step 2: idempotent upsert into the FTS5 contentless virtual table, now
+    // carrying the origin marker column.
+    let sql = "INSERT OR REPLACE INTO fts5_events(event_id, content, origin) VALUES(?, ?, ?)";
+    // Step 3: execute with (event_id, plaintext_summary, origin) bound; assemble
+    // the FTS5Index meta-about-meta receipt for the caller.
+    sqlite_execute_pseudo(&conn, sql, &[event_id, plaintext_summary, origin_to_wire(origin)])?;
+    Ok(FTS5Index {
+        event_id: event_id.to_string(),
+        terms_indexed_count: count_tokens_pseudo(plaintext_summary)?,
+        indexed_at: now_iso_pseudo(),
+    })
+}
+
+/// Path- and data-root-explicit write twin of [`index_fts5_with_origin`]. Indexes
+/// the SAME FTS5 row (`fts5_events`, contentless virtual table, with the
+/// `"human"`/`"machine"` origin marker) into the `events.sqlite` at a
+/// caller-supplied `db_path` instead of the hardcoded `~/.phantom-mesh/events.sqlite`.
+/// This is the write-side twin of the existing read-side [`search_fts5_hits_at`]
+/// and mirrors [`embed_and_store_at`]'s `_at` convention — it does NOT invent a
+/// new store, it points the existing one at a resolved path. Lets a
+/// data-root-aware caller (e.g. `phantom memory bootstrap`, which resolves the db
+/// via `cli_config::phantom_data_dir()` so it honors `PHANTOM_HOME`) and hermetic
+/// tests target an isolated `events.sqlite`. Idempotent: `INSERT OR REPLACE`
+/// keyed on `event_id`, so re-indexing the same id overwrites rather than dups.
+///
+/// 中文: index_fts5_with_origin 的「明確 db 路徑」寫入版,對齊 search_fts5_hits_at /
+/// embed_and_store_at;讓 honor PHANTOM_HOME 的呼叫端與測試指向隔離的 events.sqlite。
+pub fn index_fts5_with_origin_at(
+    db_path: &std::path::Path,
+    event_id: &str,
+    plaintext_summary: &str,
+    origin: MessageOrigin,
+) -> Result<FTS5Index, EventStoreError> {
+    let conn = sqlite_open_pseudo(&db_path.to_string_lossy())?;
+    let sql = "INSERT OR REPLACE INTO fts5_events(event_id, content, origin) VALUES(?, ?, ?)";
+    sqlite_execute_pseudo(&conn, sql, &[event_id, plaintext_summary, origin_to_wire(origin)])?;
     Ok(FTS5Index {
         event_id: event_id.to_string(),
         terms_indexed_count: count_tokens_pseudo(plaintext_summary)?,
@@ -683,9 +804,10 @@ fn sqlite_open_pseudo(path: &str) -> Result<SqliteHandle, EventStoreError> {
                 conn2
                     .execute_batch(
                         "CREATE VIRTUAL TABLE IF NOT EXISTS fts5_events \
-                         USING fts5(event_id UNINDEXED, content, tokenize='unicode61');",
+                         USING fts5(event_id UNINDEXED, content, origin UNINDEXED, tokenize='unicode61');",
                     )
                     .map_err(|e2| EventStoreError::MigrationFailed(e2.to_string()))?;
+                provision_events_emb(&conn2)?;
                 return Ok(SqliteHandle { conn: conn2 });
             }
             return Err(EventStoreError::OpenFailed(format!(
@@ -711,10 +833,287 @@ fn sqlite_open_pseudo(path: &str) -> Result<SqliteHandle, EventStoreError> {
     };
     conn.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS fts5_events \
-         USING fts5(event_id UNINDEXED, content, tokenize='unicode61');",
+         USING fts5(event_id UNINDEXED, content, origin UNINDEXED, tokenize='unicode61');",
     )
     .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+    // Machine-origin migration: an events.sqlite created BEFORE this change has a
+    // 2-column fts5_events (event_id, content) and `CREATE ... IF NOT EXISTS` is a
+    // no-op on it, so the 3-column INSERT would fail. FTS5 has no `ALTER ADD
+    // COLUMN`, so we rebuild: copy the legacy rows, DROP, recreate with the
+    // `origin` column, and re-insert tagging every legacy row `human` (the SAFE
+    // default — pre-origin captures came through human food/habit/note paths, and
+    // mislabeling Human is the non-destructive direction). Idempotent: once the
+    // column exists this whole block is skipped.
+    migrate_fts5_add_origin(&conn)?;
+    // Semantic-memory sibling index: provisioned inline the SAME way as
+    // `fts5_events` (no separate migration dir for events.sqlite). `vec` holds
+    // little-endian f32 bytes; `dim` + `model_id` let recall skip stale rows
+    // after an embedding-model swap. Like the FTS5 index, it's a derived index
+    // over the same PII-scrubbed summary and can be rebuilt via `--reindex`.
+    provision_events_emb(&conn)?;
     Ok(SqliteHandle { conn })
+}
+
+/// Create the `events_emb` semantic-vector table if absent. Provisioned inline
+/// in the open path next to `fts5_events` (events.sqlite has no migrations dir).
+/// `vec` = little-endian f32 bytes ([`crate::embeddings::encode_vec`]); `dim` +
+/// `model_id` record which embedding model produced the row so a later swap is
+/// detectable. Idempotent (`IF NOT EXISTS`).
+///
+/// 中文: 在 open path inline 建 events_emb(語意向量表),與 fts5_events 並排。
+fn provision_events_emb(conn: &rusqlite::Connection) -> Result<(), EventStoreError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS events_emb(\
+            event_id TEXT PRIMARY KEY, \
+            dim INTEGER, \
+            model_id TEXT, \
+            vec BLOB, \
+            indexed_at INTEGER);",
+    )
+    .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))
+}
+
+// ─── Test-injectable embedder seam (hermetic semantic-recall proof) ──────────
+//
+// Production ALWAYS uses the local Ollama embedder. To prove the semantic
+// capture→store→recall path WITHOUT a live Ollama — the mandatory hermetic,
+// network-free test — unit tests install a deterministic stub embedder into
+// this thread-local hook; [`embed_one_active`] consults it before falling back
+// to Ollama. `#[cfg(test)]`-gated so the shipping build is byte-identical (no
+// hook, no extra public surface, zero runtime cost). Mirrors the established
+// `skill_wire::set_test_embedder` pattern.
+#[cfg(test)]
+thread_local! {
+    static TEST_EMBEDDER: std::cell::RefCell<Option<Box<dyn crate::embeddings::EmbeddingProvider>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Install a thread-local [`crate::embeddings::EmbeddingProvider`] so the
+/// semantic capture/recall path can be exercised hermetically (no network).
+/// Test-only; pair with [`clear_test_embedder`]. Production never installs one,
+/// so the Ollama embedder is always used.
+#[cfg(test)]
+pub(crate) fn set_test_embedder(provider: Box<dyn crate::embeddings::EmbeddingProvider>) {
+    TEST_EMBEDDER.with(|h| *h.borrow_mut() = Some(provider));
+}
+
+/// Remove any thread-local test embedder, restoring the production (Ollama)
+/// path. Test-only.
+#[cfg(test)]
+pub(crate) fn clear_test_embedder() {
+    TEST_EMBEDDER.with(|h| *h.borrow_mut() = None);
+}
+
+/// Embed ONE text with the active provider, returning `(vector, model_id)`.
+/// Production always uses the local Ollama embedder; in `#[cfg(test)]` builds an
+/// installed stub embedder ([`set_test_embedder`]) takes precedence so the
+/// semantic capture→recall path is exercisable hermetically (no network).
+/// `Ok(None)` = the embedder produced an empty batch (treated as a best-effort
+/// skip, exactly as before); `Err` propagates so callers degrade gracefully.
+fn embed_one_active(
+    text: &str,
+) -> Result<Option<(Vec<f32>, String)>, crate::embeddings::EmbedError> {
+    use crate::embeddings::EmbeddingProvider;
+    #[cfg(test)]
+    {
+        let hooked = TEST_EMBEDDER.with(|h| {
+            h.borrow().as_ref().map(|e| {
+                let model = e.model_id().to_string();
+                e.embed(&[text.to_string()]).map(|mut v| {
+                    if v.is_empty() {
+                        None
+                    } else {
+                        Some((v.remove(0), model))
+                    }
+                })
+            })
+        });
+        if let Some(res) = hooked {
+            return res;
+        }
+    }
+    let embedder = crate::embeddings::ollama::OllamaEmbedder::new();
+    let model = embedder.model_id().to_string();
+    let mut v = embedder.embed(&[text.to_string()])?;
+    if v.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some((v.remove(0), model)))
+    }
+}
+
+/// Embed `plaintext_summary` and upsert the vector into `events_emb`, keyed by
+/// `event_id`. **Best-effort, exactly like FTS5 indexing**: if the embedder is
+/// unavailable (Ollama not running, model not pulled) or the summary is empty,
+/// this returns `Ok(false)` (or logs + returns `Ok(false)`) and the caller
+/// continues — capture must NEVER block on or panic over a missing embedder.
+/// Returns `Ok(true)` when a vector was actually stored.
+///
+/// The `origin` arg is accepted for signature symmetry with
+/// `index_fts5_with_origin` (the call sites pass it) but is not currently
+/// persisted in `events_emb` — the FTS5 `origin` column already gates recall by
+/// provenance, and the semantic leg dedupes/filters against those FTS5 + file
+/// hits at query time.
+///
+/// 中文: 把 summary embed 後 upsert 進 events_emb。best-effort,embedder 不在就
+/// log+continue(回 Ok(false)),絕不擋 capture / 不 panic。
+pub fn embed_and_store(
+    event_id: &str,
+    plaintext_summary: &str,
+    _origin: MessageOrigin,
+) -> Result<bool, EventStoreError> {
+    if plaintext_summary.trim().is_empty() {
+        return Ok(false);
+    }
+    let (vec, model_id) = match embed_one_active(plaintext_summary) {
+        Ok(Some(pair)) => pair,
+        Ok(None) => return Ok(false),
+        Err(e) => {
+            // Expected when Ollama is down / model not pulled. Mirror FTS5's
+            // best-effort failure handling: record + continue, never unwind.
+            crate::diag::record(
+                "embed_index_skipped",
+                format!("event {}: {}", event_id, e),
+            );
+            return Ok(false);
+        }
+    };
+    let conn = sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")?;
+    upsert_events_emb(&conn, event_id, &vec, &model_id)?;
+    Ok(true)
+}
+
+/// Path-explicit twin of [`embed_and_store`] for hermetic callers (tests /
+/// `--reindex` against a caller-supplied `events.sqlite`). Same best-effort
+/// semantics. `db_path` points at the `events.sqlite` file.
+pub fn embed_and_store_at(
+    db_path: &std::path::Path,
+    event_id: &str,
+    plaintext_summary: &str,
+) -> Result<bool, EventStoreError> {
+    if plaintext_summary.trim().is_empty() {
+        return Ok(false);
+    }
+    let (vec, model_id) = match embed_one_active(plaintext_summary) {
+        Ok(Some(pair)) => pair,
+        Ok(None) => return Ok(false),
+        Err(e) => {
+            crate::diag::record(
+                "embed_index_skipped",
+                format!("event {}: {}", event_id, e),
+            );
+            return Ok(false);
+        }
+    };
+    let conn = sqlite_open_pseudo(&db_path.to_string_lossy())?;
+    upsert_events_emb(&conn, event_id, &vec, &model_id)?;
+    Ok(true)
+}
+
+/// Idempotent upsert of one embedding row into `events_emb` (encode → BLOB).
+fn upsert_events_emb(
+    handle: &SqliteHandle,
+    event_id: &str,
+    vec: &[f32],
+    model_id: &str,
+) -> Result<(), EventStoreError> {
+    let blob = crate::embeddings::encode_vec(vec);
+    let now = now_ts_ms();
+    handle
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO events_emb(event_id, dim, model_id, vec, indexed_at) \
+             VALUES(?, ?, ?, ?, ?)",
+            rusqlite::params![event_id, vec.len() as i64, model_id, blob, now],
+        )
+        .map(|_| ())
+        .map_err(|e| EventStoreError::IoError(e.to_string()))
+}
+
+/// Run a brute-force semantic top-k over the `events_emb` table in the
+/// `events.sqlite` at `db_path`. Embeds `query` with the local Ollama embedder,
+/// then ranks every stored vector by cosine. Returns `(event_id, cosine)` pairs,
+/// highest first. **Best-effort**: if the embedder is unavailable, returns
+/// `Ok(vec![])` so recall degrades to FTS5-only — never an error, never a panic.
+///
+/// 中文: 對 db_path 的 events_emb 做語意 top-k。embedder 不在回空 → recall 降級純
+/// FTS5。
+pub fn semantic_topk_at(
+    db_path: &std::path::Path,
+    query: &str,
+    k: usize,
+) -> Result<Vec<(String, f32)>, EventStoreError> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    if !db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let qvec = match embed_one_active(query) {
+        Ok(Some((v, _))) => v,
+        // Embedder unavailable/empty → no semantic ranking; recall degrades to
+        // FTS5-only. Never an error, never a panic.
+        Ok(None) | Err(_) => return Ok(Vec::new()),
+    };
+    let conn = sqlite_open_pseudo(&db_path.to_string_lossy())?;
+    crate::embeddings::brute_force_topk(&qvec, &conn.conn, k.max(1))
+        .map_err(|e| EventStoreError::IoError(e.to_string()))
+}
+
+/// Ensure `fts5_events` has the `origin` column; rebuild a legacy 2-column table
+/// in place if not. No-op when the column is already present (the common path).
+fn migrate_fts5_add_origin(conn: &rusqlite::Connection) -> Result<(), EventStoreError> {
+    // FTS5 exposes its columns through the shadow `fts5_events`'s `PRAGMA
+    // table_info`. A legacy table reports exactly {event_id, content}.
+    let has_origin: bool = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(fts5_events)")
+            .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+        let cols = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+        let mut found = false;
+        for c in cols {
+            let name = c.map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+            if name == "origin" {
+                found = true;
+            }
+        }
+        found
+    };
+    if has_origin {
+        return Ok(());
+    }
+    // Legacy 2-column table → rebuild. Pull existing (event_id, content) rows.
+    let legacy: Vec<(String, String)> = {
+        let mut stmt = conn
+            .prepare("SELECT event_id, content FROM fts5_events")
+            .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?);
+        }
+        out
+    };
+    conn.execute_batch(
+        "DROP TABLE fts5_events; \
+         CREATE VIRTUAL TABLE fts5_events \
+         USING fts5(event_id UNINDEXED, content, origin UNINDEXED, tokenize='unicode61');",
+    )
+    .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+    for (event_id, content) in legacy {
+        conn.execute(
+            "INSERT INTO fts5_events(event_id, content, origin) VALUES(?, ?, 'human')",
+            rusqlite::params![event_id, content],
+        )
+        .map_err(|e| EventStoreError::MigrationFailed(e.to_string()))?;
+    }
+    Ok(())
 }
 
 /// Move a corrupt sqlite file aside to `<path>.corrupt-<unix-ts>` so a
@@ -891,6 +1290,21 @@ pub fn ts_epoch_ms(timestamp: &str) -> i64 {
     }
 }
 
+/// Finer-grained absolute-instant sort key (epoch nanoseconds). Same offset-aware
+/// parsing as [`ts_epoch_ms`], but preserves sub-millisecond ordering so a
+/// newest-first sort is deterministic when two events share a millisecond
+/// (otherwise an ms-truncated key ties and falls back to arbitrary read_dir
+/// order). Unparseable values sort first (`i64::MIN`); out-of-range instants
+/// (chrono nanos overflow ~year 2262) fall back to millisecond precision.
+pub fn ts_epoch_nanos(timestamp: &str) -> i64 {
+    match chrono::DateTime::parse_from_rfc3339(timestamp) {
+        Ok(dt) => dt
+            .timestamp_nanos_opt()
+            .unwrap_or_else(|| dt.timestamp_millis().saturating_mul(1_000_000)),
+        Err(_) => i64::MIN,
+    }
+}
+
 /// Opaque sqlite connection handle. Wraps `rusqlite::Connection` so the rest
 /// of the module stays decoupled from rusqlite's surface.
 pub struct SqliteHandle {
@@ -915,6 +1329,192 @@ pub fn search_fts5(query: &str, limit: usize) -> Result<Vec<String>, EventStoreE
     // Step 3: collect event_ids in BM25 order; caller follows up with
     // read_event(id) to materialise the full EventRecord per id
     Ok(rows)
+}
+
+/// One FTS5 hit, carrying both the `event_id` and the indexed `content` (the
+/// PII-scrubbed `summary` that `index_fts5` stored). Unlike `search_fts5`
+/// (event_ids only), this surfaces the summary directly so a caller can render
+/// a recall hit without a second `read_event` round-trip (whose `analysis.json`
+/// side-car is `None` for wire-store captures — the summary lives only here).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fts5Hit {
+    pub event_id: String,
+    pub content: String,
+    /// Provenance marker (`"human"`/`"machine"`) read from the FTS5 `origin`
+    /// column. Pre-migration rows backfill to `"human"`. Lets a caller audit /
+    /// render provenance and double-check the R2 gate without a second lookup.
+    pub origin: String,
+}
+
+/// FTS5 search returning `(event_id, content)` pairs ordered by BM25 score. An
+/// empty/whitespace `query` lists every indexed row (newest insert order is not
+/// guaranteed by FTS5, so callers that need chronological order re-sort by the
+/// event timestamp). `limit` is capped at 1000 per SPEC-16 §7.1.5.
+///
+/// 中文: FTS5 MATCH 查詢回 (event_id, content) pairs；空查詢列出全部。
+pub fn search_fts5_hits(query: &str, limit: usize) -> Result<Vec<Fts5Hit>, EventStoreError> {
+    search_fts5_hits_at(
+        &expand_tilde("~/.phantom-mesh/events.sqlite"),
+        query,
+        limit,
+    )
+}
+
+/// Path-explicit twin of [`search_fts5_hits`]: queries the FTS5 index in the
+/// `events.sqlite` at `db_path` instead of the default `~/.phantom-mesh/events.sqlite`.
+/// Lets `recall::search_events` honor a caller-supplied `events_dir` by reading
+/// the sibling `<base>/events.sqlite`, so a temp dir isolates BOTH the file store
+/// and the FTS5 store. The write/capture path keeps using [`search_fts5_hits`]'s
+/// default (real) location.
+///
+/// 中文: search_fts5_hits 的明確路徑版,讓 recall 對齊 events_dir 旁的 events.sqlite。
+pub fn search_fts5_hits_at(
+    db_path: &std::path::Path,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<Fts5Hit>, EventStoreError> {
+    // Backward-compatible delegate: existing callers (e.g. `recall::search_events`)
+    // keep their current "all origins" behaviour. A caller that wants the R2
+    // human-only recall gate opts in via `search_fts5_hits_at_with_filter(..,
+    // true)`. Default `false` keeps the build + existing recall semantics green;
+    // flipping recall to `true` is a one-line follow-up outside this file's scope.
+    search_fts5_hits_at_with_filter(db_path, query, limit, false)
+}
+
+/// Origin-aware twin of [`search_fts5_hits_at`]. When `human_only` is `true`,
+/// machine-origin rows are excluded (`origin LIKE 'human%'`, which also keeps
+/// pre-migration rows that were backfilled as `human`) — this is the R2 recall
+/// gate that stops autonomous-loop / classifier captures from surfacing in a
+/// human's `phantom recall`. When `false`, behaviour is identical to the legacy
+/// query (all origins). Surfaces the row's `origin` on each [`Fts5Hit`] so a
+/// caller can render / audit provenance without a second lookup.
+///
+/// 中文: 帶 human_only 的召回。true 時 `origin LIKE 'human%'` 排除機器事件(R2
+/// 守門);false 時行為等同舊查詢。每筆 hit 帶 origin 方便稽核。
+pub fn search_fts5_hits_at_with_filter(
+    db_path: &std::path::Path,
+    query: &str,
+    limit: usize,
+    human_only: bool,
+) -> Result<Vec<Fts5Hit>, EventStoreError> {
+    let conn = sqlite_open_pseudo(&db_path.to_string_lossy())?;
+    let capped = limit.min(1000);
+    // An empty MATCH is a syntax error in FTS5; for the "list all" recall case
+    // (bare `phantom recall`) fall back to a plain SELECT with no MATCH filter.
+    // The `human_only` predicate is appended to whichever branch we take.
+    let trimmed = query.trim();
+    let origin_clause_where = if human_only { " WHERE origin LIKE 'human%'" } else { "" };
+    let origin_clause_and = if human_only { " AND origin LIKE 'human%'" } else { "" };
+    let (sql, params): (String, Vec<String>) = if trimmed.is_empty() {
+        (
+            format!(
+                "SELECT event_id, content, origin FROM fts5_events{} LIMIT ?",
+                origin_clause_where
+            ),
+            vec![capped.to_string()],
+        )
+    } else {
+        (
+            format!(
+                "SELECT event_id, content, origin FROM fts5_events WHERE fts5_events MATCH ?{} ORDER BY rank LIMIT ?",
+                origin_clause_and
+            ),
+            vec![trimmed.to_string(), capped.to_string()],
+        )
+    };
+    let mut stmt = conn
+        .conn
+        .prepare(&sql)
+        .map_err(|e| EventStoreError::IoError(e.to_string()))?;
+    let param_refs: Vec<&str> = params.iter().map(String::as_str).collect();
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(param_refs.iter()), |row| {
+            Ok(Fts5Hit {
+                event_id: row.get::<_, String>(0)?,
+                content: row.get::<_, String>(1)?,
+                origin: row.get::<_, String>(2).unwrap_or_else(|_| "human".to_string()),
+            })
+        })
+        .map_err(|e| EventStoreError::IoError(e.to_string()))?;
+    let mut out: Vec<Fts5Hit> = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| EventStoreError::IoError(e.to_string()))?);
+    }
+    Ok(out)
+}
+
+/// Read just the plaintext wire `EventMeta` (`meta.json`) for one event, WITHOUT
+/// touching the encrypted `body.age` (so no EventKey is required). Wire-store
+/// captures (food/habit via `write_event`) write a plaintext `meta.json`; this
+/// lets a content-search caller recover an event's `kind` + `timestamp` for a
+/// hit it already located via the FTS5 index. Returns `None` if the meta is
+/// absent or not this store's schema (e.g. a life_node-encrypted meta.json).
+pub fn read_meta_only(event_id: &str) -> Option<EventMeta> {
+    read_json_pseudo::<EventMeta>(&format!("~/.phantom-mesh/events/{}/meta.json", event_id)).ok()
+}
+
+/// The default FTS5 db location, `~/.phantom-mesh/events.sqlite`, fully expanded.
+/// Used as the fallback when a caller-supplied `events_dir` has no parent.
+pub fn default_events_sqlite_path() -> std::path::PathBuf {
+    expand_tilde("~/.phantom-mesh/events.sqlite")
+}
+
+/// Path-explicit twin of [`read_meta_only`]: reads `<events_dir>/<event_id>/meta.json`
+/// instead of the default `~/.phantom-mesh/events/<id>/meta.json`. Lets recall recover
+/// a wire-store FTS5 hit's `kind`/`timestamp` from the SAME store it was indexed in,
+/// so a caller-supplied `events_dir` stays hermetic.
+pub fn read_meta_only_at(events_dir: &std::path::Path, event_id: &str) -> Option<EventMeta> {
+    let path = events_dir.join(event_id).join("meta.json");
+    read_json_pseudo::<EventMeta>(&path.to_string_lossy()).ok()
+}
+
+/// Write twin of [`read_meta_only_at`]: persist a PLAINTEXT `meta.json` for one
+/// event at `<events_dir>/<event_id>/meta.json` — the exact file
+/// `read_meta_only_at` (and recall's FTS5-merge leg in `recall::search_events`)
+/// reads back to recover a wire/FTS5 hit's `kind`/`timestamp`. Unlike
+/// [`write_event_with_origin`] this writes ONLY the plaintext meta (no
+/// `body.age`, no encryption, no `analysis.json` side-car): the minimal on-disk
+/// shape a recall-visible FTS5 event needs when its searchable text lives in the
+/// FTS5 index (see [`index_fts5_with_origin_at`]). Honors a caller-supplied
+/// `events_dir` (resolved via `cli_config::phantom_data_dir()` in production, so
+/// `PHANTOM_HOME`-aware) → data-root overrides and hermetic tests stay isolated.
+/// Idempotent: a re-write of the same `event_id` truncates its `meta.json` in
+/// place (no duplicate dir).
+///
+/// 中文: read_meta_only_at 的寫入版,只寫明文 meta.json(無 body.age/加密),供 FTS5
+/// 召回回填 kind/timestamp;對齊 events_dir 隔離(honor PHANTOM_HOME)。
+pub fn write_event_meta_at(
+    events_dir: &std::path::Path,
+    meta: &EventMeta,
+) -> Result<(), EventStoreError> {
+    let dir = events_dir.join(&meta.event_id);
+    std::fs::create_dir_all(&dir).map_err(|e| EventStoreError::IoError(e.to_string()))?;
+    let bytes = serde_json::to_vec(meta)
+        .map_err(|e| EventStoreError::IoError(format!("json serialize: {}", e)))?;
+    std::fs::write(dir.join("meta.json"), bytes)
+        .map_err(|e| EventStoreError::IoError(e.to_string()))
+}
+
+/// Read the origin marker (`events/<id>/origin`) for one event, defaulting to
+/// `Human` when the sidecar is absent (every pre-origin event) or unreadable.
+/// This is the secondary R2 read source; the primary recall gate is the FTS5
+/// `origin` column. SAFE default = `Human` so no genuine human event is ever
+/// dropped from recall by a missing marker.
+pub fn read_origin_only(event_id: &str) -> MessageOrigin {
+    read_origin_only_at(
+        &expand_tilde("~/.phantom-mesh/events/"),
+        event_id,
+    )
+}
+
+/// Path-explicit twin of [`read_origin_only`] (hermetic against a caller-supplied
+/// `events_dir`, mirroring [`read_meta_only_at`]).
+pub fn read_origin_only_at(events_dir: &std::path::Path, event_id: &str) -> MessageOrigin {
+    let path = events_dir.join(event_id).join("origin");
+    match std::fs::read(&path) {
+        Ok(bytes) => origin_from_wire(&String::from_utf8_lossy(&bytes)),
+        Err(_) => MessageOrigin::Human,
+    }
 }
 
 fn sqlite_query_pseudo(
@@ -1033,6 +1633,10 @@ mod tests {
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn write_event_round_trip_creates_expected_files() {
+        // Serialize $HOME mutation under the shared env lock so the parallel
+        // runner cannot race us onto another test's HOME. Declared first so it
+        // drops last — after the HomeGuard restores HOME.
+        let _g = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         // `expand_tilde` reads `dirs::home_dir()` which honours `$HOME` on
         // unix — point HOME at the tempdir so writes land inside it.
@@ -1081,6 +1685,8 @@ mod tests {
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn read_event_stage4_bridge_round_trip() {
+        // Serialize $HOME mutation under the shared env lock; drops last.
+        let _g = crate::env_lock::acquire();
         use crate::encryption_wire;
         let tmp = tempfile::TempDir::new().expect("tempdir");
         struct HomeGuard(Option<std::ffi::OsString>);
@@ -1142,6 +1748,8 @@ mod tests {
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn index_fts5_round_trip_against_real_sqlite() {
+        // Serialize $HOME mutation under the shared env lock; drops last.
+        let _g = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         struct HomeGuard(Option<std::ffi::OsString>);
         impl Drop for HomeGuard {
@@ -1244,6 +1852,8 @@ mod tests {
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn write_then_query_by_utc_date_returns_event() {
+        // Serialize $HOME mutation under the shared env lock; drops last.
+        let _g = crate::env_lock::acquire();
         use crate::encryption_wire;
         let tmp = tempfile::TempDir::new().expect("tempdir");
         struct HomeGuard(Option<std::ffi::OsString>);
@@ -1321,5 +1931,135 @@ mod tests {
         let back: FTS5Index = serde_json::from_str(&j).unwrap();
         assert_eq!(i.event_id, back.event_id);
         assert_eq!(i.terms_indexed_count, back.terms_indexed_count);
+    }
+
+    /// `origin_to_wire` / `origin_from_wire` are the on-disk/FTS5 mapping for
+    /// `MessageOrigin` (defined HERE so partner.rs stays untouched). Round-trip
+    /// + the SAFE backward-compat default (absent/unknown → Human) are pinned.
+    #[test]
+    fn origin_wire_round_trip_and_safe_default() {
+        assert_eq!(origin_to_wire(MessageOrigin::Human), "human");
+        assert_eq!(origin_to_wire(MessageOrigin::Machine), "machine");
+        assert_eq!(origin_from_wire("human"), MessageOrigin::Human);
+        assert_eq!(origin_from_wire("machine"), MessageOrigin::Machine);
+        // Defense-in-depth: an absent/garbage marker NEVER drops a human event —
+        // it resolves to Human (mirrors `partner::resolve_origin` no-marker rule).
+        assert_eq!(origin_from_wire(""), MessageOrigin::Human);
+        assert_eq!(origin_from_wire("wat"), MessageOrigin::Human);
+        // And the explicit machine aliases partner accepts still map through.
+        assert_eq!(origin_from_wire("BOT"), MessageOrigin::Machine);
+        assert_eq!(origin_from_wire(" classifier "), MessageOrigin::Machine);
+    }
+
+    /// R2 GATE EXIT CONDITION (the orchestrator's退出條件): a machine-origin event
+    /// indexed into FTS5 must NOT appear in a `human_only=true` recall, while a
+    /// human-origin event with the same content MUST. The default (`human_only=
+    /// false`) still returns both, proving we mark-not-skip (rebuild-safe). Uses
+    /// a tempdir-backed events.sqlite via `$HOME` override so the real store is
+    /// untouched.
+    #[ignore = "integration / env-dependent — run via --ignored"]
+    #[test]
+    fn machine_origin_event_excluded_from_human_only_recall() {
+        // Serialize $HOME mutation under the shared env lock; drops last.
+        let _g = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("HOME", v),
+                    None => std::env::remove_var("HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("HOME");
+        std::env::set_var("HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        // Index one human + one machine event with a shared, matchable token.
+        index_fts5_with_origin("evt-human", "lunch salad fatloss", MessageOrigin::Human)
+            .expect("index human");
+        index_fts5_with_origin("evt-machine", "lunch salad fatloss", MessageOrigin::Machine)
+            .expect("index machine");
+
+        let db = expand_tilde("~/.phantom-mesh/events.sqlite");
+
+        // human_only=true → ONLY the human event surfaces (R2 gate works).
+        let human_hits =
+            search_fts5_hits_at_with_filter(&db, "salad", 10, true).expect("human-only search");
+        let human_ids: Vec<&str> = human_hits.iter().map(|h| h.event_id.as_str()).collect();
+        assert!(human_ids.contains(&"evt-human"), "human event must surface: {:?}", human_ids);
+        assert!(
+            !human_ids.contains(&"evt-machine"),
+            "machine event MUST be excluded from human recall: {:?}",
+            human_ids
+        );
+        // The surfaced hit carries its provenance marker for audit.
+        assert!(human_hits.iter().all(|h| h.origin == "human"));
+
+        // human_only=false (default/legacy) → BOTH surface (mark-not-skip proof,
+        // keeps rebuild/audit ability per doc Phase-1 "標記" option).
+        let all_hits =
+            search_fts5_hits_at_with_filter(&db, "salad", 10, false).expect("all search");
+        let all_ids: Vec<&str> = all_hits.iter().map(|h| h.event_id.as_str()).collect();
+        assert!(all_ids.contains(&"evt-human"));
+        assert!(all_ids.contains(&"evt-machine"));
+        // The machine hit reports origin="machine".
+        assert!(
+            all_hits.iter().any(|h| h.event_id == "evt-machine" && h.origin == "machine"),
+            "machine hit must carry origin=machine: {:?}",
+            all_hits
+        );
+
+        // The default-arity `search_fts5_hits_at` preserves legacy (all-origin)
+        // behaviour so existing callers don't silently change.
+        let legacy = search_fts5_hits_at(&db, "salad", 10).expect("legacy search");
+        assert_eq!(legacy.len(), 2, "legacy 3-arg search keeps all origins");
+    }
+
+    /// `write_event_with_origin` must drop an `origin` sidecar that
+    /// `read_origin_only` reads back, and an event written via the legacy
+    /// `write_event` (or any pre-origin event with NO sidecar) must read back as
+    /// the SAFE `Human` default — so no genuine human capture is ever dropped.
+    #[ignore = "integration / env-dependent — run via --ignored"]
+    #[test]
+    fn write_event_with_origin_sidecar_round_trip() {
+        // Serialize $HOME mutation under the shared env lock; drops last.
+        let _g = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("HOME", v),
+                    None => std::env::remove_var("HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("HOME");
+        std::env::set_var("HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        let mk = |id: &str| EventMeta {
+            event_id: id.into(),
+            timestamp: "2026-05-25T00:00:00Z".into(),
+            kind: EventKind::Food,
+            tags: vec![],
+        };
+
+        // Machine-origin write → sidecar reads back Machine.
+        write_event_with_origin(&mk("m-1"), b"ct", None, MessageOrigin::Machine)
+            .expect("write machine");
+        assert_eq!(read_origin_only("m-1"), MessageOrigin::Machine);
+
+        // Legacy `write_event` → Human (the no-marker default).
+        write_event(&mk("h-1"), b"ct", None).expect("write human");
+        assert_eq!(read_origin_only("h-1"), MessageOrigin::Human);
+
+        // An event dir with NO origin sidecar (pre-migration) → Human, never lost.
+        let no_sidecar_dir = tmp.path().join(".phantom-mesh/events/legacy-0");
+        std::fs::create_dir_all(&no_sidecar_dir).unwrap();
+        std::fs::write(no_sidecar_dir.join("meta.json"), b"{}").unwrap();
+        assert_eq!(read_origin_only("legacy-0"), MessageOrigin::Human);
     }
 }

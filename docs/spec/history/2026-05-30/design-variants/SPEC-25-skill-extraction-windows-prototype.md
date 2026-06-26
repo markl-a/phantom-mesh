@@ -1,4 +1,4 @@
-# SPEC-25 Skill Extraction (Hermes) — Windows Prototype（原型）
+# SPEC-25 Skill Extraction (skill bank) — Windows Prototype（原型）
 
 > **Stage 3/3** · [線框稿（wireframe）](./SPEC-25-skill-extraction-windows-wireframe.md) → [視覺稿（mockup）](./SPEC-25-skill-extraction-windows-mockup.md) → 原型（prototype，互動腳本 + 元件草圖）
 > **Status**: draft v0.1 · **Last updated**: 2026-05-28
@@ -48,8 +48,8 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 |---|---|---|
 | 左列表 row（tier 分段 Core/Recall/Archival） | → 右欄展開 DETAIL | `Up/Down` 選、`Enter` 展開 |
 | 「Edit」(pencil) | inline 改 name / steps → 存 | `Enter` |
-| 「Decline」(thumbs-down) | 降 quality_score（≈ CLI `hermes decline`）→ 可能滑到 Archival 段 | `Enter` |
-| 「Delete」(trash) | → CONFIRM「永久刪除此技能（歷史紀錄保留）？」→ 確認才刪（≈ CLI `hermes delete`） | `Enter` → `Enter` 確認 |
+| 「Decline」(thumbs-down) | 降 quality_score（≈ CLI `skill decline`）→ 可能滑到 Archival 段 | `Enter` |
+| 「Delete」(trash) | → CONFIRM「永久刪除此技能（歷史紀錄保留）？」→ 確認才刪（≈ CLI `skill delete`） | `Enter` → `Enter` 確認 |
 | 「Promote to Core」(arrow-up-circle) | 升 tier 到 Core（永遠注入 prompt） | `Enter` |
 | 「跨機分享」(share-2) | push 到 cluster skill bank（`/rpc/skill/sync`）→ 顯「已分享到 N 台」 | `Enter` |
 | WinRT toast「看看」(§10.2) | deep-link `phantom-mesh://skills` → Skills tab（app 沒開則 cold-launch：splash → 等 serve ready → 跳） | — |
@@ -72,7 +72,7 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 ```
 - 唯一用 phantom-danger 的地方（破壞性動作）；說明「歷史保留」降低焦慮（reversible 來源仍在）
 
-## 失敗路徑（per SPEC-04 + SPEC-25 §11 P3.hermes.*）
+## 失敗路徑（per SPEC-04 + SPEC-25 §11 P3.skillbank.*）
 
 - judge LLM fail（手動抽取時）→ 「這次沒抽到新技能，過幾天再試」（既有 skill 照常 recall）
 - skill bank empty → recall 回空（SPEC-23 coach graceful 不受影響）
@@ -109,13 +109,13 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 <!-- quality: 此草圖用點示意；正式詳情用 10 格進度條 ▮▮▮▮▮▮▮▮▯▯（per mockup §quality + spec §10.1 B） -->
 <span class="q hi"></span><span class="q hi"></span><span class="q hi"></span><span class="q off"></span>
 <script>
-  // 不點也視同採用（預設注入）；declineSkill -> invoke('hermes_skill_decline',{id}) + measure 負回饋
+  // 不點也視同採用（預設注入）；declineSkill -> invoke('skill_decline',{id}) + measure 負回饋
   function applySkill(){ /* 已預設注入，這裡只記正回饋 */ }
-  function declineSkill(){ /* -> invoke('hermes_skill_decline', {skill_id}) */ }
+  function declineSkill(){ /* -> invoke('skill_decline', {skill_id}) */ }
   function openDetail(){ /* navigate Skills tab */ }
 </script>
 ```
-> 註：`hermes_skill_decline` 為 Tauri command 佔位；實際 wire 見 SPEC-17 + SPEC-25 §6（recall/apply/measure）。banner 用 `role="status"` + `aria-live="polite"` 讓 Narrator 朗讀但不搶焦點。
+> 註：`skill_decline` 為 Tauri command 佔位；實際 wire 見 SPEC-17 + SPEC-25 §6（recall/apply/measure）。banner 用 `role="status"` + `aria-live="polite"` 讓 Narrator 朗讀但不搶焦點。
 
 ## Walkthrough 腳本（usability test：「phantom 自動套用上次做法」）
 

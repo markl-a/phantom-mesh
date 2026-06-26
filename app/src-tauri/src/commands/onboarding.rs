@@ -69,6 +69,12 @@ pub struct ClaudeCliStatus {
     pub found: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CodexCliStatus {
+    pub found: bool,
+    pub is_oauth: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct OnboardingConfig {
     pub port: u16,
@@ -284,17 +290,159 @@ pub async fn read_gcloud_adc() -> Result<GcloudAdcStatus, String> {
 
 #[tauri::command]
 pub async fn read_claude_cli_token() -> Result<ClaudeCliStatus, String> {
-    let paths = phantom_mesh::providers::credential_scanner::claude_cli_paths();
-    for path in &paths {
-        if let Ok(content) = tokio::fs::read_to_string(path).await {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                if phantom_mesh::providers::claude_cli::extract_claude_token(&json).is_some() {
-                    return Ok(ClaudeCliStatus { found: true });
-                }
-            }
+    // Unified lookup: credentials files + (on macOS) the Claude Code Keychain
+    // item, parsing the modern nested OAuth shape. Runs on a blocking thread
+    // because the Keychain read shells out to `security`.
+    let found = tokio::task::spawn_blocking(|| {
+        phantom_mesh::providers::claude_cli::find_claude_token().is_some()
+    })
+    .await
+    .unwrap_or(false);
+    Ok(ClaudeCliStatus { found })
+}
+
+/// Detect a usable ChatGPT (Codex) credential from `~/.codex/auth.json`.
+/// `is_oauth` distinguishes a ChatGPT subscription login (→ codex_oauth
+/// provider) from a plain `OPENAI_API_KEY` (→ openai provider).
+#[tauri::command]
+pub async fn read_codex_token() -> Result<CodexCliStatus, String> {
+    let auth = phantom_mesh::providers::codex_cli::find_codex_auth();
+    Ok(CodexCliStatus {
+        found: auth.is_some(),
+        is_oauth: auth.map(|a| a.is_oauth).unwrap_or(false),
+    })
+}
+
+/// Probe the standard local OpenAI-compatible servers (Ollama / LM Studio /
+/// Lemonade) and return the ones currently running, with their models.
+#[tauri::command]
+pub async fn detect_local_servers(
+) -> Result<Vec<phantom_mesh::providers::local_servers::LocalServer>, String> {
+    Ok(phantom_mesh::providers::local_servers::detect_local_servers().await)
+}
+
+/// One free-tier cloud provider, flattened for the onboarding picker.
+#[derive(Debug, Serialize)]
+pub struct FreeProviderInfo {
+    pub slug: String,
+    pub display: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub api_key_env: String,
+    pub default_model: String,
+    pub get_key_url: String,
+    pub no_credit_card: bool,
+}
+
+/// The free-plugin suggestion the onboarding D5 step renders: the curated
+/// registry, the recommended default (Groq), and whether a free key is ALREADY
+/// in the environment (→ zero-config, no paste needed).
+#[derive(Debug, Serialize)]
+pub struct FreeProviderSuggestion {
+    pub registry: Vec<FreeProviderInfo>,
+    pub recommended: FreeProviderInfo,
+    pub detected_from_env: Option<String>,
+}
+
+/// Surface the default-on free-API plugin to the onboarding UI. The frontend
+/// shows `recommended` (with `get_key_url`) when nothing else is configured, and
+/// skips the paste entirely when `detected_from_env` is Some (the key already
+/// lives in the environment). Reads only env-var PRESENCE — never a key value.
+#[tauri::command]
+pub async fn detect_free_provider() -> Result<FreeProviderSuggestion, String> {
+    use phantom_mesh::providers::free_plugin;
+    fn to_info(p: &free_plugin::FreeProvider) -> FreeProviderInfo {
+        FreeProviderInfo {
+            slug: p.slug.to_string(),
+            display: p.display.to_string(),
+            provider_type: p.provider_type.to_string(),
+            base_url: p.base_url.to_string(),
+            api_key_env: p.api_key_env.to_string(),
+            default_model: p.default_model.to_string(),
+            get_key_url: p.get_key_url.to_string(),
+            no_credit_card: p.no_credit_card,
         }
     }
-    Ok(ClaudeCliStatus { found: false })
+    Ok(FreeProviderSuggestion {
+        registry: free_plugin::FREE_PROVIDERS.iter().map(to_info).collect(),
+        recommended: to_info(free_plugin::default_free_provider()),
+        detected_from_env: free_plugin::detect_free_from_env().map(|p| p.slug.to_string()),
+    })
+}
+
+/// Input for `finalize_onboarding_config` — what the GUI's Provider step chose.
+#[derive(Debug, Deserialize)]
+pub struct FinalizeOnboardingInput {
+    /// Subscription block names in priority order
+    /// (`claude_cli` / `codex_oauth` / `gemini_oauth`).
+    #[serde(default)]
+    pub ordered: Vec<String>,
+    /// Chosen free-plugin slug (`groq` / `cerebras` / `openrouter` / `gemini`), if any.
+    pub free_slug: Option<String>,
+    /// A free key the user pasted during onboarding. Persisted via
+    /// `keys::set_api_key` (properly escaped) — never logged, never string-built.
+    pub free_key: Option<String>,
+    /// Detected local Ollama base URL, if any.
+    pub ollama_url: Option<String>,
+}
+
+/// Write the first-run `agents.toml` for the GUI onboarding flow — the streamlined
+/// flow's missing config-write (unified onboarding design §8.1). Calls the SAME
+/// core writer the CLI uses (`phantom_mesh::onboarding_config::write_onboarding_config`)
+/// so the generated config is identical across surfaces, then persists a pasted
+/// free key via the escaping `keys::set_api_key` path. Returns the active
+/// (primary) provider slug. No secret is string-built into the file here.
+#[tauri::command]
+pub async fn finalize_onboarding_config(
+    app: tauri::AppHandle,
+    input: FinalizeOnboardingInput,
+) -> Result<String, String> {
+    use phantom_mesh::providers::free_plugin;
+    use phantom_mesh::providers::local_servers::LocalServer;
+
+    let config_dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e: tauri::Error| e.to_string())?;
+    std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    let cfg_path = config_dir.join("agents.toml");
+
+    // Free slug → registry entry (reject an unknown slug rather than write a
+    // dead provider block).
+    let free = match input.free_slug.as_deref() {
+        Some(slug) => Some(
+            free_plugin::free_provider_by_slug(slug)
+                .ok_or_else(|| format!("unknown free provider slug: {slug}"))?,
+        ),
+        None => None,
+    };
+
+    // Ollama URL → a minimal LocalServer (model list unknown at this seam → the
+    // writer falls back to a sane default tag).
+    let ollama = input.ollama_url.as_ref().map(|url| LocalServer {
+        name: "ollama".to_string(),
+        base_url: url.clone(),
+        models: vec![],
+    });
+
+    let ordered_refs: Vec<&str> = input.ordered.iter().map(|s| s.as_str()).collect();
+
+    let active = phantom_mesh::onboarding_config::write_onboarding_config(
+        &cfg_path,
+        &ordered_refs,
+        ollama.as_ref(),
+        free,
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Persist a pasted free key (if any) via the escaping keys API.
+    if let (Some(slug), Some(key)) = (input.free_slug.as_deref(), input.free_key.as_deref()) {
+        if !key.trim().is_empty() {
+            phantom_mesh::keys::set_api_key(&cfg_path, slug, key).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(active)
 }
 
 /// Validates a URL string for the `open_external_url` command.
@@ -469,6 +617,15 @@ pub async fn validate_api_key(
         "groq" => {
             let resp = client
                 .get("https://api.groq.com/openai/v1/models")
+                .bearer_auth(&key)
+                .send()
+                .await;
+            parse_model_list_response(resp, "data", "id").await
+        }
+        "cerebras" => {
+            // Free-plugin tier (OpenAI-compatible). Bearer + GET /models.
+            let resp = client
+                .get("https://api.cerebras.ai/v1/models")
                 .bearer_auth(&key)
                 .send()
                 .await;

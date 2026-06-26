@@ -126,6 +126,26 @@ url = "https://api.nims.nvidia.com/v1"
 api_key_env = "NVIDIA_NIM_API_KEY"
 default_model = "nemotron-3-super"
 
+# ── Local agent-CLI backends (shell out to an installed coding-agent CLI) ────────
+# These route through phantom's L0 cli_session substrate instead of an HTTP API:
+# phantom drives the official local CLI as a one-shot agent. The model is chosen
+# INSIDE that CLI's own config, not here. Use as an agent's provider, or per call:
+#     phantom exec --provider hermes "summarize this repo"
+#
+#   type = "claude_agent"     -> claude -p                          (Anthropic Agent SDK)
+#   type = "codex_agent"      -> codex exec                         (OpenAI Codex CLI)
+#   type = "opencode_agent"   -> opencode run                       (OpenCode CLI)
+#   type = "agy_agent"        -> Antigravity CLI (PTY)
+#   type = "hermes_agent"     -> hermes -z                          (NousResearch/hermes-agent)
+#   type = "openclaw_agent"   -> openclaw agent --local --json      (openclaw/openclaw)
+# The CLI must be installed + signed in on the host; no secrets are stored here.
+
+[providers.hermes]
+type = "hermes_agent"
+
+[providers.openclaw]
+type = "openclaw_agent"
+
 # ── Agents ────────────────────────────────────────────────────────────────────
 # Define one or more named agents. The web UI and Telegram bot use "master" by
 # default. You can add more agents (e.g. [agent.coder], [agent.researcher]) and
@@ -461,7 +481,7 @@ CRITICAL:
 #
 # ── Example: wire in phantom-secops's three MCP servers (red-team recon, ───
 # ──          blue-team log scanner, and config self-audit) ────────────────
-# Prereq: clone https://github.com/marklight-dev/phantom-secops, then either
+# Prereq: clone https://github.com/<your-org>/phantom-secops, then either
 #   (a) run `make mesh-mcp-config` over there and paste its output here, or
 #   (b) uncomment the blocks below and `export PHANTOM_SECOPS_ROOT=/abs/path`
 #       before starting phantom (the `cwd` field is silently ignored by

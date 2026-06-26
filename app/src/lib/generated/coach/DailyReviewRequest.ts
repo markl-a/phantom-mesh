@@ -8,7 +8,7 @@
  * audit pinned coach at `recall_k = 5`; raise via Stage 2 config flag).
  *
  * 中文: 教練每日複盤的輸入。`date` 是要回顧的「當地日期」（local-tz
- * date，預設昨日，user 可指定 backfill）；`recall_k` 是 SPEC-25 hermes
+ * date，預設昨日，user 可指定 backfill）；`recall_k` 是 SPEC-25 分層技能
  * 記憶系統第二層 recall 抓幾筆（教練固定 5 筆，per audit）。
  */
 export type DailyReviewRequest = { 

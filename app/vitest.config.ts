@@ -1,9 +1,20 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { createRequire } from 'module';
+
+// Mirror the `__APP_VERSION__` define from vite.config.ts — vitest does NOT
+// inherit that file, so without this any test rendering UpdatePanel would
+// throw `ReferenceError: __APP_VERSION__ is not defined` at render time.
+const require = createRequire(import.meta.url);
+const pkgVersion: string =
+  process.env.npm_package_version ?? require('./package.json').version;
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -11,8 +22,9 @@ export default defineConfig({
   },
   test: {
     // F101 adds component/hook tests under tests/f101/*.test.tsx. The
-    // legacy daemon-spawning suite stays under tests/*.test.ts.
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    // legacy daemon-spawning suite stays under tests/*.test.ts. Co-located
+    // component tests (e.g. src/components/**/X.test.tsx) are also picked up.
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx', 'src/**/*.test.tsx'],
     environment: 'jsdom',
     environmentMatchGlobs: [
       // Force the legacy e2e daemon suite to run in node, where it can

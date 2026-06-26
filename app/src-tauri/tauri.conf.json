@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Phantom Mesh",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "identifier": "ai.phantommesh.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeDevCommand": "pnpm run dev",
+    "beforeBuildCommand": "pnpm run build"
   },
   "app": {
     "windows": [
@@ -58,7 +58,9 @@
     },
     "deep-link": {
       "desktop": {
-        "schemes": ["phantom"]
+        "schemes": [
+          "phantom"
+        ]
       }
     }
   },
@@ -77,11 +79,15 @@
     ],
     "windows": {
       "wix": {
-        "language": ["en-US"]
+        "language": [
+          "en-US"
+        ]
       },
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English"],
+        "languages": [
+          "English"
+        ],
         "displayLanguageSelector": false
       },
       "allowDowngrades": true

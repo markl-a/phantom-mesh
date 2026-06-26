@@ -73,7 +73,12 @@ jobs:
       # the real cost. If this step fails the worker deploy is skipped.
       - name: Install dashboard deps
         working-directory: phantommesh-io/dashboard
-        run: npm install --no-audit --no-fund --omit=optional
+        # NOTE: do NOT pass --omit=optional here. esbuild ships its
+        # platform binary (@esbuild/<platform>) as an *optional* dependency;
+        # omitting it makes esbuild's install.js validate against a stray
+        # esbuild on PATH and fail with "Expected <x> but got <y>", which
+        # silently bricked every broker deploy from 2026-05-17 onward.
+        run: npm install --no-audit --no-fund
 
       - name: Dashboard type check
         working-directory: phantommesh-io/dashboard

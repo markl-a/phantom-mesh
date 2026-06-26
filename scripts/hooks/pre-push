@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# phantom-mesh pre-push hook — protect the `main` branch (ACCEL-FRAMEWORK §⑥).
+#
+# Two guards, and ONLY for pushes that update refs/heads/main — every other ref
+# (feature branches like step3-coach-install-schedule) is always allowed through:
+#   1. Force / non-fast-forward push to main → ALWAYS abort.
+#   2. Non-merge commit pushed to main when the local HEAD is main → abort
+#      (main should move via reviewed merge commits, not direct/HEAD pushes).
+#
+# git invokes this as: pre-push <remote-name> <remote-url>, feeding ref updates
+# on STDIN, one per line: "<local_ref> <local_sha> <remote_ref> <remote_sha>".
+#
+# Install: scripts/hooks/install.sh  (symlinks this into .git/hooks/pre-push)
+# Bypass (use sparingly, and say so): git push --no-verify
+
+set -uo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+ZERO="0000000000000000000000000000000000000000"
+MAIN_REF="refs/heads/main"
+
+# Resolve the branch HEAD currently points at (empty if detached).
+head_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+block() {
+  echo
+  echo "✗ pre-push blocked: $1"
+  echo "  (Emergency bypass: git push --no-verify — and note why.)"
+  exit 1
+}
+
+# Count parents of a commit: >1 parent ⇒ it's a merge commit.
+parent_count() {
+  # `git rev-list --parents -n1 <sha>` → "<sha> <parent1> [<parent2> ...]"
+  local line
+  line="$(git rev-list --parents -n1 "$1" 2>/dev/null)" || { echo 0; return; }
+  # tokens minus the commit itself = number of parents.
+  echo $(( $(echo "$line" | wc -w) - 1 ))
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Only ever act on pushes to main; feature branches pass untouched.
+  [ "$remote_ref" = "$MAIN_REF" ] || continue
+
+  # A delete (local_sha all-zero) to main is itself dangerous → block.
+  if [ "$local_sha" = "$ZERO" ]; then
+    block "refusing to delete $MAIN_REF."
+  fi
+
+  # Guard 1: force / non-fast-forward push to main. When the remote already has a
+  # tip (remote_sha != 0) that is NOT an ancestor of what we're pushing, this is a
+  # rewind/force → abort. (A brand-new remote ref has remote_sha == 0 and is fine.)
+  if [ "$remote_sha" != "$ZERO" ]; then
+    if ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      block "force / non-fast-forward push to $MAIN_REF is never allowed."
+    fi
+  fi
+
+  # Guard 2: pushing a non-merge tip to main while HEAD is main → abort. main is
+  # meant to advance via reviewed merge commits, not direct commits on main.
+  if [ "$head_branch" = "main" ]; then
+    if [ "$(parent_count "$local_sha")" -le 1 ]; then
+      block "HEAD==main and the pushed tip $local_sha is not a merge commit; main advances via reviewed merges."
+    fi
+  fi
+done
+
+exit 0

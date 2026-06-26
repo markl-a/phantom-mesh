@@ -244,7 +244,7 @@ pub enum IdempotencyClass {
 /// reset flows know to clear them.
 ///
 /// 中文: 命令網域分類。對齊 §9.1 七群（A–H）+ 額外 `Onboarding`（SPEC-28）+
-/// `Capture` / `Coach` / `Hermes` / `Wipe` 是 v0.7.0 後續 pillar 預留的群組
+/// `Capture` / `Coach` / `Skillbank` / `Wipe` 是 v0.7.0 後續 pillar 預留的群組
 /// slug — Stage 1 先佔位，Stage 2 / v0.7.0 spec 出來時把實際 command 填上。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/tauri/")]
@@ -260,8 +260,8 @@ pub enum CommandCategory {
     Vault,
     /// 教練回顧（coach）— v0.7.0 life-track pillar
     Coach,
-    /// Hermes 任務派工（hermes）— v0.7.0 work-track pillar
-    Hermes,
+    /// 技能派工（skill dispatch）— v0.7.0 work-track pillar
+    Skillbank,
     /// mDNS 鄰居發現（mDNS = multicast DNS，多播網域名稱系統）— SPEC-11
     Mdns,
     /// OAuth 第三方授權（OAuth）— SPEC-15 broker login
@@ -293,7 +293,7 @@ pub struct EmptyArgs {}
 //
 // Per CLAUDE.md staging rules: not all 42 are stubbed here. The 10 below
 // cover one command per requested domain (chat / settings / cluster / vault /
-// coach / hermes / mdns / oauth / wipe / capture) and exercise the full
+// coach / skillbank / mdns / oauth / wipe / capture) and exercise the full
 // surface (no-arg / single-arg / multi-field / async-streaming / mobile-only
 // / desktop-only / oauth deep-link).
 
@@ -410,24 +410,24 @@ pub struct CoachReviewResponse {
     pub source_event_count: u32,
 }
 
-// — hermes — placeholder for v0.7.0 work-track pillar
+// — skill dispatch — placeholder for v0.7.0 work-track pillar
 //
-/// Args for `hermes_dispatch_task` — push a task to the swarm coordinator.
+/// Args for `skill_dispatch_task` — push a task to the swarm coordinator.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/tauri/")]
 #[serde(rename_all = "camelCase")]
-pub struct HermesDispatchArgs {
+pub struct SkillDispatchArgs {
     /// Free-form prompt the chosen worker peer will receive.
     pub prompt: String,
     /// Optional preferred peer id (else coordinator scheduler decides).
     pub preferred_peer_id: Option<String>,
 }
 
-/// Response for `hermes_dispatch_task`.
+/// Response for `skill_dispatch_task`.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/tauri/")]
 #[serde(rename_all = "camelCase")]
-pub struct HermesDispatchResponse {
+pub struct SkillDispatchResponse {
     /// Unique task id (UUID v7).
     pub task_id: String,
     /// Peer the coordinator actually assigned the task to.
@@ -675,9 +675,9 @@ fn catalog_lookup(
         "broker_login_finish"   => CatalogRow(CommandCategory::Vault,      Permission::Network,    IdempotencyClass::NonIdempotent),
         // SPEC-28 — onboarding
         "transition_onboarding" => CatalogRow(CommandCategory::Onboarding, Permission::Internal,   IdempotencyClass::Idempotent),
-        // v0.7.0 placeholders — coach / hermes / capture / wipe
+        // v0.7.0 placeholders — coach / skill dispatch / capture / wipe
         "coach_review_today"    => CatalogRow(CommandCategory::Coach,      Permission::FileSystem, IdempotencyClass::Idempotent),
-        "hermes_dispatch_task"  => CatalogRow(CommandCategory::Hermes,     Permission::Network,    IdempotencyClass::NonIdempotent),
+        "skill_dispatch_task"   => CatalogRow(CommandCategory::Skillbank,  Permission::Network,    IdempotencyClass::NonIdempotent),
         "capture_event_start"   => CatalogRow(CommandCategory::Capture,    Permission::FileSystem, IdempotencyClass::NonIdempotent),
         "wipe_account"          => CatalogRow(CommandCategory::Wipe,       Permission::FileSystem, IdempotencyClass::NonIdempotent),
     };
@@ -793,7 +793,7 @@ fn validate_args_schema_pseudo<T: serde::Serialize>(
 pub fn dispatch_deep_link(url: &str) -> Result<DeepLinkRoute, TauriCommandError> {
     // Step 1 — parse the raw URL into scheme / host / path / query parts.
     // Stage 3 uses a hand-rolled `phantom://` parser; the `url` crate is
-    // optional behind `experimental-hermes-tools` so we avoid pulling it
+    // optional behind `experimental-tools` so we avoid pulling it
     // into the default build. The phantom:// grammar is intentionally
     // narrow (no userinfo, no port, no fragment) which makes a 30-line
     // parser straightforward + audit-friendly.
@@ -842,7 +842,7 @@ pub fn dispatch_deep_link(url: &str) -> Result<DeepLinkRoute, TauriCommandError>
 
 /// Stage 3 helper — parse a `phantom://host/path?query` URL into its
 /// component parts. Hand-rolled to avoid pulling in the optional `url`
-/// crate (gated behind `experimental-hermes-tools`). Accepts only the
+/// crate (gated behind `experimental-tools`). Accepts only the
 /// narrow phantom:// grammar: no userinfo, no port, no fragment.
 ///
 /// 中文: 解析 `phantom://` URL 成 scheme / host / path / query 結構。手寫

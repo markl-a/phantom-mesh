@@ -1,8 +1,8 @@
 // SPEC-31 skill-bank — route /skills; commands_used: none (backend unwired — honest empty)
 //
-// Mobile skill bank (技能銀行): a list of Hermes-extracted reusable user-behaviour
-// skills. The ONLY real backend is the HTTP route GET /api/hermes/skills in
-// core/src/serve_hermes.rs, which (a) is gated behind the `experimental-hermes-
+// Mobile skill bank (技能銀行): a list of skill-bank-extracted reusable user-behaviour
+// skills. The ONLY real backend is the HTTP route GET /api/skills in
+// core/src/serve_skillbank.rs, which (a) is gated behind the `experimental-skillbank-
 // memory` cargo feature, (b) requires an `X-Cluster-Auth` HMAC header, and
 // (c) has NO Tauri `#[command]` wrapper and NO case in tauri-compat's
 // httpFallback. Calling safeInvoke("...skill...") today therefore hits the
@@ -12,7 +12,7 @@
 // honest empty/disabled state with a 尚未實作 (not yet implemented) note.
 //
 // The row shape is modelled on the REAL server DTO `SkillSummary` returned by
-// `/api/hermes/skills` (core/src/hermes/dto.rs: id/name/description/source/
+// `/api/skills` (core/src/skillbank/dto.rs: id/name/description/source/
 // curator_score/created_at/tags/polarity). The generated app/src/lib/generated/
 // skill/Skill.ts richer shape (triggerPattern/version/qualityScore/lastAppliedAt/
 // sourceEventCount) is the on-device extracted form; neither is exposed through a
@@ -27,15 +27,15 @@ import { useHaptics } from "../lib/useHaptics";
 
 // ─── confirmed-command toggle ────────────────────────────────────────────────
 // No Tauri command for the skill bank exists in app/src-tauri/src, and the
-// /api/hermes/skills HTTP route has no httpFallback case (it would need HMAC
+// /api/skills HTTP route has no httpFallback case (it would need HMAC
 // auth + the experimental feature flag). Until one is wired, BACKEND_WIRED stays
 // false: we never invoke (which would fabricate `{}`), and the screen shows the
 // honest unwired state. When a command lands, set LIST_COMMAND to its real name
 // and BACKEND_WIRED to true.
 const BACKEND_WIRED = false;
-const LIST_COMMAND = ""; // e.g. "skill_list" / "hermes_skills_list" once it exists
+const LIST_COMMAND = ""; // e.g. "skill_list" / "skill_bank_list" once it exists
 
-// Mirrors core/src/hermes/dto.rs::SkillSummary — the real list-endpoint row.
+// Mirrors core/src/skillbank/dto.rs::SkillSummary — the real list-endpoint row.
 interface SkillRow {
   id: number;
   name: string;

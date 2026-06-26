@@ -17,19 +17,16 @@ use std::path::Path;
 /// * `Webhook { url }` — Telegram POSTs updates to `url` (suitable for
 ///   production deployments behind a reverse proxy / `phantom serve`).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub enum DeliveryMode {
     /// Long-polling via `getUpdates`. Default.
+    #[default]
     Polling,
     /// Webhook via `setWebhook`; `url` is the HTTPS endpoint that Telegram
     /// will POST updates to.
     Webhook { url: String },
 }
 
-impl Default for DeliveryMode {
-    fn default() -> Self {
-        DeliveryMode::Polling
-    }
-}
 
 /// SQLite-backed persistence for the active `DeliveryMode`.
 ///

@@ -20,6 +20,7 @@
 //! The returned runtime is then consumed by higher layers (server, CLI, GUI)
 //! which drive their own async event loops against the shared state.
 
+use crate::providers::credential_scanner::home_dir_lenient;
 use crate::AppState;
 use std::path::PathBuf;
 
@@ -72,7 +73,7 @@ impl PhantomMeshRuntime {
         let config_paths = [
             config.config_path.clone(),
             config.data_dir.as_ref().map(|d| d.join("agents.toml")),
-            dirs_home().map(|h| h.join(".phantom-mesh").join("agents.toml")),
+            home_dir_lenient().map(|h| h.join(".phantom-mesh").join("agents.toml")),
         ];
 
         for path in config_paths.into_iter().flatten() {
@@ -106,8 +107,47 @@ impl PhantomMeshRuntime {
     }
 }
 
-/// Resolve the current user's home directory from the `HOME` environment
-/// variable, returning `None` when it is unset.
-fn dirs_home() -> Option<PathBuf> {
-    std::env::var("HOME").ok().map(PathBuf::from)
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Restores the saved env var value on drop (panic-safe cleanup).
+    struct VarGuard(&'static str, Option<String>);
+    impl VarGuard {
+        fn save(key: &'static str) -> Self {
+            Self(key, std::env::var(key).ok())
+        }
+    }
+    impl Drop for VarGuard {
+        fn drop(&mut self) {
+            match &self.1 {
+                Some(v) => std::env::set_var(self.0, v),
+                None => std::env::remove_var(self.0),
+            }
+        }
+    }
+
+    /// Runtime's `agents.toml` home resolution honours `HOME` when it is set,
+    /// preserving the Unix `$HOME`-redirect isolation tests rely on.
+    #[test]
+    fn home_resolution_prefers_home_env() {
+        let _g = crate::env_lock::acquire();
+        let _saved = VarGuard::save("HOME");
+        std::env::set_var("HOME", "/tmp/phantom-runtime-home-test");
+        assert_eq!(
+            home_dir_lenient(),
+            Some(PathBuf::from("/tmp/phantom-runtime-home-test")),
+        );
+    }
+
+    /// With `HOME` unset (the Windows reality), runtime home resolution must
+    /// still yield a directory via the `dirs::home_dir()` fallback rather than
+    /// `None` — the defect the bare `std::env::var("HOME")` version exhibited.
+    #[test]
+    fn home_resolution_falls_back_when_home_unset() {
+        let _g = crate::env_lock::acquire();
+        let _saved = VarGuard::save("HOME");
+        std::env::remove_var("HOME");
+        assert_eq!(home_dir_lenient(), dirs::home_dir());
+    }
 }

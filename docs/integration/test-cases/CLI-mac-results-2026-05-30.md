@@ -22,7 +22,7 @@
 | ☑ | CHA-006 | evolve goals/list --json | PASS | valid JSON (`{"pending":[],"done":[]}` + active checkpoint) |
 | ☑ | CHA-007 | autoevolve log / schedule status | PASS | registered=yes, 463 runs, recent all green |
 | ☑ | CHA-015 | autoevolve digest --json | PASS | |
-| ✗ | CHA-008 | skill run --dry-run | KNOWN-GAP | experimental-hermes-curator not in rc build (per playbook note) — not a regression |
+| ✗ | CHA-008 | skill run --dry-run | KNOWN-GAP | experimental-curator not in rc build (per playbook note) — not a regression |
 | ☑ | LTR-001 | recall focus --json | PASS | |
 | ☑ | LTR-002 | review --json | PASS | |
 | ☑ | LTR-005 | data stats / export --out /tmp | PASS | export wrote /tmp/lifelog.md |

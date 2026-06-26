@@ -12,7 +12,7 @@
 //! contain the F1 markers. Public APIs only (no wiremock, no test-only deps).
 //!
 //! Run:
-//!   CARGO_TARGET_DIR=D:/tmp/hermes-docs-target \
+//!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
 //!     cargo run -p phantom-mesh --example anthropic_streaming_upgrades_example
 //!
 //! Expected last line: `anthropic-streaming-upgrades OK`. Exit code 0.

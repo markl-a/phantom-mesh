@@ -53,13 +53,19 @@ jobs:
 
   build-mac-x86_64:
     name: build-mac-x86_64
-    runs-on: macos-13   # Intel runner
+    # Cross-compile x86_64 on the Apple-Silicon runner instead of a scarce
+    # macos-13 Intel runner (which left this job queued ~13h and blocked the
+    # nightly release on 2026-06-11). Rosetta lets the build-mac.sh smoke check
+    # (`phantom --version`) execute the cross-built x86_64 binary.
+    runs-on: macos-latest   # Apple Silicon; x86_64 via cross-compile + Rosetta
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin
+      - name: Install Rosetta (to run the cross-built x86_64 smoke check)
+        run: softwareupdate --install-rosetta --agree-to-license
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: core -> target
@@ -186,6 +192,11 @@ jobs:
       - name: Create / update nightly release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job only downloads artifacts — it never `actions/checkout`s the repo,
+          # so gh has no git context and `gh release create` fails with
+          # "fatal: not a git repository" (the 2026-06-12 first-ever release-nightly
+          # failure, after all 6 builds finally went green). Give gh the repo explicitly.
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           # Flatten downloaded artifact dirs into a single upload set. Collect via

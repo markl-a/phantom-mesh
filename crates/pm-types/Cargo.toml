@@ -3,6 +3,10 @@ name = "pm-types"
 version = "0.6.0"
 edition = "2021"
 description = "Shared type definitions for Phantom Mesh"
+# Intentionally PERMISSIVE (not AGPL like core/ and app/): this is the shared
+# wire-protocol "SDK" layer that satellite repos + third parties import. Keeping
+# it MIT/Apache lets them depend on it without AGPL copyleft reaching their code
+# — per the apex license split (AGPL core + Apache/MIT SDK + FSL relay).
 license = "MIT OR Apache-2.0"
 
 [dependencies]

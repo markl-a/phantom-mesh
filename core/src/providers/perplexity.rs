@@ -5,13 +5,13 @@
 //! get $5 of free monthly credit (verified live 2026-05-16 — pplx-api docs).
 //!
 //! T51 (v0.6.0 V1) push: added alongside ai21, nvidia, cohere to bring the
-//! Hermes provider count from 8 → 12. Wire format is the existing OpenAI
+//! extra provider count from 8 → 12. Wire format is the existing OpenAI
 //! streaming codepath in `streaming.rs`; this module owns only metadata,
 //! default URL/model, and bearer-auth header construction.
 //!
-//! Gated behind Cargo feature `experimental-hermes-providers` (default OFF).
+//! Gated behind Cargo feature `experimental-extra-providers` (default OFF).
 
-#![cfg(feature = "experimental-hermes-providers")]
+#![cfg(feature = "experimental-extra-providers")]
 
 use crate::config::ProviderEntry;
 use reqwest::header::{HeaderName, HeaderValue, AUTHORIZATION};

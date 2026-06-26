@@ -16,9 +16,14 @@ export type PeerCapabilities = {
  */
 peerId: string, 
 /**
- * Capability tags currently advertised by this peer. Empty Vec means
- * the peer is reachable but advertises nothing — treated as
- * `cap_match_score = 0` by the scorer (will lose to any tagged peer).
+ * Capability tags currently advertised by this peer. An empty Vec means
+ * the peer is reachable but advertises nothing. When a task lists any
+ * `required_caps`, such a peer is filtered out *before* scoring
+ * (`plan_dispatch` step 1 keeps only peers advertising every required cap),
+ * so it is never selected. When a task requires no caps, capability
+ * scoring is vacuous (`tag_intersect` returns its empty-criteria constant)
+ * and all peers tie on the cap-match term — selection then falls to the
+ * freshness / load terms.
  */
 tags: Array<CapabilityTag>, 
 /**

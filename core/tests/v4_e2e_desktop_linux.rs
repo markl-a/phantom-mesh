@@ -59,8 +59,8 @@ const TTFR_P95_BUDGET: Duration = Duration::from_secs(30);
 fn phantom_binary_exists_and_reports_version() {
     let Some(bin) = phantom_bin_path() else {
         eprintln!(
-            "SKIP: prebuilt phantom binary not found — run \
-             `cargo build --release --bin phantom` first"
+            "SKIPPED: phantom_binary_exists_and_reports_version — prebuilt phantom \
+             binary not found (run `cargo build --release --bin phantom` first)"
         );
         return;
     };
@@ -101,7 +101,10 @@ fn phantom_binary_exists_and_reports_version() {
 #[test]
 fn phantom_onboarding_subcommand_discoverable() {
     let Some(bin) = phantom_bin_path() else {
-        eprintln!("SKIP: prebuilt phantom binary not found");
+        eprintln!(
+            "SKIPPED: phantom_onboarding_subcommand_discoverable — prebuilt phantom \
+             binary not found"
+        );
         return;
     };
 
@@ -142,9 +145,9 @@ fn s3_linux_onboarding_happy_path_wizard_under_10s() {
     //   4. Assert stdout contains "Done" / equivalent
     //   5. Assert agents.toml was created in the tempdir
     eprintln!(
-        "SKIP: SPEC-28 Stage 3 deferred — onboarding_wire::advance still \
-         unimplemented!(); full S3 wizard run blocked. Budget reference: \
-         {S3_WIZARD_BUDGET:?}"
+        "SKIPPED: s3_linux_onboarding_happy_path_wizard_under_10s — SPEC-28 Stage 3 \
+         deferred; onboarding_wire::advance still unimplemented!(); full S3 wizard \
+         run blocked. Budget reference: {S3_WIZARD_BUDGET:?}"
     );
 }
 
@@ -162,8 +165,8 @@ fn s3_linux_dispatch_hello_ttfr_under_30s() {
     //   4. Assert elapsed < TTFR_P95_BUDGET
     //   5. Drain remaining output and assert exit 0
     eprintln!(
-        "SKIP: SPEC-28 Stage 3 deferred — compute_ttfr + \
-         start_demo_relay_handoff still unimplemented!(); full TTFR \
+        "SKIPPED: s3_linux_dispatch_hello_ttfr_under_30s — SPEC-28 Stage 3 deferred; \
+         compute_ttfr + start_demo_relay_handoff still unimplemented!(); full TTFR \
          measurement blocked. Budget reference: {TTFR_P95_BUDGET:?}"
     );
 }

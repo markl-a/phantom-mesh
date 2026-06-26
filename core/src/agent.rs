@@ -234,7 +234,7 @@ pub type ToolGate = dyn Fn(&str, &Value) -> ToolGateDecision + Send + Sync;
 /// tool calls, and loops until the model stops or a round cap is reached.
 ///
 /// Construct with [`AgentRuntime::new`], then optionally attach a resolver,
-/// interrupt handle, or Hermes memory via the builder methods. Cloning is
+/// interrupt handle, or skill runtime via the builder methods. Cloning is
 /// cheap — the heavy state (config, HTTP client) is behind `Arc`.
 #[derive(Clone)]
 pub struct AgentRuntime {
@@ -246,17 +246,24 @@ pub struct AgentRuntime {
     /// RPC) can unwind a turn without waiting for the model to finish.
     /// See [`crate::interrupt::InterruptHandle`].
     pub(crate) interrupt: Option<crate::interrupt::InterruptHandle>,
-    /// Optional Hermes runtime. When set, each turn's user prompt is
+    /// apex-④ dispatch↔govern correlation: when this runtime is running a
+    /// DISPATCHED task (`serve.rs` `rpc_task_assign`), this carries that dispatch
+    /// row's `job_uuid`. It is threaded into the governed cli_session run so the
+    /// govern `task_id` IS the dispatch id (one correlation key), letting an
+    /// approval raised mid-run stamp its `approval_id` onto the dispatch task row
+    /// live. `None` for ungoverned runs and standalone `phantom govern` (a fresh
+    /// id is minted as before — byte-identical behavior).
+    pub(crate) dispatch_task_id: Option<uuid::Uuid>,
+    /// Optional skillbank runtime. When set, each turn's user prompt is
     /// queried against FTS5 long-term memory and the top-k recall is
-    /// prepended into the system prompt as a `[memory]` block (Task 6
-    /// of the integration plan). Default builds carry `None` so the
-    /// run loop is byte-identical to baseline.
+    /// prepended into the system prompt as a `[memory]` block. Default
+    /// builds carry `None` so the run loop is byte-identical to baseline.
     #[cfg(all(
-        feature = "experimental-hermes-curator",
-        feature = "experimental-hermes-memory",
-        feature = "experimental-hermes-tools",
+        feature = "experimental-curator",
+        feature = "experimental-memory",
+        feature = "experimental-tools",
     ))]
-    pub(crate) hermes: Option<Arc<crate::hermes::HermesRuntime>>,
+    pub(crate) skill_runtime: Option<Arc<crate::skillbank::SkillbankRuntime>>,
     /// DEMO-1 gap 1 Phase 5 (2026-05-17): optional resolver override.
     /// When `Some`, `call_with_fallback` + `call_with_streaming` route
     /// through this resolver instead of building a fresh
@@ -305,12 +312,13 @@ impl Default for AgentRuntime {
             config: Arc::new(AgentsConfig::default()),
             http_client: Arc::new(build_llm_http_client()),
             interrupt: None,
+            dispatch_task_id: None,
             #[cfg(all(
-                feature = "experimental-hermes-curator",
-                feature = "experimental-hermes-memory",
-                feature = "experimental-hermes-tools",
+                feature = "experimental-curator",
+                feature = "experimental-memory",
+                feature = "experimental-tools",
             ))]
-            hermes: None,
+            skill_runtime: None,
             resolver_override: None,
         }
     }
@@ -333,24 +341,25 @@ pub struct AgentResult {
 
 impl AgentRuntime {
     /// Build a runtime from agent config with a default HTTP client and no
-    /// resolver override, interrupt handle, or Hermes memory attached.
+    /// resolver override, interrupt handle, or skill runtime attached.
     pub fn new(config: AgentsConfig) -> Self {
         Self {
             config: Arc::new(config),
             http_client: Arc::new(build_llm_http_client()),
             interrupt: None,
+            dispatch_task_id: None,
             #[cfg(all(
-                feature = "experimental-hermes-curator",
-                feature = "experimental-hermes-memory",
-                feature = "experimental-hermes-tools",
+                feature = "experimental-curator",
+                feature = "experimental-memory",
+                feature = "experimental-tools",
             ))]
-            hermes: None,
+            skill_runtime: None,
             resolver_override: None,
         }
     }
 
     /// DEMO-1 gap 1 Phase 5 (2026-05-17): override the default provider
-    /// resolver. Builder-style (mirrors `with_hermes` / `with_interrupt`).
+    /// resolver. Builder-style (mirrors `with_skill_runtime` / `with_interrupt`).
     ///
     /// When set, both `call_with_fallback` and `call_with_streaming` consult
     /// this resolver instead of constructing a fresh
@@ -385,18 +394,18 @@ impl AgentRuntime {
         Arc::new(DefaultProviderResolver::from_config(&self.config))
     }
 
-    /// Attach a Hermes runtime so each turn's prompt is augmented with
-    /// recalled FTS5 memory rows (Task 6 / A4 / T94). Builder-style: cheap
-    /// `Arc` clone, returns the modified runtime so callers can chain
-    /// `runtime.with_hermes(rt).run(...)`. Default builds (without the
-    /// `experimental-hermes` umbrella feature) lack this method entirely.
+    /// Attach a skillbank runtime so each turn's prompt is augmented with
+    /// recalled FTS5 memory rows. Builder-style: cheap `Arc` clone, returns
+    /// the modified runtime so callers can chain
+    /// `runtime.with_skill_runtime(rt).run(...)`. Default builds (without the
+    /// `experimental-skillbank` umbrella feature) lack this method entirely.
     #[cfg(all(
-        feature = "experimental-hermes-curator",
-        feature = "experimental-hermes-memory",
-        feature = "experimental-hermes-tools",
+        feature = "experimental-curator",
+        feature = "experimental-memory",
+        feature = "experimental-tools",
     ))]
-    pub fn with_hermes(mut self, hermes: Arc<crate::hermes::HermesRuntime>) -> Self {
-        self.hermes = Some(hermes);
+    pub fn with_skill_runtime(mut self, runtime: Arc<crate::skillbank::SkillbankRuntime>) -> Self {
+        self.skill_runtime = Some(runtime);
         self
     }
 
@@ -412,6 +421,19 @@ impl AgentRuntime {
     /// internal state is `Arc`-shared.
     pub fn with_interrupt(mut self, handle: crate::interrupt::InterruptHandle) -> Self {
         self.interrupt = Some(handle);
+        self
+    }
+
+    /// apex-④ dispatch↔govern correlation: attach the DISPATCH row's `job_uuid`
+    /// (minted in `serve.rs` `rpc_task_assign`) so a governed cli_session run uses
+    /// it AS the govern `task_id` — making the dispatch id the single correlation
+    /// key. An approval raised mid-run then stamps its `approval_id` onto the
+    /// dispatch task row live. Builder-style (mirrors [`with_interrupt`]); cheap
+    /// (`AgentRuntime` is `Clone`, internal state is `Arc`-shared). Absent (the
+    /// default `None`) → a fresh govern id is minted as before (ungoverned runs and
+    /// standalone `phantom govern` are byte-identical).
+    pub fn with_dispatch_task_id(mut self, task_id: uuid::Uuid) -> Self {
+        self.dispatch_task_id = Some(task_id);
         self
     }
 
@@ -696,24 +718,24 @@ impl AgentRuntime {
                 - Never output code blocks as a substitute for calling a tool."
             );
         }
-        // A4/T94 — close the loop: when a HermesRuntime is attached, query
+        // A4/T94 — close the loop: when a SkillbankRuntime is attached, query
         // FTS5 long-term memory for the prompt and inject the top-k hits as
         // a `[memory]` block AFTER the CRITICAL RULES block. The header is a
         // stable cut line that `compact_if_needed` looks for when trimming
         // the system prompt under token pressure.
         #[cfg(all(
-            feature = "experimental-hermes-curator",
-            feature = "experimental-hermes-memory",
-            feature = "experimental-hermes-tools",
+            feature = "experimental-curator",
+            feature = "experimental-memory",
+            feature = "experimental-tools",
         ))]
-        if let Some(rt) = self.hermes.as_ref() {
+        if let Some(rt) = self.skill_runtime.as_ref() {
             match rt
-                .recall_context_for(prompt, crate::hermes::MEMORY_CONTEXT_MAX_ROWS)
+                .recall_context_for(prompt, crate::skillbank::MEMORY_CONTEXT_MAX_ROWS)
                 .await
             {
                 Ok(rows) if !rows.is_empty() => {
                     system.push_str("\n\n");
-                    system.push_str(crate::hermes::MEMORY_CONTEXT_HEADER);
+                    system.push_str(crate::skillbank::MEMORY_CONTEXT_HEADER);
                     for r in rows {
                         system.push('\n');
                         system.push_str("- ");
@@ -723,8 +745,21 @@ impl AgentRuntime {
                 Ok(_) => {} // no hits — quietly skip
                 Err(e) => {
                     // Memory failure must NEVER break the agent loop.
-                    tracing::debug!(error = %e, "hermes recall_context_for failed; continuing without memory injection");
+                    tracing::debug!(error = %e, "skill_runtime recall_context_for failed; continuing without memory injection");
                 }
+            }
+        }
+        // apex ② owned-memory recall-before-run: inject the `<recalled_skills>`
+        // block for the user's latest message. Always compiled (no feature flag)
+        // and self-resolving (skill_wire opens the canonical DB itself), so the
+        // compounding-memory moat turns on a plain `cargo build`. Default-ON;
+        // gated by `PHANTOM_OWNED_MEMORY`. Errors degrade to no injection inside
+        // the helper — this can never break the agent loop.
+        {
+            let block = crate::skill_wire::owned_memory_system_block(prompt);
+            if !block.is_empty() {
+                system.push_str("\n\n");
+                system.push_str(&block);
             }
         }
         if let Some(extra) = extra_context {
@@ -741,6 +776,15 @@ impl AgentRuntime {
         // This is the agent-layer prompt-shaping slice; full SeparateParam
         // extraction (Anthropic out-of-band `system:` param) is adapter-side
         // (see T-PROV-05 blockers).
+        //
+        // Facet ⑤ limitation (fix #2): this picks the style from the
+        // resolve_provider_order primary, which is computed BEFORE the
+        // PHANTOM_LOCAL_FIRST reorder applied at the call_with_fallback /
+        // call_with_streaming sites below. So under local-first the system text
+        // may be framed for the cloud primary even though the local server is
+        // tried first. Acceptable for this minimal, reversible change: most
+        // local OpenAI-compat servers tolerate the default RoleSystem placement;
+        // full local-first prompt-style alignment is tracked separately.
         let mut placement = SystemPlacement::RoleSystem;
         if !system.is_empty() {
             let order = resolve_provider_order(
@@ -987,6 +1031,11 @@ impl AgentRuntime {
                             crate::tools::execute(fn_name, fn_args, tools_config).await
                         }
                         ToolGateDecision::Deny(reason) => {
+                            // apex ② capture-after-correction: a user deny is the
+                            // honest "don't do that here" signal — mint a candidate
+                            // skill (tool name + redacted reason only) for the next
+                            // Store step. Default-ON; no-ops under the kill-switch.
+                            crate::skill_wire::capture_correction(prompt, fn_name, &reason);
                             format!("[denied by user] {}", reason)
                         }
                     }
@@ -1141,7 +1190,14 @@ impl AgentRuntime {
             // every other path (including Anthropic's OpenAI-compat
             // /v1/chat/completions proxy) takes `Authorization: Bearer`.
             req = if is_anthropic_messages {
-                req.header("x-api-key", key)
+                if crate::providers::claude_cli::is_oauth_token(key) {
+                    // Claude subscription OAuth token (Claude Code login) — must
+                    // use Bearer + the oauth beta header, not x-api-key.
+                    req.header("authorization", format!("Bearer {}", key))
+                        .header("anthropic-beta", "oauth-2025-04-20")
+                } else {
+                    req.header("x-api-key", key)
+                }
             } else {
                 req.header("Authorization", format!("Bearer {}", key))
             };
@@ -1229,6 +1285,12 @@ impl AgentRuntime {
         // X:Y in TUI didn't reach repl-mode chat either. Now consistent.
         let mut provider_names =
             resolve_provider_order(agent_cfg, self.config.providers.keys().map(|s| s.as_str()));
+        // Facet ⑤: local-first, cloud opt-in fallback (see call_with_fallback
+        // for the full rationale). Gated on PHANTOM_LOCAL_FIRST; reorders only,
+        // never drops cloud providers; placed before the runtime override.
+        if should_prioritize_local_servers() {
+            inject_detected_local_servers(&mut provider_names).await;
+        }
         let runtime_over = std::env::var("PHANTOM_RUNTIME_OVERRIDE")
             .ok()
             .filter(|s| !s.trim().is_empty())
@@ -1279,6 +1341,36 @@ impl AgentRuntime {
                     .as_ref()
                     .and_then(|env| std::env::var(env).ok())
             });
+            // `claude_cli` sources its token from the Claude Code CLI cache /
+            // macOS Keychain, not agents.toml — fetch it live so we always use
+            // the current (auto-refreshed) token, never a stale persisted copy.
+            let api_key = api_key.filter(|k| !k.is_empty()).or_else(|| {
+                match provider.provider_type.as_str() {
+                    "claude_cli" => crate::providers::claude_cli::find_claude_token(),
+                    // claude_agent runs the official `claude -p` CLI (no API key
+                    // needed); satisfy the key gate with a placeholder so it
+                    // isn't skipped before its dedicated branch below.
+                    "claude_agent" => Some("claude-code-cli".to_string()),
+                    // cli_session providers shell out to the official CLI — no API key;
+                    // placeholder so the key gate doesn't skip them.
+                    key if crate::providers::cli_session_provider::cli_for_provider_key(key).is_some() => {
+                        Some("cli-session".to_string())
+                    }
+                    // gemini_oauth reads the Gemini CLI's token from ~/.gemini;
+                    // placeholder so the key gate doesn't skip it.
+                    "gemini_oauth" => Some("gemini-code-assist".to_string()),
+                    "codex_oauth" => Some("chatgpt-codex".to_string()),
+                    // Local OpenAI-compatible servers need no key; a placeholder
+                    // keeps them from being skipped by the key gate.
+                    "ollama" | "lmstudio" | "lemonade" => Some("local".to_string()),
+                    // P0-7 offline stub: built-in deterministic model, no key —
+                    // placeholder so the key gate doesn't skip it before its
+                    // dedicated branch below. Feature-gated (off by default).
+                    #[cfg(feature = "offline-stub-model")]
+                    "stub" => Some("local-stub".to_string()),
+                    _ => None,
+                }
+            });
             let Some(key) = api_key.filter(|k| !k.is_empty()) else {
                 let env_name = provider
                     .api_key_env
@@ -1303,13 +1395,14 @@ impl AgentRuntime {
             );
 
             // Per-entry model > agent.model > provider.default_model.
-            let model = entry_model
-                .map(|m| m.to_string())
-                .filter(|m| !m.is_empty())
-                .or_else(|| (!agent_cfg.model.is_empty()).then(|| agent_cfg.model.clone()))
-                .or_else(|| provider.default_model.clone())
-                .unwrap_or_default();
-            if model.is_empty() {
+            // Shared resolver — same precedence as the other fallback loop and
+            // streaming.rs (the 3rd path now also routes through here).
+            let model = resolve_entry_model(entry_model, &agent_cfg.model, provider);
+            // codex_oauth resolves its model dynamically from the ChatGPT backend
+            // (run_codex auto-discovers the account's best model), so an empty
+            // model is allowed for it — it triggers discovery rather than a skip.
+            // Every other provider needs a concrete model resolved here.
+            if model.is_empty() && provider.provider_type != "codex_oauth" {
                 if !crate::diag::is_tui_active() {
                     eprintln!(
                         "  [provider {}] skipped: no model configured",
@@ -1322,6 +1415,28 @@ impl AgentRuntime {
                 continue 'providers;
             }
 
+            // P0-7 SYS-B: built-in always-available offline stub model.
+            // Recognised by type = "stub" / url = "stub://offline". Returns a
+            // deterministic canned reply with NO HTTP, so a zero-config offline
+            // desktop answers with nothing installed (SPEC-03 §8 no-dead-end).
+            // Obviously-a-stub reply so it can't be mistaken for a real model.
+            // Feature-gated → never in the default binary.
+            #[cfg(feature = "offline-stub-model")]
+            if provider.provider_type == "stub" {
+                let prompt =
+                    crate::providers::cli_session_provider::last_user_text(messages);
+                let first_line = prompt.lines().next().unwrap_or("").trim();
+                let reply = format!("phantom offline (stub): {}", first_line);
+                on_token(AgentEvent::Token {
+                    content: reply.clone(),
+                });
+                let synthetic = serde_json::json!({
+                    "choices": [{"message": {"role": "assistant", "content": reply}}],
+                    "usage": {}
+                });
+                return Ok((synthetic, model));
+            }
+
             // DEMO-1 gap 1 Phase 4: shape URL + body + headers via the
             // LlmProvider trait. AnthropicProvider/ClaudeCliProvider emit
             // native /v1/messages with cache_control + adaptive thinking;
@@ -1329,6 +1444,214 @@ impl AgentRuntime {
             // /v1/chat/completions. If a provider isn't registered with the
             // resolver (e.g. config drift), fall back to the OpenAI-compat
             // trait default so behaviour matches the legacy fallthrough.
+            // cli_session providers (codex/opencode/agy): shell out to the LOCAL
+            // CLI via the L0 substrate — same non-streaming short-circuit shape as
+            // claude_agent below (no HTTP stream).
+            if let Some(cli) = crate::providers::cli_session_provider::cli_for_provider_key(
+                provider.provider_type.as_str(),
+            ) {
+                let task = crate::providers::cli_session_provider::last_user_text(messages);
+                match crate::providers::cli_session_provider::run_cli_session(
+                    cli,
+                    task,
+                    (!model.is_empty()).then(|| model.clone()),
+                    600,
+                    self.dispatch_task_id,
+                )
+                .await
+                {
+                    Ok((text, _usage)) => {
+                        on_token(AgentEvent::Token { content: text.clone() });
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // Sanctioned Claude subscription path: `claude_agent` delegates to
+            // the official `claude -p` CLI (Agent SDK credits) instead of an
+            // HTTP stream. Short-circuit with the same synthetic non-streaming
+            // shape the SSE path below returns, so the rest of the loop is
+            // untouched.
+            if provider.provider_type == "claude_agent" {
+                let (system, prompt) =
+                    crate::providers::claude_agent::render_value_messages(messages);
+                match crate::providers::claude_agent::run_claude_print(
+                    &prompt,
+                    (!model.is_empty()).then_some(model.as_str()),
+                    (!system.is_empty()).then_some(system.as_str()),
+                )
+                .await
+                {
+                    Ok(res) => {
+                        crate::diag::record(
+                            "provider_attempt",
+                            format!("[{}] claude -p ok", provider_name),
+                        );
+                        // exec/TUI render the answer from the on_token sink, not
+                        // the return value — so emit the full text as one token
+                        // (claude -p is non-streaming).
+                        on_token(AgentEvent::Token {
+                            content: res.text.clone(),
+                        });
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": res.text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        if !crate::diag::is_tui_active() {
+                            let brief: String = e.to_string().chars().take(120).collect();
+                            eprintln!(
+                                "  [provider {}] unavailable, trying next — {}",
+                                provider_name, brief
+                            );
+                        }
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // Gemini subscription via the Code Assist backend (non-streaming);
+            // same short-circuit shape as claude_agent.
+            if provider.provider_type == "gemini_oauth" {
+                match crate::providers::gemini_oauth::run_gemini_code_assist(
+                    messages, &model, None,
+                )
+                .await
+                {
+                    Ok(text) => {
+                        on_token(AgentEvent::Token {
+                            content: text.clone(),
+                        });
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        if !crate::diag::is_tui_active() {
+                            let brief: String = e.to_string().chars().take(120).collect();
+                            eprintln!(
+                                "  [provider {}] unavailable, trying next — {}",
+                                provider_name, brief
+                            );
+                        }
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // ChatGPT subscription via the Codex backend (Responses API).
+            if provider.provider_type == "codex_oauth" {
+                match crate::providers::codex_oauth::run_codex(messages, &model, None).await {
+                    Ok(text) => {
+                        on_token(AgentEvent::Token {
+                            content: text.clone(),
+                        });
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        if !crate::diag::is_tui_active() {
+                            let brief: String = e.to_string().chars().take(120).collect();
+                            eprintln!(
+                                "  [provider {}] unavailable, trying next — {}",
+                                provider_name, brief
+                            );
+                        }
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // Gemini native function-calling: Gemini 的原生串流（native SSE）
+            // 與下方的 OpenAI-SSE 解析器不相容，且 OpenAI 相容墊片不會穩定
+            // 回傳結構化的 tool_calls。對 gemini 一律短路走非串流的原生
+            // `complete`（native generateContent + functionDeclarations），
+            // 取得結構化 tool_calls 後，把文字內容以單一 token 事件送出，
+            // 回傳與非串流路徑相同的 (synthetic_json, model)。
+            // Check the RESOLVED provider's type (authoritative), not the config
+            // `provider_type` field: Gemini is configured as an openai-compat
+            // entry so its config field isn't "gemini", but resolve_by_name still
+            // maps it to GeminiProvider (which uses native generateContent).
+            if let Some(p) = resolver
+                .resolve_by_name(provider_name)
+                .filter(|p| p.provider_type() == "gemini")
+            {
+                let chat_messages = value_messages_to_chatmessages(messages);
+                match p.complete(&key, &model, &chat_messages, tool_defs).await {
+                    Ok((_msg, synthetic)) => {
+                        // Empty-result guard (mirrors the SSE path below): a
+                        // Gemini 200 with no candidates / a safety block yields
+                        // content="" + no tool_calls. Returning Ok here would
+                        // abort the WHOLE turn in run_inner ("agent produced no
+                        // output…") instead of failing over. Treat it as a
+                        // transient provider failure and try the next chain entry.
+                        let content = synthetic["choices"][0]["message"]["content"]
+                            .as_str()
+                            .unwrap_or("");
+                        let has_tool_calls = synthetic["choices"][0]["message"]
+                            ["tool_calls"]
+                            .as_array()
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false);
+                        if content.is_empty() && !has_tool_calls {
+                            let msg = format!(
+                                "[{}] empty response — no content, no tool calls (Gemini returned no candidates / safety block)",
+                                provider_name
+                            );
+                            errors.push(msg.clone());
+                            last_err = msg;
+                            tracing::warn!(provider = %provider_name, "Empty Gemini native result, trying next provider");
+                            continue 'providers;
+                        }
+                        if !content.is_empty() {
+                            on_token(AgentEvent::Token {
+                                content: content.to_string(),
+                            });
+                        }
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        if !crate::diag::is_tui_active() {
+                            let brief: String = e.to_string().chars().take(120).collect();
+                            eprintln!(
+                                "  [provider {}] unavailable, trying next — {}",
+                                provider_name, brief
+                            );
+                        }
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
             let parts_result = match resolver.resolve_by_name(provider_name) {
                 Some(p) => p.build_stream_request(&BuildRequestOpts {
                     model: &model,
@@ -1368,7 +1691,21 @@ impl AgentRuntime {
                 Ok(r) => r,
                 Err(err_msg) => {
                     if !crate::diag::is_tui_active() {
-                        eprintln!("  [provider {}] failed: {}", provider_name, err_msg);
+                        // Show a concise one-line reason while falling back to the
+                        // next provider — never dump the raw HTTP body (it can
+                        // carry response IDs / account identifiers and scares
+                        // daily users). Full detail goes to diag::record below.
+                        let brief: String = err_msg
+                            .lines()
+                            .next()
+                            .unwrap_or(&err_msg)
+                            .chars()
+                            .take(120)
+                            .collect();
+                        eprintln!(
+                            "  [provider {}] unavailable, trying next — {}",
+                            provider_name, brief
+                        );
                     }
                     crate::diag::record(
                         "provider_fail",
@@ -1393,6 +1730,9 @@ impl AgentRuntime {
             let mut full_content = String::new();
             // tool_calls accumulator: index → (id, name, accumulated_args)
             let mut tool_calls_map: HashMap<usize, (String, String, String)> = HashMap::new();
+            // Carries the trailing bytes of a multibyte UTF-8 char over to the next chunk
+            // when an SSE chunk boundary splits it (see decode_chunk_with_carry).
+            let mut utf8_carry: Vec<u8> = Vec::new();
 
             'stream: loop {
                 // Race three things: (a) the next SSE chunk, (b) the
@@ -1434,18 +1774,11 @@ impl AgentRuntime {
                         break 'stream;
                     }
                 };
-                let text = match std::str::from_utf8(&chunk) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        // TODO Stage 2: implement proper UTF-8 boundary buffer
-                        // (Vec<u8> carry-over across chunks). For now log + skip
-                        // so the corruption is at least traceable instead of
-                        // silent. Splits mid-emoji / mid-multibyte will still
-                        // drop the chunk, but operator can see frequency in logs.
-                        tracing::warn!(chunk_len = chunk.len(), valid_up_to = e.valid_up_to(), "stream chunk failed UTF-8 decode (dropped — multibyte boundary split?): {}", e);
-                        continue;
-                    }
-                };
+                // Decode the chunk, carrying any multibyte char truncated at the chunk
+                // boundary over to the next chunk. Previously a boundary split dropped the
+                // whole chunk, silently losing CJK / emoji / accented text mid-stream.
+                let decoded = decode_chunk_with_carry(&mut utf8_carry, &chunk);
+                let text = decoded.as_str();
                 // SSE lines may be split across chunks; buffer them.
                 for ch in text.chars() {
                     if ch == '\n' {
@@ -1677,6 +2010,15 @@ impl AgentRuntime {
         let resolver = self.active_resolver();
         let mut provider_names =
             resolve_provider_order(agent_cfg, self.config.providers.keys().map(|s| s.as_str()));
+        // Facet ⑤: local-first, cloud opt-in fallback. Gated on
+        // PHANTOM_LOCAL_FIRST (unset → no probe, no change). Reorders the chain
+        // so configured local servers come first IF reachable; never drops a
+        // cloud provider, so the loop below still falls back to cloud when local
+        // is down. Placed BEFORE the runtime-override block so an explicit
+        // `/model X:Y` override still wins the front slot.
+        if should_prioritize_local_servers() {
+            inject_detected_local_servers(&mut provider_names).await;
+        }
         // Per-session runtime override. Two sources, env first then file:
         //   1. PHANTOM_RUNTIME_OVERRIDE env (this process)
         //   2. ~/.phantom-mesh/runtime-override (shared across all phantom
@@ -1726,6 +2068,36 @@ impl AgentRuntime {
                     .as_ref()
                     .and_then(|env| std::env::var(env).ok())
             });
+            // `claude_cli` sources its token from the Claude Code CLI cache /
+            // macOS Keychain, not agents.toml — fetch it live so we always use
+            // the current (auto-refreshed) token, never a stale persisted copy.
+            let api_key = api_key.filter(|k| !k.is_empty()).or_else(|| {
+                match provider.provider_type.as_str() {
+                    "claude_cli" => crate::providers::claude_cli::find_claude_token(),
+                    // claude_agent runs the official `claude -p` CLI (no API key
+                    // needed); satisfy the key gate with a placeholder so it
+                    // isn't skipped before its dedicated branch below.
+                    "claude_agent" => Some("claude-code-cli".to_string()),
+                    // cli_session providers shell out to the official CLI — no API key;
+                    // placeholder so the key gate doesn't skip them.
+                    key if crate::providers::cli_session_provider::cli_for_provider_key(key).is_some() => {
+                        Some("cli-session".to_string())
+                    }
+                    // gemini_oauth reads the Gemini CLI's token from ~/.gemini;
+                    // placeholder so the key gate doesn't skip it.
+                    "gemini_oauth" => Some("gemini-code-assist".to_string()),
+                    "codex_oauth" => Some("chatgpt-codex".to_string()),
+                    // Local OpenAI-compatible servers need no key; a placeholder
+                    // keeps them from being skipped by the key gate.
+                    "ollama" | "lmstudio" | "lemonade" => Some("local".to_string()),
+                    // P0-7 offline stub: built-in deterministic model, no key —
+                    // placeholder so the key gate doesn't skip it before its
+                    // dedicated branch below. Feature-gated (off by default).
+                    #[cfg(feature = "offline-stub-model")]
+                    "stub" => Some("local-stub".to_string()),
+                    _ => None,
+                }
+            });
             let Some(key) = api_key.filter(|k| !k.is_empty()) else {
                 let env_name = provider
                     .api_key_env
@@ -1752,13 +2124,14 @@ impl AgentRuntime {
             // Per-entry model from `provider:model` syntax wins over the
             // agent's `model` field, which wins over the provider's
             // `default_model`. Empty everything → bail with helpful error.
-            let model = entry_model
-                .map(|m| m.to_string())
-                .filter(|m| !m.is_empty())
-                .or_else(|| (!agent_cfg.model.is_empty()).then(|| agent_cfg.model.clone()))
-                .or_else(|| provider.default_model.clone())
-                .unwrap_or_default();
-            if model.is_empty() {
+            // Shared resolver — same precedence as call_with_streaming and
+            // streaming.rs (the 3rd path now also routes through here).
+            let model = resolve_entry_model(entry_model, &agent_cfg.model, provider);
+            // codex_oauth resolves its model dynamically from the ChatGPT backend
+            // (run_codex auto-discovers the account's best model), so an empty
+            // model is allowed for it — it triggers discovery rather than a skip.
+            // Every other provider needs a concrete model resolved here.
+            if model.is_empty() && provider.provider_type != "codex_oauth" {
                 if !crate::diag::is_tui_active() {
                     eprintln!(
                         "  [provider {}] skipped: no model configured",
@@ -1771,11 +2144,175 @@ impl AgentRuntime {
                 continue 'providers;
             }
 
+            // P0-7 SYS-B: built-in always-available offline stub model (same
+            // canned, no-HTTP short-circuit as the streaming loop, minus the
+            // on_token sink — this path renders from the synthetic return).
+            // Feature-gated → never in the default binary.
+            #[cfg(feature = "offline-stub-model")]
+            if provider.provider_type == "stub" {
+                let prompt =
+                    crate::providers::cli_session_provider::last_user_text(messages);
+                let first_line = prompt.lines().next().unwrap_or("").trim();
+                let reply = format!("phantom offline (stub): {}", first_line);
+                let synthetic = serde_json::json!({
+                    "choices": [{"message": {"role": "assistant", "content": reply}}],
+                    "usage": {}
+                });
+                return Ok((synthetic, model));
+            }
+
             // DEMO-1 gap 1 Phase 4: shape URL + body + headers via the
             // LlmProvider trait (same dispatch as call_with_streaming but
             // with `stream: false`). AnthropicProvider/ClaudeCliProvider
             // emit native /v1/messages with cache_control + adaptive
             // thinking; OpenAI-compat impls stay on /v1/chat/completions.
+            // cli_session providers (codex/opencode/agy): drive the LOCAL CLI via
+            // L0 and return the synthetic non-streaming response (same as the
+            // streaming loop, minus the on_token sink).
+            if let Some(cli) = crate::providers::cli_session_provider::cli_for_provider_key(
+                provider.provider_type.as_str(),
+            ) {
+                let task = crate::providers::cli_session_provider::last_user_text(messages);
+                match crate::providers::cli_session_provider::run_cli_session(
+                    cli,
+                    task,
+                    (!model.is_empty()).then(|| model.clone()),
+                    600,
+                    self.dispatch_task_id,
+                )
+                .await
+                {
+                    Ok((text, _usage)) => {
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // Sanctioned Claude subscription path (same as the streaming loop):
+            // `claude_agent` runs the official `claude -p` CLI and returns the
+            // synthetic non-streaming response the rest of the loop expects.
+            if provider.provider_type == "claude_agent" {
+                let (system, prompt) =
+                    crate::providers::claude_agent::render_value_messages(messages);
+                match crate::providers::claude_agent::run_claude_print(
+                    &prompt,
+                    (!model.is_empty()).then_some(model.as_str()),
+                    (!system.is_empty()).then_some(system.as_str()),
+                )
+                .await
+                {
+                    Ok(res) => {
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": res.text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            if provider.provider_type == "gemini_oauth" {
+                match crate::providers::gemini_oauth::run_gemini_code_assist(
+                    messages, &model, None,
+                )
+                .await
+                {
+                    Ok(text) => {
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            if provider.provider_type == "codex_oauth" {
+                match crate::providers::codex_oauth::run_codex(messages, &model, None).await {
+                    Ok(text) => {
+                        let synthetic = serde_json::json!({
+                            "choices": [{"message": {"role": "assistant", "content": text}}],
+                            "usage": {}
+                        });
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
+            // Gemini native function-calling (non-streaming path): mirror the
+            // streaming branch — route gemini through the native `complete`
+            // (generateContent + functionDeclarations) so the agent gets
+            // structured tool_calls, which the OpenAI-compat shim does not
+            // reliably emit. Returns the same (synthetic_json, model) shape.
+            if let Some(p) = resolver
+                .resolve_by_name(provider_name)
+                .filter(|p| p.provider_type() == "gemini")
+            {
+                let chat_messages = value_messages_to_chatmessages(messages);
+                match p.complete(&key, &model, &chat_messages, tool_defs).await {
+                    Ok((_msg, synthetic)) => {
+                        // Empty-result guard (mirrors the streaming path): a
+                        // Gemini 200 with no candidates / a safety block yields
+                        // content="" + no tool_calls. Returning Ok here would
+                        // abort the whole turn instead of failing over to the
+                        // next configured provider. Treat as a provider failure.
+                        let content = synthetic["choices"][0]["message"]["content"]
+                            .as_str()
+                            .unwrap_or("");
+                        let has_tool_calls = synthetic["choices"][0]["message"]
+                            ["tool_calls"]
+                            .as_array()
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false);
+                        if content.is_empty() && !has_tool_calls {
+                            let msg = format!(
+                                "[{}] empty response — no content, no tool calls (Gemini returned no candidates / safety block)",
+                                provider_name
+                            );
+                            errors.push(msg.clone());
+                            last_err = msg;
+                            tracing::warn!(provider = %provider_name, "Empty Gemini native result, trying next provider");
+                            continue 'providers;
+                        }
+                        return Ok((synthetic, model));
+                    }
+                    Err(e) => {
+                        let msg = format!("[{}] {}", provider_name, e);
+                        errors.push(msg.clone());
+                        last_err = msg;
+                        continue 'providers;
+                    }
+                }
+            }
+
             let parts_result = match resolver.resolve_by_name(provider_name) {
                 Some(p) => p.build_stream_request(&BuildRequestOpts {
                     model: &model,
@@ -1825,7 +2362,12 @@ impl AgentRuntime {
 
                 let mut req = self.http_client.post(&url);
                 req = if is_anthropic_messages {
-                    req.header("x-api-key", &key)
+                    if crate::providers::claude_cli::is_oauth_token(&key) {
+                        req.header("authorization", format!("Bearer {}", key))
+                            .header("anthropic-beta", "oauth-2025-04-20")
+                    } else {
+                        req.header("x-api-key", &key)
+                    }
                 } else {
                     req.header("Authorization", format!("Bearer {}", key))
                 };
@@ -1972,12 +2514,88 @@ impl AgentRuntime {
 /// Edge: empty model after the colon (`"groq:"`) → `("groq", None)` so the
 /// resolver falls through to `agent.model` / `provider.default_model` instead
 /// of sending an empty model name to the provider.
+/// Convert the agent's OpenAI-shaped `Value` messages into `ChatMessage`s for
+/// the `LlmProvider::complete` trait method (used by the Gemini native
+/// function-calling short-circuit). Preserves assistant `tool_calls` and the
+/// top-level `name` on tool-result messages so the native conversion can
+/// rebuild `functionCall` / `functionResponse` parts.
+fn value_messages_to_chatmessages(messages: &[Value]) -> Vec<ChatMessage> {
+    messages
+        .iter()
+        .map(|m| ChatMessage {
+            role: m["role"].as_str().unwrap_or("user").to_string(),
+            content: m["content"].as_str().unwrap_or("").to_string(),
+            tool_calls: m
+                .get("tool_calls")
+                .cloned()
+                .filter(|v| !v.is_null())
+                .or_else(|| {
+                    m.get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|n| serde_json::json!({ "name": n }))
+                }),
+        })
+        .collect()
+}
+
 pub fn parse_provider_entry(entry: &str) -> (&str, Option<&str>) {
     match entry.split_once(':') {
         Some((p, m)) if !m.is_empty() => (p, Some(m)),
         Some((p, _)) => (p, None),
         None => (entry, None),
     }
+}
+
+/// Resolve the concrete model id for one `provider:model` entry, applying the
+/// canonical runtime precedence shared by every dispatch path (the two
+/// `call_with_*` fallback loops in this file AND `streaming.rs`). Before this
+/// was extracted, each site re-implemented the precedence inline and they had
+/// drifted: `streaming.rs` placed `provider.default_model` *above*
+/// `agent.model`, the opposite of this file's two loops — so the same agent +
+/// provider list could pick a different model depending on whether it ran via
+/// streaming or fallback. Routing all three through here removes that 3rd
+/// divergent path.
+///
+/// Precedence (highest first):
+///   1. `entry_model` — the per-entry `provider:model` suffix (most specific)
+///   2. `agent_model` — the agent's `[agent.X] model` field
+///   3. `provider.default_model` — the `[providers.*] default_model`
+///   4. opencode safety net — opencode.ai's cheapest free tier
+///      (`minimax-m2.5-free`), so an opencode entry with nothing else
+///      configured still streams instead of erroring on the paid default.
+///
+/// Empty strings at any level are treated as "unset" and fall through. Returns
+/// an empty `String` only when every level is empty AND the provider isn't
+/// opencode — callers report that as a "no model configured" error.
+///
+/// Pure function — no I/O. The `provider` borrow is read-only.
+pub fn resolve_entry_model(
+    entry_model: Option<&str>,
+    agent_model: &str,
+    provider: &crate::config::ProviderEntry,
+) -> String {
+    if let Some(m) = entry_model.filter(|m| !m.is_empty()) {
+        return m.to_string();
+    }
+    if !agent_model.is_empty() {
+        return agent_model.to_string();
+    }
+    if let Some(m) = provider.default_model.as_deref().filter(|m| !m.is_empty()) {
+        return m.to_string();
+    }
+    // opencode.ai's hard default (claude-sonnet-4-5) is in the PAID tier and
+    // 400s for users without a payment method (B1 root cause); fall back to the
+    // cheapest free model so an under-configured opencode entry still streams.
+    let is_opencode = provider.provider_type == "opencode"
+        || provider
+            .url
+            .as_deref()
+            .unwrap_or("")
+            .contains("opencode.ai");
+    if is_opencode {
+        return "minimax-m2.5-free".to_string();
+    }
+    String::new()
 }
 
 /// Map a provider name (and optional model id) to its [`PromptStyle`].
@@ -2112,6 +2730,56 @@ pub fn resolve_provider_order<'a>(
     agent_cfg: &AgentEntry,
     available: impl Iterator<Item = &'a str>,
 ) -> Vec<String> {
+    resolve_provider_order_inner(agent_cfg, available, None)
+}
+
+/// SPEC-14 §9.2 — score-aware sibling of [`resolve_provider_order`].
+///
+/// Identical tiering and dedup to [`resolve_provider_order`]; the ONLY
+/// difference is the step-3 remainder (the configured providers not pinned by
+/// `agent.providers` or `agent.provider`): instead of being ordered
+/// alphabetically, it is ordered by `scores` **descending** (higher = better,
+/// matching [`crate::providers_wire::score`]), with alphabetical as the
+/// equal-score tie-break so the result stays deterministic.
+///
+/// Contract preservation (the reason this is a sibling, not an in-place change):
+///   * Steps 1+2 are byte-identical — the explicit `providers` list and the
+///     legacy `provider` keep their exact positions REGARDLESS of score. A
+///     provider the user pinned first stays first even with the worst score,
+///     and a high-scoring remainder provider can never jump ahead of it.
+///   * Only providers with NO entry in `scores` *or* a non-finite (NaN/∞) score
+///     are treated as "unscored"; they sort AFTER every scored provider,
+///     alphabetically among themselves (so a missing score never silently
+///     promotes a provider above a scored one).
+///   * Passing an empty / all-unscored map reproduces the alphabetical step-3
+///     order of [`resolve_provider_order`] exactly (zero behavior change).
+///
+/// `scores` is keyed by the **normalized** provider name (the part before `:`,
+/// trimmed) — the same key the dedup uses — so a `gemini:flash` entry is scored
+/// under `"gemini"`.
+///
+/// 中文: SPEC-14 §9.2 評分版 resolver。階層與去重和 [`resolve_provider_order`]
+/// 完全相同;唯一差別是第 3 段「其餘 provider」改用 `scores` 由高到低排序
+/// （分數相同時退回字母序保持確定性）。第 1、2 段(明確清單 + legacy primary)
+/// 一字不差 — explicit-list-wins 契約不受任何分數影響。無分數/非有限分數的
+/// provider 視為未評分,排在所有已評分之後並彼此字母序;傳空 map 即還原
+/// 原字母序行為(零行為變更)。`scores` 以正規化 provider 名(冒號前)為 key。
+pub fn resolve_provider_order_scored<'a>(
+    agent_cfg: &AgentEntry,
+    available: impl Iterator<Item = &'a str>,
+    scores: &std::collections::HashMap<String, f64>,
+) -> Vec<String> {
+    resolve_provider_order_inner(agent_cfg, available, Some(scores))
+}
+
+/// Shared implementation behind [`resolve_provider_order`] (alphabetical step-3)
+/// and [`resolve_provider_order_scored`] (score-ordered step-3). `scores ==
+/// None` is the historical alphabetical behavior, byte-for-byte.
+fn resolve_provider_order_inner<'a>(
+    agent_cfg: &AgentEntry,
+    available: impl Iterator<Item = &'a str>,
+    scores: Option<&std::collections::HashMap<String, f64>>,
+) -> Vec<String> {
     let mut order: Vec<String> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     // Dedup by PROVIDER NAME (the part before `:`), NOT the full
@@ -2144,13 +2812,135 @@ pub fn resolve_provider_order<'a>(
     }
     // 2. legacy single primary
     push(&mut order, &mut seen, &agent_cfg.provider);
-    // 3. remaining configured providers, alphabetical
+    // 3. remaining configured providers — alphabetical (default) or, when a
+    // score map is supplied (SPEC-14), score-DESC with alphabetical tie-break.
     let mut others: Vec<&str> = available.filter(|n| !seen.contains(*n)).collect();
-    others.sort();
+    match scores {
+        None => others.sort(),
+        Some(scores) => {
+            // Look up a provider's score under its normalized name (part before
+            // `:`); treat missing AND non-finite scores as "unscored".
+            let score_of = |entry: &str| -> Option<f64> {
+                let name = entry.split(':').next().unwrap_or(entry).trim();
+                scores.get(name).copied().filter(|v| v.is_finite())
+            };
+            others.sort_by(|a, b| {
+                use std::cmp::Ordering;
+                match (score_of(a), score_of(b)) {
+                    // Both scored → higher score first; equal → alphabetical.
+                    (Some(x), Some(y)) => y
+                        .partial_cmp(&x)
+                        .unwrap_or(Ordering::Equal)
+                        .then_with(|| a.cmp(b)),
+                    // A scored provider always precedes an unscored one.
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    // Neither scored → alphabetical (historical behavior).
+                    (None, None) => a.cmp(b),
+                }
+            });
+        }
+    }
     for n in others {
         push(&mut order, &mut seen, n);
     }
     order
+}
+
+/// Facet ⑤ (local-first, cloud opt-in fallback): is the local-first preference
+/// active for this request?
+///
+/// Pure, side-effect-free except for reading the `PHANTOM_LOCAL_FIRST` env var.
+/// Returns `true` only on an explicit opt-in (`"1"` / `"true"` / `"yes"`,
+/// case-insensitive). Unset / anything else → `false`, so the default provider
+/// order is unchanged (zero behavior change when the flag is absent).
+///
+/// This is an *override of ordering only*. It never removes cloud providers
+/// from the chain, so if no local server is reachable the existing
+/// retry/fallback loop still tries cloud providers — local-first must never
+/// turn into local-only-and-broken.
+///
+/// `pub(crate)` so `streaming::stream_agent_full_with_resolver` (fix #2) can
+/// gate the same reorder on the identical opt-in.
+pub(crate) fn should_prioritize_local_servers() -> bool {
+    match std::env::var("PHANTOM_LOCAL_FIRST") {
+        Ok(val) => matches!(val.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
+        Err(_) => false,
+    }
+}
+
+/// Pure transform: move any *configured* local-server providers
+/// (`local_names`, as detected by [`detect_local_servers`]) to the front of
+/// `provider_names`, preserving the relative order of the rest.
+///
+/// Dedup keys on the provider name before `:` (same convention as
+/// [`resolve_provider_order`]) so a `local-ollama:qwen3:8b` priority entry is
+/// recognized as the same provider as a detected `local-ollama`.
+///
+/// Naming bridge (fix #1): `detect_local_servers` returns bare slugs
+/// (`"ollama"` / `"lmstudio"` / `"lemonade"`), but the codebase convention for
+/// the provider *block* is the `local-` prefixed name (`[providers.local-ollama]`
+/// — see `cli_config::provider_env_var_name` / the `local-ollama` test fixtures).
+/// So a detected `"ollama"` matches a chain entry named either `"ollama"` OR
+/// `"local-ollama"`. Without this bridge the promotion was a silent no-op for
+/// every operator who followed the `local-` convention.
+///
+/// Crucially: a detected local server is only promoted if it already appears in
+/// `provider_names` (i.e. it has a `[providers.NAME]` block / made it into the
+/// resolved chain). Unconfigured locals are ignored — we never synthesize a new
+/// provider entry, and we never *drop* a cloud provider. The chain after this
+/// call is a permutation of the chain before it, so cloud fallback is preserved
+/// unconditionally.
+fn prioritize_local_in_chain(provider_names: &mut Vec<String>, local_names: &[String]) {
+    if local_names.is_empty() || provider_names.is_empty() {
+        return;
+    }
+    let provider_of = |entry: &str| -> String {
+        entry.split(':').next().unwrap_or(entry).trim().to_string()
+    };
+    // Does this chain entry's provider name refer to `local` (a detected slug)?
+    // True when it matches exactly OR matches the `local-` prefixed convention
+    // in either direction (detected "ollama" ↔ configured "local-ollama").
+    fn canon(n: &str) -> &str {
+        n.strip_prefix("local-").unwrap_or(n)
+    }
+    let matches_local =
+        |entry_provider: &str, local: &str| canon(entry_provider) == canon(local);
+    // Pull out the entries whose provider name matches a detected local server,
+    // in the order the locals were detected; keep the remainder in place.
+    let mut promoted: Vec<String> = Vec::new();
+    for local in local_names {
+        if let Some(pos) = provider_names
+            .iter()
+            .position(|e| matches_local(&provider_of(e), local))
+        {
+            promoted.push(provider_names.remove(pos));
+        }
+    }
+    if promoted.is_empty() {
+        return;
+    }
+    // Prepend promoted (detection order) ahead of the untouched remainder.
+    promoted.append(provider_names);
+    *provider_names = promoted;
+}
+
+/// Async wrapper: detect reachable local servers and reorder `provider_names`
+/// so the configured local providers come first. No-op (and no network probe)
+/// unless [`should_prioritize_local_servers`] is true — callers guard on it.
+///
+/// If detection finds nothing reachable, the chain is left untouched and the
+/// normal (cloud-inclusive) order stands — graceful degradation by construction.
+///
+/// `pub(crate)` so `streaming::stream_agent_full_with_resolver` (the serve /
+/// partner streaming-chat path, fix #2) can apply the same reorder.
+pub(crate) async fn inject_detected_local_servers(provider_names: &mut Vec<String>) {
+    let detected = crate::providers::local_servers::detect_local_servers().await;
+    if detected.is_empty() {
+        return;
+    }
+    let local_names: Vec<String> = detected.into_iter().map(|s| s.name).collect();
+    prioritize_local_in_chain(provider_names, &local_names);
 }
 
 // DEMO-1 gap 1 Phase 4: the `provider_url` string-switch is gone.
@@ -2302,7 +3092,7 @@ fn compact_if_needed(messages: &mut Vec<Value>, budget: usize) {
 /// system message. The block is recognised by the literal header string and
 /// extends until either a blank line, a different bracketed header, or the
 /// end of the message — matching the format written by
-/// `run_inner` when a HermesRuntime is attached. Messages without a memory
+/// `run_inner` when a SkillbankRuntime is attached. Messages without a memory
 /// block are left exactly as they were.
 ///
 /// Returns nothing; mutates in place. Cheap on the common path because the
@@ -2310,7 +3100,7 @@ fn compact_if_needed(messages: &mut Vec<Value>, budget: usize) {
 fn strip_memory_block(messages: &mut Vec<Value>) {
     // Plain literal — kept identical to MEMORY_CONTEXT_HEADER. We don't
     // import the const here because this function must compile in the
-    // default (non-hermes) build too — `compact_if_needed` is unconditional.
+    // default (non-skillbank) build too — `compact_if_needed` is unconditional.
     const HEADER: &str = "[memory]";
     for msg in messages.iter_mut() {
         if msg["role"].as_str() != Some("system") {
@@ -2420,9 +3210,108 @@ fn output_unchanged(prev: &str, current: &str) -> bool {
     diff * 10 < max_len
 }
 
+/// Decode a stream chunk as UTF-8, carrying any trailing *incomplete* multibyte
+/// sequence over to the next call. Byte streams (SSE) split characters at arbitrary
+/// boundaries; a char merely truncated at the end is preserved via `carry` (so the
+/// next chunk completes it), while genuinely invalid bytes are skipped with the valid
+/// text around them still decoded. Replaces the old "drop the whole chunk" behaviour
+/// that silently lost CJK / emoji mid-stream.
+fn decode_chunk_with_carry(carry: &mut Vec<u8>, chunk: &[u8]) -> String {
+    let bytes: Vec<u8> = if carry.is_empty() {
+        chunk.to_vec()
+    } else {
+        let mut v = std::mem::take(carry);
+        v.extend_from_slice(chunk);
+        v
+    };
+    // Iterative (not recursive): a chunk carrying many genuinely-invalid bytes must not
+    // grow the call stack — walk the buffer in a loop instead.
+    let mut out = String::new();
+    let mut input: &[u8] = &bytes;
+    loop {
+        match std::str::from_utf8(input) {
+            Ok(s) => {
+                out.push_str(s);
+                break;
+            }
+            Err(e) => {
+                let valid = e.valid_up_to();
+                if valid > 0 {
+                    // The prefix up to `valid` is guaranteed valid UTF-8.
+                    out.push_str(std::str::from_utf8(&input[..valid]).unwrap_or(""));
+                }
+                match e.error_len() {
+                    // None: input ended mid-character → carry the tail (≤3 bytes) to next chunk.
+                    None => {
+                        let tail = &input[valid..];
+                        if tail.len() <= 3 {
+                            *carry = tail.to_vec();
+                        }
+                        break;
+                    }
+                    // Some(n): skip the n genuinely-invalid bytes, keep decoding the remainder
+                    // so a valid tail after the bad bytes isn't lost.
+                    Some(n) => {
+                        input = &input[valid + n..];
+                        if input.is_empty() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decode_carry_byte_at_a_time_reassembles() {
+        // Worst case: one byte at a time splits every multibyte char at a boundary.
+        let s = "héllo 你好 🎉 €";
+        let mut carry = Vec::new();
+        let mut out = String::new();
+        for b in s.as_bytes() {
+            out.push_str(&decode_chunk_with_carry(&mut carry, &[*b]));
+        }
+        assert!(carry.is_empty(), "no leftover carry after a complete string");
+        assert_eq!(out, s);
+    }
+
+    #[test]
+    fn decode_carry_split_mid_emoji() {
+        let s = "ab🎉cd"; // 🎉 = F0 9F 8E 89 (4 bytes), at byte offset 2..6
+        let bytes = s.as_bytes();
+        for split in 3..=6 {
+            let mut carry = Vec::new();
+            let mut out = decode_chunk_with_carry(&mut carry, &bytes[..split]);
+            out.push_str(&decode_chunk_with_carry(&mut carry, &bytes[split..]));
+            assert!(carry.is_empty(), "carry drained at split {split}");
+            assert_eq!(out, s, "reassembled wrong at split {split}");
+        }
+    }
+
+    #[test]
+    fn decode_carry_pure_truncation_then_completion() {
+        let b = "€".as_bytes(); // E2 82 AC
+        let mut carry = Vec::new();
+        assert_eq!(decode_chunk_with_carry(&mut carry, &b[..1]), "");
+        assert_eq!(carry, vec![b[0]]);
+        assert_eq!(decode_chunk_with_carry(&mut carry, &b[1..]), "€");
+        assert!(carry.is_empty());
+    }
+
+    #[test]
+    fn decode_carry_drops_invalid_keeps_surrounding_text() {
+        // A genuinely invalid byte (0xFF) between valid text: drop it, keep "ok" + "go".
+        let mut carry = Vec::new();
+        let out = decode_chunk_with_carry(&mut carry, b"ok\xFFgo");
+        assert_eq!(out, "okgo");
+        assert!(carry.is_empty());
+    }
     use serde_json::json;
 
     // ── detect_truncation_notice ──────────────────────────────────────────
@@ -2443,6 +3332,79 @@ mod tests {
             tools: Vec::new(),
             instructions: String::new(),
         }
+    }
+
+    // ── resolve_entry_model: single shared model precedence ───────────────
+    // The 3rd-path follow-up — `streaming.rs` + both `call_with_*` loops now
+    // route through this one function. These pin its precedence so the resolver
+    // can't silently drift again.
+
+    fn prov(default_model: Option<&str>) -> crate::config::ProviderEntry {
+        crate::config::ProviderEntry {
+            provider_type: "groq".into(),
+            default_model: default_model.map(String::from),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn resolve_entry_model_prefers_entry_suffix() {
+        // `provider:model` suffix is most specific → wins over agent + default.
+        let p = prov(Some("provider-default"));
+        assert_eq!(
+            resolve_entry_model(Some("entry-model"), "agent-model", &p),
+            "entry-model"
+        );
+    }
+
+    #[test]
+    fn resolve_entry_model_agent_model_outranks_default_model() {
+        // No suffix → agent.model beats provider.default_model (matches the
+        // documented call_with_* precedence; the OLD streaming helper got this
+        // backwards).
+        let p = prov(Some("provider-default"));
+        assert_eq!(resolve_entry_model(None, "agent-model", &p), "agent-model");
+    }
+
+    #[test]
+    fn resolve_entry_model_falls_through_to_default_model() {
+        // No suffix, empty agent.model → provider.default_model.
+        let p = prov(Some("provider-default"));
+        assert_eq!(resolve_entry_model(None, "", &p), "provider-default");
+    }
+
+    #[test]
+    fn resolve_entry_model_empty_suffix_falls_through() {
+        // `groq:` (empty after colon) is parsed as None by parse_provider_entry,
+        // so it must NOT send an empty model — fall through to agent.model.
+        let (_n, m) = parse_provider_entry("groq:");
+        assert_eq!(m, None);
+        let p = prov(None);
+        assert_eq!(resolve_entry_model(m, "agent-model", &p), "agent-model");
+    }
+
+    #[test]
+    fn resolve_entry_model_opencode_safety_net() {
+        // Nothing configured + opencode → cheapest free tier (B1 fix preserved).
+        let p = crate::config::ProviderEntry {
+            provider_type: "opencode".into(),
+            ..Default::default()
+        };
+        assert_eq!(resolve_entry_model(None, "", &p), "minimax-m2.5-free");
+        // opencode detected via URL too (provider_type may differ).
+        let p_url = crate::config::ProviderEntry {
+            provider_type: "openai_compat".into(),
+            url: Some("https://opencode.ai/zen/v1".into()),
+            ..Default::default()
+        };
+        assert_eq!(resolve_entry_model(None, "", &p_url), "minimax-m2.5-free");
+    }
+
+    #[test]
+    fn resolve_entry_model_unconfigured_non_opencode_is_empty() {
+        // Non-opencode with nothing configured → empty (caller reports error).
+        let p = prov(None);
+        assert_eq!(resolve_entry_model(None, "", &p), "");
     }
 
     // ── PromptStyle wiring (SPEC-14 §9.2 / G5, T-PROV-04) ─────────────────
@@ -2598,6 +3560,118 @@ mod tests {
         assert_eq!(order, vec!["groq", "cerebras"]);
     }
 
+    // ── SPEC-14 §9.2: resolve_provider_order_scored ──────────────────────────
+    // Step-3 remainder ordered by score; steps 1+2 (explicit list + legacy
+    // primary) must stay immune to score, preserving explicit-list-wins.
+
+    fn scores(pairs: &[(&str, f64)]) -> std::collections::HashMap<String, f64> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn scored_orders_remainder_by_score_desc() {
+        // No explicit list / legacy primary → ALL providers are step-3 remainder,
+        // so they sort purely by score descending (NOT alphabetical).
+        let cfg = agent("", None);
+        let s = scores(&[("cerebras", 0.9), ("anthropic", 0.2), ("groq", 0.5)]);
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["anthropic", "groq", "cerebras"].into_iter(),
+            &s,
+        );
+        // 0.9 > 0.5 > 0.2 — alphabetical would have been anthropic, cerebras, groq.
+        assert_eq!(order, vec!["cerebras", "groq", "anthropic"]);
+    }
+
+    #[test]
+    fn scored_never_reorders_explicit_providers() {
+        // codex trap #3: even with the WORST score on the user's pinned primary
+        // and the BEST score on a remainder provider, the explicit list wins.
+        let cfg = agent("opencode", Some(vec!["groq", "cerebras"]));
+        let s = scores(&[
+            ("groq", 0.0),       // pinned first, terrible score
+            ("cerebras", 0.0),   // pinned second, terrible score
+            ("anthropic", 1.0),  // unpinned remainder, perfect score
+        ]);
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["opencode", "groq", "cerebras", "anthropic"].into_iter(),
+            &s,
+        );
+        // groq, cerebras (explicit list, untouched by score); opencode (legacy
+        // primary); anthropic last DESPITE its perfect score — it's only the
+        // step-3 remainder, which can never jump the pinned tiers.
+        assert_eq!(order, vec!["groq", "cerebras", "opencode", "anthropic"]);
+    }
+
+    #[test]
+    fn scored_equal_scores_fall_back_to_alphabetical() {
+        let cfg = agent("", None);
+        let s = scores(&[("groq", 0.5), ("cerebras", 0.5), ("anthropic", 0.5)]);
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["groq", "cerebras", "anthropic"].into_iter(),
+            &s,
+        );
+        // All equal → deterministic alphabetical tie-break.
+        assert_eq!(order, vec!["anthropic", "cerebras", "groq"]);
+    }
+
+    #[test]
+    fn scored_unscored_sort_after_scored_alphabetically() {
+        // Providers with no score entry must NOT be promoted; they trail the
+        // scored ones, alphabetically among themselves.
+        let cfg = agent("", None);
+        let s = scores(&[("groq", 0.3)]); // only groq scored
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["zeta", "groq", "alpha"].into_iter(),
+            &s,
+        );
+        // groq (scored) first; then alpha, zeta (unscored, alphabetical).
+        assert_eq!(order, vec!["groq", "alpha", "zeta"]);
+    }
+
+    #[test]
+    fn scored_treats_nonfinite_as_unscored() {
+        // A NaN/∞ score is "unscored", not a sort poison.
+        let cfg = agent("", None);
+        let s = scores(&[("groq", f64::NAN), ("cerebras", 0.4)]);
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["groq", "cerebras"].into_iter(),
+            &s,
+        );
+        // cerebras (finite score) precedes groq (NaN → unscored).
+        assert_eq!(order, vec!["cerebras", "groq"]);
+    }
+
+    #[test]
+    fn scored_empty_map_matches_default_alphabetical() {
+        // Zero behavior change: an empty score map must reproduce the exact
+        // ordering of the default (alphabetical) resolve_provider_order.
+        let cfg = agent("groq", Some(vec!["mlx-local"]));
+        let avail = ["groq", "cerebras", "anthropic", "mlx-local"];
+        let empty = scores(&[]);
+        let scored = resolve_provider_order_scored(&cfg, avail.into_iter(), &empty);
+        let default = resolve_provider_order(&cfg, avail.into_iter());
+        assert_eq!(scored, default);
+        assert_eq!(scored, vec!["mlx-local", "groq", "anthropic", "cerebras"]);
+    }
+
+    #[test]
+    fn scored_lookup_normalizes_provider_model_entries() {
+        // A `gemini:flash` remainder entry is scored under the bare "gemini" key.
+        let cfg = agent("", None);
+        let s = scores(&[("gemini", 0.9), ("groq", 0.1)]);
+        let order = resolve_provider_order_scored(
+            &cfg,
+            ["groq", "gemini:gemini-2.0-flash"].into_iter(),
+            &s,
+        );
+        assert_eq!(order, vec!["gemini:gemini-2.0-flash", "groq"]);
+    }
+
     #[test]
     fn parse_provider_entry_bare_and_compound() {
         assert_eq!(parse_provider_entry("groq"), ("groq", None));
@@ -2623,6 +3697,133 @@ mod tests {
         let cfg = agent("anthropic", Some(vec!["typo-name", "groq"]));
         let order = resolve_provider_order(&cfg, ["anthropic", "groq"].into_iter());
         assert_eq!(order, vec!["typo-name", "groq", "anthropic"]);
+    }
+
+    // ── Facet ⑤: local-first reorder (prioritize_local_in_chain) ─────────────
+
+    #[test]
+    fn local_first_promotes_configured_local_keeps_cloud_for_fallback() {
+        // anthropic first (alphabetical), ollama configured + detected → ollama
+        // moves to the front, anthropic STAYS in the chain so cloud fallback
+        // remains possible if ollama is unreachable mid-call.
+        let mut chain = vec![
+            "anthropic".to_string(),
+            "groq".to_string(),
+            "ollama".to_string(),
+        ];
+        prioritize_local_in_chain(&mut chain, &["ollama".to_string()]);
+        assert_eq!(chain, vec!["ollama", "anthropic", "groq"]);
+        // Critical: cloud providers are NOT dropped.
+        assert!(chain.iter().any(|p| p == "anthropic"));
+        assert!(chain.iter().any(|p| p == "groq"));
+    }
+
+    #[test]
+    fn local_first_no_local_detected_leaves_chain_unchanged() {
+        // Nothing detected → identical chain (graceful degradation to cloud).
+        let mut chain = vec!["anthropic".to_string(), "groq".to_string()];
+        let before = chain.clone();
+        prioritize_local_in_chain(&mut chain, &[]);
+        assert_eq!(chain, before);
+    }
+
+    #[test]
+    fn local_first_detected_but_not_configured_is_ignored() {
+        // lmstudio detected but absent from the chain (no [providers.lmstudio]
+        // block) → ignored; we never synthesize a provider, never reorder.
+        let mut chain = vec!["anthropic".to_string(), "groq".to_string()];
+        let before = chain.clone();
+        prioritize_local_in_chain(&mut chain, &["lmstudio".to_string()]);
+        assert_eq!(chain, before);
+    }
+
+    #[test]
+    fn local_first_matches_provider_model_entries_by_name() {
+        // Fix #1 regression guard. The detected slug is the REAL one
+        // `detect_local_servers` emits (`"ollama"`, NOT `"local-ollama"`), and
+        // the chain entry uses the operator-facing `local-ollama` convention
+        // with a model suffix. The `local-` bridge + colon-dedup must still
+        // recognize them as the same provider and promote it. (The old test
+        // here passed `"local-ollama"` as the *detected* slug — a value the
+        // real detector never produces — so it proved nothing about the wiring.)
+        let mut chain = vec![
+            "groq:llama-3.1-8b-instant".to_string(),
+            "local-ollama:qwen3:8b".to_string(),
+        ];
+        prioritize_local_in_chain(&mut chain, &["ollama".to_string()]);
+        assert_eq!(
+            chain,
+            vec!["local-ollama:qwen3:8b", "groq:llama-3.1-8b-instant"]
+        );
+    }
+
+    #[test]
+    fn local_first_bridges_detected_slug_to_local_prefixed_block() {
+        // Fix #1 core case: operator follows the `[providers.local-ollama]`
+        // convention; `detect_local_servers` returns the bare slug `"ollama"`.
+        // Promotion must bridge the `local-` prefix so the configured local
+        // block is moved to the front — previously a silent no-op.
+        let mut chain = vec![
+            "anthropic".to_string(),
+            "local-ollama".to_string(),
+            "groq".to_string(),
+        ];
+        prioritize_local_in_chain(&mut chain, &["ollama".to_string()]);
+        assert_eq!(chain, vec!["local-ollama", "anthropic", "groq"]);
+        // Cloud providers are NOT dropped — fallback preserved.
+        assert!(chain.iter().any(|p| p == "anthropic"));
+        assert!(chain.iter().any(|p| p == "groq"));
+    }
+
+    /// End-to-end guard through the real detector. Ignored by default (depends
+    /// on whether a local server is actually running on this machine), runnable
+    /// with `--ignored`. When a local server IS up, a configured
+    /// `local-<slug>` / `<slug>` block must be promoted to the front; when none
+    /// is up, the chain is left untouched (cloud stays first → graceful
+    /// fallback, never local-only-and-broken).
+    #[tokio::test]
+    #[ignore]
+    async fn local_first_end_to_end_promotes_via_real_detector() {
+        let detected = crate::providers::local_servers::detect_local_servers().await;
+        // Build a chain that has a `local-<slug>` block for whatever is running,
+        // plus a cloud provider for fallback.
+        let mut chain = vec!["anthropic".to_string()];
+        for s in &detected {
+            chain.push(format!("local-{}", s.name));
+        }
+        let local_names: Vec<String> = detected.iter().map(|s| s.name.clone()).collect();
+        let before = chain.clone();
+        prioritize_local_in_chain(&mut chain, &local_names);
+        if detected.is_empty() {
+            assert_eq!(chain, before, "no local detected → chain unchanged");
+        } else {
+            assert!(
+                chain[0].starts_with("local-"),
+                "a detected local must be promoted to front, got {:?}",
+                chain
+            );
+            assert!(
+                chain.iter().any(|p| p == "anthropic"),
+                "cloud fallback must remain in chain"
+            );
+        }
+    }
+
+    #[test]
+    fn local_first_multiple_locals_keep_detection_order() {
+        // Two locals detected → both move to the front in detection order,
+        // cloud remainder keeps its relative order behind them.
+        let mut chain = vec![
+            "anthropic".to_string(),
+            "lmstudio".to_string(),
+            "groq".to_string(),
+            "ollama".to_string(),
+        ];
+        prioritize_local_in_chain(
+            &mut chain,
+            &["ollama".to_string(), "lmstudio".to_string()],
+        );
+        assert_eq!(chain, vec!["ollama", "lmstudio", "anthropic", "groq"]);
     }
 
     // ── detect_truncation_notice ──────────────────────────────────────────
@@ -2909,12 +4110,13 @@ mod tests {
             config,
             http_client: Arc::new(reqwest::Client::new()),
             interrupt: None,
+            dispatch_task_id: None,
             #[cfg(all(
-                feature = "experimental-hermes-curator",
-                feature = "experimental-hermes-memory",
-                feature = "experimental-hermes-tools",
+                feature = "experimental-curator",
+                feature = "experimental-memory",
+                feature = "experimental-tools",
             ))]
-            hermes: None,
+            skill_runtime: None,
             resolver_override: None,
         };
 

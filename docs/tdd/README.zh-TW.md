@@ -1,20 +1,22 @@
 # `docs/tdd/`
 
-[English version](README.md)
-
 Test-Driven Development（TDD，測試驅動開發）的工作文件。這些文件不綁定
 特定工具，Claude、Gemini、Codex、Antigravity 或人類都可以閱讀。
 
+> **狀態更新（2026-06-11）**：原本作為即時 P0 SSOT 的 `docs/tdd/INDEX.md`
+> 已於 commit `9914cc6b` 移除，`results.log` / `notes.md` 也不再維護。
+> 目前的 TDD 入口是 [`AGENTS.md` §8「TDD & cross-tool dev loop」](../../AGENTS.md)
+> 加上仍存在的 driver scripts `scripts/tdd/`（含 `tdd-status.sh`）。
+> 若需要歷史 P0 清單，可從 `9914cc6b^` 取回 `INDEX.md`。
+
 | 檔案 | 用途 |
 |---|---|
-| `INDEX.md` | 即時 P0 測試清單，也是目前 TDD scripts 使用的 SSOT |
-| `workflow.md` | TDD 循環、規則與允許偏離流程的情況 |
-| `results.log` | 已完成測試的 append-only 時間戳記錄 |
-| `notes.md` | 選用：處理 P0 時發現但不在範圍內的事項 |
+| [`workflow.zh-TW.md`](workflow.zh-TW.md) | TDD 循環、規則與允許偏離流程的情況 |
 
 ## Driver scripts
 
-請參閱 [`../../scripts/tdd/README.zh-TW.md`](../../scripts/tdd/README.zh-TW.md)。
+請參閱 [`../../scripts/tdd/README.zh-TW.md`](../../scripts/tdd/README.zh-TW.md)，
+session 開始時跑 `./scripts/tdd/tdd-status.sh`。
 
 ## 規劃來源
 
@@ -27,17 +29,11 @@ Test-Driven Development（TDD，測試驅動開發）的工作文件。這些文
 ```text
 完整 TDD 規劃的 P0 清單
         |
-        | 手動同步
+        | 手動同步（INDEX.md 移除後此鏈結已斷）
         v
-docs/tdd/INDEX.md
-        |
-        +--> scripts/tdd/*.sh
-        |
-        +--> results.log
+scripts/tdd/*.sh（tdd-status.sh / tdd-next.sh / tdd-run.sh / tdd-mark-done.sh）
 ```
 
-當完整規劃中的 P0 清單變更時：
-
-1. 從規劃文件重新產生 `INDEX.md`，保留既有 `[x]` 標記。
-2. Commit 並 push。
-3. 其他工具會在下次 session 讀到新的清單。
+> 註：上述流程原本以 `docs/tdd/INDEX.md` 為樞紐；該檔案移除後，driver
+> scripts 仍可獨立執行測試，但已沒有 repo 內的即時 P0 checklist SSOT。
+> 後續若要恢復清單式追蹤，請參考 AGENTS.md §8 與 `scripts/tdd/`。

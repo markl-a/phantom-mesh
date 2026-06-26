@@ -1172,6 +1172,7 @@ mod tests {
 
     // ---- new param tests ----
 
+    #[cfg(unix)] // POSIX-only command (pwd/env/true/cat); skipped on Windows
     #[tokio::test]
     async fn test_cwd_valid() {
         let args = serde_json::json!({"command": "pwd", "cwd": "/tmp"});
@@ -1235,6 +1236,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)] // POSIX-only command (pwd/env/true/cat); skipped on Windows
     #[tokio::test]
     async fn test_env_injected() {
         let args = serde_json::json!({
@@ -1349,6 +1351,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)] // POSIX-only command (pwd/env/true/cat); skipped on Windows
     #[tokio::test]
     async fn env_injection_safe_vars_still_pass_through() {
         // Regression guard: blocking LD_PRELOAD must NOT block legit
@@ -1379,6 +1382,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)] // POSIX-only command (pwd/env/true/cat); skipped on Windows
     #[tokio::test]
     async fn test_stdin_piped() {
         let args = serde_json::json!({
@@ -1407,6 +1411,7 @@ mod tests {
         assert!(result.contains("STDERR:"), "got: {}", result);
     }
 
+    #[cfg(unix)] // POSIX-only command (pwd/env/true/cat); skipped on Windows
     #[tokio::test]
     async fn test_exit_code_in_output() {
         let args = serde_json::json!({"command": "true"});

@@ -323,6 +323,9 @@ s = open(p, encoding="utf-8").read()
 deps = '''    // SPEC-34 §10E + WorkManager (injected by android/inject.sh)
     implementation("androidx.glance:glance-appwidget:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // SPEC-12 §7.3 identity keystore: EncryptedSharedPreferences + MasterKey
+    // (AndroidKeyStore-backed) for IdentityKeystore.kt (injected by android/inject.sh)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 '''
 m = re.search(r"dependencies\s*\{", s)
 if "glance-appwidget" in s:

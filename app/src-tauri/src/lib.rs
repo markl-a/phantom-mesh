@@ -45,6 +45,97 @@ unsafe extern "C" {
         status_out:   *mut std::os::raw::c_long,
         max_result_len: std::os::raw::c_long,
     );
+
+    // native/ios_location.m — one-shot CoreLocation GPS read.
+    fn phantom_ios_location(
+        lat_out: *mut f64,
+        lon_out: *mut f64,
+        acc_out: *mut f64,
+        err_buf: *mut u8,
+        err_len: *mut std::os::raw::c_long,
+        max_err: std::os::raw::c_long,
+    );
+
+    // native/ios_motion.m — one-shot CoreMotion + UIDevice multi-sensor read,
+    // returns a UTF-8 JSON object (battery/accel/gyro/attitude/magnetometer +
+    // best-effort steps/activity).
+    fn phantom_ios_sensors(
+        json_buf: *mut u8,
+        json_len: *mut std::os::raw::c_long,
+        max_len: std::os::raw::c_long,
+    );
+}
+
+#[derive(serde::Serialize)]
+struct LocationResult {
+    lat: f64,
+    lon: f64,
+    accuracy: f64,
+    error: Option<String>,
+}
+
+/// `swift_get_location` — Tauri command bridging JS → native CoreLocation.
+/// Returns the device's current GPS fix (or an `error` string). iOS-only;
+/// on other platforms callers should fall back to navigator.geolocation.
+#[tauri::command]
+async fn swift_get_location() -> Result<LocationResult, String> {
+    #[cfg(not(target_os = "ios"))]
+    {
+        return Err("swift_get_location is iOS-only".into());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let mut lat: f64 = 0.0;
+        let mut lon: f64 = 0.0;
+        let mut acc: f64 = -1.0;
+        const MAXE: std::os::raw::c_long = 512;
+        let mut errbuf: Vec<u8> = vec![0; MAXE as usize];
+        let mut errlen: std::os::raw::c_long = 0;
+        // SAFETY: native/ios_location.m writes at most MAXE bytes into errbuf
+        // and bounds its wait at 25s via a DispatchSemaphore.
+        unsafe {
+            phantom_ios_location(
+                &mut lat as *mut f64,
+                &mut lon as *mut f64,
+                &mut acc as *mut f64,
+                errbuf.as_mut_ptr(),
+                &mut errlen as *mut std::os::raw::c_long,
+                MAXE,
+            );
+        }
+        let elen = (errlen as usize).min(errbuf.len());
+        let error = if elen > 0 {
+            Some(String::from_utf8_lossy(&errbuf[..elen]).to_string())
+        } else {
+            None
+        };
+        Ok(LocationResult { lat, lon, accuracy: acc, error })
+    }
+}
+
+/// `swift_get_sensors` — Tauri command bridging JS → native CoreMotion/UIDevice.
+/// Returns a JSON string of the phone's current sensor readings (battery,
+/// accel/gyro/attitude/magnetometer, plus best-effort steps/activity). iOS-only.
+/// This is the "behaviour" feed the AI partner reads (NORTH-STAR §Q2).
+#[tauri::command]
+async fn swift_get_sensors() -> Result<String, String> {
+    #[cfg(not(target_os = "ios"))]
+    {
+        return Err("swift_get_sensors is iOS-only".into());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        const MAX: std::os::raw::c_long = 8 * 1024;
+        let mut buf: Vec<u8> = vec![0; MAX as usize];
+        let mut len: std::os::raw::c_long = 0;
+        // SAFETY: native/ios_motion.m writes at most MAX bytes into buf and
+        // bounds each sensor read with a DispatchSemaphore.
+        unsafe {
+            phantom_ios_sensors(buf.as_mut_ptr(), &mut len as *mut std::os::raw::c_long, MAX);
+        }
+        let n = (len as usize).min(buf.len());
+        Ok(String::from_utf8_lossy(&buf[..n]).to_string())
+    }
 }
 
 #[derive(serde::Serialize)]
@@ -190,6 +281,13 @@ pub fn run() {
         }
         builder = builder
             .manage(daemon_state)
+            // tauri-plugin-updater: powers the @tauri-apps/plugin-updater JS
+            // check()/downloadAndInstall() the UpdatePanel calls. Without the
+            // plugin initialised here, those JS calls error ("updater not
+            // found") and the in-app updater is silently dead. Desktop-only:
+            // the crate dep is gated to not(android|ios) and the endpoints +
+            // pubkey live in tauri.conf.json's [plugins.updater].
+            .plugin(tauri_plugin_updater::Builder::new().build())
             .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.set_focus();
@@ -659,11 +757,19 @@ pub fn run() {
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+                #[cfg(target_os = "windows")]
+                let mods = Modifiers::CONTROL | Modifiers::ALT;
+                #[cfg(not(target_os = "windows"))]
                 let mods = Modifiers::SUPER | Modifiers::SHIFT;
-                for (code, label) in [
-                    (Code::KeyH, "Cmd+Shift+H (habit chip)"),
-                    (Code::KeyF, "Cmd+Shift+F (focus start)"),
+                #[cfg(target_os = "windows")]
+                let prefix = "Ctrl+Alt";
+                #[cfg(not(target_os = "windows"))]
+                let prefix = "Cmd+Shift";
+                for (code, key, suffix) in [
+                    (Code::KeyH, "H", "habit chip"),
+                    (Code::KeyF, "F", "focus start"),
                 ] {
+                    let label = format!("{prefix}+{key} ({suffix})");
                     if let Err(e) = app.global_shortcut().register(Shortcut::new(Some(mods), code)) {
                         eprintln!(
                             "global-shortcut: could not register {label}: {e} \
@@ -677,6 +783,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             swift_cluster_fetch,
+            swift_get_location,
+            swift_get_sensors,
             commands::broker_login::broker_login_start,
             commands::broker_login::broker_login_finish,
             commands::broker_login::broker_login_status,
@@ -723,6 +831,13 @@ pub fn run() {
             commands::agent::send_message,
             commands::agent::get_conversations,
             commands::agent::import_agents_toml,
+            commands::conversation::get_conversation_history,
+            commands::conversation::list_conversations,
+            commands::conversation::reset_conversation,
+            #[cfg(desktop)]
+            daemon::start_daemon,
+            #[cfg(desktop)]
+            daemon::daemon_status,
             commands::provider::get_costs,
             commands::provider::get_revenue,
             commands::provider::get_tools,
@@ -751,6 +866,10 @@ pub fn run() {
             commands::onboarding::read_copilot_token,
             commands::onboarding::read_gcloud_adc,
             commands::onboarding::read_claude_cli_token,
+            commands::onboarding::read_codex_token,
+            commands::onboarding::detect_local_servers,
+            commands::onboarding::detect_free_provider,
+            commands::onboarding::finalize_onboarding_config,
             commands::onboarding::open_external_url,
             commands::onboarding_wire::onboarding_advance,
             commands::onboarding_wire::onboarding_rollback,
@@ -786,6 +905,7 @@ pub fn run() {
             commands::life_stats::open_exports_folder,
             commands::life_stats::event_delete,
             commands::note_wire::note_capture,
+            commands::partner_wire::partner_latest_reflection,
             commands::providers_wire::providers_select_provider,
             commands::providers_wire::providers_validate_config,
             commands::providers_wire::providers_complete,

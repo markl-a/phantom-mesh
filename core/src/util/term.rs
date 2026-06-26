@@ -9,13 +9,19 @@
 
 /// `true` when ANSI color escapes should be emitted to stdout/stderr.
 ///
-/// Follows the de-facto `NO_COLOR` convention: any non-empty value
-/// disables color. Matches the original bin-local implementation
-/// 1:1 (do NOT switch to `IsTerminal`-based logic without
-/// confirming `phantom doctor` output, which depends on the
-/// env-only branch for CI / pipe-redirected runs).
+/// Follows the de-facto `NO_COLOR` convention and only emits color
+/// when stdout is a real terminal.
 pub fn is_colored() -> bool {
-    std::env::var("NO_COLOR").is_err()
+    use std::io::IsTerminal;
+
+    color_enabled(
+        std::env::var("NO_COLOR").is_err(),
+        std::io::stdout().is_terminal(),
+    )
+}
+
+fn color_enabled(no_color_unset: bool, is_tty: bool) -> bool {
+    no_color_unset && is_tty
 }
 
 /// Wrap `text` in an ANSI SGR escape with the given color `code`,
@@ -27,7 +33,11 @@ pub fn is_colored() -> bool {
 /// that need richer formatting should use a proper crate (we don't
 /// pull `colored`/`termcolor` for this one-liner).
 pub fn colored(text: &str, code: u8) -> String {
-    if is_colored() {
+    paint(text, code, is_colored())
+}
+
+fn paint(text: &str, code: u8, enabled: bool) -> String {
+    if enabled {
         format!("\x1b[{}m{}\x1b[0m", code, text)
     } else {
         text.to_string()
@@ -46,43 +56,20 @@ mod tests {
     /// `crate::env_lock` guards the env mutation. See its module
     /// comment in `core/src/lib.rs` for the rationale.
     #[test]
-    fn colored_emits_sgr_when_no_color_unset() {
-        let _g = crate::env_lock::acquire();
-        let prev = std::env::var("NO_COLOR").ok();
-        std::env::remove_var("NO_COLOR");
-
-        let out = colored("hi", 32);
-        assert_eq!(out, "\x1b[32mhi\x1b[0m");
-        assert!(is_colored());
-
-        // Restore env so other tests aren't affected.
-        if let Some(v) = prev {
-            std::env::set_var("NO_COLOR", v);
-        }
+    fn color_enabled_requires_no_color_unset_and_tty() {
+        assert!(color_enabled(true, true));
+        assert!(!color_enabled(true, false));
+        assert!(!color_enabled(false, true));
     }
 
     #[test]
-    fn colored_returns_plain_when_no_color_set() {
-        let _g = crate::env_lock::acquire();
-        let prev = std::env::var("NO_COLOR").ok();
-        std::env::set_var("NO_COLOR", "1");
-
-        let out = colored("hi", 32);
-        assert_eq!(out, "hi");
-        assert!(!is_colored());
-
-        match prev {
-            Some(v) => std::env::set_var("NO_COLOR", v),
-            None => std::env::remove_var("NO_COLOR"),
-        }
+    fn color_enabled_false_when_not_tty() {
+        assert!(!color_enabled(true, false));
     }
 
     #[test]
-    fn colored_with_different_codes_uses_each_correctly() {
-        let _g = crate::env_lock::acquire();
-        std::env::remove_var("NO_COLOR");
-        assert_eq!(colored("err", 31), "\x1b[31merr\x1b[0m");
-        assert_eq!(colored("ok", 32), "\x1b[32mok\x1b[0m");
-        assert_eq!(colored("warn", 33), "\x1b[33mwarn\x1b[0m");
+    fn paint_wraps_only_when_enabled() {
+        assert_eq!(paint("hi", 32, true), "\x1b[32mhi\x1b[0m");
+        assert_eq!(paint("hi", 32, false), "hi");
     }
 }

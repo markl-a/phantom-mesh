@@ -168,6 +168,15 @@ async fn handle(
 
             // Handle distributed cluster tools
             if name == "phantom_swarm" || name == "phantom_evolve_distributed" {
+                // These spawn a `phantom` subprocess instead of going through
+                // tools::execute, so gate them explicitly — a deny/trust/plan
+                // policy must block launching distributed agent work too.
+                if let Err(reason) = crate::tools::gate_allows(name, &params["arguments"]) {
+                    return Ok(json!({
+                        "content": [{ "type": "text", "text": format!("[denied] {reason}") }],
+                        "isError": true,
+                    }));
+                }
                 let phantom_bin =
                     std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("phantom"));
                 let phantom_bin = phantom_bin.to_string_lossy().to_string();
@@ -402,6 +411,70 @@ mod tests {
             assert!(t["name"].is_string());
             assert!(t["description"].is_string());
             assert!(t["inputSchema"].is_object());
+        }
+    }
+
+    /// Regression guard for the journey "使用④ MCP 工具": the stdio server
+    /// must expose a healthy tool surface, every advertised tool must be
+    /// callable, and the macOS-specific tools must be present on macOS.
+    /// Locks the contract that `validate-mac.sh` exercises (≈58 tools).
+    #[tokio::test]
+    async fn tools_list_exposes_expected_surface() {
+        let cfg = crate::config::ToolsConfig::default();
+        let result = handle("tools/list", &serde_json::json!({}), &cfg)
+            .await
+            .unwrap();
+        let tools = result["tools"].as_array().unwrap();
+
+        // (a) healthy count — registry + 2 appended distributed tools.
+        assert!(
+            tools.len() >= 48,
+            "expected >= 48 MCP tools, got {}",
+            tools.len()
+        );
+
+        let names: std::collections::HashSet<&str> =
+            tools.iter().filter_map(|t| t["name"].as_str()).collect();
+
+        // (b) key cross-platform tools present by name.
+        for expected in [
+            "file_read",
+            "file_write",
+            "shell",
+            "dev_verify",
+            // distributed tools appended in tools/list
+            "phantom_swarm",
+            "phantom_evolve_distributed",
+        ] {
+            assert!(
+                names.contains(expected),
+                "MCP tools/list missing expected tool: {} (have {} tools)",
+                expected,
+                tools.len()
+            );
+        }
+
+        // (c) macOS-specific tools must be registered + advertised on macOS,
+        //     and must NOT leak onto other platforms.
+        #[cfg(target_os = "macos")]
+        {
+            for mac_tool in ["spotlight_search", "xcode_simctl"] {
+                assert!(
+                    names.contains(mac_tool),
+                    "macOS MCP tools/list missing {}",
+                    mac_tool
+                );
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            for mac_tool in ["spotlight_search", "xcode_simctl"] {
+                assert!(
+                    !names.contains(mac_tool),
+                    "{} should be cfg-gated off on non-macOS targets",
+                    mac_tool
+                );
+            }
         }
     }
 

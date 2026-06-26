@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 use phantom_mesh::capture_food_wire::{FoodCaptureRequest, FOOD_LOG_KIND};
 use phantom_mesh::coach_wire::aggregate;
 use phantom_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
+use phantom_mesh::onboarding_wire::{compute_ttfr, OnboardingError};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -267,4 +268,34 @@ fn v6_ttfr_real_provider_round_trip_under_budget() {
         elapsed,
         TTFR_BUDGET
     );
+}
+
+// ─── 6 — compute_ttfr REAL budget gate (Stage 3 wired, offline) ────────────
+
+/// Exercises the REAL `onboarding_wire::compute_ttfr` (no placeholder) against
+/// the SPEC-28 §1 / §12 budget. Offline + deterministic — pure arithmetic on
+/// supplied millisecond timestamps, so it never flakes.
+#[test]
+fn v6_ttfr_compute_real_budget_gate() {
+    // In-budget — exactly 30_000 ms is allowed (budget is inclusive).
+    let m = compute_ttfr(1_000, 31_000).expect("30_000 ms is within the §1 / §12 budget");
+    assert_eq!(m.total_ms, 30_000, "boundary diff must be exact");
+    assert_eq!(m.install_complete_at_ms, 1_000);
+    assert_eq!(m.first_reply_at_ms, 31_000);
+
+    // Over-budget — 30_001 ms surfaces TtfrBudgetExceeded carrying the value.
+    let e = compute_ttfr(1_000, 31_001).expect_err("30_001 ms overshoots the budget");
+    assert!(
+        matches!(e, OnboardingError::TtfrBudgetExceeded { total_ms } if total_ms == 30_001),
+        "over-budget must be TtfrBudgetExceeded {{ total_ms: 30001 }}, got {e:?}",
+    );
+
+    // Clock skew — start after end clamps to 0 (saturating_sub), still Ok.
+    let skew = compute_ttfr(50_000, 10_000).expect("clock skew clamps to 0, never underflows");
+    assert_eq!(skew.total_ms, 0, "negative delta clamps to 0");
+
+    // Happy path — typical sub-budget TTFR carries the exact diff.
+    let happy = compute_ttfr(1_716_563_400_000, 1_716_563_412_500)
+        .expect("12_500 ms is well within budget");
+    assert_eq!(happy.total_ms, 12_500, "happy-path diff must be exact");
 }

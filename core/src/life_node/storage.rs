@@ -60,6 +60,7 @@ fn project_to_wire(disk: OnDiskEventMeta) -> EventMeta {
         "food_log" | "food" => EventKind::Food,
         "focus_session" | "focus" => EventKind::Focus,
         "habit_log" | "habit" => EventKind::Habit,
+        "dispatch" => EventKind::Dispatch,
         _ => EventKind::Text,
     };
     EventMeta {
@@ -654,6 +655,9 @@ mod tests {
         assert_eq!(project_to_wire(mk("focus")).kind, EventKind::Focus);
         assert_eq!(project_to_wire(mk("habit_log")).kind, EventKind::Habit);
         assert_eq!(project_to_wire(mk("habit")).kind, EventKind::Habit);
+        // Cross-node dispatch events (written by `phantom dispatch`) project to
+        // the first-class Dispatch kind so they're filterable via recall --kind.
+        assert_eq!(project_to_wire(mk("dispatch")).kind, EventKind::Dispatch);
         // Unknown / empty → Text fallback per SPEC-16 §8 catch-all.
         assert_eq!(project_to_wire(mk("totally_unknown")).kind, EventKind::Text);
         assert_eq!(project_to_wire(mk("")).kind, EventKind::Text);

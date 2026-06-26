@@ -104,6 +104,7 @@ mod tests {
             max_tokens: Some(8),
             temperature: Some(0.0),
             response_format: ResponseFormat::PlainText,
+            tools: Vec::new(),
         }
     }
 

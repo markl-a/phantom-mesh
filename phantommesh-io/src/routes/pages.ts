@@ -8,7 +8,7 @@ import { getCookie } from "hono/cookie";
 import { authn } from "./api";
 import { getUserById, getUserDevices, getUserSettings, ALLOWED_ENV_KEYS, getUserClusterPeers, getUserIdentities } from "../lib/db";
 import { SESSION_COOKIE } from "./oauth";
-import { csrfToken } from "../lib/oauth";
+import { csrfToken, appleConfigured } from "../lib/oauth";
 
 // Removed 2026-05-05: the API side (routes/api.ts) was already
 // multi-tenant scoped by user_id from the JWT — every authenticated
@@ -121,6 +121,19 @@ export function landingPage(c: Context<{ Bindings: Env }>) {
 export function loginPage(c: Context<{ Bindings: Env }>) {
   const state = c.req.query("state") ?? "";
   const isCli = !!state;
+  const appleOn = appleConfigured({
+    clientId:   c.env.APPLE_CLIENT_ID,
+    teamId:     c.env.APPLE_TEAM_ID,
+    keyId:      c.env.APPLE_KEY_ID,
+    privateKey: c.env.APPLE_PRIVATE_KEY,
+  });
+  const appleBtn = appleOn ? `
+      <a class="btn" href="/auth/apple/start?state=${encodeURIComponent(state)}">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor" aria-hidden="true">
+          <path d="M12.27 9.54c-.02-1.86 1.52-2.75 1.59-2.8-.87-1.27-2.22-1.44-2.7-1.46-1.15-.12-2.24.67-2.82.67-.58 0-1.48-.65-2.43-.64-1.25.02-2.4.73-3.04 1.85-1.3 2.25-.33 5.58.93 7.41.62.9 1.35 1.9 2.31 1.86.93-.04 1.28-.6 2.4-.6 1.12 0 1.43.6 2.41.58 1-.02 1.63-.91 2.24-1.81.71-1.04 1-2.05 1.01-2.1-.02-.01-1.94-.74-1.96-2.96zM10.5 3.86c.51-.62.86-1.48.76-2.34-.74.03-1.63.49-2.16 1.11-.47.55-.89 1.43-.78 2.27.82.06 1.67-.42 2.18-1.04z"/>
+        </svg>
+        Continue with Apple
+      </a>` : "";
   return c.html(`<!doctype html>
 <html><head>
   <meta charset="utf-8">
@@ -143,7 +156,7 @@ export function loginPage(c: Context<{ Bindings: Env }>) {
           <path d="M9 3.58c1.32 0 2.5.45 3.43 1.35l2.57-2.58A8.97 8.97 0 0 0 9 0a8.99 8.99 0 0 0-8.04 4.95l2.99 2.34C4.66 5.17 6.65 3.58 9 3.58z" fill="#EA4335"/>
         </svg>
         Continue with Google
-      </a>
+      </a>${appleBtn}
       <details>
         <summary>Sign in with email</summary>
         <form method="POST" action="/auth/email/login" class="pad">

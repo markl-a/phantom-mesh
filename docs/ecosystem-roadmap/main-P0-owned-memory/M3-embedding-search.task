@@ -1,0 +1,6 @@
+GOAL (apex ② owned-memory): implement the semantic recall leg — make `embedding_search(query, policy)` in core/src/skill_wire.rs return real cosine-ranked hits over stored skill embeddings, instead of Err(()). DEPENDS ON M2 (the embedding column + EmbeddingProvider trait + cosine helper).
+STEPS (TDD):
+1. Write a FAILING test: store 3 skills with FixtureEmbedder embeddings, query with a vector close to one of them, assert embedding_search returns that skill top-1 (score highest), and that recall_skills then reports RecallStrategy::HybridUnion (both legs hit).
+2. Implement embedding_search: embed the query via a provider, load stored embeddings, cosine-rank, return top-k per policy. Keep the Err path ONLY when no provider/embeddings exist (so recall still degrades to FTS5-only — do not break the existing de-panic test that embedding_search Errs with no embedder).
+3. Run `cargo test --manifest-path core/Cargo.toml skill_wire` — green incl. the existing recall + de-panic tests.
+Touch skill_wire.rs only. NO new deps. NO repo-wide cargo fmt. REPORT changes + test result. If the provider plumbing is ambiguous, implement against the EmbeddingProvider trait + FixtureEmbedder and report BLOCKED on the real-provider wiring (that is M4).

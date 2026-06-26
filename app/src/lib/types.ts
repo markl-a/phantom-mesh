@@ -99,7 +99,7 @@ export interface ConversationInfo {
   last_message?: string;
 }
 
-export type TaskStatus = "pending" | "running" | "done" | "failed";
+export type TaskStatus = "pending" | "running" | "done" | "failed" | "cancelled";
 
 export interface TaskItem {
   id: string;

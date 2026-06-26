@@ -4,9 +4,8 @@ fn mem_path() -> std::path::PathBuf {
     if let Ok(p) = std::env::var("PHANTOM_MEMORY_FILE") {
         return std::path::PathBuf::from(p);
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("memory.json")
 }
 

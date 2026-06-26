@@ -83,11 +83,11 @@ jobs:
       # ── Standalone CLI binary ───────────────────────────────────────────
       - name: Build phantom CLI (release, msvc)
         working-directory: core
-        # --features experimental-hermes-curator: the CLI advertises `phantom skill
+        # --features experimental-curator: the CLI advertises `phantom skill
         # run`, but the default Windows release built WITHOUT it, so skill-run failed
-        # "built without experimental-hermes-curator" (Windows usage-matrix finding,
+        # "built without experimental-curator" (Windows usage-matrix finding,
         # 2026-05-29). Verified to compile clean on windows-msvc before enabling.
-        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc --features experimental-hermes-curator
+        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc --features experimental-curator
 
       - name: Stage CLI binary
         shell: pwsh

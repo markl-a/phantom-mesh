@@ -70,8 +70,8 @@ fn mlx_pull_smoke() {
 async fn serve_starts_on_localhost_8080() {
     if !serve_reachable().await {
         eprintln!(
-            "MLX serve not on :8080 — start with `phantom mlx serve` first. \
-                   skipping (non-fatal)."
+            "SKIPPED: serve_starts_on_localhost_8080 — MLX serve not on :8080 \
+             (start with `phantom mlx serve` first)"
         );
         return;
     }
@@ -107,8 +107,8 @@ async fn serve_starts_on_localhost_8080() {
 async fn round_trip_local_model() {
     if !serve_reachable().await {
         eprintln!(
-            "MLX serve not on :8080 — start with `phantom mlx serve` first. \
-                   skipping (non-fatal)."
+            "SKIPPED: round_trip_local_model — MLX serve not on :8080 \
+             (start with `phantom mlx serve` first)"
         );
         return;
     }
@@ -170,7 +170,10 @@ fn stop_cleans_up_subprocess() {
     );
 
     if !pre {
-        eprintln!("no mlx_lm.server was running before stop — test is vacuous");
+        eprintln!(
+            "SKIPPED: stop_cleans_up_subprocess — no mlx_lm.server was running before \
+             stop; nothing to assert"
+        );
         return;
     }
     std::thread::sleep(Duration::from_millis(500));

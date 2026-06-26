@@ -1,3 +1,5 @@
+> ⚠️ 架構參考 only — 本檔早於 2026-05-19 Life-Node pivot,描述已實作 daemon 架構但非現行產品範圍。治理見 superpowers/GOVERNANCE.md。
+
 # Phantom Mesh 架構
 
 > 本文件描述**目前已實作**的 daemon（常駐服務）架構，內容依據 `core/src/` 中的

@@ -601,7 +601,7 @@ fn derive_and_cache_from_identity_file() -> Option<EventKey> {
     #[cfg(not(test))]
     {
         use zeroize::Zeroize;
-        let path = dirs::home_dir()?.join(".phantom-mesh").join("identity.key");
+        let path = crate::cli_config::phantom_data_dir().ok()?.join("identity.key");
         let mut bytes = std::fs::read(&path).ok()?;
         if bytes.len() < 32 {
             bytes.zeroize();

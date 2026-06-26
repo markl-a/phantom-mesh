@@ -13,7 +13,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 - **P1 Mesh（網狀網路）** — 透過 mDNS（multicast DNS service discovery，多播 DNS 服務探索）做叢集探索、節點（peer，對等節點）註冊、跨作業系統派工（從單一 orchestrator（協調器）即可觸及 macOS / Linux / iOS / Android worker（工作節點））。`phantom cluster status` 與 `phantom cluster peers` 隨此版本一同發行。
 - **P2 Multimodal（多模態）** — 為飲食 / 專注 / 習慣事件設計的擷取管線（capture pipeline），可選擇附加影像；Gemini 多模態分析路徑回傳結構化的 `EventMeta`（event metadata，事件中繼資料），採「裝置端協調、裝置外推論」模式。
-- **P3 Evolve（演化）** — Hermes 技能庫（skill bank，以信使之神命名；一個由本地 SQLite 支援、可重用 agent（代理人）技能的函式庫），具備 FTS5（full-text search version 5，全文搜尋第 5 版）關鍵字召回功能隨此版本發行；以 embedding（嵌入向量）為基礎的語意召回延後至 v0.7.0。
+- **P3 Evolve（演化）** — 技能庫（skill bank，一個由本地 SQLite 支援、可重用 agent（代理人）技能的函式庫）的 FTS5（full-text search version 5，全文搜尋第 5 版）關鍵字召回後端與讀取 RPC（remote procedure call，遠端程序呼叫）已隨此版本落地，但在 v0.6.0 **預設關閉**：位於 `experimental-memory`（feature flag，功能旗標）之後，且技能寫入端（daily review → 技能庫的 producer，生產者）尚未接線、自動萃取 loop（迴圈）仍在 `experimental-curator` 之後且未完成（見 §6）。embedding（嵌入向量）語意召回延後至 v0.7.0。
 - **P4 Encryption（加密）** — 採 age v1（現代化檔案加密格式）的逐事件加密、ed25519（Edwards-curve digital signature，愛德華曲線數位簽章）身分、用於各用途隔離的 HKDF（hashed key derivation function，雜湊金鑰衍生函數）子金鑰，以及用於託管第三方權杖的 OAuth（open authorization，開放授權）broker vault（中介伺服器保險庫）。
 
 如果你只讀一段：v0.6.0-rc1 是四支柱從「願景式 spec（規格）」蛻變為「開發者筆電上可呼叫的二進位執行檔」的切點。針對非維護者使用者的正式生產就緒度，目標訂在 2026-06-15 的 GA。
@@ -31,7 +31,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 ### Wire types（單一事實來源 Rust → TypeScript）
 
 - **18 個 wire module（線路型別模組）**以 Rust 為單一事實來源（source of truth），並由 `ts-rs`（TypeScript-from-Rust binding generator，從 Rust 產生 TypeScript 繫結的工具）為桌面 / 行動 / 網頁消費端產出 **204 個自動生成的 `.ts` 檔案**。
-- 這些模組涵蓋：叢集探索、節點註冊、事件擷取、事件儲存、加密、身分、OAuth vault、多模態分析、技能庫（Hermes）、遙測、上手導引（onboarding）、每日回顧、demo runner（示範執行器）等等。
+- 這些模組涵蓋：叢集探索、節點註冊、事件擷取、事件儲存、加密、身分、OAuth vault、多模態分析、技能庫（skill bank）、遙測、上手導引（onboarding）、每日回顧、demo runner（示範執行器）等等。
 
 ### Stage 4 真實實作
 
@@ -88,7 +88,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 ### Embedding / 語意召回
 
-- **`ort`（ONNX runtime）+ `all-MiniLM-L6-v2`** embedding 管線已延後。v0.6.0-rc1 的 Hermes 技能召回僅支援 FTS5 關鍵字；語意向量召回於 v0.7.0 抵達。
+- **`ort`（ONNX runtime）+ `all-MiniLM-L6-v2`** embedding 管線已延後。v0.6.0-rc1 的技能召回僅支援 FTS5 關鍵字；語意向量召回於 v0.7.0 抵達。
 
 ### 發布自動化
 
@@ -99,7 +99,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 - **SPEC-70 Web dashboard** — 給非 CLI 使用者的瀏覽器 UI。
 - **SPEC-71 Multi-user household** — 跨家庭成員的共享 mesh，具備逐使用者的加密邊界。
-- **SPEC-72 Paid broker** — 商業託管 broker 層級（以 IP（智慧財產，intellectual property）邊界閘控，見 `docs/COMMERCIAL-DESIGN.md`）。
+- **SPEC-72 Paid broker** — 商業託管 broker 層級（以 IP（智慧財產，intellectual property）邊界閘控，見 `docs/design/COMMERCIAL-DESIGN.md`）。
 - **SPEC-73 Watch surface** — Apple Watch / Wear OS 擷取介面。
 - **SPEC-74 Extensions** — 第三方能力擴充協定。
 
@@ -151,6 +151,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 - **8 個 LLM 供應商回傳 `ConfigInvalid`** — 清單見 §3。3 個主要供應商（`groq`、`anthropic`、`gemini`）涵蓋所有 in-tree（樹內）的 demo 與 selftest 路徑。
 - **一台開發用行動裝置離線** — 測試機群中一台 iPhone 13 mini 目前離線（電池沒電）；非發行阻擋項，僅為跨作業系統派工測試面的透明度而提及。
 - **2 個 `service::macos` 測試失敗** — `launchctl` plist 測試在維護者機器上因既有的基礎設施怪癖而失敗（沙箱化的測試執行器無法與 `launchd` 通訊）。執行期路徑可運作；僅測試 fixture 受影響。已追蹤至 v0.6.0 GA。
+- **P3 Evolve 路徑預設為 experimental（實驗性）** — 技能庫的 FTS5 記憶後端與 3 個讀取 RPC 端點位於 `experimental-memory`（feature flag）之後，**預設 build 不啟用**；即使啟用，在未設定記憶庫前端點會 fail-closed（故障即關閉）回 `503`。技能萃取 producer（`phantom skill extract --commit`）尚未提供，evolve→萃取→儲存自動 loop 仍在 `experimental-curator` 之後且未完成。因此**預設安裝的 v0.6.0 不會自動產生或曝露技能庫**——P3 演化在 GA 屬實驗性能力，完整接線追蹤至 v0.7.0（決策：2026-06-02 採「GA 維持 gated + 誠實標注」，不在截止前 13 天半接線上線）。
 
 ---
 

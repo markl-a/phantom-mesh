@@ -41,8 +41,9 @@ fn snapshot_event_ids(events_dir: &PathBuf) -> HashSet<String> {
 async fn captured_event_on_disk_is_age_encrypted() {
     let Ok(gemini_key) = std::env::var("GEMINI_API_KEY") else {
         eprintln!(
-            "SKIP: GEMINI_API_KEY unset — covered in-process by \
-                   life_node::storage::tests::encrypted_store_writes_age_format_on_disk"
+            "SKIPPED: captured_event_on_disk_is_age_encrypted — GEMINI_API_KEY unset \
+             (covered in-process by \
+             life_node::storage::tests::encrypted_store_writes_age_format_on_disk)"
         );
         return;
     };
@@ -63,7 +64,8 @@ async fn captured_event_on_disk_is_age_encrypted() {
     // generates identity.key.
     if !phantom_dir.join("identity.key").exists() {
         eprintln!(
-            "SKIP: {} missing — operator hasn't bootstrapped identity yet",
+            "SKIPPED: captured_event_on_disk_is_age_encrypted — {} missing \
+             (operator hasn't bootstrapped identity yet)",
             phantom_dir.join("identity.key").display()
         );
         return;
@@ -156,8 +158,8 @@ async fn captured_event_on_disk_is_age_encrypted() {
     if new_event_ids.is_empty() {
         if was_rate_limited {
             eprintln!(
-                "SKIP: Gemini rate-limit hit before write_event reached disk; \
-                 nothing to verify. stderr=\n{}",
+                "SKIPPED: captured_event_on_disk_is_age_encrypted — Gemini rate-limit \
+                 hit before write_event reached disk; nothing to verify. stderr=\n{}",
                 stderr_text
             );
             return;

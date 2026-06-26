@@ -268,6 +268,11 @@ fn v5_onboarding_forward_chain_states_round_trip() {
         identity_fingerprint: Some("abcdef012345".to_string()),
         provider_slug: Some("groq".to_string()),
         demo_relay_used: false,
+        // D1 login-first fields added to OnboardingContext after this test was
+        // written; this case exercises provider-config (not login), and the
+        // fallback decision ignores them, so None keeps the original intent.
+        identity_provider: None,
+        identity_sub: None,
     };
     assert!(
         !should_fallback_to_demo_relay(&configured_ctx),

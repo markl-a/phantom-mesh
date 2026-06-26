@@ -1,10 +1,16 @@
 // Wave H1.1 — Tauri command surface for SPEC-28 onboarding FSM (wire layer).
 //
-// Wraps `phantom_mesh::onboarding_wire` so the React onboarding flow (H2.1)
-// can drive the 6-state machine through Tauri's `invoke` channel. Four of the
-// five core fns are `unimplemented!()` pending SPEC-28 Stage 3 (FSM body /
-// OTEL emit / reqwest seam); we use `std::panic::catch_unwind` to translate
-// those panics into a stable wire-error string instead of crashing the worker.
+// Wraps `phantom_mesh::onboarding_wire` so the React onboarding flow can drive
+// the GUI D1–D5 state machine through Tauri's `invoke` channel.
+//
+// `onboarding_advance` now runs the REAL per-edge side-effects (login+identity
+// mint, detached `phantom serve` + mDNS advertise, provider detection +
+// ranking) via `onboarding_wire::advance_with_effects` — the same functions the
+// shipped `phantom` CLI onboarding (a7c5701f) uses. The remaining fns
+// (`compute_ttfr` / `start_demo_relay_handoff`) are still `unimplemented!()`
+// (TTFR telemetry + SPEC-52 demo relay = Stage 2); we use
+// `std::panic::catch_unwind` to translate those panics into a stable
+// wire-error string instead of crashing the worker.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -28,12 +34,24 @@ fn run_or_unimplemented<T>(f: impl FnOnce() -> Result<T, OnboardingError>) -> Re
     }
 }
 
+/// Forward one onboarding step, running the real per-edge side-effects (D1–D5).
+///
+/// The GUI patches `ctx` with the OAuth login result (`identityProvider` /
+/// `identitySub`) from the broker login BEFORE calling this on the
+/// `fresh_install` edge, so `login` is `None` here and the side-effect reads
+/// the already-folded values from `ctx`. Returns ONLY the next state on the
+/// wire (matching the prior contract); the GUI re-reads derived context fields
+/// — identity fingerprint, cluster hash, provider slug — via their dedicated
+/// status commands (`identity_status`, etc.) when it needs to display them.
 #[tauri::command]
 pub async fn onboarding_advance(
     snapshot: OnboardingStateSnapshot,
     ctx: OnboardingContext,
 ) -> Result<OnboardingState, String> {
-    run_or_unimplemented(|| onboarding_wire::advance(&snapshot, &ctx))
+    match onboarding_wire::advance_with_effects(&snapshot, &ctx, None).await {
+        Ok(outcome) => Ok(outcome.next_state),
+        Err(e) => Err(err_string(e)),
+    }
 }
 
 #[tauri::command]
@@ -80,6 +98,8 @@ mod tests {
             identity_fingerprint: None,
             provider_slug: Some("groq".to_string()),
             demo_relay_used: false,
+            identity_provider: None,
+            identity_sub: None,
         };
         assert_eq!(onboarding_should_fallback_to_demo_relay(ctx).await, Ok(false));
     }
@@ -91,12 +111,17 @@ mod tests {
             identity_fingerprint: None,
             provider_slug: None,
             demo_relay_used: false,
+            identity_provider: None,
+            identity_sub: None,
         };
         assert_eq!(onboarding_should_fallback_to_demo_relay(ctx).await, Ok(false));
     }
 
     #[tokio::test]
-    async fn advance_returns_not_yet_wired_error_when_core_unimplemented() {
+    async fn advance_fresh_install_without_login_is_refused() {
+        // D1 (login-first): advancing from FreshInstall with no OAuth login in
+        // the context is refused with the IdentityCreationFailed wire error —
+        // the side-effect is now wired (not the old not_yet_wired panic).
         let snap = OnboardingStateSnapshot {
             current_state: OnboardingState::FreshInstall,
             entered_at_ms: 0,
@@ -105,19 +130,24 @@ mod tests {
         };
         let ctx = OnboardingContext::default();
         let err = onboarding_advance(snap, ctx).await.unwrap_err();
-        assert!(err.starts_with("onboarding.not_yet_wired"), "got {err}");
+        assert!(
+            err.contains("identity_creation_failed"),
+            "expected login-first refusal, got {err}"
+        );
     }
 
     #[tokio::test]
-    async fn rollback_returns_not_yet_wired_error_when_core_unimplemented() {
+    async fn rollback_joined_cluster_returns_created_identity() {
+        // Rollback is a pure FSM move (no side-effect) — JoinedCluster rolls
+        // back to CreatedIdentity (the one sanctioned cancel edge).
         let snap = OnboardingStateSnapshot {
             current_state: OnboardingState::JoinedCluster,
             entered_at_ms: 0,
             retry_count: 0,
             last_error: None,
         };
-        let err = onboarding_rollback(snap).await.unwrap_err();
-        assert!(err.starts_with("onboarding.not_yet_wired"), "got {err}");
+        let next = onboarding_rollback(snap).await.expect("rollback ok");
+        assert_eq!(next, OnboardingState::CreatedIdentity);
     }
 
     #[tokio::test]

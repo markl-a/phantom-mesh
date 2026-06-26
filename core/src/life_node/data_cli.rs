@@ -25,7 +25,7 @@ pub struct DeleteSummary {
 /// Returns an `Ok(DeleteSummary { event_count: 0, .. })` if the events
 /// directory doesn't exist (idempotent on a fresh install).
 pub fn run_delete_all(home: &Path, confirmed: bool) -> Result<DeleteSummary> {
-    let events_dir = home.join(".phantom-mesh").join("events");
+    let events_dir = crate::cli_config::phantom_dir_under(home).join("events");
     if !events_dir.exists() {
         return Ok(DeleteSummary {
             events_dir,
@@ -113,7 +113,7 @@ pub fn resolve_event_id(events_dir: &Path, id_or_prefix: &str) -> Result<String>
 /// one mis-captured note without nuking the whole log. Returns the resolved full
 /// event id.
 pub fn delete_event(home: &Path, id_or_prefix: &str) -> Result<String> {
-    let events_dir = home.join(".phantom-mesh").join("events");
+    let events_dir = crate::cli_config::phantom_dir_under(home).join("events");
     let id = resolve_event_id(&events_dir, id_or_prefix)?;
     std::fs::remove_dir_all(events_dir.join(&id))
         .with_context(|| format!("remove event {}", id))?;
@@ -147,7 +147,7 @@ pub fn run_export(
     format: ExportFormat,
     filter: &crate::life_node::recall::RecallFilter,
 ) -> Result<ExportResult> {
-    let phantom = home.join(".phantom-mesh");
+    let phantom = crate::cli_config::phantom_dir_under(home);
     let events_dir = phantom.join("events");
     let key = crate::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
     // usize::MAX → no truncation; search_events returns newest-first, so reverse
@@ -197,7 +197,7 @@ pub struct LifeStats {
 
 /// Compute a rollup over all Life Node events under `<home>/.phantom-mesh`.
 pub fn compute_stats(home: &Path) -> Result<LifeStats> {
-    let phantom = home.join(".phantom-mesh");
+    let phantom = crate::cli_config::phantom_dir_under(home);
     let events_dir = phantom.join("events");
     let key = crate::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
     let hits = crate::life_node::recall::search_events(

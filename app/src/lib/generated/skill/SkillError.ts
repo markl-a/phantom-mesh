@@ -12,4 +12,4 @@
  * - `SyncSignatureBad`: `/rpc/skill/sync` HMAC 驗失敗
  * - `EmbeddingTimeout`: embedding provider 超過延遲預算（recall 降級走純 FTS5）
  */
-export type SkillError = { "code": "judge_failed", detail: string, } | { "code": "extract_schema_invalid", candidate_trigger: string, } | { "code": "store_full" } | { "code": "recall_empty" } | { "code": "sync_signature_bad" } | { "code": "embedding_timeout", provider: string, };
+export type SkillError = { "code": "judge_failed", detail: string, } | { "code": "extract_schema_invalid", candidate_trigger: string, } | { "code": "store_full" } | { "code": "recall_empty" } | { "code": "sync_signature_bad" } | { "code": "embedding_timeout", provider: string, } | { "code": "store_failed", detail: string, };

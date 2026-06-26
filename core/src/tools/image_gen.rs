@@ -41,9 +41,9 @@ const MAX_PROMPT_CHARS: usize = 3800;
 
 /// Where generated PNGs land. `<home>/.phantom-mesh/generated/`.
 fn output_dir() -> std::io::Result<PathBuf> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "home dir not found"))?;
-    let dir = home.join(".phantom-mesh").join("generated");
+    let data = crate::cli_config::phantom_data_dir()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
+    let dir = data.join("generated");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

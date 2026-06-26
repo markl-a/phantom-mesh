@@ -50,7 +50,7 @@ Usage: scripts/ship-gate/v2-coverage-local.sh [--ci]
 Env vars honoured (CI mode):
   PHANTOM_V2_COVERAGE_THRESHOLD  default 80
   PHANTOM_V2_COVERAGE_JSON       default ./coverage.json
-  PHANTOM_V2_EXCEPTIONS_YAML     default .github/workflows/ship-gate-coverage-exceptions.yaml
+  PHANTOM_V2_EXCEPTIONS_YAML     default .github/ship-gate-coverage-exceptions.yaml
   PHANTOM_V2_REPORT_OUT          default ./coverage-per-spec-report.txt
 
 Exit: 0 pass, 1 coverage shortfall, 2 environment problem.
@@ -72,7 +72,7 @@ cd "$REPO_ROOT"
 # ─── env defaults ─────────────────────────────────────────────────────────
 THRESHOLD="${PHANTOM_V2_COVERAGE_THRESHOLD:-80}"
 COVERAGE_JSON="${PHANTOM_V2_COVERAGE_JSON:-$REPO_ROOT/coverage.json}"
-EXCEPTIONS_YAML="${PHANTOM_V2_EXCEPTIONS_YAML:-$REPO_ROOT/.github/workflows/ship-gate-coverage-exceptions.yaml}"
+EXCEPTIONS_YAML="${PHANTOM_V2_EXCEPTIONS_YAML:-$REPO_ROOT/.github/ship-gate-coverage-exceptions.yaml}"
 REPORT_OUT="${PHANTOM_V2_REPORT_OUT:-$REPO_ROOT/coverage-per-spec-report.txt}"
 
 # ─── colour helpers (off in CI for clean logs) ────────────────────────────

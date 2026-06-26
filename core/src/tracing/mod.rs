@@ -66,6 +66,10 @@ impl Tracer {
         };
         let line = serde_json::to_string(&timestamped)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        // P4: route every trace line through the central redactor so a secret
+        // captured in a tool arg / result / route never lands on disk in CLEAR.
+        // Conservative: only clear credentials are masked; normal text is intact.
+        let line = crate::redact::redact(&line);
         writeln!(self.file, "{}", line)?;
         Ok(())
     }
@@ -88,9 +92,9 @@ impl Drop for Tracer {
 
 /// Returns `~/.phantom-mesh/traces/`.
 pub fn default_trace_dir() -> io::Result<PathBuf> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "home dir not found"))?;
-    Ok(home.join(".phantom-mesh").join("traces"))
+    let data = crate::cli_config::phantom_data_dir()
+        .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "home dir not found"))?;
+    Ok(data.join("traces"))
 }
 
 /// Strip path separators and characters that could escape the trace dir.

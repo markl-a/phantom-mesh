@@ -50,7 +50,11 @@ export default function UpdatePanel() {
     }
   }
 
-  const appVersion = "__APP_VERSION__";
+  // `__APP_VERSION__` is replaced at build time by the Vite `define` (see
+  // vite.config.ts). It's a bare identifier, not a string literal, because
+  // Vite's define only substitutes identifiers — a quoted "__APP_VERSION__"
+  // would be left untouched and render literally.
+  const appVersion = __APP_VERSION__;
 
   return (
     <div className="space-y-6">

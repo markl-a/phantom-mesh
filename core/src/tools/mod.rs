@@ -26,6 +26,7 @@ pub mod shell;
 pub mod spotlight;
 pub mod subagent;
 pub mod todo;
+pub mod todoist;
 pub mod urlguard;
 pub mod validate;
 pub mod video_gen;
@@ -116,6 +117,10 @@ pub fn all_tool_names() -> Vec<&'static str> {
         "todo_update",
         "todo_list",
         "todo_clear",
+        // Todoist (real, persistent to-do — the partner's DO-actions + goal model)
+        "todoist_add_task",
+        "todoist_list_tasks",
+        "todoist_complete_task",
         // multi-edit
         "multi_file_edit",
         // diff
@@ -166,6 +171,7 @@ pub fn all_tool_names() -> Vec<&'static str> {
         v.push("cargo_test");
         v.push("tsc_check");
         v.push("run_tests");
+        v.push("dev_verify");
         // background bash
         v.push("bash_run_background");
         v.push("bash_output");
@@ -183,7 +189,68 @@ pub fn all_tool_names() -> Vec<&'static str> {
     v
 }
 
+/// The process-wide tool gate. The MAIN tool-execution paths — agent loops
+/// (REPL, TUI, `exec`), subagents, and `serve` HTTP/RPC/MCP — all flow through
+/// `execute`, so checking here is the central enforcement chokepoint. (A few
+/// specialised paths run tools without `execute` — e.g. skill bash steps
+/// and the subprocess-spawning `phantom_swarm`/`phantom_evolve` pseudo-tools;
+/// those are tracked as follow-ups, not covered here yet.) `Ok(())` allows;
+/// `Err(reason)` denies with a message surfaced to the model. Built from the
+/// HOME permission profile + project-trust policy (see `tool_gate::install`).
+/// When no gate is installed (default / `PHANTOM_TRUST_ALL`), every call is
+/// allowed — preserving legacy behaviour.
+pub type ToolGate = dyn Fn(&str, &Value) -> Result<(), String> + Send + Sync;
+
+static TOOL_GATE: std::sync::RwLock<Option<std::sync::Arc<ToolGate>>> =
+    std::sync::RwLock::new(None);
+
+/// Install (or replace) the process-wide tool gate. Replaceable so an
+/// interactive surface (the REPL) can upgrade the default non-interactive gate
+/// to one that prompts.
+pub fn set_tool_gate(gate: std::sync::Arc<ToolGate>) {
+    if let Ok(mut g) = TOOL_GATE.write() {
+        *g = Some(gate);
+    }
+}
+
+/// Remove the gate (allow-all). Mainly for tests.
+pub fn clear_tool_gate() {
+    if let Ok(mut g) = TOOL_GATE.write() {
+        *g = None;
+    }
+}
+
+/// Consult the gate. Clones the Arc out of the lock first so the (possibly
+/// slow / prompting) gate doesn't hold the lock. On lock POISON, recover the
+/// inner guard rather than dropping to `None` — a poisoned lock must NOT
+/// fail-open (silently allow) when a gate was installed.
+fn gate_check(name: &str, args: &Value) -> Result<(), String> {
+    let gate = match TOOL_GATE.read() {
+        Ok(g) => g.clone(),
+        Err(poisoned) => poisoned.into_inner().clone(),
+    };
+    match gate {
+        Some(g) => g(name, args),
+        None => Ok(()),
+    }
+}
+
+/// Public gate check for the few tool-like surfaces that DON'T go through
+/// [`execute`] (e.g. the MCP `phantom_swarm`/`phantom_evolve` pseudo-tools that
+/// spawn subprocesses). Same policy as `execute`'s internal check. `Ok(())`
+/// allows; `Err(reason)` denies.
+pub fn gate_allows(name: &str, args: &Value) -> Result<(), String> {
+    gate_check(name, args)
+}
+
 pub async fn execute(name: &str, args: &Value, config: &ToolsConfig) -> String {
+    // ── permission/trust gate (single chokepoint for ALL execution surfaces) ──
+    // Checked before MCP routing so namespaced `<server>_<tool>` calls are gated
+    // too. A denial returns the reason as the tool result the model sees.
+    if let Err(reason) = gate_check(name, args) {
+        return format!("[denied] {reason}");
+    }
+
     // External MCP servers (configured via `[[mcp_servers]]` in agents.toml)
     // expose their tools under a `<server>_<tool>` namespace. If the tool name
     // matches a registered prefix, route the call there before falling through
@@ -258,11 +325,17 @@ pub async fn execute(name: &str, args: &Value, config: &ToolsConfig) -> String {
         "tsc_check" => diagnostic::tsc_check(args).await,
         #[cfg(not(target_os = "ios"))]
         "run_tests" => diagnostic::run_tests(args).await,
+        #[cfg(not(target_os = "ios"))]
+        "dev_verify" => diagnostic::dev_verify(args).await,
         // ── todos (in-agent TODO list) ───────────────────────────────────────
         "todo_add" => todo::add(args).await,
         "todo_update" => todo::update(args).await,
         "todo_list" => todo::list(args).await,
         "todo_clear" => todo::clear(args).await,
+        // ── Todoist (real persistent tasks — DO-actions) ─────────────────────
+        "todoist_add_task" => todoist::add_task(args, config).await,
+        "todoist_list_tasks" => todoist::list_tasks(args, config).await,
+        "todoist_complete_task" => todoist::complete_task(args, config).await,
         // ── multi-edit ───────────────────────────────────────────────────────
         "multi_file_edit" => multi_edit::execute(args).await,
         // ── diff ─────────────────────────────────────────────────────────────
@@ -1104,6 +1177,66 @@ pub fn schema(name: &str) -> Option<Value> {
             }
         })),
 
+        // ── dev_verify (anti-fake-pass gate) ────────────────────────────────────
+        "dev_verify" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "dev_verify",
+                "description": "Run a build/test command and return a STRUCTURED verdict {passed, exit_code, summary, failed, warnings, log_path, +passed_count/failed_count/ignored_count for tests, +error_count on compile failure}. 'passed' is the process's real exit_code==0 — a tool-returned fact, not a claim. Use this as the shared 'is it green?' gate; never assert tests passed without it. Supports shell mode (pipes/&&), background mode (non-blocking, poll by job_id), and remote cluster peers. Every run is appended to ~/.phantom-mesh/verify-log.jsonl.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "Command to run, e.g. 'cargo test life_node' or 'cargo check --bin phantom'. Required unless polling with 'job'."
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Working directory (default: .)."
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Short tag for the log filename / job id (default: verify)."
+                        },
+                        "timeout_secs": {
+                            "type": "integer",
+                            "description": "Max seconds before kill (default: 600 — long enough for a full cargo build)."
+                        },
+                        "shell": {
+                            "type": "boolean",
+                            "description": "Run via 'sh -c' (unix) / 'cmd /C' (windows) so pipes, '&&', quoting and globs work, e.g. 'cd core && cargo test'. Auto-enabled when the command contains shell metacharacters; set explicitly to force."
+                        },
+                        "background": {
+                            "type": "boolean",
+                            "description": "Spawn the command and return {job_id, started:true} IMMEDIATELY instead of blocking. Poll later with {\"job\": \"<job_id>\"}. Use for long builds/tests so you can keep working."
+                        },
+                        "job": {
+                            "type": "string",
+                            "description": "Poll a previously-started background job. Returns {status:'running', elapsed_secs} while running, or the full verdict once done. When set, no other args are needed."
+                        },
+                        "include_output": {
+                            "type": "boolean",
+                            "description": "Embed the last ~4KB of captured stdout+stderr in the verdict as 'output_tail', so you can READ what happened (esp. for remote runs) instead of only pass/fail. Use 'output_bytes' for a custom size."
+                        },
+                        "output_bytes": {
+                            "type": "integer",
+                            "description": "Embed the last N bytes of captured output in the verdict as 'output_tail'. Overrides include_output."
+                        },
+                        "env": {
+                            "type": "object",
+                            "description": "Optional env vars for the command, e.g. {\"PHANTOM_MESH_GOOGLE_CLIENT_ID\": \"...\"}. Lets you verify env-gated flows without a shell 'export ... &&' prefix.",
+                            "additionalProperties": { "type": "string" }
+                        },
+                        "remote": {
+                            "type": "string",
+                            "description": "Optional cluster peer base URL (e.g. 'http://100.64.0.5:7878'). When set, runs the verify ON THAT PEER via its HMAC-authed /rpc/dev-verify and returns the peer's verdict (annotated with 'remote'). The command runs in the peer's filesystem, so 'path' must be valid there."
+                        }
+                    },
+                    "required": ["command"]
+                }
+            }
+        })),
+
         // ── todo_add ──────────────────────────────────────────────────────────
         "todo_add" => Some(serde_json::json!({
             "type": "function",
@@ -1198,6 +1331,84 @@ pub fn schema(name: &str) -> Option<Value> {
                         }
                     },
                     "required": []
+                }
+            }
+        })),
+
+        // ── todoist_add_task ──────────────────────────────────────────────────
+        "todoist_add_task" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "todoist_add_task",
+                "description": "Create a task in the user's real Todoist (their persistent to-do list / goal model). \
+                    Use this when the user asks to remember/record/add a to-do or goal (e.g. '把這個記到 Todoist', \
+                    'add a task to …', '提醒我 …'). Requires a configured Todoist token. Returns the created task id + content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "The task text, e.g. '買牛奶' or 'Email the landlord'."
+                        },
+                        "due_string": {
+                            "type": "string",
+                            "description": "Optional natural-language due date, e.g. 'tomorrow 9am', '下週一', 'every Friday'."
+                        },
+                        "priority": {
+                            "type": "integer",
+                            "description": "Optional Todoist priority 1-4 where 4 is highest (default 1). Values out of range are clamped.",
+                            "minimum": 1,
+                            "maximum": 4
+                        },
+                        "project_id": {
+                            "type": "string",
+                            "description": "Optional Todoist project id to file the task under (default: Inbox)."
+                        }
+                    },
+                    "required": ["content"]
+                }
+            }
+        })),
+
+        // ── todoist_list_tasks ────────────────────────────────────────────────
+        "todoist_list_tasks" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "todoist_list_tasks",
+                "description": "List the user's active (incomplete) Todoist tasks — their real goals/to-dos. \
+                    Use this to see what's on the user's plate before answering or acting. Requires a configured Todoist token.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "filter": {
+                            "type": "string",
+                            "description": "Optional Todoist filter query, e.g. 'today | overdue', 'p1', '##Work'. Omit for all active tasks."
+                        }
+                    },
+                    "required": []
+                }
+            }
+        })),
+
+        // ── todoist_complete_task ─────────────────────────────────────────────
+        "todoist_complete_task" => Some(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "todoist_complete_task",
+                "description": "Complete (mark done) a task in the user's real Todoist by its id. \
+                    Use this when the user says they finished/done with a task or asks to check it off \
+                    (e.g. '把 X 標成完成', 'mark … done', '完成了'). Get the task id from todoist_list_tasks first. \
+                    This is a bounded action: it can only close the one task named — it never runs a command \
+                    or touches anything else. Requires a configured Todoist token.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "string",
+                            "description": "The id of the task to complete, e.g. '7001' (from todoist_list_tasks)."
+                        }
+                    },
+                    "required": ["task_id"]
                 }
             }
         })),

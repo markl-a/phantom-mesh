@@ -140,4 +140,12 @@ phantom-mesh/
 
 ## 授權條款（License）
 
-提交貢獻即表示你同意你的貢獻將以 MIT OR Apache-2.0 授權條款進行授權。
+提交貢獻即表示你同意：對核心引擎、mesh、CLI 與桌機 app（AGPL 部分）的貢獻
+將以 **AGPL-3.0** 授權；對共用協定型別函式庫 `crates/pm-types`（寬鬆的 SDK 層）
+的貢獻則以 **MIT OR Apache-2.0** 授權。換言之，你的貢獻採用其所在元件的既有授權條款。
+
+By submitting a contribution you agree that contributions to the core engine,
+mesh, CLI, and desktop app (the AGPL parts) are licensed under **AGPL-3.0**, and
+contributions to the shared `crates/pm-types` SDK crate are licensed under
+**MIT OR Apache-2.0** — i.e. your contribution takes the existing license of the
+component it touches.

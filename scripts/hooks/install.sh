@@ -6,7 +6,7 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; 
 cd "$ROOT" || exit 1
 
 mkdir -p .git/hooks
-for h in pre-commit; do
+for h in pre-commit pre-push; do
   src="scripts/hooks/$h"
   dst=".git/hooks/$h"
   [ -f "$src" ] || continue

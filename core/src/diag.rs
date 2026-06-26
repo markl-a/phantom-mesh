@@ -79,8 +79,7 @@ pub fn init() {
     if STATE.get().is_some() {
         return;
     }
-    let home = dirs::home_dir();
-    let phantom_dir = home.as_ref().map(|h| h.join(".phantom-mesh"));
+    let phantom_dir = crate::cli_config::phantom_data_dir().ok();
     let _ = phantom_dir.as_ref().map(|p| std::fs::create_dir_all(p));
 
     let state = DiagState {
@@ -126,6 +125,19 @@ pub fn init() {
     record("startup", "phantom diagnostic init");
 }
 
+/// Cap (so a runaway dump can't bloat the log) THEN redact a diag summary at
+/// the single `record()` write boundary, so the in-memory ring stores an
+/// already-sanitized summary and every downstream sink inherits it: events.jsonl
+/// (serialized here) AND the crash-log dump (which re-reads `ev.summary` from the
+/// ring). SPEC-07 §12.1 / P4 trust boundary: secret-bearing callers (e.g. a
+/// provider transport error echoing `Authorization: Bearer sk-…` or `?key=AIza…`)
+/// must never land a credential in clear on disk. Pure → unit-testable without
+/// the OnceLock/panic-hook/$HOME-redirect machinery.
+fn redacted_summary(summary: &str) -> String {
+    let capped: String = summary.chars().take(280).collect();
+    crate::redact::redact(&capped)
+}
+
 /// Append an event to the ring buffer + events.jsonl.
 /// Never blocks the caller; lock contention is handled by skipping the
 /// record (recording is "diagnostic best-effort", not critical-path).
@@ -137,8 +149,9 @@ pub fn record(kind: &str, summary: impl Into<String>) {
     let ev = DiagEvent {
         ts_ms: now_ms(),
         kind: kind.to_string(),
-        // Cap so a runaway tool dump can't make events.jsonl unreadable.
-        summary: summary.chars().take(280).collect(),
+        // Cap + redact at the boundary so the ring, events.jsonl, and the crash
+        // log all inherit a secret-free summary (SPEC-07 §12.1).
+        summary: redacted_summary(&summary),
     };
 
     if let Ok(mut g) = state_mtx.try_lock() {
@@ -325,6 +338,31 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacted_summary_strips_secrets_but_preserves_prose() {
+        // SPEC-07 §12.1: a provider transport error can echo an Authorization
+        // header / api key into a diag summary; redacted_summary() runs at the
+        // record() boundary so it can NEVER reach events.jsonl or the crash log.
+        // (Pure helper → no OnceLock/panic-hook/$HOME machinery needed.)
+        let secret = "sk-LIVEKEY123abcDEF456ghiJKL789mno";
+        let leaky = format!("provider_skip: error sending request: Authorization: Bearer {secret}");
+        let out = redacted_summary(&leaky);
+        assert!(
+            !out.contains(secret),
+            "the bearer token must be masked before it hits disk: {out}"
+        );
+        assert!(
+            out.contains("[REDACTED]"),
+            "the redactor must mark the masked span: {out}"
+        );
+        // Conservative: ordinary diagnostic prose is left untouched.
+        assert_eq!(
+            redacted_summary("agent finished 3 tasks ok"),
+            "agent finished 3 tasks ok",
+            "non-secret summaries must pass through unchanged"
+        );
+    }
 
     #[test]
     fn ring_capped_at_capacity() {

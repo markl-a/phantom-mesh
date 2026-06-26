@@ -57,7 +57,7 @@ const TINY_RED_PIXEL_JPEG: &[u8] = &[
 #[tokio::test]
 async fn gemini_round_trip_with_real_key() {
     if std::env::var("GEMINI_API_KEY").is_err() {
-        eprintln!("SKIP: GEMINI_API_KEY unset");
+        eprintln!("SKIPPED: gemini_round_trip_with_real_key — GEMINI_API_KEY unset");
         return;
     }
 

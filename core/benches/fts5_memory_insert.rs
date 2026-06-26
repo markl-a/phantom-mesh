@@ -16,32 +16,32 @@ mod common;
 // The `required-features` declaration in Cargo.toml means
 // `cargo bench --bench fts5_memory_insert` (no features) already skips the run
 // — this main is purely a compile-gate.
-#[cfg(not(feature = "experimental-hermes-memory"))]
+#[cfg(not(feature = "experimental-memory"))]
 fn main() {
-    common::print_disabled_and_exit("experimental-hermes-memory");
+    common::print_disabled_and_exit("experimental-memory");
 }
 
 // ── Feature ON: the real Criterion bench.
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
-#[cfg(feature = "experimental-hermes-memory")]
-use phantom_mesh::hermes::{HermesMemory, NewMemory};
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
+use phantom_mesh::skillbank::{SkillMemory, NewMemory};
+#[cfg(feature = "experimental-memory")]
 use tempfile::TempDir;
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 use tokio::runtime::Runtime;
 
 /// Build a fresh empty DB at a tempdir path. The tempdir is returned so
-/// it lives at least as long as the HermesMemory handle.
-#[cfg(feature = "experimental-hermes-memory")]
-fn fresh_memory(_rt: &Runtime) -> (TempDir, HermesMemory) {
+/// it lives at least as long as the SkillMemory handle.
+#[cfg(feature = "experimental-memory")]
+fn fresh_memory(_rt: &Runtime) -> (TempDir, SkillMemory) {
     let td = TempDir::new().expect("tempdir");
-    let path = td.path().join("hermes.db");
-    let mem = HermesMemory::open_at(path).expect("open_at");
+    let path = td.path().join("skill.db");
+    let mem = SkillMemory::open_at(path).expect("open_at");
     (td, mem)
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 fn bench_insert(c: &mut Criterion) {
     let rt = Runtime::new().expect("tokio runtime");
 
@@ -75,12 +75,12 @@ fn bench_insert(c: &mut Criterion) {
     g.finish();
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 criterion_group! {
     name = fts5_insert;
     config = common::standard_criterion();
     targets = bench_insert
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 criterion_main!(fts5_insert);

@@ -60,11 +60,20 @@ impl CoachSchedule {
 /// `schedule` via `StartCalendarInterval`. `RunAtLoad` is false (the trigger is
 /// purely time-based; we never run it just because the agent (re)loaded).
 ///
+/// The fired command is `coach review --save` so each daily run PERSISTS its
+/// review (the events brief + tomorrow-action + the proactive partner "Daily
+/// alignment" reflection) to `~/.phantom-mesh/reviews/{date}.md` — that saved
+/// file is the daily artifact the partner produces, and its appearance is how a
+/// fire is verified. stdout/stderr are redirected to
+/// `~/.phantom-mesh/coach.{out,err}.log` (mirroring the serve agent) so a failed
+/// run is diagnosable instead of vanishing into launchd's void.
+///
 /// `exe_path` is the absolute path to the `phantom` binary (the caller resolves
 /// it, e.g. via `std::env::current_exe`). XML-escaped so an unusual install
 /// path can't break the plist.
 pub fn launchd_plist(exe_path: &str, schedule: CoachSchedule) -> String {
     let exe = xml_escape(exe_path);
+    let (out_log, err_log) = coach_log_paths();
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
@@ -76,18 +85,37 @@ pub fn launchd_plist(exe_path: &str, schedule: CoachSchedule) -> String {
          \t\t<string>{exe}</string>\n\
          \t\t<string>coach</string>\n\
          \t\t<string>review</string>\n\
+         \t\t<string>--save</string>\n\
          \t</array>\n\
          \t<key>StartCalendarInterval</key>\n\t<dict>\n\
          \t\t<key>Hour</key>\n\t\t<integer>{hour}</integer>\n\
          \t\t<key>Minute</key>\n\t\t<integer>{minute}</integer>\n\
          \t</dict>\n\
          \t<key>RunAtLoad</key>\n\t<false/>\n\
+         \t<key>StandardOutPath</key>\n\t<string>{out_log}</string>\n\
+         \t<key>StandardErrorPath</key>\n\t<string>{err_log}</string>\n\
          </dict>\n</plist>\n",
         label = COACH_LABEL,
         exe = exe,
         hour = schedule.hour,
         minute = schedule.minute,
+        out_log = xml_escape(&out_log),
+        err_log = xml_escape(&err_log),
     )
+}
+
+/// `(stdout, stderr)` log paths the launchd coach agent redirects to, under
+/// `~/.phantom-mesh/` next to the serve agent's logs. Falls back to bare
+/// filenames (cwd-relative) if there's no home dir — launchd always has one in
+/// practice, but the generator must stay total.
+fn coach_log_paths() -> (String, String) {
+    match crate::cli_config::phantom_data_dir() {
+        Ok(base) => (
+            base.join("coach.out.log").to_string_lossy().into_owned(),
+            base.join("coach.err.log").to_string_lossy().into_owned(),
+        ),
+        Err(_) => ("coach.out.log".to_string(), "coach.err.log".to_string()),
+    }
 }
 
 /// Linux `systemd` **user** service unit (oneshot) that runs the coach review.
@@ -105,7 +133,7 @@ pub fn systemd_service_unit(exe_path: &str) -> String {
          \n\
          [Service]\n\
          Type=oneshot\n\
-         ExecStart={exe} coach review\n",
+         ExecStart={exe} coach review --save\n",
         exe = systemd_exec_escape(exe_path),
     )
 }
@@ -156,7 +184,7 @@ pub fn windows_schtasks_create_args(exe_path: &str, schedule: CoachSchedule) -> 
         "/TN".to_string(),
         COACH_LABEL.to_string(),
         "/TR".to_string(),
-        format!("\"{exe_path}\" coach review"),
+        format!("\"{exe_path}\" coach review --save"),
         "/SC".to_string(),
         "DAILY".to_string(),
         "/ST".to_string(),
@@ -251,6 +279,278 @@ pub fn render_cli_unit(target: SchedulerTarget, exe_path: &str, schedule: CoachS
     }
 }
 
+// ── installer (the explicit side-effecting layer) ───────────────────────────
+//
+// Everything above is PURE (generates unit text + paths). `phantom coach
+// install-schedule` is the deliberate, operator-invoked step that finally
+// MUTATES the host: it writes the canonical unit file(s) and registers them
+// with the OS scheduler (launchctl / systemctl --user / schtasks) so the daily
+// `phantom coach review` fires without the user typing anything. Kept here, next
+// to the generators, so the install paths + commands stay in lock-step with the
+// unit text they consume.
+
+/// Outcome of an install: which file(s) were written + the loader command run,
+/// so the CLI can print a precise "here's what I did" report.
+#[derive(Debug, Clone)]
+pub struct InstallOutcome {
+    /// Absolute paths of the unit file(s) written.
+    pub files_written: Vec<PathBuf>,
+    /// Human-readable loader command that was executed (for the report).
+    pub loaded_with: String,
+}
+
+/// macOS only: ensure `exe_path` carries a code signature launchd will accept.
+///
+/// A freshly `cargo build`'d Mach-O on Apple Silicon is **linker-signed** ad-hoc
+/// (`codesign` flags `0x20002` = `adhoc,linker-signed`). When such a binary is
+/// spawned by `launchd` (parent pid 1), macOS's code-signing monitor SIGKILLs it
+/// with a *"Launch Constraint Violation"* (`EXC_CRASH` / `SIGKILL (Code Signature
+/// Invalid)`) within ~1 s — before any work runs. The job then looks "installed"
+/// (the plist loads fine) but every daily fire dies silently: empty logs, no
+/// review written, `runs` resetting to 0. Running the same binary from an
+/// interactive shell works, which is exactly why this slips through manual smoke
+/// tests. A plain ad-hoc re-sign (`codesign --force --sign -`, flags `0x2`)
+/// clears the linker-signed bit and launchd then runs the job to completion.
+///
+/// So before we register the LaunchAgent we re-sign the target binary ad-hoc iff
+/// it is linker-signed. We only re-sign linker-signed binaries: a properly
+/// installed / Developer-ID-signed `phantom` is left untouched (re-signing would
+/// strip a real signature). Best-effort + non-fatal: if `codesign` is missing or
+/// fails we still install (the user may have pointed at an already-valid binary),
+/// but we surface a warning to stderr so a dead trigger is diagnosable.
+#[cfg(target_os = "macos")]
+fn ensure_launchd_runnable_signature(exe_path: &str) {
+    use std::process::Command;
+    // Inspect the current signature. `codesign -dv` prints to stderr.
+    let info = match Command::new("codesign").args(["-dv", exe_path]).output() {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!(
+                "warning: could not run codesign to check {exe_path}: {e} — \
+                 the launchd job may be SIGKILLed if the binary is linker-signed"
+            );
+            return;
+        }
+    };
+    let desc = String::from_utf8_lossy(&info.stderr);
+    // Only re-sign the launchd-hostile linker-signed ad-hoc case. A real
+    // signature (Developer ID / proper ad-hoc `0x2`) is left as-is.
+    if !desc.contains("linker-signed") {
+        return;
+    }
+    let resign = Command::new("codesign")
+        .args(["--force", "--sign", "-", exe_path])
+        .output();
+    match resign {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => eprintln!(
+            "warning: ad-hoc re-sign of {exe_path} failed: {} — \
+             launchd may SIGKILL the daily coach job (linker-signed binary)",
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => eprintln!(
+            "warning: could not spawn codesign to re-sign {exe_path}: {e} — \
+             launchd may SIGKILL the daily coach job (linker-signed binary)"
+        ),
+    }
+}
+
+/// Install + load the macOS launchd LaunchAgent for the daily coach review.
+///
+/// Writes the canonical plist to `~/Library/LaunchAgents/ai.phantommesh.coach.plist`
+/// then `launchctl load -w` it (idempotent: an already-loaded agent is unloaded
+/// first so re-running with a new `--at` actually re-registers the new time).
+///
+/// Before loading we [`ensure_launchd_runnable_signature`] the target binary: a
+/// freshly built (linker-signed) `phantom` is SIGKILLed by launchd's code-signing
+/// monitor, so without this the trigger installs but never actually fires.
+#[cfg(target_os = "macos")]
+pub fn install_launchd(exe_path: &str, schedule: CoachSchedule) -> Result<InstallOutcome, String> {
+    use std::process::Command;
+    let plist_path =
+        launchd_plist_path().ok_or_else(|| "no home dir for LaunchAgents".to_string())?;
+    if let Some(parent) = plist_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create {}: {e}", parent.display()))?;
+    }
+    // Make the binary launchd-runnable BEFORE we load the agent, else the daily
+    // fire dies with a code-signing SIGKILL and writes nothing.
+    ensure_launchd_runnable_signature(exe_path);
+    let plist = launchd_plist(exe_path, schedule);
+    std::fs::write(&plist_path, plist)
+        .map_err(|e| format!("write {}: {e}", plist_path.display()))?;
+
+    // Best-effort unload first so a re-install with a new time replaces the old
+    // registration (launchctl load on an already-loaded label is a no-op). We
+    // ignore the unload's status — "not loaded" is the expected first-run case.
+    let _ = Command::new("launchctl")
+        .arg("unload")
+        .arg(&plist_path)
+        .output();
+    let out = Command::new("launchctl")
+        .arg("load")
+        .arg("-w")
+        .arg(&plist_path)
+        .output()
+        .map_err(|e| format!("spawn launchctl: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "launchctl load -w {} failed: {}",
+            plist_path.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(InstallOutcome {
+        files_written: vec![plist_path.clone()],
+        loaded_with: format!("launchctl load -w {}", plist_path.display()),
+    })
+}
+
+/// Install + enable the Linux systemd **user** service + timer for the daily
+/// coach review. Writes both units under `~/.config/systemd/user/`, reloads the
+/// user manager, then `systemctl --user enable --now phantom-coach.timer`.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn install_systemd(exe_path: &str, schedule: CoachSchedule) -> Result<InstallOutcome, String> {
+    use std::process::Command;
+    let dir = systemd_user_unit_dir().ok_or_else(|| "no home dir for systemd units".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
+    let svc_path = dir.join("phantom-coach.service");
+    let timer_path = dir.join("phantom-coach.timer");
+    std::fs::write(&svc_path, systemd_service_unit(exe_path))
+        .map_err(|e| format!("write {}: {e}", svc_path.display()))?;
+    std::fs::write(&timer_path, systemd_timer_unit(schedule))
+        .map_err(|e| format!("write {}: {e}", timer_path.display()))?;
+
+    // Reload so the manager sees the new/updated units, then enable --now so the
+    // timer is registered AND started for the current session.
+    let reload = Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .output()
+        .map_err(|e| format!("spawn systemctl: {e}"))?;
+    if !reload.status.success() {
+        return Err(format!(
+            "systemctl --user daemon-reload failed: {}",
+            String::from_utf8_lossy(&reload.stderr).trim()
+        ));
+    }
+    let enable = Command::new("systemctl")
+        .args(["--user", "enable", "--now", "phantom-coach.timer"])
+        .output()
+        .map_err(|e| format!("spawn systemctl: {e}"))?;
+    if !enable.status.success() {
+        return Err(format!(
+            "systemctl --user enable --now phantom-coach.timer failed: {}",
+            String::from_utf8_lossy(&enable.stderr).trim()
+        ));
+    }
+    Ok(InstallOutcome {
+        files_written: vec![svc_path, timer_path],
+        loaded_with: "systemctl --user enable --now phantom-coach.timer".to_string(),
+    })
+}
+
+/// Register the Windows Task Scheduler daily coach review task via `schtasks`.
+/// `/F` makes it idempotent (overwrites an existing task), so re-running with a
+/// new `--at` replaces the old trigger.
+#[cfg(target_os = "windows")]
+pub fn install_schtasks(exe_path: &str, schedule: CoachSchedule) -> Result<InstallOutcome, String> {
+    use std::process::Command;
+    let args = windows_schtasks_create_args(exe_path, schedule);
+    let out = Command::new("schtasks")
+        .args(&args)
+        .output()
+        .map_err(|e| format!("spawn schtasks: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "schtasks {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(InstallOutcome {
+        files_written: Vec::new(), // schtasks stores the task in its own registry.
+        loaded_with: format!("schtasks {}", args.join(" ")),
+    })
+}
+
+/// Install the daily coach trigger for the host OS. Dispatches to the
+/// per-platform installer above. `exe_path` is the absolute path to the
+/// `phantom` binary the scheduler should run.
+pub fn install_for_host(exe_path: &str, schedule: CoachSchedule) -> Result<InstallOutcome, String> {
+    #[cfg(target_os = "macos")]
+    {
+        install_launchd(exe_path, schedule)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        install_systemd(exe_path, schedule)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        install_schtasks(exe_path, schedule)
+    }
+    #[cfg(not(any(target_os = "macos", unix, target_os = "windows")))]
+    {
+        let _ = (exe_path, schedule);
+        Err("no supported desktop scheduler for this OS".to_string())
+    }
+}
+
+/// Uninstall + unload the daily coach trigger for the host OS (the inverse of
+/// [`install_for_host`]). Best-effort + idempotent: removing an already-gone
+/// unit / task is treated as success so a re-run never errors.
+pub fn uninstall_for_host() -> Result<Vec<PathBuf>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let mut removed = Vec::new();
+        if let Some(plist_path) = launchd_plist_path() {
+            if plist_path.exists() {
+                let _ = Command::new("launchctl")
+                    .arg("unload")
+                    .arg(&plist_path)
+                    .output();
+                std::fs::remove_file(&plist_path)
+                    .map_err(|e| format!("remove {}: {e}", plist_path.display()))?;
+                removed.push(plist_path);
+            }
+        }
+        Ok(removed)
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        use std::process::Command;
+        let _ = Command::new("systemctl")
+            .args(["--user", "disable", "--now", "phantom-coach.timer"])
+            .output();
+        let mut removed = Vec::new();
+        if let Some(dir) = systemd_user_unit_dir() {
+            for name in ["phantom-coach.timer", "phantom-coach.service"] {
+                let p = dir.join(name);
+                if p.exists() {
+                    std::fs::remove_file(&p)
+                        .map_err(|e| format!("remove {}: {e}", p.display()))?;
+                    removed.push(p);
+                }
+            }
+        }
+        let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).output();
+        Ok(removed)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        let _ = Command::new("schtasks")
+            .args(["/Delete", "/TN", COACH_LABEL, "/F"])
+            .output();
+        Ok(Vec::new())
+    }
+    #[cfg(not(any(target_os = "macos", unix, target_os = "windows")))]
+    {
+        Err("no supported desktop scheduler for this OS".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,14 +575,19 @@ mod tests {
         let p = launchd_plist("/usr/local/bin/phantom", CoachSchedule::new(21, 0).unwrap());
         assert!(p.starts_with("<?xml"), "valid plist header");
         assert!(p.contains("<string>ai.phantommesh.coach</string>"), "coach label");
-        // Triggers `phantom coach review`.
+        // Triggers `phantom coach review --save` (each fire persists the review).
         assert!(p.contains("<string>/usr/local/bin/phantom</string>"));
         assert!(p.contains("<string>coach</string>") && p.contains("<string>review</string>"));
+        assert!(p.contains("<string>--save</string>"), "fire persists the daily review");
         // Time-based, not run-at-load.
         assert!(p.contains("<key>StartCalendarInterval</key>"));
         assert!(p.contains("<key>Hour</key>\n\t\t<integer>21</integer>"));
         assert!(p.contains("<key>Minute</key>\n\t\t<integer>0</integer>"));
         assert!(p.contains("<key>RunAtLoad</key>\n\t<false/>"), "never run just on load");
+        // Output is captured so a failed daily run is diagnosable (not lost).
+        assert!(p.contains("<key>StandardOutPath</key>"), "stdout captured: {p}");
+        assert!(p.contains("<key>StandardErrorPath</key>"), "stderr captured: {p}");
+        assert!(p.contains("coach.out.log") && p.contains("coach.err.log"), "log paths: {p}");
     }
 
     #[test]

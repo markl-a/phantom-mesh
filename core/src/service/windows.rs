@@ -19,6 +19,24 @@ use std::process::Command;
 /// status of the same task this module installs/manages.
 pub const WINDOWS_TASK_NAME: &str = "PhantomServe";
 
+/// SYS-D (operator-locked 2026-06-13): the TARGETED schtasks argv that
+/// `phantom service uninstall` runs to stop this task's own running instance.
+/// It addresses ONLY `WINDOWS_TASK_NAME` — never a blanket
+/// `taskkill /F /IM phantom.exe`, which would kill every phantom process (a
+/// user-run serve, another CLI, even a live unattended run). Pure so the
+/// reversibility guardrail is unit-testable without spawning schtasks.
+pub fn uninstall_end_args() -> [&'static str; 3] {
+    ["/End", "/TN", WINDOWS_TASK_NAME]
+}
+
+/// SYS-D companion to [`uninstall_end_args`]: the TARGETED schtasks argv that
+/// deletes ONLY this task's own Scheduled Task (`WINDOWS_TASK_NAME`). Reused by
+/// install (to clear a prior registration) and uninstall. Reversible: `phantom
+/// service install` recreates the task.
+pub fn uninstall_delete_args() -> [&'static str; 4] {
+    ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]
+}
+
 // PF-2d: `colored()` + `is_colored()` consolidated to
 // `crate::util::term`. Local duplicates removed.
 use crate::util::term::colored;
@@ -105,13 +123,33 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
     match action {
         "install" => {
             let bin_self = std::env::current_exe()?;
-            let bin = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
+            let bin_canon = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
+            // Prefer the release binary so the durable task never points at a
+            // throwaway `target\debug\phantom.exe`. If we're running from a
+            // debug build, swap in the sibling `release\phantom.exe` when it
+            // exists; otherwise keep the running exe.
+            let bin = {
+                let mut candidate = bin_canon.clone();
+                if let Some(parent) = bin_canon.parent() {
+                    if parent.file_name().and_then(|n| n.to_str()) == Some("debug") {
+                        if let Some(target_dir) = parent.parent() {
+                            let rel = target_dir
+                                .join("release")
+                                .join(bin_canon.file_name().unwrap_or_default());
+                            if rel.exists() {
+                                candidate = rel;
+                            }
+                        }
+                    }
+                }
+                candidate
+            };
             let bin_str = bin.display().to_string();
 
             // Delete any prior registration first so re-installs always
             // pick up the fresh binary path.
             let _ = Command::new("schtasks")
-                .args(["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"])
+                .args(uninstall_delete_args())
                 .output();
 
             // schtasks /Create /SC ONLOGON is rejected with "Access Denied"
@@ -127,9 +165,11 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             let task_for_ps = WINDOWS_TASK_NAME.replace('\'', "''");
             let ps_script = format!(
                 "$action = New-ScheduledTaskAction -Execute '{}' -Argument 'serve'; \
+                 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Highest; \
                  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME; \
-                 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); \
-                 Register-ScheduledTask -TaskName '{}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null",
+                 $bootTrigger = New-ScheduledTaskTrigger -AtStartup; \
+                 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1); \
+                 Register-ScheduledTask -TaskName '{}' -Action $action -Trigger @($trigger, $bootTrigger) -Principal $principal -Settings $settings -Force | Out-Null",
                 bin_for_ps, task_for_ps
             );
 
@@ -186,13 +226,17 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 WINDOWS_TASK_NAME
             );
             eprintln!("    binary:   {}", bin_str);
-            eprintln!("    trigger:  at user logon (auto-restart up to 3× on failure)");
+            eprintln!(
+                "    trigger:  at user logon + system startup (S4U, runs without an interactive session; auto-restart up to 5× on failure)"
+            );
             eprintln!("    firewall: {}", fw_status);
             eprintln!(
                 "    Verify:   curl http://127.0.0.1:{}/healthz",
                 verify_port
             );
-            eprintln!("    Uninstall: phantom service uninstall");
+            // SYS-D: print the undo/inspect commands at the point of install.
+            eprintln!("    Status:    phantom service status");
+            eprintln!("    Uninstall: phantom service uninstall --yes   (dry-run without --yes)");
             eprintln!();
             eprintln!(
                 "{} {} for a full environment health check.",
@@ -202,8 +246,30 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             Ok(())
         }
         "uninstall" => {
+            // W2 / I9 / SYS-D: print the plan, require --yes to apply, and stop ONLY this
+            // task's own running instance. The old code ran `taskkill /F /IM phantom.exe`,
+            // which killed EVERY phantom process — a user-run serve, another CLI, even a live
+            // unattended run. Reversible: `phantom service install` recreates the task.
+            let yes = std::env::args().any(|a| a == "--yes");
+            eprintln!("{} phantom service uninstall will:", colored("◆", 35));
+            eprintln!("    - remove Scheduled Task '{}'", WINDOWS_TASK_NAME);
+            eprintln!("    - remove firewall rule 'PhantomMesh-Inbound' (if present)");
+            eprintln!("    - stop ONLY this task's running serve (NOT other phantom processes)");
+            eprintln!("    reversible: re-run `phantom service install` to recreate it");
+            if !yes {
+                eprintln!(
+                    "{} dry-run -- nothing removed. Re-run with {} to apply.",
+                    colored("⚠", 33),
+                    colored("phantom service uninstall --yes", 32)
+                );
+                return Ok(());
+            }
+            // Stop this task's running instance first (targeted, NOT `taskkill /F /IM phantom.exe`).
+            let _ = Command::new("schtasks")
+                .args(uninstall_end_args())
+                .output();
             let status = Command::new("schtasks")
-                .args(["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"])
+                .args(uninstall_delete_args())
                 .status()?;
             if status.success() {
                 eprintln!(
@@ -227,11 +293,6 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                     "-Command",
                     "Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
                 ])
-                .output();
-
-            // Also kill any running phantom serve so the next logon starts fresh.
-            let _ = Command::new("taskkill")
-                .args(["/F", "/IM", "phantom.exe"])
                 .output();
             eprintln!("{} Uninstalled.", colored("✓", 32));
             Ok(())
@@ -372,5 +433,24 @@ mod tests {
         let port = configured_port();
         assert!(port > 0, "configured_port must yield a valid u16");
         assert_ne!(port, u16::MAX, "u16::MAX is unreachable from agents.toml");
+    }
+
+    #[test]
+    fn uninstall_targets_only_phantom_task_never_blanket_kill() {
+        // SYS-D (operator-locked 2026-06-13): `service uninstall` is the
+        // symmetric reverse of `service install`, and it must stop ONLY its own
+        // Scheduled Task — never re-introduce the old blanket
+        // `taskkill /F /IM phantom.exe` that killed every phantom process.
+        let end = uninstall_end_args();
+        let del = uninstall_delete_args();
+        // Both commands name THIS task explicitly (scoped, reversible).
+        assert!(end.contains(&"/TN") && end.contains(&WINDOWS_TASK_NAME), "end is task-scoped");
+        assert!(del.contains(&"/TN") && del.contains(&WINDOWS_TASK_NAME), "delete is task-scoped");
+        // Neither command is a blanket process kill.
+        for a in end.iter().chain(del.iter()) {
+            assert!(!a.eq_ignore_ascii_case("taskkill"), "must not shell out to taskkill: {a}");
+            assert_ne!(*a, "/IM", "must not target by image name (every phantom.exe)");
+            assert!(!a.to_ascii_lowercase().contains("phantom.exe"), "must not name the image: {a}");
+        }
     }
 }

@@ -5,6 +5,12 @@
 // with an http:// base URL and asserts the installer aborts (exit != 0) with an
 // error mentioning HTTPS. This is a security invariant: an attacker must not be
 // able to point the installer at a plaintext URL for MITM during download.
+
+// scripts/install.sh is a POSIX shell script; this test shells out to `sh`.
+// On Windows `sh` is usually absent, so Command::new("sh").output().expect(...)
+// below would PANIC (a hard FAIL, not a skip). Gate the whole file to Unix.
+#![cfg(unix)]
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -19,7 +25,10 @@ fn repo_root() -> PathBuf {
 fn install_sh_rejects_non_https_base_url() {
     let script = repo_root().join("scripts").join("install.sh");
     if !script.exists() {
-        eprintln!("skip: install.sh not found at {:?}", script);
+        eprintln!(
+            "SKIPPED: install_sh_rejects_non_https_base_url — install.sh not found at {:?}",
+            script
+        );
         return;
     }
 

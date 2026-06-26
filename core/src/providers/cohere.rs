@@ -14,9 +14,9 @@
 //! adapter when streaming is wired in V2. For V1 we ship metadata + a
 //! retry-aware health-check ping that posts a minimal Cohere-shaped body.
 //!
-//! Gated behind Cargo feature `experimental-hermes-providers` (default OFF).
+//! Gated behind Cargo feature `experimental-extra-providers` (default OFF).
 
-#![cfg(feature = "experimental-hermes-providers")]
+#![cfg(feature = "experimental-extra-providers")]
 
 use crate::config::ProviderEntry;
 use reqwest::header::{HeaderName, HeaderValue};
@@ -37,7 +37,7 @@ pub const AUTH_HEADER_NAME: &str = "x-api-key";
 /// Build the chat endpoint URL for Cohere.
 ///
 /// Cohere's chat path is `/v1/chat` (NOT `/v1/chat/completions` — that is
-/// the OpenAI-compat convention used by every other Hermes provider). A
+/// the OpenAI-compat convention used by every other extra provider). A
 /// regression that appended `/completions` would 404 on the real API.
 ///
 /// Honours operator overrides:
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn auth_header_uses_x_api_key_not_bearer() {
         // Critical regression guard: Cohere uses X-API-Key, not Authorization
-        // Bearer. The other 11 Hermes adapters use Bearer; copy/paste from one
+        // Bearer. The other 11 extra adapters use Bearer; copy/paste from one
         // of those would break Cohere auth.
         let (name, value) = auth_header("co-test-key-123").expect("valid");
         assert_eq!(name.as_str(), "x-api-key");

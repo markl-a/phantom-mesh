@@ -3,9 +3,9 @@
 //! OpenAI-compatible chat completions. Auth: `Authorization: Bearer xai-<key>`.
 //! Free credit tier exists for new accounts ($25/mo as of 2026-05).
 //!
-//! Gated behind Cargo feature `experimental-hermes-providers` (default OFF).
+//! Gated behind Cargo feature `experimental-extra-providers` (default OFF).
 
-#![cfg(feature = "experimental-hermes-providers")]
+#![cfg(feature = "experimental-extra-providers")]
 
 use crate::config::ProviderEntry;
 use reqwest::header::{HeaderName, HeaderValue, AUTHORIZATION};

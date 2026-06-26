@@ -15,6 +15,14 @@ export type Env = {
   BROKER_TOKEN_TTL_SECS: string;
   BROKER_VERSION: string;
 
+  // Apple Sign In (optional — the flow is only wired when all four are
+  // present, see lib/oauth.appleConfigured). CLIENT_ID is the Services
+  // ID; TEAM_ID/KEY_ID are the 10-char Apple Developer identifiers.
+  // These three are non-secret config ([vars]); the .p8 below is a secret.
+  APPLE_CLIENT_ID: string;
+  APPLE_TEAM_ID: string;
+  APPLE_KEY_ID: string;
+
   // Cloudflare Web Analytics beacon token. Optional — when empty
   // string, no beacon is injected (dev/staging defaults). Set in
   // wrangler.toml [vars] for prod after creating the Web Analytics
@@ -24,6 +32,10 @@ export type Env = {
 
   // Secrets (set via `wrangler secret put`)
   GOOGLE_CLIENT_SECRET: string;
+  // PKCS8 PEM contents of the Apple AuthKey_<KEY_ID>.p8. Optional; when
+  // empty the Apple flow stays dark. Newlines may be real or "\n"-escaped
+  // (lib/oauth.appleClientSecret unescapes).
+  APPLE_PRIVATE_KEY: string;
   BROKER_JWT_SECRET: string;    // 32+ random bytes
 
   // 32 bytes (base64-encoded) used as master key for AES-256-GCM

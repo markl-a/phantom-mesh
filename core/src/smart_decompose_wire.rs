@@ -28,7 +28,7 @@ use ts_rs::TS;
 //
 // 中文: 重用 SPEC-26 capability 標籤 + dispatch 結果型別，兩 spec 共享同一
 // 來源（SPEC-27 §18.1 風險條目：tag set 不同步的緩解）。
-use crate::cluster_dispatch_wire::{CapabilityTag, DispatchOutcome};
+use crate::cluster_dispatch_wire::{CapabilityTag, DispatchOutcome, DispatchStatus};
 
 // ─── §7.1 DecomposeRequest (TS-facing entry) ─────────────────────────────────
 
@@ -432,18 +432,33 @@ pub async fn dispatch_plan(plan: &DecomposePlan) -> Result<Vec<DispatchOutcome>,
 ///   - `completed == total` -> Completed
 ///   - otherwise -> Running
 ///
-/// Stage 1 treats `DispatchOutcome` opaquely (counts slice length as total,
-/// assumes resolved). Stage 2 wires the SPEC-26 success/failure predicate.
+/// Each outcome's real `DispatchStatus` drives the counts: `Completed` is a
+/// success terminal; `Failed`/`Timeout`/`NoCandidate` are failure terminals;
+/// `Planned`/`Dispatched`/`Running` are still in-flight (counted in neither, so
+/// they hold the snapshot at `Running` until every subtask reaches a terminal).
 ///
 /// 中文: 把 `DispatchOutcome` 清單聚合成進度快照 - 純計算、UI 可直接呼叫。
-/// Stage 1 暫把全部 outcome 當成 completed；Stage 2 接 SPEC-26 success 判斷。
+/// 依每個 outcome 的真實 `DispatchStatus` 分類成 完成／失敗／進行中。
 pub fn aggregate_progress(
     parent_task_id: &str,
     outcomes: &[DispatchOutcome],
 ) -> ExecutionProgress {
     let total = outcomes.len().min(u8::MAX as usize) as u8;
-    let completed = total;
-    let failed: u8 = 0;
+    let completed = outcomes
+        .iter()
+        .filter(|o| o.status == DispatchStatus::Completed)
+        .count()
+        .min(u8::MAX as usize) as u8;
+    let failed = outcomes
+        .iter()
+        .filter(|o| {
+            matches!(
+                o.status,
+                DispatchStatus::Failed | DispatchStatus::Timeout | DispatchStatus::NoCandidate
+            )
+        })
+        .count()
+        .min(u8::MAX as usize) as u8;
     let status = if total == 0 {
         DecomposeStatus::Planning
     } else if failed == total {
@@ -498,7 +513,7 @@ fn build_decompose_prompt(request: &DecomposeRequest) -> String {
         _ => String::new(),
     };
 
-    let max_subtasks = request.max_subtasks.max(1).min(20);
+    let max_subtasks = request.max_subtasks.clamp(1, 20);
 
     // The schema fragment is hand-rolled JSON (not pulled from
     // `schemars`) so the prompt stays readable for an auditor and the
@@ -556,6 +571,8 @@ async fn call_frontier_llm(
         max_tokens: Some(4096),
         temperature: Some(0.0),
         response_format: ResponseFormat::Json,
+        // Text-only completion path — no tool-calling here.
+        tools: Vec::new(),
     };
     // `providers_wire::complete` is currently sync; await-friendly via the
     // `async` context here even though it doesn't suspend. When the
@@ -792,6 +809,7 @@ async fn dispatch_subtask(subtask: &SubTask) -> DispatchOutcome {
             completed_at_ms: Some(now_unix_ms()),
             result_summary: None,
             error: Some(format!("{e:?}")),
+            cost_usd: 0.0,
         },
     }
 }
@@ -918,6 +936,63 @@ mod tests {
         assert_eq!(prog.total_subtasks, 0);
         assert_eq!(prog.current_status, DecomposeStatus::Planning);
         assert_eq!(prog.parent_task_id, "task-empty");
+    }
+
+    /// Build a minimal `DispatchOutcome` carrying just the terminal `status` —
+    /// the only field `aggregate_progress` inspects.
+    fn outcome(status: crate::cluster_dispatch_wire::DispatchStatus) -> DispatchOutcome {
+        DispatchOutcome {
+            task_id: "t".into(),
+            executed_by_peer_id: "p".into(),
+            status,
+            started_at_ms: 0,
+            completed_at_ms: None,
+            result_summary: None,
+            error: None,
+            cost_usd: 0.0,
+        }
+    }
+
+    /// `aggregate_progress` must count REAL per-outcome statuses, not assume
+    /// everything completed (the prior `completed = total; failed = 0` bug).
+    #[test]
+    fn aggregate_progress_reads_real_status_not_hardcoded_completed() {
+        use crate::cluster_dispatch_wire::DispatchStatus::*;
+        // All Completed -> Completed.
+        let p = aggregate_progress("p", &[outcome(Completed), outcome(Completed)]);
+        assert_eq!(
+            (p.completed_subtasks, p.failed_subtasks, p.total_subtasks),
+            (2, 0, 2)
+        );
+        assert_eq!(p.current_status, DecomposeStatus::Completed);
+
+        // Every failure terminal (Failed/Timeout/NoCandidate) counts; all-failed -> TotalFailure.
+        let p = aggregate_progress("p", &[outcome(Failed), outcome(Timeout), outcome(NoCandidate)]);
+        assert_eq!(
+            (p.completed_subtasks, p.failed_subtasks, p.total_subtasks),
+            (0, 3, 3)
+        );
+        assert_eq!(p.current_status, DecomposeStatus::TotalFailure);
+
+        // Mixed completed + failed, none in-flight -> PartialFailure.
+        let p = aggregate_progress("p", &[outcome(Completed), outcome(Failed)]);
+        assert_eq!(
+            (p.completed_subtasks, p.failed_subtasks, p.total_subtasks),
+            (1, 1, 2)
+        );
+        assert_eq!(p.current_status, DecomposeStatus::PartialFailure);
+
+        // A still-running subtask is NEITHER completed nor failed -> Running,
+        // and must NOT be silently reported as completed (the bug this fixes).
+        let p = aggregate_progress(
+            "p",
+            &[outcome(Completed), outcome(Running), outcome(Dispatched)],
+        );
+        assert_eq!(
+            (p.completed_subtasks, p.failed_subtasks, p.total_subtasks),
+            (1, 0, 3)
+        );
+        assert_eq!(p.current_status, DecomposeStatus::Running);
     }
 
     /// `DecomposeError` serializes with `tag = "code"` / `content = "detail"`

@@ -11,10 +11,10 @@
 //!   2. OpenAICompatProvider's `build_stream_request` produces a flat
 //!      OpenAI-style `messages` array + `stream_options.include_usage`
 //!      when streaming with tools.
-//!   3. GeminiProvider's `build_stream_request` routes to Google's
-//!      OpenAI-compat shim at `/v1beta/openai/chat/completions` (NOT
-//!      `:streamGenerateContent` — design gap surfaced in the spec; see
-//!      PR body).
+//!   3. GeminiProvider's `build_stream_request` routes to Gemini's NATIVE
+//!      `:generateContent` endpoint with a native body (`contents`, not
+//!      `messages`) — intentional since #304 (2ba17b7d): the OpenAI-compat
+//!      shim returns tool-calls as text, never structured `tool_calls`.
 //!   4. ClaudeCliProvider's `build_stream_request` uses the same
 //!      Anthropic-native shape as AnthropicProvider (cache_control etc.).
 //!   5. `call_with_streaming` honours `PHANTOM_RUNTIME_OVERRIDE` after
@@ -225,13 +225,20 @@ fn openai_compat_build_stream_request_emits_flat_messages_array() {
 }
 
 #[test]
-fn gemini_build_stream_request_uses_openai_compat_shim() {
-    // The spec hint said "produces `contents` array with `parts`" — that's
-    // Gemini's NATIVE format. Phase 4's behaviour-preserve mandate keeps
-    // Gemini on Google's OpenAI-compat shim (which is what pre-Phase-4
-    // `agent.rs::provider_url` + `streaming.rs::streaming_url_openai`
-    // both did). Switching to native is a follow-up — gap noted in
-    // resolver.rs's GeminiProvider impl comment.
+fn gemini_build_stream_request_uses_native_generate_content() {
+    // Phase 4 originally kept Gemini on Google's OpenAI-compat shim
+    // (`/v1beta/openai/chat/completions`) under the behaviour-preserve
+    // mandate. #304 (2ba17b7d) intentionally moved GeminiProvider to the
+    // NATIVE `:generateContent` API because the shim returns tool-calls as
+    // text instead of structured `tool_calls`, silently breaking tool-use.
+    //
+    // Streaming contract: Gemini's native SSE is incompatible with the
+    // agent's OpenAI-SSE parser, so BOTH `call_with_streaming` and
+    // `call_with_fallback` short-circuit any resolved `provider_type() ==
+    // "gemini"` to the non-streaming native `complete()` BEFORE
+    // `build_stream_request` is reached (agent.rs gemini short-circuit
+    // branches). This method therefore emits the native shape for any
+    // shape-then-send caller; it is never fed to the SSE parser.
     let cfg = cfg_one("primary", "gemini");
     let provider = resolve(&cfg, "primary");
     let messages = vec![json!({"role": "user", "content": "hello"})];
@@ -240,11 +247,14 @@ fn gemini_build_stream_request_uses_openai_compat_shim() {
         .expect("build ok");
     assert_eq!(
         parts.url,
-        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
     );
-    // OpenAI-compat shape: `messages`, not `contents`.
-    assert!(parts.body.get("messages").is_some());
-    assert!(parts.body.get("contents").is_none());
+    // Native shape: `contents` with `parts`, not OpenAI `messages`.
+    assert!(parts.body.get("contents").is_some());
+    assert!(parts.body.get("messages").is_none());
+    // The OpenAI-shaped input message must survive the Value→ChatMessage→
+    // contents/parts bridge (value_messages_to_chat + build_gemini_body).
+    assert_eq!(parts.body["contents"][0]["parts"][0]["text"], "hello");
 }
 
 #[test]

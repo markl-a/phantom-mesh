@@ -3,9 +3,9 @@
 //! OpenAI-compatible chat completions. Auth: `Authorization: Bearer <key>`.
 //! Hosts open-weight models (Llama, Mixtral, Qwen, etc.). $25 free credit on signup.
 //!
-//! Gated behind Cargo feature `experimental-hermes-providers` (default OFF).
+//! Gated behind Cargo feature `experimental-extra-providers` (default OFF).
 
-#![cfg(feature = "experimental-hermes-providers")]
+#![cfg(feature = "experimental-extra-providers")]
 
 use crate::config::ProviderEntry;
 use reqwest::header::{HeaderName, HeaderValue, AUTHORIZATION};

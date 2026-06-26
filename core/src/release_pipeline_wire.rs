@@ -381,26 +381,133 @@ pub fn build_release_manifest(
     })
 }
 
-fn glob_artifacts_pseudo(_dir: &str) -> Result<Vec<String>, ReleaseError> {
-    unimplemented!("Stage 3: glob crate — enumerate dist/*.[dmg msi AppImage apk ipa]")
+/// Stage 3: enumerate release artifacts in `dir` by extension.
+///
+/// Returns sorted paths of files whose extension is one of dmg / msi /
+/// AppImage / apk / ipa. A missing directory is not an error — returns an
+/// empty vec so `build_release_manifest` degrades gracefully when `dist/`
+/// has not been populated yet.
+fn glob_artifacts_pseudo(dir: &str) -> Result<Vec<String>, ReleaseError> {
+    const EXTS: [&str; 5] = ["dmg", "msi", "AppImage", "apk", "ipa"];
+    let read_dir = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        // Missing dir is benign (Stage 1 contract): empty result, no error.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => {
+            return Err(ReleaseError::VerifyFailed(format!(
+                "read_dir '{}' failed: {}",
+                dir, e
+            )))
+        }
+    };
+    let mut out: Vec<String> = Vec::new();
+    for entry in read_dir {
+        let entry = entry
+            .map_err(|e| ReleaseError::VerifyFailed(format!("read_dir entry in '{}': {}", dir, e)))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            // Case-INSENSITIVE extension match: real-world artifacts vary in case
+            // (e.g. `.AppImage` / `.APPIMAGE`, `.DMG`). Flagged by the multi-agent
+            // review (nvidia) — harden the spec list against case drift.
+            if EXTS.iter().any(|x| x.eq_ignore_ascii_case(ext)) {
+                if let Some(p) = path.to_str() {
+                    out.push(p.to_string());
+                }
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
-fn sha256_file_pseudo(_path: &str) -> Result<(String, u64), ReleaseError> {
-    unimplemented!("Stage 3: sha2 + std::fs — stream file bytes through Sha256, return (hex, size)")
+/// Stage 3: compute lowercase hex sha256 + byte size of a file.
+///
+/// Streams the whole file into a `Sha256` hasher. IO errors map to
+/// `VerifyFailed` (the closest general failure variant in this layer).
+fn sha256_file_pseudo(path: &str) -> Result<(String, u64), ReleaseError> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path)
+        .map_err(|e| ReleaseError::VerifyFailed(format!("read '{}' failed: {}", path, e)))?;
+    let size_bytes = bytes.len() as u64;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let digest = hasher.finalize();
+    let hex: String = digest.iter().map(|b| format!("{:02x}", b)).collect();
+    Ok((hex, size_bytes))
 }
 
-fn detect_adjacent_signature_pseudo(_path: &str) -> Result<Option<String>, ReleaseError> {
-    unimplemented!("Stage 3: std::fs — probe for <path>.asc / <path>.sig adjacent files")
+/// Stage 3: probe for an adjacent detached signature file.
+///
+/// Prefers `<path>.asc` (Linux GPG), falls back to `<path>.sig` (Tauri
+/// updater Ed25519). Returns `None` when neither exists.
+fn detect_adjacent_signature_pseudo(path: &str) -> Result<Option<String>, ReleaseError> {
+    let asc = format!("{}.asc", path);
+    if std::path::Path::new(&asc).exists() {
+        return Ok(Some(asc));
+    }
+    let sig = format!("{}.sig", path);
+    if std::path::Path::new(&sig).exists() {
+        return Ok(Some(sig));
+    }
+    Ok(None)
 }
 
+/// Stage 3: parse `(ArtifactOs, ArtifactArch)` from an artifact filename.
+///
+/// Case-insensitive token scan. OS: macos/darwin, windows/win, linux,
+/// android, ios. ARCH: x86_64/amd64, aarch64/arm64, universal. Unrecognised
+/// os or arch returns `VerifyFailed`.
 fn parse_os_arch_from_filename_pseudo(
-    _path: &str,
+    path: &str,
 ) -> Result<(ArtifactOs, ArtifactArch), ReleaseError> {
-    unimplemented!("Stage 3: regex — extract `-<os>-<arch>` token from artifact filename")
+    let lower = path.to_ascii_lowercase();
+
+    let os = if lower.contains("macos") || lower.contains("darwin") {
+        ArtifactOs::Macos
+    } else if lower.contains("windows") || lower.contains("win") {
+        ArtifactOs::Windows
+    } else if lower.contains("linux") {
+        ArtifactOs::Linux
+    } else if lower.contains("android") {
+        ArtifactOs::Android
+    } else if lower.contains("ios") {
+        ArtifactOs::Ios
+    } else {
+        return Err(ReleaseError::VerifyFailed(format!(
+            "unrecognized OS token in filename '{}'",
+            path
+        )));
+    };
+
+    // Order matters: check the most specific tokens first.
+    let arch = if lower.contains("x86_64") || lower.contains("amd64") {
+        ArtifactArch::X86_64
+    } else if lower.contains("aarch64") || lower.contains("arm64") {
+        ArtifactArch::Aarch64
+    } else if lower.contains("universal") {
+        ArtifactArch::Universal2
+    } else {
+        return Err(ReleaseError::VerifyFailed(format!(
+            "unrecognized arch token in filename '{}'",
+            path
+        )));
+    };
+
+    Ok((os, arch))
 }
 
+/// Stage 3: current UNIX time in milliseconds.
+///
+/// A clock set before the epoch (`SystemTimeError`) maps to `VerifyFailed`.
 fn now_unix_ms_pseudo() -> Result<u64, ReleaseError> {
-    unimplemented!("Stage 3: std::time — SystemTime::now().duration_since(UNIX_EPOCH).as_millis()")
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| ReleaseError::VerifyFailed(format!("system clock before epoch: {}", e)))?;
+    Ok(dur.as_millis() as u64)
 }
 
 /// Verify all 5-platform artifacts are correctly signed.
@@ -630,10 +737,12 @@ pub fn check_updater_endpoint(channel: ReleaseChannel) -> Result<u32, ReleaseErr
         ReleaseChannel::Beta => "beta",
         ReleaseChannel::Nightly => "nightly",
     };
-    let url = format!(
-        "https://github.com/owner/repo/releases/latest/download/latest-{}.json",
-        channel_slug
-    );
+    // Base is the GitHub releases-latest download dir by default; tests (and a
+    // self-hosted updater) override it via PHANTOM_UPDATER_BASE_URL so the GET is
+    // redirectable to a wiremock server instead of hitting github.com.
+    let base = std::env::var("PHANTOM_UPDATER_BASE_URL")
+        .unwrap_or_else(|_| "https://github.com/owner/repo/releases/latest/download".to_string());
+    let url = format!("{}/latest-{}.json", base.trim_end_matches('/'), channel_slug);
     let (body, latency_ms) = https_get_timing_pseudo(&url)?;
 
     // Step 2: on 200, parse body as ReleaseManifest (schema validation).
@@ -643,16 +752,42 @@ pub fn check_updater_endpoint(channel: ReleaseChannel) -> Result<u32, ReleaseErr
     Ok(latency_ms)
 }
 
-fn https_get_timing_pseudo(_url: &str) -> Result<(String, u32), ReleaseError> {
-    unimplemented!(
-        "Stage 3: reqwest + std::time — GET url, wrap with Instant::now()/elapsed(), return (body, ms)"
-    )
+/// GET `url`, timing the round-trip. Non-200 or any transport error →
+/// `UpdaterEndpointDown`. Bridges the sync wire to the async reqwest client via
+/// the crate-wide `block_on_async` helper (same pattern as the other
+/// `https_*_pseudo` wire helpers), so it works from a sync caller.
+fn https_get_timing_pseudo(url: &str) -> Result<(String, u32), ReleaseError> {
+    let url = url.to_string();
+    crate::providers_wire::block_on_async(async move {
+        let start = std::time::Instant::now();
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ReleaseError::UpdaterEndpointDown(e.to_string()))?;
+        let status = resp.status();
+        // Read the body before the latency stop so a slow transfer counts too.
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| ReleaseError::UpdaterEndpointDown(e.to_string()))?;
+        let latency_ms = start.elapsed().as_millis() as u32;
+        if !status.is_success() {
+            return Err(ReleaseError::UpdaterEndpointDown(format!(
+                "HTTP {}",
+                status.as_u16()
+            )));
+        }
+        Ok((body, latency_ms))
+    })
 }
 
-fn manifest_parse_pseudo(_body: &str) -> Result<ReleaseManifest, ReleaseError> {
-    unimplemented!(
-        "Stage 3: serde_json — from_str::<ReleaseManifest>; parse-fail → UpdaterEndpointDown"
-    )
+fn manifest_parse_pseudo(body: &str) -> Result<ReleaseManifest, ReleaseError> {
+    // Stage 3: parse `latest.json` body into a typed manifest. A malformed
+    // payload (non-JSON / schema mismatch) is treated as an updater endpoint
+    // failure per SPEC-29 G5 ("non-200 or invalid JSON").
+    serde_json::from_str::<ReleaseManifest>(body)
+        .map_err(|e| ReleaseError::UpdaterEndpointDown(e.to_string()))
 }
 
 // ─── Smoke tests (Stage 1 sanity only; deeper invariants in Stage 2) ─────────
@@ -694,6 +829,90 @@ mod tests {
     }
 
     #[test]
+    fn manifest_parse_pseudo_round_trips_valid_json() {
+        // camelCase keys per `#[serde(rename_all = "camelCase")]` on the struct.
+        let body = r#"{
+            "version": "0.6.0-rc1",
+            "gitSha": "e7cdb70deadbeefcafe1234567890abcdef01234",
+            "channel": "beta",
+            "publishedAtMs": 1780000000000,
+            "artifacts": [],
+            "latestForChannel": true
+        }"#;
+        let m = manifest_parse_pseudo(body).expect("valid manifest JSON should parse");
+        assert_eq!(m.version, "0.6.0-rc1");
+        assert_eq!(m.channel, ReleaseChannel::Beta);
+        assert!(m.latest_for_channel);
+        assert!(m.artifacts.is_empty());
+
+        // Malformed JSON maps to the updater-endpoint-down variant (SPEC-29 G5).
+        let err = manifest_parse_pseudo("{ not json").unwrap_err();
+        assert!(matches!(err, ReleaseError::UpdaterEndpointDown(_)));
+    }
+
+    #[test]
+    fn check_updater_endpoint_via_mock_handles_200_non200_and_bad_json() {
+        // SPEC-29 G5: the live updater-endpoint smoke is now wired through reqwest
+        // (https_get_timing_pseudo). Drive it against a wiremock server via the
+        // PHANTOM_UPDATER_BASE_URL redirect. All 3 scenarios run sequentially in
+        // ONE test fn so the process-global env var never races a sibling test.
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let manifest_json = serde_json::to_string(&ReleaseManifest {
+            version: "0.6.0-rc1".into(),
+            git_sha: "e7cdb70deadbeefcafe1234567890abcdef01234".into(),
+            channel: ReleaseChannel::Stable,
+            published_at_ms: 1_780_000_000_000,
+            artifacts: vec![],
+            latest_for_channel: true,
+        })
+        .unwrap();
+
+        // (1) 200 + valid manifest → Ok(latency_ms).
+        let ok_mock = rt.block_on(MockServer::start());
+        rt.block_on(
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(manifest_json))
+                .mount(&ok_mock),
+        );
+        std::env::set_var("PHANTOM_UPDATER_BASE_URL", ok_mock.uri());
+        let ok = check_updater_endpoint(ReleaseChannel::Stable);
+        assert!(matches!(ok, Ok(_)), "200 + valid manifest must be Ok: {ok:?}");
+
+        // (2) non-200 → UpdaterEndpointDown (NOT a panic, NOT Ok).
+        let down_mock = rt.block_on(MockServer::start());
+        rt.block_on(
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(503))
+                .mount(&down_mock),
+        );
+        std::env::set_var("PHANTOM_UPDATER_BASE_URL", down_mock.uri());
+        let down = check_updater_endpoint(ReleaseChannel::Stable);
+        assert!(
+            matches!(down, Err(ReleaseError::UpdaterEndpointDown(_))),
+            "503 must be UpdaterEndpointDown: {down:?}"
+        );
+
+        // (3) 200 but malformed JSON → UpdaterEndpointDown (schema-validation gate).
+        let bad_mock = rt.block_on(MockServer::start());
+        rt.block_on(
+            Mock::given(method("GET"))
+                .respond_with(ResponseTemplate::new(200).set_body_string("{ not json"))
+                .mount(&bad_mock),
+        );
+        std::env::set_var("PHANTOM_UPDATER_BASE_URL", bad_mock.uri());
+        let bad = check_updater_endpoint(ReleaseChannel::Stable);
+        assert!(
+            matches!(bad, Err(ReleaseError::UpdaterEndpointDown(_))),
+            "malformed JSON must be UpdaterEndpointDown: {bad:?}"
+        );
+
+        std::env::remove_var("PHANTOM_UPDATER_BASE_URL");
+    }
+
+    #[test]
     fn release_channel_serialises_snake_case() {
         let c = ReleaseChannel::Nightly;
         let j = serde_json::to_string(&c).unwrap();
@@ -732,14 +951,17 @@ mod tests {
         );
     }
 
-    /// Stage 3 marker: success path through `build_release_manifest` must hit
-    /// the first `_pseudo` helper (`glob_artifacts_pseudo`) and panic with the
-    /// "Stage 3" prefix. Confirms Stage 2 wired the pseudocode shape correctly
-    /// — every helper still carries an `unimplemented!("Stage 3: ...")` body.
+    /// Stage 3: the success path through `build_release_manifest` now runs the
+    /// real helpers. Against a non-existent `dist/` dir, `glob_artifacts_pseudo`
+    /// returns an empty vec (missing-dir is benign), so the manifest builds
+    /// cleanly with zero artifacts and a real `published_at_ms` timestamp.
     #[test]
-    #[should_panic(expected = "Stage 3")]
-    fn build_release_manifest_hits_stage3_glob() {
-        let _ = build_release_manifest("0.6.0-rc1", "e7cdb70", ReleaseChannel::Beta);
+    fn build_release_manifest_empty_dist_ok() {
+        let m = build_release_manifest("0.6.0-rc1", "e7cdb70", ReleaseChannel::Beta)
+            .expect("should build manifest with empty dist/");
+        assert_eq!(m.version, "0.6.0-rc1");
+        assert!(m.artifacts.is_empty());
+        assert!(m.published_at_ms > 0);
     }
 
     #[test]
@@ -807,5 +1029,185 @@ mod tests {
         assert_eq!(ev.verify_logs.len(), back.verify_logs.len());
         assert_eq!(ev.notarize_status, back.notarize_status);
         assert_eq!(ev.tested_5os, back.tested_5os);
+    }
+
+    // ─── Stage 3 helper unit tests ──────────────────────────────────────────
+
+    /// Build a unique scratch path under the OS temp dir for a test.
+    fn tmp_path(suffix: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = now_unix_ms_pseudo().unwrap();
+        std::env::temp_dir().join(format!("phantom_rpw_{}_{}_{}", nanos, n, suffix))
+    }
+
+    #[test]
+    fn now_unix_ms_pseudo_is_recent() {
+        let ms = now_unix_ms_pseudo().expect("clock should be after epoch");
+        // Sanity: after 2020-01-01 (1_577_836_800_000) and before year 2100.
+        assert!(ms > 1_577_836_800_000, "ms={} too small", ms);
+        assert!(ms < 4_102_444_800_000, "ms={} too large", ms);
+    }
+
+    #[test]
+    fn sha256_file_pseudo_known_value() {
+        let p = tmp_path("abc.bin");
+        std::fs::write(&p, b"abc").unwrap();
+        let (hex, size) = sha256_file_pseudo(p.to_str().unwrap()).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert_eq!(
+            hex,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(size, 3);
+    }
+
+    #[test]
+    fn sha256_file_pseudo_missing_is_error() {
+        let p = tmp_path("does_not_exist.bin");
+        let r = sha256_file_pseudo(p.to_str().unwrap());
+        assert!(matches!(r, Err(ReleaseError::VerifyFailed(_))));
+    }
+
+    #[test]
+    fn glob_artifacts_pseudo_filters_and_sorts() {
+        let dir = tmp_path("globdir");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Matching extensions.
+        std::fs::write(dir.join("z-app.dmg"), b"x").unwrap();
+        std::fs::write(dir.join("a-app.msi"), b"x").unwrap();
+        std::fs::write(dir.join("b-app.AppImage"), b"x").unwrap();
+        std::fs::write(dir.join("c-app.apk"), b"x").unwrap();
+        std::fs::write(dir.join("d-app.ipa"), b"x").unwrap();
+        // Mixed/upper-case extension must also match (case-insensitive).
+        std::fs::write(dir.join("e-app.DMG"), b"x").unwrap();
+        // Non-matching extensions, should be excluded.
+        std::fs::write(dir.join("notes.txt"), b"x").unwrap();
+        std::fs::write(dir.join("checksum.sha256"), b"x").unwrap();
+
+        let mut found = glob_artifacts_pseudo(dir.to_str().unwrap()).unwrap();
+        // Compare on file names only (dir prefix is the temp path).
+        let names: Vec<String> = found
+            .drain(..)
+            .map(|p| {
+                std::path::Path::new(&p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(
+            names,
+            vec![
+                "a-app.msi".to_string(),
+                "b-app.AppImage".to_string(),
+                "c-app.apk".to_string(),
+                "d-app.ipa".to_string(),
+                "e-app.DMG".to_string(),
+                "z-app.dmg".to_string(),
+            ],
+            "must be filtered to release exts (case-insensitive) and sorted ascending"
+        );
+    }
+
+    #[test]
+    fn glob_artifacts_pseudo_missing_dir_ok_empty() {
+        let dir = tmp_path("no_such_dir");
+        let r = glob_artifacts_pseudo(dir.to_str().unwrap()).unwrap();
+        assert!(r.is_empty(), "missing dir must yield empty vec, not error");
+    }
+
+    #[test]
+    fn detect_adjacent_signature_pseudo_prefers_asc_then_sig_then_none() {
+        // None case.
+        let base = tmp_path("artifact.dmg");
+        std::fs::write(&base, b"x").unwrap();
+        let base_s = base.to_str().unwrap();
+        assert_eq!(detect_adjacent_signature_pseudo(base_s).unwrap(), None);
+
+        // .sig only.
+        let sig = format!("{}.sig", base_s);
+        std::fs::write(&sig, b"sig").unwrap();
+        assert_eq!(
+            detect_adjacent_signature_pseudo(base_s).unwrap(),
+            Some(sig.clone())
+        );
+
+        // .asc present → preferred over .sig.
+        let asc = format!("{}.asc", base_s);
+        std::fs::write(&asc, b"asc").unwrap();
+        assert_eq!(
+            detect_adjacent_signature_pseudo(base_s).unwrap(),
+            Some(asc.clone())
+        );
+
+        std::fs::remove_file(&base).ok();
+        std::fs::remove_file(&sig).ok();
+        std::fs::remove_file(&asc).ok();
+    }
+
+    #[test]
+    fn parse_os_arch_from_filename_pseudo_matrix() {
+        let cases = [
+            (
+                "phantom-mesh-0.6.0-darwin-aarch64.dmg",
+                ArtifactOs::Macos,
+                ArtifactArch::Aarch64,
+            ),
+            (
+                "phantom-mesh-0.6.0-macos-x86_64.dmg",
+                ArtifactOs::Macos,
+                ArtifactArch::X86_64,
+            ),
+            (
+                "phantom-mesh-0.6.0-windows-amd64.msi",
+                ArtifactOs::Windows,
+                ArtifactArch::X86_64,
+            ),
+            (
+                "phantom-mesh-0.6.0-linux-arm64.AppImage",
+                ArtifactOs::Linux,
+                ArtifactArch::Aarch64,
+            ),
+            (
+                "phantom-mesh-0.6.0-android-arm64.apk",
+                ArtifactOs::Android,
+                ArtifactArch::Aarch64,
+            ),
+            (
+                "phantom-mesh-0.6.0-macos-universal.dmg",
+                ArtifactOs::Macos,
+                ArtifactArch::Universal2,
+            ),
+            // Case-insensitivity.
+            (
+                "Phantom-Mesh-0.6.0-DARWIN-X86_64.dmg",
+                ArtifactOs::Macos,
+                ArtifactArch::X86_64,
+            ),
+        ];
+        for (name, want_os, want_arch) in cases {
+            let (os, arch) = parse_os_arch_from_filename_pseudo(name)
+                .unwrap_or_else(|e| panic!("parse '{}' failed: {:?}", name, e));
+            assert_eq!(os, want_os, "os mismatch for '{}'", name);
+            assert_eq!(arch, want_arch, "arch mismatch for '{}'", name);
+        }
+    }
+
+    #[test]
+    fn parse_os_arch_from_filename_pseudo_rejects_unknown() {
+        // Unknown OS.
+        assert!(matches!(
+            parse_os_arch_from_filename_pseudo("phantom-plan9-x86_64.bin"),
+            Err(ReleaseError::VerifyFailed(_))
+        ));
+        // Known OS, unknown arch.
+        assert!(matches!(
+            parse_os_arch_from_filename_pseudo("phantom-linux-riscv128.AppImage"),
+            Err(ReleaseError::VerifyFailed(_))
+        ));
     }
 }

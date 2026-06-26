@@ -55,7 +55,7 @@ impl PlatformAdapter for Platform {
     // switch this to the Termux app-container path when running
     // under Termux.
     fn config_dir(&self) -> std::path::PathBuf {
-        let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        home.join(".phantom-mesh")
+        crate::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
     }
 }

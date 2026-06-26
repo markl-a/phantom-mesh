@@ -645,6 +645,25 @@ where
         &agent_cfg,
         config.providers.keys().map(|s| s.as_str()),
     );
+    // Facet ⑤ (fix #2): local-first, cloud opt-in fallback. This is the most
+    // common streaming chat path (serve / partner), so without this the
+    // PHANTOM_LOCAL_FIRST opt-in was a silent no-op here even though it worked
+    // for call_with_fallback / call_with_streaming. Gated on the same env opt-in,
+    // reorders only (never drops cloud → fallback preserved), and placed BEFORE
+    // the runtime override so an explicit /model X:Y still wins, identical to the
+    // ordering in agent.rs::call_with_fallback / call_with_streaming.
+    //
+    // NOTE (fix #2 limitation): the system-prompt PromptStyle / SystemPlacement
+    // for this path is shaped against the model id passed to `stream_one_round`,
+    // not re-derived from the reordered primary provider. Local-first here only
+    // reorders the *attempt order*; if you need local-model prompt framing on
+    // this path, name the local provider explicitly via /model. (agent.rs:746
+    // derives style from the resolved primary BEFORE this reorder runs too — see
+    // the doc note there; full local-first prompt-style alignment is tracked
+    // separately and intentionally out of scope for this minimal, reversible fix.)
+    if crate::agent::should_prioritize_local_servers() {
+        crate::agent::inject_detected_local_servers(&mut provider_names).await;
+    }
     // Read both the env var (per-process) AND the file at
     // ~/.phantom-mesh/runtime-override (shared across phantom processes —
     // so /model X:Y in the TUI also affects the local `phantom serve`
@@ -699,9 +718,15 @@ where
             };
 
             // Per-entry model overrides agent default + provider default.
-            let model = entry_model
-                .map(|m| m.to_string())
-                .unwrap_or_else(|| resolve_stream_model(provider, &agent_cfg.model));
+            // Shared resolver (agent.rs) — the SINGLE precedence used by every
+            // dispatch path. Previously this site picked the model inline via a
+            // local `resolve_stream_model` helper whose ordering put
+            // `provider.default_model` above `agent.model` (the reverse of the
+            // two `call_with_*` loops), so streaming and fallback could resolve
+            // different models for the same config. Routing through
+            // `resolve_entry_model` collapses that 3rd path.
+            let model =
+                crate::agent::resolve_entry_model(entry_model, &agent_cfg.model, provider);
 
             // DEMO-1 gap 1 Phase 3: dispatch through the LlmProvider trait
             // for provider-type identification. Falls back to the legacy
@@ -1924,34 +1949,6 @@ fn parse_openai_delta(json: &Value) -> Option<String> {
 
 // ── URL helpers ───────────────────────────────────────────────────────────
 
-/// Resolve the model name to use, applying provider-specific defaults.
-/// Falls back to `"minimax-m2.5-free"` for opencode.ai when no model is
-/// explicitly configured — that's the cheapest tier-0 free model still
-/// accepted as of 2026-04. The earlier hard-default of `claude-sonnet-4-5`
-/// is in opencode's PAID tier and produced "Model not supported" errors
-/// for users without a payment method on file (B1 root cause).
-///
-/// Other free-tier opencode models (queryable at GET https://opencode.ai/zen/v1/models):
-///   minimax-m2.5-free, nemotron-3-super-free, ling-2.6-flash-free, hy3-preview-free
-/// Paid tier (require payment method): claude-sonnet-4-5/6, claude-opus-4-5/6/7, gpt-*, gemini-*
-fn resolve_stream_model(provider: &ProviderEntry, fallback: &str) -> String {
-    if let Some(m) = &provider.default_model {
-        if !m.is_empty() {
-            return m.clone();
-        }
-    }
-    if provider.provider_type == "opencode"
-        || provider
-            .url
-            .as_deref()
-            .unwrap_or("")
-            .contains("opencode.ai")
-    {
-        return "minimax-m2.5-free".into();
-    }
-    fallback.to_string()
-}
-
 /// [F1] Returns true for Claude Opus 4.7 and later models that support the
 /// `thinking.display` field (Anthropic 2026-03-16). Older Claude models 400
 /// on `display`, so this gate keeps the request body backwards-compatible
@@ -2013,7 +2010,7 @@ fn streaming_url_openai(provider: &ProviderEntry) -> String {
         // `core/src/providers/<name>.rs::streaming_url()`. We hardcode here
         // instead of delegating to those functions because the
         // `core/src/providers/<name>` modules are gated behind the
-        // `experimental-hermes-providers` cargo feature — they aren't
+        // `experimental-extra-providers` cargo feature — they aren't
         // compiled into the default `phantom` binary, which is the build
         // path the V1 round-trip exercise was using when it tripped this
         // bug. Keep the strings in sync with each module's
@@ -2973,6 +2970,97 @@ mod tests {
                 .all(|e| !matches!(e, StreamEvent::Thinking { .. })),
             "must not emit Thinking event for empty thinking text, got: {:?}",
             *events
+        );
+    }
+
+    // ── 3rd-path model-resolver parity ────────────────────────────────────
+    // Regression for the #312 follow-up: the streaming dispatch loop used to
+    // resolve `provider:model` / `default_model` via a local helper whose
+    // precedence put `provider.default_model` *above* `agent.model` — the
+    // reverse of agent.rs's two `call_with_*` loops. These tests pin the
+    // streaming site to the SAME shared resolver so all three paths agree.
+
+    /// Mirror exactly how streaming.rs's dispatch loop derives the model:
+    /// `parse_provider_entry(entry)` (line ~704) → `resolve_entry_model(...)`.
+    fn streaming_resolved_model(
+        entry: &str,
+        agent_model: &str,
+        provider: &ProviderEntry,
+    ) -> String {
+        let (_name, entry_model) = crate::agent::parse_provider_entry(entry);
+        crate::agent::resolve_entry_model(entry_model, agent_model, provider)
+    }
+
+    #[test]
+    fn streaming_resolves_provider_model_suffix_like_resolver() {
+        // `provider:model` suffix is the most specific selector and must win
+        // over both agent.model and provider.default_model on every path.
+        let provider = ProviderEntry {
+            provider_type: "groq".into(),
+            default_model: Some("llama-3.3-70b-versatile".into()),
+            ..Default::default()
+        };
+        let from_stream =
+            streaming_resolved_model("groq:moonshotai/kimi-k2", "agent-default-model", &provider);
+        let from_resolver = crate::agent::resolve_entry_model(
+            Some("moonshotai/kimi-k2"),
+            "agent-default-model",
+            &provider,
+        );
+        assert_eq!(from_stream, "moonshotai/kimi-k2");
+        assert_eq!(from_stream, from_resolver);
+    }
+
+    #[test]
+    fn streaming_resolves_provider_default_model_like_resolver() {
+        // Bare entry, empty agent.model → falls through to default_model on
+        // every path.
+        let provider = ProviderEntry {
+            provider_type: "groq".into(),
+            default_model: Some("llama-3.3-70b-versatile".into()),
+            ..Default::default()
+        };
+        let from_stream = streaming_resolved_model("groq", "", &provider);
+        let from_resolver =
+            crate::agent::resolve_entry_model(None, "", &provider);
+        assert_eq!(from_stream, "llama-3.3-70b-versatile");
+        assert_eq!(from_stream, from_resolver);
+    }
+
+    #[test]
+    fn streaming_agent_model_outranks_provider_default_like_fallback_loop() {
+        // THE divergence this change fixes: with BOTH agent.model and
+        // default_model set and a bare entry, agent.model must win (matching
+        // agent.rs). The old `resolve_stream_model` returned default_model
+        // here, so streaming and fallback could send different models.
+        let provider = ProviderEntry {
+            provider_type: "groq".into(),
+            default_model: Some("provider-default".into()),
+            ..Default::default()
+        };
+        let from_stream = streaming_resolved_model("groq", "agent-model", &provider);
+        let from_resolver =
+            crate::agent::resolve_entry_model(None, "agent-model", &provider);
+        assert_eq!(
+            from_stream, "agent-model",
+            "agent.model must outrank provider.default_model on the streaming path"
+        );
+        assert_eq!(from_stream, from_resolver);
+    }
+
+    #[test]
+    fn streaming_opencode_safety_net_preserved() {
+        // Under-configured opencode entry (no suffix, no agent.model, no
+        // default_model) still falls back to the free tier so it streams.
+        let provider = ProviderEntry {
+            provider_type: "opencode".into(),
+            ..Default::default()
+        };
+        let from_stream = streaming_resolved_model("opencode", "", &provider);
+        assert_eq!(from_stream, "minimax-m2.5-free");
+        assert_eq!(
+            from_stream,
+            crate::agent::resolve_entry_model(None, "", &provider)
         );
     }
 }

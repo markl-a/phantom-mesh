@@ -1,10 +1,10 @@
-// PKCE + Google OAuth helpers.
+// PKCE + Google/Apple OAuth helpers.
 //
-// Apple Sign In was scoped out — see git history if/when it comes back.
 // Cloudflare Workers ship Web Crypto + fetch + atob/btoa, so we only
-// need `jose` for our own broker JWT signing/verification.
+// need `jose` for our own broker JWT signing/verification and for the
+// ES256 Apple client-secret JWT.
 
-import { SignJWT, jwtVerify, decodeJwt } from "jose";
+import { SignJWT, jwtVerify, decodeJwt, importPKCS8 } from "jose";
 
 export type GoogleClaims = {
   email: string;
@@ -12,6 +12,17 @@ export type GoogleClaims = {
   sub: string;
   name?: string;
   picture?: string;
+};
+
+export type AppleClaims = {
+  // Apple's stable per-user identifier. This is the value we dedup
+  // accounts on — NOT email, because Hide-My-Email relays a fresh
+  // ...@privaterelay.appleid.com address that can change if the user
+  // toggles forwarding off/on.
+  sub: string;
+  email?: string;
+  email_verified?: boolean | string;  // Apple sends "true"/"false" strings
+  is_private_email?: boolean | string;
 };
 
 /* ── PKCE ─────────────────────────────────────────────────────────────── */
@@ -181,6 +192,100 @@ export async function exchangeGoogleCode(opts: {
   // fetch for simplicity in v1.
   const claims = decodeJwt(json.id_token) as unknown as GoogleClaims;
   return { id_token: json.id_token, access_token: json.access_token, claims };
+}
+
+/* ── Apple Sign In ────────────────────────────────────────────────────── */
+//
+// Apple differs from Google in three ways that drive the code below:
+//   1. The "client secret" is not a static string — it's a short-lived
+//      ES256 JWT we mint from a .p8 private key (APPLE_PRIVATE_KEY),
+//      signed for our Services ID (APPLE_CLIENT_ID) under our team
+//      (APPLE_TEAM_ID) / key (APPLE_KEY_ID).
+//   2. Requesting the `name`/`email` scope forces `response_mode=form_post`,
+//      so Apple POSTs the result to our callback instead of a GET redirect.
+//      (The cookie/SameSite consequence is handled in routes/oauth.ts.)
+//   3. The display name is delivered ONCE, on first consent, in a `user`
+//      form field — never in the id_token. We capture it in the callback.
+//
+// Apple web flow does not use PKCE; the ES256 client secret is the proof.
+
+export type AppleConfig = {
+  clientId: string;     // Services ID, e.g. io.phantommesh.signin
+  teamId: string;       // 10-char Apple Developer Team ID
+  keyId: string;        // 10-char key ID for the .p8
+  privateKey: string;   // PKCS8 PEM contents of the AuthKey_XXXX.p8
+};
+
+// True iff every Apple binding is present. Used to conditionally show
+// the "Continue with Apple" button and advertise the provider.
+export function appleConfigured(cfg: Partial<AppleConfig>): cfg is AppleConfig {
+  return !!(cfg.clientId && cfg.teamId && cfg.keyId && cfg.privateKey);
+}
+
+// Mint the ES256 client-secret JWT. Apple permits up to 6 months; we use
+// a short TTL since we mint fresh per token exchange (cheap on Workers).
+export async function appleClientSecret(cfg: AppleConfig): Promise<string> {
+  // Wrangler secrets set via `wrangler secret put` over stdin preserve
+  // real newlines, but a value pasted with literal "\n" needs unescaping.
+  const pem = cfg.privateKey.includes("\\n")
+    ? cfg.privateKey.replace(/\\n/g, "\n")
+    : cfg.privateKey;
+  const key = await importPKCS8(pem, "ES256");
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "ES256", kid: cfg.keyId })
+    .setIssuer(cfg.teamId)
+    .setIssuedAt(now)
+    .setExpirationTime(now + 300)
+    .setAudience("https://appleid.apple.com")
+    .setSubject(cfg.clientId)
+    .sign(key);
+}
+
+export function appleAuthUrl(params: {
+  clientId: string;
+  redirect: string;
+  state: string;
+}): string {
+  const u = new URL("https://appleid.apple.com/auth/authorize");
+  u.searchParams.set("client_id", params.clientId);
+  u.searchParams.set("redirect_uri", params.redirect);
+  u.searchParams.set("response_type", "code");
+  u.searchParams.set("scope", "name email");
+  // Requesting name/email forces form_post — Apple rejects `query` here.
+  u.searchParams.set("response_mode", "form_post");
+  u.searchParams.set("state", params.state);
+  return u.toString();
+}
+
+export async function exchangeAppleCode(opts: {
+  cfg: AppleConfig;
+  redirect: string;
+  code: string;
+}): Promise<{ id_token: string; access_token: string; claims: AppleClaims }> {
+  const clientSecret = await appleClientSecret(opts.cfg);
+  const body = new URLSearchParams({
+    client_id: opts.cfg.clientId,
+    client_secret: clientSecret,
+    redirect_uri: opts.redirect,
+    grant_type: "authorization_code",
+    code: opts.code,
+  });
+  const r = await fetch("https://appleid.apple.com/auth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(`apple token exchange failed: ${r.status} ${txt}`);
+  }
+  const json = await r.json() as { id_token: string; access_token: string };
+  // Trust Apple's id_token — it just came from appleid.apple.com over TLS
+  // in response to our signed client secret. Same simplification as the
+  // Google path (skip JWKS verification in v1).
+  const claims = decodeJwt(json.id_token) as unknown as AppleClaims;
+  return { id_token: json.id_token, access_token: json.access_token ?? "", claims };
 }
 
 /* ── Broker token (our own JWT) ───────────────────────────────────────── */

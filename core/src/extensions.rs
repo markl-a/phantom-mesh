@@ -23,9 +23,8 @@ use std::path::PathBuf;
 
 /// Path to `~/.phantom-mesh/extensions/`.
 pub fn extensions_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
         .join("extensions")
 }
 

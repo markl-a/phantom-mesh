@@ -1,6 +1,28 @@
+pub mod claude_agent;
 pub mod claude_cli;
+pub mod cli_session_provider;
+pub mod codex_cli;
+pub mod codex_oauth;
 pub mod credential_scanner;
+pub mod gemini_cli;
+pub mod gemini_oauth;
+pub mod local_servers;
+pub mod openai_oauth;
+// Free-tier cloud LLM plugin — default-on in onboarding so a brand-new user
+// with no subscription + no local Ollama still gets a working (free, no-credit-
+// card) provider minute-one. See `free_plugin.rs`.
+pub mod free_plugin;
 pub mod traits;
+
+// ── P0-5 (2026-06-17): deterministic circuit breaker + failover decision.
+// State machine (Closed→Open→HalfOpen) over the existing ProviderError
+// catalog, driven by an injected crate::clock::Clock so cooldown/half-open
+// transitions are unit-testable without real time. Rewires the breaker
+// functions in providers_wire.rs (provider_alive / record_provider_*).
+pub mod circuit_breaker;
+pub use circuit_breaker::{
+    classify_failure, BreakerConfig, BreakerState, CircuitBreaker, FailureKind,
+};
 
 // ── DEMO-1 gap 1 (2026-05-17): LlmProvider trait + DefaultProviderResolver.
 // Phase 1 introduces the trait surface (no call-site changes); Phase 2 adds
@@ -15,31 +37,31 @@ pub use resolver::DefaultProviderResolver;
 // All four are OpenAI-compat chat-completions; modules own only metadata,
 // default URLs/models, and bearer-auth header construction. Wire format
 // is the existing OpenAI streaming codepath in `streaming.rs`.
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod fireworks;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod mistral;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod together;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod xai;
 
 // ── T51 (2026-05-16): v0.6.0 V1 push — 4 more provider adapters ──────────
-// Bring the Hermes provider count from 8 → 12. Same feature gate so
+// Bring the extra OpenAI-compat provider count from 8 → 12. Same feature gate so
 // default `cargo build` stays byte-identical. Three are OpenAI-compat;
 // `cohere` is the lone outlier (own request shape + X-API-Key header).
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod ai21;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod cohere;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod nvidia;
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod perplexity;
 
 // T11 (2026-05-15): retry + backoff middleware for the H4 providers.
 // Same feature gate so default `cargo build` stays byte-identical.
-#[cfg(feature = "experimental-hermes-providers")]
+#[cfg(feature = "experimental-extra-providers")]
 pub mod retry;
 
 use serde::{Deserialize, Serialize};
@@ -211,7 +233,7 @@ pub async fn health_check(provider: &ProviderEntry, client: &reqwest::Client) ->
     // owns its own RETRY_ENABLED const + health_check_with_retry helper so
     // we don't centralise routing logic — adding a 5th retry-enabled
     // provider is one match-arm + that provider's own commit.
-    #[cfg(feature = "experimental-hermes-providers")]
+    #[cfg(feature = "experimental-extra-providers")]
     {
         if mistral::RETRY_ENABLED && provider.provider_type == mistral::PROVIDER_ID {
             return mistral::health_check_with_retry(provider, &key)
@@ -682,7 +704,7 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "experimental-hermes-providers")]
+    #[cfg(feature = "experimental-extra-providers")]
     #[tokio::test]
     async fn health_check_dispatches_to_mistral_retry() {
         use wiremock::matchers::method;

@@ -49,7 +49,7 @@ pub struct DailyReviewView {
 /// are no readable events AND a genuinely age-encrypted event exists that we
 /// have no key for — otherwise it's just empty.
 pub fn load_daily_review(base: &Path, date_iso: &str) -> DailyReviewView {
-    let phantom = base.join(".phantom-mesh");
+    let phantom = crate::cli_config::phantom_dir_under(base);
     let events_dir = phantom.join("events");
     let identity_path = phantom.join("identity.key");
 

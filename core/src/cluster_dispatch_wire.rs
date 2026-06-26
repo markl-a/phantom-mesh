@@ -223,6 +223,12 @@ pub struct DispatchOutcome {
     /// `None` for success terminals (Completed). The machine-readable
     /// code lives in `DispatchError`; this field is the rendered message.
     pub error: Option<String>,
+    /// USD cost attributed to executing this subtask on its peer (SPEC-26 G6/J5).
+    /// `0.0` for local / no-cost peers and until the peer's RPC `TaskResult`
+    /// carries a real per-task cost (that cross-peer wiring is a deferred
+    /// follow-up); `integrate` sums these into `IntegratedResult.total_cost_usd`.
+    #[serde(default)]
+    pub cost_usd: f64,
 }
 
 // ─── §7 PeerScore — `score_peer` 的回傳 ──────────────────────────────────
@@ -364,6 +370,13 @@ pub enum DispatchRole {
     Master,
     Coder,
     Researcher,
+    /// Non-author second-AI reviewer (CROSS-REVIEW-AUTOMATION spec §2.1).
+    /// Wire string is the deterministic `"reviewer"` via the existing
+    /// `#[serde(rename_all = "snake_case")]` derive — additive only; existing
+    /// dispatch paths (`decompose`, `assign_subtasks` match arms) remain
+    /// unchanged. The merge gate constructs Reviewer subtasks directly via
+    /// `assign_subtasks`, bypassing `decompose` per spec §2.4.
+    Reviewer,
 }
 
 /// One unit the master split a user input into (SPEC-26 #2). `required_caps`
@@ -421,6 +434,12 @@ fn role_required_caps(role: DispatchRole) -> Vec<CapabilityTag> {
         DispatchRole::Coder => &["role-coder", "cargo", "git"],
         DispatchRole::Researcher => &["role-researcher", "webSearch"],
         DispatchRole::Master => &[],
+        // CROSS-REVIEW-AUTOMATION spec §2.2: a Reviewer subtask must land on a
+        // peer that opted into the reviewer pool (`role-reviewer`), can fetch
+        // the diff read-only (`git`), and has the canonical green-gate primitive
+        // registered (`dev-verify`). plan_dispatch's existing required-cap
+        // filter (line ~965) keeps Coder-only / unverified peers out of the pool.
+        DispatchRole::Reviewer => &["role-reviewer", "git", "dev-verify"],
     };
     slugs
         .iter()
@@ -505,6 +524,7 @@ pub fn assign_subtasks(
                 DispatchRole::Master => "master",
                 DispatchRole::Coder => "coder",
                 DispatchRole::Researcher => "researcher",
+                DispatchRole::Reviewer => "reviewer",
             };
             let task_id = format!("{base_task_id}-{role_slug}-{i}");
             let task = DispatchTask {
@@ -539,7 +559,8 @@ pub fn assign_subtasks(
 /// reports `total_latency_ms` as the PARALLEL wall-clock span
 /// (`max(completed_at_ms) - min(started_at_ms)`) since subtasks run
 /// concurrently (0 when nothing completed).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+// NOTE: `Eq` is intentionally NOT derived — `total_cost_usd` is `f64` (not `Eq`).
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export, export_to = "../../app/src/lib/generated/cluster_dispatch/")]
 #[serde(rename_all = "camelCase")]
 pub struct IntegratedResult {
@@ -547,6 +568,11 @@ pub struct IntegratedResult {
     pub succeeded: usize,
     pub failed: usize,
     pub total_latency_ms: u64,
+    /// Sum of every subtask's `cost_usd` (SPEC-26 J5 — the "$0.0238 across N
+    /// machines" headline). Per the G6 invariant the master decompose/integrate
+    /// step costs 0, so this equals exactly the sum of per-subtask costs.
+    #[serde(default)]
+    pub total_cost_usd: f64,
 }
 
 /// Fold subtask [`DispatchOutcome`]s into one [`IntegratedResult`]. Pure +
@@ -602,11 +628,16 @@ pub fn integrate(outcomes: &[DispatchOutcome]) -> IntegratedResult {
         ));
     }
 
+    // G6 invariant: the master decompose/integrate step itself costs 0, so the
+    // total is exactly the sum of per-subtask costs.
+    let total_cost_usd = outcomes.iter().map(|o| o.cost_usd).sum();
+
     IntegratedResult {
         markdown,
         succeeded,
         failed,
         total_latency_ms,
+        total_cost_usd,
     }
 }
 
@@ -662,6 +693,7 @@ pub async fn run_dispatch_with<R: SubtaskRunner>(
                         .map(|e| format!("{:?}", e))
                         .unwrap_or_else(|| "no capable peer for subtask".to_string()),
                 ),
+                cost_usd: 0.0,
             },
         }
     }))
@@ -702,6 +734,7 @@ fn dispatch_error_to_outcome(
         completed_at_ms: Some(epoch_ms_now()),
         result_summary: None,
         error: Some(format!("{:?}", err)),
+        cost_usd: 0.0,
     }
 }
 
@@ -1107,6 +1140,9 @@ pub async fn execute_plan(plan: &DispatchPlan) -> Result<DispatchOutcome, Dispat
                     completed_at_ms,
                     result_summary: None,
                     error: None,
+                    // Real per-task cost from the peer's RPC TaskResult is a
+                    // deferred cross-peer wiring follow-up; 0.0 until then.
+                    cost_usd: 0.0,
                 });
             }
             Err(DispatchError::DispatchAuthFailed) => {
@@ -1223,7 +1259,14 @@ async fn rpc_poll_status(task_id: &str) -> Result<DispatchStatus, DispatchError>
     // master keeps its own /rpc/task/status mirror that aggregates peer
     // updates). Real cross-peer broker handoff is Stage 4.
     let path = format!("/rpc/task/status/{task_id}");
-    let url = format!("http://127.0.0.1:7878{path}");
+    // The master polls its OWN local serve API for the task-status mirror. Base
+    // defaults to the canonical local serve addr; PHANTOM_POLL_URL overrides it
+    // (test seam → wiremock; also lets a non-default local serve port work).
+    let poll_base = std::env::var("PHANTOM_POLL_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:7878".to_string());
+    let url = format!("{}{path}", poll_base.trim_end_matches('/'));
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
@@ -1494,6 +1537,36 @@ mod tests {
         let back2: CapabilityTag = serde_json::from_str(&j2).unwrap();
         assert_eq!(back2.slug, "ram");
         assert_eq!(back2.value.as_deref(), Some("16gb"));
+    }
+
+    #[test]
+    fn reviewer_role_caps_match_cross_review_spec() {
+        // CROSS-REVIEW-AUTOMATION spec §2.1 + §2.2 — additive Reviewer variant.
+        // Pins: wire string is the deterministic `"reviewer"` (snake_case derive),
+        // and `role_required_caps(Reviewer)` yields exactly the three slugs the
+        // spec names — `role-reviewer`, `git`, `dev-verify` — each with no
+        // parametric `value`. Existing role bundles MUST stay untouched
+        // (additive-only invariant).
+        let j = serde_json::to_string(&DispatchRole::Reviewer).unwrap();
+        assert_eq!(j, "\"reviewer\"", "wire string must be snake_case 'reviewer'");
+
+        let caps = role_required_caps(DispatchRole::Reviewer);
+        let slugs: Vec<&str> = caps.iter().map(|t| t.slug.as_str()).collect();
+        assert_eq!(slugs, vec!["role-reviewer", "git", "dev-verify"]);
+        assert!(
+            caps.iter().all(|t| t.value.is_none()),
+            "Reviewer caps are boolean-style; no parametric values"
+        );
+
+        // Additive invariant: pre-existing role bundles are NOT modified.
+        let coder = role_required_caps(DispatchRole::Coder);
+        let coder_slugs: Vec<&str> = coder.iter().map(|t| t.slug.as_str()).collect();
+        assert_eq!(coder_slugs, vec!["role-coder", "cargo", "git"]);
+        let researcher = role_required_caps(DispatchRole::Researcher);
+        let researcher_slugs: Vec<&str> =
+            researcher.iter().map(|t| t.slug.as_str()).collect();
+        assert_eq!(researcher_slugs, vec!["role-researcher", "webSearch"]);
+        assert!(role_required_caps(DispatchRole::Master).is_empty());
     }
 
     #[test]
@@ -1773,6 +1846,7 @@ mod tests {
             completed_at_ms: completed,
             result_summary: summary.map(|s| s.to_string()),
             error: error.map(|s| s.to_string()),
+            cost_usd: 0.0,
         }
     }
 
@@ -1792,6 +1866,27 @@ mod tests {
         assert!(r.markdown.contains("1 ok, 1 failed"));
         // failure with no summary falls back to the error string.
         assert!(r.markdown.contains("peer error"));
+    }
+
+    #[test]
+    fn integrate_sums_per_subtask_cost_into_total() {
+        // SPEC-26 J5 worked example: $0.015 + $0.0088 + $0.0 == $0.0238.
+        let mut a = outcome("j-0", DispatchStatus::Completed, 1000, Some(1500), Some("ok"), None);
+        a.cost_usd = 0.015;
+        let mut b = outcome("j-1", DispatchStatus::Completed, 1000, Some(1600), Some("ok"), None);
+        b.cost_usd = 0.0088;
+        let c = outcome("j-2", DispatchStatus::Completed, 1000, Some(1400), Some("ok"), None); // 0.0
+        let r = integrate(&[a, b, c]);
+        // EXACT sum (G6: master adds 0.0) — assert equality, not `> 0.0`, so a
+        // stubbed `total_cost_usd: 0.0` cannot fake-green this.
+        let expected: f64 = 0.015 + 0.0088 + 0.0;
+        assert!((r.total_cost_usd - expected).abs() < 1e-9, "got {}", r.total_cost_usd);
+        assert!((r.total_cost_usd - 0.0238).abs() < 1e-9, "got {}", r.total_cost_usd);
+    }
+
+    #[test]
+    fn integrate_empty_has_zero_cost() {
+        assert_eq!(integrate(&[]).total_cost_usd, 0.0);
     }
 
     #[test]
@@ -1923,6 +2018,7 @@ mod tests {
                 completed_at_ms: Some(now_ms_test()),
                 result_summary: Some("mock".into()),
                 error: None,
+                cost_usd: 0.0,
             }
         }
     }

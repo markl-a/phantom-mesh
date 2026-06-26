@@ -84,8 +84,8 @@ impl PlatformAdapter for Platform {
         if let Some(home) = dirs::home_dir() {
             return home.join("Library/Application Support/ai.phantommesh.app");
         }
-        let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        home.join(".phantom-mesh")
+        crate::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
     }
 }
 

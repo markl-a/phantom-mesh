@@ -1,11 +1,11 @@
-// OAuth routes — Google. Email tier lives in routes/email.ts.
-// Apple Sign In was scoped out — see git history if/when it comes back.
+// OAuth routes — Google + Apple. Email tier lives in routes/email.ts.
 
 import type { Context } from "hono";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
 import type { Env, OAuthSession, CliPayload, UserRow } from "../types";
 import {
   googleAuthUrl, exchangeGoogleCode,
+  appleAuthUrl, exchangeAppleCode, appleConfigured, type AppleConfig,
   pkcePair, pkceChallenge, mintBrokerJwt,
   verifyCsrf,
   generateOAuthNonce, hashOAuthNonce, verifyOAuthNonce,
@@ -46,8 +46,9 @@ function setNonceCookie(c: Context<{ Bindings: Env }>, nonce: string): void {
                       // is a cross-site GET back from accounts.google.com.
                       // Strict would strip the cookie on that hop.
     path:     "/",
-    maxAge:   600,    // 10 min — must outlive the KV record's 5-min TTL
-                      // by a comfortable margin (clock skew + user delay).
+    maxAge:   960,    // 16 min — must outlive the KV record's 15-min TTL
+                      // by a comfortable margin (clock skew + user delay,
+                      // incl. Apple 2FA + consent which can exceed 5 min).
   });
 }
 
@@ -98,8 +99,21 @@ export async function authStart(c: Context<{ Bindings: Env }>) {
     created_at: Date.now(),
     nonce_hash,
   };
-  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 300 });
+  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 900 });
   setNonceCookie(c, nonce);
+
+  // Optional provider hint (e.g. `phantom login apple`): skip the picker
+  // and jump straight to that provider's start route. The redirect is a
+  // same-site GET, so the Lax nonce cookie we just set is carried through
+  // and re-verified by the provider's checkNonceBinding. Unknown / dark
+  // providers fall through to the picker.
+  const hint = c.req.query("provider") ?? "";
+  if (hint === "google") {
+    return c.redirect(`/auth/google/start?state=${state}`);
+  }
+  if (hint === "apple" && appleAvailable(c.env)) {
+    return c.redirect(`/auth/apple/start?state=${state}`);
+  }
 
   return c.redirect(`/login?state=${state}`);
 }
@@ -125,7 +139,7 @@ export async function webStart(c: Context<{ Bindings: Env }>) {
     created_at: Date.now(),
     nonce_hash,
   };
-  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 300 });
+  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 900 });
   setNonceCookie(c, nonce);
   return c.redirect(`/login?state=${state}`);
 }
@@ -178,7 +192,7 @@ export async function googleStart(c: Context<{ Bindings: Env }>) {
   const challenge = await pkceChallenge(verifier);
   session.code_verifier = verifier;
   session.provider = "google";
-  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 300 });
+  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 900 });
 
   const redirect = `${c.env.APP_URL}/auth/google/callback`;
   return c.redirect(googleAuthUrl({
@@ -241,6 +255,142 @@ export async function googleCallback(c: Context<{ Bindings: Env }>) {
     id_token,
     access_token,
   });
+}
+
+/* ── Apple config helper ──────────────────────────────────────────────── */
+
+function appleCfg(env: Env): AppleConfig | null {
+  const cfg = {
+    clientId:   env.APPLE_CLIENT_ID,
+    teamId:     env.APPLE_TEAM_ID,
+    keyId:      env.APPLE_KEY_ID,
+    privateKey: env.APPLE_PRIVATE_KEY,
+  };
+  return appleConfigured(cfg) ? cfg : null;
+}
+
+export function appleAvailable(env: Env): boolean {
+  return appleCfg(env) !== null;
+}
+
+/* ── /auth/apple/start ────────────────────────────────────────────────── */
+
+export async function appleStart(c: Context<{ Bindings: Env }>) {
+  const cfg = appleCfg(c.env);
+  if (!cfg) return c.text("Apple Sign In is not configured", 404);
+
+  const state = c.req.query("state") ?? "";
+  const raw = await c.env.SESSIONS.get(state);
+  if (!raw) return c.text("session expired — start over from /login", 400);
+  const session = JSON.parse(raw) as OAuthSession;
+
+  // Same B2 browser-binding gate as googleStart. This runs on a GET that
+  // is a same-site top-level navigation (the user clicked our button), so
+  // the SameSite=Lax nonce cookie set at authStart is still readable here.
+  if (!(await checkNonceBinding(c, session))) {
+    return c.text("session expired — start over from /login", 400);
+  }
+
+  // Apple does not use PKCE for the web flow (the ES256 client secret is
+  // the proof), so there's no code_verifier to stash — just mark the
+  // provider so the callback knows which exchange to run.
+  session.provider = "apple";
+  await c.env.SESSIONS.put(state, JSON.stringify(session), { expirationTtl: 900 });
+
+  // CRITICAL: requesting name/email scope makes Apple reply via
+  // response_mode=form_post — a cross-site POST back to our callback.
+  // SameSite=Lax cookies are NOT sent on cross-site POSTs, so the nonce
+  // cookie would vanish and checkNonceBinding would fail for everyone.
+  // Re-issue the SAME nonce with SameSite=None so it survives the
+  // form_post round-trip. None requires Secure (prod is https); fall back
+  // to Lax on plain-http dev where Apple won't be exercised anyway.
+  const nonce = getCookie(c, NONCE_COOKIE) ?? "";
+  const isHttps = c.env.APP_URL.startsWith("https://");
+  if (nonce && isHttps) {
+    setCookie(c, NONCE_COOKIE, nonce, {
+      httpOnly: true,
+      secure:   true,
+      sameSite: "None",
+      path:     "/",
+      maxAge:   960,   // matches the bumped 15-min KV TTL (Apple 2FA headroom)
+    });
+  }
+
+  const redirect = `${c.env.APP_URL}/auth/apple/callback`;
+  return c.redirect(appleAuthUrl({ clientId: cfg.clientId, redirect, state }));
+}
+
+/* ── /auth/apple/callback (POST — form_post) ──────────────────────────── */
+
+export async function appleCallback(c: Context<{ Bindings: Env }>) {
+  const cfg = appleCfg(c.env);
+  if (!cfg) return c.text("Apple Sign In is not configured", 404);
+
+  // Apple delivers code/state/user as form fields, not query params.
+  const form = await c.req.parseBody().catch(() => ({} as Record<string, unknown>));
+  const code  = typeof form["code"]  === "string" ? form["code"]  as string : "";
+  const state = typeof form["state"] === "string" ? form["state"] as string : "";
+  // `user` is present ONLY on the first consent — a JSON blob with the
+  // display name. id_token never carries it, so this is our one chance.
+  const userField = typeof form["user"] === "string" ? form["user"] as string : "";
+
+  const raw = await c.env.SESSIONS.get(state);
+  if (!raw) return c.text("session expired — try /login again", 400);
+  const session = JSON.parse(raw) as OAuthSession;
+
+  // B2: verify the originating browser before consuming the KV record.
+  if (!(await checkNonceBinding(c, session))) {
+    return c.text("session expired — try /login again", 400);
+  }
+  await c.env.SESSIONS.delete(state);
+  deleteCookie(c, NONCE_COOKIE, { path: "/" });
+
+  if (!code) return c.text("missing code", 400);
+
+  const redirect = `${c.env.APP_URL}/auth/apple/callback`;
+  const { id_token, access_token, claims } = await exchangeAppleCode({ cfg, redirect, code });
+
+  if (!claims.sub) return c.text("Apple id_token missing sub", 502);
+  // Hide-My-Email users still get a relay address in `email`; only a
+  // user who declined email sharing entirely arrives without one. We
+  // dedup on `sub` (the stable id) regardless — email is display-only.
+  const email = claims.email ?? `${claims.sub}@apple.local`;
+
+  const displayName = parseAppleUserName(userField);
+
+  const user = await upsertUser(c.env, {
+    email,
+    provider:     "apple",
+    sub:          claims.sub,
+    display_name: displayName ?? undefined,
+    avatar_url:   undefined,
+  });
+
+  return finishOAuthLogin(c, session, user, {
+    provider:     "apple",
+    email,
+    sub:          claims.sub,
+    name:         displayName,
+    picture:      null,
+    id_token,
+    access_token,
+  });
+}
+
+// Apple's first-consent `user` field looks like:
+//   {"name":{"firstName":"Ada","lastName":"Lovelace"},"email":"…"}
+// Returns a joined display name, or null if absent/unparseable.
+function parseAppleUserName(userField: string): string | null {
+  if (!userField) return null;
+  try {
+    const parsed = JSON.parse(userField) as { name?: { firstName?: string; lastName?: string } };
+    const first = parsed.name?.firstName ?? "";
+    const last  = parsed.name?.lastName ?? "";
+    const full = `${first} ${last}`.trim();
+    return full || null;
+  } catch {
+    return null;
+  }
 }
 
 /* ── shared: finish login (web → cookie, cli → loopback) ──────────────── */

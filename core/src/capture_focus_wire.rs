@@ -13,7 +13,7 @@
 // now real via `tracing::info!` fallback (the actual `tauri::AppHandle::emit`
 // stays Stage 4 because `tauri` is not a dep of the `core` crate). Three
 // remain Stage 4 stubs: `uuid_v7` (uuid `v7` feature gated under
-// `experimental-hermes-tools`), `bump_counter` (no metrics crate in deps),
+// `experimental-tools`), `bump_counter` (no metrics crate in deps),
 // and `providers_complete` (defers to providers_wire Stage 3 — providers_wire
 // is still Stage 2 internally).
 //
@@ -453,7 +453,7 @@ pub fn record_interruption(
 ) -> Result<(), FocusCaptureError> {
     // Step 1: look up the active session by id; bail with SessionNotFound if
     // the session is unknown / already completed.
-    let _active = session_lookup(session_id)?;
+    session_lookup(session_id)?;
     // Step 2: build a FocusInterruption with the current wall-clock
     // timestamp_ms and append it to the session's interruption list.
     let _now_ms = now_ms();
@@ -538,7 +538,7 @@ fn bump_counter_pseudo(_kind: InterruptionKind) {
 pub fn complete_session(session_id: &str) -> Result<FocusSessionResult, FocusCaptureError> {
     // Step 1: look up the active session by id; bail with SessionNotFound if
     // the session is unknown / already completed.
-    let _active = session_lookup(session_id)?;
+    session_lookup(session_id)?;
     // Step 2: compute actual_duration_ms (now - started_at_ms) and compare
     // against the planned_duration_ms captured at start time.
     let _actual_duration_ms = compute_actual_duration(session_id);
@@ -748,13 +748,52 @@ fn build_focus_prompt(result: &FocusSessionResult) -> String {
     out
 }
 
-/// Stage 4: dispatch to providers_wire::complete (LLM provider chain).
-/// Deferred until providers_wire ships its Stage 3; calling reqwest directly
-/// from here would duplicate the provider-chain logic.
-fn providers_complete_pseudo(_prompt: &str) -> Result<String, FocusCaptureError> {
-    unimplemented!(
-        "Stage 4: crate::providers_wire::complete (defer until that module's Stage 3 lands)"
-    )
+/// Stage 4 (now real): dispatch the focus-analysis prompt to the SPEC-14 LLM
+/// provider chain via `crate::providers_wire::complete_with_fallback`. We use
+/// the *fallback* entry point (not single-provider `complete`) on purpose: the
+/// SPEC-21 §11 `FOCUS-004` takeaway-failed error is precisely the "every
+/// provider in the chain failed" outcome, which `complete_with_fallback`
+/// surfaces as `ProviderError::FallbackExhausted`. Building the provider chain
+/// inline (reqwest + per-provider wire) would duplicate that module's logic, so
+/// we delegate and only own the request-shaping + error-mapping here.
+///
+/// The request is shaped as a single `User` turn carrying the pre-built focus
+/// prompt (the prompt already embeds the system instructions + the
+/// `AnalysisResult` JSON schema, so we ask for `ResponseFormat::Json`). Any
+/// `ProviderError` — empty / missing `agents.toml`, network failure, auth
+/// failure, or full-chain exhaustion — collapses to
+/// `FocusCaptureError::TakeawayFailed` so the caller can render the §11
+/// `FOCUS-004` UI state.
+///
+/// 中文: 真接 SPEC-14 provider chain（走 `complete_with_fallback` fallback
+/// 入口）。LLM 整條鏈全失敗 → `FallbackExhausted`，這裡統一映射成
+/// `TakeawayFailed`（§11 FOCUS-004）。網路 / 設定 / 認證任何錯誤都收斂到同一
+/// wire 錯誤。回傳 LLM completion 文字（待 `parse_json` 解析成 AnalysisResult）。
+fn providers_complete_pseudo(prompt: &str) -> Result<String, FocusCaptureError> {
+    use crate::providers_wire::{Message, MessageRole, ProviderRequest, ResponseFormat};
+
+    let req = ProviderRequest {
+        // Empty model string lets the fallback chain pick each provider's
+        // `default_model` per `complete_with_fallback`'s per-slug override.
+        model: String::new(),
+        system_prompt: None,
+        messages: vec![Message::text(MessageRole::User, prompt)],
+        max_tokens: None,
+        temperature: None,
+        // The focus prompt asks the model for strict AnalysisResult JSON.
+        response_format: ResponseFormat::Json,
+        // Text-only completion path — no tool-calling here.
+        tools: Vec::new(),
+    };
+
+    let resp =
+        crate::providers_wire::complete_with_fallback(req).map_err(|e| {
+            FocusCaptureError::TakeawayFailed {
+                detail: format!("provider chain failed: {}", e),
+            }
+        })?;
+
+    Ok(resp.text)
 }
 
 /// Parse the LLM JSON response into the shared `AnalysisResult` shape per
@@ -766,11 +805,517 @@ fn parse_json(raw_response: &str) -> Result<AnalysisResult, FocusCaptureError> {
     })
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// CONTINUOUS frontmost-app sampler (capability ① "sense" — desktop-active-app-
+// capture). DELIBERATELY SEPARATE from the focus-SESSION state machine above:
+// the session code (`start_session` / `complete_session` / `record_interruption`)
+// models a user-initiated Pomodoro timer; THIS samples whatever app is frontmost
+// on an interval and records how long each app held focus. No shared state, no
+// shared types — touching one cannot break the other.
+//
+// What it captures: app BUNDLE ID + focus-DURATION ONLY. NO window titles
+// (reading a title needs Accessibility/Screen-Recording TCC permission, and the
+// spec forbids titles outright). It reuses `life_node::active_app::read_frontmost()`
+// (N4) for the read and the existing age-encrypting `EventStore` (storage.rs) for
+// the write, so nothing here re-implements either the lsappinfo shell-out or the
+// crypto.
+//
+// 中文: 連續「最前景 app」取樣器（能力① sense）。和上面的「專注時段」狀態機
+// 故意分開：時段機是使用者手動開的番茄鐘；這個是每隔一段時間看現在最前面是
+// 哪個 app、記錄它佔據焦點多久。只記 app 的 bundle id（套件識別碼）+ 焦點
+// 持續秒數，絕不記視窗標題（讀標題要 Accessibility 權限，且 spec 禁止）。
+// 重用 N4 的 read_frontmost() 讀取、重用既有會 age 加密的 EventStore 寫入。
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// One completed focus interval for a single application: which app (by bundle
+/// id) and how many SECONDS it stayed frontmost. Emitted by
+/// [`ActiveAppSampler::on_sample`] when focus moves AWAY from this app.
+///
+/// NO window title field — by design (privacy + no TCC prompt; see module note).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveAppFocus {
+    /// CFBundleIdentifier of the app that was frontmost, e.g. `com.apple.Safari`.
+    pub bundle_id: String,
+    /// How long it held focus, in whole seconds (`now_when_it_lost_focus -
+    /// when_it_became_frontmost`).
+    pub focus_secs: u64,
+}
+
+/// PURE state machine that turns a stream of point-in-time frontmost samples
+/// into completed [`ActiveAppFocus`] intervals.
+///
+/// It tracks the CURRENT frontmost bundle id and the unix-second at which it
+/// became frontmost. Each call to [`on_sample`](Self::on_sample) compares the
+/// new sample to that state and, IF FOCUS CHANGED (different bundle id, or the
+/// frontmost became `None`), returns the just-ended interval for the PREVIOUS
+/// app. No wall-clock is read inside — `now_unix` is a parameter so tests are
+/// deterministic.
+#[derive(Debug, Default)]
+pub struct ActiveAppSampler {
+    /// The bundle id currently believed frontmost, plus the unix-second it
+    /// became frontmost. `None` before the first sample, or after focus moved
+    /// to an app with no bundle id / no frontmost app at all.
+    current: Option<(String, u64)>,
+}
+
+impl ActiveAppSampler {
+    pub fn new() -> Self {
+        Self { current: None }
+    }
+
+    /// Feed one point-in-time observation of the frontmost app.
+    ///
+    /// * `now_unix` — the moment this sample was taken (unix seconds).
+    /// * `frontmost_bundle_id` — `Some(bundle_id)` of the frontmost app, or
+    ///   `None` if there is no frontmost app / it has no bundle id / the read
+    ///   failed.
+    ///
+    /// Returns `Some(ActiveAppFocus)` for the PREVIOUS app IFF focus just moved
+    /// off it (the new sample's bundle id differs from the tracked one, OR the
+    /// new sample is `None`). The returned record's `focus_secs` is
+    /// `now_unix - became_frontmost_at` (saturating, so a non-monotonic clock
+    /// can never underflow). Returns `None` when focus is unchanged (same app
+    /// still frontmost) or when there was no previous app to close out.
+    ///
+    /// Duration is attributed to the app that WAS frontmost up to `now_unix`;
+    /// the new app's interval starts accumulating from `now_unix`.
+    pub fn on_sample(
+        &mut self,
+        now_unix: u64,
+        frontmost_bundle_id: Option<String>,
+    ) -> Option<ActiveAppFocus> {
+        match (&self.current, frontmost_bundle_id) {
+            // First sample with a real app → start tracking, emit nothing yet.
+            (None, Some(new_id)) => {
+                self.current = Some((new_id, now_unix));
+                None
+            }
+            // Nothing tracked and still nothing frontmost → no-op.
+            (None, None) => None,
+            // Same app still frontmost → keep accumulating, emit nothing.
+            (Some((cur_id, _)), Some(ref new_id)) if cur_id == new_id => None,
+            // Focus moved to a DIFFERENT app → close out the previous interval,
+            // start the new one from `now_unix`.
+            (Some((cur_id, since)), Some(new_id)) => {
+                let emitted = ActiveAppFocus {
+                    bundle_id: cur_id.clone(),
+                    focus_secs: now_unix.saturating_sub(*since),
+                };
+                self.current = Some((new_id, now_unix));
+                Some(emitted)
+            }
+            // Frontmost became None (screen locked, app with no bundle id, read
+            // failed) → close out the previous interval, track nothing.
+            (Some((cur_id, since)), None) => {
+                let emitted = ActiveAppFocus {
+                    bundle_id: cur_id.clone(),
+                    focus_secs: now_unix.saturating_sub(*since),
+                };
+                self.current = None;
+                Some(emitted)
+            }
+        }
+    }
+}
+
+/// Default sampling interval (seconds) when `PHANTOM_CAPTURE_ACTIVE_APP_INTERVAL_SECS`
+/// is unset or unparseable. 60s keeps disk churn and `lsappinfo` shell-outs low
+/// while still capturing app-switching at a useful granularity.
+pub const DEFAULT_ACTIVE_APP_INTERVAL_SECS: u64 = 60;
+
+/// The goal-tag that marks an active-app focus event so `phantom recall --kind
+/// focus` groups it with the rest of the focus capability. The bundle id is
+/// pushed as an ADDITIONAL tag (see [`focus_event_tags`]) so recall-by-bundle-id
+/// works WITHOUT an LLM (recall's no-provider haystack is `meta.tags`, per the
+/// N4 lesson that `user_text` is dropped by `project_to_wire`).
+pub const ACTIVE_APP_FOCUS_TAG: &str = "focus";
+
+/// Build the goal-tags for one emitted active-app focus event. The bundle id
+/// rides in `meta.tags` so `phantom recall <bundle-id> --kind focus --json`
+/// surfaces it even on the no-LLM-provider path.
+pub fn focus_event_tags(focus: &ActiveAppFocus) -> Vec<String> {
+    vec![
+        ACTIVE_APP_FOCUS_TAG.to_string(),
+        focus.bundle_id.clone(),
+        // Machine-readable duration tag, also recall-searchable.
+        format!("focus_secs={}", focus.focus_secs),
+    ]
+}
+
+/// Build the event TEXT for one emitted active-app focus event. Bundle id +
+/// duration only — NO window title. This becomes the `Modality::Text`
+/// (`user_text` on disk); the recall-searchable copy lives in the tags above.
+pub fn focus_event_text(focus: &ActiveAppFocus) -> String {
+    format!(
+        "Active app focus: {} for {}s",
+        focus.bundle_id, focus.focus_secs
+    )
+}
+
+/// Write ONE emitted active-app focus event to the EventStore at
+/// `events_dir`, age-encrypted under the EventKey derived from `identity_path`.
+///
+/// NO-OP + LOG guard (the spec's core safety invariant): if no usable EventKey
+/// is available we MUST NOT write — never produce a plaintext focus event under
+/// a missing key.
+///
+///   * `Ok(None)`  — no `identity.key` at all → `tracing::warn!` once, write
+///                   NOTHING, return `Ok(None)`. (matches
+///                   `key_derivation::event_key_for_write`'s "absent" arm.)
+///   * `Err(_)`    — `identity.key` is PRESENT but corrupt/unloadable → also a
+///                   no-op-with-warning (we refuse to downgrade to plaintext),
+///                   surfaced as `Ok(None)` so the loop keeps running.
+///   * `Ok(Some(id))` — wrote an age-encrypted event, returns its id.
+///
+/// DEPENDENCY NOTE (relaxed per spec): the spec text says this "depends on
+/// keystore-macos-identity-wire" and should no-op if the keystore-backed
+/// identity is unavailable. keystore-macos is owner-gated / not merged, so the
+/// identity here is the EXISTING file-based `identity.key`, which already
+/// yields the age EventKey via `event_key_for_write`. Guarding against THAT
+/// currently-available key satisfies the safety intent now and will
+/// transparently benefit once the keystore lands behind the same accessor.
+pub fn write_focus_event(
+    events_dir: &std::path::Path,
+    identity_path: &std::path::Path,
+    source_node: &str,
+    focus: &ActiveAppFocus,
+) -> std::io::Result<Option<String>> {
+    use crate::life_node::key_derivation::event_key_for_write;
+    use crate::life_node::multimodal::{AnalysisResult, Modality};
+    use crate::life_node::storage::EventStore;
+
+    let key = match event_key_for_write(identity_path) {
+        Ok(Some(k)) => k,
+        Ok(None) => {
+            tracing::warn!(
+                identity = %identity_path.display(),
+                "active-app capture: no EventKey (identity.key absent) — NO-OP, \
+                 refusing to write plaintext focus event"
+            );
+            return Ok(None);
+        }
+        Err(e) => {
+            tracing::warn!(
+                identity = %identity_path.display(),
+                error = %e,
+                "active-app capture: EventKey unavailable (identity.key present \
+                 but unloadable) — NO-OP, refusing to write plaintext focus event"
+            );
+            return Ok(None);
+        }
+    };
+
+    let store = EventStore::with_key(events_dir, key);
+    let text = focus_event_text(focus);
+    let tags = focus_event_tags(focus);
+    let meta = store.write_event(
+        ACTIVE_APP_FOCUS_TAG, // "focus" → bridges to EventKind::Focus
+        &[Modality::Text(text)],
+        &tags,
+        source_node,
+    )?;
+    // Write a sibling `analysis.json` so the event is VISIBLE via
+    // `phantom recall <bundle-id> --kind focus` — `recall::search_events` SKIPS
+    // any event whose `read_analysis` fails (`let Ok(analysis) = … else continue`),
+    // exactly like the daily-review loader. There's no LLM here: mirror
+    // `life_node::note_capture` and synthesize a DETERMINISTIC `AnalysisResult`
+    // locally so recall finds the event by bundle id on the no-provider path.
+    // The summary carries the app identity (bundle id) — NO window title — and
+    // the bundle id also rides in `meta.tags` (see `focus_event_tags`), so the
+    // recall haystack (`summary` + `tags`) matches a bundle-id query with or
+    // without an LLM. Written through the SAME keyed `store`, so the sibling is
+    // age-encrypted at rest under the same EventKey as `meta.json`.
+    store.write_analysis(
+        &meta.event_id,
+        &AnalysisResult {
+            summary: format!("Active app: {} ({}s)", focus.bundle_id, focus.focus_secs),
+            goal_impact: None,
+            suggestion: None,
+            confidence: None,
+            raw_response: serde_json::json!({}),
+            model_id: "local-active-app".to_string(),
+            latency_ms: 0,
+            cost_usd: None,
+        },
+    )?;
+    Ok(Some(meta.event_id))
+}
+
+/// PRODUCTION async loop: every `interval_secs`, read the frontmost app via
+/// `active_app::read_frontmost()` (N4), feed it through an [`ActiveAppSampler`],
+/// and for each emitted [`ActiveAppFocus`] write an age-encrypted
+/// `EventKind::Focus` event via [`write_focus_event`].
+///
+/// * `home` — the `~/.phantom-mesh` PARENT (events go to `home/.phantom-mesh/
+///   events`, key from `home/.phantom-mesh/identity.key`).
+/// * `interval_secs` — tick period (the opt-in env can override the default).
+/// * `shutdown` — cancellation token; the loop exits promptly when cancelled,
+///   flushing the in-flight app's interval first (so a quit doesn't silently
+///   drop the currently-focused app's accumulated time). This flush is REACHABLE
+///   in production: `phantom serve` retains a clone of this token and cancels it
+///   on its Ctrl-C graceful-shutdown path (see `bin/phantom.rs`, the serve
+///   `tokio::select!` over `serve_http` vs `tokio::signal::ctrl_c()`).
+///
+/// ARMED ONLY AFTER A CONFIRMED BIND (replaces the old HTTP readiness gate):
+/// `phantom serve` now calls `bind_http_listener` FIRST and only spawns this
+/// sampler once THIS process has confirmed it owns the port. On a bind failure
+/// the `?` returns before the sampler is ever started, so there is NO window in
+/// which focus events could be written for a daemon that never served. The old
+/// gate polled GET `/` to infer readiness, but ANY HTTP service squatting on the
+/// port could satisfy that probe during our bind failure (codex's residual
+/// finding) — a confirmed bind is the only proof the port is genuinely ours.
+/// Consequently the sampler samples IMMEDIATELY (no startup probe delay).
+///
+/// READ-ERROR HANDLING (see the `ticker.tick()` arm): a `read_frontmost()`
+/// `Err(_)` does NOT drive `on_sample(now, None)`. Feeding `None` flushes and
+/// resets the tracked app, so a transient lsappinfo/OS read failure would
+/// fabricate a false focus event and fragment the session. Instead the loop
+/// SKIPS the tick (logs at debug, no key material) and the tracked app survives.
+/// The loop therefore only ever passes `None` to `on_sample` on a genuine
+/// `read_frontmost()` SUCCESS that has no bundle id (a real "no frontmost app"
+/// case) or on shutdown — never on a read error.
+///
+/// macOS-only: on other targets `read_frontmost()` returns `Unsupported`, so
+/// every tick is a read error (skipped, never `None`) and nothing is ever
+/// written — but the SPAWN site (serve.rs) is also cfg-gated so this loop is
+/// never even started off macOS.
+pub async fn run_active_app_sampler(
+    home: std::path::PathBuf,
+    interval_secs: u64,
+    shutdown: tokio_util::sync::CancellationToken,
+) {
+    let phantom_dir = crate::cli_config::phantom_dir_under(&home);
+    let events_dir = phantom_dir.join("events");
+    let identity_path = phantom_dir.join("identity.key");
+    let source_node = std::env::var("PHANTOM_NODE_NAME").unwrap_or_else(|_| "unknown".into());
+
+    // No HTTP readiness gate: this task is spawned ONLY after the caller's
+    // `bind_http_listener` confirmed THIS process owns the port, so we sample
+    // immediately. (A bind failure returns before this task is ever started.)
+
+    let interval_secs = interval_secs.max(1);
+    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+    // Skip-missed so a slow disk write can't make ticks bunch up.
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let mut sampler = ActiveAppSampler::new();
+    tracing::info!(
+        interval_secs,
+        events = %events_dir.display(),
+        "active-app capture: sampler started (bundle id + focus-duration only, no titles)"
+    );
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                // Flush the in-flight app's interval so a quit doesn't drop it.
+                let now = now_unix();
+                if let Some(focus) = sampler.on_sample(now, None) {
+                    persist_one(&events_dir, &identity_path, &source_node, &focus);
+                }
+                tracing::info!("active-app capture: sampler stopped (shutdown)");
+                return;
+            }
+            _ = ticker.tick() => {
+                let now = now_unix();
+                // CRITICAL: a READ ERROR must NOT be fed to `on_sample` as `None`.
+                // `on_sample(now, None)` FLUSHES the currently-tracked app as a
+                // completed interval and RESETS state — so a transient
+                // lsappinfo/OS read failure would fabricate a false focus event
+                // and fragment the session. Instead we SKIP the tick entirely on
+                // error: the tracked app and its accumulated duration SURVIVE,
+                // and the next successful same-app sample keeps accumulating from
+                // the original start. The production loop therefore NEVER passes
+                // `None` to `on_sample` on a read error — only a genuine
+                // `read_frontmost()` success that yields no bundle id (a real "no
+                // frontmost app" case) drives the `None`/flush path.
+                match crate::life_node::active_app::read_frontmost() {
+                    Ok(app) => {
+                        if let Some(focus) = sampler.on_sample(now, app.bundle_id) {
+                            persist_one(&events_dir, &identity_path, &source_node, &focus);
+                        }
+                    }
+                    Err(e) => {
+                        // Log (no key material) and CONTINUE — do NOT call
+                        // on_sample, so there is no false flush and no reset.
+                        tracing::debug!(
+                            error = %e,
+                            "active-app capture: read_frontmost failed this tick — skipping (tracked app preserved)"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Current unix time in whole seconds. Separated so the loop reads the clock
+/// exactly once per tick.
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Persist one emitted focus interval, logging (never panicking) on write
+/// error so a transient disk problem can't kill the sampler loop.
+fn persist_one(
+    events_dir: &std::path::Path,
+    identity_path: &std::path::Path,
+    source_node: &str,
+    focus: &ActiveAppFocus,
+) {
+    match write_focus_event(events_dir, identity_path, source_node, focus) {
+        Ok(Some(id)) => tracing::info!(
+            bundle_id = %focus.bundle_id,
+            focus_secs = focus.focus_secs,
+            event_id = %id,
+            "active-app capture: wrote encrypted focus event"
+        ),
+        Ok(None) => { /* no-key no-op already logged in write_focus_event */ }
+        Err(e) => tracing::warn!(
+            bundle_id = %focus.bundle_id,
+            error = %e,
+            "active-app capture: failed to write focus event (continuing)"
+        ),
+    }
+}
+
 // ─── Smoke tests (Stage 1 sanity only; deeper invariants in Stage 2) ─────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── ActiveAppSampler (continuous frontmost-app sense) ────────────────────
+
+    #[test]
+    fn sampler_first_real_sample_emits_nothing() {
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(100, Some("com.apple.Safari".into())), None);
+    }
+
+    #[test]
+    fn sampler_same_app_accumulates_no_emit() {
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(100, Some("A".into())), None);
+        // Still A 30s later → nothing emitted yet.
+        assert_eq!(s.on_sample(130, Some("A".into())), None);
+    }
+
+    #[test]
+    fn sampler_app_switch_emits_previous_with_duration() {
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(100, Some("A".into())), None);
+        // Switch to B at t=160 → emit A for 160-100 = 60s.
+        let emitted = s.on_sample(160, Some("B".into())).expect("emit on switch");
+        assert_eq!(emitted.bundle_id, "A");
+        assert_eq!(emitted.focus_secs, 60);
+    }
+
+    #[test]
+    fn sampler_frontmost_none_flushes_previous() {
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(0, Some("A".into())), None);
+        // Frontmost becomes None (lock screen / read failed) at t=42 → flush A.
+        let emitted = s.on_sample(42, None).expect("flush on None");
+        assert_eq!(emitted.bundle_id, "A");
+        assert_eq!(emitted.focus_secs, 42);
+        // Subsequent None with nothing tracked → no-op.
+        assert_eq!(s.on_sample(50, None), None);
+    }
+
+    #[test]
+    fn sampler_read_error_tick_is_skipped_no_flush_no_fragmentation() {
+        // FINDING 1 regression: a read-failure tick must NOT flush/reset the
+        // tracked app. The production loop models a read error by SKIPPING the
+        // tick — it never calls `on_sample` for that tick. Here we assert the
+        // two halves of that contract:
+        //   (a) skipping the error tick emits nothing and does not reset state;
+        //   (b) the next SAME-app sample still accumulates from the ORIGINAL
+        //       start (t=100), proving no fragmentation across the read error.
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(100, Some("A".into())), None);
+
+        // t=160: read_frontmost() returned Err → the loop SKIPS this tick.
+        // We model that by simply NOT calling on_sample (exactly what the loop
+        // does). State must be untouched: A still tracked since t=100.
+
+        // t=220: A is read successfully again. Because the error tick was
+        // skipped (not flushed to None), A is STILL the tracked app and is still
+        // tracked from t=100 — so this same-app sample emits NOTHING (no false
+        // interval, no fragmentation).
+        assert_eq!(
+            s.on_sample(220, Some("A".into())),
+            None,
+            "same app after a skipped read-error tick must not emit (no fragmentation)"
+        );
+
+        // t=300: switch to B. A's single interval is t=300-100 = 200s — the
+        // FULL span including the read-error gap, NOT fragmented into pieces.
+        let emitted = s
+            .on_sample(300, Some("B".into()))
+            .expect("switch A→B emits A's completed interval");
+        assert_eq!(emitted.bundle_id, "A");
+        assert_eq!(
+            emitted.focus_secs, 200,
+            "A accumulated continuously across the skipped read-error tick (300-100=200s)"
+        );
+
+        // Contrast: had the read error been (wrongly) fed as None at t=160, A
+        // would have been flushed at 60s and a NEW interval started — fragmenting
+        // one 200s session into 60s + 140s. The skip path avoids exactly that.
+    }
+
+    #[test]
+    fn sampler_genuine_none_still_flushes_for_no_frontmost_app() {
+        // FINDING 1 counterpart: the flush-on-None semantics MUST stay intact for
+        // a GENUINE "no frontmost app" case (a successful read that yields no
+        // bundle id). Only a READ ERROR is excluded from the None path — a real
+        // None still closes out the tracked interval.
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(0, Some("A".into())), None);
+        let emitted = s
+            .on_sample(30, None)
+            .expect("a genuine None (no frontmost app) still flushes the tracked app");
+        assert_eq!(emitted.bundle_id, "A");
+        assert_eq!(emitted.focus_secs, 30);
+    }
+
+    #[test]
+    fn sampler_non_monotonic_clock_saturates_to_zero() {
+        let mut s = ActiveAppSampler::new();
+        assert_eq!(s.on_sample(1000, Some("A".into())), None);
+        // Clock went BACKWARDS → duration saturates to 0, never underflows.
+        let emitted = s.on_sample(900, Some("B".into())).unwrap();
+        assert_eq!(emitted.focus_secs, 0);
+    }
+
+    #[test]
+    fn focus_event_tags_carry_bundle_id_and_duration() {
+        let f = ActiveAppFocus {
+            bundle_id: "com.apple.Terminal".into(),
+            focus_secs: 120,
+        };
+        let tags = focus_event_tags(&f);
+        // "focus" first (groups under the focus capability), then the bundle id
+        // so recall-by-bundle-id works without an LLM, then a duration tag.
+        assert_eq!(tags[0], "focus");
+        assert!(tags.contains(&"com.apple.Terminal".to_string()));
+        assert!(tags.contains(&"focus_secs=120".to_string()));
+        // No window title leaks anywhere.
+        assert!(!focus_event_text(&f).contains("—"));
+    }
+
+    #[test]
+    fn focus_event_text_has_no_window_title() {
+        let f = ActiveAppFocus {
+            bundle_id: "com.apple.Safari".into(),
+            focus_secs: 5,
+        };
+        assert_eq!(focus_event_text(&f), "Active app focus: com.apple.Safari for 5s");
+    }
 
     #[test]
     fn focus_session_result_round_trip_smoke() {
@@ -952,6 +1497,64 @@ mod tests {
             }
             other => panic!("expected TakeawayFailed, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn providers_complete_maps_provider_failure_to_takeaway_failed() {
+        // The provider chain is now wired to
+        // `providers_wire::complete_with_fallback`, which reads
+        // `agents.toml`. Point the loader at a guaranteed-missing path via the
+        // documented `PHANTOM_MESH_AGENTS_TOML` override so this stays
+        // network-free and deterministic: a missing config can only surface as
+        // a `ProviderError`, which `providers_complete_pseudo` MUST collapse to
+        // `FocusCaptureError::TakeawayFailed` (SPEC-21 §11 FOCUS-004) — never a
+        // panic (the old `unimplemented!()`) and never a silent success.
+        let missing = std::env::temp_dir()
+            .join("phantom-focus-no-such-agents-9f3c1a7e.toml");
+        // Ensure it really does not exist.
+        let _ = std::fs::remove_file(&missing);
+        // SAFETY note: this is a process-global mutation; no other test in this
+        // module reads agents.toml, and we restore immediately after the call.
+        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &missing);
+        let result = providers_complete_pseudo("any focus prompt");
+        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+
+        match result {
+            Err(FocusCaptureError::TakeawayFailed { detail }) => {
+                assert!(
+                    detail.contains("provider chain failed"),
+                    "error context preserved: {detail}"
+                );
+            }
+            other => panic!("expected TakeawayFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn analyze_focus_session_no_longer_panics() {
+        // Regression: the sole real `unimplemented!()` in this module lived in
+        // `providers_complete_pseudo`, so `analyze_focus_session` used to panic.
+        // It now returns a real `Result`. With the loader pointed at a missing
+        // config the LLM pass cannot succeed, so we assert it returns an Err
+        // (mapped to TakeawayFailed) rather than aborting the process.
+        let missing = std::env::temp_dir()
+            .join("phantom-focus-no-such-agents-analyze-2b6d.toml");
+        let _ = std::fs::remove_file(&missing);
+        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &missing);
+        let session = FocusSessionResult {
+            actual_duration_ms: 25 * 60 * 1000,
+            interruptions: 1,
+            completion_pct: 100.0,
+            summary: "drafted SPEC-21".to_string(),
+            suggestion: "review next".to_string(),
+        };
+        let out = analyze_focus_session(&session);
+        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+        assert!(
+            matches!(out, Err(FocusCaptureError::TakeawayFailed { .. })),
+            "expected TakeawayFailed without a provider config, got {:?}",
+            out
+        );
     }
 
     #[test]

@@ -1,3 +1,5 @@
+> ⚠️ STALE (pre-pivot) — 本檔用「knowledge-engine / PRD generator」框架,已被現行 4-pillar Life/Work 方向(superpowers/BIG-GOAL.md)取代。
+
 # Phantom Mesh -- 常見問題
 
 ## 1. 什麼是 Phantom Mesh？
@@ -54,7 +56,7 @@ Fork（分叉）儲存庫、建立一個 feature branch（功能分支），並�
 
 ## 14. 我可以用雲端 LLM（大型語言模型）取代 Ollama 嗎？
 
-可以。Phantom Mesh 的架構支援以雲端 LLM 供應商作為備援（fallback）或主要後端。`scout` agent（偵察代理）就是專為雲端 API 存取設計的。你可以透過 OpenClaw 或設定適當的環境變數，來設定 Groq、OpenRouter、Gemini 等供應商。請注意，使用雲端供應商代表你的查詢會離開你的機器。
+可以。Phantom Mesh 的架構支援以雲端 LLM 供應商作為備援（fallback）或主要後端。`scout` agent（偵察代理）就是專為雲端 API 存取設計的。你可以透過遠端控制設定或設定適當的環境變數，來設定 Groq、OpenRouter、Gemini 等供應商。請注意，使用雲端供應商代表你的查詢會離開你的機器。
 
 ## 15. 我要如何匯出資料？
 

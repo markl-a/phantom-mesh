@@ -23,7 +23,7 @@
 - 安全的訊息切塊（Telegram 把單則訊息上限設為 4096 字元，且訊息必須在 UTF-8
   字元邊界上切分）。
 
-注意：這與 `core/src/openclaw/telegram.rs`（一條獨立的、以 `teloxide` 為基礎的
+注意：這與 `core/src/remote_control/telegram.rs`（一條獨立的、以 `teloxide` 為基礎的
 實驗性路徑）以及 `coach_delivery_wire.rs`（coach 遞送的線路格式）有所區別。本文
 件只涵蓋 `core/src/channels/`。
 

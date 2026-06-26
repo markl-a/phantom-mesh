@@ -70,6 +70,8 @@ export interface DiscoveredProvider {
   tier: 'local' | 'free' | 'subscription' | 'payg';
   models: string[];
   displayLabel: string;
+  /** localhost base URL for detected local servers (Ollama/LM Studio/Lemonade). */
+  baseUrl?: string;
 }
 
 export interface DiscoveredProviderEntry {
@@ -103,6 +105,12 @@ export interface GcloudAdcStatus {
 
 export interface ClaudeCliStatus {
   found: boolean;
+}
+
+export interface CodexCliStatus {
+  found: boolean;
+  /** true = ChatGPT subscription OAuth (→ codex_oauth); false = OPENAI_API_KEY (→ openai). */
+  is_oauth: boolean;
 }
 
 export interface UserIdentity {
@@ -147,3 +155,27 @@ export type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
 
 export const WIZARD_STORAGE_KEY = 'phantom_mesh_onboarding_state';
 export const ONBOARDED_KEY = 'phantom_mesh_onboarded';
+/** Local cosmetic identity profile (display name / email / avatar). NOT the
+ *  on-device ed25519 identity key — that lives in the system keychain. */
+export const IDENTITY_KEY = 'phantom_mesh_identity';
+
+/** Clear the local onboarding/session footprint so the next launch restarts
+ *  the D1–D5 login-first flow from `fresh_install`. Wipes the cosmetic identity
+ *  profile, the `onboarded` flag, and the persisted SPEC-28 FSM snapshot +
+ *  context. Lives here (not in a screen component) so both App.tsx and
+ *  StartupCheck can reset without importing any particular onboarding screen.
+ *
+ *  Note: the broker OAuth token (system keychain via `broker_login_logout`) and
+ *  the ed25519 identity key are intentionally NOT wiped here — those are a
+ *  separate "switch account" / "factory reset" concern. */
+export function clearSession(): void {
+  try {
+    localStorage.removeItem(IDENTITY_KEY);
+    localStorage.removeItem(ONBOARDED_KEY);
+    // FSM snapshot + context keys (mirrors lib/onboardingFsm.ts constants).
+    localStorage.removeItem('phantom_mesh_onboarding_snapshot');
+    localStorage.removeItem('phantom_mesh_onboarding_context');
+  } catch {
+    /* private mode / quota — ignore */
+  }
+}

@@ -1,4 +1,4 @@
-# SPEC-25 Skill Extraction (Hermes) — Windows Mockup（視覺稿）
+# SPEC-25 Skill Extraction (skill bank) — Windows Mockup（視覺稿）
 
 > **Stage 2/3** · [線框稿（wireframe）](./SPEC-25-skill-extraction-windows-wireframe.md) → 視覺稿（mockup，配色 + icon + 終版文案 + a11y）→ [原型（prototype，待補）]
 > **Status**: draft v0.1 · **Last updated**: 2026-05-28
@@ -53,7 +53,7 @@ wireframe 鎖了版型 + consent 契約；本檔鎖實作視覺：
 |---|---|---|
 | 學會 / apply | `sparkle` | apply banner + 「從對話抽取」，16px phantom-primary（靈感感，非 alert） |
 | 編輯 (Edit) | `pencil` | 詳情改 name/steps，14px phantom-primary |
-| 拒絕 (Decline) | `thumbs-down` | 降 quality_score（≈ CLI hermes decline），14px phantom-muted |
+| 拒絕 (Decline) | `thumbs-down` | 降 quality_score（≈ CLI skill decline），14px phantom-muted |
 | 刪除 (Delete) | `trash-2` | 永久刪 skill（不可逆、需 confirm），14px phantom-danger |
 | 升級到 Core (Promote) | `arrow-up-circle` | 升 tier 永遠注入，14px phantom-success |
 | 跨機分享 (Share) | `share-2` | `/rpc/skill/sync`，14px |
@@ -65,21 +65,21 @@ wireframe 鎖了版型 + consent 契約；本檔鎖實作視覺：
 
 | key | 繁中 | English |
 |---|---|---|
-| `hermes.tab.title` | 技能庫 | Skills |
-| `hermes.btn.extract_now` | 從對話抽取 | Extract from chat |
-| `hermes.detail.quality` | 品質 {dots}　套用 {n} 次 | Quality {dots} · used {n}x |
-| `hermes.detail.trigger` | 觸發：{pattern} | Triggers when: {pattern} |
-| `hermes.detail.provenance` | 來源：{range} 對話 {n} 次重複 | From: {n} repeats over {range} |
-| `hermes.btn.edit` | 編輯 | Edit |
-| `hermes.btn.decline` | 拒絕 | Decline |
-| `hermes.btn.delete` | 刪除 | Delete |
-| `hermes.btn.promote` | 升級到 Core | Promote to Core |
-| `hermes.btn.share` | 跨機分享 | Share to cluster |
-| `hermes.notify.learned` | Hermes 學到 {n} 個新 skill 等你 review | Hermes learned {n} new skills to review |
-| `hermes.apply.banner` | 套用了你上次的做法：{skill} | Applied what worked last time: {skill} |
-| `hermes.apply.decline` | 這次不要 | Not this time |
-| `hermes.empty.title` | 還沒有學到技能 | No skills learned yet |
-| `hermes.empty.body` | 多用幾天，phantom 會從你的重複做法裡學會自動套用（要 ≥ 5 次重複才會抽成技能，避免雜訊） | Keep using it a few days — phantom learns from your repeated patterns (>=5 repeats before a skill forms, to avoid noise) |
+| `skillbank.tab.title` | 技能庫 | Skills |
+| `skillbank.btn.extract_now` | 從對話抽取 | Extract from chat |
+| `skillbank.detail.quality` | 品質 {dots}　套用 {n} 次 | Quality {dots} · used {n}x |
+| `skillbank.detail.trigger` | 觸發：{pattern} | Triggers when: {pattern} |
+| `skillbank.detail.provenance` | 來源：{range} 對話 {n} 次重複 | From: {n} repeats over {range} |
+| `skillbank.btn.edit` | 編輯 | Edit |
+| `skillbank.btn.decline` | 拒絕 | Decline |
+| `skillbank.btn.delete` | 刪除 | Delete |
+| `skillbank.btn.promote` | 升級到 Core | Promote to Core |
+| `skillbank.btn.share` | 跨機分享 | Share to cluster |
+| `skillbank.notify.learned` | 技能庫學到 {n} 個新 skill 等你 review | Skill bank learned {n} new skills to review |
+| `skillbank.apply.banner` | 套用了你上次的做法：{skill} | Applied what worked last time: {skill} |
+| `skillbank.apply.decline` | 這次不要 | Not this time |
+| `skillbank.empty.title` | 還沒有學到技能 | No skills learned yet |
+| `skillbank.empty.body` | 多用幾天，phantom 會從你的重複做法裡學會自動套用（要 ≥ 5 次重複才會抽成技能，避免雜訊） | Keep using it a few days — phantom learns from your repeated patterns (>=5 repeats before a skill forms, to avoid noise) |
 
 ## 螢幕 A — Skills tab（list + detail 雙欄）
 
@@ -124,7 +124,7 @@ wireframe 鎖了版型 + consent 契約；本檔鎖實作視覺：
 <toast scenario="reminder" activationType="protocol"
        launch="phantom-mesh://skills">
   <visual><binding template="ToastGeneric">
-    <text>Hermes 學到 3 個新 skill 等你 review</text>
+    <text>技能庫學到 3 個新 skill 等你 review</text>
     <text>Rust 錯誤先看 cargo check 等 . 點開看看</text>
     <image placement="appLogoOverride" hint-crop="circle" src="phantom-tray-idle.png"/>
   </binding></visual>
@@ -132,7 +132,7 @@ wireframe 鎖了版型 + consent 契約；本檔鎖實作視覺：
             arguments="phantom-mesh://skills"/></actions>
 </toast>
 ```
-- 取 `hermes.notify.learned`；只在 judge 完成 + 有新 skill 才發（§10.2）；`reminder` persist、**無 audio**（夜間溫和）
+- 取 `skillbank.notify.learned`；只在 judge 完成 + 有新 skill 才發（§10.2）；`reminder` persist、**無 audio**（夜間溫和）
 - 點開 → `phantom-mesh://skills` → Skills tab，新 skill 在 Recall 段頂
 
 ## 螢幕 C — 空狀態

@@ -13,7 +13,7 @@
 #    have to re-walk LCOV record-by-record.
 # 4. Run the per-spec line-coverage parser (`scripts/ship-gate/v2-coverage-local.sh
 #    --ci`) which:
-#       a. reads `.github/workflows/ship-gate-coverage-exceptions.yaml`
+#       a. reads `.github/ship-gate-coverage-exceptions.yaml`
 #       b. computes line-coverage per leaf-spec module map
 #       c. fails the job if any spec falls below 80% AND is not in the exception
 #          list (with non-expired `expires_at`).
@@ -34,7 +34,7 @@ on:
       - 'core/**'
       - 'Cargo.lock'
       - '.github/workflows/ship-gate-coverage.yml'
-      - '.github/workflows/ship-gate-coverage-exceptions.yaml'
+      - '.github/ship-gate-coverage-exceptions.yaml'
       - 'scripts/ship-gate/**'
   pull_request:
     branches: [main]
@@ -42,7 +42,7 @@ on:
       - 'core/**'
       - 'Cargo.lock'
       - '.github/workflows/ship-gate-coverage.yml'
-      - '.github/workflows/ship-gate-coverage-exceptions.yaml'
+      - '.github/ship-gate-coverage-exceptions.yaml'
       - 'scripts/ship-gate/**'
   workflow_dispatch:
 
@@ -58,7 +58,7 @@ env:
   RUST_BACKTRACE: 1
   # Coverage threshold (line) per leaf-spec module. SPEC-60 §8.2 locks 80%.
   # Overrides for unsafe FFI shims live in
-  # `.github/workflows/ship-gate-coverage-exceptions.yaml`, not here.
+  # `.github/ship-gate-coverage-exceptions.yaml`, not here.
   PHANTOM_V2_COVERAGE_THRESHOLD: '80'
 
 jobs:
@@ -123,7 +123,7 @@ jobs:
         env:
           PHANTOM_V2_COVERAGE_THRESHOLD: ${{ env.PHANTOM_V2_COVERAGE_THRESHOLD }}
           PHANTOM_V2_COVERAGE_JSON: ${{ github.workspace }}/coverage.json
-          PHANTOM_V2_EXCEPTIONS_YAML: ${{ github.workspace }}/.github/workflows/ship-gate-coverage-exceptions.yaml
+          PHANTOM_V2_EXCEPTIONS_YAML: ${{ github.workspace }}/.github/ship-gate-coverage-exceptions.yaml
           PHANTOM_V2_REPORT_OUT: ${{ github.workspace }}/coverage-per-spec-report.txt
         run: |
           bash scripts/ship-gate/v2-coverage-local.sh --ci

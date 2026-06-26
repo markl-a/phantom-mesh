@@ -2,13 +2,13 @@
 
 /**
  * Three-tier memory bundle injected into the LLM prompt before
- * `propose_tomorrow_action`. Mirrors SPEC-25 hermes recall layering:
+ * `propose_tomorrow_action`. Mirrors SPEC-25 tiered skill recall layering:
  *
  * - `core` — always-on identity / goals / non-negotiables
  * - `recall` — top-K FTS5 matches against the day's events (K = 5 per audit)
  * - `archival` — long-tail summaries (off for coach: `archival_k = 0`)
  *
- * 中文: SPEC-25 hermes 三層記憶注入 bundle。`core`（核心，永遠注入）/
+ * 中文: SPEC-25 三層技能記憶注入 bundle。`core`（核心，永遠注入）/
  * `recall`（即時召回，FTS5 top-K）/ `archival`（長尾摘要，教練固定關閉）。
  * 教練配置：`RecallPolicy { core_all: true, recall_k: 5, archival_k: 0 }`。
  */

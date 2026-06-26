@@ -25,10 +25,11 @@ Phantom Mesh 各子系統的架構文件 — 包含目的、關鍵檔案、資�
 - [evolve-goals](evolve-goals.md) — 目標演化（goal evolution） + 檢查點（checkpoint）。
 
 ## 技能與通道（Skills & channels）
-- [hermes-skills](hermes-skills.md) — 技能擷取/策展（curation）迴圈。
+- [skills](skills.md) — 技能擷取/策展（curation）迴圈。
 - [channels-telegram](channels-telegram.md) — Telegram 機器人通道（bot channel）。
 
 ## 應用程式與平台（App & platform）
+- [onboarding-llm-providers](onboarding-llm-providers.md) — 初次登入 → LLM 設定 → 使用確認流程；供應商分類（雲端共享 / 本機訂閱-CLI / 本地伺服器）與每機優先序。**內部文件（含灰色訂閱策略 + ToS）— 不進 public sync。**
 - [app-tauri-frontend](app-tauri-frontend.md) — Tauri 桌面/行動端前端。
 - [i18n-localization](i18n-localization.md) — 在地化（localization，en / zh-TW）。
 

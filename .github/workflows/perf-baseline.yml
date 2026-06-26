@@ -81,28 +81,28 @@ jobs:
       - name: bench - fts5_memory_insert
         working-directory: core
         run: |
-          cargo bench --bench fts5_memory_insert --features experimental-hermes-memory -- \
+          cargo bench --bench fts5_memory_insert --features experimental-memory -- \
             --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
             2>&1 | tee ../target-bench-fts5-insert.txt
 
       - name: bench - fts5_memory_query
         working-directory: core
         run: |
-          cargo bench --bench fts5_memory_query --features experimental-hermes-memory -- \
+          cargo bench --bench fts5_memory_query --features experimental-memory -- \
             --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
             2>&1 | tee ../target-bench-fts5-query.txt
 
-      - name: bench - hermes_tool_lookup
+      - name: bench - skill_tool_lookup
         working-directory: core
         run: |
-          cargo bench --bench hermes_tool_lookup --features experimental-hermes-tools -- \
+          cargo bench --bench skill_tool_lookup --features experimental-tools -- \
             --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
             2>&1 | tee ../target-bench-lookup.txt
 
-      - name: bench - hermes_tool_dispatch
+      - name: bench - skill_tool_dispatch
         working-directory: core
         run: |
-          cargo bench --bench hermes_tool_dispatch --features experimental-hermes-tools -- \
+          cargo bench --bench skill_tool_dispatch --features experimental-tools -- \
             --warm-up-time 1 --measurement-time "$MEASUREMENT_SECS" \
             2>&1 | tee ../target-bench-dispatch.txt
 

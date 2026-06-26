@@ -65,7 +65,10 @@ fn cuj05_backup_roundtrip_preserves_phantom_mesh_tree() {
     let bin = match phantom_bin() {
         Some(p) => p,
         None => {
-            eprintln!("SKIP: no built phantom bin found — run `cargo build --release --bin phantom`");
+            eprintln!(
+                "SKIPPED: cuj05_backup_roundtrip_preserves_phantom_mesh_tree — no built \
+                 phantom bin found (run `cargo build --release --bin phantom`)"
+            );
             return;
         }
     };
@@ -189,7 +192,10 @@ fn cuj05_backup_missing_to_flag_errors_with_helpful_msg() {
     let bin = match phantom_bin() {
         Some(p) => p,
         None => {
-            eprintln!("SKIP: no built phantom bin found");
+            eprintln!(
+                "SKIPPED: cuj05_backup_missing_to_flag_errors_with_helpful_msg — no \
+                 built phantom bin found"
+            );
             return;
         }
     };
@@ -224,7 +230,10 @@ fn cuj05_backup_no_phantom_mesh_dir_errors_friendly() {
     let bin = match phantom_bin() {
         Some(p) => p,
         None => {
-            eprintln!("SKIP: no built phantom bin found");
+            eprintln!(
+                "SKIPPED: cuj05_backup_no_phantom_mesh_dir_errors_friendly — no built \
+                 phantom bin found"
+            );
             return;
         }
     };

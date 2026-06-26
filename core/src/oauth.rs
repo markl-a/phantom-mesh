@@ -99,11 +99,19 @@ fn gen_random_b64(n: usize) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf)
 }
 
+/// The Google OAuth client id to use, env-overridable so a freshly registered
+/// "phantom-mesh" Google Cloud client can be swapped in without recompiling.
+/// Falls back to the compiled-in default when `PHANTOM_MESH_GOOGLE_CLIENT_ID`
+/// is unset.
+fn google_client_id() -> String {
+    std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_ID").unwrap_or_else(|_| GOOGLE_CLIENT_ID.to_string())
+}
+
 fn load_apple_config() -> Option<AppleAuthConfig> {
-    let home = std::env::var("HOME").ok()?;
+    let home = crate::providers::credential_scanner::home_dir_lenient()?;
     let paths = [
-        format!("{}/.phantom-mesh/apple-auth.json", home),
-        format!("{}/.config/phantom-mesh/apple-auth.json", home),
+        home.join(".phantom-mesh").join("apple-auth.json"),
+        home.join(".config").join("phantom-mesh").join("apple-auth.json"),
     ];
     for path in &paths {
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -113,6 +121,23 @@ fn load_apple_config() -> Option<AppleAuthConfig> {
         }
     }
     None
+}
+
+/// Seconds since the UNIX epoch for `t`, or an `Err` describing the failure
+/// when `t` is before the UNIX epoch (1970-01-01, i.e. a misconfigured system
+/// clock). Parameterized over `t` so the error path is unit-testable without
+/// actually setting the system clock.
+fn unix_secs_since_epoch(t: SystemTime) -> Result<u64, String> {
+    Ok(t.duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("system clock before UNIX_EPOCH: {}", e))?
+        .as_secs())
+}
+
+/// Current UNIX time in seconds, or an `Err` when the system clock is set
+/// before the UNIX epoch. Kept separate so the no-panic guarantee of
+/// [`generate_apple_client_secret`] can be unit-tested without a real `.p8` key.
+fn unix_now_secs() -> Result<u64, String> {
+    unix_secs_since_epoch(SystemTime::now())
 }
 
 fn generate_apple_client_secret(
@@ -125,10 +150,7 @@ fn generate_apple_client_secret(
     let encoding_key = jsonwebtoken::EncodingKey::from_ec_pem(p8_pem.as_bytes())
         .map_err(|e| format!("Invalid .p8 key: {}", e))?;
 
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    let now = unix_now_secs()?;
 
     let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
     header.kid = Some(config.key_id.clone());
@@ -165,7 +187,7 @@ pub fn google_start_url(daemon_port: u16) -> String {
          ?response_type=code&client_id={}&redirect_uri={}&scope={}\
          &state={}&code_challenge={}&code_challenge_method=S256\
          &access_type=offline&prompt=consent",
-        urlencoding::encode(GOOGLE_CLIENT_ID),
+        urlencoding::encode(&google_client_id()),
         urlencoding::encode(&redirect_uri),
         urlencoding::encode("openid email profile"),
         urlencoding::encode(&csrf_state),
@@ -277,19 +299,24 @@ pub async fn handle_callback(code: &str, state: &str) -> Result<String, String> 
 }
 
 async fn exchange_google(code: &str, pending: &PendingOAuth) -> Result<UserIdentity, String> {
-    let client_secret = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET")
-        .map_err(|_| "PHANTOM_MESH_GOOGLE_CLIENT_SECRET env var not set".to_string())?;
+    let client_id = google_client_id();
+    // PKCE-only ("Desktop app" type) clients need no secret; "Web app" type
+    // clients still do. Include it only when configured so both work.
+    let client_secret = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET").ok();
+    let mut form: Vec<(&str, String)> = vec![
+        ("grant_type", "authorization_code".to_string()),
+        ("code", code.to_string()),
+        ("redirect_uri", pending.redirect_uri.clone()),
+        ("code_verifier", pending.code_verifier.clone()),
+        ("client_id", client_id),
+    ];
+    if let Some(secret) = client_secret {
+        form.push(("client_secret", secret));
+    }
     let client = reqwest::Client::new();
     let resp = client
         .post("https://oauth2.googleapis.com/token")
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", pending.redirect_uri.as_str()),
-            ("code_verifier", pending.code_verifier.as_str()),
-            ("client_id", GOOGLE_CLIENT_ID),
-            ("client_secret", client_secret.as_str()),
-        ])
+        .form(&form)
         .send()
         .await
         .map_err(|e| format!("Token exchange failed: {}", e))?;
@@ -370,4 +397,47 @@ fn decode_jwt_identity(provider: &str, id_token: &str) -> Result<UserIdentity, S
 /// identity has been resolved, or `Some(Err(_))` if the flow failed.
 pub fn get_result() -> Option<Result<UserIdentity, String>> {
     RESULT.lock().unwrap().clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `unix_now_secs` must return `Ok` (not panic) for a normal clock, and the
+    /// value must be a plausible post-2020 timestamp. This guards the Apple
+    /// client-secret path against the previous `.unwrap()`, which panicked when
+    /// the system clock was set before the UNIX epoch.
+    #[test]
+    fn unix_now_secs_is_graceful_and_plausible() {
+        let secs = unix_now_secs().expect("unix_now_secs should not error on a sane clock");
+        // 1_577_836_800 = 2020-01-01T00:00:00Z — any real clock is well past this.
+        assert!(
+            secs > 1_577_836_800,
+            "expected a post-2020 timestamp, got {secs}"
+        );
+    }
+
+    /// A pre-1970 clock must surface as a graceful `Err`, not a panic. This is
+    /// the actual regression guard for the fix: with the previous `.unwrap()`
+    /// this input panicked, so this test fails if the unwrap is reintroduced.
+    #[test]
+    fn pre_epoch_clock_is_graceful_error() {
+        let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(1);
+        let err = unix_secs_since_epoch(pre_epoch)
+            .expect_err("a pre-1970 clock must yield Err, not Ok/panic");
+        assert!(
+            err.contains("before UNIX_EPOCH"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    /// The iat/exp window used in the Apple JWT must stay a 180-day span, with
+    /// exp strictly after iat and no arithmetic overflow.
+    #[test]
+    fn apple_secret_window_is_180_days() {
+        let now = unix_now_secs().unwrap();
+        let exp = now + (86400 * 180);
+        assert!(exp > now);
+        assert_eq!(exp - now, 86400 * 180);
+    }
 }

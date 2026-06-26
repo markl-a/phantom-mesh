@@ -1,3 +1,5 @@
+> ⚠️ pre-pivot — 方向已被現行 4-pillar Life/Work(superpowers/BIG-GOAL.md)取代;戰術細節或許仍可用。
+
 # 協同演化架構（Co-Evolution Architecture）
 
 phantom-mesh 如何處理 **agent 自我修改（agent self-modification）** 與

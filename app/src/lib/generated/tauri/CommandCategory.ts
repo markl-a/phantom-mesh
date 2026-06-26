@@ -10,7 +10,7 @@
  * reset flows know to clear them.
  *
  * 中文: 命令網域分類。對齊 §9.1 七群（A–H）+ 額外 `Onboarding`（SPEC-28）+
- * `Capture` / `Coach` / `Hermes` / `Wipe` 是 v0.7.0 後續 pillar 預留的群組
+ * `Capture` / `Coach` / `Skillbank` / `Wipe` 是 v0.7.0 後續 pillar 預留的群組
  * slug — Stage 1 先佔位，Stage 2 / v0.7.0 spec 出來時把實際 command 填上。
  */
-export type CommandCategory = "chat" | "settings" | "cluster" | "vault" | "coach" | "hermes" | "mdns" | "oauth" | "wipe" | "capture" | "onboarding";
+export type CommandCategory = "chat" | "settings" | "cluster" | "vault" | "coach" | "skillbank" | "mdns" | "oauth" | "wipe" | "capture" | "onboarding";

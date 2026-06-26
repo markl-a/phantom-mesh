@@ -1,0 +1,58 @@
+name: Docs Lint
+
+# Two doc gates, kept cheap with path filters + cancel-in-progress:
+#  - doc-tree:  structure / traceability / ghost-fn / IP-leak / content-accuracy (A1) — pwsh only, fast
+#  - mermaid:   every diagram compiles under the real Mermaid parser (catches Syntax error)
+# Mermaid-compile proves a diagram RENDERS; check-doc-tree's A1 guards that the TEXT is TRUE.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/check-doc-tree.ps1'
+      - 'scripts/check-mermaid.ps1'
+      - '.github/workflows/docs-lint.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'scripts/check-doc-tree.ps1'
+      - 'scripts/check-mermaid.ps1'
+      - '.github/workflows/docs-lint.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  doc-tree:
+    name: Doc-tree structure + content lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: check-doc-tree.ps1 (C1/C4/C7/C8/K3/K7/T16/A1)
+        shell: pwsh
+        run: ./scripts/check-doc-tree.ps1
+
+  mermaid:
+    name: Mermaid diagrams compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install chromium runtime deps (for mermaid-cli / puppeteer)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libpango-1.0-0 libcairo2 libasound2t64 || \
+          sudo apt-get install -y libasound2
+      - name: check-mermaid.ps1 (compile every diagram)
+        shell: pwsh
+        run: ./scripts/check-mermaid.ps1

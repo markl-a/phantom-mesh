@@ -1,0 +1,8 @@
+GOAL (apex ② owned-memory): add the persistence + abstraction for the semantic recall leg in core/src/skill_wire.rs (+ a new migration), WITHOUT adding any heavy dependency yet.
+STEPS (TDD):
+1. Add migration core/migrations/0009_skill_embeddings.sql adding a nullable `embedding BLOB` column to the `skills` table (idempotent: guard with a column-exists check or ALTER ... that the apply-on-write tolerates).
+2. Define a trait `EmbeddingProvider { fn embed(&self, text: &str) -> Result<Vec<f32>, SkillError>; }` and a deterministic test impl `FixtureEmbedder` (e.g. hashes tokens into a small fixed-dim vector) for tests only.
+3. Add a pure helper `cosine(a: &[f32], b: &[f32]) -> f32`.
+4. Extend store_skill (or add store_skill_with_embedding) to OPTIONALLY persist an embedding vector (serialize Vec<f32> to BLOB) when a provider is supplied; existing callers keep working (None = no embedding, unchanged).
+5. Unit tests: cosine of identical vecs == 1.0; FixtureEmbedder is deterministic; storing then reading back an embedding round-trips.
+Run `cargo test --manifest-path core/Cargo.toml skill_wire`. Touch skill_wire.rs + the new migration only. NO new deps. NO repo-wide cargo fmt. REPORT changes + test result.

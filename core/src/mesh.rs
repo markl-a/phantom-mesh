@@ -158,6 +158,225 @@ impl std::fmt::Display for DispatchError {
 
 impl std::error::Error for DispatchError {}
 
+// ── P1-1: single capability-aware decision line ──────────────────────────────
+//
+// `select_peer` is the ONE deterministic, pure, injectable function that
+// answers "which owned mesh node should run this task". It is a strict
+// generalization of `select_best_peer_with_caps` (which becomes a thin
+// wrapper). No I/O, no clock — it ranks on integer/string fields already
+// materialized on `PeerInfo`, so the same fixture always yields the same pick.
+
+/// Selection-time error taxonomy for `select_peer`. Distinct from the
+/// post-dispatch [`DispatchError`]; mapped to it via `impl From` at the call
+/// site so the public dispatch signatures keep returning `DispatchError`.
+#[derive(Debug)]
+pub enum RouteError {
+    /// Zero online peers at all (every peer has `online == false`).
+    NoPeersAvailable,
+    /// Online peers exist, but none advertise the union of `required` caps.
+    /// `online_inventory` carries every online peer's `(name, capabilities)`
+    /// so operators can audit the routing decision.
+    NoCapablePeer {
+        required: Vec<String>,
+        online_inventory: Vec<(String, Vec<String>)>,
+    },
+}
+
+impl std::fmt::Display for RouteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoPeersAvailable => write!(f, "no online peers available"),
+            Self::NoCapablePeer {
+                required,
+                online_inventory,
+            } => write!(
+                f,
+                "no online peer satisfies required_caps {required:?} \
+                 (online inventory: {online_inventory:?})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RouteError {}
+
+/// Map a selection-time `RouteError` onto the live dispatch error taxonomy so
+/// the master-dispatch entry points keep their `Result<_, DispatchError>`
+/// signatures unchanged.
+impl From<RouteError> for DispatchError {
+    fn from(e: RouteError) -> Self {
+        match e {
+            RouteError::NoPeersAvailable => DispatchError::NoPeersAvailable,
+            RouteError::NoCapablePeer {
+                required,
+                online_inventory,
+            } => DispatchError::NoPeerSatisfiesCaps {
+                required,
+                available_peers: online_inventory,
+            },
+        }
+    }
+}
+
+/// The chosen peer plus its ordered fallback chain and a human-readable reason.
+/// Borrows from the caller's `&[PeerInfo]` (no clone in the hot path).
+#[derive(Debug)]
+pub struct PeerSelection<'a> {
+    /// Best-ranked capable peer to try first.
+    pub head: &'a PeerInfo,
+    /// Strictly-worse-ranked capable peers, best-first, capped at 2 entries
+    /// (SPEC-26 §8 "max 1 reassign" tractability; keeps the walk O(1)).
+    pub fallback: Vec<&'a PeerInfo>,
+    /// Why `head` was chosen, e.g. "capable(gpu); healthy; load=0; fails=0".
+    pub reason: String,
+}
+
+/// True when `peer` advertises the union of `required` caps, treating an
+/// EMPTY `peer.capabilities` as a full worker (accepts any required) — this
+/// matches the pre-existing `select_best_peer_with_caps` full-worker rule.
+/// (`peer_has_capabilities` lacks the full-worker shortcut, so we cannot use
+/// it verbatim here without regressing the wrapper.)
+fn peer_caps_match(peer: &PeerInfo, required: &[String]) -> bool {
+    peer.capabilities.is_empty() || peer_has_capabilities(peer, required)
+}
+
+/// Strict total-order ranking key for `select_peer`. Smaller tuple = better.
+///   1. health tier: Healthy(0) before Unhealthy(1)
+///   2. load: fewer `active_tasks` first (ascending)
+///   3. reliability: fewer `consecutive_failures` first (ascending)
+///   4. recency: larger `last_seen_unix` first (`Reverse` → ascending of
+///      reversed = descending of value; fresher ping wins)
+///   5. stable tiebreak: lexicographically smaller `name` (determinism guard)
+fn rank_key(p: &PeerInfo) -> (u8, u32, u32, std::cmp::Reverse<u64>, &str) {
+    let health_tier = if p.health.is_healthy() { 0 } else { 1 };
+    (
+        health_tier,
+        p.active_tasks,
+        p.consecutive_failures,
+        std::cmp::Reverse(p.last_seen_unix),
+        p.name.as_str(),
+    )
+}
+
+/// Deterministic, capability-aware peer selection. The SINGLE decision line
+/// for "which owned mesh node should run this task". Pure: no I/O, no clock.
+///
+/// Ranking (strict total order, first key dominates):
+///   1. Hard filter: `online == true` AND `required ⊆ p.capabilities`
+///      (empty `p.capabilities` = full worker, satisfies any `required`;
+///      empty `required` = every online peer qualifies).
+///   2. Health tier: Healthy peers rank above Unhealthy (fallback only).
+///   3. Load: fewer `active_tasks` ranks higher (least-loaded wins).
+///   4. Reliability: fewer `consecutive_failures` ranks higher.
+///   5. Recency: larger `last_seen_unix` ranks higher (fresher ping).
+///   6. Stable tiebreak: lexicographically smaller `name` (deterministic
+///      across runs; the same fixture always selects the same peer).
+///
+/// Returns `PeerSelection { head, fallback, reason }`, or
+/// `RouteError::{NoPeersAvailable, NoCapablePeer{..}}` when the filtered set
+/// is empty (distinguishing "no peers at all" from "online, none capable").
+pub fn select_peer<'a>(
+    required: &[String],
+    peers: &'a [PeerInfo],
+) -> Result<PeerSelection<'a>, RouteError> {
+    // 1. No online peers at all → NoPeersAvailable (distinct from NoCapablePeer).
+    let online: Vec<&PeerInfo> = peers.iter().filter(|p| p.online).collect();
+    if online.is_empty() {
+        return Err(RouteError::NoPeersAvailable);
+    }
+
+    // 2. Capability hard filter over the online set.
+    let mut capable: Vec<&PeerInfo> = online
+        .iter()
+        .copied()
+        .filter(|p| peer_caps_match(p, required))
+        .collect();
+    if capable.is_empty() {
+        return Err(RouteError::NoCapablePeer {
+            required: required.to_vec(),
+            online_inventory: online
+                .iter()
+                .map(|p| (p.name.clone(), p.capabilities.clone()))
+                .collect(),
+        });
+    }
+
+    // 3. Rank by the 6-key strict total order. `sort_by_key` over `rank_key`
+    //    is total (no float) → fully deterministic down to the name tiebreak.
+    capable.sort_by(|a, b| rank_key(a).cmp(&rank_key(b)));
+
+    // 4. Split head + fallback (cap fallback at 2 entries).
+    let head = capable[0];
+    let fallback: Vec<&PeerInfo> = capable.iter().skip(1).take(2).copied().collect();
+
+    let cap_facts = if required.is_empty() {
+        "any".to_string()
+    } else {
+        required.join(",")
+    };
+    let health_word = if head.health.is_healthy() {
+        "healthy"
+    } else {
+        "unhealthy"
+    };
+    let reason = format!(
+        "capable({}); {}; load={}; fails={}",
+        cap_facts, health_word, head.active_tasks, head.consecutive_failures
+    );
+
+    Ok(PeerSelection {
+        head,
+        fallback,
+        reason,
+    })
+}
+
+/// True for `DispatchError`s where walking to the next peer is pointless or
+/// wrong, so the fallback walk must STOP immediately:
+///   * `HMACMismatch` — shared `cluster_secret`; every peer rejects the same.
+///   * `AgentMissing` — task-definition error, not a peer-health problem.
+/// Everything else (`PeerUnreachable`, `Timeout`, `PeerRejected`, `Other`, …)
+/// is retryable → try the next-best peer.
+fn is_fatal(e: &DispatchError) -> bool {
+    matches!(
+        e,
+        DispatchError::HMACMismatch { .. } | DispatchError::AgentMissing { .. }
+    )
+}
+
+/// Walk `selection` head→fallback, calling `try_dispatch(peer)` for each until
+/// one returns `Ok`. Stops early (no further peers) on a FATAL `DispatchError`
+/// (see [`is_fatal`]). On exhaustion returns the LAST observed error, so the
+/// user sees a concrete reason rather than a generic "all failed".
+///
+/// Invariants: bounded (`[head] ++ fallback`, already ≤ 3 by construction);
+/// each peer is tried at most once (the ranked list has unique peers).
+///
+/// This is the pure, injectable form used by unit tests (oracle = closure).
+/// The async master-dispatch path mirrors the same head→fallback / fatal-stop
+/// / last-error logic with an async per-peer dispatch.
+pub fn walk_with_fallback<F>(
+    selection: &PeerSelection<'_>,
+    mut try_dispatch: F,
+) -> Result<String, DispatchError>
+where
+    F: FnMut(&PeerInfo) -> Result<String, DispatchError>,
+{
+    let mut last_err: Option<DispatchError> = None;
+    for peer in std::iter::once(selection.head).chain(selection.fallback.iter().copied()) {
+        match try_dispatch(peer) {
+            Ok(out) => return Ok(out),
+            Err(e) if is_fatal(&e) => return Err(e),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    // Exhausted all candidates → surface the last concrete error. The
+    // `unwrap_or` is unreachable in practice: the chain always has ≥1 entry
+    // (the head), so at least one iteration ran and set `last_err` (or
+    // returned Ok). Kept total for safety.
+    Err(last_err.unwrap_or(DispatchError::NoPeersAvailable))
+}
+
 /// JSON envelope returned by `/rpc/message`.
 ///
 /// `extra` swallows fields we don't recognize today so server-side additions
@@ -215,6 +434,13 @@ pub struct ClusterConfig {
     /// Termux full workers.
     #[serde(default)]
     pub worker_caps: Vec<String>,
+    /// Trust same-tailnet peers without the cluster HMAC on local-UI endpoints
+    /// (e.g. /api/chat). When true, a request whose peer IP is an online
+    /// Tailscale peer (from `tailscale status`) is exempt from the cluster HMAC
+    /// — WireGuard already authenticated it. Off by default (opt-in);
+    /// cluster_secret remains the fallback for non-tailnet peers.
+    #[serde(default)]
+    pub trust_tailnet_peers: bool,
     /// Optional coordinator URL. When set, this node registers itself on startup
     /// and fetches the live peer list from the coordinator instead of relying on
     /// hardcoded `peers`. e.g. "http://coordinator.example.com:7900"
@@ -563,7 +789,7 @@ pub fn parse_tailscale_status_json(bytes: &[u8]) -> Result<TailscaleStatus, Mesh
 /// * `Ok(TailscaleStatus { peers })` — happy path. `peers` may be empty
 ///   when the local node is the only one in the tailnet.
 pub fn tailscale_status_json() -> Result<TailscaleStatus, MeshError> {
-    let output = std::process::Command::new("tailscale")
+    let output = std::process::Command::new(tailscale_bin())
         .args(["status", "--json"])
         .output()
         .map_err(|e| match e.kind() {
@@ -651,7 +877,7 @@ impl From<&PeerInfo> for PeerStatus {
 
 /// Path to the peers list cache: `~/.phantom-mesh/peers.json`.
 fn peers_path() -> Option<std::path::PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("peers.json"))
+    crate::cli_config::phantom_data_dir().ok().map(|d| d.join("peers.json"))
 }
 
 /// Save the peer list to `~/.phantom-mesh/peers.json`.
@@ -720,28 +946,71 @@ pub async fn load_peers() -> Vec<PeerInfo> {
 
 // ── mDNS peer discovery ─────────────────────────────────────────────────────
 
+/// Shell command used to browse mDNS via `dns-sd` (macOS / Bonjour).
+const DNS_SD_BROWSE_CMD: &str = "dns-sd -B _phantom-mesh._tcp local. 2>/dev/null";
+/// Shell command used to browse mDNS via `avahi-browse` (Linux).
+const AVAHI_BROWSE_CMD: &str = "avahi-browse -t -r -p _phantom-mesh._tcp 2>/dev/null";
+
+/// Whether the `sh`-based mDNS browse pipeline can run on this platform.
+///
+/// `discover_local_peers` shells out via `sh -c` to `dns-sd` (macOS) or
+/// `avahi-browse` (Linux). Windows ships neither `sh` nor those tools, so
+/// every spawn would fail (or quietly produce nothing). Callers on Windows
+/// must fall back to configured peers — see
+/// `docs/backlog/WIN-MESH-DISCOVERY.md` for the planned native implementation.
+fn mdns_shell_discovery_supported() -> bool {
+    cfg!(unix)
+}
+
+/// Extract peer base-URLs from `dns-sd` / `avahi-browse` output.
+///
+/// Looks for a `url=http…` field anywhere in each line (TXT record field);
+/// lines without one are skipped.
+fn parse_mdns_urls(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            // Look for a `url=http://…` field anywhere in the line,
+            // case-insensitively. We must NOT index `line` with an offset
+            // computed from `line.to_lowercase()`: lowercasing can change the
+            // byte length (e.g. `İ` U+0130 → `i̇`, 2 bytes → 3 bytes), which
+            // shifts every subsequent index and can land mid-char, slicing on a
+            // non-char boundary and panicking. Instead scan the original bytes
+            // directly so the returned offset is always valid for `line`.
+            let needle = b"url=http";
+            let bytes = line.as_bytes();
+            // ASCII case-insensitive match keeps offsets aligned with `line`;
+            // `url=http` is pure ASCII so case folding only affects ASCII bytes.
+            let idx = bytes
+                .windows(needle.len())
+                .position(|w| w.eq_ignore_ascii_case(needle))?;
+            let rest = &line[idx + 4..]; // skip "url="
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == ';')
+                .unwrap_or(rest.len());
+            Some(rest[..end].to_string())
+        })
+        .collect()
+}
+
 /// Discover local peers advertised under the `_phantom-mesh._tcp` service type.
 ///
 /// Tries `dns-sd` (macOS / Bonjour) first, then falls back to `avahi-browse`
 /// (Linux).  This is a best-effort, fire-and-forget operation — on failure or
 /// when neither tool is available the function returns an empty vec.
 ///
+/// On Windows the `sh`-based pipeline is skipped entirely (with an explicit
+/// log) and the empty set is returned so callers fall back to configured
+/// peers. Tracking spec: `docs/backlog/WIN-MESH-DISCOVERY.md`.
+///
 /// Returned strings are peer base-URLs inferred from the TXT record `url=…`
 /// field.  If no `url=` field is present the entry is skipped.
 pub async fn discover_local_peers() -> Vec<String> {
-    fn parse_urls(text: &str) -> Vec<String> {
-        text.lines()
-            .filter_map(|line| {
-                // Look for a `url=http://…` field anywhere in the line.
-                let lower = line.to_lowercase();
-                let idx = lower.find("url=http")?;
-                let rest = &line[idx + 4..]; // skip "url="
-                let end = rest
-                    .find(|c: char| c.is_whitespace() || c == ';')
-                    .unwrap_or(rest.len());
-                Some(rest[..end].to_string())
-            })
-            .collect()
+    if !mdns_shell_discovery_supported() {
+        tracing::warn!(
+            "discover_local_peers: local peer discovery via dns-sd/avahi-browse is \
+             not supported on Windows yet — falling back to configured peers"
+        );
+        return vec![];
     }
 
     // macOS: dns-sd -B runs forever; spawn it, drain stdout for ~1500ms,
@@ -751,33 +1020,43 @@ pub async fn discover_local_peers() -> Vec<String> {
         use tokio::io::AsyncReadExt;
         let spawned = tokio::process::Command::new("sh")
             .arg("-c")
-            .arg("dns-sd -B _phantom-mesh._tcp local. 2>/dev/null")
+            .arg(DNS_SD_BROWSE_CMD)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn();
 
-        if let Ok(mut child) = spawned {
-            let mut buf = Vec::with_capacity(4096);
-            if let Some(mut stdout) = child.stdout.take() {
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(1500),
-                    stdout.read_to_end(&mut buf),
-                )
-                .await;
-            }
-            // Best-effort kill — child holds the descriptor open otherwise.
-            let _ = child.start_kill();
-            let _ = child.wait().await;
+        match spawned {
+            Ok(mut child) => {
+                let mut buf = Vec::with_capacity(4096);
+                if let Some(mut stdout) = child.stdout.take() {
+                    // The outer timeout elapsing is expected (dns-sd never
+                    // exits on its own); an inner read error is not.
+                    if let Ok(Err(e)) = tokio::time::timeout(
+                        std::time::Duration::from_millis(1500),
+                        stdout.read_to_end(&mut buf),
+                    )
+                    .await
+                    {
+                        tracing::debug!("discover_local_peers: dns-sd read error: {e}");
+                    }
+                }
+                // Best-effort kill — child holds the descriptor open otherwise.
+                let _ = child.start_kill();
+                let _ = child.wait().await;
 
-            let text = String::from_utf8_lossy(&buf);
-            let urls = parse_urls(&text);
-            if !urls.is_empty() {
-                tracing::debug!(
-                    "discover_local_peers: found {} peers via dns-sd",
-                    urls.len()
-                );
-                return urls;
+                let text = String::from_utf8_lossy(&buf);
+                let urls = parse_mdns_urls(&text);
+                if !urls.is_empty() {
+                    tracing::debug!(
+                        "discover_local_peers: found {} peers via dns-sd",
+                        urls.len()
+                    );
+                    return urls;
+                }
+            }
+            Err(e) => {
+                tracing::debug!("discover_local_peers: failed to spawn dns-sd: {e}");
             }
         }
     }
@@ -785,14 +1064,14 @@ pub async fn discover_local_peers() -> Vec<String> {
     // Linux: avahi-browse -t already self-terminates, so a plain output() is fine.
     let output = tokio::process::Command::new("sh")
         .arg("-c")
-        .arg("avahi-browse -t -r -p _phantom-mesh._tcp 2>/dev/null")
+        .arg(AVAHI_BROWSE_CMD)
         .output()
         .await;
 
-    if let Ok(out) = output {
-        if out.status.success() {
+    match output {
+        Ok(out) if out.status.success() => {
             let text = String::from_utf8_lossy(&out.stdout);
-            let urls = parse_urls(&text);
+            let urls = parse_mdns_urls(&text);
             if !urls.is_empty() {
                 tracing::debug!(
                     "discover_local_peers: found {} peers via avahi-browse",
@@ -800,6 +1079,15 @@ pub async fn discover_local_peers() -> Vec<String> {
                 );
                 return urls;
             }
+        }
+        Ok(out) => {
+            tracing::debug!(
+                "discover_local_peers: avahi-browse exited with {}",
+                out.status
+            );
+        }
+        Err(e) => {
+            tracing::debug!("discover_local_peers: failed to spawn avahi-browse: {e}");
         }
     }
 
@@ -935,6 +1223,46 @@ fn extract_tailscale_peer_ips(status: &serde_json::Value) -> Vec<String> {
         }
     }
     ips
+}
+
+/// Resolve the `tailscale` CLI without relying on `$PATH`. The serve runs
+/// under launchd whose default PATH is `/usr/bin:/bin:/usr/sbin:/sbin` — it
+/// does NOT include `/usr/local/bin` (macOS pkg/Homebrew) where the CLI lives,
+/// so a bare `Command::new("tailscale")` fails with NotFound inside the daemon.
+/// Probe well-known absolute locations first, fall back to PATH for shell use.
+pub fn tailscale_bin() -> &'static str {
+    const CANDIDATES: &[&str] = &[
+        "/usr/local/bin/tailscale",                            // macOS pkg / Linux local
+        "/opt/homebrew/bin/tailscale",                         // macOS arm Homebrew
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale", // macOS App Store
+        "/usr/bin/tailscale",                                  // Linux distro
+    ];
+    for c in CANDIDATES {
+        if std::path::Path::new(c).exists() {
+            return c;
+        }
+    }
+    "tailscale"
+}
+
+/// All online Tailscale peer IPv4s, **un-collapsed by hostname** (unlike
+/// [`TailscaleStatus`], which keys peers by hostname and would drop two
+/// devices that report the same `HostName`, e.g. both "localhost"). Runs
+/// `tailscale status --json` synchronously. Returns an empty vec on any
+/// failure (tailscale absent / logged out / parse error) so callers fail
+/// closed. Used by the auth gate's tailnet-trust check.
+pub fn online_tailnet_peer_ips() -> Vec<String> {
+    let output = match std::process::Command::new(tailscale_bin())
+        .args(["status", "--json"])
+        .output()
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+    match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+        Ok(v) => extract_tailscale_peer_ips(&v),
+        Err(_) => Vec::new(),
+    }
 }
 
 // ── RPC helper with retry ────────────────────────────────────────────────────
@@ -1722,13 +2050,40 @@ impl ClusterManager {
         agent: &str,
         prompt: &str,
     ) -> Result<String, DispatchError> {
+        // P1-1: route through the single decision line. `required = &[]`
+        // preserves the legacy "any online peer" default of this public
+        // signature; the WIN is deterministic health+load+name selection
+        // (least-loaded healthy peer) instead of the old naive
+        // `filter(online).min_by_key(active_tasks)` first-match.
         let peers = self.peer_infos().await;
-        let best = peers
-            .iter()
-            .filter(|p| p.online)
-            .min_by_key(|p| p.active_tasks)
-            .ok_or(DispatchError::NoPeersAvailable)?;
+        let selection = select_peer(&[], &peers).map_err(DispatchError::from)?;
 
+        // Walk head→fallback: on a RETRYABLE failure transparently retry the
+        // next-best peer; STOP on a FATAL error (HMAC/AgentMissing); surface
+        // the LAST error on exhaustion. Mirrors `walk_with_fallback` but stays
+        // async per-peer (the sync helper is the unit-tested invariant oracle).
+        let mut last_err: Option<DispatchError> = None;
+        for peer in
+            std::iter::once(selection.head).chain(selection.fallback.iter().copied())
+        {
+            match self.post_message_to_peer(peer, agent, prompt).await {
+                Ok(out) => return Ok(out),
+                Err(e) if is_fatal(&e) => return Err(e),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or(DispatchError::NoPeersAvailable))
+    }
+
+    /// Per-peer `/rpc/message` (synchronous round-trip) dispatch with the
+    /// legacy raw-body HMAC auth + full error classification. Extracted from
+    /// `assign_task_to_best_peer` so the fallback walk can call it per peer.
+    async fn post_message_to_peer(
+        &self,
+        peer: &PeerInfo,
+        agent: &str,
+        prompt: &str,
+    ) -> Result<String, DispatchError> {
         // `task_id` is a client-side stub for future server-side idempotency
         // keys (SWARM-ARCHITECTURE §6). The server ignores it today; including
         // it now lets us roll out server idempotency without a wire-format bump.
@@ -1741,8 +2096,25 @@ impl ClusterManager {
 
         // SPEC-10 §6.4: prefer the Tailscale stable address when known.
         // Falls back to peer.url for LAN-only deploys (tailscale_ip = None).
-        let url = format!("{}/rpc/message", peer_dispatch_base_url(best));
-        let resp = post_with_retry(&self.client, &url, body, None)
+        let url = format!("{}/rpc/message", peer_dispatch_base_url(peer));
+        // SPEC-10 / auth: sign the raw body with the legacy raw-body HMAC the
+        // server's `verify_auth` accepts. Without this, the best-peer path sent
+        // NO `X-Cluster-Auth` header and the gated `/rpc/message` route returned
+        // 401 (surfaced as DispatchError::HMACMismatch). Mirrors the sibling
+        // `assign_task_to_peer_full`. Gated on a non-empty cluster_secret so the
+        // unauthenticated (secret-not-configured) deployment still works.
+        let auth_token = if self
+            .config
+            .cluster_secret
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
+            Some(self.make_auth_token_bytes(body.as_bytes()))
+        } else {
+            None
+        };
+        let resp = post_with_retry(&self.client, &url, body, auth_token.as_deref())
             .await
             .map_err(|source| DispatchError::PeerUnreachable {
                 url: url.clone(),
@@ -1783,7 +2155,7 @@ impl ClusterManager {
         })
     }
 
-    /// Dispatch a task asynchronously to the least-loaded online peer.
+    /// Dispatch a task asynchronously to the best (least-loaded healthy) peer.
     /// Returns the `job_id` for polling via `/rpc/task/status/:id`.
     /// The request is HMAC-auth'd when `cluster_secret` is configured.
     pub async fn assign_task_async(
@@ -1791,15 +2163,24 @@ impl ClusterManager {
         agent: &str,
         prompt: &str,
     ) -> Result<String, DispatchError> {
+        // P1-1: same single-decision-line + fallback-walk as
+        // `assign_task_to_best_peer`, over the async `/rpc/task/assign` path.
         let peers = self.peer_infos().await;
-        let best = peers
-            .iter()
-            .filter(|p| p.online)
-            .min_by_key(|p| p.active_tasks)
-            .ok_or(DispatchError::NoPeersAvailable)?;
-        // SPEC-10 §6.4: prefer Tailscale stable address when known.
-        let url = format!("{}/rpc/task/assign", peer_dispatch_base_url(best));
-        self.post_task_assign(&url, agent, prompt).await
+        let selection = select_peer(&[], &peers).map_err(DispatchError::from)?;
+
+        let mut last_err: Option<DispatchError> = None;
+        for peer in
+            std::iter::once(selection.head).chain(selection.fallback.iter().copied())
+        {
+            // SPEC-10 §6.4: prefer Tailscale stable address when known.
+            let url = format!("{}/rpc/task/assign", peer_dispatch_base_url(peer));
+            match self.post_task_assign(&url, agent, prompt).await {
+                Ok(job_id) => return Ok(job_id),
+                Err(e) if is_fatal(&e) => return Err(e),
+                Err(e) => last_err = Some(e),
+            }
+        }
+        Err(last_err.unwrap_or(DispatchError::NoPeersAvailable))
     }
 
     /// Dispatch a task to a specific peer URL (with HMAC auth when configured).
@@ -2347,79 +2728,31 @@ pub fn enforce_required_caps_with_forwarding(
     }
 }
 
-/// C1: pick the most-recently-pinged online peer whose `capabilities`
-/// superset of `required`. Returns `None` when no peer satisfies — the
-/// caller distinguishes between "no peers at all" (`NoPeersAvailable`) and
-/// "online peers exist, none satisfy" (`NoPeerSatisfiesCaps`) via the
-/// error taxonomy.
+/// C1: pick the best online peer whose `capabilities` superset `required`.
+/// Returns `None` when no peer satisfies — the caller distinguishes between
+/// "no peers at all" (`NoPeersAvailable`) and "online peers exist, none
+/// satisfy" (`NoPeerSatisfiesCaps`) via the error taxonomy.
 ///
-/// Selection rule (in priority order):
-///   1. `online == true`.
-///   2. `required ⊆ capabilities` (or `capabilities.is_empty()` = full worker).
-///   3. Most recent `last_seen_unix` (we cannot rely on `Instant`
-///      `last_seen` because it is `#[serde(skip)]` and reloads as `None`).
-///   4. Ties broken by lowest `active_tasks`.
+/// P1-1: this is now a THIN WRAPPER over the single decision line
+/// [`select_peer`]. The ranking, capability hard-filter (incl. the
+/// empty-caps=full-worker rule), and Healthy-before-Unhealthy tiering all
+/// live in `select_peer`'s `rank_key`. Two behaviour deltas vs. the old
+/// hand-rolled body, both intentional:
+///   * Load now breaks ties toward the LEAST-loaded peer (the old body's
+///     `b.active_tasks.cmp(&a.active_tasks)` preferred the MORE-loaded peer —
+///     a latent bug; see P1-1 plan). No caller depended on the old order:
+///     the only consumer is `enforce_required_caps_with_forwarding`, which
+///     just wants *a* capable peer.
+///   * Selection is a strict total order down to the `name` tiebreak, so the
+///     pick is deterministic across runs.
 ///
 /// Note on `capabilities` vs `worker_caps` (spec §14 Q1): `PeerInfo` only
 /// persists `capabilities` (general node-capability tags from each peer's
 /// agents.toml). The richer `worker_caps` sandbox subset lives only on
 /// `PeerStatus` returned by `/rpc/ping` and is not cached on disk. For V1
-/// we treat `capabilities` as the routing key — see Q1 resolution in the
-/// PR description.
+/// we treat `capabilities` as the routing key.
 pub fn select_best_peer_with_caps(required: &[String], peers: &[PeerInfo]) -> Option<PeerInfo> {
-    // C4: per-PeerHealth tier preference. Try Healthy peers first, then
-    // fall through to Unhealthy as a last-resort fallback (better than
-    // bouncing the task with NoCapablePeers when the only matches happen
-    // to be marked Unhealthy by the heartbeat task).
-    //
-    // This filter is data-only: when the `experimental-cluster-heartbeat`
-    // feature is OFF, `record_probe_result` never flips peers to Unhealthy,
-    // so every match lands in the Healthy tier and the Unhealthy-fallback
-    // pass is unreachable — preserving exact pre-C4 selection behaviour.
-    let cap_match = |p: &&PeerInfo| -> bool {
-        p.capabilities.is_empty()
-            || required
-                .iter()
-                .all(|c| p.capabilities.iter().any(|h| h == c))
-    };
-    let pick = |only_healthy: bool| -> Option<PeerInfo> {
-        peers
-            .iter()
-            .filter(|p| p.online)
-            .filter(|p| {
-                if only_healthy {
-                    p.health.is_healthy()
-                } else {
-                    true
-                }
-            })
-            .filter(cap_match)
-            .max_by(|a, b| {
-                a.last_seen_unix
-                    .cmp(&b.last_seen_unix)
-                    .then_with(|| b.active_tasks.cmp(&a.active_tasks))
-            })
-            .cloned()
-    };
-    // Tier 1: healthy peers only.
-    if let Some(p) = pick(true) {
-        return Some(p);
-    }
-    // Tier 2: include Unhealthy peers. `tracing::debug!` so operators can
-    // see fallback in logs without polluting normal flows.
-    let fallback = pick(false);
-    if let Some(ref p) = fallback {
-        if !p.health.is_healthy() {
-            tracing::debug!(
-                target: "phantom::cluster::heartbeat",
-                event = "peer_fallback_unhealthy",
-                peer_url = %p.url,
-                peer_name = %p.name,
-                "no healthy peer satisfied required_caps; falling back to unhealthy peer"
-            );
-        }
-    }
-    fallback
+    select_peer(required, peers).ok().map(|sel| sel.head.clone())
 }
 
 #[cfg(test)]
@@ -2879,6 +3212,321 @@ mod tests {
             health: PeerHealth::default(),
             tailscale_ip: None,
         }
+    }
+
+    /// Richer builder for the load/health/reliability/recency cases that
+    /// `peer_with_caps` / `fixture_peer` cannot express (they pin
+    /// active_tasks=0, consecutive_failures=0, health=Healthy).
+    #[allow(clippy::too_many_arguments)]
+    fn peer_full(
+        name: &str,
+        caps: &[&str],
+        online: bool,
+        active: u32,
+        fails: u32,
+        last_seen: u64,
+        health: PeerHealth,
+    ) -> PeerInfo {
+        PeerInfo {
+            url: format!("http://{name}:7878"),
+            name: name.to_string(),
+            version: "test".into(),
+            online,
+            active_tasks: active,
+            uptime_secs: 0,
+            last_seen_unix: last_seen,
+            last_seen: None,
+            consecutive_failures: fails,
+            capabilities: caps.iter().map(|s| s.to_string()).collect(),
+            health,
+            tailscale_ip: None,
+        }
+    }
+
+    // ── P1-1 Task 1: select_peer pure core ──────────────────────────────────
+
+    #[test]
+    fn select_peer_picks_the_only_capable_peer() {
+        let peers = vec![
+            peer_with_caps("A", &["gpu"]),
+            peer_with_caps("B", &["cpu"]),
+        ];
+        let sel = select_peer(&["gpu".to_string()], &peers).expect("A satisfies gpu");
+        assert_eq!(sel.head.name, "A");
+        assert!(sel.fallback.is_empty(), "only one capable peer → no fallback");
+    }
+
+    #[test]
+    fn select_peer_empty_required_matches_any_online() {
+        let peers = vec![
+            peer_full("B", &["cpu"], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("A", &["gpu"], true, 0, 0, 1_000, PeerHealth::Healthy),
+        ];
+        // empty required → every online peer qualifies; all keys tie except
+        // name, so the lexicographically-smaller "A" is the deterministic head.
+        let sel = select_peer(&[], &peers).expect("any online peer qualifies");
+        assert_eq!(sel.head.name, "A");
+        assert_eq!(sel.fallback.len(), 1);
+        assert_eq!(sel.fallback[0].name, "B");
+    }
+
+    #[test]
+    fn select_peer_empty_caps_is_full_worker() {
+        // capabilities=[] = full worker, satisfies any required (parity with
+        // select_best_peer_with_caps_treats_empty_caps_as_full_worker).
+        let peers = vec![peer_with_caps("full", &[])];
+        let sel = select_peer(&["gpu".to_string(), "memory".to_string()], &peers)
+            .expect("full worker accepts any required");
+        assert_eq!(sel.head.name, "full");
+    }
+
+    #[test]
+    fn select_peer_no_capable_peer_returns_error_with_inventory() {
+        let peers = vec![
+            peer_with_caps("A", &["memory"]),
+            peer_with_caps("B", &["network"]),
+        ];
+        match select_peer(&["gpu".to_string()], &peers) {
+            Err(RouteError::NoCapablePeer {
+                required,
+                online_inventory,
+            }) => {
+                assert_eq!(required, vec!["gpu".to_string()]);
+                // inventory lists every online peer's (name, caps)
+                assert!(online_inventory.contains(&(
+                    "A".to_string(),
+                    vec!["memory".to_string()]
+                )));
+                assert!(online_inventory.contains(&(
+                    "B".to_string(),
+                    vec!["network".to_string()]
+                )));
+            }
+            other => panic!("expected NoCapablePeer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn select_peer_no_online_peers_returns_no_peers_available() {
+        let peers = vec![
+            peer_full("A", &["gpu"], false, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &["gpu"], false, 0, 0, 1_000, PeerHealth::Healthy),
+        ];
+        match select_peer(&["gpu".to_string()], &peers) {
+            Err(RouteError::NoPeersAvailable) => {}
+            other => panic!("expected NoPeersAvailable (distinct from NoCapablePeer), got {other:?}"),
+        }
+    }
+
+    // ── P1-1 Task 2: load / health / reliability / recency / name ordering ──
+
+    #[test]
+    fn select_peer_breaks_tie_by_least_load() {
+        // Bug-fix vs old select_best_peer_with_caps (which preferred the
+        // MORE-loaded peer): least-loaded must win.
+        let peers = vec![
+            peer_full("A", &["gpu"], true, 3, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &["gpu"], true, 0, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = select_peer(&["gpu".to_string()], &peers).expect("both capable");
+        assert_eq!(sel.head.name, "B", "least-loaded (load=0) must be head");
+        assert_eq!(sel.fallback.len(), 1);
+        assert_eq!(sel.fallback[0].name, "A");
+    }
+
+    #[test]
+    fn select_peer_prefers_healthy_over_unhealthy() {
+        // Health tier dominates load: healthy-but-busy beats unhealthy-but-idle.
+        let peers = vec![
+            peer_full("A", &["gpu"], true, 5, 0, 1_000, PeerHealth::Healthy),
+            peer_full(
+                "B",
+                &["gpu"],
+                true,
+                0,
+                0,
+                1_000,
+                PeerHealth::Unhealthy {
+                    since: Instant::now(),
+                    failure_count: 5,
+                },
+            ),
+        ];
+        let sel = select_peer(&["gpu".to_string()], &peers).expect("both capable");
+        assert_eq!(sel.head.name, "A", "healthy peer wins despite higher load");
+    }
+
+    #[test]
+    fn select_peer_load_breaks_tie_within_same_health_tier() {
+        // Same health + same load → fewer consecutive_failures wins.
+        let peers = vec![
+            peer_full("A", &["gpu"], true, 0, 2, 1_000, PeerHealth::Healthy),
+            peer_full("B", &["gpu"], true, 0, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = select_peer(&["gpu".to_string()], &peers).expect("both capable");
+        assert_eq!(sel.head.name, "B", "fewer fails (0) beats more fails (2)");
+    }
+
+    #[test]
+    fn select_peer_recency_then_name_final_tiebreak() {
+        // Identical health/load/fails, different recency → fresher wins.
+        let peers = vec![
+            peer_full("stale", &["gpu"], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("fresh", &["gpu"], true, 0, 0, 9_000, PeerHealth::Healthy),
+        ];
+        let sel = select_peer(&["gpu".to_string()], &peers).expect("both capable");
+        assert_eq!(sel.head.name, "fresh", "larger last_seen_unix wins");
+
+        // Identical on EVERYTHING incl. recency → lexicographically smaller
+        // name wins (the determinism guard).
+        let peers2 = vec![
+            peer_full("zeta", &["gpu"], true, 0, 0, 5_000, PeerHealth::Healthy),
+            peer_full("alpha", &["gpu"], true, 0, 0, 5_000, PeerHealth::Healthy),
+        ];
+        let sel2 = select_peer(&["gpu".to_string()], &peers2).expect("both capable");
+        assert_eq!(
+            sel2.head.name, "alpha",
+            "all keys tie → smaller name is the deterministic pick"
+        );
+    }
+
+    // ── P1-1 Task 3: walk_with_fallback retry invariants (oracle-driven) ────
+
+    /// Build a 3-peer selection (head + 2 fallback) from hermetic fixtures.
+    fn three_peer_selection(peers: &[PeerInfo]) -> PeerSelection<'_> {
+        select_peer(&[], peers).expect("≥1 online peer")
+    }
+
+    #[test]
+    fn walk_dispatches_to_head_on_first_success() {
+        let peers = vec![
+            peer_full("A", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &[], true, 1, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = three_peer_selection(&peers);
+        let mut seen: Vec<String> = Vec::new();
+        let out = walk_with_fallback(&sel, |p| {
+            seen.push(p.name.clone());
+            Ok(format!("job-{}", p.name))
+        })
+        .expect("head succeeds");
+        assert_eq!(out, "job-A", "head (least-loaded) used");
+        assert_eq!(seen, vec!["A".to_string()], "oracle called once, no fallback");
+    }
+
+    #[test]
+    fn walk_falls_through_to_next_peer_on_retryable_failure() {
+        let peers = vec![
+            peer_full("A", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &[], true, 1, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = three_peer_selection(&peers);
+        let mut seen: Vec<String> = Vec::new();
+        let out = walk_with_fallback(&sel, |p| {
+            seen.push(p.name.clone());
+            if p.name == "A" {
+                Err(DispatchError::PeerUnreachable {
+                    url: p.url.clone(),
+                    source: "conn refused".into(),
+                })
+            } else {
+                Ok(format!("job-{}", p.name))
+            }
+        })
+        .expect("fallback B succeeds");
+        assert_eq!(out, "job-B");
+        assert_eq!(seen, vec!["A".to_string(), "B".to_string()], "head then fallback");
+    }
+
+    #[test]
+    fn walk_stops_immediately_on_fatal_error() {
+        let peers = vec![
+            peer_full("A", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &[], true, 1, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = three_peer_selection(&peers);
+        let mut seen: Vec<String> = Vec::new();
+        let err = walk_with_fallback(&sel, |p| {
+            seen.push(p.name.clone());
+            Err::<String, _>(DispatchError::HMACMismatch { url: p.url.clone() })
+        })
+        .expect_err("fatal HMACMismatch must propagate");
+        assert!(matches!(err, DispatchError::HMACMismatch { .. }));
+        assert_eq!(seen, vec!["A".to_string()], "fatal → oracle called ONCE, no fallback");
+    }
+
+    #[test]
+    fn walk_returns_last_error_when_all_peers_fail() {
+        let peers = vec![
+            peer_full("A", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &[], true, 1, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = three_peer_selection(&peers);
+        let mut seen: Vec<String> = Vec::new();
+        let err = walk_with_fallback(&sel, |p| {
+            seen.push(p.name.clone());
+            if p.name == "A" {
+                Err::<String, _>(DispatchError::Timeout {
+                    url: p.url.clone(),
+                    elapsed: std::time::Duration::from_secs(1),
+                })
+            } else {
+                Err::<String, _>(DispatchError::PeerUnreachable {
+                    url: p.url.clone(),
+                    source: "down".into(),
+                })
+            }
+        })
+        .expect_err("all peers fail");
+        // LAST error (from B) is surfaced, not the first.
+        assert!(
+            matches!(err, DispatchError::PeerUnreachable { .. }),
+            "last observed error (PeerUnreachable from B) must be returned, got {err:?}"
+        );
+        assert_eq!(seen, vec!["A".to_string(), "B".to_string()]);
+    }
+
+    #[test]
+    fn walk_never_retries_same_peer() {
+        // Three capable peers; all fail retryably → each name appears once.
+        let peers = vec![
+            peer_full("A", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+            peer_full("B", &[], true, 1, 0, 1_000, PeerHealth::Healthy),
+            peer_full("C", &[], true, 2, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = three_peer_selection(&peers);
+        let mut seen: Vec<String> = Vec::new();
+        let _ = walk_with_fallback(&sel, |p| {
+            seen.push(p.name.clone());
+            Err::<String, _>(DispatchError::Timeout {
+                url: p.url.clone(),
+                elapsed: std::time::Duration::from_secs(1),
+            })
+        });
+        let mut unique = seen.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(seen.len(), unique.len(), "no peer tried twice: {seen:?}");
+        assert_eq!(seen, vec!["A".to_string(), "B".to_string(), "C".to_string()]);
+    }
+
+    // ── P1-1 Task 5: master dispatch routes through select_peer ─────────────
+
+    #[test]
+    fn assign_task_to_best_peer_picks_least_loaded_of_two() {
+        // Pure form (preferred per plan): pin the routing decision the async
+        // dispatch path now makes — empty required (legacy "any online"),
+        // least-loaded healthy peer is the head whose URL gets dispatched.
+        let peers = vec![
+            peer_full("busy", &[], true, 5, 0, 1_000, PeerHealth::Healthy),
+            peer_full("idle", &[], true, 0, 0, 1_000, PeerHealth::Healthy),
+        ];
+        let sel = select_peer(&[], &peers).expect("two online peers");
+        assert_eq!(sel.head.name, "idle", "least-loaded peer is the dispatch head");
+        assert_eq!(sel.head.url, "http://idle:7878");
+        // The busier peer is the first fallback (best-first ordering).
+        assert_eq!(sel.fallback.len(), 1);
+        assert_eq!(sel.fallback[0].name, "busy");
     }
 
     #[test]
@@ -3667,6 +4315,218 @@ mod tests {
         assert!(
             without.iter().all(|a| a.name != "my-node"),
             "include_self=false must drop the self-named roster entry too"
+        );
+    }
+
+    // ?? Regression: best-peer dispatch must sign /rpc/message ????????????
+    //
+    // Guards the bug where `assign_task_to_best_peer` (the default
+    // `phantom peer assign <prompt>` path with no `--target`) passed `None`
+    // for the auth token, so the POST to the *gated* `/rpc/message` route
+    // carried no `X-Cluster-Auth` header and the server returned 401
+    // (surfaced as DispatchError::HMACMismatch). The fix signs the raw body
+    // with the legacy raw-body HMAC the server's `verify_auth` accepts.
+    //
+    // The matcher recomputes HMAC-SHA256(secret, raw_request_body) from the
+    // bytes wiremock actually received and asserts the header equals it ??    // proving the client signs the *exact* serialized body, including the
+    // random per-request `task_id`.
+    struct LegacyHmacMatches {
+        secret: String,
+    }
+    impl wiremock::Match for LegacyHmacMatches {
+        fn matches(&self, req: &wiremock::Request) -> bool {
+            use hmac::{Hmac, Mac};
+            use sha2::Sha256;
+            type HmacSha256 = Hmac<Sha256>;
+            let header = match req.headers.get("x-cluster-auth") {
+                Some(v) => match v.to_str() {
+                    Ok(s) => s.to_string(),
+                    Err(_) => return false,
+                },
+                None => return false,
+            };
+            let mut mac = HmacSha256::new_from_slice(self.secret.as_bytes())
+                .expect("HMAC key of any size");
+            mac.update(&req.body);
+            let expected = hex::encode(mac.finalize().into_bytes());
+            // Constant-time not required in a test; exact equality is the point.
+            header == expected
+        }
+    }
+
+    /// Matches only when NO `X-Cluster-Auth` header is present (wiremock has
+    /// no built-in "header absent" matcher).
+    struct NoAuthHeader;
+    impl wiremock::Match for NoAuthHeader {
+        fn matches(&self, req: &wiremock::Request) -> bool {
+            req.headers.get("x-cluster-auth").is_none()
+        }
+    }
+
+    fn online_peer_at(url: &str) -> PeerInfo {
+        PeerInfo {
+            url: url.to_string(),
+            ..peer_with_caps("mock-peer", &[])
+        }
+    }
+
+    #[tokio::test]
+    async fn assign_task_to_best_peer_signs_rpc_message_with_legacy_hmac() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let secret = "best-peer-secret-xyz";
+        let server = MockServer::start().await;
+
+        // Only matches when the X-Cluster-Auth header is the correct
+        // raw-body HMAC. If the client sends no header (the bug) or a wrong
+        // signature, this Mock does not match -> wiremock returns 404, the
+        // client decodes a non-JSON/empty body and the call fails the asserts.
+        Mock::given(method("POST"))
+            .and(path("/rpc/message"))
+            .and(LegacyHmacMatches {
+                secret: secret.to_string(),
+            })
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "output": "pong" })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mgr = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some(secret.to_string()),
+            ..ClusterConfig::default()
+        });
+        // Inject one online peer pointing at the mock server.
+        mgr.peers.write().await.push(online_peer_at(&server.uri()));
+
+        let out = mgr
+            .assign_task_to_best_peer("master", "hello")
+            .await
+            .expect("signed best-peer dispatch must succeed (got HMACMismatch?)");
+        assert_eq!(out, "pong");
+        // `.expect(1)` on drop verifies the signed request actually hit the route.
+    }
+
+    #[tokio::test]
+    async fn assign_task_to_best_peer_omits_auth_when_no_secret() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        // With no cluster_secret, no header is sent ??the route is open
+        // (matches the secret-not-configured server behaviour). Assert that
+        // no X-Cluster-Auth header is attached.
+        Mock::given(method("POST"))
+            .and(path("/rpc/message"))
+            .and(NoAuthHeader)
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "output": "ok" })),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mgr = ClusterManager::new(ClusterConfig {
+            cluster_secret: None,
+            ..ClusterConfig::default()
+        });
+        mgr.peers.write().await.push(online_peer_at(&server.uri()));
+
+        let out = mgr
+            .assign_task_to_best_peer("master", "hello")
+            .await
+            .expect("unauthenticated best-peer dispatch must succeed when no secret");
+        assert_eq!(out, "ok");
+    }
+
+    // ── Windows-graceful mDNS discovery ─────────────────────────────────────
+
+    /// On Windows the `sh -c dns-sd/avahi-browse` pipeline cannot run — the
+    /// support predicate must say so, and stay enabled on unix so the
+    /// existing macOS/Linux discovery path is untouched.
+    #[test]
+    fn mdns_shell_discovery_disabled_on_windows_enabled_on_unix() {
+        if cfg!(windows) {
+            assert!(
+                !mdns_shell_discovery_supported(),
+                "Windows has no `sh`/dns-sd/avahi-browse — shell mDNS discovery must be off"
+            );
+        } else {
+            assert!(
+                mdns_shell_discovery_supported(),
+                "unix platforms must keep the dns-sd/avahi-browse pipeline enabled"
+            );
+        }
+    }
+
+    /// The browse commands must keep targeting the phantom-mesh service type.
+    #[test]
+    fn mdns_browse_commands_target_phantom_mesh_service() {
+        assert!(DNS_SD_BROWSE_CMD.contains("_phantom-mesh._tcp"));
+        assert!(AVAHI_BROWSE_CMD.contains("_phantom-mesh._tcp"));
+    }
+
+    #[test]
+    fn parse_mdns_urls_extracts_url_fields() {
+        // dns-sd-style line: whitespace-delimited, url= in the instance name.
+        let dns_sd_like = "12:00:00.000  Add  2  4 local. _phantom-mesh._tcp. \
+                           node-a url=http://192.168.1.10:7878\n\
+                           12:00:00.001  Add  2  4 local. _phantom-mesh._tcp. no-url-here";
+        assert_eq!(
+            parse_mdns_urls(dns_sd_like),
+            vec!["http://192.168.1.10:7878".to_string()]
+        );
+
+        // avahi-browse -p style line: `;`-separated fields, url= in TXT.
+        let avahi_like = "=;eth0;IPv4;node-b;_phantom-mesh._tcp;local;host.local;\
+                          192.168.1.11;7878;url=http://192.168.1.11:7878;extra";
+        assert_eq!(
+            parse_mdns_urls(avahi_like),
+            vec!["http://192.168.1.11:7878".to_string()]
+        );
+
+        // Non-http url= fields and empty input yield nothing.
+        assert!(parse_mdns_urls("url=ftp://nope").is_empty());
+        assert!(parse_mdns_urls("").is_empty());
+    }
+
+    /// Regression: a line containing a non-ASCII char whose byte length grows
+    /// under `to_lowercase()` (`İ` U+0130 is 2 bytes; lowercasing yields the
+    /// 3-byte `i̇` = `i` + U+0307) must not panic. Previously the field offset
+    /// was computed from `line.to_lowercase()` and used to slice the original
+    /// `line`, so the index could land mid-char and panic on a char boundary.
+    #[test]
+    fn parse_mdns_urls_handles_non_ascii_length_change() {
+        // `İstanbul-node` sits before the url= field; the dotted-capital-I is
+        // 2 bytes in the original but 3 bytes when lowercased, so any
+        // cross-string indexing would be misaligned by the time we reach url=.
+        let line = "12:00:00.000  Add  2  4 local. _phantom-mesh._tcp. \
+                    İstanbul-node url=http://192.168.1.42:7878 trailing";
+        // Must not panic, and must extract the correct URL.
+        let got = parse_mdns_urls(line);
+        assert_eq!(got, vec!["http://192.168.1.42:7878".to_string()]);
+
+        // Also verify case-insensitive matching of the `URL=HTTP` key still
+        // works (the key is ASCII; folding must not disturb offsets).
+        let upper = "İ URL=HTTP://10.0.0.1:7878;rest";
+        assert_eq!(
+            parse_mdns_urls(upper),
+            vec!["HTTP://10.0.0.1:7878".to_string()]
+        );
+    }
+
+    /// On Windows `discover_local_peers` must short-circuit gracefully:
+    /// no `sh` spawn attempt, immediate empty result.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn discover_local_peers_returns_empty_gracefully_on_windows() {
+        let started = std::time::Instant::now();
+        assert!(discover_local_peers().await.is_empty());
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "windows branch must short-circuit, not wait on a child process"
         );
     }
 }

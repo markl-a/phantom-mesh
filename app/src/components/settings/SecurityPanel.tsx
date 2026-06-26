@@ -33,117 +33,6 @@ const RESULT_STYLE: Record<string, string> = {
   "審核中": "text-phantom-warning",
 };
 
-const MOCK_EVENTS: AuditEvent[] = [
-  {
-    id: "AUD-001",
-    timestamp: "2026-03-21 11:42",
-    agent: "Coder",
-    action: "寫入檔案",
-    tool: "fs_write",
-    riskLevel: "low",
-    result: "允許",
-  },
-  {
-    id: "AUD-002",
-    timestamp: "2026-03-21 11:38",
-    agent: "Browser",
-    action: "訪問外部 URL",
-    tool: "http_fetch",
-    riskLevel: "medium",
-    result: "允許",
-  },
-  {
-    id: "AUD-003",
-    timestamp: "2026-03-21 11:35",
-    agent: "Coder",
-    action: "執行 Shell 命令",
-    tool: "shell_exec",
-    riskLevel: "high",
-    result: "允許",
-  },
-  {
-    id: "AUD-004",
-    timestamp: "2026-03-21 11:30",
-    agent: "Master",
-    action: "修改系統設定",
-    tool: "config_set",
-    riskLevel: "critical",
-    result: "審核中",
-  },
-  {
-    id: "AUD-005",
-    timestamp: "2026-03-21 11:22",
-    agent: "Coder",
-    action: "讀取環境變數",
-    tool: "env_read",
-    riskLevel: "medium",
-    result: "允許",
-  },
-  {
-    id: "AUD-006",
-    timestamp: "2026-03-21 11:15",
-    agent: "Browser",
-    action: "上傳檔案至外部",
-    tool: "http_upload",
-    riskLevel: "critical",
-    result: "阻擋",
-  },
-  {
-    id: "AUD-007",
-    timestamp: "2026-03-21 11:10",
-    agent: "Reviewer",
-    action: "讀取原始碼",
-    tool: "fs_read",
-    riskLevel: "low",
-    result: "允許",
-  },
-  {
-    id: "AUD-008",
-    timestamp: "2026-03-21 11:05",
-    agent: "Analyst",
-    action: "查詢資料庫",
-    tool: "db_query",
-    riskLevel: "medium",
-    result: "允許",
-  },
-  {
-    id: "AUD-009",
-    timestamp: "2026-03-21 10:58",
-    agent: "Coder",
-    action: "安裝套件",
-    tool: "package_install",
-    riskLevel: "high",
-    result: "允許",
-  },
-  {
-    id: "AUD-010",
-    timestamp: "2026-03-21 10:45",
-    agent: "Master",
-    action: "刪除任務記錄",
-    tool: "task_delete",
-    riskLevel: "high",
-    result: "阻擋",
-  },
-  {
-    id: "AUD-011",
-    timestamp: "2026-03-21 10:30",
-    agent: "Coder",
-    action: "讀取檔案",
-    tool: "fs_read",
-    riskLevel: "low",
-    result: "允許",
-  },
-  {
-    id: "AUD-012",
-    timestamp: "2026-03-21 10:20",
-    agent: "Reviewer",
-    action: "掃描依賴漏洞",
-    tool: "vuln_scan",
-    riskLevel: "low",
-    result: "允許",
-  },
-];
-
 function isValidRiskLevel(value: string): value is RiskLevel {
   return value === "low" || value === "medium" || value === "high" || value === "critical";
 }
@@ -153,7 +42,7 @@ function isValidResult(value: string): value is AuditEvent["result"] {
 }
 
 function parseAuditEvent(raw: Record<string, unknown>, index: number): AuditEvent {
-  const id = raw["id"] ?? `AUD-${String(index + 1).padStart(3, "0")}`;
+  const id = raw["id"] ?? `evt-${String(index + 1).padStart(3, "0")}`;
   const timestamp = raw["timestamp"] ?? raw["created_at"] ?? raw["time"] ?? "";
   const agent = raw["agent"] ?? raw["agent_name"] ?? raw["actor"] ?? "Unknown";
   const action = raw["action"] ?? raw["description"] ?? raw["event"] ?? "";
@@ -184,7 +73,7 @@ export default function SecurityPanel() {
     isOffline: false,
     loading: true,
     error: null,
-    events: MOCK_EVENTS,
+    events: [],
   });
 
   const fetchEvents = useCallback(async (filterLevel?: RiskLevel | "all") => {
@@ -216,11 +105,14 @@ export default function SecurityPanel() {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // HONEST failure: no audit data could be retrieved. We never fabricate
+      // rows here — the table stays empty and an offline banner is shown so
+      // users never see invented audit entries on the apex-④ audit surface.
       setState({
         isOffline: true,
         loading: false,
         error: message,
-        events: MOCK_EVENTS,
+        events: [],
       });
     }
   }, []);
@@ -234,12 +126,13 @@ export default function SecurityPanel() {
     // fetchEvents will be triggered by the useEffect dependency on riskFilter
   };
 
-  // When offline, do client-side filtering
-  const displayedEvents = state.isOffline && riskFilter !== "all"
-    ? state.events.filter((e) => e.riskLevel === riskFilter)
-    : state.events;
+  // Only ever render real, server-supplied events. When offline there is
+  // nothing to filter (events is []), so the table renders its honest
+  // empty/offline state below.
+  const displayedEvents = state.events;
 
-  const statsSource = state.isOffline ? MOCK_EVENTS : state.events;
+  // Stats derive ONLY from real data — never from fabricated rows.
+  const statsSource = state.events;
   const stats = {
     totalToday: statsSource.length,
     blocked: statsSource.filter((e) => e.result === "阻擋").length,
@@ -268,11 +161,17 @@ export default function SecurityPanel() {
         )}
       </div>
 
-      {/* Error Banner */}
-      {state.error && (
-        <div className="mb-4 bg-phantom-danger/10 border border-phantom-danger/30 rounded-lg px-4 py-3 flex items-center justify-between">
+      {/* Offline / Error Banner — HONEST: shown when the audit log cannot be
+          retrieved. We never substitute fabricated rows; the table stays
+          empty so users are never shown invented audit entries. */}
+      {state.isOffline && (
+        <div
+          data-testid="audit-offline-banner"
+          className="mb-4 bg-phantom-danger/10 border border-phantom-danger/30 rounded-lg px-4 py-3 flex items-center justify-between"
+        >
           <span className="text-sm text-phantom-danger">
-            無法取得審計日誌: {state.error}
+            無法取得審計日誌（離線）— 目前無審計資料可顯示
+            {state.error ? `: ${state.error}` : ""}
           </span>
           <button
             onClick={() => fetchEvents(riskFilter)}
@@ -388,7 +287,9 @@ export default function SecurityPanel() {
                 {displayedEvents.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-phantom-muted">
-                      沒有符合條件的審計事件
+                      {state.isOffline
+                        ? "離線中 — 無審計資料可顯示"
+                        : "沒有符合條件的審計事件"}
                     </td>
                   </tr>
                 )}

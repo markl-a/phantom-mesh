@@ -15,6 +15,7 @@
 // current behavior. Does NOT yet swap `auth.rs` callers — that's a
 // follow-up to keep blast radius small.
 
+pub mod conversation_seal;
 pub mod file;
 
 pub use file::FileVault;

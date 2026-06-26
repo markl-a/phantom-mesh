@@ -93,7 +93,7 @@ pub async fn list() -> Result<Vec<SnapshotInfo>> {
         })
         .collect();
     // Newest first.
-    snaps.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    snaps.sort_by_key(|s| std::cmp::Reverse(s.created_at_ms));
     Ok(snaps)
 }
 

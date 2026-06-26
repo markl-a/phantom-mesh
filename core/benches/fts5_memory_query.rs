@@ -11,29 +11,29 @@
 #[path = "common/mod.rs"]
 mod common;
 
-#[cfg(not(feature = "experimental-hermes-memory"))]
+#[cfg(not(feature = "experimental-memory"))]
 fn main() {
-    common::print_disabled_and_exit("experimental-hermes-memory");
+    common::print_disabled_and_exit("experimental-memory");
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 use criterion::{criterion_group, criterion_main, Criterion};
-#[cfg(feature = "experimental-hermes-memory")]
-use phantom_mesh::hermes::{HermesMemory, NewMemory};
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
+use phantom_mesh::skillbank::{SkillMemory, NewMemory};
+#[cfg(feature = "experimental-memory")]
 use std::sync::OnceLock;
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 use tempfile::TempDir;
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 use tokio::runtime::Runtime;
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 const SEED_ROWS: usize = 10_000;
 
 /// Reusable lorem-ipsum-ish corpus. 100 distinct word stems shuffled
 /// per-row so BM25 has something to score. One of the words ("phantom")
 /// only appears in 10% of rows so we have a realistic search target.
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 fn corpus_row(i: usize) -> String {
     const WORDS: &[&str] = &[
         "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
@@ -54,15 +54,15 @@ fn corpus_row(i: usize) -> String {
 /// Build (or fetch the cached) 10K-row FTS5 store. We keep one DB across
 /// all iterations so we benchmark the query side, not the setup cost.
 /// The TempDir is leaked into a static OnceLock so it outlives the
-/// HermesMemory handle.
-#[cfg(feature = "experimental-hermes-memory")]
-fn seeded_memory(rt: &Runtime) -> &'static HermesMemory {
-    static CELL: OnceLock<HermesMemory> = OnceLock::new();
+/// SkillMemory handle.
+#[cfg(feature = "experimental-memory")]
+fn seeded_memory(rt: &Runtime) -> &'static SkillMemory {
+    static CELL: OnceLock<SkillMemory> = OnceLock::new();
     static TD: OnceLock<TempDir> = OnceLock::new();
     CELL.get_or_init(|| {
         let td = TempDir::new().expect("tempdir");
-        let path = td.path().join("hermes.db");
-        let mem = HermesMemory::open_at(path).expect("open_at");
+        let path = td.path().join("skill.db");
+        let mem = SkillMemory::open_at(path).expect("open_at");
         rt.block_on(async {
             for i in 0..SEED_ROWS {
                 let text = corpus_row(i);
@@ -82,7 +82,7 @@ fn seeded_memory(rt: &Runtime) -> &'static HermesMemory {
     })
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 fn bench_query(c: &mut Criterion) {
     let rt = Runtime::new().expect("tokio runtime");
     let mem = seeded_memory(&rt);
@@ -105,12 +105,12 @@ fn bench_query(c: &mut Criterion) {
     g.finish();
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 criterion_group! {
     name = fts5_query;
     config = common::standard_criterion();
     targets = bench_query
 }
 
-#[cfg(feature = "experimental-hermes-memory")]
+#[cfg(feature = "experimental-memory")]
 criterion_main!(fts5_query);

@@ -1,4 +1,4 @@
-//! T28 black-box integration tests for Hermes Curator V2.
+//! T28 black-box integration tests for skill Curator V2.
 //!
 //! Exercises EnsembleCurator through its public crate API to lock the
 //! contract against future refactors. Covers the 4 mandated scenarios:
@@ -7,10 +7,10 @@
 //!   3. Schema-violation rejection in one judge does not taint others
 //!   4. Partial failure (1 of 3 fails) graceful aggregation
 
-#![cfg(feature = "experimental-hermes-curator")]
+#![cfg(feature = "experimental-curator")]
 
 use phantom_mesh::evolve_checkpoint::{AgreementClass, EvolveCheckpoint};
-use phantom_mesh::hermes::curator_ensemble::{
+use phantom_mesh::skillbank::curator_ensemble::{
     AnthropicJudge, EnsembleCurator, JudgeError, JudgeProvider,
 };
 use std::sync::Arc;

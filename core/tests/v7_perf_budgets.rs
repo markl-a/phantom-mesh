@@ -187,6 +187,11 @@ fn v7_onboarding_fsm_decision_under_100us_avg() {
         identity_fingerprint: Some("0123456789ab".to_string()),
         provider_slug: Some("groq".to_string()),
         demo_relay_used: false,
+        // D1 login-first fields added to OnboardingContext after this test was
+        // written; set them so ctx_has_provider stays a fully-configured,
+        // logged-in context (no demo-relay fallback) rather than failing to compile.
+        identity_provider: Some("google".to_string()),
+        identity_sub: Some("user@example.com".to_string()),
     };
     const ITERS: u32 = 1_000;
     let start = Instant::now();

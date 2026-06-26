@@ -3,7 +3,7 @@
 //!
 //! See docs/superpowers/plans/2026-05-15-track-t1-telegram-dispatch.md.
 
-#![cfg(feature = "experimental-openclaw-telegram")]
+#![cfg(feature = "experimental-remote-control-telegram")]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -18,8 +18,8 @@ use tokio::net::TcpListener;
 use phantom_mesh::{
     agent::AgentRuntime,
     config::{AgentEntry, AgentsConfig, ProviderEntry},
-    openclaw::telegram::{OpenclawDispatcher, OpenclawTelegramBot, OpenclawTelegramConfig},
-    openclaw::telegram_agent_dispatcher::PhantomAgentDispatcher,
+    remote_control::telegram::{RemoteTelegramDispatcher, RemoteTelegramBot, RemoteTelegramConfig},
+    remote_control::telegram_agent_dispatcher::PhantomAgentDispatcher,
 };
 
 // ── Mock LLM server (mirrors core/tests/test_agent.rs helpers) ─────────────
@@ -250,7 +250,7 @@ async fn different_chat_ids_are_isolated() {
 
 /// When the underlying agent runtime errors (no providers configured →
 /// `All providers failed` from the mock returning HTTP errors / empty),
-/// the dispatcher returns Err and OpenclawTelegramBot::handle_text must
+/// the dispatcher returns Err and RemoteTelegramBot::handle_text must
 /// translate that to the user-visible generic reply — WITHOUT leaking
 /// the internal error text.
 #[tokio::test]
@@ -264,8 +264,8 @@ async fn agent_error_becomes_user_visible_generic_reply() {
         "this-agent-does-not-exist".into(),
     ));
 
-    let bot = OpenclawTelegramBot::new(
-        OpenclawTelegramConfig {
+    let bot = RemoteTelegramBot::new(
+        RemoteTelegramConfig {
             bot_token: "x".into(),
             allowed_user_ids: vec![],
         },

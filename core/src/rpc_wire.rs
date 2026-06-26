@@ -388,7 +388,7 @@ pub struct SkillSyncResponse {
 // disambiguates). See docs/superpowers/skill-summary-naming.md.
 //   • THIS one (`rpc_wire::SkillSummary`) — peer-to-peer sync delta (5 fields).
 //   • `skill_wire::SkillSummary`  — dashboard overview card (4 fields).
-//   • `hermes::dto::SkillSummary` — full record (9 fields) for HTTP list.
+//   • `skillbank::dto::SkillSummary` — full record (9 fields) for HTTP list.
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/rpc/")]
@@ -517,6 +517,10 @@ pub enum EventKind {
     Food,
     Focus,
     Habit,
+    /// Cross-node task dispatch recorded by `phantom dispatch`, so ability ④
+    /// ("do things for you" / cross-machine mesh) is observable via
+    /// `phantom recall --kind dispatch` instead of reading back as plain text.
+    Dispatch,
     Text,
 }
 

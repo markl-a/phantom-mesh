@@ -1,4 +1,4 @@
-//! End-to-end smoke demo — the first full Hermes + OpenClaw closed-loop.
+//! End-to-end smoke demo — the first full skillbank + remote-control closed-loop.
 //!
 //! Goal: prove the integration façade can drive a single request from
 //! "message-arrives" → "curator scores work" → "skill extracted into FTS5
@@ -8,17 +8,17 @@
 //! ## DEMO-2 + A8 update (over DEMO-1 PR #115 and DEMO-2 PR #157)
 //!
 //! DEMO-1 disclosed five wiring gaps. Three of those are still real and out
-//! of scope (no `LlmProvider` trait, no OpenClaw inbound surface, no
-//! `core::cluster ↔ HermesRuntime` bridge). The remaining two are wired:
+//! of scope (no `LlmProvider` trait, no remote-control inbound surface, no
+//! `core::cluster ↔ SkillbankRuntime` bridge). The remaining two are wired:
 //!
 //! * **Gap 4 — hard-coded skill text.** DEMO-1 carried a `const
 //!   EXTRACTED_SKILL_MD: &str = "..."`. DEMO-2 + A8 calls the real
-//!   `hermes::extract::extract_skill(&verdict, &checkpoint)` (A1 / PR #144
+//!   `skillbank::extract::extract_skill(&verdict, &checkpoint)` (A1 / PR #144
 //!   + A8) to synthesise the skill from the verdict + checkpoint signals.
-//! * **Gap 5 — second `HermesMemory` handle.** DEMO-1 had to open a fresh
-//!   `HermesMemory::open_at(db_path)` because the runtime did not expose a
+//! * **Gap 5 — second `SkillMemory` handle.** DEMO-1 had to open a fresh
+//!   `SkillMemory::open_at(db_path)` because the runtime did not expose a
 //!   `register_skill` helper. DEMO-2 + A8 calls
-//!   `HermesRuntime::set_skill_extractor` + `judge_and_auto_register`
+//!   `SkillbankRuntime::set_skill_extractor` + `judge_and_auto_register`
 //!   (A2 / PR #146) — one handle, one call, one persisted row.
 //!
 //! **A8 specifically retires the `VerdictBackedExtractor` workaround.**
@@ -31,40 +31,40 @@
 //! to `extract_skill`.
 //!
 //! Hot-path recall (step 7) goes through
-//! `HermesRuntime::recall_context_for(prompt, k)` (A4 / PR #154).
+//! `SkillbankRuntime::recall_context_for(prompt, k)` (A4 / PR #154).
 //!
 //! ## What is mocked
 //! - **LLM provider.** The Curator only knows how to POST to an Anthropic-
 //!   shaped `/v1/messages` endpoint, so we stand up a `wiremock` server on
 //!   localhost and point the Curator at it. No `api.anthropic.com` traffic.
-//! - **Telegram inbound.** `core::openclaw` exposes a send-only `Channel`
+//! - **Telegram inbound.** `core::remote_control` exposes a send-only `Channel`
 //!   trait. There is NO inbound polling / webhook surface in tree today,
 //!   so the demo synthesises a `SimulatedInboundMessage` and feeds it
 //!   straight into the dispatch helper below. No `api.telegram.org`
 //!   traffic.
 //! - **Worker dispatch.** `core::cluster` does not exist in tree (the
 //!   `worker_caps` concept lives in `mesh.rs` but is not wired to
-//!   Hermes). The demo invokes one of the Hermes tools (`hermes_calculator`)
+//!   skillbank). The demo invokes one of the skill tools (`skill_calculator`)
 //!   in-process to stand in for "agent did work".
 //! - **Disk.** FTS5 SQLite lives under `tempfile::tempdir()`; nothing
 //!   persists past the run.
 //!
 //! ## What is NOT mocked
-//! - `HermesRuntime::new` — runs the real seeding pipeline (30 tools + the
+//! - `SkillbankRuntime::new` — runs the real seeding pipeline (30 tools + the
 //!   sample skill) against the real FTS5 schema.
 //! - `Curator::judge` — runs the real Anthropic request/response path
 //!   (URL just points at wiremock instead of api.anthropic.com).
-//! - `HermesMemory::insert` + `search` — real `rusqlite` + FTS5 BM25.
-//! - `hermes::extract::extract_skill` — real A1 + A8 polarity-aware
+//! - `SkillMemory::insert` + `search` — real `rusqlite` + FTS5 BM25.
+//! - `skillbank::extract::extract_skill` — real A1 + A8 polarity-aware
 //!   extractor, fed real `JudgeVerdict` + `EvolveCheckpoint` signals.
-//! - `HermesRuntime::judge_and_auto_register` — real A2 orchestration call.
-//! - `HermesRuntime::recall_context_for` — real A4 FTS5 lookup.
+//! - `SkillbankRuntime::judge_and_auto_register` — real A2 orchestration call.
+//! - `SkillbankRuntime::recall_context_for` — real A4 FTS5 lookup.
 //!
 //! ## Run
 //! ```
 //! set CARGO_TARGET_DIR=C:/tmp/a8-target
 //! cargo run --example end_to_end_smoke \
-//!     --features experimental-hermes,experimental-openclaw
+//!     --features experimental-skillbank,experimental-remote-control
 //! ```
 //!
 //! Expected last line: `END-TO-END SMOKE COMPLETE`. Exit code 0.
@@ -73,14 +73,14 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use phantom_mesh::evolve_checkpoint::{EvolveCheckpoint, JudgeVerdict};
-use phantom_mesh::hermes::curator::{Curator, SkillExtractor, DEFAULT_JUDGE_MODEL};
-use phantom_mesh::hermes::extract::extract_skill;
-use phantom_mesh::hermes::skill::SkillDocument;
-use phantom_mesh::hermes::tools::calculator::Calculator;
-use phantom_mesh::hermes::tools::HermesTool;
-use phantom_mesh::hermes::HermesRuntime;
-use phantom_mesh::openclaw::slack::SlackStub;
-use phantom_mesh::openclaw::Channel;
+use phantom_mesh::skillbank::curator::{Curator, SkillExtractor, DEFAULT_JUDGE_MODEL};
+use phantom_mesh::skillbank::extract::extract_skill;
+use phantom_mesh::skillbank::skill::SkillDocument;
+use phantom_mesh::skillbank::tools::calculator::Calculator;
+use phantom_mesh::skillbank::tools::SkillTool;
+use phantom_mesh::skillbank::SkillbankRuntime;
+use phantom_mesh::remote_control::slack::SlackStub;
+use phantom_mesh::remote_control::Channel;
 
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -88,7 +88,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Simulated inbound message — stand-in for what a Telegram poller would
 /// hand the dispatcher if one existed. Mirrors the minimum field set
-/// (user, chat, text) the real OpenClaw track was scoped to deliver.
+/// (user, chat, text) the real remote-control track was scoped to deliver.
 struct SimulatedInboundMessage<'a> {
     user_id: i64,
     chat_id: i64,
@@ -121,9 +121,9 @@ fn anthropic_text_response(text: &str) -> serde_json::Value {
 /// (`extract_skill` itself now routes to the success-side or failure-side
 /// classifier based on score), so the adapter is now a 3-line forward.
 /// No threshold trick.
-struct Hermes1Adapter;
+struct DemoSkillExtractor;
 
-impl SkillExtractor for Hermes1Adapter {
+impl SkillExtractor for DemoSkillExtractor {
     fn extract_skill(
         &self,
         checkpoint: &EvolveCheckpoint,
@@ -161,12 +161,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("      mock LLM ready at {}", llm.uri());
     println!();
 
-    // ── [2/7] HermesRuntime boot ────────────────────────────────────────
-    println!("[2/7] Initializing HermesRuntime (FTS5 memory + 30-tool catalog + sample skill)");
+    // ── [2/7] SkillbankRuntime boot ────────────────────────────────────────
+    println!("[2/7] Initializing SkillbankRuntime (FTS5 memory + 30-tool catalog + sample skill)");
     let tmp = tempfile::tempdir()?;
-    let db_path: PathBuf = tmp.path().join("hermes-smoke.db");
+    let db_path: PathBuf = tmp.path().join("skill-smoke.db");
     let boot_t0 = Instant::now();
-    let mut runtime = HermesRuntime::new(db_path.clone()).await?;
+    let mut runtime = SkillbankRuntime::new(db_path.clone()).await?;
     let boot_ms = boot_t0.elapsed().as_millis();
     runtime.set_curator(Curator {
         api_base: llm.uri(),
@@ -177,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // DEMO-2 (gap 5 closure) + A8: inject the polarity-aware A1 extractor
     // through A2's injection point. No threshold workaround — the adapter
     // is a straight forward to `extract_skill(verdict, checkpoint)`.
-    runtime.set_skill_extractor(Box::new(Hermes1Adapter));
+    runtime.set_skill_extractor(Box::new(DemoSkillExtractor));
     println!(
         "      runtime up in {} ms — db at {}",
         boot_ms,
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("      A1 extractor wired into runtime via set_skill_extractor (real, no threshold workaround)");
     println!();
 
-    // ── [3/7] Simulated OpenClaw inbound ────────────────────────────────
+    // ── [3/7] Simulated remote-control inbound ──────────────────────────
     println!("[3/7] Receiving simulated Telegram-like message");
     let channel = SlackStub::with_allowed_users(vec![42, 1001]);
     let inbound = SimulatedInboundMessage {
@@ -216,11 +216,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let calc = Calculator;
     let work = calc.call(&json!({"expression": "3 + 0"})).await?;
     let agent_output_for_judge = format!(
-        "ran hermes_calculator → {} (PR-summary work simulated)",
+        "ran skill_calculator → {} (PR-summary work simulated)",
         work
     );
     println!(
-        "      worker_caps=[skill:summarize, tool:hermes_calculator] → {}",
+        "      worker_caps=[skill:summarize, tool:skill_calculator] → {}",
         work
     );
     println!();
@@ -230,7 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Failure-side: low score + populated checkpoint.
     let failure_verdict = JudgeVerdict {
         score: 2,
-        rubric_version: phantom_mesh::hermes::RUBRIC_VERSION.to_string(),
+        rubric_version: phantom_mesh::skillbank::RUBRIC_VERSION.to_string(),
         model: DEFAULT_JUDGE_MODEL.to_string(),
         rationale: "agent kept retrying the failing build".into(),
         judged_at_ms: 1_715_000_000_000,
@@ -249,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Success-side: high score + successful step.
     let success_verdict = JudgeVerdict {
         score: 9,
-        rubric_version: phantom_mesh::hermes::RUBRIC_VERSION.to_string(),
+        rubric_version: phantom_mesh::skillbank::RUBRIC_VERSION.to_string(),
         model: DEFAULT_JUDGE_MODEL.to_string(),
         rationale: "shipped clean fix, tests green".into(),
         judged_at_ms: 1_715_000_000_000,
@@ -265,15 +265,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!();
 
     // ── [6/7] Curator judges + auto-registers in ONE call ───────────────
-    println!("[6/7] HermesRuntime.judge_and_auto_register (A2) — judge + register, one call");
+    println!("[6/7] SkillbankRuntime.judge_and_auto_register (A2) — judge + register, one call");
     let mut checkpoint = EvolveCheckpoint::new(inbound.text, "check", "end-to-end-smoke-node");
     // Seed at least one successful step so A1's success-side classifier
     // (the path A2 will route the mocked score=8 verdict through) has a
     // signal to latch onto. The agent output above mirrors what an LLM-
     // driven loop would record as the calculator returns.
     checkpoint.append_step(
-        "ran hermes_calculator and produced the PR summary",
-        Some("hermes_calculator".into()),
+        "ran skill_calculator and produced the PR summary",
+        Some("skill_calculator".into()),
         true,
     );
     let skills_before = runtime
@@ -327,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // ── [7/7] Hot-path replay via A4 recall_context_for ─────────────────
     println!(
-        "[7/7] HermesRuntime.recall_context_for (A4) — freshly-registered skill is recallable"
+        "[7/7] SkillbankRuntime.recall_context_for (A4) — freshly-registered skill is recallable"
     );
     let warm_t0 = Instant::now();
     // The success-side skill body contains tokens like "Recipe",
@@ -349,7 +349,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     println!(
         "      first match (≤{} chars): {}",
-        phantom_mesh::hermes::MEMORY_ROW_CHAR_CAP,
+        phantom_mesh::skillbank::MEMORY_ROW_CHAR_CAP,
         warm_hits[0]
     );
     let reply_err = channel

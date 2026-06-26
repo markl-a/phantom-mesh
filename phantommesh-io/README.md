@@ -1,7 +1,7 @@
 # phantommesh.io broker（中介伺服器）— Hono + Cloudflare Workers + D1
 
 `phantom login` 的網頁端。實作來自
-[../docs/PHANTOMMESH-IO-DESIGN.md](../docs/PHANTOMMESH-IO-DESIGN.md) 的線路契約（wire contract，通訊協定規格）。
+[../docs/design/PHANTOMMESH-IO-DESIGN.md](../docs/design/PHANTOMMESH-IO-DESIGN.md) 的線路契約（wire contract，通訊協定規格）。
 
 ```
 src/
@@ -120,7 +120,7 @@ phantom CLI（`core/src/bin/phantom.rs`）使用此協定；任何
 ## 信任與隱私保證
 
 broker 絕對不可（這是規則，不是功能旗標 — 見
-[../docs/COMMERCIAL-DESIGN.md](../docs/COMMERCIAL-DESIGN.md) §2）：
+[../docs/design/COMMERCIAL-DESIGN.md](../docs/design/COMMERCIAL-DESIGN.md) §2）：
 
 - 以明文（plaintext）儲存 provider 密碼（我們採用 PBKDF2 SHA-256 100K）
 - 接收任何 LLM provider API key（這些一律留在 `~/.phantom-mesh/agents.toml`）
@@ -162,4 +162,4 @@ broker 絕對不可（這是規則，不是功能旗標 — 見
 - ⏳ Tauri/iOS/Android 應用內瀏覽器流程（目前已可透過既有的
   loopback 重新導向運作；僅需補文件 + 截圖）
 - ⏳ 計費 — Pro / Team / Enterprise，依
-  [docs/COMMERCIAL-DESIGN.md](../docs/COMMERCIAL-DESIGN.md) §3
+  [docs/design/COMMERCIAL-DESIGN.md](../docs/design/COMMERCIAL-DESIGN.md) §3

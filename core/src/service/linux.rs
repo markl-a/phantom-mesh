@@ -186,7 +186,8 @@ fn resolve_serve_port() -> u16 {
             }
         }
     }
-    dirs::home_dir()
+    crate::cli_config::resolve_home_dir()
+        .ok()
         .map(|h| serve_port_from_config(&h))
         .unwrap_or(7878)
 }
@@ -217,7 +218,7 @@ fn serve_port_from_config(home: &std::path::Path) -> u16 {
 }
 
 pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("$HOME not set"))?;
+    let home = crate::cli_config::resolve_home_dir()?;
     let unit_path = home.join(".config/systemd/user").join(LINUX_UNIT_NAME);
     let log_path = home.join(".phantom-mesh/data/phantom-serve.log");
     // Probe/print the port serve actually uses, not a hardcoded 7878 (D6).

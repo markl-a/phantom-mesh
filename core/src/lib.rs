@@ -1,6 +1,9 @@
 pub mod agent;
 pub mod capabilities;
 pub mod cli_config;
+pub mod clock;
+pub mod cold_launch;
+pub mod node_manifest;
 pub mod models_cache;
 pub mod platform;
 
@@ -25,14 +28,15 @@ pub mod env_lock {
     }
 }
 pub mod channels;
-// `openclaw` is exposed when ANY of the openclaw sub-features (or the
+pub mod cli_session;
+// `remote_control` is exposed when ANY of the remote-control sub-features (or the
 // umbrella) is enabled. Without this, enabling just
-// `experimental-openclaw-telegram` or `experimental-openclaw-slack` would
-// compile `openclaw/mod.rs` (via the inner sub-feature gates) but leave the
+// `experimental-remote-control-telegram` or `experimental-remote-control-slack` would
+// compile `remote_control/mod.rs` (via the inner sub-feature gates) but leave the
 // module path invisible to dependents like `bin/phantom.rs`. The B3/T84
-// webhook-secret validator (openclaw::webhook_auth) is reachable via the
+// webhook-secret validator (remote_control::webhook_auth) is reachable via the
 // standalone telegram sub-feature; the B5/T86 real Slack adapter
-// (openclaw::slack) is reachable via the standalone slack sub-feature.
+// (remote_control::slack) is reachable via the standalone slack sub-feature.
 // The inner `pub mod telegram/whatsapp/slack/persona` declarations each
 // carry their own `#[cfg]`, so this widening adds zero extra compile units
 // to a default build. Fixed by [B2/T83] (2026-05-16), extended by [B5/T86].
@@ -41,21 +45,30 @@ pub mod auth;
 pub mod auth_gate;
 pub mod config;
 pub mod context;
+pub mod crew;
+pub mod contract_gate;
 pub mod cost;
 pub mod diag;
 pub mod diff_render;
 pub mod i18n;
 pub mod evolve_checkpoint;
 pub mod evolve_goals;
+pub mod execution_contract;
 pub mod extensions;
+pub mod external_agent;
+pub mod fleet;
 pub mod goals_push;
+pub mod governed_run;
 #[cfg(feature = "experimental-anti-hallucination")]
 pub mod hallucination;
 pub mod hardware;
-pub mod hermes;
+pub mod skillbank;
 pub mod http_client;
 pub mod identity;
+pub mod idempotency;
+pub mod inbox;
 pub mod interrupt;
+pub mod session_status;
 pub mod keys;
 pub mod life_node;
 pub mod mcp;
@@ -65,29 +78,36 @@ pub mod multimodal;
 pub mod notifications;
 pub mod oauth;
 #[cfg(any(
-    feature = "experimental-openclaw",
-    feature = "experimental-openclaw-telegram",
-    feature = "experimental-openclaw-whatsapp",
-    feature = "experimental-openclaw-slack",
+    feature = "experimental-remote-control",
+    feature = "experimental-remote-control-telegram",
+    feature = "experimental-remote-control-whatsapp",
+    feature = "experimental-remote-control-slack",
 ))]
-pub mod openclaw;
+pub mod remote_control;
+pub mod pending_approvals;
 pub mod permission;
+pub mod permission_profiles;
 pub mod process_sandbox;
+pub mod project_trust;
+pub mod tool_gate;
+pub mod partner;
 pub mod project_context;
 pub mod projects;
 pub mod providers;
 pub mod recipe;
+pub mod redact;
 pub mod runtime;
 pub mod sandbox;
 pub mod scaffold;
 pub mod serve;
-#[cfg(feature = "experimental-hermes-memory")]
-pub mod serve_hermes;
+#[cfg(feature = "experimental-memory")]
+pub mod serve_skillbank;
 pub mod service;
 pub mod session;
 pub mod streaming;
 pub mod swarm;
 pub mod tasks;
+pub mod todoist;
 pub mod tools;
 pub mod tracing;
 pub mod tui;
@@ -95,6 +115,8 @@ pub mod util;
 pub mod vault;
 pub mod worker_installer;
 pub mod workspace;
+// P2-1 §minimal-v1 zero-knowledge cloud relay store (sealed-blob in, fail-closed out).
+pub mod zk_cloud;
 // SPEC-10 §7 wire types (Stage 2: pseudocode HMAC stubs + ts-rs).
 pub mod rpc_wire;
 // SPEC-12 §7 identity-keypair wire types (Stage 1: types + ts-rs + stubs).
@@ -103,6 +125,8 @@ pub mod identity_wire;
 pub mod encryption_wire;
 // SPEC-16 §7 event-storage wire types (Stage 1).
 pub mod event_storage_wire;
+// Semantic memory/recall engine — local-first embedding layer (the moat).
+pub mod embeddings;
 // SPEC-23 / SPEC-41 #3 — Daily Review reader wire (app surface of /review).
 pub mod daily_review_wire;
 // SPEC-11 §7 mDNS discovery wire types (Stage 1).
@@ -123,7 +147,7 @@ pub mod coach_wire;
 pub mod broker_vault_wire;
 // SPEC-24 §7 coach-delivery wire types (Stage 1).
 pub mod coach_delivery_wire;
-// SPEC-25 §7 skill-extraction (Hermes) wire types (Stage 1).
+// SPEC-25 §7 skill-extraction wire types (Stage 1).
 pub mod skill_wire;
 // SPEC-26 §7 cluster-dispatch wire types (Stage 1).
 pub mod cluster_dispatch_wire;
@@ -131,8 +155,19 @@ pub mod cluster_dispatch_wire;
 pub mod smart_decompose_wire;
 // SPEC-28 §7 onboarding (30s-hello FSM) wire types (Stage 1).
 pub mod onboarding_wire;
+// First-run agents.toml writer — single source of truth shared by the CLI +
+// GUI onboarding surfaces (unified onboarding design §8.1).
+pub mod onboarding_config;
+// System-state diagnostics — the shared state-machine behind `status`/`doctor`
+// (4-layer onboarding model: identity / provider / project-trust / permission).
+pub mod diagnostics;
 // SPEC-29 §7 release-pipeline wire types (Stage 1).
 pub mod release_pipeline_wire;
+// SPEC-60 §7 release-evidence ship-gate collector (P2-2): gate-map → resolve →
+// run → classify → ShipGateReport, with the load-bearing honesty contract.
+pub mod test_report;
+// SPEC-61 §7 S1..S40 scenario catalog (P2-2): CSV parse + meta-validators.
+pub mod scenarios;
 
 #[cfg(target_os = "macos")]
 pub mod snapshot;
@@ -190,13 +225,21 @@ pub struct AppState {
     pub telegram_config: Option<TelegramConfig>,
     pub workspace_resolver: Option<WorkspaceResolver>,
     pub task_queue: Option<TaskQueue>,
+    /// apex-④ off-switch: cooperative-abort handles keyed by job_id. The
+    /// `/rpc/task/assign` spawn path registers a fresh [`interrupt::InterruptHandle`]
+    /// here before launching the runner; `/rpc/task/stop` looks it up and fires
+    /// it so the live agent loop unwinds at its next safe point. Empty handle =
+    /// the task isn't locally in flight (or finished) — STOP still flips durable
+    /// state regardless, so a restart-orphaned row is still controllable.
+    pub task_aborts:
+        Arc<tokio::sync::RwLock<std::collections::HashMap<uuid::Uuid, interrupt::InterruptHandle>>>,
     pub notifier: Option<NotificationDispatcher>,
-    /// F400 — Hermes skill bank, exposed by the `/api/hermes/skills*`
-    /// endpoints in `serve_hermes`. Field is feature-gated (and `Option`)
+    /// F400 — skill bank, exposed by the `/api/skills*`
+    /// endpoints in `serve_skillbank`. Field is feature-gated (and `Option`)
     /// so the default cargo build and existing deployments (which never
-    /// open a hermes DB) carry no observable change.
-    #[cfg(feature = "experimental-hermes-memory")]
-    pub hermes_memory: Option<crate::hermes::memory::HermesMemory>,
+    /// open a skill DB) carry no observable change.
+    #[cfg(feature = "experimental-memory")]
+    pub skill_memory: Option<crate::skillbank::memory::SkillMemory>,
 }
 
 impl AppState {
@@ -215,9 +258,10 @@ impl AppState {
             telegram_config: None,
             workspace_resolver: None,
             task_queue: None,
+            task_aborts: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             notifier: None,
-            #[cfg(feature = "experimental-hermes-memory")]
-            hermes_memory: None,
+            #[cfg(feature = "experimental-memory")]
+            skill_memory: None,
         }
     }
 
@@ -413,19 +457,29 @@ fn default_telegram_agent() -> String {
 
 // ── HTTP Server ───────────────────────────────────────────────────────────
 
-pub async fn start_http_server(host: &str, port: u16, router: axum::Router) -> anyhow::Result<()> {
+/// Bind a `tokio::net::TcpListener` on `host:port` with SO_REUSEADDR + a 15s
+/// retry loop. Returns the bound listener on success, or a `"bind … failed after
+/// 15s"` error if the port could not be claimed in time.
+///
+/// SPLIT from the old monolithic `start_http_server` so a caller can confirm
+/// THIS process actually owns the port BEFORE arming side-effects (e.g. the
+/// active-app sampler): a bind failure `?`-returns here, before anything that
+/// would otherwise observe a stranger's HTTP service on the same port. The
+/// non-capture callers go through the unchanged `start_http_server` wrapper.
+///
+/// SO_REUSEADDR + retry. Two failure modes this handles:
+///   1. Previous serve was force-killed (e.g. by cluster upgrade
+///      trampoline's taskkill). Its socket lingers in TIME_WAIT for
+///      30-120s. Without REUSEADDR a fresh bind on the same port
+///      gets EADDRINUSE the whole time.
+///   2. Two phantom serves briefly coexist mid-rollover. REUSEADDR
+///      lets the new one bind even if the old hasn't fully cleaned
+///      up its listening socket yet.
+/// The retry loop catches the rarer "literally another process is
+/// listening on this port right now" case (e.g. another serve that
+/// wasn't killed — wait a few seconds then give up clearly).
+pub async fn bind_http_listener(host: &str, port: u16) -> anyhow::Result<tokio::net::TcpListener> {
     let addr: std::net::SocketAddr = format!("{}:{}", host, port).parse()?;
-    // SO_REUSEADDR + retry. Two failure modes this handles:
-    //   1. Previous serve was force-killed (e.g. by cluster upgrade
-    //      trampoline's taskkill). Its socket lingers in TIME_WAIT for
-    //      30-120s. Without REUSEADDR a fresh bind on the same port
-    //      gets EADDRINUSE the whole time.
-    //   2. Two phantom serves briefly coexist mid-rollover. REUSEADDR
-    //      lets the new one bind even if the old hasn't fully cleaned
-    //      up its listening socket yet.
-    // The retry loop catches the rarer "literally another process is
-    // listening on this port right now" case (e.g. another serve that
-    // wasn't killed — wait a few seconds then give up clearly).
     let mut last_err: Option<std::io::Error> = None;
     let listener = {
         let mut listener: Option<tokio::net::TcpListener> = None;
@@ -464,16 +518,36 @@ pub async fn start_http_server(host: &str, port: u16, router: axum::Router) -> a
             )
         })?
     };
-    // `into_make_service_with_connect_info` exposes the peer socket address to
-    // handlers via `axum::extract::ConnectInfo<SocketAddr>` (used by `/api/chat`
-    // for the SPEC-46 I3 loopback exemption). Backward-compatible: handlers that
-    // do not extract ConnectInfo are unaffected.
+    Ok(listener)
+}
+
+/// Serve an already-bound listener with the given router until the connection
+/// loop ends (or errors). SPLIT from `start_http_server` so the capture serve
+/// path can interleave arming the sampler between bind and serve.
+///
+/// `into_make_service_with_connect_info` exposes the peer socket address to
+/// handlers via `axum::extract::ConnectInfo<SocketAddr>` (used by `/api/chat`
+/// for the SPEC-46 I3 loopback exemption). Backward-compatible: handlers that
+/// do not extract ConnectInfo are unaffected.
+pub async fn serve_http(
+    listener: tokio::net::TcpListener,
+    router: axum::Router,
+) -> anyhow::Result<()> {
     axum::serve(
         listener,
         router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await?;
     Ok(())
+}
+
+/// Bind + serve in one call. Thin wrapper over `bind_http_listener` +
+/// `serve_http` preserving the ORIGINAL signature and behaviour, so the
+/// non-capture callers (`main.rs`, the non-capture serve path in `bin/phantom.rs`)
+/// stay unchanged and identical.
+pub async fn start_http_server(host: &str, port: u16, router: axum::Router) -> anyhow::Result<()> {
+    let listener = bind_http_listener(host, port).await?;
+    serve_http(listener, router).await
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

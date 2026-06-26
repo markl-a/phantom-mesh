@@ -69,6 +69,30 @@ impl SwarmResult {
     }
 }
 
+/// Filter a peer-URL list down to those matching one of `targets`
+/// (case-insensitive substring match against the URL). `None` or an empty
+/// target list returns the input unchanged (fan out to every online peer).
+///
+/// Pure and side-effect-free so the selective-swarm routing can be unit
+/// tested without a live cluster. Substring matching mirrors how the `task`
+/// tool's `node` parameter resolves a peer, so `--targets win-box` matches
+/// `http://win-box.tail-scale.ts.net:7878`.
+pub(crate) fn select_target_peers(peers: Vec<String>, targets: Option<&[String]>) -> Vec<String> {
+    match targets {
+        Some(pats) if !pats.is_empty() => {
+            let pats_lc: Vec<String> = pats.iter().map(|p| p.to_lowercase()).collect();
+            peers
+                .into_iter()
+                .filter(|url| {
+                    let u = url.to_lowercase();
+                    pats_lc.iter().any(|p| u.contains(p))
+                })
+                .collect()
+        }
+        _ => peers,
+    }
+}
+
 /// Run the prompt locally with a direct single-shot provider call.
 /// No agent loop, no tools — keeps fan-out cheap and avoids burning TPD
 /// quota in the multi-iteration agent loop. Mirrors the local path in
@@ -194,6 +218,66 @@ async fn poll_all_jobs(
     ordered
 }
 
+#[cfg(test)]
+mod target_filter_tests {
+    use super::select_target_peers;
+
+    fn peers() -> Vec<String> {
+        vec![
+            "http://mac-box:7878".to_string(),
+            "http://win-1.ts.net:7878".to_string(),
+            "http://win-2.ts.net:7878".to_string(),
+        ]
+    }
+
+    #[test]
+    fn none_returns_all() {
+        assert_eq!(select_target_peers(peers(), None), peers());
+    }
+
+    #[test]
+    fn empty_list_returns_all() {
+        let empty: Vec<String> = vec![];
+        assert_eq!(select_target_peers(peers(), Some(&empty)), peers());
+    }
+
+    #[test]
+    fn single_substring_selects_one() {
+        let t = vec!["win-2".to_string()];
+        assert_eq!(
+            select_target_peers(peers(), Some(&t)),
+            vec!["http://win-2.ts.net:7878".to_string()]
+        );
+    }
+
+    #[test]
+    fn multiple_targets_select_union_in_input_order() {
+        let t = vec!["win-2".to_string(), "mac".to_string()];
+        assert_eq!(
+            select_target_peers(peers(), Some(&t)),
+            vec![
+                "http://mac-box:7878".to_string(),
+                "http://win-2.ts.net:7878".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn match_is_case_insensitive() {
+        let t = vec!["WIN-1".to_string()];
+        assert_eq!(
+            select_target_peers(peers(), Some(&t)),
+            vec!["http://win-1.ts.net:7878".to_string()]
+        );
+    }
+
+    #[test]
+    fn no_match_returns_empty() {
+        let t = vec!["nonexistent".to_string()];
+        assert!(select_target_peers(peers(), Some(&t)).is_empty());
+    }
+}
+
 /// Core fan-out used by both `phantom swarm` (CLI) and `POST /rpc/swarm`
 /// (HTTP). See module docs for the wire shape.
 ///
@@ -207,12 +291,19 @@ pub async fn do_swarm(
     include_local: bool,
     max_wait: Duration,
 ) -> SwarmResult {
-    do_swarm_with_throttle(state, agent, prompt, include_local, max_wait, None).await
+    do_swarm_with_throttle(state, agent, prompt, include_local, max_wait, None, None).await
 }
 
 /// Variant of [`do_swarm`] that sleeps `throttle_secs` between successive
 /// peer dispatches. CLI uses this to spread Groq TPM (6000) load across
 /// peers when fanning a heavy prompt; HTTP callers normally pass `None`.
+///
+/// `targets`, when `Some`, restricts the fan-out to online peers whose URL
+/// contains any of the given substrings (case-insensitive) — e.g.
+/// `["peer-2", "192.168.1.7"]`. This is the selective-swarm path used by
+/// `phantom swarm --targets a,b`. `None` fans out to every online peer
+/// (the original behaviour). Substring matching mirrors how the `task`
+/// tool's `node` parameter resolves a peer.
 pub async fn do_swarm_with_throttle(
     state: Arc<AppState>,
     agent: &str,
@@ -220,14 +311,20 @@ pub async fn do_swarm_with_throttle(
     include_local: bool,
     max_wait: Duration,
     throttle_secs: Option<u64>,
+    targets: Option<Vec<String>>,
 ) -> SwarmResult {
     let cluster = state.cluster_manager.clone();
     let statuses = cluster.refresh_all().await;
-    let online_peers: Vec<String> = statuses
-        .iter()
-        .filter(|s| s.online)
-        .map(|s| s.url.clone())
-        .collect();
+    // Selective fan-out: keep only peers matching one of the requested
+    // targets (see [`select_target_peers`]). `None`/empty → all online peers.
+    let online_peers: Vec<String> = select_target_peers(
+        statuses
+            .iter()
+            .filter(|s| s.online)
+            .map(|s| s.url.clone())
+            .collect(),
+        targets.as_deref(),
+    );
 
     // Build reqwest client used for status polling. Per-request timeout
     // is short (status calls are tiny); the polling deadline is what

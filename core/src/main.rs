@@ -17,6 +17,12 @@ use phantom_mesh::channels::telegram::TelegramBot;
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().init();
 
+    // Install the process-wide tool gate (HOME permission profile + project
+    // trust) BEFORE any agent / HTTP / daemon surface starts. Non-interactive /
+    // fail-closed — this daemon has no terminal to prompt. Without this the
+    // `phantom-mesh` daemon would run tools ungated even when HOME policy denies.
+    phantom_mesh::tool_gate::install(false);
+
     // D28: lossily decode argv (args_os) so a stray non-UTF8 byte degrades to
     // U+FFFD instead of panicking the daemon (`std::env::args()` unwraps).
     let args: Vec<String> = std::env::args_os()
@@ -56,9 +62,8 @@ async fn main() -> anyhow::Result<()> {
     std::env::set_var("PHANTOM_SESSION", &session_id);
 
     let config_path = config_path.unwrap_or_else(|| {
-        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
-        PathBuf::from(home)
-            .join(".phantom-mesh")
+        phantom_mesh::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
             .join("agents.toml")
     });
 
@@ -357,9 +362,8 @@ async fn conversation_history(State(state): State<phantom_mesh::AppState>) -> Js
 
 async fn conversations_list(_state: State<phantom_mesh::AppState>) -> Json<Value> {
     // Enumerate .jsonl files on disk — each file is one conversation
-    let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
-    let dir = std::path::PathBuf::from(home)
-        .join(".phantom-mesh")
+    let dir = phantom_mesh::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("conversations");
     let ids: Vec<String> = std::fs::read_dir(&dir)
         .map(|entries| {
@@ -401,9 +405,8 @@ async fn conversation_reset(
         return (code, json).into_response();
     }
     // Delete the conversation file directly
-    let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
-    let path = std::path::PathBuf::from(home)
-        .join(".phantom-mesh")
+    let path = phantom_mesh::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("conversations")
         .join(format!(
             "{}.jsonl",
@@ -892,6 +895,194 @@ async fn rpc_task_assign(
         )
             .into_response();
     };
+
+    // ── T5 + C1: server-side capability enforcement (caps-aware) ──────────────
+    // DRIFT fix: the hardened serve.rs handler (rpc_task_assign) enforces
+    // `required_caps` against this worker's `worker_caps`; THIS shipped daemon
+    // copy did not — a buggy or malicious orchestrator holding cluster_secret
+    // could POST a task this worker can't satisfy and we'd spawn it anyway. Port
+    // serve.rs verbatim: compute the effective enforce mode, then either Allow,
+    // LogAndAllow (soft — log + continue, default), Reject (strict — 409, no
+    // spawn), or ForwardTo (C1 — route to a capable peer when the env gate is on
+    // and one exists). Reuses the shared `mesh::enforce_required_caps*` helpers
+    // so client- and server-side cap matching stay identical.
+    let local_caps = &state.cluster_manager.config.worker_caps;
+    let mode = state.cluster_manager.config.effective_enforce_mode();
+    let peers_snapshot = state.cluster_manager.peer_infos().await;
+    let decision = if state.cluster_manager.config.node_name.is_none()
+        && phantom_mesh::mesh::forward_on_caps_mismatch_enabled()
+    {
+        tracing::warn!(
+            target: "phantom::dispatch::forward",
+            "PHANTOM_FORWARD_ON_CAPS_MISMATCH=1 but node_name is unset; \
+             refusing to forward (would emit a malformed chain). \
+             Add [cluster].node_name to agents.toml."
+        );
+        phantom_mesh::mesh::enforce_required_caps(local_caps, &req.required_caps, mode)
+    } else {
+        phantom_mesh::mesh::enforce_required_caps_with_forwarding(
+            local_caps,
+            &req.required_caps,
+            mode,
+            &peers_snapshot,
+        )
+    };
+
+    match decision {
+        phantom_mesh::mesh::CapsDecision::Allow => { /* fall through to local run */ }
+        phantom_mesh::mesh::CapsDecision::LogAndAllow { missing } => {
+            tracing::warn!(
+                target: "phantom::dispatch",
+                ?missing,
+                local = ?local_caps,
+                required = ?req.required_caps,
+                "capability_mismatch (soft mode): accepting task this worker may not be able to satisfy"
+            );
+        }
+        phantom_mesh::mesh::CapsDecision::Reject { missing } => {
+            // C1: distinguish "no peer would satisfy" from a plain mismatch.
+            if phantom_mesh::mesh::forward_on_caps_mismatch_enabled() {
+                let inventory: Vec<Value> = peers_snapshot
+                    .iter()
+                    .filter(|p| p.online)
+                    .map(|p| json!({ "url": p.url, "capabilities": p.capabilities }))
+                    .collect();
+                return (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({
+                        "error":           "no_peer_satisfies_caps",
+                        "error_code":      "no_peer_satisfies_caps",
+                        "required":        req.required_caps,
+                        "local":           local_caps,
+                        "missing":         missing,
+                        "available_peers": inventory,
+                    })),
+                )
+                    .into_response();
+            }
+            return (
+                axum::http::StatusCode::CONFLICT,
+                Json(json!({
+                    "error":      "capability_mismatch",
+                    "error_code": "capability_mismatch",
+                    "required":   req.required_caps,
+                    "local":      local_caps,
+                    "missing":    missing,
+                })),
+            )
+                .into_response();
+        }
+        phantom_mesh::mesh::CapsDecision::ForwardTo { peer, missing: _ } => {
+            // C1 happy path: a downstream peer satisfies. HMAC-re-sign happens
+            // inside `forward_task_to_capable_peer`.
+            let my_node_name = state
+                .cluster_manager
+                .config
+                .node_name
+                .clone()
+                .unwrap_or_default();
+            let target_name = peer.name.clone();
+            let target_url = peer.url.clone();
+            match state
+                .cluster_manager
+                .forward_task_to_capable_peer(&req, &peer, &my_node_name)
+                .await
+            {
+                Ok(remote_job_id) => {
+                    return (
+                        axum::http::StatusCode::ACCEPTED,
+                        Json(json!({
+                            "job_id":         remote_job_id,
+                            "dispatched_to":  target_name,
+                            "dispatched_url": target_url,
+                            "forwarded":      true,
+                        })),
+                    )
+                        .into_response();
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "phantom::dispatch::forward",
+                        peer = %target_name,
+                        url = %target_url,
+                        error = %e,
+                        "forward attempt failed; surfacing structured error to caller"
+                    );
+                    let (status, code) = match &e {
+                        phantom_mesh::mesh::DispatchError::ForwardRejected { status, .. } => (
+                            axum::http::StatusCode::from_u16(*status)
+                                .unwrap_or(axum::http::StatusCode::BAD_GATEWAY),
+                            "forward_rejected",
+                        ),
+                        phantom_mesh::mesh::DispatchError::HMACMismatch { .. } => {
+                            (axum::http::StatusCode::BAD_GATEWAY, "forward_hmac_mismatch")
+                        }
+                        _ => (axum::http::StatusCode::BAD_GATEWAY, "forward_failed"),
+                    };
+                    return (
+                        status,
+                        Json(json!({
+                            "error":       "forward_failed",
+                            "error_code":  code,
+                            "target_peer": target_name,
+                            "detail":      e.to_string(),
+                        })),
+                    )
+                        .into_response();
+                }
+            }
+        }
+    }
+
+    // ── Best-effort, process-local at-most-once dedup (DISPATCH-MESH-DURABILITY
+    //    §3.0) ────────────────────────────────────────────────────────────────
+    // DRIFT fix: the hardened serve.rs handler already deduped re-sent assigns,
+    // but THIS shipped daemon copy did not — a coordinator re-posting on its own
+    // poll timeout, a forwarded retry carrying the same `idempotency_key`, or a
+    // plain double-POST spawned the agent (and inserted a TaskQueue row) a second
+    // time. Mirror serve.rs verbatim: mint the candidate `job_id` UP FRONT,
+    // record it in the file-backed ledger (core/src/idempotency.rs) alongside the
+    // dedup key, and short-circuit a duplicate with 200 + the ORIGINAL job_id so
+    // the caller polls the same job (a job_id-less success is treated as a
+    // DispatchError by `mesh::assign_task_to_peer*`). Best-effort: the ledger is
+    // serialized by a process Mutex and fails open on FS errors — it collapses
+    // the common retry storms but is not exactly-once.
+    let idem_key = phantom_mesh::idempotency::task_assign_idem_key(
+        req.idempotency_key.as_deref(),
+        &req.agent,
+        &req.prompt,
+    );
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let (decision, stored_job_id) =
+        phantom_mesh::idempotency::check_and_record_value_default(
+            &idem_key,
+            "task_assign",
+            Some(&job_id),
+        );
+    if let phantom_mesh::idempotency::Decision::Duplicate { first_seen } = decision {
+        // STRICT at-most-once: a Duplicate ALWAYS returns and NEVER falls through
+        // to spawn. Hand back the ORIGINAL job_id so the caller polls the same
+        // job; 200 (not 202) distinguishes "already handled" from "new job
+        // accepted". A rare legacy value-less ledger row yields a null job_id +
+        // note rather than a re-spawn — at-most-once wins over availability.
+        let original = stored_job_id
+            .map(Value::from)
+            .unwrap_or(Value::Null);
+        let mut payload = json!({
+            "job_id": original,
+            "deduped": true,
+            "first_seen": first_seen,
+        });
+        if payload["job_id"].is_null() {
+            payload["note"] = json!(
+                "deduped: original job_id unrecoverable (legacy value-less ledger entry); not re-spawning to preserve at-most-once"
+            );
+        }
+        return (axum::http::StatusCode::OK, Json(payload)).into_response();
+    }
+
+    // First sighting: persist the durable row with the job_id minted above (so a
+    // deduped retry stays resolvable by /rpc/task/status), then spawn.
     let workspace_id = match (&state.workspace_resolver, std::env::current_dir()) {
         (Some(resolver), Ok(cwd)) => resolver
             .resolve_or_create(&cwd)
@@ -901,7 +1092,19 @@ async fn rpc_task_assign(
             .unwrap_or_else(|| "default".into()),
         _ => "default".into(),
     };
-    let task = match queue.create(&workspace_id, &req.agent, &req.prompt).await {
+    // `job_id` was minted via `Uuid::new_v4()` above, so the parse is infallible
+    // here; the `?`-style fallback keeps the handler total rather than panicking.
+    let Ok(task_uuid) = uuid::Uuid::parse_str(&job_id) else {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to mint job id" })),
+        )
+            .into_response();
+    };
+    let task = match queue
+        .create_with_id(task_uuid, &workspace_id, &req.agent, &req.prompt)
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
             return (
@@ -911,7 +1114,6 @@ async fn rpc_task_assign(
                 .into_response();
         }
     };
-    let job_id = task.task_id.to_string();
     if let Err(e) = queue
         .transition(task.task_id, pm_types::TaskStatus::Running, None)
         .await
@@ -1602,5 +1804,260 @@ async fn tasks_cancel(
             Json(json!({ "error": e.to_string() })),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use phantom_mesh::mesh::{ClusterConfig, ClusterManager};
+    use phantom_mesh::{AppState, TaskQueue, TaskStore};
+    use tower::ServiceExt; // for `oneshot`
+
+    const TEST_CLUSTER_SECRET: &str = "test-secret";
+
+    /// Serializes env-touching tests in THIS binary's test module. The library
+    /// crate's `env_lock` is `#[cfg(test)]`-only and not visible when compiling
+    /// the binary's tests, so we keep a local guard. Recovers from poisoning so
+    /// a panicking test can't permanently wedge the suite.
+    fn env_guard() -> std::sync::MutexGuard<'static, ()> {
+        static M: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        M.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Point the at-most-once ledger at a throwaway file for one test,
+    /// restoring the prior env on drop. The handler records a dedup key in the
+    /// (default, PERSISTENT) ledger keyed by `agent\nprompt`, so without
+    /// isolation an identical body collides across tests AND across runs within
+    /// the 24h TTL. The caller must already hold the crate env lock.
+    struct IdemStoreGuard {
+        _tmp: tempfile::TempDir,
+        prev: Option<String>,
+    }
+    impl IdemStoreGuard {
+        fn new() -> Self {
+            let tmp = tempfile::TempDir::new().expect("tempdir");
+            let prev = std::env::var("PHANTOM_IDEMPOTENCY_STORE").ok();
+            std::env::set_var(
+                "PHANTOM_IDEMPOTENCY_STORE",
+                tmp.path().join("idempotency.jsonl"),
+            );
+            Self { _tmp: tmp, prev }
+        }
+    }
+    impl Drop for IdemStoreGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", v),
+                None => std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE"),
+            }
+        }
+    }
+
+    fn permissive_cors() -> CorsLayer {
+        CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+            .allow_headers(tower_http::cors::Any)
+    }
+
+    /// Build the production daemon router (`main.rs::build_router`) backed by an
+    /// in-temp TaskStore + the test cluster secret, so `/rpc/task/assign`'s HMAC
+    /// gate passes. Returns (router-builder closure, queue handle) — the queue is
+    /// shared (same SQLite file) so the test can count rows independently of the
+    /// router (oneshot consumes the router, so we rebuild it per request).
+    fn make_state_with_queue(db_path: std::path::PathBuf) -> AppState {
+        make_state_with_caps(db_path, Vec::new())
+    }
+
+    /// Same as [`make_state_with_queue`] but advertises a fixed set of
+    /// `worker_caps`. An empty vec means "full worker" (accept anything),
+    /// matching `enforce_required_caps`'s Rule 1.
+    fn make_state_with_caps(db_path: std::path::PathBuf, worker_caps: Vec<String>) -> AppState {
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            worker_caps,
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        let store = TaskStore::open_at(db_path).expect("open task store");
+        state.task_queue = Some(TaskQueue::new(store));
+        state
+    }
+
+    /// Build a signed POST /rpc/task/assign whose `X-Cluster-Auth` is the
+    /// HMAC-SHA256 of the body keyed by [`TEST_CLUSTER_SECRET`].
+    fn assign_request(body: &Value) -> Request<Body> {
+        let body_str = body.to_string();
+        let signing_cfg = ClusterConfig {
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let token = ClusterManager::new(signing_cfg).make_auth_token(&body_str);
+        Request::builder()
+            .method("POST")
+            .uri("/rpc/task/assign")
+            .header("content-type", "application/json")
+            .header("X-Cluster-Auth", token)
+            .body(Body::from(body_str))
+            .expect("build request")
+    }
+
+    async fn body_json(resp: axum::response::Response) -> Value {
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .expect("read body");
+        serde_json::from_slice(&bytes).expect("parse json body")
+    }
+
+    /// DRIFT regression guard (DISPATCH-MESH-DURABILITY §3.0): the SHIPPED daemon
+    /// router (`main.rs`, not `serve.rs`) must dedup a re-sent /rpc/task/assign.
+    /// A duplicate POST of the SAME body must (a) return 200 with `deduped:true`
+    /// and the ORIGINAL job_id, and (b) NOT create a second TaskQueue row.
+    #[tokio::test]
+    async fn duplicate_assign_dedups_and_spawns_no_second_task_row() {
+        let _g = env_guard(); // serialize env-touching tests
+        let _idem = IdemStoreGuard::new(); // isolate the dedup ledger
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("phantom.db");
+
+        let body = json!({ "agent": "master", "prompt": "main.rs dedup probe" });
+
+        // First assign: accepted (202), mints a job_id, inserts exactly one row.
+        let resp1 = build_router(make_state_with_queue(db_path.clone()), permissive_cors())
+            .oneshot(assign_request(&body))
+            .await
+            .expect("first /rpc/task/assign");
+        assert_eq!(
+            resp1.status(),
+            StatusCode::ACCEPTED,
+            "first assign must be accepted (202)"
+        );
+        let body1 = body_json(resp1).await;
+        let first_job_id = body1["job_id"]
+            .as_str()
+            .expect("first response must carry a job_id")
+            .to_string();
+
+        // Count rows after the first assign via an independent queue over the SAME db.
+        let count_after_first = {
+            let q = TaskQueue::new(TaskStore::open_at(db_path.clone()).unwrap());
+            q.list(None, None, 1000).await.unwrap().len()
+        };
+        assert_eq!(
+            count_after_first, 1,
+            "first assign must create exactly one TaskQueue row"
+        );
+
+        // Duplicate assign (identical body → identical derived dedup key).
+        let resp2 = build_router(make_state_with_queue(db_path.clone()), permissive_cors())
+            .oneshot(assign_request(&body))
+            .await
+            .expect("duplicate /rpc/task/assign");
+        assert_eq!(
+            resp2.status(),
+            StatusCode::OK,
+            "duplicate must be deduped (200, not a fresh 202)"
+        );
+        let body2 = body_json(resp2).await;
+        assert_eq!(
+            body2["deduped"],
+            json!(true),
+            "duplicate must carry deduped:true, got {body2}"
+        );
+        assert_eq!(
+            body2["job_id"].as_str(),
+            Some(first_job_id.as_str()),
+            "duplicate MUST return the ORIGINAL job_id, got {body2}"
+        );
+
+        // Exactly ONE row must exist — the duplicate spawned no second task.
+        let count_after_dup = {
+            let q = TaskQueue::new(TaskStore::open_at(db_path.clone()).unwrap());
+            q.list(None, None, 1000).await.unwrap().len()
+        };
+        assert_eq!(
+            count_after_dup, 1,
+            "duplicate must NOT create a second TaskQueue row"
+        );
+    }
+
+    /// DRIFT regression guard: the SHIPPED daemon router (`main.rs`) must enforce
+    /// `required_caps` in STRICT mode exactly like the hardened `serve.rs`
+    /// handler. A worker advertising caps=[memory] that is handed a task
+    /// requiring [shell] must (a) reject with 409, (b) name the missing cap, and
+    /// (c) NOT spawn — no TaskQueue row may be created.
+    #[tokio::test]
+    async fn strict_mode_rejects_missing_caps_with_409_and_no_spawn() {
+        let _g = env_guard(); // serialize env-touching tests
+        let _idem = IdemStoreGuard::new(); // isolate the dedup ledger
+
+        // STRICT enforcement; restore on scope exit.
+        let prev_enforce = std::env::var("PHANTOM_ENFORCE_REQUIRED_CAPS").ok();
+        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "strict");
+        // Ensure forwarding gate is OFF so the decision is a plain Reject.
+        let prev_fwd = std::env::var("PHANTOM_FORWARD_ON_CAPS_MISMATCH").ok();
+        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("phantom.db");
+
+        // Worker advertises caps=[memory]; request requires [shell] → mismatch.
+        let body = json!({
+            "agent": "master",
+            "prompt": "caps probe",
+            "required_caps": ["shell"],
+        });
+
+        let resp = build_router(
+            make_state_with_caps(db_path.clone(), vec!["memory".into()]),
+            permissive_cors(),
+        )
+        .oneshot(assign_request(&body))
+        .await
+        .expect("/rpc/task/assign");
+
+        assert_eq!(
+            resp.status(),
+            StatusCode::CONFLICT,
+            "strict-mode capability mismatch must return 409"
+        );
+        let body_v = body_json(resp).await;
+        let missing: Vec<String> = body_v["missing"]
+            .as_array()
+            .expect("body must carry a `missing` array")
+            .iter()
+            .map(|m| m.as_str().unwrap_or("").to_string())
+            .collect();
+        assert!(
+            missing.iter().any(|m| m == "shell"),
+            "missing must name [shell], got {body_v}"
+        );
+
+        // NO spawn: the TaskQueue must be empty.
+        let count = {
+            let q = TaskQueue::new(TaskStore::open_at(db_path.clone()).unwrap());
+            q.list(None, None, 1000).await.unwrap().len()
+        };
+        assert_eq!(
+            count, 0,
+            "strict-mode rejection must NOT create any TaskQueue row"
+        );
+
+        // Restore env.
+        match prev_enforce {
+            Some(v) => std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", v),
+            None => std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"),
+        }
+        if let Some(v) = prev_fwd {
+            std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", v);
+        }
     }
 }

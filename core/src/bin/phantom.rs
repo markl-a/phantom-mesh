@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use phantom_mesh::providers::traits::ChatMessage;
+// Single onboarding-config writer shared with the GUI (lives in core lib now).
+use phantom_mesh::onboarding_config::write_onboarding_config;
 use phantom_mesh::{
     agent::{AgentEvent, AgentRuntime},
     context::WorkspaceContext,
@@ -121,7 +123,7 @@ failures:\n\
 ///
 /// Picked at 7 to bias toward "actually struggled" — adjustable later
 /// once we have real telemetry on extracted-skill reuse rates.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 const DEFAULT_EXTRACT_THRESHOLD: u8 = 7;
 
 async fn run_evolve(args: Vec<String>) -> Result<()> {
@@ -133,19 +135,19 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
     let mut do_deploy = false; // --deploy:  cluster-install.sh after rebuild
     let mut distributed = false; // --distributed: parallel assign to all peers
     let mut allow_core = false; // --allow-core-evolve: opt out of sandbox guard
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     let mut use_judge = false; // --judge: H1 LLM-as-judge scoring (gated)
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     let mut ensemble_n: Option<usize> = None; // T28: --ensemble N opt-in
                                               // A3/T93: --extract-skills opts into the post-judge extraction pipeline.
                                               // Default OFF until A1 (skill extractor) + A2 (registry) actually land.
                                               // When ON and verdict.score < threshold, we call extract::extract_skill().
                                               // Until A1 lands, that call is a logged no-op (see below).
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     let mut extract_skills = false;
     // A3/T93: --extract-threshold N lets the operator override the default
     // θ from the CLI. Useful for experimentation while we tune the cohort.
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     let mut extract_threshold: u8 = DEFAULT_EXTRACT_THRESHOLD;
     let mut i = 2usize;
     while i < args.len() {
@@ -176,17 +178,17 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
                 allow_core = true;
             }
             "--judge" => {
-                #[cfg(feature = "experimental-hermes-curator")]
+                #[cfg(feature = "experimental-curator")]
                 {
                     use_judge = true;
                 }
-                #[cfg(not(feature = "experimental-hermes-curator"))]
+                #[cfg(not(feature = "experimental-curator"))]
                 {
-                    eprintln!("  {} --judge requires building with --features experimental-hermes-curator", colored("⚠", 33));
+                    eprintln!("  {} --judge requires building with --features experimental-curator", colored("⚠", 33));
                 }
             }
             "--ensemble" => {
-                #[cfg(feature = "experimental-hermes-curator")]
+                #[cfg(feature = "experimental-curator")]
                 {
                     let n: usize = args
                         .get(i + 1)
@@ -198,10 +200,10 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
                     ensemble_n = Some(n);
                     i += 1;
                 }
-                #[cfg(not(feature = "experimental-hermes-curator"))]
+                #[cfg(not(feature = "experimental-curator"))]
                 {
                     eprintln!(
-                        "  {} --ensemble requires --features experimental-hermes-curator",
+                        "  {} --ensemble requires --features experimental-curator",
                         colored("⚠", 33)
                     );
                     // consume N to keep arg loop sane
@@ -212,18 +214,18 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
             // A3/T93: opt into the post-judge extract-skill pipeline.
             // No effect unless --judge is also set (extraction needs a verdict).
             "--extract-skills" => {
-                #[cfg(feature = "experimental-hermes-curator")]
+                #[cfg(feature = "experimental-curator")]
                 {
                     extract_skills = true;
                 }
-                #[cfg(not(feature = "experimental-hermes-curator"))]
+                #[cfg(not(feature = "experimental-curator"))]
                 {
-                    eprintln!("  {} --extract-skills requires building with --features experimental-hermes-curator", colored("⚠", 33));
+                    eprintln!("  {} --extract-skills requires building with --features experimental-curator", colored("⚠", 33));
                 }
             }
             // A3/T93: override default extraction threshold θ (0..=10).
             "--extract-threshold" => {
-                #[cfg(feature = "experimental-hermes-curator")]
+                #[cfg(feature = "experimental-curator")]
                 {
                     let n: u8 = args
                         .get(i + 1)
@@ -237,10 +239,10 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
                     extract_threshold = n;
                     i += 1;
                 }
-                #[cfg(not(feature = "experimental-hermes-curator"))]
+                #[cfg(not(feature = "experimental-curator"))]
                 {
                     eprintln!(
-                        "  {} --extract-threshold requires --features experimental-hermes-curator",
+                        "  {} --extract-threshold requires --features experimental-curator",
                         colored("⚠", 33)
                     );
                     let _ = args.get(i + 1);
@@ -292,12 +294,12 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
         run_evolve_local(&task, &agent_name, max_rounds, do_rebuild, do_deploy).await
     };
 
-    // H1: optionally score the just-completed evolve session via Hermes Curator.
+    // H1: optionally score the just-completed evolve session via the skill curator.
     // T28: when --ensemble N is also set, dispatch to V2 multi-judge orchestrator
     // instead. V1 single-judge path runs when --ensemble is absent.
     // A3/T93: thread --extract-skills + --extract-threshold through so the
     //         post-judge extraction pipeline can fire on below-θ verdicts.
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     if use_judge && outcome.is_ok() {
         let result = match ensemble_n {
             Some(n) => {
@@ -312,7 +314,7 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
     // A3/T93: if the operator passed --extract-skills WITHOUT --judge, we
     // would silently ignore it under the old logic. Surface a warning so
     // they aren't left wondering why nothing extracted.
-    #[cfg(feature = "experimental-hermes-curator")]
+    #[cfg(feature = "experimental-curator")]
     if extract_skills && !use_judge {
         eprintln!(
             "  {} --extract-skills passed without --judge — extraction needs a verdict first; ignoring (re-run with both flags)",
@@ -342,7 +344,7 @@ async fn run_evolve(args: Vec<String>) -> Result<()> {
 /// IMPORTANT: this function deliberately does NOT use `colored()` ANSI codes,
 /// so its output is stable for snapshot comparison regardless of NO_COLOR
 /// env state. Callers that want color should emit color separately or wrap.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn report_post_judge_to(
     out: &mut dyn std::io::Write,
     score: u8,
@@ -390,7 +392,7 @@ fn report_post_judge_to(
     // so the call below is currently a logged stub.
     //
     // When A1 lands, replace this block with the real call:
-    //   phantom_mesh::hermes::extract::extract_skill(verdict, checkpoint)?;
+    //   phantom_mesh::skillbank::extract::extract_skill(verdict, checkpoint)?;
     writeln!(
         out,
         "  ◇ extract::extract_skill(...) for session {} — A1 not yet wired; logged no-op",
@@ -402,7 +404,7 @@ fn report_post_judge_to(
 
 /// Convenience wrapper used by the real CLI paths. Writes the same content
 /// as `report_post_judge_to` straight to stderr.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 fn report_post_judge(
     score: u8,
     threshold: u8,
@@ -430,10 +432,10 @@ fn report_post_judge(
 /// A3/T93: now accepts `extract_skills` + `extract_threshold` so the
 /// post-judge decision (above-θ vs below-θ) and optional skill extraction
 /// can be driven from the same CLI invocation.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 async fn run_judge_on_latest_checkpoint(extract_skills: bool, extract_threshold: u8) -> Result<()> {
     use phantom_mesh::evolve_checkpoint::EvolveCheckpoint;
-    use phantom_mesh::hermes::curator::{Curator, DEFAULT_JUDGE_MODEL};
+    use phantom_mesh::skillbank::curator::{Curator, DEFAULT_JUDGE_MODEL};
 
     let api_key = std::env::var("ANTHROPIC_API_KEY")
         .map_err(|_| anyhow::anyhow!("ANTHROPIC_API_KEY not set"))?;
@@ -509,15 +511,15 @@ async fn run_judge_on_latest_checkpoint(extract_skills: bool, extract_threshold:
 /// A3/T93: extended with `extract_skills` + `extract_threshold` so the
 /// aggregated median score participates in the same above-θ / below-θ
 /// extraction decision as the single-judge path.
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 async fn run_ensemble_on_latest_checkpoint(
     n: usize,
     extract_skills: bool,
     extract_threshold: u8,
 ) -> Result<()> {
     use phantom_mesh::evolve_checkpoint::{AgreementClass, EvolveCheckpoint};
-    use phantom_mesh::hermes::curator::DEFAULT_JUDGE_MODEL;
-    use phantom_mesh::hermes::curator_ensemble::{
+    use phantom_mesh::skillbank::curator::DEFAULT_JUDGE_MODEL;
+    use phantom_mesh::skillbank::curator_ensemble::{
         AnthropicJudge, EnsembleCurator, JudgeProvider, OpenAICompatJudge,
     };
     use std::sync::Arc;
@@ -2681,6 +2683,7 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
     let mut prompt: Option<String> = None;
     let mut agent_name = "master".to_string();
     let mut throttle_secs: Option<u64> = None;
+    let mut targets: Option<Vec<String>> = None;
     let mut i = 2usize;
     while i < args.len() {
         match args[i].as_str() {
@@ -2690,11 +2693,25 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
                     agent_name = n.clone();
                 }
             }
+            "--targets" | "--target" => {
+                // Comma-separated peer substrings: "--targets peer-2,peer-3".
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    let list: Vec<String> = v
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if !list.is_empty() {
+                        targets = Some(list);
+                    }
+                }
+            }
             "--throttle" => {
                 // Accept "--throttle <SECS|auto>" or bare "--throttle" (= auto = 15s).
                 let next = args.get(i + 1).map(|s| s.as_str());
                 match next {
-                    Some(v) if v == "auto" => {
+                    Some("auto") => {
                         throttle_secs = Some(15);
                         i += 1;
                     }
@@ -2717,7 +2734,7 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
     let prompt = match prompt {
         Some(p) => p,
         None => {
-            eprintln!("Usage: phantom swarm <PROMPT> [--agent NAME] [--throttle SECS|auto]");
+            eprintln!("Usage: phantom swarm <PROMPT> [--agent NAME] [--throttle SECS|auto] [--targets peer-a,peer-b]");
             return Ok(());
         }
     };
@@ -2745,6 +2762,13 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
         );
     }
     let state_arc = std::sync::Arc::new(app_state);
+    if let Some(t) = &targets {
+        eprintln!(
+            "  {} targets = {} (selective fan-out)",
+            colored("◎", 33),
+            t.join(", ")
+        );
+    }
     let result = phantom_mesh::swarm::do_swarm_with_throttle(
         state_arc,
         &agent_name,
@@ -2752,6 +2776,7 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
         /* include_local = */ true,
         std::time::Duration::from_secs(300),
         throttle_secs,
+        targets,
     )
     .await;
     eprintln!(
@@ -2815,6 +2840,133 @@ async fn run_swarm(args: Vec<String>) -> Result<()> {
         "\n{}",
         colored(&format!("✓ swarm complete  cost: ${:.4}", total), 32)
     );
+    Ok(())
+}
+
+/// `phantom tool <name> [--node <peer>] [--args '<json>']`
+///
+/// Run a single built-in tool. Without `--node` the tool runs locally on
+/// this machine; with `--node <peer-substring>` the call is forwarded to
+/// that peer's `POST /rpc/tool/call` (mirrors how `task --node` forwards an
+/// agent run — unsigned, relies on tailnet peer-trust). `--args` is a JSON
+/// object passed verbatim to the tool, e.g.
+///   phantom tool shell --args '{"command":"ls -la"}' --node win-1
+async fn run_tool(args: Vec<String>) -> Result<()> {
+    let mut name: Option<String> = None;
+    let mut node: Option<String> = None;
+    let mut args_json_str: Option<String> = None;
+    let mut i = 2usize;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--node" | "-n" => {
+                i += 1;
+                node = args.get(i).cloned();
+            }
+            "--args" => {
+                i += 1;
+                args_json_str = args.get(i).cloned();
+            }
+            arg if !arg.starts_with('-') && name.is_none() => {
+                name = Some(arg.to_string());
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let name = match name {
+        Some(n) => n,
+        None => {
+            eprintln!("Usage: phantom tool <name> [--node <peer>] [--args '<json>']");
+            eprintln!("  e.g. phantom tool shell --args '{{\"command\":\"ls\"}}' --node win-1");
+            return Ok(());
+        }
+    };
+    let tool_args: serde_json::Value = match &args_json_str {
+        Some(s) => match serde_json::from_str(s) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{} --args is not valid JSON: {}", colored("✗", 31), e);
+                return Ok(());
+            }
+        },
+        None => serde_json::json!({}),
+    };
+
+    match node {
+        // ── local execution ──────────────────────────────────────────────
+        None => {
+            let cfg = phantom_mesh::config::ToolsConfig::default();
+            let out = phantom_mesh::tools::execute(&name, &tool_args, &cfg).await;
+            println!("{}", out);
+        }
+        // ── remote execution on a peer ───────────────────────────────────
+        Some(n) => {
+            let mut app_state = AppState::new();
+            if let Some(content) = find_config() {
+                app_state.load_config_toml(&content);
+            }
+            let runtime = app_state.agent_runtime.clone();
+            let cfg = runtime.config();
+            let peers: Vec<String> = cfg.cluster.peers.clone();
+            drop(cfg);
+
+            let matches: Vec<&String> = peers.iter().filter(|p| p.contains(&n)).collect();
+            let target = match matches.len() {
+                0 => {
+                    eprintln!(
+                        "{} no peer matches '{}'.  configured peers: {:?}",
+                        colored("✗", 31),
+                        n,
+                        peers
+                    );
+                    return Ok(());
+                }
+                1 => matches[0].clone(),
+                _ => {
+                    eprintln!(
+                        "{} '{}' is ambiguous — matches {} peers: {:?}",
+                        colored("✗", 31),
+                        n,
+                        matches.len(),
+                        matches
+                    );
+                    return Ok(());
+                }
+            };
+
+            let url = format!("{}/rpc/tool/call", target.trim_end_matches('/'));
+            let body = serde_json::json!({ "tool": name, "args": tool_args });
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .unwrap_or_default();
+            eprintln!(
+                "{} {} → {}",
+                colored("◆ phantom tool", 35),
+                colored(&name, 36),
+                target
+            );
+            match client.post(&url).json(&body).send().await {
+                Ok(r) if r.status().is_success() => {
+                    let v: serde_json::Value =
+                        r.json().await.unwrap_or_else(|_| serde_json::json!({}));
+                    if let Some(err) = v.get("error").and_then(|e| e.as_str()) {
+                        eprintln!("{} remote error: {}", colored("✗", 31), err);
+                    } else {
+                        println!("{}", v.get("output").and_then(|o| o.as_str()).unwrap_or(""));
+                    }
+                }
+                Ok(r) => {
+                    let code = r.status();
+                    let txt = r.text().await.unwrap_or_default();
+                    eprintln!("{} remote HTTP {}: {}", colored("✗", 31), code, txt);
+                }
+                Err(e) => {
+                    eprintln!("{} request failed: {}", colored("✗", 31), e);
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -2998,11 +3150,11 @@ fn redact_argv(argv: &[String]) -> Vec<String> {
     // implicit-prompt barewords) has its positionals redacted. Inversion fails
     // safe: a new content subcommand leaks nothing until allowlisted here.
     const STRUCTURAL_SUBCOMMANDS: &[&str] = &[
-        "autoevolve", "backup", "cluster", "config", "coordinator", "data", "debug",
+        "auth", "autoevolve", "backup", "cluster", "config", "coordinator", "data", "debug",
         "doctor", "focus", "git", "hello", "identity", "init", "keys", "lang", "login",
-        "logout", "logs", "mlx", "models", "node-capabilities", "onboarding",
-        "peer", "providers", "repl", "review", "self-update", "selftest",
-        "serve", "service", "sessions", "snapshot", "tui", "update", "version",
+        "logout", "logs", "mlx", "models", "node-capabilities", "nodes", "onboarding",
+        "peer", "permissions", "project", "provider", "providers", "repl", "review", "self-update", "selftest",
+        "serve", "service", "sessions", "snapshot", "trust", "tui", "update", "version",
         "whoami", "worker-setup", "workspace",
     ];
     let redaction = "[REDACTED]".to_string();
@@ -3472,18 +3624,115 @@ mod redact_argv_tests {
     }
 }
 
+#[cfg(test)]
+mod selfupdate_verify_tests {
+    use super::{selfupdate_parse_sidecar, selfupdate_require_https, verify_download_sha256};
+
+    // sha256("phantom") — the known-good digest for our fixture payload.
+    const PAYLOAD: &[u8] = b"phantom";
+    const GOOD_SHA: &str = "3bb68de60f56156655a2a70e606892edda3e2f2fc57b482bfe3ef1c5263db5b6";
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn good_sha_passes() {
+        // Sanity: our hard-coded GOOD_SHA actually matches the payload.
+        assert_eq!(sha256_hex(PAYLOAD), GOOD_SHA);
+        assert!(verify_download_sha256(PAYLOAD, GOOD_SHA).is_ok());
+        // Uppercase digest is normalized and still passes.
+        assert!(verify_download_sha256(PAYLOAD, &GOOD_SHA.to_ascii_uppercase()).is_ok());
+    }
+
+    #[test]
+    fn bad_sha_fails_mismatch() {
+        let wrong = "0".repeat(64);
+        let err = verify_download_sha256(PAYLOAD, &wrong).unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(msg.contains("mismatch"), "error should mention mismatch: {msg}");
+        assert!(msg.contains("sha"), "error should mention sha: {msg}");
+    }
+
+    #[test]
+    fn wrong_length_expected_is_rejected() {
+        // A 7-char "digest" (e.g. a truncated sidecar) must not pass.
+        let err = verify_download_sha256(PAYLOAD, "deadbee").unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(msg.contains("sha"), "error should mention sha: {msg}");
+    }
+
+    #[test]
+    fn https_url_allowed() {
+        assert!(
+            selfupdate_require_https("https://example.com/dist/phantom", false).is_ok()
+        );
+    }
+
+    #[test]
+    fn http_url_rejected_mentions_https() {
+        let err =
+            selfupdate_require_https("http://example.com/dist/phantom", false).unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(msg.contains("https"), "error should mention https: {msg}");
+    }
+
+    #[test]
+    fn http_url_allowed_when_insecure_opt_in() {
+        assert!(selfupdate_require_https("http://127.0.0.1:7878/x", true).is_ok());
+    }
+
+    #[test]
+    fn non_http_scheme_rejected_mentions_https() {
+        let err =
+            selfupdate_require_https("ftp://example.com/phantom", false).unwrap_err();
+        let msg = format!("{err}").to_lowercase();
+        assert!(msg.contains("https"), "error should mention https: {msg}");
+    }
+
+    #[test]
+    fn sidecar_parse_sha256sum_format() {
+        let txt = format!("{GOOD_SHA}  phantom-x86_64-unknown-linux\n");
+        assert_eq!(selfupdate_parse_sidecar(&txt).unwrap(), GOOD_SHA);
+    }
+
+    #[test]
+    fn sidecar_parse_bare_hex() {
+        let txt = format!("{}\n", GOOD_SHA.to_ascii_uppercase());
+        // Normalized to lowercase.
+        assert_eq!(selfupdate_parse_sidecar(&txt).unwrap(), GOOD_SHA);
+    }
+
+    #[test]
+    fn sidecar_missing_or_empty_is_err() {
+        // Empty sidecar (e.g. unfetchable → 0 bytes) must fail CLOSED.
+        let err = selfupdate_parse_sidecar("").unwrap_err();
+        assert!(format!("{err}").to_lowercase().contains("sha"));
+        let err2 = selfupdate_parse_sidecar("\n   \n").unwrap_err();
+        assert!(format!("{err2}").to_lowercase().contains("sha"));
+    }
+
+    #[test]
+    fn sidecar_malformed_is_err() {
+        // An HTML 404 body, not a digest.
+        let err = selfupdate_parse_sidecar("<html>404 Not Found</html>").unwrap_err();
+        assert!(format!("{err}").to_lowercase().contains("sha"));
+    }
+}
+
 /// Top-level subcommands, used ONLY to suggest "did you mean" on a typo'd
 /// single bareword (`phantom servee` → serve). Need not be exhaustive: a
 /// missing entry just means no suggestion for typos near it. It never gates
 /// real dispatch — the typo check runs only at the implicit-prompt fallthrough,
 /// after every real subcommand has already been handled.
 const KNOWN_SUBCOMMANDS: &[&str] = &[
-    "autoevolve", "backup", "cluster", "coach", "config", "coordinator", "data", "debug",
-    "dispatch", "doctor", "event", "evolve", "exec", "focus", "food", "git", "habit", "hello", "identity", "init",
+    "auth", "autoevolve", "backup", "cluster", "coach", "config", "coordinator", "data", "debug",
+    "dispatch", "doctor", "event", "evolve", "exec", "focus", "food", "git", "habit", "hello", "identity", "inbox", "init",
     "keys", "lang", "login", "logout", "logs", "mcp", "mlx", "models",
-    "node-capabilities", "note", "onboarding", "peer", "providers", "recall", "repl", "review",
-    "self-update", "selftest", "serve", "service", "sessions", "skill",
-    "snapshot", "swarm", "tui", "update", "version", "whoami", "worker-setup",
+    "node-capabilities", "nodes", "note", "onboarding", "peer", "permissions", "project", "provider", "providers", "recall", "repl", "review",
+    "self-update", "selftest", "sense", "serve", "service", "sessions", "skill", "status",
+    "snapshot", "swarm", "task", "test", "trust", "tui", "update", "version", "whoami", "worker-setup",
     "workspace",
 ];
 
@@ -3528,6 +3777,71 @@ fn suggest_subcommand(input: &str) -> Option<&'static str> {
         .find(|cmd| levenshtein_within(input, cmd, 1) <= 1)
 }
 
+// ── Phase 3: command-tree namespaces (auth / provider / project) ────────────
+// New grouped forms route to the EXISTING flat handlers by rewriting argv; the
+// old flat names keep working with a one-line deprecation hint. `permissions`
+// is already its own namespace and is left untouched.
+
+/// If argv[1] is a namespace (auth/provider/project), rewrite it to the flat
+/// command the existing dispatch understands (e.g. `auth login x` → `login x`,
+/// `provider models` → `models`, `provider list` → `providers`). Returns the
+/// rewritten argv, or `None` if argv[1] isn't a namespace.
+fn rewrite_namespace(args: &[String]) -> Option<Vec<String>> {
+    let ns = args.get(1)?.as_str();
+    if !matches!(ns, "auth" | "provider" | "project") {
+        return None;
+    }
+    let verb = args.get(2).map(|s| s.as_str());
+    let rest: Vec<String> = args.iter().skip(3).cloned().collect();
+    let mut out = vec![args[0].clone()];
+    let mut push = |cmd: &str, keep: Option<&str>| {
+        out.push(cmd.to_string());
+        if let Some(k) = keep {
+            out.push(k.to_string());
+        }
+        out.extend(rest.clone());
+    };
+    match (ns, verb) {
+        ("auth", Some(v @ ("login" | "logout" | "whoami" | "identity" | "keys"))) => push(v, None),
+        ("auth", Some("status")) => push("whoami", None),
+        ("project", Some(v @ ("init" | "trust"))) => push(v, None),
+        ("provider", Some("models")) => push("models", None),
+        ("provider", None | Some("list")) => push("providers", None),
+        ("provider", Some(other)) => push("providers", Some(other)),
+        // namespace with an unknown verb → no rewrite (caller shows ns help)
+        _ => return None,
+    }
+    Some(out)
+}
+
+/// One-line "use the new form" hint for a deprecated flat command name. Returns
+/// the canonical new form, or `None` if the command isn't deprecated.
+fn deprecated_flat_hint(cmd: &str) -> Option<&'static str> {
+    match cmd {
+        "login" => Some("phantom auth login"),
+        "logout" => Some("phantom auth logout"),
+        "whoami" => Some("phantom auth whoami"),
+        "identity" => Some("phantom auth identity"),
+        "keys" => Some("phantom auth keys"),
+        "providers" => Some("phantom provider list"),
+        "models" => Some("phantom provider models"),
+        "init" => Some("phantom project init"),
+        "trust" => Some("phantom project trust"),
+        _ => None,
+    }
+}
+
+/// Print the usage for a namespace whose verb was missing/unknown.
+fn print_namespace_usage(ns: &str) {
+    let body = match ns {
+        "auth" => "login | logout | whoami | identity | keys | chatgpt",
+        "provider" => "list | add | models",
+        "project" => "init | trust",
+        _ => "",
+    };
+    eprintln!("usage: phantom {ns} <{body}>");
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Crash + event capture — must run before anything else can panic
@@ -3560,6 +3874,49 @@ async fn main() -> Result<()> {
         ),
     );
 
+    // Install the process-wide tool gate (permission profile + project trust)
+    // for every non-interactive surface — exec, the default TUI, serve, cluster
+    // dispatch, evolve/swarm, and their subagents — so the gate can't be bypassed
+    // by picking a non-REPL entry point. Cheap no-op when nothing is configured.
+    // The interactive `repl` re-installs this with its prompt-capable gate.
+    phantom_mesh::tool_gate::install(false);
+
+    // `phantom auth chatgpt` — opt-in "Sign in with ChatGPT" OAuth. Intercept
+    // before the namespace rewrite (which only knows login/logout/whoami/...).
+    if args.get(1).map(|s| s.as_str()) == Some("auth")
+        && args.get(2).map(|s| s.as_str()) == Some("chatgpt")
+    {
+        return run_chatgpt_login().await;
+    }
+
+    // ── Phase 3 command-tree: namespaces + deprecation aliases ──────────────
+    // `phantom auth|provider|project <verb>` → rewrite to the flat handler.
+    // Old flat names still work but print a one-line "use the new form" hint.
+    let mut used_namespace = false;
+    if matches!(args.get(1).map(|s| s.as_str()), Some("auth" | "provider" | "project")) {
+        match rewrite_namespace(&args) {
+            Some(rewritten) => {
+                args = rewritten;
+                used_namespace = true;
+            }
+            None => {
+                // namespace present but verb missing/unknown → show its usage
+                print_namespace_usage(args.get(1).map(|s| s.as_str()).unwrap_or(""));
+                std::process::exit(2);
+            }
+        }
+    }
+    if !used_namespace {
+        if let Some(newform) = args.get(1).and_then(|c| deprecated_flat_hint(c)) {
+            eprintln!(
+                "  {} 'phantom {}' is now '{}' (old name still works)",
+                colored("⚠", 33),
+                args[1],
+                newform,
+            );
+        }
+    }
+
     // ── `phantom --version / -V` ────────────────────────────────────────
     if args.contains(&"--version".to_string()) || args.contains(&"-V".to_string()) {
         // Single-line short form (e.g. for shell scripts) when followed by
@@ -3587,16 +3944,20 @@ async fn main() -> Result<()> {
     // sees --help (serve binds a port, coordinator hubs, mcp blocks on stdio,
     // evolve kicks off a fix loop; onboarding opens a browser and HANGS, repl/tui
     // launch the interactive UI, init WRITES PHANTOM.md into the cwd, sessions
-    // hits the broker). Intercept and show usage instead. Subcommands that parse
-    // --help themselves (exec / skill / autoevolve / focus / note / food / …) are
-    // not in this list.
+    // hits the broker; login starts OAuth + binds :48181, logout DELETES auth.json +
+    // the keystore identity seed — so `login`/`logout --help` must be inert too (W4 / I1;
+    // a real incident: `logout --help` once wiped the operator's auth.json). Intercept and
+    // show usage instead. Subcommands that parse --help themselves (exec / skill / autoevolve
+    // / focus / note / food / …) are not in this list.
     if let Some(s) = sub {
         let usage = match s {
-            "serve" => Some("phantom serve [--host H] [--port P] [--openclaw-telegram] [--bot-token-env VAR]"),
+            "serve" => Some("phantom serve [--host H] [--port P] [--coach-at HH:MM] [--remote-telegram] [--bot-token-env VAR]"),
             "coordinator" => Some("phantom coordinator   (run as a cluster coordinator hub)"),
             "mcp" => Some("phantom mcp   (MCP stdio server, protocol 2024-11-05)"),
             "evolve" => Some("phantom evolve [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed]"),
             "onboarding" => Some("phantom onboarding   (browser-based first-time setup wizard)"),
+            "login" => Some("phantom login [email|google|apple|broker]   (broker OAuth, falls back to a local provider menu offline)"),
+            "logout" => Some("phantom logout [--reset|--reset-onboarding]   (clears auth.json + the keystore identity seed)"),
             "tui" => Some("phantom tui   (full-screen ratatui interface; requires an interactive terminal)"),
             "repl" => Some("phantom repl [--agent NAME] [--session ID] [-c|--continue] [PROMPT]   (line-mode REPL; PROMPT runs once, -c resumes the last session)"),
             "init" => Some("phantom init   (write a PHANTOM.md project scaffold into the current directory)"),
@@ -3606,8 +3967,8 @@ async fn main() -> Result<()> {
         };
         if let Some(u) = usage {
             if args.iter().skip(2).any(|a| a == "--help" || a == "-h") {
-                eprintln!("{}  {}", colored("usage:", 90), u);
-                eprintln!("       run `phantom help` for the full command list.");
+                println!("{}  {}", colored("usage:", 90), u);
+                println!("       run `phantom help` for the full command list.");
                 return Ok(());
             }
         }
@@ -3615,238 +3976,253 @@ async fn main() -> Result<()> {
 
     if sub == Some("help") || sub == Some("--help") || sub == Some("-h") {
         use phantom_mesh::i18n::tr;
-        eprintln!(
+        println!(
             "{}  {}",
             colored("phantom — AI agent mesh CLI", 35),
             colored(env!("CARGO_PKG_VERSION"), 90)
         );
-        eprintln!();
-        eprintln!("{}", colored(tr("INTERACTIVE", "互動模式"), 90));
-        eprintln!("  {}", colored("phantom", 36));
-        eprintln!("{}", tr("       Default: ratatui TUI (set PHANTOM_REPL=1 to force line REPL)", "       預設：ratatui TUI 介面（設 PHANTOM_REPL=1 強制用行模式 REPL）"));
-        eprintln!(
+        println!();
+        println!("{}", colored(tr("INTERACTIVE", "互動模式"), 90));
+        println!("  {}", colored("phantom", 36));
+        println!("{}", tr("       Default: ratatui TUI (set PHANTOM_REPL=1 to force line REPL)", "       預設：ratatui TUI 介面（設 PHANTOM_REPL=1 強制用行模式 REPL）"));
+        println!(
             "  {}  [--agent NAME] [--session ID] [-c] [PROMPT]",
             colored("phantom repl", 36)
         );
-        eprintln!("{}", tr("       Line-mode REPL, or one-shot prompt with -c", "       行模式 REPL；或用 -c 送出一次性提示"));
-        eprintln!("  {}", colored("phantom tui", 36));
-        eprintln!("{}", tr("       Full-screen ratatui interface (alternative entry to TUI)", "       全螢幕 ratatui 介面（進入 TUI 的另一個入口）"));
-        eprintln!(
+        println!("{}", tr("       Line-mode REPL, or one-shot prompt with -c", "       行模式 REPL；或用 -c 送出一次性提示"));
+        println!("  {}", colored("phantom tui", 36));
+        println!("{}", tr("       Full-screen ratatui interface (alternative entry to TUI)", "       全螢幕 ratatui 介面（進入 TUI 的另一個入口）"));
+        println!(
             "  {}  [--agent NAME] [--json|--quiet] [--continue] [PROMPT]",
             colored("phantom exec", 36)
         );
-        eprintln!("{}", tr(
+        println!("{}", tr(
             "       Headless single-turn run for CI/pipelines (stdin = prompt; stdout = answer)",
             "       無介面單輪執行，供 CI／管線使用（stdin = 提示；stdout = 回答）",
         ));
-        eprintln!();
-        eprintln!("{}", colored(tr("DAEMON / SERVICE", "常駐服務"), 90));
-        eprintln!(
-            "  {}  [--host H] [--port P] [--openclaw-telegram] [--bot-token-env VAR]",
+        println!();
+        println!("{}", colored(tr("DAEMON / SERVICE", "常駐服務"), 90));
+        println!(
+            "  {}  [--host H] [--port P] [--remote-telegram] [--bot-token-env VAR]",
             colored("phantom serve", 36)
         );
-        eprintln!("{}", tr("       WebSocket + HTTP daemon, /ws /api/* /rpc/* /m /dist/* /scripts/*", "       WebSocket + HTTP 常駐服務，/ws /api/* /rpc/* /m /dist/* /scripts/*"));
-        eprintln!("{}", tr("       --openclaw-telegram: spawn Telegram bot alongside HTTP server (B2/T83);", "       --openclaw-telegram：在 HTTP 服務旁同時啟動 Telegram 機器人（B2/T83）；"));
-        eprintln!("{}", tr("        token read from env var named by --bot-token-env, default TELEGRAM_BOT_API_KEY", "        token 由 --bot-token-env 指定的環境變數讀取，預設 TELEGRAM_BOT_API_KEY"));
-        eprintln!(
+        println!("{}", tr("       WebSocket + HTTP daemon, /ws /api/* /rpc/* /m /dist/* /scripts/*", "       WebSocket + HTTP 常駐服務，/ws /api/* /rpc/* /m /dist/* /scripts/*"));
+        println!("{}", tr("       --remote-telegram: spawn Telegram bot alongside HTTP server (B2/T83);", "       --remote-telegram：在 HTTP 服務旁同時啟動 Telegram 機器人（B2/T83）；"));
+        println!("{}", tr("        token read from env var named by --bot-token-env, default TELEGRAM_BOT_API_KEY", "        token 由 --bot-token-env 指定的環境變數讀取，預設 TELEGRAM_BOT_API_KEY"));
+        println!(
             "  {}  [install|uninstall|status]",
             colored("phantom service", 36)
         );
-        eprintln!("{}", tr("       Auto-start at user login: launchd (mac) / Scheduled Task (win) /", "       登入時自動啟動：launchd（mac）/ 排程工作（win）/"));
-        eprintln!("{}", tr("       systemd --user (linux). Defaults to status.", "       systemd --user（linux）。預設顯示狀態。"));
-        eprintln!("  {}", colored("phantom mcp", 36));
-        eprintln!("{}", tr("       MCP stdio server (built-in tool registry, 2024-11-05 protocol)", "       MCP stdio 伺服器（內建工具集，2024-11-05 協議）"));
-        eprintln!();
-        eprintln!("{}", colored(tr("SELF-IMPROVEMENT", "自我改進"), 90));
-        eprintln!("  {}  [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed] [--judge [--ensemble N] [--extract-skills [--extract-threshold N]]]", colored("phantom evolve", 36));
-        eprintln!("{}", tr("       One-shot test-driven fix loop", "       一次性的測試驅動修復迴圈"));
-        eprintln!(
+        println!("{}", tr("       Auto-start at user login: launchd (mac) / Scheduled Task (win) /", "       登入時自動啟動：launchd（mac）/ 排程工作（win）/"));
+        println!("{}", tr("       systemd --user (linux). Defaults to status.", "       systemd --user（linux）。預設顯示狀態。"));
+        println!("  {}", colored("phantom mcp", 36));
+        println!("{}", tr("       MCP stdio server (built-in tool registry, 2024-11-05 protocol)", "       MCP stdio 伺服器（內建工具集，2024-11-05 協議）"));
+        println!();
+        println!("{}", colored(tr("SELF-IMPROVEMENT", "自我改進"), 90));
+        println!("  {}  [GOAL] [--max-rounds N] [--agent NAME] [--rebuild] [--deploy] [--distributed] [--judge [--ensemble N] [--extract-skills [--extract-threshold N]]]", colored("phantom evolve", 36));
+        println!("{}", tr("       One-shot test-driven fix loop", "       一次性的測試驅動修復迴圈"));
+        println!(
             "  {}  [--once|--watch] [--interval N] [--target check|test] [--distributed]",
             colored("phantom autoevolve", 36)
         );
-        eprintln!("{}", tr("       Daemon-mode self-improvement; auto-commit on green", "       常駐模式自我改進；測試綠燈時自動 commit"));
-        eprintln!(
+        println!("{}", tr("       Daemon-mode self-improvement; auto-commit on green", "       常駐模式自我改進；測試綠燈時自動 commit"));
+        println!(
             "  {}  schedule [install|uninstall|status]",
             colored("phantom autoevolve", 36)
         );
-        eprintln!("{}", tr("       Manage the OS scheduler entry (LaunchAgent / Scheduled Task) that runs --once on a cadence", "       管理依排程跑 --once 的作業系統排程項目（LaunchAgent／排程工作）"));
-        eprintln!("  {}  log [--n N]", colored("phantom autoevolve", 36));
-        eprintln!("{}", tr("       Pretty-print recent JSONL entries", "       美化列印最近的 JSONL 紀錄"));
-        eprintln!("  {}  list [--active] [--json]   ·   replay [<id>|latest]   ·   handoff <peer-url> [<id>|latest]", colored("phantom evolve", 36));
-        eprintln!("{}", tr("       Inspect & migrate self-improvement checkpoints across the mesh", "       檢視並跨 mesh 遷移自我改進的檢查點"));
-        eprintln!("  {}  goals next   ·   goals list [--json]   ·   goals add \"<text>\"   ·   goals mark-done <#>   [--file PATH]", colored("phantom evolve", 36));
-        eprintln!("{}", tr("       Curated milestone queue (file: --file > $PHANTOM_EVOLVE_GOALS > ./EVOLVE-GOALS.md if present > ~/.phantom-mesh/EVOLVE-GOALS.md)", "       策劃的里程碑佇列（檔案順序：--file ＞ $PHANTOM_EVOLVE_GOALS ＞ 目前目錄的 ./EVOLVE-GOALS.md（若存在）＞ ~/.phantom-mesh/EVOLVE-GOALS.md）"));
-        eprintln!(
+        println!("{}", tr("       Manage the OS scheduler entry (LaunchAgent / Scheduled Task) that runs --once on a cadence", "       管理依排程跑 --once 的作業系統排程項目（LaunchAgent／排程工作）"));
+        println!("  {}  log [--n N]", colored("phantom autoevolve", 36));
+        println!("{}", tr("       Pretty-print recent JSONL entries", "       美化列印最近的 JSONL 紀錄"));
+        println!("  {}  list [--active] [--json]   ·   replay [<id>|latest]   ·   handoff <peer-url> [<id>|latest]", colored("phantom evolve", 36));
+        println!("{}", tr("       Inspect & migrate self-improvement checkpoints across the mesh", "       檢視並跨 mesh 遷移自我改進的檢查點"));
+        println!("  {}  goals next   ·   goals list [--json]   ·   goals add \"<text>\"   ·   goals mark-done <#>   [--file PATH]", colored("phantom evolve", 36));
+        println!("{}", tr("       Curated milestone queue (file: --file > $PHANTOM_EVOLVE_GOALS > ./EVOLVE-GOALS.md if present > ~/.phantom-mesh/EVOLVE-GOALS.md)", "       策劃的里程碑佇列（檔案順序：--file ＞ $PHANTOM_EVOLVE_GOALS ＞ 目前目錄的 ./EVOLVE-GOALS.md（若存在）＞ ~/.phantom-mesh/EVOLVE-GOALS.md）"));
+        println!(
             "  {}  <PROMPT> [--agent NAME]",
             colored("phantom swarm", 36)
         );
-        eprintln!("{}", tr("       Fan a prompt to every online peer in parallel; synthesize results", "       把提示平行扇出給每個在線節點；綜合結果"));
-        eprintln!();
-        eprintln!("{}", colored(tr("HERMES SKILLS (experimental)", "Hermes 技能（實驗性）"), 90));
-        eprintln!(
+        println!("{}", tr("       Fan a prompt to every online peer in parallel; synthesize results", "       把提示平行扇出給每個在線節點；綜合結果"));
+        println!();
+        println!("{}", colored(tr("SKILL BANK (experimental)", "技能庫（實驗性）"), 90));
+        println!(
             "  {}  <path-to-skill.md> [--dry-run] [--sandboxed --allow <cmd>...]",
             colored("phantom skill run", 36)
         );
-        eprintln!("{}", tr("       Execute a Hermes Skill Document. Requires --features experimental-hermes-curator at build time.", "       執行一份 Hermes Skill 文件。建置時需加 --features experimental-hermes-curator。"));
-        eprintln!();
-        eprintln!("{}", colored(tr("LIFE NODE", "生活節點"), 90));
-        eprintln!(
+        println!("{}", tr("       Execute a Skill Document. Requires --features experimental-curator at build time.", "       執行一份 Skill 文件。建置時需加 --features experimental-curator。"));
+        println!();
+        println!("{}", colored(tr("LIFE NODE", "生活節點"), 90));
+        println!(
             "  {}  [--kind K] [--image P]... [--audio P]... [--text T] [--tag T] [--coord URL]",
             colored("phantom event capture", 36)
         );
-        eprintln!("{}", tr("       Capture a multimodal life event and POST it to the local serve daemon.", "       擷取一筆多模態生活事件，並 POST 給本機 serve 常駐服務。"));
-        eprintln!("  {}", colored("phantom event show <id>", 36));
-        eprintln!("{}", tr("       Print one captured event in full (id from `phantom recall`). Read-only.", "       完整顯示單一擷取事件（id 來自 `phantom recall`）。唯讀。"));
-        eprintln!("  {}  review --date YYYY-MM-DD [--save]", colored("phantom coach", 36));
-        eprintln!("{}", tr("       Life Node daily review (aggregate → coach summary)", "       生活節點每日回顧（彙整 → coach 摘要）"));
-        eprintln!("  {}  start [--minutes N] [--task \"…\"]  ·  status  ·  stop  ·  history", colored("phantom focus", 36));
-        eprintln!("{}", tr("       Timed deep-work focus sessions (Timer mode; backend lands with SPEC-21 Stage 4)", "       計時深度工作 focus 時段（計時模式；後端隨 SPEC-21 Stage 4 完成）"));
-        eprintln!("  {}  [--tag T]...", colored("phantom note \"<text>\"", 36));
-        eprintln!("{}", tr("       Capture a quick text note directly (no daemon); encrypts at rest with identity.key", "       直接記錄一則文字筆記（免常駐服務）；有 identity.key 時靜態加密"));
-        eprintln!("  {}  [--kind K] [--since DATE] [--limit N] [--json]", colored("phantom recall <query>", 36));
-        eprintln!("  {}  [YYYY-MM-DD] [--json]", colored("phantom review", 36));
-        eprintln!("{}", tr(
+        println!("{}", tr("       Capture a multimodal life event and POST it to the local serve daemon.", "       擷取一筆多模態生活事件，並 POST 給本機 serve 常駐服務。"));
+        println!("  {}", colored("phantom event show <id>", 36));
+        println!("{}", tr("       Print one captured event in full (id from `phantom recall`). Read-only.", "       完整顯示單一擷取事件（id 來自 `phantom recall`）。唯讀。"));
+        println!("  {}  review --date YYYY-MM-DD [--save]", colored("phantom coach", 36));
+        println!("{}", tr("       Life Node daily review (aggregate → coach summary)", "       生活節點每日回顧（彙整 → coach 摘要）"));
+        println!("  {}  start [--minutes N] [--task \"…\"]  ·  status  ·  stop  ·  history", colored("phantom focus", 36));
+        println!("{}", tr("       Timed deep-work focus sessions (Timer mode; backend lands with SPEC-21 Stage 4)", "       計時深度工作 focus 時段（計時模式；後端隨 SPEC-21 Stage 4 完成）"));
+        println!("  {}  [--tag T]...", colored("phantom note \"<text>\"", 36));
+        println!("{}", tr("       Capture a quick text note directly (no daemon); encrypts at rest with identity.key", "       直接記錄一則文字筆記（免常駐服務）；有 identity.key 時靜態加密"));
+        println!("  {}  [--kind K] [--since DATE] [--limit N] [--json]", colored("phantom recall <query>", 36));
+        println!("  {}  [YYYY-MM-DD] [--json]", colored("phantom review", 36));
+        println!("{}", tr(
             "       Daily-review aggregate, offline + no LLM; --json emits that day's events (the AI coach summary is `phantom coach review`)",
             "       每日回顧彙整，離線且不呼叫 LLM；--json 輸出當日事件（AI 教練摘要請用 `phantom coach review`）",
         ));
-        eprintln!("{}", tr("       Search past life events by content (the CLI twin of the TUI /recall)", "       依內容搜尋過往生活事件（TUI /recall 的命令列版本）"));
-        eprintln!(
+        println!("{}", tr("       Search past life events by content (the CLI twin of the TUI /recall)", "       依內容搜尋過往生活事件（TUI /recall 的命令列版本）"));
+        println!(
             "  {}  [-n N | --tail N] [--since DUR] [--kind K] [--raw]",
             colored("phantom logs", 36)
         );
-        eprintln!("{}", tr("       Tail serve/system telemetry (events.jsonl) — NOT the Life-Track log; use recall/review", "       檢視 serve／系統遙測（events.jsonl）—— 非生活軌道日誌；那個用 recall／review"));
-        eprintln!("  {}  (--all --yes | <event-id>)", colored("phantom data delete", 36));
-        eprintln!("{}", tr(
+        println!("{}", tr("       Tail serve/system telemetry (events.jsonl) — NOT the Life-Track log; use recall/review", "       檢視 serve／系統遙測（events.jsonl）—— 非生活軌道日誌；那個用 recall／review"));
+        println!("  {}  (--all --yes | <event-id>)", colored("phantom data delete", 36));
+        println!("{}", tr(
             "       Delete all events (--all --yes), or one event by id (from `phantom recall`). Irreversible.",
             "       刪除所有事件（--all --yes），或依 id 刪除單一事件（id 來自 `phantom recall`）。不可復原。",
         ));
-        eprintln!("  {}  [--format json|md] [--out FILE] [--kind K] [--since DATE]", colored("phantom data export", 36));
-        eprintln!("{}", tr(
+        println!("  {}  [--format json|md] [--out FILE] [--kind K] [--since DATE]", colored("phantom data export", 36));
+        println!("{}", tr(
             "       Export your Life Node events (portability) — JSON or Markdown, to a file or stdout.",
             "       匯出你的生活節點事件（資料可攜）— JSON 或 Markdown，輸出到檔案或 stdout。",
         ));
-        eprintln!("  {}", colored("phantom data stats", 36));
-        eprintln!("{}", tr(
+        println!("  {}", colored("phantom data stats", 36));
+        println!("{}", tr(
             "       Life-log rollup: total · date span · last-7d · by-kind breakdown.",
             "       生活紀錄彙整：總數 · 日期範圍 · 近 7 天 · 各類型統計。",
         ));
-        eprintln!();
-        eprintln!("{}", colored(tr("DIAGNOSTICS", "診斷"), 90));
-        eprintln!("  {}  [--json | --mesh]", colored("phantom doctor", 36));
-        eprintln!("{}", tr("       Single-screen environment health check (--mesh: per-peer ping table + exit code)", "       單頁環境健康檢查（--mesh：逐節點 ping 表格 + 退出碼）"));
-        eprintln!(
+        println!();
+        println!("{}", colored(tr("DIAGNOSTICS", "診斷"), 90));
+        println!("  {}  [--json | --mesh]", colored("phantom doctor", 36));
+        println!("{}", tr("       Single-screen environment health check (--mesh: per-peer ping table + exit code)", "       單頁環境健康檢查（--mesh：逐節點 ping 表格 + 退出碼）"));
+        println!(
             "  {}  [--json] [--out FILE] [--feature N] [--p0-only] [--list]",
             colored("phantom selftest", 36)
         );
-        eprintln!("{}", tr("       Per-feature self-test suite; failures emit repro + artifact + hints", "       逐功能自我測試套件；失敗時輸出重現步驟 + 產物 + 提示"));
-        eprintln!(
+        println!("{}", tr("       Per-feature self-test suite; failures emit repro + artifact + hints", "       逐功能自我測試套件；失敗時輸出重現步驟 + 產物 + 提示"));
+        println!(
             "  {}  [--source URL] [--dry-run]",
             colored("phantom self-update", 36)
         );
-        eprintln!("{}", tr("       Pull a fresh binary + atomically swap + restart service", "       拉取新 binary + 原子替換 + 重啟服務"));
-        eprintln!("  {}", colored("phantom debug", 36));
-        eprintln!("{}", tr("       Print a diagnostic debug bundle (config · env · paths)", "       輸出診斷 debug 包（設定 · 環境 · 路徑）"));
-        eprintln!();
-        eprintln!("{}", colored(tr("AGENTS / SESSIONS", "代理／工作階段"), 90));
-        eprintln!("  {}", colored("phantom providers", 36));
-        eprintln!("{}", tr("       List providers configured in agents.toml", "       列出 agents.toml 設定的 providers"));
-        eprintln!("  {}", colored("phantom models", 36));
-        eprintln!("{}", tr("       Show/refresh the model cache", "       顯示／重新整理模型快取"));
-        eprintln!("  {}", colored("phantom sessions", 36));
-        eprintln!("{}", tr("       List saved chat sessions", "       列出已儲存的對話階段"));
-        eprintln!("  {}", colored("phantom workspace", 36));
-        eprintln!("{}", tr("       Manage the workspace pin in agents.toml", "       管理 agents.toml 的 workspace pin"));
-        eprintln!();
-        eprintln!("{}", colored(tr("MAC-ONLY", "僅限 Mac"), 90));
-        eprintln!(
+        println!("{}", tr("       Pull a fresh binary + atomically swap + restart service", "       拉取新 binary + 原子替換 + 重啟服務"));
+        println!("  {}", colored("phantom debug", 36));
+        println!("{}", tr("       Print a diagnostic debug bundle (config · env · paths)", "       輸出診斷 debug 包（設定 · 環境 · 路徑）"));
+        println!();
+        println!("{}", colored(tr("AGENTS / SESSIONS", "代理／工作階段"), 90));
+        println!("  {}", colored("phantom providers", 36));
+        println!("{}", tr("       List providers configured in agents.toml", "       列出 agents.toml 設定的 providers"));
+        println!("  {}", colored("phantom models", 36));
+        println!("{}", tr("       Show/refresh the model cache", "       顯示／重新整理模型快取"));
+        println!("  {}", colored("phantom sessions", 36));
+        println!("{}", tr("       List saved chat sessions", "       列出已儲存的對話階段"));
+        println!("  {}", colored("phantom workspace", 36));
+        println!("{}", tr("       Manage the workspace pin in agents.toml", "       管理 agents.toml 的 workspace pin"));
+        println!();
+        println!("{}", colored(tr("MAC-ONLY", "僅限 Mac"), 90));
+        println!(
             "  {}  [create|list|delete|prune|rollback|apply] [args]",
             colored("phantom snapshot", 36)
         );
-        eprintln!("{}", tr("       APFS local snapshot — safety net for subagent runs", "       APFS 本機快照 — subagent 執行的安全網"));
-        eprintln!("{}", tr("       apply <id> [--cwd|--path P] [--execute]   automated rsync restore", "       apply <id> [--cwd|--path P] [--execute]   自動 rsync 還原"));
-        eprintln!(
+        println!("{}", tr("       APFS local snapshot — safety net for subagent runs", "       APFS 本機快照 — subagent 執行的安全網"));
+        println!("{}", tr("       apply <id> [--cwd|--path P] [--execute]   automated rsync restore", "       apply <id> [--cwd|--path P] [--execute]   自動 rsync 還原"));
+        println!(
             "  {}  [pull|serve|status|stop] [--model M] [--port P]",
             colored("phantom mlx", 36)
         );
-        eprintln!("{}", tr("       Apple Silicon local LLM helper (mlx_lm.server orchestration)", "       Apple Silicon 本機 LLM 輔助（mlx_lm.server 編排）"));
-        eprintln!();
-        eprintln!("{}", colored(tr("CLUSTER", "叢集"), 90));
-        eprintln!("  {}", colored("phantom cluster", 36));
-        eprintln!("{}", tr("       Cluster status snapshot (this node + configured peers)", "       叢集狀態快照（本節點 + 已設定的 peers）"));
-        eprintln!(
+        println!("{}", tr("       Apple Silicon local LLM helper (mlx_lm.server orchestration)", "       Apple Silicon 本機 LLM 輔助（mlx_lm.server 編排）"));
+        println!();
+        println!("{}", colored(tr("CLUSTER", "叢集"), 90));
+        println!("  {}", colored("phantom cluster", 36));
+        println!("{}", tr("       Cluster status snapshot (this node + configured peers)", "       叢集狀態快照（本節點 + 已設定的 peers）"));
+        println!(
+            "  {}  [inspect <node> | caps | list] [--json]",
+            colored("phantom nodes", 36)
+        );
+        println!("{}", tr("       Read-only NodeManifest view of known nodes (no network calls)", "       已知節點的唯讀 NodeManifest 檢視（不發網路請求）"));
+        println!(
             "  {}  [list | ping <url> | assign <prompt> | send-async <prompt> | poll <url> <id>]",
             colored("phantom peer", 36)
         );
-        eprintln!("{}", tr("       Inspect, ping, dispatch tasks to cluster peers", "       檢視、ping、派送任務給叢集節點"));
-        eprintln!(
+        println!("{}", tr("       Inspect, ping, dispatch tasks to cluster peers", "       檢視、ping、派送任務給叢集節點"));
+        println!(
             "  {}  [--tag X] [--to Y] [--all] [--agent Z] \"task\"",
             colored("phantom dispatch", 36)
         );
-        eprintln!("{}", tr("       Send a task to specific peer(s) (use `swarm` to fan to all)", "       把任務送給指定節點（用 `swarm` 扇出給全部）"));
-        eprintln!("  {}", colored("phantom git", 36));
-        eprintln!("{}", tr("       Cluster git operations (agent-side helpers)", "       叢集 git 操作（agent 端輔助）"));
-        eprintln!("  {}", colored("phantom node-capabilities", 36));
-        eprintln!("{}", tr("       Print this node's capability report (platform · tools · models)", "       印出本節點的能力報告（平台 · 工具 · 模型）"));
-        eprintln!("  {}", colored("phantom worker-setup", 36));
-        eprintln!("{}", tr("       Bootstrap this node as a cluster worker", "       把本節點設定成叢集 worker"));
-        eprintln!("  {}", colored("phantom coordinator", 36));
-        eprintln!("{}", tr("       Run as a coordinator hub for the cluster (optional)", "       以叢集協調者 hub 身分執行（選用）"));
-        eprintln!();
-        eprintln!("{}", colored(tr("IDENTITY", "身分"), 90));
-        eprintln!("  {}", colored("phantom login", 36));
-        eprintln!("{}", tr("       Default: probe the broker (https://phantommesh.io) and", "       預設：探測 broker（https://phantommesh.io），"));
-        eprintln!("{}", tr("       delegate OAuth there. Falls back to a local provider menu", "       在該處委派 OAuth；broker 離線時退回本機 provider 選單"));
-        eprintln!("{}", tr("       (email / google / apple) when broker is offline.", "       （email / google / apple）。"));
-        eprintln!(
+        println!("{}", tr("       Send a task to specific peer(s) (use `swarm` to fan to all)", "       把任務送給指定節點（用 `swarm` 扇出給全部）"));
+        println!("  {}", colored("phantom git", 36));
+        println!("{}", tr("       Cluster git operations (agent-side helpers)", "       叢集 git 操作（agent 端輔助）"));
+        println!("  {}", colored("phantom node-capabilities", 36));
+        println!("{}", tr("       Print this node's capability report (platform · tools · models)", "       印出本節點的能力報告（平台 · 工具 · 模型）"));
+        println!("  {}", colored("phantom worker-setup", 36));
+        println!("{}", tr("       Bootstrap this node as a cluster worker", "       把本節點設定成叢集 worker"));
+        println!("  {}", colored("phantom coordinator", 36));
+        println!("{}", tr("       Run as a coordinator hub for the cluster (optional)", "       以叢集協調者 hub 身分執行（選用）"));
+        println!();
+        println!("{}", colored(tr("AUTH  (phantom auth …)", "身分  (phantom auth …)"), 90));
+        println!("  {}", colored("phantom auth login", 36));
+        println!("{}", tr("       Default: probe the broker (https://phantommesh.io) and", "       預設：探測 broker（https://phantommesh.io），"));
+        println!("{}", tr("       delegate OAuth there. Falls back to a local provider menu", "       在該處委派 OAuth；broker 離線時退回本機 provider 選單"));
+        println!("{}", tr("       (email / google / apple) when broker is offline.", "       （email / google / apple）。"));
+        println!(
             "  {}  [email|google|apple|broker]",
-            colored("phantom login", 36)
+            colored("phantom auth login", 36)
         );
-        eprintln!("{}", tr("       Force a specific provider — bypasses broker probe.", "       強制指定 provider — 略過 broker 探測。"));
-        eprintln!("{}", tr("       email = local-only password; google = OAuth loopback at :48181;", "       email = 純本機密碼；google = OAuth loopback 於 :48181；"));
-        eprintln!("{}", tr("       apple = stub (needs broker); broker = re-try phantommesh.io.", "       apple = stub（需 broker）；broker = 重試 phantommesh.io。"));
-        eprintln!("  {}", colored("phantom logout", 36));
-        eprintln!("{}", tr("       Delete the saved identity.", "       刪除已儲存的身分。"));
-        eprintln!("  {}", colored("phantom whoami", 36));
-        eprintln!("{}", tr("       Print current identity (provider · email · device id).", "       印出目前身分（provider · email · 裝置 id）。"));
-        eprintln!("{}", tr("       PHANTOM_AUTH_URL=...  override broker URL.", "       PHANTOM_AUTH_URL=...  覆寫 broker URL。"));
-        eprintln!("  {}  [init | ...]", colored("phantom keys", 36));
-        eprintln!("{}", tr("       Manage the local keypair", "       管理本機金鑰對"));
-        eprintln!("  {}  [pull | push] --token <jwt>", colored("phantom config", 36));
-        eprintln!("{}", tr("       Sync broker-managed config (providers, routing)", "       同步 broker 管理的設定（providers、routing）"));
-        eprintln!();
-        eprintln!("{}", colored(tr("ONE-TIME SETUP", "初次設定"), 90));
-        eprintln!("  {}", colored("phantom init", 36));
-        eprintln!("{}", tr("       Generate PHANTOM.md scaffold in current directory", "       在目前目錄產生 PHANTOM.md 骨架"));
-        eprintln!("  {}", colored("phantom onboarding", 36));
-        eprintln!("{}", tr("       Browser-based first-time setup wizard", "       瀏覽器版首次設定精靈"));
-        eprintln!("  {}  [show | set <en|zh-TW> | reset]", colored("phantom lang", 36));
-        eprintln!("{}", tr("       Set the UI language (default 繁中); persists in ~/.phantom-mesh/lang", "       設定介面語言（可設繁中為預設）；儲存在 ~/.phantom-mesh/lang"));
-        eprintln!();
-        eprintln!("{}", colored(tr("VERSION INFO", "版本資訊"), 90));
-        eprintln!("  {}  [--short]", colored("phantom --version", 36));
-        eprintln!("{}", tr("       Default: version + git hash + os-arch + build date", "       預設：版本 + git hash + os-arch + 建置日期"));
-        eprintln!("{}", tr("       --short returns the bare semver string", "       --short 只回傳純 semver 字串"));
-        eprintln!();
-        eprintln!("{}", colored(tr("ENVIRONMENT", "環境變數"), 90));
-        eprintln!("  ANTHROPIC_API_KEY / OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY");
-        eprintln!("{}", tr("  PHANTOM_MAX_ROUNDS    cap subagent rounds (default 25)", "  PHANTOM_MAX_ROUNDS    限制 subagent 回合數（預設 25）"));
-        eprintln!("{}", tr("  PHANTOM_PERM          allow|ask|diff|deny — REPL tool gate", "  PHANTOM_PERM          allow|ask|diff|deny — REPL 工具閘門"));
-        eprintln!("{}", tr("  PHANTOM_PLAN_MODE     1 to gate tools until 'go' is typed", "  PHANTOM_PLAN_MODE     設 1 則工具閘到輸入 'go' 才放行"));
-        eprintln!("{}", tr("  PHANTOM_PORT          override :7878 for serve", "  PHANTOM_PORT          覆寫 serve 的 :7878"));
-        eprintln!("{}", tr("  PHANTOM_COORD         coordinator URL for self-update / mesh", "  PHANTOM_COORD         self-update / mesh 用的協調者 URL"));
-        eprintln!("{}", tr("  NO_COLOR              disable ANSI colors", "  NO_COLOR              關閉 ANSI 顏色"));
-        eprintln!();
-        eprintln!("{}", colored(tr("CONFIG", "設定檔"), 90));
-        eprintln!("  ~/.phantom-mesh/agents.toml  |  ./agents.toml      provider keys + agents");
-        eprintln!("  ~/.phantom-mesh/env                                shell-sourcable secrets");
-        eprintln!(
+        println!("{}", tr("       Force a specific provider — bypasses broker probe.", "       強制指定 provider — 略過 broker 探測。"));
+        println!("  {}  [--reset-onboarding]", colored("phantom auth logout", 36));
+        println!("{}", tr("       Delete the saved identity (auth + keystore).", "       刪除已儲存的身分（auth + keystore）。"));
+        println!("  {}", colored("phantom auth whoami", 36));
+        println!("{}", tr("       Print current identity (provider · email · device id).", "       印出目前身分（provider · email · 裝置 id）。"));
+        println!("  {}  [init | ...]", colored("phantom auth keys", 36));
+        println!("{}", tr("       Manage the local keypair", "       管理本機金鑰對"));
+        println!("  {}  [pull | push] --token <jwt>", colored("phantom config", 36));
+        println!("{}", tr("       Sync broker-managed config (providers, routing)", "       同步 broker 管理的設定（providers、routing）"));
+        println!("{}", colored(tr("       (old flat names — phantom login/logout/whoami/keys — still work)", "       （舊扁平名稱 phantom login/logout/whoami/keys 仍可用）"), 90));
+        println!();
+        println!("{}", colored(tr("PROVIDER  (phantom provider …)", "供應商  (phantom provider …)"), 90));
+        println!("  {}", colored("phantom provider list", 36));
+        println!("{}", tr("       List providers configured in agents.toml", "       列出 agents.toml 設定的 providers"));
+        println!("  {}", colored("phantom provider models", 36));
+        println!("{}", tr("       List models for the configured providers", "       列出已設定 providers 的模型"));
+        println!();
+        println!("{}", colored(tr("PROJECT  (phantom project …)", "專案  (phantom project …)"), 90));
+        println!("  {}", colored("phantom project init", 36));
+        println!("{}", tr("       Generate PHANTOM.md scaffold in current directory", "       在目前目錄產生 PHANTOM.md 骨架"));
+        println!("  {}  [show | list | add | remove]", colored("phantom project trust", 36));
+        println!("{}", tr("       Manage Project Trust (trusted directories)", "       管理專案信任（信任的目錄）"));
+        println!("  {}  [show | list | set <profile>]", colored("phantom permissions", 36));
+        println!("{}", tr("       Set the Execution Permission profile (observe/suggest/…)", "       設定執行權限 profile（observe/suggest/…）"));
+        println!();
+        println!("{}", colored(tr("ONE-TIME SETUP", "初次設定"), 90));
+        println!("  {}", colored("phantom onboarding", 36));
+        println!("{}", tr("       Browser-based first-time setup wizard", "       瀏覽器版首次設定精靈"));
+        println!("  {}  [show | set <en|zh-TW> | reset]", colored("phantom lang", 36));
+        println!("{}", tr("       Set the UI language (default 繁中); persists in ~/.phantom-mesh/lang", "       設定介面語言（可設繁中為預設）；儲存在 ~/.phantom-mesh/lang"));
+        println!();
+        println!("{}", colored(tr("VERSION INFO", "版本資訊"), 90));
+        println!("  {}  [--short]", colored("phantom --version", 36));
+        println!("{}", tr("       Default: version + git hash + os-arch + build date", "       預設：版本 + git hash + os-arch + 建置日期"));
+        println!("{}", tr("       --short returns the bare semver string", "       --short 只回傳純 semver 字串"));
+        println!();
+        println!("{}", colored(tr("ENVIRONMENT", "環境變數"), 90));
+        println!("  ANTHROPIC_API_KEY / OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY");
+        println!("{}", tr("  PHANTOM_MAX_ROUNDS    cap subagent rounds (default 25)", "  PHANTOM_MAX_ROUNDS    限制 subagent 回合數（預設 25）"));
+        println!("{}", tr("  PHANTOM_PERM          allow|ask|diff|deny — REPL tool gate", "  PHANTOM_PERM          allow|ask|diff|deny — REPL 工具閘門"));
+        println!("{}", tr("  PHANTOM_PLAN_MODE     1 to gate tools until 'go' is typed", "  PHANTOM_PLAN_MODE     設 1 則工具閘到輸入 'go' 才放行"));
+        println!("{}", tr("  PHANTOM_PORT          override :7878 for serve", "  PHANTOM_PORT          覆寫 serve 的 :7878"));
+        println!("{}", tr("  PHANTOM_COORD         coordinator URL for self-update / mesh", "  PHANTOM_COORD         self-update / mesh 用的協調者 URL"));
+        println!("{}", tr("  NO_COLOR              disable ANSI colors", "  NO_COLOR              關閉 ANSI 顏色"));
+        println!();
+        println!("{}", colored(tr("CONFIG", "設定檔"), 90));
+        println!("  ~/.phantom-mesh/agents.toml  |  ./agents.toml      provider keys + agents");
+        println!("  ~/.phantom-mesh/env                                shell-sourcable secrets");
+        println!(
             "  ~/.phantom-mesh/autoevolve.log                     JSONL self-improvement log"
         );
-        eprintln!("  ~/.phantom-mesh/conversations/<id>.jsonl           session persistence");
-        eprintln!();
-        eprintln!("Docs: docs/MAC-DEEP-EXECUTION-PLAN.md  ·  docs/INSTALL-{{ANDROID,IOS}}.md");
-        eprintln!("      docs/SCENARIOS-MULTIAGENT.md  ·  docs/COMMERCIAL-DESIGN.md");
-        eprintln!("      docs/MLX-PROVIDER.md  ·  docs/TROUBLESHOOTING-MAC.md");
+        println!("  ~/.phantom-mesh/conversations/<id>.jsonl           session persistence");
+        println!();
+        println!("Docs: docs/MAC-DEEP-EXECUTION-PLAN.md  ·  docs/INSTALL-{{ANDROID,IOS}}.md");
+        println!("      docs/SCENARIOS-MULTIAGENT.md  ·  docs/COMMERCIAL-DESIGN.md");
+        println!("      docs/MLX-PROVIDER.md  ·  docs/TROUBLESHOOTING-MAC.md");
         return Ok(());
     }
 
@@ -3889,9 +4265,418 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // ── `phantom tool` — run one built-in tool locally or on a remote peer ─
+    if args.get(1).map(|s| s.as_str()) == Some("tool") {
+        run_tool(args).await?;
+        return Ok(());
+    }
+
     // ── `phantom coordinator` subcommand ─────────────────────────────────
     if args.get(1).map(|s| s.as_str()) == Some("coordinator") {
         run_coordinator(args).await?;
+        return Ok(());
+    }
+
+    // ── `phantom pretooluse-gate` — claude PreToolUse hook (apex-④ pre-action gate) ──
+    // A governed claude is spawned headless with a PreToolUse hook (matcher `*`)
+    // pointing at THIS subcommand; claude calls it BEFORE every tool and BLOCKS on
+    // the reply. We read the PreToolUse JSON on stdin and print the hook decision
+    // (`{"hookSpecificOutput":{"permissionDecision":"allow"|"deny",..}}`) on stdout.
+    // Kept lightweight (no AppState) — it runs once per tool call and must answer
+    // fast; high-risk tools block on the operator via the run's shared escalator.
+    if args.get(1).map(|s| s.as_str()) == Some("pretooluse-gate") {
+        use std::io::Read;
+        let mut buf = String::new();
+        let _ = std::io::stdin().read_to_string(&mut buf);
+        let hook_input: serde_json::Value =
+            serde_json::from_str(buf.trim()).unwrap_or(serde_json::Value::Null);
+        let out =
+            phantom_mesh::governed_run::permission::prod_decide_pretooluse_hook(hook_input).await;
+        // Guarantee a VALID deny on any serialization hiccup — an empty/garbled hook
+        // reply could be treated as "no decision" and let the tool run (fail-open).
+        const FAILSAFE_DENY: &str = "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"phantom governor: internal error (fail-safe deny)\"}}";
+        println!(
+            "{}",
+            serde_json::to_string(&out).unwrap_or_else(|_| FAILSAFE_DENY.to_string())
+        );
+        return Ok(());
+    }
+
+    // ── `phantom govern <claude|codex|opencode|agy> "<prompt>"` — L1 governed run ──
+    // Drives the named AI-CLI under the governor + flight-recorder + phone escalation
+    // (apex ④). claude pauses BEFORE each high-risk tool via the PreToolUse hook
+    // (`phantom pretooluse-gate`); codex/opencode/agy are observed post-action.
+    if args.get(1).map(|s| s.as_str()) == Some("govern") {
+        use phantom_mesh::cli_session::CliKind;
+        let cli = match args.get(2).map(|s| s.as_str()) {
+            Some("claude") => CliKind::Claude,
+            Some("codex") => CliKind::Codex,
+            Some("opencode") => CliKind::Opencode,
+            Some("agy") => CliKind::Agy,
+            Some(name) if phantom_mesh::cli_session::external_gateway::lookup_by_name(name).is_some() => {
+                CliKind::External(phantom_mesh::cli_session::external_gateway::lookup_by_name(name).unwrap())
+            }
+            other => {
+                let known = phantom_mesh::cli_session::external_gateway::all()
+                    .iter().map(|g| g.program).collect::<Vec<_>>().join("|");
+                eprintln!(
+                    "usage: phantom govern <claude|codex|opencode|agy|{known}> \"<prompt>\" (got {other:?})"
+                );
+                return Ok(());
+            }
+        };
+        let prompt = args.get(3).cloned().unwrap_or_default();
+        if prompt.trim().is_empty() {
+            eprintln!("usage: phantom govern <cli> \"<prompt>\"");
+            return Ok(());
+        }
+        let mut cfg = phantom_mesh::governed_run::run::GovernConfig::new(cli, prompt);
+        // Apex ④ HARD-BRAKE flags (additive: absent flags = current default policy).
+        // Anything after the prompt is treated as optional brake flags.
+        if let Err(e) = cfg.apply_flags(args.iter().skip(4)) {
+            eprintln!(
+                "phantom govern: {e}\n  flags: [--max-wall-secs <u64>] [--max-wallclock <dur>] \
+                 [--max-output-tokens <u64>] [--min-battery-pct <u8>] [--soft-budget]"
+            );
+            return Ok(());
+        }
+        let (outcome, task_id) = phantom_mesh::governed_run::run::run_govern(cfg).await?;
+        println!("governed run {task_id}: {outcome:?}");
+        return Ok(());
+    }
+
+    // ── `phantom crew "<task>" [--crew <crew.toml>]` — run one crew round ──
+    // Drives the ported ensemble conductor on a task: implementer → firewall-A
+    // test gate → reviewers → the distinct-vendor gate, each crew member a real
+    // vendor CLI driven through a GovernedCliAdapter (cli_session). Prints the
+    // blackboard transcript + the land/escalate decision.
+    if args.get(1).map(|s| s.as_str()) == Some("crew") {
+        use phantom_mesh::crew::{
+            Adapter, Conductor, CrewConfig, Decision, GovernanceCtx, GovernedCliAdapter,
+            PhantomAgentAdapter,
+        };
+        use std::collections::HashMap;
+
+        let task = args.get(2).cloned().unwrap_or_default();
+        if task.trim().is_empty() {
+            eprintln!("usage: phantom crew \"<task>\" [--crew <crew.toml>]");
+            std::process::exit(2);
+        }
+        // Optional `--crew <path>`; otherwise the built-in default crew below. A bare `--crew`
+        // with no following path is a usage error (not a silent fall-through to the default).
+        let crew_path = match args.iter().position(|a| a == "--crew") {
+            Some(i) => match args.get(i + 1) {
+                Some(p) => Some(p.clone()),
+                None => {
+                    eprintln!("phantom crew: --crew needs a path argument");
+                    std::process::exit(2);
+                }
+            },
+            None => None,
+        };
+        // Built-in default: codex implements, claude + agy review, 2 distinct approvals to land.
+        const DEFAULT_CREW: &str = "pipeline = [\"implement\", \"review\", \"audit\"]\n\
+            [gate]\nmin_approvals = 2\nmax_rounds = 2\non_flake = \"exclude\"\n\
+            [roles.implement]\nagent = \"codex\"\n\
+            [roles.review]\nagent = \"claude\"\n\
+            [roles.audit]\nagent = \"agy\"\n";
+        let crew: CrewConfig = match &crew_path {
+            Some(p) => match CrewConfig::from_path(std::path::Path::new(p)) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("phantom crew: cannot load crew config {p}: {e}");
+                    std::process::exit(2);
+                }
+            },
+            None => CrewConfig::from_toml(DEFAULT_CREW).expect("built-in default crew is valid"),
+        };
+
+        // One GovernedCliAdapter per distinct agent named by the crew's roles. By default each
+        // turn runs UNDER the governor + flight-recorder + phone escalation (apex-④); set
+        // PHANTOM_CREW_UNGOVERNED=1 for a plain cli_session drive.
+        let timeout_secs: u64 = std::env::var("PHANTOM_CREW_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(600);
+        let governed = std::env::var("PHANTOM_CREW_UNGOVERNED").as_deref() != Ok("1");
+        let gov_ctx = governed.then(|| {
+            let mut policy = phantom_mesh::governed_run::GovernPolicy::default();
+            // The crew's per-turn timeout is also a wall-clock hard brake (apex-④): an unattended
+            // turn that wedges stops at the deadline instead of hanging the round.
+            policy.max_wall_secs = Some(timeout_secs);
+            GovernanceCtx::new(tokio::runtime::Handle::current(), policy)
+        });
+        let mut adapters: HashMap<String, Box<dyn Adapter>> = HashMap::new();
+        for role in &crew.pipeline {
+            let Some(rc) = crew.roles.get(role) else {
+                eprintln!("phantom crew: pipeline role '{role}' has no [roles.{role}] entry");
+                std::process::exit(2);
+            };
+            if adapters.contains_key(&rc.agent) {
+                continue;
+            }
+            // phantom's OWN agent is dogfooded directly via `phantom exec` (it self-governs
+            // its own tool-gating + owned-memory), so it is NOT wrapped in the crew governor.
+            if rc.agent == "phantom" {
+                adapters.insert(
+                    rc.agent.clone(),
+                    Box::new(PhantomAgentAdapter::new("phantom", timeout_secs)),
+                );
+                continue;
+            }
+            match GovernedCliAdapter::for_agent(&rc.agent, timeout_secs, None) {
+                Some(a) => {
+                    let a = match &gov_ctx {
+                        Some(ctx) => a.with_governance(ctx.clone()),
+                        None => a,
+                    };
+                    adapters.insert(rc.agent.clone(), Box::new(a));
+                }
+                None => {
+                    eprintln!(
+                        "phantom crew: unknown agent '{}' for role '{role}' \
+                         (use codex/claude/opencode/agy or a registered gateway)",
+                        rc.agent
+                    );
+                    std::process::exit(2);
+                }
+            }
+        }
+
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        println!(
+            "crew: pipeline {:?} ({}) on task — {task}",
+            crew.pipeline,
+            if governed { "governed" } else { "ungoverned" }
+        );
+        // The conductor is SYNC and the governed adapters block_on an async governed run, so it must
+        // run on a BLOCKING thread (not an async worker) — else block_on panics inside the runtime.
+        let outcome = tokio::task::spawn_blocking(move || Conductor::new(crew, adapters).run(&task, &cwd))
+            .await
+            .map_err(|e| anyhow::anyhow!("crew run join error: {e}"))?;
+        for m in outcome.blackboard.read_since(0) {
+            // Print the FULL body (multi-line content — test output, audit findings, a reviewer's
+            // CHANGES message — is the point of the transcript), continuation lines indented.
+            println!("  [{}] {}: {}", m.kind, m.from, m.body.replace('\n', "\n      "));
+        }
+        match outcome.decision {
+            Decision::Landed => {
+                println!("crew: LANDED in {} round(s)", outcome.rounds);
+            }
+            Decision::Escalated(why) => {
+                eprintln!("crew: ESCALATED after {} round(s) — {why}", outcome.rounds);
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+
+    // `phantom matrix-plan <FEATURE-MATRIX.md>` — print one backlog spec .toml per
+    // PARTIAL/STUB target under the matrix's `## 4.` section (the /goal develop
+    // planner's core). The `=== SPEC <slug> ===` line carries a single,
+    // whitespace-free token so the planner shell can split it with `awk '{print $3}'`.
+    if args.get(1).map(|s| s.as_str()) == Some("matrix-plan") {
+        use phantom_mesh::crew::matrix_plan::{parse_matrix_targets, render_spec_toml, target_slug};
+        let Some(path) = args.get(2) else {
+            eprintln!("usage: phantom matrix-plan <FEATURE-MATRIX.md>");
+            std::process::exit(2);
+        };
+        let md = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("phantom matrix-plan: cannot read {path}: {e}");
+            std::process::exit(2);
+        });
+        for t in parse_matrix_targets(&md) {
+            let slug = target_slug(&t);
+            // Conservative scope default: a slug-glob keyed on the feature's
+            // first meaningful word (or the spec number as a last resort). This
+            // is a GUESS — the advisory below tells the operator to tighten it.
+            let short = slug
+                .strip_prefix(&format!("spec-{}-", t.spec))
+                .unwrap_or(&slug)
+                .split('-')
+                .find(|w| w.len() >= 3)
+                .map(|w| w.to_string())
+                .unwrap_or_else(|| t.spec.clone());
+            let scope = vec![format!("core/src/*{short}*")];
+            println!("=== SPEC {slug} ===");
+            print!("{}", render_spec_toml(&t, &scope));
+            eprintln!("advisory: {slug} scope_allow is a slug-glob guess — tighten per scope map");
+        }
+        return Ok(());
+    }
+
+    // ── `phantom fleet` subcommand — fleet orchestrator status / ingest ───
+    if args.get(1).map(|s| s.as_str()) == Some("fleet") {
+        use phantom_mesh::fleet;
+        let queue = fleet::queue::FleetQueue::open_default()?;
+        match args.get(2).map(|s| s.as_str()) {
+            Some("status") => {
+                for st in [fleet::TaskState::Pending, fleet::TaskState::Executing,
+                           fleet::TaskState::Gating, fleet::TaskState::Landed,
+                           fleet::TaskState::Staged, fleet::TaskState::Parked] {
+                    let rows = queue.list(st).await?;
+                    println!("{:>9}: {}", st.as_str(), rows.len());
+                }
+            }
+            Some("parked") => {
+                for r in queue.list(fleet::TaskState::Parked).await? {
+                    println!("{}  {}/{}", r.task_id, r.repo, r.slug);
+                }
+            }
+            Some("run") => {
+                // `--once <spec-id>` => drive the REAL conductor for a single claimed
+                // backlog spec. Without it, keep the legacy ingest-only behavior.
+                let once_id = args
+                    .iter()
+                    .position(|a| a == "--once")
+                    .and_then(|i| args.get(i + 1))
+                    .cloned();
+                let use_crew = args.iter().any(|a| a == "--executor")
+                    && args
+                        .iter()
+                        .position(|a| a == "--executor")
+                        .and_then(|i| args.get(i + 1))
+                        .map(|v| v == "crew")
+                        .unwrap_or(false);
+
+                if let Some(spec_id) = once_id {
+                    // 1. Resolve the repo from the process cwd.
+                    let repo_root = std::env::current_dir()?;
+                    // Identify the repo by its git REMOTE, not the directory basename: a
+                    // worktree/clone dir (e.g. `pm-deploy-wt`) would otherwise resolve to a
+                    // `Satellite` tier and `RealGit` would AUTO-PUSH to main (fail-open). The
+                    // main phantom-mesh repo (private or public mirror) is canonicalized to
+                    // `phantom-mesh` so `Tier::for_repo` -> Main -> stage-only.
+                    let remote_url = std::process::Command::new("git")
+                        .args(["config", "--get", "remote.origin.url"])
+                        .current_dir(&repo_root)
+                        .output()
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .unwrap_or_default();
+                    let basename = repo_root
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("repo")
+                        .to_string();
+                    let repo_name = if remote_url.contains("phantom-mesh") {
+                        "phantom-mesh".to_string()
+                    } else {
+                        basename
+                    };
+
+                    // 2. Find the backlog spec on the checked-out branch.
+                    let tasks = fleet::backlog::scan_repo(&repo_name, &repo_root)?;
+                    let Some(task) = tasks.into_iter().find(|t| t.slug == spec_id) else {
+                        eprintln!(
+                            "fleet run --once: no backlog spec '{spec_id}' (looked in {}/backlog/)",
+                            repo_root.display()
+                        );
+                        std::process::exit(2);
+                    };
+                    let task_id = task.task_id.clone();
+
+                    // 3. Ingest this one task into the durable queue.
+                    queue.upsert(&task).await?;
+
+                    // 4. Build the executor (bound to a variable so the &dyn lives long enough).
+                    let executor: Box<dyn fleet::executor::Executor> = if use_crew {
+                        Box::new(fleet::crew_executor::CrewExecutor {
+                            build_cmd: "cargo build --lib".into(),
+                            timeout_secs: 1800,
+                        })
+                    } else {
+                        // L1Executor default: drive Codex under L1 governance (NOT claude —
+                        // claude gates child-side which is wrong for unattended runs).
+                        Box::new(fleet::executor::L1Executor {
+                            cli: phantom_mesh::cli_session::CliKind::Codex,
+                            build_pool: fleet::build_pool::BuildPool::new(
+                                fleet::Limits::default().build_permits,
+                            ),
+                            timeout_secs: 1800,
+                        })
+                    };
+
+                    // 5. Reviewer/git/workspaces + the repo map.
+                    let reviewer = fleet::gate::AskShReviewer {
+                        ask_sh: repo_root.join(".claude/skills/local-ai/ask.sh"),
+                    };
+                    let git = fleet::landing::RealGit;
+                    let workspaces = fleet::conductor::GitWorktrees;
+                    let mut repos: std::collections::HashMap<String, std::path::PathBuf> =
+                        std::collections::HashMap::new();
+                    repos.insert(repo_name.clone(), repo_root.clone());
+
+                    // 6. Worker id.
+                    let worker = std::env::var("PHANTOM_FLEET_WORKER")
+                        .ok()
+                        .or_else(|| std::env::var("COMPUTERNAME").ok())
+                        .or_else(|| std::env::var("HOSTNAME").ok())
+                        .unwrap_or_else(|| "local".to_string());
+
+                    // 7. Drive the conductor for exactly one task. lease_secs=300 exceeds
+                    //    the single-worker reap window (this worker never reaps a live task).
+                    fleet::conductor::run_forever(
+                        &queue,
+                        executor.as_ref(),
+                        &reviewer,
+                        &git,
+                        &workspaces,
+                        &repos,
+                        fleet::Limits::default(),
+                        &worker,
+                        300,
+                        1,
+                    )
+                    .await?;
+
+                    // 8. Report the terminal state. Main-tier landing STAGES a
+                    //    `fleet/<slug>` branch for operator review (no direct main push).
+                    // The queue row carries the state, not get_task — re-derive the terminal
+                    // state by scanning the terminal lists for this task_id.
+                    let mut terminal = None;
+                    for st in [
+                        fleet::TaskState::Landed,
+                        fleet::TaskState::Staged,
+                        fleet::TaskState::Parked,
+                    ] {
+                        if queue.list(st).await?.iter().any(|r| r.task_id == task_id) {
+                            terminal = Some(st);
+                            break;
+                        }
+                    }
+
+                    match terminal {
+                        Some(fleet::TaskState::Landed) => {
+                            println!("fleet run --once {spec_id}: landed");
+                        }
+                        Some(fleet::TaskState::Staged) => {
+                            println!(
+                                "fleet run --once {spec_id}: staged (branch fleet/{spec_id} \
+                                 is staged for operator review — main is operator-gated, no push)"
+                            );
+                        }
+                        Some(fleet::TaskState::Parked) => {
+                            eprintln!("fleet run --once {spec_id}: parked (see `phantom fleet parked`)");
+                            std::process::exit(1);
+                        }
+                        _ => {
+                            eprintln!(
+                                "fleet run --once {spec_id}: not terminal (still pending/in-flight)"
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    let cfg = fleet::FleetConfig::load()?;
+                    let n = fleet::ingest_all(&cfg, &queue).await?;
+                    println!("ingested {n} task(s). (driver loop: see Task 11 live path)");
+                }
+            }
+            _ => eprintln!(
+                "usage: phantom fleet [run [--once <spec-id>] [--executor crew]|status|parked]"
+            ),
+        }
         return Ok(());
     }
 
@@ -3910,6 +4695,18 @@ async fn main() -> Result<()> {
 
     // ── `phantom serve` subcommand ────────────────────────────────────────
     if args.get(1).map(|s| s.as_str()) == Some("serve") {
+        // Make the long-running serve daemon's lifecycle logs visible — the
+        // coach scheduler (fire/dispatch/failed), notification channels, peer
+        // events. Without a subscriber every `tracing` event is silently dropped
+        // (main.rs installs one but this `phantom serve` bin did not, so daemon
+        // failures were invisible). Quiet by default; raise with RUST_LOG.
+        // try_init() is a no-op if a subscriber is somehow already installed.
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn,phantom_mesh=info")),
+            )
+            .try_init();
         let mut app_state = AppState::new();
         if let Some(content) = find_config() {
             app_state.load_config_toml(&content);
@@ -3954,15 +4751,27 @@ async fn main() -> Result<()> {
         {
             port = p;
         }
-        // B2/T83 — `--openclaw-telegram` opt-in launcher.
+        // B2/T83 — `--remote-telegram` opt-in launcher.
         //   Default: off; bot is *never* started by `phantom serve` alone.
         //   When set, we read the bot token from the env var named by
         //   `--bot-token-env` (default `TELEGRAM_BOT_API_KEY`, matching
         //   `phantom keys set telegram_bot`). The raw token is *never*
         //   accepted on the CLI to keep it out of process listings and
         //   shell history.
-        let mut openclaw_telegram = false;
+        let mut remote_telegram = false;
         let mut bot_token_env = "TELEGRAM_BOT_API_KEY".to_string();
+        // Capability ① "sense" — opt-in continuous frontmost-app sampler (macOS).
+        // Default OFF; equivalent to `PHANTOM_CAPTURE_ACTIVE_APP=1`. Captures
+        // bundle id + focus-duration only (NO window titles) into the existing
+        // age-encrypted EventStore. The env toggle is the primary opt-in; this
+        // flag is a convenience alias.
+        let mut capture_active_app = false;
+        // Embedded daily coach scheduler (SPEC-23 §G1): a tokio timer INSIDE this
+        // long-lived serve process fires the daily review, side-stepping the
+        // launchd code-signing / dyld provenance SIGKILL that kills the separate
+        // launchd job (no new process = no provenance check). Default 21:00 local;
+        // `--coach-at HH:MM` overrides; `PHANTOM_COACH_DISABLE=1` opts out.
+        let mut coach_schedule = phantom_mesh::life_node::coach_scheduler::CoachSchedule::default();
         let mut i = 2;
         while i < args.len() {
             match args[i].as_str() {
@@ -3989,13 +4798,33 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-                "--openclaw-telegram" => {
-                    openclaw_telegram = true;
+                "--remote-telegram" => {
+                    remote_telegram = true;
+                }
+                "--capture-active-app" => {
+                    capture_active_app = true;
                 }
                 "--bot-token-env" => {
                     i += 1;
                     if let Some(v) = args.get(i) {
                         bot_token_env = v.clone();
+                    }
+                }
+                "--coach-at" => {
+                    // `--coach-at HH:MM` — override the embedded daily coach time.
+                    // A malformed value must ERROR (not silently fall back to
+                    // 21:00 and surprise the operator) — same strictness as --port.
+                    i += 1;
+                    match args.get(i).map(|s| parse_hh_mm(s)) {
+                        Some(Ok(s)) => coach_schedule = s,
+                        _ => {
+                            let got = args.get(i).map(|s| s.as_str()).unwrap_or("(missing)");
+                            eprintln!(
+                                "{} --coach-at expects HH:MM (00:00..=23:59), got: {got}",
+                                colored("✗", 31),
+                            );
+                            std::process::exit(2);
+                        }
                     }
                 }
                 _ => {}
@@ -4112,6 +4941,11 @@ async fn main() -> Result<()> {
         let plan_mode = std::env::var("PHANTOM_PLAN_MODE").is_ok();
         let tool_count = phantom_mesh::tools::all_tool_names().len();
 
+        // Clone the agent runtime BEFORE `app_state` moves into the Arc below —
+        // the embedded coach loop drives the proactive partner reflection with
+        // the same runtime the `phantom coach review` CLI uses (AgentRuntime is
+        // Clone). Captured here so the spawn (after the banner) can move it.
+        let coach_runtime = app_state.agent_runtime.clone();
         let state = std::sync::Arc::new(app_state);
         // T7 fix (codex audit 2026-05-15): the router's own `build_cors_layer`
         // (default: same-origin; permissive only if PHANTOM_CORS_ALLOW_ANY=1)
@@ -4155,64 +4989,254 @@ async fn main() -> Result<()> {
             );
         }
 
-        // ── B2/T83 — OpenClaw Telegram bot launcher (opt-in) ──────────────
+        // ── B2/T83 — Remote-control Telegram bot launcher (opt-in) ────────
         //
         // Spawned BEFORE `start_http_server` so the bot's `getMe` probe
         // failing (bad token) doesn't tear down a running HTTP server.
-        // If `--openclaw-telegram` was passed without the feature compiled
+        // If `--remote-telegram` was passed without the feature compiled
         // in, we surface a clear error rather than silently ignoring the
         // flag.
-        if openclaw_telegram {
-            #[cfg(feature = "experimental-openclaw-telegram")]
+        if remote_telegram {
+            #[cfg(feature = "experimental-remote-control-telegram")]
             {
-                use phantom_mesh::openclaw::telegram::{
-                    cli as tg_cli, run_round_trip, EchoDispatcher, OpenclawTelegramBot,
+                use phantom_mesh::remote_control::telegram::{
+                    cli as tg_cli, run_round_trip, EchoDispatcher, RemoteTelegramBot,
                 };
                 let allowed_raw = std::env::var(tg_cli::ALLOWED_USERS_ENV).ok();
                 match tg_cli::resolve_config(&bot_token_env, allowed_raw, |n| std::env::var(n).ok())
                 {
                     Ok(tg_cfg) => {
                         eprintln!(
-                            "  openclaw  : telegram bot ENABLED (token from ${}, allowlist={} ids)",
+                            "  remote    : telegram bot ENABLED (token from ${}, allowlist={} ids)",
                             bot_token_env,
                             tg_cfg.allowed_user_ids.len()
                         );
                         // EchoDispatcher is the temporary stand-in until
                         // T1 (PR #52) wires PhantomAgentDispatcher.
-                        let bot = std::sync::Arc::new(OpenclawTelegramBot::new(
+                        let bot = std::sync::Arc::new(RemoteTelegramBot::new(
                             tg_cfg,
                             std::sync::Arc::new(EchoDispatcher),
                         ));
                         tokio::spawn(async move {
                             match run_round_trip(bot).await {
                                 Ok(()) => tracing::info!(
-                                    "openclaw-telegram bot started: round-trip loop exited cleanly"
+                                    "remote-telegram bot started: round-trip loop exited cleanly"
                                 ),
                                 Err(e) => tracing::error!(
                                     error = %e,
-                                    "openclaw-telegram bot failed (HTTP server still running)"
+                                    "remote-telegram bot failed (HTTP server still running)"
                                 ),
                             }
                         });
                     }
                     Err(e) => {
-                        eprintln!("  openclaw  : telegram bot DISABLED — {}", e);
+                        eprintln!("  remote    : telegram bot DISABLED — {}", e);
                     }
                 }
             }
-            #[cfg(not(feature = "experimental-openclaw-telegram"))]
+            #[cfg(not(feature = "experimental-remote-control-telegram"))]
             {
                 let _ = &bot_token_env; // suppress unused-var warning
                 eprintln!(
-                    "  openclaw  : --openclaw-telegram requires `--features experimental-openclaw-telegram`; flag ignored"
+                    "  remote    : --remote-telegram requires `--features experimental-remote-control-telegram`; flag ignored"
                 );
             }
+        }
+
+        // ── Embedded daily coach scheduler (SPEC-23 §G1) ──────────────────────
+        //
+        // Spawn the in-process tokio timer that fires `coach review --save` daily
+        // at `coach_schedule` (default 21:00 local). This is the reliable default
+        // trigger: no new process is started, so macOS's launchd code-signing /
+        // dyld provenance check (which SIGKILLs the separate `ai.phantommesh.coach`
+        // launchd job) never runs. The OS scheduler (`phantom coach
+        // install-schedule`) remains an optional, portable add-on — if both fire,
+        // the date-scoped idempotency key (`daily-coach:YYYY-MM-DD`) means only the
+        // first one to reach 21:00 runs; the other sees the day done and skips.
+        // `PHANTOM_COACH_DISABLE=1` opts a process out entirely.
+        if phantom_mesh::life_node::coach_scheduler_daemon::is_disabled() {
+            eprintln!(
+                "  coach     : embedded daily review DISABLED ({}=1)",
+                phantom_mesh::life_node::coach_scheduler_daemon::DISABLE_ENV
+            );
+        } else {
+            let home = phantom_mesh::cli_config::resolve_home_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            eprintln!(
+                "  coach     : embedded daily review at {:02}:{:02} local (in-process)",
+                coach_schedule.hour, coach_schedule.minute
+            );
+            // ③ ARRIVAL: give the daily review a real delivery channel so it
+            // reaches the user instead of only saving an (encrypted) file. Reuses
+            // the OS-native desktop channel the task-notifier uses; pluggable
+            // (Telegram etc. can be attached later). Best-effort — if the OS has
+            // no notification service the send just no-ops.
+            let coach_notifier = phantom_mesh::NotificationDispatcher::new();
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
+            coach_notifier
+                .add_channel(std::sync::Arc::new(
+                    phantom_mesh::notifications::channels::OsChannel,
+                ))
+                .await;
+            std::sync::Arc::new(coach_notifier.clone()).spawn_flush_loop();
+            phantom_mesh::life_node::coach_scheduler_daemon::spawn_daily_coach_loop(
+                home,
+                coach_runtime,
+                "master".to_string(),
+                coach_schedule,
+                Some(coach_notifier),
+            );
+        }
+
+        // ── CONFIRM the bind BEFORE arming the sampler (bind → arm → serve) ───
+        //
+        // Bind the listener with THIS process FIRST. On a bind failure this `?`
+        // returns the "bind … failed after 15s" error and the sampler below is
+        // NEVER spawned — so a daemon that never served writes ZERO focus events.
+        // This replaces the old HTTP readiness poll: a confirmed bind is the only
+        // proof the port is genuinely ours (any HTTP service squatting on the port
+        // could have satisfied the old GET `/` probe during a bind failure —
+        // codex's residual finding). We then serve this SAME listener below via
+        // `serve_http`, so there is no second bind and no TOCTOU gap.
+        let listener = phantom_mesh::bind_http_listener(&host, port).await?;
+
+        // ── Continuous frontmost-app sampler (capability ① "sense") ───────────
+        //
+        // OPT-IN, OFF BY DEFAULT: only spawned when `PHANTOM_CAPTURE_ACTIVE_APP=1`
+        // (or the optional `--capture-active-app` serve flag). Samples the
+        // frontmost macOS app every `PHANTOM_CAPTURE_ACTIVE_APP_INTERVAL_SECS`
+        // (default 60) and appends an age-encrypted `EventKind::Focus` event
+        // (bundle id + focus-duration ONLY, NO window titles) to the existing
+        // EventStore. macOS-ONLY: the spawn is cfg-gated so non-macOS targets
+        // never start it (and `read_frontmost()` returns Unsupported there
+        // anyway). NO-OP + warn if the EventKey is unavailable — never writes
+        // plaintext under a missing key (see `write_focus_event`).
+        //
+        // The sampler's `CancellationToken` is RETAINED here (not dropped into
+        // the spawn) so serve's graceful-shutdown path below can cancel it on
+        // Ctrl-C — that cancellation is what makes `run_active_app_sampler`'s
+        // shutdown-flush (emit the in-progress interval) actually fire instead of
+        // being silently dropped when the process exits. We ALSO retain the
+        // spawned task's `JoinHandle`: cancelling the token only REQUESTS the
+        // flush; AWAITING the handle is the only thing that guarantees the
+        // in-flight encrypted focus write actually finished before `main`
+        // returns (otherwise the runtime tears the task down mid-write → lost or
+        // corrupt final interval). A fixed `sleep` cannot give that guarantee.
+        let active_app_shutdown: Option<tokio_util::sync::CancellationToken>;
+        let active_app_handle: Option<tokio::task::JoinHandle<()>>;
+        #[cfg(target_os = "macos")]
+        {
+            let active_app_on = capture_active_app
+                || std::env::var("PHANTOM_CAPTURE_ACTIVE_APP")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+            if active_app_on {
+                let interval_secs = std::env::var("PHANTOM_CAPTURE_ACTIVE_APP_INTERVAL_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .filter(|n| *n > 0)
+                    .unwrap_or(
+                        phantom_mesh::capture_focus_wire::DEFAULT_ACTIVE_APP_INTERVAL_SECS,
+                    );
+                let home = phantom_mesh::cli_config::resolve_home_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                eprintln!(
+                    "  capture   : active-app sampler ON (every {}s, bundle id + duration only, no titles)",
+                    interval_secs
+                );
+                // Retain a clone of the token; the original is moved into the
+                // sampler. Cancelling our clone on shutdown drives the sampler's
+                // in-flight-interval flush, and awaiting the handle below blocks
+                // until that flush's encrypted write has fully completed.
+                let shutdown = tokio_util::sync::CancellationToken::new();
+                // Armed only AFTER the confirmed bind above — the port is
+                // genuinely ours, so the sampler samples immediately (no HTTP
+                // readiness poll). A bind failure would have `?`-returned before
+                // reaching this spawn, so a never-served daemon writes no events.
+                let handle = tokio::spawn(
+                    phantom_mesh::capture_focus_wire::run_active_app_sampler(
+                        home,
+                        interval_secs,
+                        shutdown.clone(),
+                    ),
+                );
+                active_app_shutdown = Some(shutdown);
+                active_app_handle = Some(handle);
+            } else {
+                active_app_shutdown = None;
+                active_app_handle = None;
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Keep the flag binding live on non-macOS so the parser doesn't warn;
+            // the sampler is macOS-only and never spawns here.
+            let _ = capture_active_app;
+            active_app_shutdown = None;
+            active_app_handle = None;
         }
 
         eprintln!("  Press Ctrl-C to stop.");
         eprintln!();
 
-        phantom_mesh::start_http_server(&host, port, router).await?;
+        // Graceful shutdown: race the HTTP server against Ctrl-C. CRUCIALLY the
+        // sampler-shutdown sequence below runs on WHICHEVER branch resolves —
+        // not only Ctrl-C. If the serve future resolves FIRST (a runtime serve
+        // failure, or a clean/administrative shutdown), we still cancel + await
+        // the sampler so its final interval is flushed; the old code only
+        // cancelled on the Ctrl-C arm, so a serve-first exit dropped the sampler
+        // abruptly and lost the last interval. (The bind has ALREADY succeeded
+        // above, so a serve-first resolution here is never a port-bind error.)
+        //
+        // `serve_result` captures the serve future's `Result` (Ok on a clean
+        // end / Ctrl-C, Err on a real runtime serve failure). We run the cancel +
+        // bounded-await FIRST, then propagate `serve_result` AFTER the flush so a
+        // genuine serve error is never swallowed by the shutdown path.
+        // Serve the SAME listener we confirmed-bound above (NOT a fresh bind):
+        // bind already succeeded, so this serve only fails on a genuine runtime
+        // serve error, and the sampler was armed only because that bind held.
+        let serve_fut = phantom_mesh::serve_http(listener, router);
+        tokio::pin!(serve_fut);
+        let serve_result: anyhow::Result<()> = tokio::select! {
+            res = &mut serve_fut => res, // serve ended (Ok or Err)
+            _ = tokio::signal::ctrl_c() => Ok(()), // signal
+        };
+
+        // ── SINGLE shutdown sequence (runs regardless of which branch won) ────
+        // 1) request the sampler's in-flight-interval flush, 2) AWAIT the task's
+        // JoinHandle so the flush's encrypted write actually completes before we
+        // return (a fixed sleep cannot guarantee this), bounded by a 5s timeout
+        // so a wedged sampler can never hang the process exit.
+        // GRACEFUL flush only when the server ACTUALLY served — a clean end or
+        // Ctrl-C (`serve_result.is_ok()`). On a bind/startup FAILURE the daemon
+        // never served, so flushing would persist a focus event for a session
+        // that never ran (the sampler's immediate first tick + cancel-flush).
+        // In that case ABORT the sampler without driving its flush. (review: codex)
+        if let Some(handle) = active_app_handle {
+            if serve_result.is_ok() {
+                if let Some(token) = active_app_shutdown.as_ref() {
+                    eprintln!("  shutting down active-app sampler (flushing in-flight interval) …");
+                    token.cancel();
+                }
+                match tokio::time::timeout(std::time::Duration::from_secs(5), handle).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::warn!(error = %e, "active-app sampler task join error")
+                    }
+                    Err(_) => {
+                        tracing::warn!("active-app sampler shutdown flush timed out after 5s")
+                    }
+                }
+            } else {
+                // Daemon never served (bind/startup error) — drop the sampler
+                // without flushing a pre-start interval.
+                handle.abort();
+            }
+        }
+
+        // Propagate any real serve error AFTER the flush so a bind/serve failure
+        // still surfaces while the sampler's final interval is preserved.
+        serve_result?;
         return Ok(());
     }
 
@@ -4246,9 +5270,8 @@ async fn main() -> Result<()> {
                 eprintln!("  {}   (id or prefix from `phantom recall`)", colored("phantom event show <event-id>", 36));
                 return Ok(());
             }
-            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-            let phantom = home.join(".phantom-mesh");
-            let events_dir = phantom.join("events");
+            let data = phantom_mesh::cli_config::phantom_data_dir()?;
+            let events_dir = data.join("events");
             let id = match phantom_mesh::life_node::data_cli::resolve_event_id(&events_dir, id_arg.unwrap()) {
                 Ok(id) => id,
                 Err(e) => {
@@ -4258,7 +5281,7 @@ async fn main() -> Result<()> {
             };
             let store = phantom_mesh::life_node::storage::EventStore::with_identity_file(
                 &events_dir,
-                &phantom.join("identity.key"),
+                &data.join("identity.key"),
             );
             let meta = match store.read_meta(&id) {
                 Ok(m) => m,
@@ -4274,6 +5297,7 @@ async fn main() -> Result<()> {
                 EventKind::Food => "food",
                 EventKind::Focus => "focus",
                 EventKind::Habit => "habit",
+                EventKind::Dispatch => "dispatch",
                 EventKind::Text => "text",
             };
             println!("event {}", id);
@@ -4306,6 +5330,7 @@ async fn main() -> Result<()> {
         let mut audio_paths: Vec<String> = Vec::new();
         let mut text: Option<String> = None;
         let mut goal_tags: Vec<String> = Vec::new();
+        let mut json_out = false;
         let port = std::env::var("PHANTOM_PORT").unwrap_or_else(|_| "7878".into());
         let mut coord_url = format!("http://127.0.0.1:{}", port);
         let mut i = 3;
@@ -4335,6 +5360,10 @@ async fn main() -> Result<()> {
                     coord_url = args.get(i + 1).cloned().unwrap_or_default();
                     i += 2;
                 }
+                "--json" => {
+                    json_out = true;
+                    i += 1;
+                }
                 other => {
                     eprintln!("unknown flag: {}", other);
                     std::process::exit(2);
@@ -4348,6 +5377,71 @@ async fn main() -> Result<()> {
             text,
             goal_tags,
             coord_url,
+            json: json_out,
+        })
+        .await?;
+        return Ok(());
+    }
+
+    // ── `phantom sense active-app [--once] [--json]` — capture frontmost app ──
+    // Life capability ① "sense": read the current frontmost macOS app (via
+    // LaunchServices `lsappinfo`, no Accessibility/TCC prompt) and write ONE
+    // `focus` event through the existing capture path so that
+    // `phantom recall <appname> --kind focus` finds it.
+    if args.get(1).map(|s| s.as_str()) == Some("sense") {
+        use phantom_mesh::i18n::tr;
+        let action = args.get(2).map(String::as_str).unwrap_or("");
+        if matches!(action, "" | "-h" | "--help") || action != "active-app" {
+            eprintln!("{}", tr("phantom sense active-app — capture the frontmost desktop app as a focus event", "phantom sense active-app — 將目前前景桌面 app 擷取為 focus 事件"));
+            eprintln!();
+            eprintln!("  {}  [--once] [--json]", colored("phantom sense active-app", 36));
+            // Unknown sub-action is a usage error; bare help exits cleanly.
+            if matches!(action, "" | "-h" | "--help") {
+                return Ok(());
+            }
+            std::process::exit(2);
+        }
+        let mut json = false;
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                // --once is currently the only mode; a continuous sampler is a
+                // separate future spec. Absence of a mode flag also captures once.
+                "--once" => {
+                    i += 1;
+                }
+                "--json" => {
+                    json = true;
+                    i += 1;
+                }
+                other => {
+                    eprintln!("unknown flag: {}", other);
+                    std::process::exit(2);
+                }
+            }
+        }
+        let app = phantom_mesh::life_node::active_app::read_frontmost()?;
+        let text = phantom_mesh::life_node::active_app::focus_event_text(&app);
+        let port = std::env::var("PHANTOM_PORT").unwrap_or_else(|_| "7878".into());
+        // Recall-by-app-NAME (the spec's headline acceptance) must work even with
+        // NO LLM provider configured: recall's search haystack is
+        // `analysis.summary + meta.tags`, and the `--text` we send is stored as
+        // user_text which project_to_wire DROPS. So the app NAME has to ride in a
+        // tag (→ meta.tags) to be findable — otherwise `phantom recall <appname>
+        // --kind focus` returns nothing on the no-provider path (and for a
+        // localized display name like "終端機" the bundle id substring won't help).
+        let mut goal_tags = vec!["focus".to_string(), app.name.clone()];
+        if let Some(b) = &app.bundle_id {
+            goal_tags.push(b.clone());
+        }
+        phantom_mesh::life_node::capture::run(phantom_mesh::life_node::capture::CaptureArgs {
+            kind: "focus".to_string(),
+            image_paths: vec![],
+            audio_paths: vec![],
+            text: Some(text),
+            goal_tags,
+            coord_url: format!("http://127.0.0.1:{}", port),
+            json,
         })
         .await?;
         return Ok(());
@@ -4397,6 +5491,7 @@ async fn main() -> Result<()> {
             text,
             goal_tags,
             coord_url: format!("http://127.0.0.1:{}", port),
+            json: false,
         })
         .await?;
         return Ok(());
@@ -4450,11 +5545,14 @@ async fn main() -> Result<()> {
                     other => { eprintln!("unknown flag: {}", other); std::process::exit(2); }
                 }
             }
-            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let home = phantom_mesh::cli_config::resolve_home_dir()?;
             let filter = phantom_mesh::life_node::recall::RecallFilter {
                 query: "",
                 kind: kind.as_deref(),
                 since: since.as_deref(),
+                // Export lists everything (empty query) — keep it lexical/offline
+                // so it never depends on or calls the embedder.
+                mode: phantom_mesh::life_node::recall::RecallMode::Keyword,
             };
             let result = phantom_mesh::life_node::data_cli::run_export(&home, format, &filter)?;
             match &out {
@@ -4480,7 +5578,7 @@ async fn main() -> Result<()> {
         // ── `phantom data stats` — life-log rollup ──────────────────────────
         if action == "stats" {
             use phantom_mesh::i18n::tr_owned;
-            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let home = phantom_mesh::cli_config::resolve_home_dir()?;
             let s = phantom_mesh::life_node::data_cli::compute_stats(&home)?;
             let span = match (&s.earliest, &s.latest) {
                 (Some(e), Some(l)) => format!("{} → {}", e, l),
@@ -4504,7 +5602,7 @@ async fn main() -> Result<()> {
         // reversibility: take back one mis-captured note without --all). Any
         // non-flag arg after `delete` is treated as the id/prefix.
         if let Some(id) = args.get(3).filter(|a| !a.starts_with("--")) {
-            let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+            let home = phantom_mesh::cli_config::resolve_home_dir()?;
             match phantom_mesh::life_node::data_cli::delete_event(&home, id) {
                 Ok(deleted) => eprintln!("{}", phantom_mesh::i18n::tr_owned(
                     format!("✓ deleted event {deleted}"),
@@ -4552,7 +5650,7 @@ async fn main() -> Result<()> {
             eprintln!("{}", phantom_mesh::i18n::tr("phantom data delete requires --all", "phantom data delete 需要 --all"));
             std::process::exit(2);
         }
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        let home = phantom_mesh::cli_config::resolve_home_dir()?;
         match phantom_mesh::life_node::data_cli::run_delete_all(&home, confirmed) {
             Ok(s) => {
                 eprintln!(
@@ -4767,8 +5865,9 @@ async fn main() -> Result<()> {
                 std::process::exit(2);
             }
         };
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-        let phantom_dir = home.join(".phantom-mesh");
+        let home = phantom_mesh::cli_config::resolve_home_dir()?;
+        // Honors a PHANTOM_HOME data-root override (else <home>/.phantom-mesh).
+        let phantom_dir = phantom_mesh::cli_config::phantom_dir_under(&home);
         if !phantom_dir.exists() {
             eprintln!("{}", tr(
                 "phantom backup: ~/.phantom-mesh/ does not exist (nothing to archive)",
@@ -4776,15 +5875,22 @@ async fn main() -> Result<()> {
             ));
             std::process::exit(1);
         }
-        // `tar -czf <out> -C <home> .phantom-mesh` — single-step gzip stream,
-        // no temp file, preserves directory structure so a recipient can
-        // `tar -xzf <out> -C ~/` to restore in place.
+        // `tar -czf <out> -C <parent> <name>` — single-step gzip stream, no temp
+        // file, preserves directory structure so a recipient can
+        // `tar -xzf <out> -C <parent>` to restore in place. Derive parent + name
+        // from the resolved data root so a PHANTOM_HOME override archives the
+        // real root (not a stale ~/.phantom-mesh).
+        let tar_parent = phantom_dir.parent().unwrap_or(home.as_path());
+        let tar_name = phantom_dir
+            .file_name()
+            .map(std::path::Path::new)
+            .unwrap_or_else(|| std::path::Path::new(".phantom-mesh"));
         let status = std::process::Command::new("tar")
             .arg("-czf")
             .arg(&out)
             .arg("-C")
-            .arg(&home)
-            .arg(".phantom-mesh")
+            .arg(tar_parent)
+            .arg(tar_name)
             .status()
             .map_err(|e| anyhow::anyhow!("spawn tar: {}", e))?;
         if !status.success() {
@@ -4846,7 +5952,7 @@ async fn main() -> Result<()> {
             }
             Some("start") => {
                 use phantom_mesh::life_node::focus_session as fsx;
-                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let home = phantom_mesh::cli_config::resolve_home_dir()?;
                 let mut minutes: u64 = 25;
                 let mut task: Option<String> = None;
                 let mut record_requested = false;
@@ -4918,7 +6024,7 @@ async fn main() -> Result<()> {
             }
             Some("status") => {
                 use phantom_mesh::life_node::focus_session as fsx;
-                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let home = phantom_mesh::cli_config::resolve_home_dir()?;
                 let fmt = |ms: u64| format!("{:02}:{:02}", ms / 60000, (ms % 60000) / 1000);
                 match fsx::status(&home) {
                     Some(s) => {
@@ -4943,7 +6049,7 @@ async fn main() -> Result<()> {
             }
             Some("interrupt") => {
                 use phantom_mesh::life_node::focus_session as fsx;
-                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let home = phantom_mesh::cli_config::resolve_home_dir()?;
                 let note = args.get(3).cloned().unwrap_or_else(|| "interruption".to_string());
                 match fsx::interrupt(&home, &note) {
                     Ok(n) => println!("{}", tr_owned(
@@ -4959,7 +6065,7 @@ async fn main() -> Result<()> {
             }
             Some("stop") => {
                 use phantom_mesh::life_node::focus_session as fsx;
-                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let home = phantom_mesh::cli_config::resolve_home_dir()?;
                 let fmt = |ms: u64| format!("{:02}:{:02}", ms / 60000, (ms % 60000) / 1000);
                 match fsx::stop(&home) {
                     Ok(r) => {
@@ -4989,7 +6095,7 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
             Some("history") => {
-                let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+                let data = phantom_mesh::cli_config::phantom_data_dir()?;
                 let mut date: Option<String> = None;
                 let mut i = 3;
                 while i < args.len() {
@@ -5001,9 +6107,9 @@ async fn main() -> Result<()> {
                     }
                 }
                 let date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
-                let events_dir = home.join(".phantom-mesh/events");
+                let events_dir = data.join("events");
                 let key = phantom_mesh::life_node::key_derivation::load_event_key(
-                    &home.join(".phantom-mesh/identity.key"),
+                    &data.join("identity.key"),
                 )
                 .ok();
                 let pairs = phantom_mesh::life_node::daily_review::load_events_for_date(
@@ -5155,6 +6261,108 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ── `phantom goal` — define + list quantified life goals (capability ②) ──
+    //   phantom goal define --tag T --target N --unit U --window <daily|weekly>
+    //   phantom goal list [--json]
+    // Append-only JSONL ledger at ~/.phantom-mesh/goals.jsonl. Storing the target
+    // up front is what lets the daily-review later compute *deviation*; this
+    // command owns only the definition + storage half (no wire-enum change).
+    if args.get(1).map(|s| s.as_str()) == Some("goal") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        use phantom_mesh::life_node::goals::{self, Goal};
+        let sub = args.get(2).map(|s| s.as_str());
+        match sub {
+            None | Some("-h") | Some("--help") => {
+                eprintln!("{}", tr("phantom goal — quantified life goals (Life Track)", "phantom goal — 量化生活目標（生活軌道）"));
+                eprintln!();
+                eprintln!("  {}", colored("phantom goal define --tag T --target N --unit U --window <daily|weekly>", 36));
+                eprintln!("  {}", colored("phantom goal list [--json]", 36));
+                return Ok(());
+            }
+            Some("define") => {
+                let mut tag: Option<String> = None;
+                let mut target: Option<f64> = None;
+                let mut unit: Option<String> = None;
+                let mut window: Option<String> = None;
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--tag" => { tag = args.get(i + 1).cloned(); i += 2; }
+                        "--target" => {
+                            match args.get(i + 1).map(|s| s.parse::<f64>()) {
+                                Some(Ok(n)) => target = Some(n),
+                                _ => {
+                                    eprintln!("{}", tr("error: --target must be a number", "錯誤：--target 必須是數字"));
+                                    std::process::exit(2);
+                                }
+                            }
+                            i += 2;
+                        }
+                        "--unit" => { unit = args.get(i + 1).cloned(); i += 2; }
+                        "--window" => { window = args.get(i + 1).cloned(); i += 2; }
+                        _ => i += 1,
+                    }
+                }
+                let (tag, target, unit, window) = match (tag, target, unit, window) {
+                    (Some(t), Some(n), Some(u), Some(w)) => (t, n, u, w),
+                    _ => {
+                        eprintln!("{}", tr(
+                            "usage: phantom goal define --tag T --target N --unit U --window <daily|weekly>",
+                            "用法：phantom goal define --tag T --target N --unit U --window <daily|weekly>",
+                        ));
+                        std::process::exit(2);
+                    }
+                };
+                if window != "daily" && window != "weekly" {
+                    eprintln!("{}", tr_owned(
+                        format!("error: --window must be 'daily' or 'weekly' (got '{window}')"),
+                        format!("錯誤：--window 必須是 'daily' 或 'weekly'（收到 '{window}'）"),
+                    ));
+                    std::process::exit(2);
+                }
+                let g = Goal { tag: tag.clone(), target, unit: unit.clone(), window: window.clone() };
+                match goals::define_goal(&g) {
+                    Ok(()) => println!("{}", tr_owned(
+                        format!("✓ goal defined: {tag} = {target} {unit} / {window}"),
+                        format!("✓ 已設定目標：{tag} = {target} {unit} / {window}"),
+                    )),
+                    Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                }
+                return Ok(());
+            }
+            Some("list") => {
+                let json = args.iter().any(|a| a == "--json");
+                match goals::list_goals() {
+                    Ok(gs) if json => {
+                        match serde_json::to_string_pretty(&gs) {
+                            Ok(s) => println!("{s}"),
+                            Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                        }
+                    }
+                    Ok(gs) if gs.is_empty() => println!("{}", tr(
+                        "no goals yet — `phantom goal define --tag T --target N --unit U --window daily`",
+                        "尚無目標 — `phantom goal define --tag T --target N --unit U --window daily`",
+                    )),
+                    Ok(gs) => {
+                        println!("{}", tr_owned(format!("goals ({})", gs.len()), format!("目標（{} 個）", gs.len())));
+                        for g in gs {
+                            println!("  {}  {} {} / {}", g.tag, g.target, g.unit, g.window);
+                        }
+                    }
+                    Err(e) => { eprintln!("{e}"); std::process::exit(2); }
+                }
+                return Ok(());
+            }
+            Some(other) => {
+                eprintln!("{}", tr_owned(
+                    format!("error: unknown `phantom goal` action '{other}' — try define|list"),
+                    format!("錯誤：未知的 `phantom goal` 動作 '{other}' — 可用 define|list"),
+                ));
+                std::process::exit(2);
+            }
+        }
+    }
+
     // ── `phantom note` — capture a free-text Life Node event (Life Track) ──
     //   phantom note "<text>" [--tag T]...
     // Direct synchronous write to ~/.phantom-mesh/events (no daemon); encrypts
@@ -5218,8 +6426,8 @@ async fn main() -> Result<()> {
         if tags.is_empty() {
             tags.push("note".to_string());
         }
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-        match phantom_mesh::life_node::note_capture::capture_note(&home.join(".phantom-mesh"), &text, &tags) {
+        let data = phantom_mesh::cli_config::phantom_data_dir()?;
+        match phantom_mesh::life_node::note_capture::capture_note(&data, &text, &tags) {
             Ok(out) => {
                 let short: String = out.event_id.chars().take(8).collect();
                 let enc = if out.encrypted {
@@ -5240,8 +6448,205 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // ── `phantom memory bootstrap` — cold-start owned memory from git (apex ②) ──
+    //   phantom memory bootstrap [--repo PATH] [--limit N]
+    // Day-1 cold-start (roadmap P1.4): seed the SAME owned-memory FTS5 store that
+    // `phantom recall` reads from the user's OWN git history, so recall is
+    // non-empty on a fresh install instead of returning only built-in seeds.
+    // Writes each commit as a wire/FTS5 event (plaintext meta.json +
+    // events.sqlite FTS5 row) into the data root resolved via
+    // `cli_config::phantom_data_dir()` (PHANTOM_HOME-honoring; never hardcoded).
+    //
+    // HONEST SCOPE (v1): ingests git COMMITS (subject + body) into the FTS5 store
+    // ONLY. Richer file-content extraction, summarization/dedup quality, and
+    // semantic (embedder) bootstrap are explicitly FUTURE — NOT done here, NOT
+    // claimed. Idempotent: the commit hash IS the event_id, so a re-run probes the
+    // same meta.json and skips already-ingested commits (no duplication).
+    if args.get(1).map(|s| s.as_str()) == Some("memory") {
+        use phantom_mesh::i18n::{tr, tr_owned};
+        let sub = args.get(2).map(|s| s.as_str());
+        if sub.is_none() || matches!(sub, Some("-h") | Some("--help")) {
+            eprintln!("{}", tr("phantom memory — owned-memory store maintenance (apex ② recall)", "phantom memory — 自有記憶儲存維護(apex ② 召回)"));
+            eprintln!();
+            eprintln!("  {}", colored("phantom memory bootstrap [--repo PATH] [--limit N]", 36));
+            eprintln!("{}", tr(
+                "      Seed owned memory from THIS git repo's commit history so day-1 `phantom recall` is non-empty.",
+                "      用本 git repo 的提交歷史種子化自有記憶,讓第一天的 `phantom recall` 非空。",
+            ));
+            eprintln!("{}", tr(
+                "      v1 ingests git COMMITS into the FTS5 store only; file-content / semantic bootstrap are FUTURE.",
+                "      v1 僅將 git 提交寫入 FTS5 儲存;檔案內容 / 語意 bootstrap 為未來工作。",
+            ));
+            return Ok(());
+        }
+        if sub != Some("bootstrap") {
+            eprintln!("{}", tr_owned(
+                format!("unknown memory subcommand: {}", sub.unwrap_or("")),
+                format!("未知的 memory 子指令:{}", sub.unwrap_or("")),
+            ));
+            eprintln!("{}", tr("try: phantom memory bootstrap [--repo PATH] [--limit N]", "試試:phantom memory bootstrap [--repo PATH] [--limit N]"));
+            std::process::exit(2);
+        }
+
+        // ── parse `bootstrap` flags ───────────────────────────────────────────
+        let mut repo = String::from(".");
+        let mut limit: usize = 200;
+        let mut i = 3;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--repo" | "-r" => {
+                    if let Some(v) = args.get(i + 1) {
+                        repo = v.clone();
+                    }
+                    i += 2;
+                }
+                "--limit" | "-n" => {
+                    limit = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(limit);
+                    i += 2;
+                }
+                "-h" | "--help" => {
+                    eprintln!("{}", tr("phantom memory bootstrap — ingest this git repo's commits into owned memory (FTS5)", "phantom memory bootstrap — 將本 git repo 的提交寫入自有記憶(FTS5)"));
+                    eprintln!("  --repo PATH   git repo to read (default: current dir)");
+                    eprintln!("  --limit N     max commits, newest first (default: 200)");
+                    eprintln!("{}", tr("v1 = git commits into FTS5 only; file / semantic bootstrap are FUTURE.", "v1 = 僅提交寫入 FTS5;檔案 / 語意 bootstrap 為未來。"));
+                    return Ok(());
+                }
+                other => {
+                    eprintln!("{}", tr_owned(format!("unknown flag: {other}"), format!("未知旗標:{other}")));
+                    std::process::exit(2);
+                }
+            }
+        }
+
+        // ── resolve the SAME data root + store paths `phantom recall` reads ────
+        // phantom_data_dir() honors PHANTOM_HOME (data-root override) — never
+        // hardcode ~/.phantom-mesh, so hermetic tests + SPEC-44 isolation work.
+        let phantom = phantom_mesh::cli_config::phantom_data_dir()?;
+        let events_dir = phantom.join("events");
+        let fts_db = phantom.join("events.sqlite");
+
+        // ── read git history: bounded `git -C <repo> log` ─────────────────────
+        // Field sep = US (0x1f), record sep = RS (0x1e); %H hash, %cI committer
+        // date (strict ISO-8601), %s subject, %b body. Newest-first (git default).
+        let limit_arg = format!("--max-count={limit}");
+        let git_out = std::process::Command::new("git")
+            .args([
+                "-C",
+                &repo,
+                "log",
+                &limit_arg,
+                "--no-color",
+                "--pretty=format:%H\x1f%cI\x1f%s\x1f%b\x1e",
+            ])
+            .output();
+        let git_out = match git_out {
+            Ok(o) if o.status.success() => o,
+            Ok(o) => {
+                eprintln!("{}", tr_owned(
+                    format!("git log failed in {repo}: {}", String::from_utf8_lossy(&o.stderr).trim()),
+                    format!("git log 失敗於 {repo}:{}", String::from_utf8_lossy(&o.stderr).trim()),
+                ));
+                std::process::exit(2);
+            }
+            Err(e) => {
+                eprintln!("{}", tr_owned(
+                    format!("could not run git (is it installed?): {e}"),
+                    format!("無法執行 git(是否已安裝?):{e}"),
+                ));
+                std::process::exit(2);
+            }
+        };
+        let stdout = String::from_utf8_lossy(&git_out.stdout);
+
+        // ── ingest loop (idempotent by commit hash) ───────────────────────────
+        let mut ingested = 0usize;
+        let mut skipped = 0usize;
+        for record in stdout.split('\x1e') {
+            let record = record.trim_matches(|c| c == '\n' || c == '\r');
+            if record.trim().is_empty() {
+                continue;
+            }
+            let mut fields = record.splitn(4, '\x1f');
+            let hash = fields.next().unwrap_or("").trim();
+            let date = fields.next().unwrap_or("").trim();
+            let subject = fields.next().unwrap_or("").trim();
+            let body = fields.next().unwrap_or("").trim();
+            if hash.is_empty() || subject.is_empty() {
+                continue;
+            }
+
+            // Idempotency: the commit hash IS the event_id (stable, and
+            // collision-free vs UUIDv7 capture ids), so a re-run probes the SAME
+            // meta.json and skips already-ingested commits — no duplication.
+            let event_id = hash.to_string();
+            if events_dir.join(&event_id).join("meta.json").exists() {
+                skipped += 1;
+                continue;
+            }
+
+            // Canonical UTC timestamp; fall back to now if the commit date is
+            // somehow unparseable (never fatal — bootstrap is best-effort).
+            let timestamp = phantom_mesh::event_storage_wire::normalize_to_utc_rfc3339(date)
+                .unwrap_or_else(|_| {
+                    phantom_mesh::event_storage_wire::ts_ms_to_rfc3339_utc(
+                        phantom_mesh::event_storage_wire::now_ts_ms(),
+                    )
+                });
+            let short: String = hash.chars().take(8).collect();
+            let meta = phantom_mesh::event_storage_wire::EventMeta {
+                event_id: event_id.clone(),
+                timestamp,
+                kind: phantom_mesh::event_storage_wire::EventKind::Text,
+                tags: vec!["git-commit".to_string(), short.clone()],
+            };
+            // The searchable text recall MATCHes against: subject (+ body).
+            let content = if body.is_empty() {
+                subject.to_string()
+            } else {
+                format!("{subject}\n\n{body}")
+            };
+            // Write BOTH halves recall needs: plaintext meta.json + FTS5 row, into
+            // the SAME store recall reads (events_dir + events.sqlite under the
+            // resolved data root). Origin = Human (genuine user work).
+            if let Err(e) =
+                phantom_mesh::event_storage_wire::write_event_meta_at(&events_dir, &meta)
+            {
+                eprintln!("{}", tr_owned(
+                    format!("skip {short}: meta write failed: {e}"),
+                    format!("略過 {short}:meta 寫入失敗:{e}"),
+                ));
+                continue;
+            }
+            if let Err(e) = phantom_mesh::event_storage_wire::index_fts5_with_origin_at(
+                &fts_db,
+                &event_id,
+                &content,
+                phantom_mesh::event_storage_wire::MessageOrigin::Human,
+            ) {
+                eprintln!("{}", tr_owned(
+                    format!("skip {short}: fts5 index failed: {e}"),
+                    format!("略過 {short}:fts5 索引失敗:{e}"),
+                ));
+                continue;
+            }
+            ingested += 1;
+        }
+
+        println!("{}", tr_owned(
+            format!("memory bootstrap: {ingested} commit(s) ingested, {skipped} already present (repo {repo})."),
+            format!("memory bootstrap:已寫入 {ingested} 筆提交,{skipped} 筆已存在(repo {repo})。"),
+        ));
+        if ingested == 0 && skipped == 0 {
+            eprintln!("{}", tr(
+                "note: no commits found - is this a git repo with history? (`git -C <repo> log`)",
+                "提示:找不到提交 - 這是有歷史的 git repo 嗎?(`git -C <repo> log`)",
+            ));
+        }
+        return Ok(());
+    }
+
     // ── `phantom recall` — search Life Node events by content (Life Track) ──
-    //   phantom recall <query> [--kind food|focus|habit|text] [--since YYYY-MM-DD] [--limit N]
+    //   phantom recall <query> [--kind food|focus|habit|dispatch|text] [--since YYYY-MM-DD] [--limit N]
     // The CLI twin of the TUI `/recall`; reads the same ~/.phantom-mesh/events
     // store. Bare `phantom recall` lists recent events. Read-only.
     if args.get(1).map(|s| s.as_str()) == Some("recall") {
@@ -5249,13 +6654,17 @@ async fn main() -> Result<()> {
         if matches!(args.get(2).map(|s| s.as_str()), Some("-h") | Some("--help")) {
             eprintln!("{}", tr("phantom recall — search past Life Node events (Life Track)", "phantom recall — 搜尋過往 Life Node 事件（生活軌道）"));
             eprintln!();
-            eprintln!("  {}  [--kind food|focus|habit|text] [--since YYYY-MM-DD] [--limit N] [--json]", colored("phantom recall <query>", 36));
+            eprintln!("  {}  [--mode keyword|semantic|hybrid] [--kind food|focus|habit|dispatch|text] [--since YYYY-MM-DD] [--limit N] [--json]", colored("phantom recall <query>", 36));
+            eprintln!("  {}", colored("phantom recall --reindex", 36));
+            eprintln!("{}", tr("       --mode hybrid (default) blends keyword + semantic; --reindex backfills the semantic index from existing events.", "       --mode hybrid（預設）= 關鍵字 + 語意混合;--reindex 從既有事件回填語意索引。"));
             return Ok(());
         }
         let mut kind: Option<String> = None;
         let mut since: Option<String> = None;
         let mut limit: usize = 20;
         let mut json = false;
+        let mut reindex = false;
+        let mut mode = phantom_mesh::life_node::recall::RecallMode::default();
         let mut qwords: Vec<String> = Vec::new();
         let mut i = 2;
         while i < args.len() {
@@ -5272,6 +6681,20 @@ async fn main() -> Result<()> {
                     limit = args.get(i + 1).and_then(|s| s.parse().ok()).unwrap_or(20);
                     i += 2;
                 }
+                "--mode" | "-m" => {
+                    mode = phantom_mesh::life_node::recall::RecallMode::parse(
+                        args.get(i + 1).map(String::as_str).unwrap_or(""),
+                    );
+                    i += 2;
+                }
+                "--semantic" => {
+                    mode = phantom_mesh::life_node::recall::RecallMode::Semantic;
+                    i += 1;
+                }
+                "--reindex" => {
+                    reindex = true;
+                    i += 1;
+                }
                 "--json" => {
                     json = true;
                     i += 1;
@@ -5283,13 +6706,72 @@ async fn main() -> Result<()> {
             }
         }
         let qtext = qwords.join(" ");
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-        let phantom = home.join(".phantom-mesh");
+        let phantom = phantom_mesh::cli_config::phantom_data_dir()?;
         let key = phantom_mesh::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
+
+        // ── `--reindex` — one-shot semantic backfill ───────────────────────────
+        // Walk ~/.phantom-mesh/events/<uuid>/, decrypt each event's summary, embed
+        // it, and populate `events_emb`. Lets `--mode semantic` find history that
+        // predates the capture-time embed seam (or was captured while Ollama was
+        // down). Best-effort per event: a skip (locked key / embedder down) never
+        // aborts the walk.
+        if reindex {
+            let events_dir = phantom.join("events");
+            let sqlite = phantom.join("events.sqlite");
+            if !events_dir.exists() {
+                println!("{}", tr("no events to reindex.", "沒有可重建索引的事件。"));
+                return Ok(());
+            }
+            let store = match key.clone() {
+                Some(k) => phantom_mesh::life_node::storage::EventStore::with_key(&events_dir, k),
+                None => phantom_mesh::life_node::storage::EventStore::new(&events_dir),
+            };
+            let mut embedded = 0usize;
+            let mut skipped = 0usize;
+            for entry in std::fs::read_dir(&events_dir)? {
+                let entry = entry?;
+                if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                let id = entry.file_name().to_string_lossy().to_string();
+                // Recover the plaintext summary from whichever store holds it:
+                // file-store analysis.json (note/focus), else FTS5 content (food/
+                // habit wire captures, which have no analysis.json).
+                let summary = match store.read_analysis(&id) {
+                    Ok(a) => a.summary,
+                    Err(_) => phantom_mesh::event_storage_wire::search_fts5_hits_at(&sqlite, "", 5000)
+                        .ok()
+                        .and_then(|hits| hits.into_iter().find(|h| h.event_id == id).map(|h| h.content))
+                        .unwrap_or_default(),
+                };
+                if summary.trim().is_empty() {
+                    skipped += 1;
+                    continue;
+                }
+                match phantom_mesh::event_storage_wire::embed_and_store_at(&sqlite, &id, &summary) {
+                    Ok(true) => embedded += 1,
+                    Ok(false) => skipped += 1,
+                    Err(_) => skipped += 1,
+                }
+            }
+            println!("{}", tr_owned(
+                format!("reindex complete: {embedded} embedded, {skipped} skipped."),
+                format!("重建索引完成：已嵌入 {embedded} 筆，略過 {skipped} 筆。"),
+            ));
+            if embedded == 0 && skipped > 0 {
+                eprintln!("{}", tr(
+                    "note: 0 embedded — is Ollama running with an embedding model? (`ollama list`)",
+                    "提示:0 筆嵌入 — Ollama 是否在跑且有 embedding 模型?(`ollama list`)",
+                ));
+            }
+            return Ok(());
+        }
+
         let filter = phantom_mesh::life_node::recall::RecallFilter {
             query: &qtext,
             kind: kind.as_deref(),
             since: since.as_deref(),
+            mode,
         };
         match phantom_mesh::life_node::recall::search_events(&phantom.join("events"), key, &filter, limit) {
             // Machine-readable (matches `evolve list --json` / `doctor --json`):
@@ -5299,7 +6781,25 @@ async fn main() -> Result<()> {
                 serde_json::to_string_pretty(&hits)
                     .map_err(|e| anyhow::anyhow!("serialize hits: {e}"))?
             ),
-            Ok(hits) if hits.is_empty() => println!("{}", tr("no matching events.", "沒有符合的事件。")),
+            Ok(hits) if hits.is_empty() => {
+                // Cold-start nudge (apex #2): distinguish "no events at all" (fresh install)
+                // from "no match for this query" so day-0 recall is a next-step, not a dead-end.
+                // ASCII punctuation only (I7: CP950 / PowerShell 5.1 consoles).
+                let has_any_event = std::fs::read_dir(phantom.join("events"))
+                    .map(|mut d| d.next().is_some())
+                    .unwrap_or(false);
+                if has_any_event {
+                    println!("{}", tr("no matching events.", "沒有符合的事件。"));
+                } else {
+                    println!(
+                        "{}",
+                        tr(
+                            "no events yet - capture your first with `phantom note \"...\"` or `phantom food \"...\"`.",
+                            "尚無事件 - 用 `phantom note \"...\"` 或 `phantom food \"...\"` 記下第一筆。"
+                        )
+                    );
+                }
+            }
             Ok(hits) => {
                 println!("{}", tr_owned(format!("{} match(es):", hits.len()), format!("找到 {} 筆：", hits.len())));
                 for h in &hits {
@@ -5353,8 +6853,7 @@ async fn main() -> Result<()> {
             ));
             std::process::exit(2);
         }
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-        let phantom = home.join(".phantom-mesh");
+        let phantom = phantom_mesh::cli_config::phantom_data_dir()?;
         let key = phantom_mesh::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
         let events = phantom_mesh::life_node::daily_review::load_events_for_date(
             &phantom.join("events"),
@@ -5373,6 +6872,7 @@ async fn main() -> Result<()> {
                         EventKind::Food => "food",
                         EventKind::Focus => "focus",
                         EventKind::Habit => "habit",
+                        EventKind::Dispatch => "dispatch",
                         EventKind::Text => "text",
                     };
                     serde_json::json!({
@@ -5398,10 +6898,14 @@ async fn main() -> Result<()> {
 
     if args.get(1).map(|s| s.as_str()) == Some("coach") {
         let action = args.get(2).map(String::as_str).unwrap_or("");
-        if action != "review" && action != "schedule" {
+        if action != "review"
+            && action != "schedule"
+            && action != "install-schedule"
+            && action != "uninstall-schedule"
+        {
             eprintln!("{}", phantom_mesh::i18n::tr(
-                "usage: phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]   (prints the OS scheduler unit to install)",
-                "用法：phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]   (印出可安裝的 OS 排程單元)"));
+                "usage: phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]           (prints the OS scheduler unit to install)\n       phantom coach install-schedule [--at HH:MM]   (writes + loads the daily trigger)\n       phantom coach uninstall-schedule              (unloads + removes the daily trigger)",
+                "用法：phantom coach review --date YYYY-MM-DD [--save]\n       phantom coach schedule [--at HH:MM]           (印出可安裝的 OS 排程單元)\n       phantom coach install-schedule [--at HH:MM]   (寫入並載入每日觸發器)\n       phantom coach uninstall-schedule              (卸載並移除每日觸發器)"));
             std::process::exit(2);
         }
         // `phantom coach schedule [--at HH:MM]` — print the platform's scheduler
@@ -5458,8 +6962,91 @@ async fn main() -> Result<()> {
             print!("{}", render_cli_unit(target, &exe, schedule));
             return Ok(());
         }
+        // `phantom coach uninstall-schedule` — unload + remove the daily trigger
+        // that `install-schedule` registered. Idempotent: removing an already-gone
+        // unit is success, so it's always safe to run.
+        if action == "uninstall-schedule" {
+            use phantom_mesh::life_node::coach_scheduler::uninstall_for_host;
+            match uninstall_for_host() {
+                Ok(removed) => {
+                    if removed.is_empty() {
+                        println!("coach schedule not installed (nothing to remove)");
+                    } else {
+                        for p in &removed {
+                            println!("removed {}", p.display());
+                        }
+                        println!("coach schedule uninstalled");
+                    }
+                    return Ok(());
+                }
+                Err(e) => return Err(anyhow::anyhow!("uninstall coach schedule: {e}")),
+            }
+        }
+        // `phantom coach install-schedule [--at HH:MM]` — the explicit, host-
+        // mutating step: write the canonical OS scheduler unit AND register it
+        // with launchd / systemd / schtasks so the daily `phantom coach review`
+        // (events review + proactive partner reflection) fires unattended. This
+        // is the spine that turns the partner from "runs when I type a command"
+        // into a daily-usable MVP.
+        if action == "install-schedule" {
+            let mut at: Option<String> = None;
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--at" => {
+                        at = Some(
+                            args.get(i + 1)
+                                .cloned()
+                                .ok_or_else(|| anyhow::anyhow!("--at requires a HH:MM value"))?,
+                        );
+                        i += 2;
+                    }
+                    other => {
+                        eprintln!("unknown flag: {}", other);
+                        std::process::exit(2);
+                    }
+                }
+            }
+            let schedule = match at {
+                Some(s) => {
+                    let (h, m) = s
+                        .split_once(':')
+                        .ok_or_else(|| anyhow::anyhow!("--at must be HH:MM, got {s}"))?;
+                    let hour: u8 = h
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--at hour not a number: {s}"))?;
+                    let minute: u8 = m
+                        .parse()
+                        .map_err(|_| anyhow::anyhow!("--at minute not a number: {s}"))?;
+                    phantom_mesh::life_node::coach_scheduler::CoachSchedule::new(hour, minute)
+                        .map_err(|e| anyhow::anyhow!(e))?
+                }
+                None => phantom_mesh::life_node::coach_scheduler::CoachSchedule::default(),
+            };
+            // Resolve the absolute phantom path so the scheduler runs THIS binary
+            // (not a bare `phantom` that may not be on the daemon's PATH).
+            let exe = std::env::current_exe()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|_| "phantom".to_string());
+            use phantom_mesh::life_node::coach_scheduler::install_for_host;
+            match install_for_host(&exe, schedule) {
+                Ok(outcome) => {
+                    for p in &outcome.files_written {
+                        println!("wrote {}", p.display());
+                    }
+                    println!("loaded with: {}", outcome.loaded_with);
+                    println!(
+                        "coach schedule installed — `phantom coach review` will run daily at {:02}:{:02} (runs {})",
+                        schedule.hour, schedule.minute, exe
+                    );
+                    return Ok(());
+                }
+                Err(e) => return Err(anyhow::anyhow!("install coach schedule: {e}")),
+            }
+        }
         let mut date: Option<String> = None;
         let mut save = false;
+        let mut notify = false;
         let mut i = 3;
         while i < args.len() {
             match args[i].as_str() {
@@ -5469,6 +7056,10 @@ async fn main() -> Result<()> {
                 }
                 "--save" => {
                     save = true;
+                    i += 1;
+                }
+                "--notify" => {
+                    notify = true;
                     i += 1;
                 }
                 other => {
@@ -5488,12 +7079,69 @@ async fn main() -> Result<()> {
             ));
             std::process::exit(2);
         }
-        let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
+        let home = phantom_mesh::cli_config::resolve_home_dir()?;
+        // Build the agent runtime + tools config from agents.toml so the review
+        // can ALSO produce the proactive partner reflection (last 24h of
+        // partner-signals.jsonl vs the user's real Todoist goals). This makes
+        // `phantom coach review` the single daily trigger for both halves —
+        // the events review AND the goal-alignment reflection — which is what
+        // the SPEC-23 scheduler fires (no more disjoint dead-code loop).
+        let mut review_state = AppState::new();
+        if let Some(content) = find_config() {
+            review_state.load_config_toml(&content);
+        }
+        let runtime = review_state.agent_runtime.clone();
+        let tools_config = runtime.config().tools.clone();
+        let now_unix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let partner_deps = phantom_mesh::life_node::daily_review::PartnerReflectionDeps {
+            runtime: &runtime,
+            agent: "master",
+            now_unix,
+            tools: Some(&tools_config),
+        };
         // Shared with the app's `daily_review_generate` command — aggregate +
         // shame-free lint + Gemini tomorrow-action + save/encrypt all live in
         // daily_review::run_coach_review so the two surfaces never drift.
-        let review =
-            phantom_mesh::life_node::daily_review::run_coach_review(&home, &date, save).await?;
+        let review = phantom_mesh::life_node::daily_review::run_coach_review(
+            &home,
+            &date,
+            save,
+            Some(partner_deps),
+        )
+        .await?;
+        // N3 desktop-nudge: when --notify is set, fire a REAL macOS banner for
+        // any goal behind target (deviation < 0), with a 30-min/tag cooldown.
+        // Mirrors run_coach_review's own event load (same events dir + key).
+        // fire_behind_goal_nudges (→ OsChannel) is cfg'd off on mobile, so gate
+        // this call to keep the phantom bin buildable for ios/android too.
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        if notify {
+            let events_dir = phantom_mesh::cli_config::phantom_dir_under(&home).join("events");
+            let identity_path = phantom_mesh::cli_config::phantom_dir_under(&home).join("identity.key");
+            let event_key =
+                phantom_mesh::life_node::key_derivation::load_event_key(&identity_path).ok();
+            let pairs = phantom_mesh::life_node::daily_review::load_events_for_date(
+                &events_dir,
+                &date,
+                event_key,
+            )?;
+            match phantom_mesh::life_node::daily_review::fire_behind_goal_nudges(
+                &home, &pairs, now_unix,
+            )
+            .await
+            {
+                Ok(o) if !o.fired.is_empty() => {
+                    eprintln!("nudged (behind goal): {}", o.fired.join(", "))
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("nudge failed: {e}"),
+            }
+        }
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        let _ = notify;
         if let Some(path) = &review.saved_to {
             if review.saved_encrypted {
                 eprintln!("saved (age-encrypted) to {}", path.display());
@@ -5513,10 +7161,244 @@ async fn main() -> Result<()> {
     //   phantom skill run <path-to-skill.md> [--dry-run]
     //     Parse a Skill Document (H2 format) and execute it via SkillExecutor.
     //     With --dry-run, no bash steps spawn; the runtime lists what it
-    //     would do. Always feature-gated behind `experimental-hermes-curator`.
+    //     would do. Always feature-gated behind `experimental-curator`.
     if args.get(1).map(|s| s.as_str()) == Some("skill") {
         let action = args.get(2).map(|s| s.as_str()).unwrap_or("help");
         match action {
+            "new" => {
+                // ── `phantom skill new "<goal>"` — top-down skill synthesis ──
+                // Slice 2 of the flagship: a natural-language goal -> a
+                // verified, stored SKILL.md via the synthesize loop.
+                #[cfg(all(
+                    feature = "experimental-curator",
+                    feature = "experimental-memory"
+                ))]
+                {
+                    use phantom_mesh::skillbank::synthesize::{
+                        synthesize_skill, SkillGoal, SynthConfig,
+                    };
+                    use phantom_mesh::skillbank::SkillMemory;
+                    use phantom_mesh::providers::DefaultProviderResolver;
+
+                    // Goal is the first positional after `new`. Required, and
+                    // it must not be a flag.
+                    let goal_str = match args.get(3) {
+                        Some(g) if !g.starts_with("--") => g.clone(),
+                        _ => {
+                            eprintln!(
+                                "  {} usage: phantom skill new \"<goal>\" [--allow <cmd>]... [--model <M>] [--rounds <N>] [--live]",
+                                colored("✗", 31)
+                            );
+                            std::process::exit(2);
+                        }
+                    };
+
+                    // Flag parse: repeated --allow, single --model / --rounds,
+                    // boolean --live.
+                    let mut allowed: Vec<String> = Vec::new();
+                    let mut model_override: Option<String> = None;
+                    let mut rounds_override: Option<u8> = None;
+                    let mut live = false;
+                    {
+                        let mut it = args.iter();
+                        while let Some(a) = it.next() {
+                            match a.as_str() {
+                                "--allow" => match it.next() {
+                                    Some(cmd) => allowed.push(cmd.clone()),
+                                    None => {
+                                        eprintln!(
+                                            "  {} --allow requires a command name",
+                                            colored("✗", 31)
+                                        );
+                                        std::process::exit(2);
+                                    }
+                                },
+                                "--model" => match it.next() {
+                                    Some(m) => model_override = Some(m.clone()),
+                                    None => {
+                                        eprintln!(
+                                            "  {} --model requires a model id",
+                                            colored("✗", 31)
+                                        );
+                                        std::process::exit(2);
+                                    }
+                                },
+                                "--rounds" => match it.next() {
+                                    Some(n) => match n.parse::<u8>() {
+                                        Ok(v) => rounds_override = Some(v),
+                                        Err(_) => {
+                                            eprintln!(
+                                                "  {} --rounds expects a small integer (u8), got '{}'",
+                                                colored("✗", 31),
+                                                n
+                                            );
+                                            std::process::exit(2);
+                                        }
+                                    },
+                                    None => {
+                                        eprintln!(
+                                            "  {} --rounds requires a number",
+                                            colored("✗", 31)
+                                        );
+                                        std::process::exit(2);
+                                    }
+                                },
+                                "--live" => live = true,
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    // Load agents.toml (same path the rest of the CLI uses);
+                    // fall back to built-in defaults when absent.
+                    let cfg = phantom_mesh::config::AgentsConfig::find_and_load()
+                        .unwrap_or_else(phantom_mesh::config::AgentsConfig::with_defaults);
+
+                    // Resolve provider name. Precedence:
+                    //   1. `provider/...` prefix of --model, if present.
+                    //   2. the `[agent.master]` provider.
+                    //   3. the first `[providers.*]` key.
+                    let model_provider_prefix = model_override
+                        .as_ref()
+                        .and_then(|m| m.split_once('/').map(|(p, _)| p.to_string()));
+                    let provider_name = model_provider_prefix
+                        .clone()
+                        .or_else(|| cfg.agent.get("master").map(|a| a.provider.clone()))
+                        .or_else(|| cfg.providers.keys().next().cloned());
+                    let provider_name = match provider_name {
+                        Some(n) if !n.is_empty() => n,
+                        _ => {
+                            eprintln!(
+                                "  {} no provider configured — set one in ~/.phantom-mesh/agents.toml ([providers.*] / [agent.master])",
+                                colored("✗", 31)
+                            );
+                            std::process::exit(2);
+                        }
+                    };
+
+                    // Build the trait object.
+                    let provider = match DefaultProviderResolver::from_config(&cfg)
+                        .resolve(&provider_name)
+                    {
+                        Some(p) => p,
+                        None => {
+                            eprintln!(
+                                "  {} provider '{}' not found in [providers.*]",
+                                colored("✗", 31),
+                                provider_name
+                            );
+                            std::process::exit(2);
+                        }
+                    };
+
+                    // Resolve the api_key from the provider entry: inline first,
+                    // then the api_key_env env var.
+                    let entry = cfg.providers.get(&provider_name);
+                    let api_key = entry
+                        .and_then(|e| e.api_key.clone().filter(|s| !s.is_empty()))
+                        .or_else(|| {
+                            entry
+                                .and_then(|e| e.api_key_env.as_ref())
+                                .and_then(|v| std::env::var(v).ok())
+                                .filter(|s| !s.is_empty())
+                        });
+                    let api_key = match api_key {
+                        Some(k) => k,
+                        None => {
+                            eprintln!(
+                                "  {} no api_key for provider '{}' — set api_key inline or via its api_key_env in agents.toml",
+                                colored("✗", 31),
+                                provider_name
+                            );
+                            std::process::exit(2);
+                        }
+                    };
+
+                    // Model string: strip any `provider/` prefix from --model;
+                    // else the entry's default_model; else SynthConfig default.
+                    let model = model_override
+                        .as_ref()
+                        .map(|m| m.split_once('/').map(|(_, rest)| rest.to_string()).unwrap_or_else(|| m.clone()))
+                        .or_else(|| entry.and_then(|e| e.default_model.clone()).filter(|s| !s.is_empty()))
+                        .unwrap_or_else(|| SynthConfig::default().model);
+
+                    // Open the skill memory store under ~/.phantom-mesh.
+                    let db_path = match phantom_mesh::cli_config::agents_toml_path() {
+                        Some(p) => p
+                            .parent()
+                            .map(|d| d.to_path_buf())
+                            .unwrap_or_else(|| PathBuf::from("."))
+                            .join("hermes-runtime.db"),
+                        None => PathBuf::from("hermes-runtime.db"),
+                    };
+                    let mem = match SkillMemory::open_at(db_path.clone()) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!(
+                                "  {} could not open skill store at {}: {}",
+                                colored("✗", 31),
+                                db_path.display(),
+                                e
+                            );
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let goal = SkillGoal {
+                        goal: goal_str,
+                        allowed_commands: allowed,
+                        hints: Vec::new(),
+                    };
+                    let mut synth_cfg = SynthConfig {
+                        model,
+                        ..SynthConfig::default()
+                    };
+                    if let Some(r) = rounds_override {
+                        synth_cfg.max_rounds = r;
+                    }
+                    if live {
+                        synth_cfg.dry_run_first = false;
+                    }
+
+                    eprintln!(
+                        "  {} synthesizing skill via {} ({})",
+                        colored("◆", 35),
+                        colored(&provider_name, 36),
+                        synth_cfg.model
+                    );
+
+                    match synthesize_skill(&provider, &api_key, &mem, &synth_cfg, &goal).await {
+                        Ok(outcome) => {
+                            eprintln!(
+                                "  {} skill '{}' verified in {} round(s), stored id={}",
+                                colored("✓", 32),
+                                outcome.doc.frontmatter.name,
+                                outcome.rounds_used,
+                                outcome
+                                    .stored_id
+                                    .map(|id| id.to_string())
+                                    .unwrap_or_else(|| "—".to_string())
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("  {} {}", colored("✗", 31), e);
+                            std::process::exit(1);
+                        }
+                    }
+                    return Ok(());
+                }
+                #[cfg(not(all(
+                    feature = "experimental-curator",
+                    feature = "experimental-memory"
+                )))]
+                {
+                    eprintln!(
+                        "  {} `phantom skill new` requires rebuild with --features experimental-skillbank",
+                        colored("✗", 31)
+                    );
+                    std::process::exit(2);
+                }
+            }
             "run" => {
                 let path = match args.get(3) {
                     Some(p) => p.clone(),
@@ -5563,28 +7445,224 @@ async fn main() -> Result<()> {
                     // not fatal — just a warning, then fall through to trusted mode
                 }
 
-                #[cfg(feature = "experimental-hermes-curator")]
+                #[cfg(feature = "experimental-curator")]
                 {
                     let mode = if sandboxed {
-                        phantom_mesh::hermes::ExecutionMode::Sandboxed {
+                        phantom_mesh::skillbank::ExecutionMode::Sandboxed {
                             allowed_commands: allowed,
                         }
                     } else {
-                        phantom_mesh::hermes::ExecutionMode::Trusted
+                        phantom_mesh::skillbank::ExecutionMode::Trusted
                     };
                     run_phantom_skill(&path, dry_run, mode).await?;
                 }
-                #[cfg(not(feature = "experimental-hermes-curator"))]
+                #[cfg(not(feature = "experimental-curator"))]
                 {
                     let _ = (sandboxed, allowed); // silence unused
                     run_phantom_skill(&path, dry_run, ()).await?;
                 }
                 return Ok(());
             }
+            // ── apex ② owned-memory inspect/drive arms (UNGATED) ─────────────
+            //
+            // These four subcommands are always compiled (no feature gate) so an
+            // operator can inspect and turn the owned-memory loop by hand on a
+            // default build: `list` / `stats` enumerate the stored skill bank,
+            // `recall` runs the FTS5-only hot-path block for a query (the exact
+            // dogfood of what the agent injects), and `learn` fires one daily
+            // learn tick (drain captured corrections + the defensive Store step).
+            "list" => {
+                match phantom_mesh::skill_wire::skill_list() {
+                    Ok(rows) => {
+                        if rows.is_empty() {
+                            println!("no skills stored yet");
+                        } else {
+                            for r in &rows {
+                                println!(
+                                    "{}\t{}\tq={:.2}\tlast_applied={}",
+                                    r.id, r.name, r.quality_score, r.last_applied_at
+                                );
+                            }
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("  {} skill list: {}", colored("✗", 31), e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "stats" => {
+                match phantom_mesh::skill_wire::skill_stats() {
+                    Ok(s) => {
+                        println!(
+                            "total={} high={} medium={} low={}",
+                            s.total, s.high, s.medium, s.low
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("  {} skill stats: {}", colored("✗", 31), e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            "recall" => {
+                let query = match args.get(3) {
+                    Some(q) if !q.is_empty() => q.clone(),
+                    _ => {
+                        eprintln!(
+                            "  {} usage: phantom skill recall \"<query>\"",
+                            colored("✗", 31)
+                        );
+                        std::process::exit(2);
+                    }
+                };
+                let block = phantom_mesh::skill_wire::owned_memory_system_block(&query);
+                if block.is_empty() {
+                    println!("(no skills recalled for this query)");
+                } else {
+                    print!("{block}");
+                }
+                return Ok(());
+            }
+            "learn" => {
+                match phantom_mesh::skill_wire::skill_learn_tick() {
+                    Ok(n) => {
+                        println!("skill learn: {n} candidate(s) stored");
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("  {} skill learn: {}", colored("✗", 31), e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            // ── apex ② daily-learn scheduler arms (mirror `coach schedule`) ──
+            "schedule" => {
+                let mut at: Option<String> = None;
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--at" => {
+                            at = Some(
+                                args.get(i + 1)
+                                    .cloned()
+                                    .ok_or_else(|| anyhow::anyhow!("--at requires a HH:MM value"))?,
+                            );
+                            i += 2;
+                        }
+                        other => {
+                            eprintln!("unknown flag: {}", other);
+                            std::process::exit(2);
+                        }
+                    }
+                }
+                let schedule = match at {
+                    Some(s) => {
+                        let (h, m) = s
+                            .split_once(':')
+                            .ok_or_else(|| anyhow::anyhow!("--at must be HH:MM, got {s}"))?;
+                        let hour: u8 = h
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--at hour not a number: {s}"))?;
+                        let minute: u8 = m
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--at minute not a number: {s}"))?;
+                        phantom_mesh::life_node::skill_scheduler::SkillSchedule::new(hour, minute)
+                            .map_err(|e| anyhow::anyhow!(e))?
+                    }
+                    None => phantom_mesh::life_node::skill_scheduler::SkillSchedule::default(),
+                };
+                let exe = std::env::current_exe()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "phantom".to_string());
+                use phantom_mesh::life_node::skill_scheduler::{render_cli_unit, SchedulerTarget};
+                let target = if cfg!(target_os = "macos") {
+                    SchedulerTarget::Launchd
+                } else if cfg!(target_os = "windows") {
+                    SchedulerTarget::Schtasks
+                } else {
+                    SchedulerTarget::Systemd
+                };
+                print!("{}", render_cli_unit(target, &exe, schedule));
+                return Ok(());
+            }
+            "uninstall-schedule" => {
+                use phantom_mesh::life_node::skill_scheduler::uninstall_for_host;
+                match uninstall_for_host() {
+                    Ok(removed) => {
+                        if removed.is_empty() {
+                            println!("skill schedule not installed (nothing to remove)");
+                        } else {
+                            for p in &removed {
+                                println!("removed {}", p.display());
+                            }
+                            println!("skill schedule uninstalled");
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => return Err(anyhow::anyhow!("uninstall skill schedule: {e}")),
+                }
+            }
+            "install-schedule" => {
+                let mut at: Option<String> = None;
+                let mut i = 3;
+                while i < args.len() {
+                    match args[i].as_str() {
+                        "--at" => {
+                            at = Some(
+                                args.get(i + 1)
+                                    .cloned()
+                                    .ok_or_else(|| anyhow::anyhow!("--at requires a HH:MM value"))?,
+                            );
+                            i += 2;
+                        }
+                        other => {
+                            eprintln!("unknown flag: {}", other);
+                            std::process::exit(2);
+                        }
+                    }
+                }
+                let schedule = match at {
+                    Some(s) => {
+                        let (h, m) = s
+                            .split_once(':')
+                            .ok_or_else(|| anyhow::anyhow!("--at must be HH:MM, got {s}"))?;
+                        let hour: u8 = h
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--at hour not a number: {s}"))?;
+                        let minute: u8 = m
+                            .parse()
+                            .map_err(|_| anyhow::anyhow!("--at minute not a number: {s}"))?;
+                        phantom_mesh::life_node::skill_scheduler::SkillSchedule::new(hour, minute)
+                            .map_err(|e| anyhow::anyhow!(e))?
+                    }
+                    None => phantom_mesh::life_node::skill_scheduler::SkillSchedule::default(),
+                };
+                let exe = std::env::current_exe()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "phantom".to_string());
+                use phantom_mesh::life_node::skill_scheduler::install_for_host;
+                match install_for_host(&exe, schedule) {
+                    Ok(outcome) => {
+                        for p in &outcome.files_written {
+                            println!("wrote {}", p.display());
+                        }
+                        println!("loaded with: {}", outcome.loaded_with);
+                        println!(
+                            "skill schedule installed — `phantom skill learn` will run daily at {:02}:{:02} (runs {})",
+                            schedule.hour, schedule.minute, exe
+                        );
+                        return Ok(());
+                    }
+                    Err(e) => return Err(anyhow::anyhow!("install skill schedule: {e}")),
+                }
+            }
             "help" | "--help" | "-h" => {
                 eprintln!(
                     "{}",
-                    colored("phantom skill — Hermes Skill Document runtime (T10)", 35)
+                    colored("phantom skill — Skill Document runtime (T10)", 35)
                 );
                 eprintln!();
                 eprintln!(
@@ -5592,6 +7670,12 @@ async fn main() -> Result<()> {
                     colored("phantom skill run", 36)
                 );
                 eprintln!("       Parse a Skill Document and execute its body.");
+                eprintln!();
+                eprintln!(
+                    "  {}  \"<goal>\" [--allow <cmd>]... [--model <M>] [--rounds <N>] [--live]",
+                    colored("phantom skill new", 36)
+                );
+                eprintln!("       Synthesize a verified SKILL.md from a goal (top-down).");
                 eprintln!("       --dry-run  : list what would execute, spawn nothing.");
                 eprintln!(
                     "       --sandboxed: argv-list dispatch; reject pipes/redirects/expansion."
@@ -5600,7 +7684,40 @@ async fn main() -> Result<()> {
                     "       --allow <cmd>: add <cmd> to the sandboxed allowlist (repeatable)."
                 );
                 eprintln!();
-                eprintln!("  Requires build with `--features experimental-hermes-curator`.");
+                eprintln!(
+                    "{}",
+                    colored("  apex ② owned-memory (no rebuild needed):", 35)
+                );
+                eprintln!(
+                    "  {}                      List every stored skill (quality DESC).",
+                    colored("phantom skill list", 36)
+                );
+                eprintln!(
+                    "  {}                     Skill-bank quality histogram (total/high/medium/low).",
+                    colored("phantom skill stats", 36)
+                );
+                eprintln!(
+                    "  {}  \"<query>\"          Show the FTS5 recall block the agent would inject.",
+                    colored("phantom skill recall", 36)
+                );
+                eprintln!(
+                    "  {}                     Run one daily learn tick (store captured corrections).",
+                    colored("phantom skill learn", 36)
+                );
+                eprintln!(
+                    "  {}  [--at HH:MM]      Print the OS scheduler unit for the daily learn.",
+                    colored("phantom skill schedule", 36)
+                );
+                eprintln!(
+                    "  {}    Write + load the daily learn trigger (mutates host).",
+                    colored("phantom skill install-schedule [--at HH:MM]", 36)
+                );
+                eprintln!(
+                    "  {}             Unload + remove the daily learn trigger.",
+                    colored("phantom skill uninstall-schedule", 36)
+                );
+                eprintln!();
+                eprintln!("  `skill new` / `skill run` require build with `--features experimental-curator`.");
                 return Ok(());
             }
             other => {
@@ -5625,14 +7742,16 @@ async fn main() -> Result<()> {
         use phantom_mesh::i18n::tr;
         let action = args.get(2).map(|s| s.as_str()).unwrap_or("show");
         match action {
+            // `#[allow(deprecated)]`: `identity::init` returns the legacy
+            // `InitOutcome` (file-paths + pub_hex) whose fields this CLI block
+            // prints. Phase G keeps both alive intentionally — see
+            // `docs/superpowers/phase-g-init-outcome-notes.md` for the SPEC-12
+            // Stage 4 cutover that flips this to the wire shape. The allow sits
+            // on the whole arm so it also covers the field reads below (#321/z13
+            // CI clippy relay — was on the `let` only, missing the reads).
+            #[allow(deprecated)]
             "init" => {
                 let force = args.iter().any(|a| a == "--force");
-                // `#[allow(deprecated)]`: `identity::init` returns the legacy
-                // `InitOutcome` (file-paths + pub_hex) that this CLI block
-                // prints. Phase G keeps both alive intentionally — see
-                // `docs/superpowers/phase-g-init-outcome-notes.md` for the
-                // SPEC-12 Stage 4 cutover that flips this to the wire shape.
-                #[allow(deprecated)]
                 let outcome = phantom_mesh::identity::init(force)?;
                 // Co-create the extension folder layout so users have
                 // a documented place to drop customisations from day 1.
@@ -5668,6 +7787,12 @@ async fn main() -> Result<()> {
                         "  {} {}",
                         colored("›", 90),
                         tr("sign recipes with `phantom evolve publish`.", "用 `phantom evolve publish` 簽署配方。")
+                    );
+                    // SYS-D: tell the user how to undo at the point of action.
+                    eprintln!(
+                        "  {} {}  phantom keys reset --yes",
+                        colored("›", 90),
+                        tr("undo (reset identity):", "撤銷(重置身分):"),
                     );
                 } else if force {
                     eprintln!(
@@ -5720,6 +7845,55 @@ async fn main() -> Result<()> {
                 println!("{}", phantom_mesh::identity::keys_dir().display());
                 return Ok(());
             }
+            "reset" => {
+                // SYS-D (operator-locked 2026-06-13) symmetric undo of
+                // `phantom keys init`. DESTRUCTIVE: removes the ed25519 keypair
+                // + per-device root identity.key, orphaning signatures and
+                // making events encrypted under the old key undecryptable. Gate
+                // on an explicit --yes (print-plan by default), and print the
+                // reverse (init) so the reset is itself reversible.
+                let yes = args.iter().any(|a| a == "--yes");
+                eprintln!("  {} phantom keys reset will remove:", colored("◆", 35));
+                eprintln!("    - {}", phantom_mesh::identity::priv_key_path().display());
+                eprintln!("    - {}", phantom_mesh::identity::pub_key_path().display());
+                eprintln!("    - {}", phantom_mesh::identity::root_identity_key_path().display());
+                eprintln!(
+                    "  {} {}",
+                    colored("⚠", 33),
+                    tr(
+                        "DESTRUCTIVE: orphans all signatures + makes events under the old key undecryptable.",
+                        "具破壞性：會孤立所有簽章，且舊金鑰加密的事件將無法解密。",
+                    )
+                );
+                eprintln!(
+                    "  {} {}  phantom keys init",
+                    colored("›", 90),
+                    tr("reversible: re-mint a fresh identity with", "可逆:重新鑄造身分用"),
+                );
+                if !yes {
+                    eprintln!(
+                        "  {} dry-run — nothing removed. Re-run with {} to apply.",
+                        colored("⚠", 33),
+                        colored("phantom keys reset --yes", 32)
+                    );
+                    return Ok(());
+                }
+                let outcome = phantom_mesh::identity::reset()?;
+                if outcome.was_noop() {
+                    eprintln!(
+                        "  {} {}",
+                        colored("◆", 35),
+                        tr("no identity to reset (already clean).", "沒有可重置的身分(已是乾淨狀態)。")
+                    );
+                } else {
+                    eprintln!(
+                        "  {} {}",
+                        colored("✓", 32),
+                        tr("identity reset — keypair + root key removed.", "身分已重置 — 金鑰對與根金鑰已移除。")
+                    );
+                }
+                return Ok(());
+            }
             "add" | "remove" | "list" | "test" => {
                 // Provider-API-key subcommands — delegate to the older
                 // /keys flow (TUI slash command) for now. CLI flow lands
@@ -5742,7 +7916,7 @@ async fn main() -> Result<()> {
                     colored("✗", 31),
                     other
                 );
-                eprintln!("  Available: init [--force] / show / path");
+                eprintln!("  Available: init [--force] / show / path / reset [--yes]");
                 std::process::exit(2);
             }
         }
@@ -5760,6 +7934,26 @@ async fn main() -> Result<()> {
 
     // ── `phantom onboarding` — browser-based first-time setup ──────────────
     if args.get(1).map(|s| s.as_str()) == Some("onboarding") {
+        // Guard: web onboarding spins up a local server + OPENS A BROWSER and
+        // then blocks waiting for the user to submit the form. On a headless
+        // box / CI / piped invocation there is no browser and no one to submit,
+        // so it would HANG forever (and needlessly bind a port). Detect a
+        // non-terminal stdin EARLY and emit actionable guidance instead, BEFORE
+        // run_web_onboarding binds anything. Mirrors the bare-`phantom` TUI
+        // guard (~L8406). (`onboarding --help`/-h is already short-circuited by
+        // the shared subcommand --help guard above, so it never reaches here.)
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            eprintln!(
+                "{} `phantom onboarding` opens a web browser for first-time setup, which needs an interactive terminal.",
+                colored("✗", 31)
+            );
+            eprintln!("    No terminal detected (stdin is piped / headless). For non-interactive setup:");
+            eprintln!("      phantom keys init                  # scaffold ~/.phantom-mesh/env, then add API keys");
+            eprintln!("      phantom providers                  # inspect / order providers");
+            eprintln!("      edit ~/.phantom-mesh/agents.toml   # write the config directly");
+            eprintln!("    Or re-run `phantom onboarding` from an interactive terminal with a browser.");
+            std::process::exit(2);
+        }
         run_web_onboarding().await?;
         return Ok(());
     }
@@ -5838,9 +8032,40 @@ async fn main() -> Result<()> {
         return phantom_mesh::cli_config::run_dispatch(&args).await;
     }
 
+    // ── `phantom task` — durable task submit / show / logs / cancel ───────
+    if args.get(1).map(|s| s.as_str()) == Some("task") {
+        return phantom_mesh::cli_config::run_task(&args).await;
+    }
+    if args.get(1).map(|s| s.as_str()) == Some("agents") {
+        return phantom_mesh::cli_config::run_agents(&args);
+    }
+
+    // ── `phantom inbox` — node mailbox for dev-session coordination ───────
+    if args.get(1).map(|s| s.as_str()) == Some("inbox") {
+        return phantom_mesh::cli_config::run_inbox(&args).await;
+    }
+
+    // ── `phantom status` — dev-session heartbeat (set/show/mesh) ──────────
+    if args.get(1).map(|s| s.as_str()) == Some("status") {
+        return phantom_mesh::cli_config::run_status(&args).await;
+    }
+
     // ── `phantom sessions` — live TUI sessions across the user's mesh ─────
     if args.get(1).map(|s| s.as_str()) == Some("sessions") {
         return phantom_mesh::cli_config::run_sessions(&args).await;
+    }
+
+    // ── `phantom nodes` — read-only NodeManifest view (local + peers.json) ─
+    //
+    // LOCAL/known-peers view: composes this node's [cluster] config + the
+    // runtime capability detector + the broker-pulled peers.json roster into
+    // NodeManifests. NO network calls (no /rpc/join, no heartbeat).
+    //
+    //   phantom nodes inspect <node> [--json]   one node's full manifest
+    //   phantom nodes caps [--json]             this node + each peer's caps
+    //   phantom nodes list [--json]             every known node
+    if args.get(1).map(|s| s.as_str()) == Some("nodes") {
+        return phantom_mesh::cli_config::run_nodes(&args).await;
     }
 
     // ── `phantom git sync` — fan-out git pull across cluster peers ────────
@@ -5970,6 +8195,23 @@ async fn main() -> Result<()> {
     }
 
     // ── `phantom doctor` — environment self-diagnostic ─────────────────────
+    //
+    // Exit-code conventions across the doctor family (documented here so the
+    // three variants are predictable for scripts):
+    //   • `phantom doctor`        → 0 on healthy-or-warnings, 2 on a genuine
+    //                               Fail (no identity / no config / no usable
+    //                               provider / parse error). Warnings are
+    //                               advisory and stay exit 0 (scripts/validate-
+    //                               mac.sh's contract: "internal warnings are
+    //                               not our concern").
+    //   • `phantom doctor --json` → ALWAYS 0 (the command succeeded in emitting
+    //                               the report); machines read health from the
+    //                               JSON `state.worst` field. Keeps verify-
+    //                               binary.sh / selftest's "valid JSON ⇒ exit 0"
+    //                               check honest.
+    //   • `phantom doctor --mesh` → 0 all peers online+same build, 1 online but
+    //                               a build/version drift (operator-actionable
+    //                               warning), 2 any peer offline.
     if args.get(1).map(|s| s.as_str()) == Some("doctor") {
         // `phantom doctor --json` emits a machine-readable JSON object
         // covering all the same checks as the human-readable colored
@@ -5995,6 +8237,11 @@ async fn main() -> Result<()> {
         return run_selftest(&args);
     }
 
+    // ── `phantom test` — SPEC-60 release-evidence ship-gate collector (P2-2) ─
+    if args.get(1).map(|s| s.as_str()) == Some("test") {
+        return run_test_gate(&args).await;
+    }
+
     // ── `phantom snapshot` — APFS local snapshot ops (macOS) ───────────────
     #[cfg(target_os = "macos")]
     if args.get(1).map(|s| s.as_str()) == Some("snapshot") {
@@ -6016,7 +8263,59 @@ async fn main() -> Result<()> {
         return run_login(&args).await;
     }
     if args.get(1).map(|s| s.as_str()) == Some("logout") {
+        // `--reset-onboarding` (alias `--reset`): in addition to clearing the
+        // login/identity state below, also remove the home config so the next
+        // `phantom` launch re-runs first-time onboarding from scratch. This is
+        // the repeatable-testing path — onboarding only triggers when BOTH
+        // `find_config()` and `AgentsConfig::find_and_load()` return None
+        // (see the no_config gate), and both read ~/.phantom-mesh/agents.toml.
+        let reset_onboarding = args.iter().any(|a| {
+            let a = a.as_str();
+            a == "--reset-onboarding" || a == "--reset"
+        });
+        // Clear the local identity/auth state (~/.phantom-mesh/auth.json:
+        // provider tokens, broker token, password hash, etc.).
         phantom_mesh::auth::delete()?;
+        // Also clear the OS-keystore identity master seed (A5 Keychain storage,
+        // service "phantom-mesh" / account "identity-master"). Idempotent: a
+        // missing record is a no-op. A keystore that's unavailable in this
+        // environment shouldn't block logging out of the auth.json side, so we
+        // warn instead of aborting.
+        let keystore_cleared =
+            match phantom_mesh::identity_wire::logout_clear_keystore() {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!(
+                        "{} {}: {e}",
+                        colored("!", 33),
+                        phantom_mesh::i18n::tr(
+                            "could not clear keystore identity",
+                            "無法清除 keystore 身份",
+                        )
+                    );
+                    false
+                }
+            };
+        let _ = keystore_cleared;
+        // Optionally remove the home config so the next launch re-onboards.
+        // Only the home copy (~/.phantom-mesh/agents.toml) — never a project's
+        // ./agents.toml in cwd. Missing file is a no-op.
+        let mut reset_config_removed: Option<std::path::PathBuf> = None;
+        if reset_onboarding {
+            if let Some(cfg) = phantom_mesh::cli_config::agents_toml_path() {
+                match reset_onboarding_config_at(&cfg) {
+                    Ok(removed) => reset_config_removed = removed,
+                    Err(e) => eprintln!(
+                        "{} {}: {e}",
+                        colored("!", 33),
+                        phantom_mesh::i18n::tr(
+                            "could not remove config for reset",
+                            "無法刪除設定以重置",
+                        )
+                    ),
+                }
+            }
+        }
         eprintln!(
             "{} {}",
             colored("✓", 32),
@@ -6025,6 +8324,22 @@ async fn main() -> Result<()> {
                 format!("已登出（已刪除 {}）", phantom_mesh::auth::auth_path().display()),
             )
         );
+        if let Some(cfg) = reset_config_removed {
+            eprintln!(
+                "{} {}",
+                colored("✓", 32),
+                phantom_mesh::i18n::tr_owned(
+                    format!(
+                        "onboarding reset (removed {}) — next `phantom` will set up fresh",
+                        cfg.display()
+                    ),
+                    format!(
+                        "已重置 onboarding（已移除 {}）— 下次 `phantom` 會重新設定",
+                        cfg.display()
+                    ),
+                )
+            );
+        }
         return Ok(());
     }
     if args.get(1).map(|s| s.as_str()) == Some("whoami") {
@@ -6050,6 +8365,16 @@ async fn main() -> Result<()> {
     // ── `phantom lang` — show / set / reset the UI language (繁中 i18n) ─────
     // Makes the i18n language a persistent preference (~/.phantom-mesh/lang)
     // instead of env-var-only, so "預設繁中" actually sticks across runs.
+    // ── `phantom permissions` — view / pick the Execution Permission profile ─
+    if args.get(1).map(|s| s.as_str()) == Some("permissions") {
+        return run_permissions(&args);
+    }
+
+    // ── `phantom trust` — view / manage Project Trust for directories ────────
+    if args.get(1).map(|s| s.as_str()) == Some("trust") {
+        return run_trust(&args);
+    }
+
     if args.get(1).map(|s| s.as_str()) == Some("lang") {
         use phantom_mesh::i18n;
         match args.get(2).map(|s| s.as_str()) {
@@ -6213,6 +8538,7 @@ async fn main() -> Result<()> {
         let mut do_continue = false;
         let mut session_id: Option<String> = None;
         let mut config_override: Option<String> = None;
+        let mut provider_override: Option<String> = None;
         let mut prompt_arg: Option<String> = None;
 
         let mut i = 2;
@@ -6245,8 +8571,18 @@ async fn main() -> Result<()> {
                         config_override = Some(args[i].clone());
                     }
                 }
+                "--provider" => {
+                    i += 1;
+                    if i < args.len() {
+                        provider_override = Some(args[i].clone());
+                    } else {
+                        eprintln!("error: --provider requires a KEY (a [providers.KEY] block in agents.toml, e.g. codex)");
+                        std::process::exit(2);
+                    }
+                }
                 "-h" | "--help" => {
-                    eprintln!("usage: phantom exec [--agent NAME] [--session ID] [--continue] [--json] [--quiet] [--config PATH] [PROMPT]");
+                    eprintln!("usage: phantom exec [--agent NAME] [--provider KEY] [--session ID] [--continue] [--json] [--quiet] [--config PATH] [PROMPT]");
+                    eprintln!("       --provider KEY  pin the agent's provider to a [providers.KEY] block for this run (e.g. codex, opencode)");
                     eprintln!("       echo \"...\" | phantom exec     # read prompt from stdin");
                     eprintln!();
                     eprintln!("Headless single-turn agent run. Streams model text to stdout;");
@@ -6326,7 +8662,41 @@ async fn main() -> Result<()> {
             }
         }
 
-        let runtime = app_state.agent_runtime.clone();
+        // `--provider KEY` pins the selected agent's provider ladder to `[KEY]` for THIS
+        // run only (KEY must be a `[providers.KEY]` block in agents.toml). Lets scripts /
+        // satellites pick a backend (codex, opencode, or any configured external gateway) per call without editing
+        // agent blocks. Rebuilds the runtime from a cloned+mutated config; the default
+        // path (no flag) clones the existing runtime byte-for-byte.
+        let runtime = match &provider_override {
+            Some(key) => {
+                let mut cfg = (*app_state.agent_runtime.config()).clone();
+                let Some(entry) = cfg.providers.get(key).cloned() else {
+                    let mut known: Vec<&String> = cfg.providers.keys().collect();
+                    known.sort();
+                    eprintln!(
+                        "error: --provider '{key}' is not defined as a [providers.{key}] block in agents.toml (known: {known:?})"
+                    );
+                    std::process::exit(2);
+                };
+                // Exclusive pin: restrict the available provider set to JUST key so a
+                // --provider run never silently falls back to another backend
+                // (resolve_provider_order step 3 appends all other "available" providers
+                // otherwise). Both the ladder and the available set become [key].
+                cfg.providers = std::collections::HashMap::from([(key.clone(), entry)]);
+                match cfg.agent.get_mut(&agent_name) {
+                    Some(a) => {
+                        a.provider = key.clone();
+                        a.providers = Some(vec![key.clone()]);
+                    }
+                    None => {
+                        eprintln!("error: --provider given but agent '{agent_name}' is not defined in agents.toml");
+                        std::process::exit(2);
+                    }
+                }
+                AgentRuntime::new(cfg)
+            }
+            None => app_state.agent_runtime.clone(),
+        };
         let conversations = ConversationStore::new();
         let cost_tracker = CostTracker::new();
         phantom_mesh::tools::subagent::init_global(runtime.clone(), cost_tracker.clone());
@@ -6487,7 +8857,7 @@ async fn main() -> Result<()> {
             let no_config = phantom_mesh::config::AgentsConfig::find_and_load().is_none()
                 && find_config().is_none();
             if no_config && std::io::stdin().is_terminal() {
-                if let Err(e) = run_first_time_onboarding() {
+                if let Err(e) = run_first_time_onboarding().await {
                     eprintln!("{} onboarding failed: {}", colored("error:", 31), e);
                 }
             }
@@ -6617,7 +8987,7 @@ async fn main() -> Result<()> {
     // First-run onboarding: no agents.toml anywhere → walk through CLI setup.
     // Skipped for one-shot prompts and --list-sessions (those work without LLM).
     if config_content.is_none() && one_shot_prompt.is_none() && !list_sessions {
-        if let Err(e) = run_first_time_onboarding() {
+        if let Err(e) = run_first_time_onboarding().await {
             eprintln!("{} onboarding failed: {}", colored("error:", 31), e);
         }
         config_content = find_config();
@@ -6650,9 +9020,8 @@ async fn main() -> Result<()> {
         if sessions.is_empty() {
             println!("No saved sessions.");
         } else {
-            let home = dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".phantom-mesh")
+            let home = phantom_mesh::cli_config::phantom_data_dir()
+                .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
                 .join("conversations");
             println!("{:<40}  {:>10}", "Session ID", "Size");
             println!("{}", "-".repeat(54));
@@ -6858,56 +9227,20 @@ async fn repl(
     let thinking_session: Arc<std::sync::Mutex<String>> =
         Arc::new(std::sync::Mutex::new(String::new()));
 
-    // Permission allowlist for tools. Entries: tool names ("shell"), or "*"
-    // for all-tools. Set via /perm <a-key> answers when PHANTOM_PERM=ask is on.
-    let perm_allowlist: Arc<std::sync::Mutex<std::collections::HashSet<String>>> =
-        Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
-
-    // Permission rule engine — Tool(specifier) DSL from agents.toml's
-    // `[permissions]` block. Empty/missing block → empty engine, which
-    // returns Allow for everything (preserves the legacy default). Any
-    // rule present switches behaviour to "deny → ask → allow, first
-    // match wins, default Ask". Parse errors are surfaced once at REPL
-    // boot and the engine falls back to empty so the session still
-    // works.
-    let permission_engine: Arc<phantom_mesh::permission::Engine> = {
-        let cfg = phantom_mesh::config::AgentsConfig::find_and_load()
-            .unwrap_or_else(phantom_mesh::config::AgentsConfig::with_defaults);
-        let deny: Vec<&str> = cfg.permissions.deny.iter().map(String::as_str).collect();
-        let ask: Vec<&str> = cfg.permissions.ask.iter().map(String::as_str).collect();
-        let allow: Vec<&str> = cfg.permissions.allow.iter().map(String::as_str).collect();
-        match phantom_mesh::permission::Engine::from_lists(&deny, &ask, &allow) {
-            Ok(e) => {
-                if !e.is_empty() {
-                    eprintln!(
-                        "  {} permission rules loaded: {} active",
-                        colored("◆", 36),
-                        e.rules().len()
-                    );
-                }
-                Arc::new(e)
-            }
-            Err(err) => {
-                eprintln!(
-                    "  {} permission rule parse error — running with no rules: {}",
-                    colored("⚠", 33),
-                    err
-                );
-                Arc::new(phantom_mesh::permission::Engine::new(Vec::new()))
-            }
-        }
-    };
-
-    // Plan mode "approval" handshake: when PLAN_MODE is on, the gate denies
-    // every tool call until the user's input was exactly "go" / "execute" /
-    // "yes". The REPL sets this flag when it sees such an input.
-    let plan_approved: Arc<std::sync::atomic::AtomicBool> =
-        Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // The REPL is interactive: re-install the process-wide tool gate (which
+    // `main` installed in non-interactive/fail-closed mode) as a prompt-capable
+    // gate. This is the SINGLE enforcement chokepoint in `tools::execute`, so
+    // both the top-level turn AND any subagents the REPL spawns inherit it, and
+    // the security policy is read HOME-only (a malicious cwd can't weaken it).
+    // Permission/trust state lives in process-global helpers (gate_allowlist /
+    // GATE_PLAN_APPROVED) shared with the gate + the `/perm` command + the
+    // plan-approval handshake below.
+    phantom_mesh::tool_gate::install(true);
 
     // ── rustyline setup with custom Helper (Tab completion + ghost-hints) ──
     let mut rl: Editor<PhantomHelper, DefaultHistory> = Editor::new()?;
     rl.set_helper(Some(PhantomHelper));
-    let history_path = dirs::home_dir().map(|h| h.join(".phantom-mesh").join("history"));
+    let history_path = phantom_mesh::cli_config::phantom_data_dir().ok().map(|d| d.join("history"));
     if let Some(ref p) = history_path {
         let _ = rl.load_history(p);
     }
@@ -7226,6 +9559,8 @@ async fn repl(
 
                 "/logout" => {
                     let _ = phantom_mesh::auth::delete();
+                    // Also clear the OS-keystore identity master seed (idempotent).
+                    let _ = phantom_mesh::identity_wire::logout_clear_keystore();
                     eprintln!(
                         "  {} logged out (deleted {})",
                         colored("✓", 32),
@@ -7443,9 +9778,9 @@ async fn repl(
                                     .duration_since(std::time::UNIX_EPOCH)
                                     .map(|d| d.as_secs())
                                     .unwrap_or(0);
-                                let dir = dirs::home_dir()
-                                    .unwrap_or_else(|| PathBuf::from("."))
-                                    .join(".phantom-mesh/exports");
+                                let dir = phantom_mesh::cli_config::phantom_data_dir()
+                                    .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+                                    .join("exports");
                                 std::fs::create_dir_all(&dir).ok();
                                 let safe_id: String = chat_id
                                     .chars()
@@ -7944,9 +10279,8 @@ async fn repl(
                     if ids.is_empty() {
                         eprintln!("  No saved sessions.");
                     } else {
-                        let home = dirs::home_dir()
-                            .unwrap_or_else(|| PathBuf::from("."))
-                            .join(".phantom-mesh")
+                        let home = phantom_mesh::cli_config::phantom_data_dir()
+                            .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
                             .join("conversations");
                         // Build (id, size, modified, msg_count) and sort by modified desc
                         let mut rows: Vec<(String, u64, std::time::SystemTime, usize)> = ids
@@ -7965,7 +10299,7 @@ async fn repl(
                                 (id.clone(), size, mtime, msgs)
                             })
                             .collect();
-                        rows.sort_by(|a, b| b.2.cmp(&a.2));
+                        rows.sort_by_key(|r| std::cmp::Reverse(r.2));
                         eprintln!(
                             "  {} {} session{}:",
                             colored("◆", 36),
@@ -8104,9 +10438,8 @@ async fn repl(
                     if sessions.is_empty() {
                         eprintln!("  No saved sessions.");
                     } else {
-                        let home = dirs::home_dir()
-                            .unwrap_or_else(|| PathBuf::from("."))
-                            .join(".phantom-mesh")
+                        let home = phantom_mesh::cli_config::phantom_data_dir()
+                            .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
                             .join("conversations");
                         eprintln!("  {:<40}  {:>10}", "Session ID", "Size");
                         eprintln!("  {}", "-".repeat(54));
@@ -8497,7 +10830,7 @@ async fn repl(
                 }
 
                 "/todo" => {
-                    let path = dirs::home_dir().map(|h| h.join(".phantom-mesh").join("todos.json"));
+                    let path = phantom_mesh::cli_config::phantom_data_dir().ok().map(|d| d.join("todos.json"));
                     let raw = path
                         .as_ref()
                         .and_then(|p| std::fs::read_to_string(p).ok())
@@ -8707,7 +11040,7 @@ async fn repl(
                             );
                         }
                         Some("reset") | Some("clear") => {
-                            if let Ok(mut a) = perm_allowlist.lock() {
+                            if let Ok(mut a) = phantom_mesh::tool_gate::allowlist().lock() {
                                 a.clear();
                             }
                             eprintln!("  {} session allow-list cleared", colored("◆", 32));
@@ -8716,7 +11049,7 @@ async fn repl(
                             let cur =
                                 std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
                             eprintln!("  {} mode: {}", colored("◆", 36), colored(&cur, 36));
-                            if let Ok(a) = perm_allowlist.lock() {
+                            if let Ok(a) = phantom_mesh::tool_gate::allowlist().lock() {
                                 if a.is_empty() {
                                     eprintln!("  {}", colored("session allow-list: (empty)", 90));
                                 } else {
@@ -8992,7 +11325,7 @@ async fn repl(
         let approval_words = ["go", "execute", "yes", "approve", "approved", "do it"];
         let trimmed = prompt.trim().to_lowercase();
         if plan_mode_on && approval_words.iter().any(|w| trimmed == *w) {
-            plan_approved.store(true, std::sync::atomic::Ordering::Relaxed);
+            phantom_mesh::tool_gate::set_plan_approved(true);
             eprintln!(
                 "  {} {}",
                 colored("◆", 32),
@@ -9000,165 +11333,18 @@ async fn repl(
             );
         }
 
-        // Tool-permission gate. Two-tier:
-        //   1. The `[permissions]` rule engine (Tool(specifier) DSL).
-        //      If a rule fires Allow or Deny we honour it directly.
-        //   2. If the engine returns Ask (or has no rules at all), fall
-        //      through to the legacy env-var path: PHANTOM_PERM=ask
-        //      enables the interactive prompt, PHANTOM_PERM=deny denies
-        //      all, PLAN_MODE without approval denies, default allow.
-        let gate_mode = std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
-        let allowlist = perm_allowlist.clone();
-        let plan_approved_clone = plan_approved.clone();
-        let engine_for_gate = permission_engine.clone();
-        let stream_fut = runtime.run_with_callbacks_gated(
+        // Permission/trust enforcement is the process-wide gate installed by
+        // phantom_mesh::tool_gate::install(true) above and applied inside tools::execute — so
+        // BOTH this top-level turn and any subagents it spawns are gated, with
+        // HOME-sourced policy and the interactive y/n/a/A prompt. Use the plain
+        // (non-gated) runner; the chokepoint lives below the agent loop now.
+        let stream_fut = runtime.run_with_callbacks(
             &agent_name,
             &prompt,
             &history,
             Some(&effective_context),
             &cost_tracker,
             handler,
-            move |tool_name, args| {
-                use phantom_mesh::permission::Decision;
-                // Plan mode: block tools unless user just approved with "go".
-                let plan_mode_on = std::env::var("PHANTOM_PLAN_MODE").as_deref() == Ok("1");
-                if plan_mode_on && !plan_approved_clone.load(std::sync::atomic::Ordering::Relaxed) {
-                    return phantom_mesh::agent::ToolGateDecision::Deny(
-                        "Plan mode is active — output the plan as text and stop. \
-                         The user will type 'go' / 'execute' / 'yes' to approve, \
-                         then you may call tools."
-                            .into(),
-                    );
-                }
-
-                // Rule engine first. Allow/Deny short-circuit; Ask falls
-                // through to the legacy env-var + interactive path so the
-                // user can still answer y/n/a/A in the terminal.
-                match engine_for_gate.evaluate(tool_name, args) {
-                    Decision::Allow => return phantom_mesh::agent::ToolGateDecision::Allow,
-                    Decision::Deny(reason) => {
-                        return phantom_mesh::agent::ToolGateDecision::Deny(reason);
-                    }
-                    Decision::Ask => { /* fall through */ }
-                }
-
-                if gate_mode == "deny" {
-                    return phantom_mesh::agent::ToolGateDecision::Deny(format!(
-                        "PHANTOM_PERM=deny — user has globally denied tool execution"
-                    ));
-                }
-                if gate_mode != "ask" && gate_mode != "diff" {
-                    return phantom_mesh::agent::ToolGateDecision::Allow;
-                }
-                // Cached "always" decision?
-                if let Ok(allow) = allowlist.lock() {
-                    if allow.contains("*") || allow.contains(tool_name) {
-                        return phantom_mesh::agent::ToolGateDecision::Allow;
-                    }
-                }
-
-                // PHANTOM_PERM=diff: render a unified diff for file_edit BEFORE
-                // the y/N prompt. For non-file_edit tools, fall through to the
-                // ordinary "ask" prompt below.
-                if gate_mode == "diff" && tool_name == "file_edit" {
-                    if let Some(path_str) = args["path"].as_str() {
-                        let old_str = args["old_string"].as_str().unwrap_or("");
-                        let new_str = args["new_string"].as_str().unwrap_or("");
-                        let replace_all = args["replace_all"].as_bool().unwrap_or(false);
-                        match std::fs::read_to_string(path_str) {
-                            Ok(content) => {
-                                let after = if replace_all {
-                                    content.replace(old_str, new_str)
-                                } else {
-                                    content.replacen(old_str, new_str, 1)
-                                };
-                                if after == content {
-                                    eprintln!();
-                                    eprintln!(
-                                        "  {} {} (old_string not found in {})",
-                                        colored("⚠", 33),
-                                        colored("file_edit", 36),
-                                        colored(path_str, 90)
-                                    );
-                                } else {
-                                    eprintln!();
-                                    eprintln!(
-                                        "  {} {} preview for {}:",
-                                        colored("◆", 35),
-                                        colored("file_edit", 36),
-                                        colored(path_str, 90)
-                                    );
-                                    eprint!(
-                                        "{}",
-                                        phantom_mesh::diff_render::render_unified_diff(
-                                            path_str, &content, &after,
-                                        )
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!();
-                                eprintln!(
-                                    "  {} could not read {} for diff preview: {}",
-                                    colored("⚠", 33),
-                                    colored(path_str, 90),
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-                // Interactive prompt to stderr.
-                let args_summary = serde_json::to_string(args).unwrap_or_default();
-                let args_summary = if args_summary.chars().count() > 200 {
-                    let s: String = args_summary.chars().take(200).collect();
-                    format!("{}…", s)
-                } else {
-                    args_summary
-                };
-                eprintln!();
-                eprintln!(
-                    "  {} run {}({}) ?",
-                    colored("⚠", 33),
-                    colored(tool_name, 36),
-                    colored(&args_summary, 90)
-                );
-                eprint!(
-                    "    {}: [y]es / [n]o / [a]lways this tool / [A]llways all tools : ",
-                    colored("permission", 33)
-                );
-                let _ = std::io::Write::flush(&mut std::io::stderr());
-                let mut buf = String::new();
-                let _ = std::io::stdin().read_line(&mut buf);
-                let ans = buf.trim();
-                match ans {
-                    "y" | "yes" | "" => phantom_mesh::agent::ToolGateDecision::Allow,
-                    "a" => {
-                        if let Ok(mut al) = allowlist.lock() {
-                            al.insert(tool_name.to_string());
-                        }
-                        eprintln!(
-                            "  {} {} added to always-allow list",
-                            colored("◆", 32),
-                            tool_name
-                        );
-                        phantom_mesh::agent::ToolGateDecision::Allow
-                    }
-                    "A" => {
-                        if let Ok(mut al) = allowlist.lock() {
-                            al.insert("*".to_string());
-                        }
-                        eprintln!(
-                            "  {} all tools always-allowed for this session",
-                            colored("◆", 32)
-                        );
-                        phantom_mesh::agent::ToolGateDecision::Allow
-                    }
-                    _ => phantom_mesh::agent::ToolGateDecision::Deny(
-                        "user denied this tool call".into(),
-                    ),
-                }
-            },
         );
         let outcome = tokio::select! {
             biased;
@@ -9172,11 +11358,11 @@ async fn repl(
         };
         let Some(call_result) = outcome else {
             // Stream cancelled — also clear the one-shot plan approval flag.
-            plan_approved.store(false, std::sync::atomic::Ordering::Relaxed);
+            phantom_mesh::tool_gate::set_plan_approved(false);
             continue;
         };
         // Clear the one-shot plan approval after this turn finishes.
-        plan_approved.store(false, std::sync::atomic::Ordering::Relaxed);
+        phantom_mesh::tool_gate::set_plan_approved(false);
         match call_result {
             Ok(result) => {
                 // ── Interactive approval gate ──────────────────────────────
@@ -10263,8 +12449,8 @@ fn complete_path(partial: &str) -> Vec<Pair> {
 async fn run_web_onboarding() -> Result<()> {
     use std::time::Duration;
 
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-    let cfg_path = home.join(".phantom-mesh").join("agents.toml");
+    let data = phantom_mesh::cli_config::phantom_data_dir()?;
+    let cfg_path = data.join("agents.toml");
     let already_existed = cfg_path.exists();
     let initial_mtime = std::fs::metadata(&cfg_path)
         .ok()
@@ -10443,245 +12629,423 @@ fn open_browser(url: &str) -> bool {
     false
 }
 
-/// First-time interactive onboarding. Walks the user through provider setup
-/// and writes a minimal ~/.phantom-mesh/agents.toml. Skipped if a config
-/// already exists somewhere on the search path.
-fn run_first_time_onboarding() -> Result<()> {
-    use phantom_mesh::i18n::{self, Lang};
+/// First-time interactive onboarding (English-only). Walks a fresh install
+/// through the mesh-node flow and writes ~/.phantom-mesh/agents.toml:
+///
+///   ① account login   — Google/Apple via the phantommesh.io broker
+///                        (loopback callback); falls back to direct Google
+///                        loopback when the broker is offline.
+///   ② identity + node  — mint/persist the ed25519 master identity, then
+///                        spawn a detached `phantom serve` (which binds
+///                        127.0.0.1:7878 and mDNS-advertises this machine
+///                        as a mesh node).
+///   ③ LLM select       — detect already-signed-in subscription CLIs
+///                        (Claude / Codex/ChatGPT / Gemini) + any local
+///                        Ollama, pick a priority order. No keys are pasted;
+///                        the runtime sources subscription tokens live.
+///   ④ write + doctor   — write the config, then run `phantom doctor`.
+///   ⑤ REPL             — return Ok so the caller falls into the TUI/REPL.
+///
+/// Skipped (by the caller) if a config already exists on the search path.
+///
+/// Stage 1 scope: single node + advertise. Cross-device vault E2EE sync and
+/// peer-join are Stage 2 (see the TODO at the end of step ②).
+async fn run_first_time_onboarding() -> Result<()> {
+    use phantom_mesh::onboarding_wire::{
+        ranked_onboarding_providers, SUBSCRIPTION_CLI_SIGNIN_COMMANDS,
+    };
     use rustyline::DefaultEditor;
-    use std::io::Write;
 
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home dir"))?;
-    let cfg_dir = home.join(".phantom-mesh");
+    let cfg_dir = phantom_mesh::cli_config::phantom_data_dir()?;
     std::fs::create_dir_all(&cfg_dir)?;
     let cfg_path = cfg_dir.join("agents.toml");
 
     let mut rl = DefaultEditor::new()?;
 
-    // ── Step 0: language ──────────────────────────────────────────────
-    // Ask first + persist immediately so the choice drives every later run +
-    // the TUI. `current_lang()` is process-cached, so we ALSO thread the picked
-    // value through a local `t()` to localize the rest of THIS session's prose.
-    eprintln!();
-    eprintln!("  {} / {}", colored("Language", 36), colored("語言", 36));
-    eprintln!("    1) English");
-    eprintln!("    2) 繁體中文 (Traditional Chinese)");
-    let lang = match rl.readline("  Choose / 選擇 [1/2] (default 1): ") {
-        Ok(s) if s.trim() == "2" => Lang::ZhTw,
-        _ => Lang::En,
-    };
-    if let Err(e) = i18n::set_persisted_lang(lang) {
-        eprintln!("  {} could not save language / 無法儲存語言: {}", colored("⚠", 33), e);
-    }
-    let t = |en: &'static str, zh: &'static str| if lang == Lang::ZhTw { zh } else { en };
-
     eprintln!();
     eprintln!(
         "  {} {}",
         colored("phantom", 35),
-        colored(t("— first-time setup", "— 初次設定"), 90)
+        colored("— first-time setup", 90)
     );
     eprintln!();
-    eprintln!(
-        "  {}",
-        t(
-            "Welcome. Let's configure at least one LLM provider.",
-            "歡迎。先設定至少一個 LLM（大型語言模型）供應商。",
-        )
-    );
-    eprintln!("  {}{}", t("This will create ", "這會建立 "), cfg_path.display());
-    eprintln!();
-    eprintln!("  {}", t("Free options:", "免費選項："));
-    eprintln!(
-        "    {} Groq    — {} (Llama 3.3 70B, ~250 tok/s)",
-        colored("•", 36),
-        colored("https://console.groq.com", 90)
-    );
-    eprintln!(
-        "    {} Gemini  — {} (long-context, daily quota)",
-        colored("•", 36),
-        colored("https://aistudio.google.com", 90)
-    );
+    eprintln!("  Let's turn this machine into a phantom mesh node.");
+    eprintln!("  {}{}", "This will create ", cfg_path.display());
     eprintln!();
 
-    let groq_key = match rl.readline(t(
-        "  Groq API key (paste, or leave blank to skip): ",
-        "  Groq API 金鑰（貼上，或留空略過）：",
-    )) {
-        Ok(s) => s.trim().to_string(),
-        Err(_) => String::new(),
-    };
-    let gemini_key = match rl.readline(t(
-        "  Gemini API key (paste, or leave blank to skip): ",
-        "  Gemini API 金鑰（貼上，或留空略過）：",
-    )) {
-        Ok(s) => s.trim().to_string(),
-        Err(_) => String::new(),
-    };
+    // TALK-FIRST: account login is the only step that hits the network/broker,
+    // so it is moved to the END (Step 4/4, optional soft-prompt) — it must NOT
+    // block the user from getting a provider and chatting. Steps now run:
+    //   1) choose an LLM  2) write config (chat-ready)  3) device identity + node
+    //   4) (optional) sign in for cross-device sync.
 
-    if groq_key.is_empty() && gemini_key.is_empty() {
-        eprintln!();
-        eprintln!(
-            "  {} {}",
+    // ── Step ① identity + serve + mDNS ──────────────────────────────────
+    // Mint/persist the real ed25519 master identity (same impl as
+    // `phantom keys init`), then spawn a detached `phantom serve` — serve
+    // owns the daemon lifecycle and starts the mDNS advertise itself, so the
+    // wizard does NOT advertise inline.
+    eprintln!("  {} Step 1/4  Device identity + mesh node", colored("◆", 35));
+    // `#[allow(deprecated)]`: `identity::init` returns the legacy file-based
+    // `InitOutcome` (created + pub_hex), which is the WORKING ed25519 keypair
+    // generator the `phantom keys init` CLI uses today. The SPEC-12 wire shape
+    // (`identity_wire::build_init_outcome`) is still Stage-2 stub (its keystore
+    // helpers `unimplemented!()`), so we deliberately use the live impl here.
+    #[allow(deprecated)]
+    match phantom_mesh::identity::init(false) {
+        Ok(outcome) => {
+            if outcome.created {
+                eprintln!("    {} ed25519 identity created", colored("✓", 32));
+            } else {
+                eprintln!("    {} ed25519 identity (existing)", colored("✓", 32));
+            }
+            eprintln!("    {}  {}", colored("fingerprint:", 90), outcome.pub_hex);
+        }
+        Err(e) => {
+            eprintln!(
+                "    {} identity init skipped: {} — continuing",
+                colored("⚠", 33),
+                e
+            );
+        }
+    }
+    // Start the node daemon detached. `serve` binds 127.0.0.1:7878 and
+    // mDNS-advertises this machine (advertise_mdns → platform::mdns_advertise).
+    match std::env::current_exe() {
+        Ok(self_exe) => {
+            // Redirect serve's output to ~/.phantom-mesh/serve.log (and detach
+            // stdin) so the daemon's startup/tracing lines don't bleed into the
+            // wizard's terminal.
+            let (out, errout) = phantom_mesh::cli_config::serve_log_stdio();
+            match std::process::Command::new(&self_exe)
+                .arg("serve")
+                .stdin(std::process::Stdio::null())
+                .stdout(out)
+                .stderr(errout)
+                .spawn()
+            {
+                Ok(child) => eprintln!(
+                    "    {} started `phantom serve` (pid {}) — mDNS advertising on the LAN",
+                    colored("✓", 32),
+                    child.id()
+                ),
+                Err(e) => eprintln!(
+                    "    {} could not start serve: {} — run `phantom serve` manually",
+                    colored("⚠", 33),
+                    e
+                ),
+            }
+        }
+        Err(e) => eprintln!(
+            "    {} could not locate phantom binary: {} — run `phantom serve` manually",
             colored("⚠", 33),
-            t(
-                "no providers configured — phantom will start but cannot call any LLM.",
-                "未設定供應商 — phantom 仍會啟動，但無法呼叫任何 LLM。",
-            )
-        );
+            e
+        ),
+    }
+    // TODO(stage 2): vault E2EE cross-device sync + interactive peer-join.
+    // Stage 1 ships single-node + advertise only; peers discover this node
+    // via mDNS and (once logged in) the broker peer registry.
+    eprintln!();
+
+    // ── Step ② LLM select + priority ────────────────────────────────────
+    // Subscription "login" = detection-only reuse of the official CLIs'
+    // cached tokens (no in-process OAuth, no key paste). The runtime sources
+    // the live token at call time for claude_cli / codex_oauth / gemini_oauth.
+    eprintln!("  {} Step 2/4  Choose your LLMs", colored("◆", 35));
+    // Run the three (synchronous) credential finders + the async local-server
+    // probe. Finders touch the filesystem/Keychain; keep them cheap + inline.
+    let has_claude = phantom_mesh::providers::claude_cli::find_claude_token().is_some();
+    let has_codex = phantom_mesh::providers::codex_cli::find_codex_auth().is_some();
+    let has_gemini = phantom_mesh::providers::gemini_cli::find_gemini_auth().is_some();
+    let local_servers = phantom_mesh::providers::local_servers::detect_local_servers().await;
+    let ollama_detected = local_servers.iter().any(|s| s.name == "ollama");
+
+    // (provider_block_name, human label, detected?, upstream-CLI one-liner)
+    let subs: [(&str, &str, bool, &str); 3] = [
+        ("claude_cli", "Claude (Claude Code subscription)", has_claude, "claude"),
+        ("codex_oauth", "ChatGPT (Codex / Sign in with ChatGPT)", has_codex, "codex"),
+        ("gemini_oauth", "Gemini (Gemini CLI)", has_gemini, "gemini"),
+    ];
+
+    let detected: Vec<(&str, &str)> = subs
+        .iter()
+        .filter(|(_, _, ok, _)| *ok)
+        .map(|(name, label, _, _)| (*name, *label))
+        .collect();
+
+    if detected.is_empty() {
+        eprintln!("    {} no subscription CLIs are signed in yet.", colored("◇", 90));
         eprintln!(
-            "  {}{}{}",
-            t("Edit ", "之後可編輯 "),
-            cfg_path.display(),
-            t(" later to add providers.", " 來新增供應商。")
+            "      Sign in with these exact CLIs: {}",
+            SUBSCRIPTION_CLI_SIGNIN_COMMANDS.join(" / ")
         );
-        // Still write a stub so subsequent runs don't re-prompt
-        let stub =
-            "# phantom-mesh agents.toml — add at least one [[providers]] block to use phantom.\n\
-                    # See: https://github.com/markl-a/phantom-mesh/blob/main/docs/INTEGRATIONS.md\n\
-                    \n\
-                    [core]\n\
-                    host = \"127.0.0.1\"\n\
-                    port = 7878\n";
-        std::fs::write(&cfg_path, stub)?;
-        eprintln!();
-        return Ok(());
-    }
-
-    let mut toml = String::new();
-    toml.push_str("# phantom-mesh agents.toml — generated by first-time setup\n\n");
-    toml.push_str("[core]\n");
-    toml.push_str("host = \"127.0.0.1\"\n");
-    toml.push_str("port = 7878\n\n");
-
-    let primary_provider = if !groq_key.is_empty() {
-        "groq"
+        eprintln!("      Ollama is the local fallback and is ranked last.");
     } else {
-        "gemini"
-    };
-
-    if !groq_key.is_empty() {
-        toml.push_str("[providers.groq]\n");
-        toml.push_str("type = \"groq\"\n");
-        toml.push_str(&format!("api_key = \"{}\"\n", groq_key));
-        toml.push_str("default_model = \"llama-3.3-70b-versatile\"\n\n");
+        eprintln!("    Detected (already signed in):");
+        for (i, (_, label)) in detected.iter().enumerate() {
+            eprintln!("      {} {}. {}", colored("✓", 32), i + 1, label);
+        }
     }
-    if !gemini_key.is_empty() {
-        toml.push_str("[providers.gemini]\n");
-        toml.push_str("type = \"gemini\"\n");
-        toml.push_str(&format!("api_key = \"{}\"\n", gemini_key));
-        toml.push_str("default_model = \"gemini-2.5-flash\"\n\n");
+    // Tell the user how to enable the ones we couldn't detect.
+    let missing: Vec<&str> = subs
+        .iter()
+        .filter(|(_, _, ok, _)| !*ok)
+        .map(|(_, _, _, cli)| *cli)
+        .collect();
+    if !missing.is_empty() {
+        eprintln!(
+            "    {} to add more, run once then re-run `phantom`: {}",
+            colored("›", 90),
+            missing
+                .iter()
+                .map(|c| format!("`{}`", c))
+                .collect::<Vec<_>>()
+                .join("  ")
+        );
+    }
+    if let Some(o) = local_servers.iter().find(|s| s.name == "ollama") {
+        eprintln!(
+            "    {} local Ollama detected at {} ({} model(s)) — added as always-on fallback",
+            colored("✓", 32),
+            o.base_url,
+            o.models.len()
+        );
+    } else {
+        eprintln!(
+            "    {} local Ollama fallback configured last (start `ollama serve` any time)",
+            colored("◇", 90)
+        );
     }
 
-    // Default agent block so REPL has something to call
-    toml.push_str("[agent.master]\n");
-    toml.push_str(&format!("provider = \"{}\"\n", primary_provider));
-    toml.push_str("instructions = \"You are phantom, a helpful AI agent.\"\n");
+    // ── Free cloud LLM plugin (default-on) ──────────────────────────────────
+    // Give a brand-new user with no subscription and no local Ollama a working,
+    // FREE (no-credit-card) provider so the partner answers minute-one. Two
+    // honest paths, no false-green:
+    //   (a) a free key already in the environment → zero further input;
+    //   (b) otherwise — only when there is NO other provider at all, so we never
+    //       nag users who are already set — guide a ~1-minute free-key paste.
+    use phantom_mesh::providers::free_plugin;
+    let mut free: Option<&'static free_plugin::FreeProvider> = free_plugin::detect_free_from_env();
+    // (block-name, pasted-key) to persist via the escaping keys API after write.
+    let mut free_key_to_persist: Option<(&'static str, String)> = None;
+    if let Some(fp) = free {
+        eprintln!(
+            "    {} free cloud provider {} detected from ${} — added as a cloud fallback",
+            colored("✓", 32),
+            fp.display,
+            fp.api_key_env
+        );
+    } else if detected.is_empty() && !ollama_detected {
+        let rec = free_plugin::default_free_provider();
+        eprintln!(
+            "    {} No LLM configured yet. {} has a FREE tier (no credit card) — ~1 min to a key:",
+            colored("◆", 35),
+            rec.display
+        );
+        eprintln!("      1) get a free key: {}", colored(rec.get_key_url, 36));
+        eprintln!("      2) paste it here, or leave blank to use local Ollama only");
+        let pasted = rl
+            .readline(&format!("    paste {} API key (blank to skip): ", rec.display))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if !pasted.is_empty() {
+            free = Some(rec);
+            free_key_to_persist = Some((rec.slug, pasted));
+            eprintln!(
+                "    {} {} set as your free provider (you can change it later)",
+                colored("✓", 32),
+                rec.display
+            );
+        } else {
+            eprintln!(
+                "    {} skipped — add a free key any time with `phantom keys set {}`",
+                colored("◇", 90),
+                rec.slug
+            );
+        }
+    }
 
-    let mut f = std::fs::File::create(&cfg_path)?;
-    f.write_all(toml.as_bytes())?;
-
+    // Priority order. Default = detection order above. Let the user reorder
+    // with a simple comma-separated list of the displayed numbers.
+    let mut ordered: Vec<&str> = ranked_onboarding_providers(has_claude, has_codex, has_gemini)
+        .into_iter()
+        .filter(|name| *name != "local-ollama")
+        .collect();
+    if ordered.len() > 1 {
+        eprintln!(
+            "    Set priority (tried in order). Enter numbers e.g. \"2,1,3\", or blank to keep as shown:"
+        );
+        let line = rl
+            .readline("    order: ")
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if !line.is_empty() {
+            let mut reordered: Vec<&str> = Vec::new();
+            for tok in line.split(',') {
+                if let Ok(idx) = tok.trim().parse::<usize>() {
+                    if idx >= 1 && idx <= ordered.len() {
+                        let pick = ordered[idx - 1];
+                        if !reordered.contains(&pick) {
+                            reordered.push(pick);
+                        }
+                    }
+                }
+            }
+            // Append any the user omitted so nothing is silently dropped.
+            for name in &ordered {
+                if !reordered.contains(name) {
+                    reordered.push(name);
+                }
+            }
+            if !reordered.is_empty() {
+                ordered = reordered;
+            }
+        }
+    }
     eprintln!();
-    eprintln!("  {} {}{}", colored("✓", 32), t("wrote ", "已寫入 "), cfg_path.display());
-    eprintln!();
 
-    // Run a one-shot health check so the user sees green ticks before
-    // the REPL starts. Captures stdout/stderr from the subprocess so we
-    // can present it inside our outer ceremony.
-    eprintln!(
-        "  {} {}",
-        colored("◆", 36),
-        t("running `phantom doctor` to verify…", "執行 `phantom doctor` 驗證中…")
-    );
+    // ── Step ③ write config + doctor (you can chat after this) ──────────
+    eprintln!("  {} Step 3/4  Write config — you can start chatting after this", colored("◆", 35));
+    let active_provider = write_onboarding_config(
+        &cfg_path,
+        &ordered,
+        local_servers.iter().find(|s| s.name == "ollama"),
+        free,
+    )?;
+    eprintln!("    {} wrote {}", colored("✓", 32), cfg_path.display());
+    // Persist a pasted free key via the escaping keys API (never string-built
+    // into the config) so the runtime sources it on the very first chat.
+    if let Some((slug, key)) = &free_key_to_persist {
+        match phantom_mesh::keys::set_api_key(&cfg_path, slug, key) {
+            Ok(()) => {
+                eprintln!("    {} saved free key for {}", colored("✓", 32), slug);
+                // Opt-in cross-device sync. Only OFFER when already logged in —
+                // never nag the no-account local user (free-tier's whole point).
+                // When logged in, push just this one key (sealed) to the vault so
+                // the user's other machines pick it up via the generic pull.
+                let env_var = phantom_mesh::cli_config::provider_env_var_name(slug);
+                match phantom_mesh::cli_config::broker_auth() {
+                    Some((url, token)) => {
+                        let ans = rl
+                            .readline(&format!(
+                                "    {} sync {} to your other machines via your vault? [y/N]: ",
+                                colored("◆", 36),
+                                env_var
+                            ))
+                            .map(|s| s.trim().to_ascii_lowercase())
+                            .unwrap_or_default();
+                        if ans == "y" || ans == "yes" {
+                            match phantom_mesh::cli_config::push_single_key_to_vault(
+                                &url, &token, &env_var, key,
+                            )
+                            .await
+                            {
+                                Ok(msg) => eprintln!("    {}", msg),
+                                Err(e) => eprintln!(
+                                    "    {} sync skipped: {} — push later with `phantom config push`",
+                                    colored("⚠", 33),
+                                    e
+                                ),
+                            }
+                        } else {
+                            eprintln!(
+                                "    {} not synced — push later with `phantom config push`",
+                                colored("◇", 90)
+                            );
+                        }
+                    }
+                    None => eprintln!(
+                        "    {} tip: `phantom login` then `phantom config push` to sync keys across your machines",
+                        colored("◇", 90)
+                    ),
+                }
+            }
+            Err(e) => eprintln!(
+                "    {} could not save free key: {} — set it later with `phantom keys set {}`",
+                colored("⚠", 33),
+                e,
+                slug
+            ),
+        }
+    }
+    if !ollama_detected && ordered.is_empty() {
+        eprintln!(
+            "    {} no subscription CLI detected; active provider is the Ollama fallback",
+            colored("◇", 90)
+        );
+    }
+    eprintln!("    {} running `phantom doctor`…", colored("◆", 36));
     if let Ok(self_exe) = std::env::current_exe() {
         let _ = std::process::Command::new(&self_exe).arg("doctor").status();
     }
     eprintln!();
 
-    // Surface the next 3 things the user can do, sorted by impact.
-    eprintln!("  {} {}", colored("→", 36), colored(t("Next steps:", "接下來："), 36));
-    eprintln!("    {} {}", colored("1.", 36), t("Take phantom for a spin:", "試用 phantom："));
-    eprintln!("       phantom              # interactive TUI");
-    eprintln!("       phantom 'summarize this repo'   # one-shot");
-    eprintln!();
-    eprintln!(
-        "    {} {} ({}):",
-        colored("2.", 36),
-        t("Make it survive a reboot", "讓它在重開機後自動啟動"),
-        std::env::consts::OS
-    );
-    #[cfg(target_os = "macos")]
-    eprintln!("       phantom service install      # launchd auto-start");
-    #[cfg(target_os = "linux")]
-    eprintln!("       phantom service install      # systemd --user unit");
-    #[cfg(target_os = "windows")]
-    eprintln!("       phantom service install      # Scheduled Task");
-    eprintln!();
-    eprintln!(
-        "    {} {}",
-        colored("3.", 36),
-        t("(Optional) hourly self-improvement loop:", "（選用）每小時自我改進迴圈：")
-    );
-    eprintln!("       phantom autoevolve schedule install");
-    eprintln!();
-
-    // Offer login as a final step — this lets the user reach the
-    // phantommesh.io broker (or local-only email) right out of the
-    // wizard, saving a separate `phantom login` invocation.
-    eprintln!(
-        "    {} {}",
-        colored("4.", 36),
-        t(
-            "(Optional) link this device to your phantom-mesh account",
-            "（選用）將此裝置連結到你的 phantom-mesh 帳號",
-        )
-    );
-    eprintln!(
-        "       {}",
-        t(
-            "— needed for cross-device mesh discovery + iPhone access",
-            "— 跨裝置 mesh 探索與 iPhone 存取所需",
-        )
-    );
-    let already = phantom_mesh::auth::load().is_some();
-    if already {
-        let s = phantom_mesh::auth::load().unwrap();
+    // ── Step ④ (optional) sign in for cross-device sync ─────────────────
+    // TALK-FIRST: login is the LAST step and DEFAULTS TO SKIP — you're already
+    // set up to chat. Sign in only if you want cross-device mesh + broker sync;
+    // everything works local-only without it.
+    eprintln!("  {} Step 4/4  (optional) Sign in for cross-device sync", colored("◆", 35));
+    if let Some(s) = phantom_mesh::auth::load() {
         eprintln!(
-            "       (already logged in: {})",
+            "    {} already signed in: {}",
+            colored("✓", 32),
             phantom_mesh::auth::human_summary(&s)
         );
     } else {
-        // Inline prompt — readline is fine here, this whole onboarding
-        // function already uses it above.
-        let go = rl
-            .readline("       run `phantom login` now? [Y/n]: ")
-            .map(|s| s.trim().to_lowercase())
+        eprintln!("      Sign in (Google / Apple / email — opens browser) to sync across devices,");
+        eprintln!("      or just skip — local-only works fully.");
+        let pick = rl
+            .readline("    sign in now? [y/N]: ")
+            .map(|s| s.trim().to_string())
             .unwrap_or_default();
-        if go.is_empty() || go == "y" || go == "yes" {
-            // Spawn phantom login as a subprocess so we share OAuth state
-            // implementation in one place. stdio inherits, so the user
-            // gets the full flow (browser, prompts).
-            if let Ok(self_exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(&self_exe).arg("login").status();
+        if pick.eq_ignore_ascii_case("y") || pick.eq_ignore_ascii_case("yes") {
+            match onboarding_account_login(None).await {
+                Ok(()) => {
+                    if let Some(s) = phantom_mesh::auth::load() {
+                        eprintln!(
+                            "    {} signed in: {}",
+                            colored("✓", 32),
+                            phantom_mesh::auth::human_summary(&s)
+                        );
+                    }
+                }
+                Err(e) => eprintln!(
+                    "    {} sign-in skipped: {} — run `phantom auth login` any time",
+                    colored("⚠", 33),
+                    e
+                ),
             }
         } else {
-            eprintln!("       (skip — run `phantom login` later)");
+            eprintln!(
+                "      {} skipped — sign in any time with `phantom auth login`",
+                colored("◇", 90)
+            );
         }
     }
     eprintln!();
+
+    // ── Step ⑤ REPL ─────────────────────────────────────────────────────
+    // Caller resumes into tui::launch_default() (the interactive REPL).
     eprintln!(
-        "  {}  more docs at ~/.phantom-mesh/agents.toml + docs/",
-        colored("›", 90)
+        "  {} you're set — active provider: {}; re-run onboarding with `phantom logout --reset-onboarding`",
+        colored("✓", 32),
+        active_provider
     );
+    eprintln!("  {} starting phantom…", colored("›", 36));
     eprintln!();
     Ok(())
 }
 
+// `onboarding_default_model` + `write_onboarding_config` moved to the core lib
+// (`phantom_mesh::onboarding_config`) so the CLI + GUI onboarding surfaces share
+// ONE writer (unified onboarding design §8.1). Imported at the crate top; the
+// call site in `run_first_time_onboarding` and the onboarding tests below use
+// the imported names unchanged.
+
 /// Find the most recently modified session file in ~/.phantom-mesh/conversations/
 /// Returns the session ID (file stem) or None if the directory is empty.
 fn find_last_session() -> Option<String> {
-    let dir = dirs::home_dir()?
-        .join(".phantom-mesh")
+    let dir = phantom_mesh::cli_config::phantom_data_dir()
+        .ok()?
         .join("conversations");
     std::fs::read_dir(&dir)
         .ok()?
@@ -10703,16 +13067,49 @@ fn find_last_session() -> Option<String> {
         .map(|(_, id)| id)
 }
 
+/// `phantom logout --reset-onboarding` helper: remove the home config file so
+/// the next launch re-runs first-time onboarding. The onboarding gate fires
+/// only when BOTH `find_config()` and `AgentsConfig::find_and_load()` return
+/// None, and both read `~/.phantom-mesh/agents.toml` — so removing it is what
+/// re-arms onboarding. Existence-guarded (a missing file is a clean no-op),
+/// mirroring `auth::delete()`. Returns the removed path, or None if nothing
+/// was there. Tested against a throwaway temp path, never the real config.
+fn reset_onboarding_config_at(
+    path: &std::path::Path,
+) -> std::io::Result<Option<std::path::PathBuf>> {
+    if path.exists() {
+        std::fs::remove_file(path)?;
+        Ok(Some(path.to_path_buf()))
+    } else {
+        Ok(None)
+    }
+}
+
 fn find_config() -> Option<String> {
     let cwd_path = std::env::current_dir().ok()?.join("agents.toml");
     if cwd_path.exists() {
         return std::fs::read_to_string(cwd_path).ok();
     }
-    let home_path = dirs::home_dir()?.join(".phantom-mesh").join("agents.toml");
+    let home_path = phantom_mesh::cli_config::phantom_data_dir().ok()?.join("agents.toml");
     if home_path.exists() {
         return std::fs::read_to_string(home_path).ok();
     }
     None
+}
+
+/// Parse an `HH:MM` (24-hour) local time into a validated [`CoachSchedule`].
+/// Used by `phantom serve --coach-at` (and mirrors the inline parse in `coach
+/// schedule`/`install-schedule`). Returns the human-readable reason on a
+/// malformed value so the caller can print it and exit non-zero.
+fn parse_hh_mm(
+    s: &str,
+) -> Result<phantom_mesh::life_node::coach_scheduler::CoachSchedule, String> {
+    let (h, m) = s
+        .split_once(':')
+        .ok_or_else(|| format!("must be HH:MM, got {s}"))?;
+    let hour: u8 = h.parse().map_err(|_| format!("hour not a number: {s}"))?;
+    let minute: u8 = m.parse().map_err(|_| format!("minute not a number: {s}"))?;
+    phantom_mesh::life_node::coach_scheduler::CoachSchedule::new(hour, minute)
 }
 
 // ── `phantom service` — macOS launchd auto-start ─────────────────────────────
@@ -10848,17 +13245,17 @@ mod env_propagation_tests {
 
 // ── T10: `phantom skill run` implementation ──────────────────────────────
 //
-// Feature-gated: when `experimental-hermes-curator` is OFF, the function
+// Feature-gated: when `experimental-curator` is OFF, the function
 // just prints a friendly error and exits 1.
 
-#[cfg(feature = "experimental-hermes-curator")]
+#[cfg(feature = "experimental-curator")]
 async fn run_phantom_skill(
     path: &str,
     dry_run: bool,
-    mode: phantom_mesh::hermes::ExecutionMode,
+    mode: phantom_mesh::skillbank::ExecutionMode,
 ) -> anyhow::Result<()> {
-    use phantom_mesh::hermes::skill::parse_str;
-    use phantom_mesh::hermes::{ExecutionOpts, SkillExecutor, StepOutcome};
+    use phantom_mesh::skillbank::skill::parse_str;
+    use phantom_mesh::skillbank::{ExecutionOpts, SkillExecutor, StepOutcome};
 
     let raw = std::fs::read_to_string(path)
         .map_err(|e| anyhow::anyhow!("read skill file {path}: {e}"))?;
@@ -10947,13 +13344,13 @@ async fn run_phantom_skill(
     Ok(())
 }
 
-#[cfg(not(feature = "experimental-hermes-curator"))]
+#[cfg(not(feature = "experimental-curator"))]
 async fn run_phantom_skill(_path: &str, _dry_run: bool, _mode: ()) -> anyhow::Result<()> {
     eprintln!(
-        "  {} this binary was built without `experimental-hermes-curator`.",
+        "  {} this binary was built without `experimental-curator`.",
         colored("✗", 31)
     );
-    eprintln!("      Rebuild with: cargo build --features experimental-hermes-curator");
+    eprintln!("      Rebuild with: cargo build --features experimental-curator");
     std::process::exit(1);
 }
 
@@ -11335,6 +13732,10 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
                     format!("正在探測中介伺服器 {} …", broker),
                 ));
                 let probe = reqwest::Client::builder()
+                    // I2: bound BOTH the connect and the overall request so a
+                    // black-holed DNS / SYN-drop can't hang the CLI. connect_timeout
+                    // caps the TCP/TLS handshake; timeout caps the whole exchange.
+                    .connect_timeout(std::time::Duration::from_secs(2))
                     .timeout(std::time::Duration::from_secs(3))
                     .build()
                     .ok()
@@ -11354,7 +13755,7 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
                 };
 
                 if online {
-                    return login_broker(&broker).await;
+                    return login_broker(&broker, None).await;
                 }
                 eprintln!(
                     "  {} {}",
@@ -11369,6 +13770,19 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
                     "（設 PHANTOM_AUTH_URL='' 可略過中介伺服器探測）",
                 ));
                 eprintln!();
+            }
+            // I2: the menu below blocks on rl.readline(). In a non-TTY context
+            // (piped stdin, CI, a service) that would either spin on empty stdin
+            // or hang forever, so fail fast with the explicit-provider remedy
+            // instead. A terminal user still gets the interactive picker.
+            if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+                anyhow::bail!(
+                    "{}",
+                    tr(
+                        "phantom login needs a terminal for the provider menu. Pass one explicitly, e.g. `phantom login email` (local-only) or `phantom login google`.",
+                        "phantom login 的供應商選單需要終端機。請明確指定，例如 `phantom login email`（純本機）或 `phantom login google`。",
+                    )
+                );
             }
             eprintln!(
                 "{}",
@@ -11399,25 +13813,107 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
 
     match provider.as_str() {
         "email" => login_email().await,
-        "google" => login_google().await,
+        // Decision 1 (unified login path): `phantom login google` goes
+        // broker-first too — onboarding_account_login probes the broker and
+        // uses it when up (one canonical OAuth path), only falling back to the
+        // direct Google loopback when the broker is offline.
+        "google" => onboarding_account_login(Some("google")).await,
         "broker" => {
             let broker = std::env::var("PHANTOM_AUTH_URL")
                 .unwrap_or_else(|_| "https://phantommesh.io".to_string());
-            login_broker(&broker).await
+            login_broker(&broker, None).await
         }
         "apple" => {
-            eprintln!(
-                "{} Apple login requires an HTTPS redirect server.",
-                colored("⚠", 33)
-            );
-            eprintln!("    Lands when the phantommesh.io broker exposes /auth/apple.");
-            eprintln!("    For now, use:");
-            eprintln!("      phantom login email     # local-only");
-            eprintln!("      phantom login google    # OAuth loopback");
-            std::process::exit(1);
+            // Apple needs an HTTPS redirect (Apple rejects loopback), so there
+            // is no direct CLI loopback path — it routes through the broker
+            // (which owns /auth/apple + form_post). Going via
+            // onboarding_account_login adds the Decision-2 graceful guard:
+            // if the broker is offline OR has no Apple provider configured, it
+            // fails fast with a clear message instead of a 5-minute hang.
+            onboarding_account_login(Some("apple")).await
         }
         _ => unreachable!(),
     }
+}
+
+/// Wizard-callable account login (Step ① of first-time onboarding).
+///
+/// Mirrors the zero-arg routing in `run_login` (probe the phantommesh.io
+/// broker, then run the broker OAuth dance which uniformly covers
+/// Google/Apple/email), but is a plain fn the onboarding wizard can `.await`
+/// directly instead of shelling out to `phantom login`. With no provider hint
+/// (the first-run wizard path), broker-offline is surfaced as an error so the
+/// caller can continue as an explicit local-only node instead of silently
+/// changing the login product surface. Never panics.
+///
+/// `provider_hint` (`Some("apple")` / `Some("google")`) is forwarded to the
+/// broker so it can skip its picker page; `None` lets the broker show its
+/// full picker.
+pub(crate) async fn onboarding_account_login(provider_hint: Option<&str>) -> anyhow::Result<()> {
+    let broker = std::env::var("PHANTOM_AUTH_URL")
+        .unwrap_or_else(|_| "https://phantommesh.io".to_string());
+
+    if !broker.is_empty() {
+        eprintln!("  {} probing broker {} …", colored("◆", 35), broker);
+        // GET /api/health once: decide broker-up (status success) AND read the
+        // advertised `providers` list. Mirrors run_login's probe (3s timeout).
+        let health_body: Option<String> = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+        {
+            Ok(c) => {
+                let url = format!("{}/api/health", broker.trim_end_matches('/'));
+                match c.get(&url).send().await {
+                    Ok(r) if r.status().is_success() => r.text().await.ok(),
+                    _ => None,
+                }
+            }
+            Err(_) => None,
+        };
+        let online = health_body.is_some();
+        if online {
+            // Decision 2 (graceful Apple): if Apple was requested but the broker
+            // does NOT advertise an `apple` provider, fail fast with a clear
+            // message instead of opening a flow whose callback never fires
+            // (which would otherwise hang for the full 5-minute loopback wait).
+            if provider_hint == Some("apple") {
+                let apple_ok = health_body
+                    .as_deref()
+                    .and_then(|b| serde_json::from_str::<serde_json::Value>(b).ok())
+                    .and_then(|v| {
+                        v.get("providers")
+                            .and_then(|p| p.as_array())
+                            .map(|a| a.iter().any(|x| x.as_str() == Some("apple")))
+                    })
+                    .unwrap_or(false);
+                if !apple_ok {
+                    anyhow::bail!(
+                        "Apple sign-in isn't available yet — the broker has no Apple provider \
+                         configured. Use Google for now (`phantom login google`)."
+                    );
+                }
+            }
+            return login_broker(&broker, provider_hint).await;
+        }
+        eprintln!("  {} broker offline", colored("◇", 90));
+        if provider_hint.is_none() {
+            anyhow::bail!(
+                "phantommesh.io login broker is unavailable; choose Skip for a local-only node"
+            );
+        }
+    }
+
+    // Broker unreachable (or suppressed via PHANTOM_AUTH_URL=''): Apple/email
+    // have no direct broker-sync path here, so only explicit Google works
+    // offline for the legacy `phantom login google` command.
+    if provider_hint.is_none() {
+        anyhow::bail!("phantommesh.io login broker is disabled; choose Skip for a local-only node");
+    }
+    // If the caller asked specifically for Apple, surface that clearly.
+    if provider_hint == Some("apple") {
+        anyhow::bail!("Apple sign-in needs the phantommesh.io broker, which is offline right now");
+    }
+    login_google().await
 }
 
 /// `phantom login broker` — delegate the OAuth dance to phantommesh.io
@@ -11430,7 +13926,11 @@ async fn run_login(args: &[String]) -> anyhow::Result<()> {
 ///   GET  /api/health                                → 200 ok when alive
 ///   GET  /auth/cli/start?device_id=...&port=N       → opens login UI
 ///   POST /api/oauth/callback (broker → loopback)    → JSON UserIdentity
-async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
+///
+/// `provider_hint` (e.g. Some("apple")) is forwarded as `&provider=` so
+/// the broker can skip the picker page and jump straight to that
+/// provider's start route. None → the broker shows its full picker.
+async fn login_broker(broker_url: &str, provider_hint: Option<&str>) -> anyhow::Result<()> {
     use phantom_mesh::auth;
 
     const PORT: u16 = 48181;
@@ -11506,13 +14006,16 @@ async fn login_broker(broker_url: &str) -> anyhow::Result<()> {
         .map(|s| s.device_id.clone())
         .unwrap_or_else(auth::random_device_id);
 
-    let auth_url = format!(
+    let mut auth_url = format!(
         "{}/auth/cli/start?device_id={}&port={}&redirect={}",
         broker_url.trim_end_matches('/'),
         urlencoding::encode(&device_id),
         PORT,
         urlencoding::encode(&redirect),
     );
+    if let Some(p) = provider_hint {
+        auth_url.push_str(&format!("&provider={}", urlencoding::encode(p)));
+    }
 
     eprintln!("{} opening {}", colored("◆", 35), auth_url);
     if open_browser(&auth_url) {
@@ -11842,8 +14345,11 @@ async fn login_google() -> anyhow::Result<()> {
     // localhost:5173; if the loopback path 401s here, the user needs
     // to add this URI to the Google Cloud Console authorized redirects:
     //   http://127.0.0.1:48181/oauth/callback
-    const GOOGLE_CLIENT_ID: &str =
-        "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
+    // Env-overridable so a freshly registered "phantom-mesh" Google Cloud
+    // client (Desktop app type) can be swapped in without recompiling.
+    let google_client_id = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_ID").unwrap_or_else(|_| {
+        "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com".to_string()
+    });
     const PORT: u16 = 48181;
     const REDIRECT: &str = "http://127.0.0.1:48181/oauth/callback";
 
@@ -11871,7 +14377,7 @@ async fn login_google() -> anyhow::Result<()> {
          code_challenge_method=S256&\
          access_type=offline&\
          prompt=select_account",
-        cid = GOOGLE_CLIENT_ID,
+        cid = google_client_id,
         ru = urlencoding::encode(REDIRECT),
         st = csrf,
         ch = challenge,
@@ -11947,15 +14453,24 @@ async fn login_google() -> anyhow::Result<()> {
     );
 
     let client = reqwest::Client::new();
+    // Google requires client_secret at the token endpoint even for "Desktop app"
+    // (installed) clients — PKCE alone is not accepted. Send it when
+    // PHANTOM_MESH_GOOGLE_CLIENT_SECRET is set (the secret is not confidential
+    // for installed clients, but Google still demands its presence).
+    let google_secret = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET").ok();
+    let mut token_form: Vec<(&str, &str)> = vec![
+        ("client_id", google_client_id.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("code_verifier", verifier.as_str()),
+    ];
+    if let Some(ref s) = google_secret {
+        token_form.push(("client_secret", s.as_str()));
+    }
     let resp = client
         .post("https://oauth2.googleapis.com/token")
-        .form(&[
-            ("client_id", GOOGLE_CLIENT_ID),
-            ("redirect_uri", REDIRECT),
-            ("grant_type", "authorization_code"),
-            ("code", &code),
-            ("code_verifier", &verifier),
-        ])
+        .form(&token_form)
         .send()
         .await?;
     if !resp.status().is_success() {
@@ -12056,6 +14571,72 @@ fn decode_jwt_payload(jwt: &str) -> Option<serde_json::Value> {
 // (the next self-update overwrites it). Use `mv phantom.bak phantom` to
 // roll back manually.
 
+/// Fail-CLOSED HTTPS guard for the self-update download URL.
+///
+/// Rejects any non-`https://` URL unless the operator has explicitly opted
+/// into insecure transport via `PHANTOM_ALLOW_INSECURE=1`. The returned error
+/// always mentions `https` so callers (and tests) can assert on it. This
+/// mirrors `require_https` in `scripts/_verify-download.sh`.
+fn selfupdate_require_https(url: &str, allow_insecure: bool) -> anyhow::Result<()> {
+    if url.starts_with("https://") {
+        return Ok(());
+    }
+    if url.starts_with("http://") {
+        if allow_insecure {
+            return Ok(());
+        }
+        anyhow::bail!(
+            "refusing to self-update over plain http:// (use an https:// URL, or set \
+             PHANTOM_ALLOW_INSECURE=1 to override on a trusted tailnet): {url}"
+        );
+    }
+    anyhow::bail!("unsupported self-update URL scheme (expected https): {url}");
+}
+
+/// Parse the lowercase hex sha256 out of a `.sha256` sidecar file's contents.
+///
+/// Accepts either `sha256sum` format (`<hex>  <filename>`) or a bare `<hex>`
+/// line. Returns the first whitespace-delimited token of the first non-empty
+/// line, validated to be exactly 64 hex chars. A malformed/empty sidecar is an
+/// error mentioning `sha` so the caller fails CLOSED rather than swapping an
+/// unverified binary.
+fn selfupdate_parse_sidecar(text: &str) -> anyhow::Result<String> {
+    let token = text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .and_then(|l| l.split_whitespace().next())
+        .map(|t| t.to_ascii_lowercase());
+    match token {
+        Some(t) if t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()) => Ok(t),
+        other => anyhow::bail!(
+            "malformed sha256 sidecar (expected 64 hex chars, got {:?})",
+            other
+        ),
+    }
+}
+
+/// Verify that `bytes` hash to `expected_sha` (lowercase hex sha256).
+///
+/// On any mismatch the error message mentions both `sha` and `mismatch` so the
+/// caller can fail CLOSED (delete the temp download, never swap). Reuses the
+/// `sha2` crate already in the dependency tree.
+fn verify_download_sha256(bytes: &[u8], expected_sha: &str) -> anyhow::Result<()> {
+    use sha2::{Digest, Sha256};
+    let expected = expected_sha.trim().to_ascii_lowercase();
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        anyhow::bail!("invalid expected sha256 digest (not 64 hex chars): {expected:?}");
+    }
+    let actual = hex::encode(Sha256::digest(bytes));
+    if actual != expected {
+        anyhow::bail!(
+            "sha256 mismatch: downloaded binary does not match published digest \
+             (expected {expected}, got {actual})"
+        );
+    }
+    Ok(())
+}
+
 async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
     use std::process::Command;
 
@@ -12147,6 +14728,12 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
     );
     eprintln!("  source  : {}", url);
 
+    // FAIL-CLOSED (a): refuse non-https download URLs unless the operator has
+    // explicitly opted into insecure transport. Without this, a MITM on a plain
+    // http:// coordinator could feed us an arbitrary binary to swap in.
+    let allow_insecure = std::env::var("PHANTOM_ALLOW_INSECURE").as_deref() == Ok("1");
+    selfupdate_require_https(&url, allow_insecure)?;
+
     if dry_run {
         eprintln!(
             "  {} dry-run — would download but not install",
@@ -12205,6 +14792,61 @@ async fn run_self_update(args: &[String]) -> anyhow::Result<()> {
         new_bin.display(),
         size as f64 / 1024.0 / 1024.0
     );
+
+    // FAIL-CLOSED (b): SHA256 integrity check BEFORE the binary is ever
+    // smoke-tested or swapped. Fetch the `${url}.sha256` sidecar (same
+    // https-enforced transport), compute the sha256 of the downloaded bytes,
+    // and compare. On a missing/unfetchable/malformed sidecar OR a digest
+    // mismatch we DELETE the temp download and bail — never swap an unverified
+    // binary. This mirrors verify_sha256 in scripts/_verify-download.sh.
+    {
+        eprintln!("  → verifying sha256…");
+        let sums_url = format!("{}.sha256", url);
+        // Sidecar must use the same secure transport as the binary.
+        if let Err(e) = selfupdate_require_https(&sums_url, allow_insecure) {
+            let _ = std::fs::remove_file(&new_bin);
+            return Err(e);
+        }
+        let sums_out = Command::new("curl")
+            .args(["-fsSL", "--max-time", "30", &sums_url])
+            .output();
+        let sidecar_text = match sums_out {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+            Ok(o) => {
+                let _ = std::fs::remove_file(&new_bin);
+                anyhow::bail!(
+                    "could not fetch sha256 sidecar at {} (curl exit {:?}); refusing to \
+                     install an unverified binary",
+                    sums_url,
+                    o.status.code()
+                );
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&new_bin);
+                anyhow::bail!("could not fetch sha256 sidecar at {}: {}", sums_url, e);
+            }
+        };
+        let expected = match selfupdate_parse_sidecar(&sidecar_text) {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = std::fs::remove_file(&new_bin);
+                return Err(e.context(format!("sha256 sidecar at {sums_url}")));
+            }
+        };
+        let bytes = match std::fs::read(&new_bin) {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = std::fs::remove_file(&new_bin);
+                anyhow::bail!("could not re-read downloaded binary for sha256 check: {e}");
+            }
+        };
+        if let Err(e) = verify_download_sha256(&bytes, &expected) {
+            // Delete the rejected download so a later bug can't pick it up.
+            let _ = std::fs::remove_file(&new_bin);
+            return Err(e);
+        }
+        eprintln!("  {} sha256 verified ({})", colored("✓", 32), expected);
+    }
 
     // chmod +x on Unix.
     #[cfg(unix)]
@@ -12454,8 +15096,8 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
             eprintln!("      default_model = \"{}\"", model);
             eprintln!();
             // Save the last-served config for `phantom mlx status` to read.
-            if let Some(home) = dirs::home_dir() {
-                let p = home.join(".phantom-mesh/mlx-config.json");
+            if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+                let p = data.join("mlx-config.json");
                 let _ = std::fs::create_dir_all(p.parent().unwrap());
                 let _ = std::fs::write(&p, serde_json::json!({
                     "model": model, "port": port,
@@ -12491,8 +15133,8 @@ async fn run_mlx_subcommand(args: &[String]) -> anyhow::Result<()> {
                 ),
             }
             // Last config
-            if let Some(home) = dirs::home_dir() {
-                let p = home.join(".phantom-mesh/mlx-config.json");
+            if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+                let p = data.join("mlx-config.json");
                 if let Ok(s) = std::fs::read_to_string(&p) {
                     if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
                         let model = v["model"].as_str().unwrap_or("?");
@@ -12621,8 +15263,8 @@ struct AutoEvolveLogEntry {
 /// are skipped silently. The queue is consumed FIFO.
 fn autoevolve_queue_path() -> Option<std::path::PathBuf> {
     Some(
-        dirs::home_dir()?
-            .join(".phantom-mesh")
+        phantom_mesh::cli_config::phantom_data_dir()
+            .ok()?
             .join("autoevolve.queue.txt"),
     )
 }
@@ -12664,12 +15306,10 @@ fn autoevolve_pop_queue() -> Option<String> {
 /// are silently dropped because losing this log shouldn't crash the
 /// scheduler loop.
 fn autoevolve_record_failed_task(task: &str, reason: &str) {
-    let Some(home) = dirs::home_dir() else {
+    let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() else {
         return;
     };
-    let log = home
-        .join(".phantom-mesh")
-        .join("autoevolve.queue.failed.log");
+    let log = data.join("autoevolve.queue.failed.log");
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -13303,8 +15943,8 @@ async fn run_autoevolve(args: Vec<String>) -> Result<()> {
         };
 
         // 3) Append to log.
-        if let Some(home) = dirs::home_dir() {
-            let log_path = home.join(".phantom-mesh/autoevolve.log");
+        if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+            let log_path = data.join("autoevolve.log");
             let _ = std::fs::create_dir_all(log_path.parent().unwrap());
             if let Ok(mut f) = std::fs::OpenOptions::new()
                 .create(true)
@@ -13343,11 +15983,11 @@ struct CargoRunOutcome {
 /// and format them as a one-line-per-entry hint suitable for embedding in
 /// the evolve system prompt.
 fn autoevolve_history_hint(n: usize) -> String {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return String::new(),
+    let data = match phantom_mesh::cli_config::phantom_data_dir() {
+        Ok(d) => d,
+        Err(_) => return String::new(),
     };
-    let path = home.join(".phantom-mesh/autoevolve.log");
+    let path = data.join("autoevolve.log");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return String::new(),
@@ -13405,6 +16045,342 @@ mod fmt_local_epoch_tests {
     }
 }
 
+#[cfg(test)]
+mod onboarding_config_tests {
+    use phantom_mesh::config::AgentsConfig;
+    use phantom_mesh::providers::local_servers::LocalServer;
+
+    /// Re-implement the runtime model resolver's rule (agent.rs ~1348 / ~2000)
+    /// for the `[agent.master]` failover chain: for each provider entry, the
+    /// model is the per-entry `provider:model` model, else the agent's `model`,
+    /// else the named provider block's `default_model`. Returns the resolved
+    /// model for `entry`, or None if every source is empty (which is exactly the
+    /// "no model — provider has no default_model" skip the live bug hit).
+    fn resolve_model_for_entry(cfg: &AgentsConfig, agent_model: &str, entry: &str) -> Option<String> {
+        let (provider_name, entry_model) = match entry.split_once(':') {
+            Some((p, m)) if !m.is_empty() => (p, Some(m)),
+            Some((p, _)) => (p, None),
+            None => (entry, None),
+        };
+        entry_model
+            .map(|m| m.to_string())
+            .filter(|m| !m.is_empty())
+            .or_else(|| (!agent_model.is_empty()).then(|| agent_model.to_string()))
+            .or_else(|| {
+                cfg.providers
+                    .get(provider_name)
+                    .and_then(|p| p.default_model.clone())
+            })
+            .filter(|m| !m.is_empty())
+    }
+
+    /// Parse generated TOML and assert EVERY provider in `[agent.master]`'s
+    /// failover chain (plus the singular `provider`) resolves a non-empty model.
+    /// Regression guard for the first-run "all providers failed — no model" bug.
+    fn assert_master_chain_all_resolve(toml: &str) {
+        let cfg: AgentsConfig = toml::from_str(toml).expect("generated toml must parse");
+        let master = cfg.agent.get("master").expect("[agent.master] present");
+        let mut chain: Vec<String> = master.providers.clone().unwrap_or_default();
+        if chain.is_empty() && !master.provider.is_empty() {
+            chain.push(master.provider.clone());
+        }
+        assert!(!chain.is_empty(), "master must have a failover chain:\n{toml}");
+        for entry in &chain {
+            let model = resolve_model_for_entry(&cfg, &master.model, entry);
+            assert!(
+                model.as_deref().map(|m| !m.is_empty()).unwrap_or(false),
+                "provider '{entry}' in [agent.master] resolves NO model (first-run bug):\n{toml}"
+            );
+        }
+    }
+
+    fn write_to_tmp(ordered: &[&str], ollama: Option<&LocalServer>) -> String {
+        write_to_tmp_free(ordered, ollama, None)
+    }
+
+    fn write_to_tmp_free(
+        ordered: &[&str],
+        ollama: Option<&LocalServer>,
+        free: Option<&phantom_mesh::providers::free_plugin::FreeProvider>,
+    ) -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        // Monotonic per-process counter → unique path even when cargo runs
+        // these tests in parallel within one process (nanos alone collided).
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "phantom_onboarding_test_{}_{}.toml",
+            std::process::id(),
+            n
+        ));
+        super::write_onboarding_config(&path, ordered, ollama, free).expect("write config");
+        let out = std::fs::read_to_string(&path).expect("read back");
+        let _ = std::fs::remove_file(&path);
+        out
+    }
+
+    #[test]
+    fn free_plugin_block_written_and_chained_before_ollama() {
+        use phantom_mesh::providers::free_plugin::default_free_provider;
+        let groq = default_free_provider();
+        // No subscription, but a free provider (Groq) is available → it becomes
+        // the PRIMARY, ranked above the always-on local-ollama fallback.
+        let toml = write_to_tmp_free(&[], None, Some(groq));
+        // Block present, fully resolvable.
+        assert!(toml.contains("[providers.groq]"), "free block missing:\n{toml}");
+        assert!(toml.contains("type = \"groq\""), "{toml}");
+        assert!(
+            toml.contains("url = \"https://api.groq.com/openai/v1\""),
+            "free block needs explicit url:\n{toml}"
+        );
+        // The env-var NAME is written so the live path can source the key — but
+        // NEVER the key itself (no bare `api_key = ` line).
+        assert!(
+            toml.contains("api_key_env = \"GROQ_API_KEY\""),
+            "free block must declare api_key_env:\n{toml}"
+        );
+        assert!(
+            !toml.contains("api_key = "),
+            "writer must never emit a literal api_key:\n{toml}"
+        );
+        // default_model resolvable.
+        assert!(toml.contains("default_model = \"llama-3.3-70b-versatile\""), "{toml}");
+        // Failover chain: free cloud first (primary), local-ollama last.
+        assert!(
+            toml.contains("providers = [\"groq\", \"local-ollama\"]"),
+            "free provider should rank before ollama:\n{toml}"
+        );
+        assert!(toml.contains("provider = \"groq\""), "primary should be the free provider:\n{toml}");
+    }
+
+    #[test]
+    fn free_plugin_ranks_after_subscriptions() {
+        use phantom_mesh::providers::free_plugin::default_free_provider;
+        let groq = default_free_provider();
+        // Subscription present + a free key → free is a FALLBACK after the sub,
+        // still before local-ollama.
+        let toml = write_to_tmp_free(&["claude_cli"], None, Some(groq));
+        assert!(
+            toml.contains("providers = [\"claude_cli\", \"groq\", \"local-ollama\"]"),
+            "chain order should be sub → free → ollama:\n{toml}"
+        );
+        assert!(toml.contains("provider = \"claude_cli\""), "sub stays primary:\n{toml}");
+    }
+
+    #[test]
+    fn priority_order_preserved_and_no_api_key() {
+        let toml = write_to_tmp(&["gemini_oauth", "claude_cli"], None);
+        // No secrets are ever written.
+        assert!(
+            !toml.contains("api_key"),
+            "config must never contain api_key lines:\n{toml}"
+        );
+        // [providers.*] blocks emitted in the chosen order.
+        let g = toml.find("[providers.gemini_oauth]").expect("gemini block");
+        let c = toml.find("[providers.claude_cli]").expect("claude block");
+        assert!(g < c, "blocks should follow chosen order:\n{toml}");
+        // Failover list mirrors the chosen order, with Ollama last.
+        assert!(
+            toml.contains("providers = [\"gemini_oauth\", \"claude_cli\", \"local-ollama\"]"),
+            "priority list mismatch:\n{toml}"
+        );
+        // Primary provider = first in order.
+        assert!(
+            toml.contains("provider = \"gemini_oauth\""),
+            "primary provider mismatch:\n{toml}"
+        );
+        // The type for a subscription block is the block name itself.
+        assert!(toml.contains("type = \"gemini_oauth\""), "{toml}");
+        assert!(toml.contains("type = \"claude_cli\""), "{toml}");
+    }
+
+    #[test]
+    fn ollama_appended_last_as_fallback() {
+        let toml = write_to_tmp(&["claude_cli"], None);
+        assert!(!toml.contains("api_key"), "no keys:\n{toml}");
+        // local-ollama block present as type-only fallback.
+        assert!(toml.contains("[providers.local-ollama]"), "{toml}");
+        assert!(toml.contains("type = \"ollama\""), "{toml}");
+        // Subscription blocks are key-less, but local-ollama MUST carry the
+        // localhost url — without it the resolver falls through to OpenRouter
+        // (review: codex/opencode). "type-only" = no secrets, not no config.
+        assert!(
+            toml.contains("url = \"http://127.0.0.1:11434/v1\""),
+            "local-ollama needs the localhost url:\n{toml}"
+        );
+        // local-ollama is appended LAST in the failover chain.
+        assert!(
+            toml.contains("providers = [\"claude_cli\", \"local-ollama\"]"),
+            "ollama must be last in priority:\n{toml}"
+        );
+        // The claude block must appear before the ollama block in file order.
+        let c = toml.find("[providers.claude_cli]").expect("claude block");
+        let o = toml.find("[providers.local-ollama]").expect("ollama block");
+        assert!(c < o, "ollama block should come last:\n{toml}");
+    }
+
+    #[test]
+    fn ollama_only_when_no_subscriptions() {
+        let toml = write_to_tmp(&[], None);
+        assert!(toml.contains("provider = \"local-ollama\""), "{toml}");
+        assert!(toml.contains("providers = [\"local-ollama\"]"), "{toml}");
+        assert!(!toml.contains("api_key"), "{toml}");
+        assert!(
+            toml.contains("url = \"http://127.0.0.1:11434/v1\""),
+            "ollama-only fallback needs the localhost url:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn ollama_fallback_carries_resolvable_default_model() {
+        // Regression for the first-run "all providers failed — no model" bug:
+        // the always-on local-ollama fallback block must carry a default_model
+        // so the runtime resolver resolves a model even when nothing else is
+        // configured (chain = ["local-ollama"]). Nothing detected → sane tag.
+        let toml = write_to_tmp(&[], None);
+        // Scope the assertion to the local-ollama block (up to the next header).
+        let block = toml
+            .split("[providers.local-ollama]")
+            .nth(1)
+            .expect("local-ollama block present");
+        let block = block.split("\n[").next().unwrap_or(block);
+        assert!(
+            block.contains("default_model = \"llama3.1:8b\""),
+            "local-ollama fallback must carry a resolvable default_model:\n{toml}"
+        );
+    }
+
+    // `phantom logout --reset-onboarding` removes the home config so the next
+    // launch re-onboards. We prove the exact mechanism (existence-guarded
+    // remove_file) against a THROWAWAY temp file — never the real
+    // `~/.phantom-mesh/agents.toml`, which would reset the developer. Mirrors
+    // the auth.rs `logout_clears_auth_state` pattern.
+    #[test]
+    fn reset_onboarding_removes_config_then_noop() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "phantom_reset_onboarding_test_{}_{}.toml",
+            std::process::id(),
+            n
+        ));
+        // Seed a realistic config (the kind onboarding writes).
+        std::fs::write(&path, "[providers.claude_cli]\ntype = \"claude_cli\"\n")
+            .expect("seed config");
+        assert!(path.exists(), "precondition: seeded config exists");
+
+        // First reset: removes the file, returns the removed path.
+        let removed = super::reset_onboarding_config_at(&path).expect("reset ok");
+        assert_eq!(removed.as_deref(), Some(path.as_path()), "should report removed path");
+        assert!(!path.exists(), "config must be gone after reset (re-arms onboarding)");
+
+        // Second reset on the now-absent file: clean no-op, no error, None.
+        let again = super::reset_onboarding_config_at(&path).expect("idempotent no-op");
+        assert!(again.is_none(), "missing file is a no-op, not an error");
+    }
+
+    // ── Regression: first-run config must be model-resolvable ─────────────
+    //
+    // ROOT CAUSE of the live "All providers failed … no model" bug: the
+    // generated agents.toml carried no `provider:model` entry, no
+    // `[agent.master].model`, and no `[providers.*].default_model`, so the
+    // runtime resolver skipped every provider. These tests pin the fix:
+    // every block now emits a `default_model` and the whole master chain
+    // resolves a model for each provider type.
+
+    #[test]
+    fn every_provider_block_has_default_model() {
+        let toml = write_to_tmp(&["claude_cli", "codex_oauth", "gemini_oauth"], None);
+        assert!(!toml.contains("api_key"), "no keys:\n{toml}");
+        // One default_model line per provider block: the 3 chosen subscriptions
+        // PLUS the always-on local-ollama fallback (step3 always writes that
+        // block, and it now carries a resolvable default_model — see
+        // `ollama_fallback_carries_resolvable_default_model`).
+        let n = toml.matches("default_model = ").count();
+        assert_eq!(n, 4, "expected one default_model per provider block (3 subs + local-ollama):\n{toml}");
+        // The canonical default per type (cited from the provider impls).
+        assert!(
+            toml.contains("default_model = \"claude-sonnet-4-5-20251022\""),
+            "claude_cli default model missing:\n{toml}"
+        );
+        assert!(
+            toml.contains("default_model = \"gpt-5.5\""),
+            "codex_oauth default model missing:\n{toml}"
+        );
+        assert!(
+            toml.contains("default_model = \"gemini-2.5-flash\""),
+            "gemini_oauth default model missing:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn master_chain_resolves_a_model_for_every_subscription() {
+        // The exact provider set + order the live bug was reported against.
+        let toml = write_to_tmp(&["claude_cli", "codex_oauth", "gemini_oauth"], None);
+        assert_master_chain_all_resolve(&toml);
+    }
+
+    #[test]
+    fn master_chain_resolves_with_ollama_fallback() {
+        // Ollama with NO advertised models → must still bake a sane default so
+        // the local fallback is reachable rather than skipped.
+        let ollama = LocalServer {
+            name: "ollama".to_string(),
+            base_url: "http://127.0.0.1:11434/v1".to_string(),
+            models: vec![],
+        };
+        let toml = write_to_tmp(&["claude_cli"], Some(&ollama));
+        assert!(
+            toml.contains("default_model = \"llama3.1:8b\""),
+            "ollama fallback default missing:\n{toml}"
+        );
+        assert_master_chain_all_resolve(&toml);
+    }
+
+    #[test]
+    fn ollama_prefers_advertised_model() {
+        // When the local server advertises models, use the first one verbatim
+        // (it is a model that server can actually serve) rather than a guess.
+        let ollama = LocalServer {
+            name: "ollama".to_string(),
+            base_url: "http://127.0.0.1:11434/v1".to_string(),
+            models: vec!["qwen3:8b".to_string(), "llama3.1:8b".to_string()],
+        };
+        let toml = write_to_tmp(&[], Some(&ollama));
+        assert!(
+            toml.contains("default_model = \"qwen3:8b\""),
+            "should prefer first advertised model:\n{toml}"
+        );
+        assert_master_chain_all_resolve(&toml);
+    }
+
+    #[test]
+    fn onboarding_default_model_maps_each_type() {
+        // Direct unit coverage of the per-type default selector.
+        assert_eq!(
+            phantom_mesh::onboarding_config::onboarding_default_model("claude_cli", None),
+            "claude-sonnet-4-5-20251022"
+        );
+        assert_eq!(
+            phantom_mesh::onboarding_config::onboarding_default_model("codex_oauth", None),
+            "gpt-5.5"
+        );
+        assert_eq!(
+            phantom_mesh::onboarding_config::onboarding_default_model("gemini_oauth", None),
+            "gemini-2.5-flash"
+        );
+        // Ollama: detected model wins, empty/None → fallback tag.
+        assert_eq!(
+            phantom_mesh::onboarding_config::onboarding_default_model("ollama", Some("mistral:latest")),
+            "mistral:latest"
+        );
+        assert_eq!(phantom_mesh::onboarding_config::onboarding_default_model("ollama", None), "llama3.1:8b");
+        assert_eq!(phantom_mesh::onboarding_config::onboarding_default_model("ollama", Some("")), "llama3.1:8b");
+    }
+}
+
 /// Print the recent JSONL log to stdout for quick inspection.
 fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
     // Default: last 10 entries. `phantom autoevolve log --n 30` overrides.
@@ -13420,8 +16396,8 @@ fn autoevolve_print_log(args: &[String]) -> anyhow::Result<()> {
         i += 1;
     }
 
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home"))?;
-    let path = home.join(".phantom-mesh/autoevolve.log");
+    let data = phantom_mesh::cli_config::phantom_data_dir()?;
+    let path = data.join("autoevolve.log");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => {
@@ -13494,8 +16470,8 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
         i += 1;
     }
 
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home"))?;
-    let log_path = home.join(".phantom-mesh/autoevolve.log");
+    let data = phantom_mesh::cli_config::phantom_data_dir()?;
+    let log_path = data.join("autoevolve.log");
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -13525,7 +16501,7 @@ fn autoevolve_digest(args: &[String]) -> anyhow::Result<()> {
     }
 
     // Failed-tasks log: tab-separated `unix_ts \t reason \t task`.
-    let failed_log = home.join(".phantom-mesh/autoevolve.queue.failed.log");
+    let failed_log = data.join("autoevolve.queue.failed.log");
     let recent_failures: Vec<(i64, String, String)> = std::fs::read_to_string(&failed_log)
         .ok()
         .map(|s| {
@@ -13857,8 +16833,7 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
                         .unwrap_or(0);
                     println!("  queue      : {} pending", pending);
                 }
-                let failed_log = home
-                    .join(".phantom-mesh")
+                let failed_log = phantom_mesh::cli_config::phantom_dir_under(&home)
                     .join("autoevolve.queue.failed.log");
                 if failed_log.exists() {
                     let n = std::fs::read_to_string(&failed_log)
@@ -14178,11 +17153,11 @@ async fn run_autoevolve_schedule(args: &[String]) -> anyhow::Result<()> {
             let repo_root = if cwd.join("dist").is_dir() && cwd.join("scripts").is_dir() {
                 cwd.display().to_string()
             } else {
-                home.join(".phantom-mesh").display().to_string()
+                phantom_mesh::cli_config::phantom_dir_under(&home).display().to_string()
             };
 
             std::fs::create_dir_all(&unit_dir)?;
-            std::fs::create_dir_all(home.join(".phantom-mesh"))?;
+            std::fs::create_dir_all(phantom_mesh::cli_config::phantom_dir_under(&home))?;
             let (svc, tmr) = render_autoevolve_systemd_units(
                 &bin_str,
                 &repo_root,
@@ -14396,8 +17371,8 @@ async fn run_cargo_target(target: &str) -> CargoRunOutcome {
     //   2. Caches autoevolve's check artefacts across runs, so subsequent
     //      `phantom autoevolve --once` invocations are an order of magnitude
     //      faster.
-    if let Some(home) = dirs::home_dir() {
-        let target_dir = home.join(".phantom-mesh").join("autoevolve-target");
+    if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+        let target_dir = data.join("autoevolve-target");
         let _ = std::fs::create_dir_all(&target_dir);
         cmd.env("CARGO_TARGET_DIR", target_dir);
     }
@@ -14677,12 +17652,14 @@ async fn run_doctor_json() -> anyhow::Result<()> {
     );
 
     // Config
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    // resolve_home_dir, not bare dirs::home_dir (None on Windows w/o %HOME%).
+    let home = phantom_mesh::cli_config::resolve_home_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let cfg_candidates = [
         std::env::current_dir()
             .unwrap_or_else(|_| home.clone())
             .join("agents.toml"),
-        home.join(".phantom-mesh/agents.toml"),
+        phantom_mesh::cli_config::phantom_dir_under(&home).join("agents.toml"),
     ];
     let cfg_found = cfg_candidates.iter().find(|p| p.exists());
     o.insert(
@@ -14692,6 +17669,20 @@ async fn run_doctor_json() -> anyhow::Result<()> {
             "exists": cfg_found.is_some(),
         }),
     );
+
+    // 4-layer named state machine (identity/provider/project/permission/mesh/
+    // config) — same source of truth as the human `doctor` section + future
+    // surfaces. Each finding carries a stable `code` + a `fix` command.
+    {
+        let dx_cwd = std::env::current_dir().unwrap_or_else(|_| home.clone());
+        // Live env lookup (provider api_key_env seam) so the JSON `state` agrees
+        // with the human doctor: a named-but-unset key reads as a warning, not OK.
+        let diag = phantom_mesh::diagnostics::diagnose(&home, &dx_cwd, &|k| std::env::var(k).ok());
+        o.insert(
+            "state".into(),
+            serde_json::to_value(&diag).unwrap_or(Value::Null),
+        );
+    }
 
     // Permissions — parse rules + surface stats.
     let perm_cfg = phantom_mesh::config::AgentsConfig::find_and_load()
@@ -14775,7 +17766,7 @@ async fn run_doctor_json() -> anyhow::Result<()> {
     );
 
     // Autoevolve schedule + queue + log summary
-    let queue_pending = home.join(".phantom-mesh/autoevolve.queue.txt");
+    let queue_pending = phantom_mesh::cli_config::phantom_dir_under(&home).join("autoevolve.queue.txt");
     let queue_pending_n = std::fs::read_to_string(&queue_pending)
         .map(|c| {
             c.lines()
@@ -14786,11 +17777,11 @@ async fn run_doctor_json() -> anyhow::Result<()> {
                 .count()
         })
         .unwrap_or(0);
-    let failed_log = home.join(".phantom-mesh/autoevolve.queue.failed.log");
+    let failed_log = phantom_mesh::cli_config::phantom_dir_under(&home).join("autoevolve.queue.failed.log");
     let failed_n = std::fs::read_to_string(&failed_log)
         .map(|c| c.lines().filter(|l| !l.trim().is_empty()).count())
         .unwrap_or(0);
-    let last_run_ts = std::fs::read_to_string(home.join(".phantom-mesh/autoevolve.log"))
+    let last_run_ts = std::fs::read_to_string(phantom_mesh::cli_config::phantom_dir_under(&home).join("autoevolve.log"))
         .ok()
         .and_then(|c| c.lines().last().map(|s| s.to_string()))
         .and_then(|line| serde_json::from_str::<Value>(&line).ok())
@@ -14855,7 +17846,7 @@ async fn run_doctor_json() -> anyhow::Result<()> {
     // consuming `doctor --json` see the same data. Read-only.
     {
         let key_ok = phantom_mesh::life_node::key_derivation::load_event_key(
-            &home.join(".phantom-mesh").join("identity.key"),
+            &phantom_mesh::cli_config::phantom_dir_under(&home).join("identity.key"),
         )
         .is_ok();
         let stats = phantom_mesh::life_node::data_cli::compute_stats(&home).ok();
@@ -15022,12 +18013,363 @@ async fn run_doctor_mesh() -> anyhow::Result<()> {
     std::process::exit(code);
 }
 
+/// `phantom auth chatgpt` — OPT-IN "Sign in with ChatGPT" subscription OAuth.
+///
+/// ⚠️ Uses the PUBLIC Codex OAuth client to drive the ChatGPT subscription from
+/// phantom. OpenAI does NOT publicly sanction third-party use of this flow and
+/// the account MAY be flagged/banned — so this prints a disclosure and requires
+/// explicit consent. The zero-risk alternative is a metered OpenAI API key.
+async fn run_chatgpt_login() -> anyhow::Result<()> {
+    use phantom_mesh::providers::openai_oauth as oa;
+    eprintln!();
+    eprintln!("  {} Sign in with ChatGPT (subscription) — OPT-IN", colored("⚠", 33));
+    eprintln!("  This drives your ChatGPT subscription from phantom via the public");
+    eprintln!("  Codex OAuth client. OpenAI does NOT publicly sanction third-party use —");
+    eprintln!("  {}", colored("your ChatGPT account MAY be flagged or banned.", 33));
+    eprintln!("  Zero-risk alternative: a metered OpenAI API key (`phantom provider`).");
+    eprint!("  continue anyway? [y/N]: ");
+    let _ = std::io::Write::flush(&mut std::io::stderr());
+    let mut buf = String::new();
+    let _ = std::io::stdin().read_line(&mut buf);
+    if !matches!(buf.trim(), "y" | "yes") {
+        eprintln!("  {} cancelled.", colored("◇", 90));
+        return Ok(());
+    }
+    let verifier = oa::gen_verifier();
+    let state = oa::gen_verifier();
+    let url = oa::authorize_url(&verifier, &state);
+    eprintln!("  {} opening browser to sign in…", colored("◆", 36));
+    open_browser(&url);
+    eprintln!("  if it didn't open, visit:\n  {}", colored(&url, 90));
+    eprintln!(
+        "  waiting for the callback on http://localhost:{}…",
+        oa::CALLBACK_PORT
+    );
+    let code = match oa::capture_code_on_loopback(&state) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("  {} {}", colored("✗", 31), e);
+            std::process::exit(1);
+        }
+    };
+    let client = reqwest::Client::new();
+    let tokens = match oa::exchange_code(&client, &code, &verifier).await {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("  {} token exchange failed: {}", colored("✗", 31), e);
+            std::process::exit(1);
+        }
+    };
+    let home = phantom_mesh::cli_config::resolve_home_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    oa::save(&home, &tokens).map_err(|e| anyhow::anyhow!("could not save token: {e}"))?;
+    ensure_chatgpt_provider(&home)?;
+    eprintln!(
+        "  {} signed in — provider 'chatgpt' (codex_oauth) is ready",
+        colored("✓", 32)
+    );
+    if let Some(acct) = tokens.account_id {
+        eprintln!("    {} {}", colored("account:", 90), acct);
+    }
+    Ok(())
+}
+
+/// Ensure a `[providers.chatgpt] type = "codex_oauth"` block exists in the home
+/// agents.toml (format-preserving) so the runtime uses the minted token.
+fn ensure_chatgpt_provider(home: &std::path::Path) -> anyhow::Result<()> {
+    let path = phantom_mesh::cli_config::phantom_dir_under(home).join("agents.toml");
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut doc = content
+        .parse::<toml_edit::DocumentMut>()
+        .unwrap_or_else(|_| toml_edit::DocumentMut::new());
+    let already = doc
+        .get("providers")
+        .and_then(|p| p.get("chatgpt"))
+        .is_some();
+    if !already {
+        if !doc.contains_key("providers") {
+            doc["providers"] = toml_edit::Item::Table(toml_edit::Table::new());
+        }
+        let mut t = toml_edit::Table::new();
+        t["type"] = toml_edit::value("codex_oauth");
+        // Single source of truth for the default — the ChatGPT-account Codex
+        // backend rejects `gpt-5.x-codex` ids (HTTP 400), so this must stay the
+        // verified-working `gpt-5.5` (see onboarding_config::onboarding_default_model).
+        t["default_model"] = toml_edit::value(
+            phantom_mesh::onboarding_config::onboarding_default_model("codex_oauth", None),
+        );
+        doc["providers"]["chatgpt"] = toml_edit::Item::Table(t);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let tmp = path.with_extension(format!("toml.tmp.{}", std::process::id()));
+        std::fs::write(&tmp, doc.to_string())?;
+        std::fs::rename(&tmp, &path)?;
+    }
+    Ok(())
+}
+
+/// `phantom trust [show|list|add [dir]|remove [dir]]` — manage Project Trust.
+/// The trusted-directory set lives in `~/.phantom-mesh/trust.json`; the
+/// enforcement policy is `[trust] enforcement` in agents.toml (default off).
+fn run_trust(args: &[String]) -> anyhow::Result<()> {
+    use phantom_mesh::project_trust::{TrustPolicy, TrustStore};
+
+    let home = phantom_mesh::cli_config::resolve_home_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let store_path = TrustStore::path(&home);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+    // The configured enforcement policy (informational in show).
+    let policy = phantom_mesh::config::AgentsConfig::find_and_load()
+        .and_then(|c| c.trust.enforcement)
+        .as_deref()
+        .and_then(TrustPolicy::from_slug)
+        .unwrap_or_default();
+
+    // Resolve the target dir for add/remove: an explicit arg, else cwd.
+    let target = |args: &[String]| -> std::path::PathBuf {
+        args.get(3)
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| cwd.clone())
+    };
+
+    match args.get(2).map(|s| s.as_str()) {
+        None | Some("show") | Some("status") => {
+            let store = TrustStore::load(&store_path);
+            let verdict = store.verdict(&cwd);
+            println!(
+                "{} {}",
+                colored("enforcement:", 36),
+                format!("{} — {}", policy.slug(), policy.summary())
+            );
+            print!("{} {}", colored("this directory:", 36), cwd.display());
+            if verdict.is_trusted() {
+                println!(" {}", colored("✓ trusted", 32));
+            } else {
+                println!(" {}", colored("✗ untrusted", 33));
+                println!(
+                    "  {} {}",
+                    colored("trust it:", 90),
+                    colored("phantom project trust add", 36)
+                );
+            }
+            if policy == TrustPolicy::Off {
+                println!(
+                    "  {} enforcement is off, so this is informational only. \
+                     Enable with `[trust] enforcement = \"prompt\"` in agents.toml.",
+                    colored("note:", 90)
+                );
+            }
+        }
+        Some("list") => {
+            let store = TrustStore::load(&store_path);
+            if store.trusted.is_empty() {
+                println!("no trusted directories yet ({})", store_path.display());
+            } else {
+                println!("{} ({})", colored("trusted directories:", 36), store_path.display());
+                for p in &store.trusted {
+                    println!("  {}", p);
+                }
+            }
+        }
+        Some("add") => {
+            let dir = target(args);
+            if !dir.is_dir() {
+                eprintln!("{} not a directory: {}", colored("error:", 31), dir.display());
+                std::process::exit(2);
+            }
+            let mut store = TrustStore::load(&store_path);
+            if store.add(&dir) {
+                store.save(&store_path)?;
+                println!("{} trusted {}", colored("✓", 32), dir.display());
+            } else {
+                println!("{} already trusted: {}", colored("·", 90), dir.display());
+            }
+        }
+        Some("remove") | Some("rm") => {
+            let dir = target(args);
+            let mut store = TrustStore::load(&store_path);
+            if store.remove(&dir) {
+                store.save(&store_path)?;
+                println!("{} removed trust for {}", colored("✓", 32), dir.display());
+            } else {
+                println!("{} was not in the trust list: {}", colored("·", 90), dir.display());
+            }
+        }
+        Some(other) => {
+            eprintln!(
+                "{} unknown subcommand {:?}. Usage: phantom trust [show|list|add [dir]|remove [dir]]",
+                colored("error:", 31),
+                other
+            );
+            std::process::exit(2);
+        }
+    }
+    Ok(())
+}
+
+/// `phantom permissions [show|list|set <profile>]` — view or pick the Execution
+/// Permission profile (observe / suggest / workspace-write / developer-full).
+/// `set` writes `[permissions] profile = "<slug>"` into the home config
+/// (~/.phantom-mesh/agents.toml), format-preserving via toml_edit. Explicit
+/// deny/ask/allow rules still take precedence over a profile (we warn if any
+/// are present so `set` isn't silently a no-op).
+fn run_permissions(args: &[String]) -> anyhow::Result<()> {
+    use phantom_mesh::permission_profiles::Profile;
+
+    let print_list = || {
+        println!("{}", colored("permission profiles (least → most capable):", 36));
+        for p in Profile::ALL {
+            println!("  {:<16} {}", colored(p.slug(), 32), p.summary());
+        }
+    };
+
+    match args.get(2).map(|s| s.as_str()) {
+        None | Some("show") | Some("status") => {
+            let cfg = phantom_mesh::config::AgentsConfig::find_and_load()
+                .unwrap_or_else(phantom_mesh::config::AgentsConfig::with_defaults);
+            let pc = &cfg.permissions;
+            let has_explicit =
+                !pc.deny.is_empty() || !pc.ask.is_empty() || !pc.allow.is_empty();
+            print!("{} ", colored("active permission:", 36));
+            if has_explicit {
+                println!(
+                    "explicit rules ({} deny / {} ask / {} allow)",
+                    pc.deny.len(),
+                    pc.ask.len(),
+                    pc.allow.len()
+                );
+                if pc.profile.is_some() {
+                    println!(
+                        "  {} a profile is also set but explicit rules take precedence",
+                        colored("note:", 33)
+                    );
+                }
+            } else if let Some(prof) = pc.profile.as_deref() {
+                match Profile::from_slug(prof) {
+                    Some(p) => println!("profile {} — {}", colored(p.slug(), 32), p.summary()),
+                    None => println!(
+                        "{} unknown profile {:?} → allow-all",
+                        colored("⚠", 33),
+                        prof
+                    ),
+                }
+            } else {
+                println!("allow-all (legacy default — no profile or rules set)");
+            }
+            println!();
+            print_list();
+            println!(
+                "\nset with: {}",
+                colored("phantom permissions set <profile>", 36)
+            );
+        }
+        Some("list") => print_list(),
+        Some("set") => {
+            let slug = args.get(3).map(|s| s.as_str()).unwrap_or("");
+            let profile = match Profile::from_slug(slug) {
+                Some(p) => p,
+                None => {
+                    if slug.is_empty() {
+                        eprintln!("usage: phantom permissions set <profile>");
+                    } else {
+                        eprintln!(
+                            "{} {:?} is not a profile. Valid: observe / suggest / \
+                             workspace-write / developer-full",
+                            colored("error:", 31),
+                            slug
+                        );
+                    }
+                    std::process::exit(2);
+                }
+            };
+            // Target the canonical home config. toml_edit preserves the user's
+            // formatting/comments; we only touch [permissions].profile.
+            let home = phantom_mesh::cli_config::resolve_home_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let path = phantom_mesh::cli_config::phantom_dir_under(&home).join("agents.toml");
+            if !path.is_file() {
+                eprintln!(
+                    "{} no config at {} — run `phantom onboarding` first",
+                    colored("error:", 31),
+                    path.display()
+                );
+                std::process::exit(2);
+            }
+            let content = std::fs::read_to_string(&path)?;
+            let mut doc = content
+                .parse::<toml_edit::DocumentMut>()
+                .map_err(|e| anyhow::anyhow!("{} is not valid TOML: {e}", path.display()))?;
+            if !doc.contains_key("permissions") {
+                doc["permissions"] = toml_edit::Item::Table(toml_edit::Table::new());
+            }
+            doc["permissions"]["profile"] = toml_edit::value(profile.slug());
+            // Atomic write: per-process tmp + rename so a crash mid-write can't
+            // truncate the user's config and concurrent writers don't collide.
+            let tmp = path.with_extension(format!("toml.tmp.{}", std::process::id()));
+            std::fs::write(&tmp, doc.to_string())?;
+            std::fs::rename(&tmp, &path)?;
+            println!(
+                "{} permission profile set to {} ({})",
+                colored("✓", 32),
+                colored(profile.slug(), 32),
+                path.display()
+            );
+            println!("  {}", profile.summary());
+            // Warn if explicit rules would override the profile we just set.
+            let pc = phantom_mesh::config::AgentsConfig::find_and_load()
+                .map(|c| c.permissions)
+                .unwrap_or_default();
+            if !pc.deny.is_empty() || !pc.ask.is_empty() || !pc.allow.is_empty() {
+                println!(
+                    "  {} explicit deny/ask/allow rules are present and take precedence — \
+                     this profile won't apply until you remove them",
+                    colored("note:", 33)
+                );
+            }
+        }
+        Some(other) => {
+            eprintln!(
+                "{} unknown subcommand {:?}. Usage: phantom permissions [show|list|set <profile>]",
+                colored("error:", 31),
+                other
+            );
+            std::process::exit(2);
+        }
+    }
+    Ok(())
+}
+
 async fn run_doctor() -> anyhow::Result<()> {
     println!(
         "{} {}",
         colored("phantom doctor", 36),
         colored(env!("CARGO_PKG_VERSION"), 90),
     );
+
+    // ── system state (4-layer named state machine; same source as --json) ──
+    // A consolidated identity/provider/project/permission/mesh/config summary
+    // where every Warn/Fail carries the exact next command. The detailed
+    // sections below add depth (binary provenance, permission rule list, live
+    // mesh ping via `--mesh`). Captured once here so the SAME diagnosis decides
+    // the process exit code at the end of the function (see footer).
+    let diag = {
+        // resolve_home_dir (HOME → %USERPROFILE% → dirs) not bare dirs::home_dir:
+        // the latter is None on Windows when %HOME% is unset, which would make
+        // diagnose read `./` and falsely report no identity / no config.
+        let dx_home = phantom_mesh::cli_config::resolve_home_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let dx_cwd = std::env::current_dir().unwrap_or_else(|_| dx_home.clone());
+        // The closure is the runtime's key seam: a provider's api_key_env is
+        // sourced from the live env, so doctor flags a key that is NAMED but not
+        // actually set (the #1 onboarding failure) instead of false-greening it.
+        let d = phantom_mesh::diagnostics::diagnose(&dx_home, &dx_cwd, &|k| {
+            std::env::var(k).ok()
+        });
+        print!("{}", phantom_mesh::diagnostics::render_human(&d));
+        d
+    };
 
     // ── binary provenance ────────────────────────────────────────────────
     doctor_section(phantom_mesh::i18n::tr("binary", "執行檔"));
@@ -15056,12 +18398,13 @@ async fn run_doctor() -> anyhow::Result<()> {
 
     // ── config ───────────────────────────────────────────────────────────
     doctor_section(phantom_mesh::i18n::tr("config", "設定"));
-    let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    let home = phantom_mesh::cli_config::resolve_home_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."));
     let cfg_candidates = [
         std::env::current_dir()
             .unwrap_or_else(|_| home.clone())
             .join("agents.toml"),
-        home.join(".phantom-mesh/agents.toml"),
+        phantom_mesh::cli_config::phantom_dir_under(&home).join("agents.toml"),
     ];
     let cfg_found = cfg_candidates.iter().find(|p| p.exists());
     match cfg_found {
@@ -15074,7 +18417,7 @@ async fn run_doctor() -> anyhow::Result<()> {
             ),
         ),
     }
-    let phantom_dir = home.join(".phantom-mesh");
+    let phantom_dir = phantom_mesh::cli_config::phantom_dir_under(&home);
     if phantom_dir.exists() {
         doctor_ok("~/.phantom-mesh", phantom_mesh::i18n::tr("exists", "已存在"));
     } else {
@@ -15388,8 +18731,8 @@ async fn run_doctor() -> anyhow::Result<()> {
             );
         }
         // If a server is running, surface the model + port
-        if let Some(h) = dirs::home_dir() {
-            let cfg = h.join(".phantom-mesh/mlx-config.json");
+        if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+            let cfg = data.join("mlx-config.json");
             if let Ok(s) = std::fs::read_to_string(&cfg) {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) {
                     let model = v["model"].as_str().unwrap_or("?");
@@ -15428,8 +18771,8 @@ async fn run_doctor() -> anyhow::Result<()> {
 
     // ── autoevolve daemon ────────────────────────────────────────────────
     doctor_section("autoevolve");
-    if let Some(home) = dirs::home_dir() {
-        let log = home.join(".phantom-mesh/autoevolve.log");
+    if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+        let log = data.join("autoevolve.log");
         if log.exists() {
             let content = std::fs::read_to_string(&log).unwrap_or_default();
             let last_line = content.lines().filter(|l| !l.is_empty()).last();
@@ -15541,10 +18884,10 @@ async fn run_doctor() -> anyhow::Result<()> {
     // ~/.phantom-mesh/identity.key; without a usable one, captured events are
     // written PLAINTEXT. Surface it honestly (matches the /identity TUI pane).
     {
-        let key_ok = dirs::home_dir()
-            .map(|h| {
+        let key_ok = phantom_mesh::cli_config::phantom_data_dir()
+            .map(|data| {
                 phantom_mesh::life_node::key_derivation::load_event_key(
-                    &h.join(".phantom-mesh").join("identity.key"),
+                    &data.join("identity.key"),
                 )
                 .is_ok()
             })
@@ -15571,7 +18914,7 @@ async fn run_doctor() -> anyhow::Result<()> {
     // Life Node capture volume — how much has actually been logged (a rollup
     // via the same compute_stats `phantom data stats` / TUI /stats use). Makes
     // the health check reflect real data, not just the encryption posture.
-    if let Some(home) = dirs::home_dir() {
+    if let Ok(home) = phantom_mesh::cli_config::resolve_home_dir() {
         if let Ok(s) = phantom_mesh::life_node::data_cli::compute_stats(&home) {
             if s.total == 0 {
                 doctor_ok(
@@ -15606,7 +18949,7 @@ async fn run_doctor() -> anyhow::Result<()> {
     // ── diagnostics — surface recent crashes + event log path ────────────
     doctor_section(phantom_mesh::i18n::tr("diagnostics", "診斷"));
     {
-        let crash_dir = dirs::home_dir().map(|h| h.join(".phantom-mesh/crashes"));
+        let crash_dir = phantom_mesh::cli_config::phantom_data_dir().ok().map(|d| d.join("crashes"));
         let crash_count = crash_dir
             .as_ref()
             .and_then(|d| std::fs::read_dir(d).ok())
@@ -15823,6 +19166,21 @@ async fn run_doctor() -> anyhow::Result<()> {
     // ── footer ────────────────────────────────────────────────────────────
     println!();
     println!("{}", colored(phantom_mesh::i18n::tr("done.", "完成。"), 36));
+
+    // Exit code reflects health. Warnings are advisory for this interactive
+    // self-check (allow-all default, unverified peers, etc.) — `scripts/
+    // validate-mac.sh`'s contract is explicit that "internal warnings are not
+    // our concern", so only a genuine Fail (no identity / no config / no usable
+    // provider / parse error) is a NONZERO exit. This fixes the prior bug where
+    // a broken machine still exited 0. (`doctor --json` always exits 0 —
+    // machines read `state.worst` from the payload; `doctor --mesh` keeps its
+    // own 0/1/2 live-peer convention.)
+    if diag.worst == phantom_mesh::diagnostics::Severity::Fail {
+        // Block-buffered stdout (piped) would lose the report on process::exit.
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+        std::process::exit(diag.exit_code()); // 2 on Fail
+    }
     Ok(())
 }
 
@@ -15840,6 +19198,136 @@ async fn run_doctor() -> anyhow::Result<()> {
 //   3. walk up from cwd, looking for scripts/selftest.sh
 //   4. walk up from the executable path (for installs that ship scripts)
 //   5. ~/.phantom-mesh/scripts/selftest.sh   (user-installed copy)
+/// `phantom test ...` — SPEC-60 release-evidence ship-gate collector (P2-2).
+///
+/// Subcommands (SPEC-60 §9.1/§9.2):
+///   report                 (default) — collect evidence, render the 12-gate table
+///   gate run V<N>          — run one gate; exit 0=green/1=red/2=manual-or-unknown/3=skipped
+///   gate map --check       — resolve-lint the gate-map (exit 0, or 1 if any unresolved)
+/// Flags: --json (emit ShipGateReport JSON), --no-run (static resolution-only — Green
+/// is never fabricated), --offline (reserved; P2-2 has no network checks).
+async fn run_test_gate(args: &[String]) -> anyhow::Result<()> {
+    use phantom_mesh::test_report as tr;
+
+    let json = args.iter().any(|a| a == "--json");
+    let no_run = args.iter().any(|a| a == "--no-run");
+    let _offline = args.iter().any(|a| a == "--offline"); // reserved (no network checks in P2-2)
+
+    let root = match phantom_mesh::scenarios::find_repo_root() {
+        Some(r) => r,
+        None => {
+            eprintln!("{} could not locate the phantom-mesh repo above the current dir", colored("✗", 31));
+            eprintln!("  run `phantom test ...` from inside a phantom-mesh checkout.");
+            std::process::exit(2);
+        }
+    };
+    let map_path = root.join("docs/superpowers/specs/v060-deep-spec/appendix/ship-gate-map.toml");
+
+    let load_map = || -> tr::GateMap {
+        match tr::load_gate_map(&map_path) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{} gate-map load failed: {e}", colored("✗", 31));
+                std::process::exit(2);
+            }
+        }
+    };
+
+    let commit_sha = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(&root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let now = chrono::Utc::now();
+    let sub = args.get(2).map(|s| s.as_str());
+
+    match sub {
+        Some("gate") => {
+            match args.get(3).map(|s| s.as_str()) {
+                Some("map") => {
+                    // resolve-lint only (cheap, offline). `--check` is implied.
+                    let map = load_map();
+                    let unresolved = tr::lint_gate_map(&map, &root);
+                    if unresolved.is_empty() {
+                        println!(
+                            "{} gate-map: all non-manual checks resolve ({} gates)",
+                            colored("✓", 32),
+                            map.gates.len()
+                        );
+                        std::process::exit(0);
+                    } else {
+                        eprintln!("{} gate-map has {} unresolved check(s):", colored("✗", 31), unresolved.len());
+                        for u in &unresolved {
+                            eprintln!("  - {u}");
+                        }
+                        std::process::exit(1);
+                    }
+                }
+                Some("run") => {
+                    let gate_arg = args.get(4).map(|s| s.as_str()).unwrap_or("");
+                    let gate_id = match tr::GateId::parse(gate_arg) {
+                        Some(g) => g,
+                        None => {
+                            eprintln!("{} usage: phantom test gate run V<N>  (V1..V12)", colored("✗", 31));
+                            std::process::exit(2);
+                        }
+                    };
+                    let map = load_map();
+                    let ctx = tr::RunContext { trigger: tr::TriggeredBy::WorkflowDispatch };
+                    // One-gate report so --json still emits a valid ShipGateReport.
+                    let single = tr::GateMap {
+                        gates: map.gates.into_iter().filter(|g| g.id == gate_id).collect(),
+                    };
+                    if single.gates.is_empty() {
+                        eprintln!("{} gate {} not found in gate-map", colored("✗", 31), gate_id.as_str());
+                        std::process::exit(2);
+                    }
+                    let report = tr::collect_report(&single, &root, &ctx, "local", &commit_sha, now, !no_run);
+                    let gate = &report.gates[0];
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        print!("{}", tr::render_table(&report));
+                    }
+                    // SPEC-60 §9.1 exit codes.
+                    let code = match gate.status {
+                        tr::GateStatus::Green => 0,
+                        tr::GateStatus::Red => 1,
+                        tr::GateStatus::Skipped => 3,
+                        _ => 2, // manual / unknown / pending / running / flaky / requires_investigation
+                    };
+                    std::process::exit(code);
+                }
+                _ => {
+                    eprintln!("usage: phantom test gate <map --check | run V<N>>");
+                    std::process::exit(2);
+                }
+            }
+        }
+        Some("report") | None => {
+            let map = load_map();
+            let ctx = tr::RunContext { trigger: tr::TriggeredBy::WorkflowDispatch };
+            let report = tr::collect_report(&map, &root, &ctx, "local", &commit_sha, now, !no_run);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", tr::render_table(&report));
+            }
+            // `report` always exits 0 (it reports; it does not gate).
+            std::process::exit(0);
+        }
+        Some(other) => {
+            eprintln!("{} unknown subcommand: phantom test {other}", colored("✗", 31));
+            eprintln!("  try: phantom test report | phantom test gate run V<N> | phantom test gate map --check");
+            std::process::exit(2);
+        }
+    }
+}
+
 fn run_selftest(args: &[String]) -> anyhow::Result<()> {
     let script = match locate_selftest_script() {
         Some(p) => p,
@@ -16051,8 +19539,8 @@ fn locate_selftest_script() -> Option<PathBuf> {
     }
 
     // 5. user copy
-    if let Some(home) = dirs::home_dir() {
-        let p = home.join(".phantom-mesh/scripts/selftest.sh");
+    if let Ok(data) = phantom_mesh::cli_config::phantom_data_dir() {
+        let p = data.join("scripts/selftest.sh");
         if p.is_file() {
             return Some(p);
         }
@@ -16109,9 +19597,9 @@ fn nix_uid() -> u32 {
 // downstream consumers of this CLI surface (operator dashboards, autoevolve
 // JSONL parser, future test-harness asserts) can rely on stable line shape.
 //
-// Gated behind `experimental-hermes-curator` because the symbol it tests
+// Gated behind `experimental-curator` because the symbol it tests
 // (`report_post_judge_to`) only compiles under that feature.
-#[cfg(all(test, feature = "experimental-hermes-curator"))]
+#[cfg(all(test, feature = "experimental-curator"))]
 mod a3_post_judge_tests {
     use super::report_post_judge_to;
 

@@ -64,22 +64,37 @@ fn v7_a11y_toolchain_probe_is_sound() {
 }
 
 #[test]
-fn v7_a11y_axe_scan_no_critical_violations() {
+fn v7_a11y_axe_scan_skeleton_pending_harness() {
     // SPEC-60 V7: the built SPA must have zero critical/serious axe-core
     // violations. Skip-gated until the harness + build exist.
+    //
+    // NO-FAKING: this test is renamed away from "..._scan_no_critical_violations"
+    // because, until enablement step 3 lands the real axe assert, a green here
+    // does NOT verify a11y — it only verifies the SKELETON precondition (the
+    // harness is not yet wired). The legitimate skip-gates below stay skips, but
+    // the "all prerequisites present yet no assert" fall-through now FAILS loudly
+    // (it can only be reached once someone adds the harness + build, at which
+    // point they MUST also wire the assert) instead of silently passing.
     let Some(app) = app_dir() else {
-        eprintln!("SKIP: app dir not found — set PHANTOM_APP_DIR");
+        eprintln!(
+            "SKIPPED: v7_a11y_axe_scan_no_critical_violations — app dir not found \
+             (set PHANTOM_APP_DIR)"
+        );
         return;
     };
     if !node_available() {
-        eprintln!("SKIP: node not on PATH — a11y scan needs a JS runtime");
+        eprintln!(
+            "SKIPPED: v7_a11y_axe_scan_no_critical_violations — node not on PATH \
+             (a11y scan needs a JS runtime)"
+        );
         return;
     }
     let harness = app.join("scripts").join("a11y-axe.mjs");
     if !harness.exists() {
         eprintln!(
-            "SKIP: a11y harness not present yet ({}). \
-             V7 a11y is skeleton-only — see file header enablement plan.",
+            "SKIPPED: v7_a11y_axe_scan_no_critical_violations — a11y harness not \
+             present yet ({}); V7 a11y is skeleton-only, see file header enablement \
+             plan.",
             harness.display()
         );
         return;
@@ -87,7 +102,8 @@ fn v7_a11y_axe_scan_no_critical_violations() {
     let build = app.join("dist").join("index.html");
     if !build.exists() {
         eprintln!(
-            "SKIP: SPA build not found ({}). Run `cd app && pnpm build` first.",
+            "SKIPPED: v7_a11y_axe_scan_no_critical_violations — SPA build not found \
+             ({}); run `cd app && pnpm build` first.",
             build.display()
         );
         return;
@@ -105,9 +121,14 @@ fn v7_a11y_axe_scan_no_critical_violations() {
     //       .filter(|v| matches!(v["impact"].as_str(), Some("critical" | "serious")))
     //       .count();
     //   assert_eq!(bad, 0, "axe-core found {bad} critical/serious a11y violations");
-    eprintln!(
-        "SKIP: a11y gate not yet activated — prerequisites present but the \
-         assert is TODO (enablement step 3). harness={} build={}",
+    // All prerequisites are present (harness + build exist + node on PATH) — so
+    // there is no honest reason to skip. Reaching here means the a11y gate is
+    // wired-up except for the assert itself, which would be a silent fake-green.
+    // Fail loudly to force enablement step 3 to land the real axe assertion.
+    panic!(
+        "v7 a11y prerequisites are all present (harness={} build={}) but the \
+         axe-core assert is still a TODO — wire enablement step 3 (run the harness \
+         and assert zero critical/serious violations) instead of passing vacuously.",
         harness.display(),
         build.display()
     );

@@ -1,0 +1,10 @@
+# Example autonomy-governance spec envelope (AUTONOMY-GOVERNANCE.md §1 pillar 1).
+# A self-igniting task MUST be bound to one of these. No spec → don't do the task.
+[spec]
+capability  = "dispatch"                       # sense | learn | nudge | dispatch (①②③④)
+component   = "broker /api/squad/dispatch endpoint"
+acceptance  = "POST /api/squad/dispatch returns 200, result stored, retrievable via GET"
+scope_allow = ["broker/src/api/", "broker/src/squad.rs"]   # bounded: only these may change
+scope_forbid = []                              # extra forbids (R2 zones are always forbidden)
+max_files   = 3                                # soft cap (R1-iv): > this = deviation
+max_hours   = 4

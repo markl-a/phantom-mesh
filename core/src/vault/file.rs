@@ -24,8 +24,8 @@ impl FileVault {
     /// Construct a FileVault rooted at `~/.phantom-mesh/`.
     /// Returns an error if `$HOME` is unset (rare).
     pub fn new() -> anyhow::Result<Self> {
-        let home = dirs::home_dir().context("$HOME not set")?;
-        Self::new_in_dir(home.join(".phantom-mesh"))
+        let data = crate::cli_config::phantom_data_dir()?;
+        Self::new_in_dir(data)
     }
 
     /// Construct a FileVault rooted at `dir`. The dir is created if

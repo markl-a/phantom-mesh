@@ -3,11 +3,11 @@ import { Routes, Route, NavLink, Navigate, useLocation, useNavigate } from "reac
 import { listen } from "@tauri-apps/api/event";
 import {
   MessageSquare, LayoutDashboard, Target,
-  Globe, FileText, Settings, Menu, X, LogOut, Mic, ListChecks, Utensils, History, CalendarDays, Search,
+  Globe, FileText, Settings, Menu, X, LogOut, Mic, ListChecks, Utensils, History, CalendarDays, Search, HeartHandshake, ShieldCheck, BookOpen,
 } from "lucide-react";
-import OnboardingQuickStart, { clearSession } from "./components/onboarding/OnboardingQuickStart";
+import OnboardingHello from "./pages/onboarding-hello";
 import StartupCheck from "./components/StartupCheck";
-import { ONBOARDED_KEY } from "./components/onboarding/types";
+import { ONBOARDED_KEY, clearSession } from "./components/onboarding/types";
 
 import Conversation from "./pages/Conversation";
 import Dashboard from "./pages/Dashboard";
@@ -16,6 +16,7 @@ import Browser from "./pages/Browser";
 import PageViewer from "./pages/PageViewer";
 import SettingsPage from "./pages/Settings";
 import Terminal from "./pages/Terminal";
+import SkillBank from "./pages/skill-bank";
 import FocusPage from "./components/focus/FocusPage";
 import FocusStartSheet from "./screens/macos/FocusStartSheet";
 import HabitPage from "./screens/macos/HabitPage";
@@ -23,6 +24,7 @@ import FoodCapturePanel from "./components/food/FoodCapturePanel";
 import EventTimeline from "./screens/macos/EventTimeline";
 import CoachReviewReader from "./screens/macos/CoachReviewReader";
 import RecallSearch from "./screens/macos/RecallSearch";
+import DailyReflection from "./screens/macos/DailyReflection";
 
 import { useIsMobile } from "./hooks/useIsMobile";
 import MobileShell from "./components/mobile/MobileShell";
@@ -34,6 +36,9 @@ import MobileOnboardingV2 from "./components/mobile/MobileOnboardingV2";
 import MobileFirstLaunch from "./components/mobile/MobileFirstLaunch";
 import MobileJoinCluster from "./components/mobile/MobileJoinCluster";
 import MobileMesh from "./components/mobile/MobileMesh";
+import DemoScreen from "./components/mobile/DemoScreen";
+import AppTemplate from "./components/mobile/AppTemplate";
+import MobileApprovals from "./components/mobile/MobileApprovals";
 
 type FirstLaunchStage =
   | { kind: "pick" }
@@ -48,7 +53,10 @@ const PRIMARY_NAV = [
   { path: "/food",      icon: Utensils,        label: "飲食" },
   { path: "/timeline",  icon: History,         label: "時間軸" },
   { path: "/review",    icon: CalendarDays,    label: "回顧" },
+  { path: "/reflection", icon: HeartHandshake, label: "對齊反思" },
   { path: "/recall",    icon: Search,          label: "回想" },
+  { path: "/approvals", icon: ShieldCheck,     label: "審核" },
+  { path: "/skills",    icon: BookOpen,        label: "技能庫" },
   { path: "/settings",  icon: Settings,        label: "設定" },
 ];
 
@@ -99,12 +107,15 @@ export default function App() {
     setUserInfo(null);
   };
 
-  // Mobile (iOS/Android): skip the desktop onboarding (hardware scan +
-  // provider picker) and StartupCheck — neither applies to a thin client.
-  // Configuration on mobile happens inside Settings → 從 Mac 匯入設定 (token
-  // import) or Settings → Cluster 派送. Land directly on MobileShell.
-  if (!isMobile && !onboarded) {
-    return <OnboardingQuickStart onComplete={() => setOnboarded(true)} />;
+  // First launch (every platform): the GUI D1–D5 login-first onboarding
+  // (OnboardingHello) drives the shared SPEC-28 FSM through the real per-edge
+  // side-effects (broker OAuth login + ed25519 identity mint, detached
+  // `phantom serve` + mDNS advertise, provider detection + ranking). English
+  // only; no demo/join/key-paste/skip. Same component on desktop AND mobile —
+  // it is responsive (safe-area insets + haptics) — so neither short-circuits
+  // past it. Peer-join + vault sync stay Stage 2 (handled later in Settings).
+  if (!onboarded) {
+    return <OnboardingHello onComplete={() => setOnboarded(true)} />;
   }
 
   if (!isMobile && !selfCheckPassed) {
@@ -131,9 +142,17 @@ export default function App() {
     );
   }
 
-  // ─── Mobile branch: minimal 3-tab shell ──────────────────────────────────
+  // ─── Mobile branch ────────────────────────────────────────────────────────
+  // INTERVIEW DEMO: render the polished, self-contained AppTemplate on mobile.
+  // It's a real product-grade shell (top bar + 4 iOS tabs) that bypasses the
+  // (currently broken) legacy mobile UI while reusing the working networking
+  // (clusterPost → native swift_cluster_fetch + HMAC).
+  // TO RESTORE the bare DemoScreen: `return <DemoScreen />;`
+  // TO RESTORE the legacy mobile UI: `return <MobileApp onLogout={userInfo ? handleLogout : undefined} />;`
   if (isMobile) {
-    return <MobileApp onLogout={userInfo ? handleLogout : undefined} />;
+    return <AppTemplate />;
+    // return <DemoScreen />;
+    // return <MobileApp onLogout={userInfo ? handleLogout : undefined} />;
   }
 
   const renderNavLink = (item: typeof PRIMARY_NAV[0]) => (
@@ -239,7 +258,10 @@ export default function App() {
           <Route path="/food"       element={<FoodCapturePanel />} />
           <Route path="/timeline"   element={<EventTimeline />} />
           <Route path="/review"     element={<CoachReviewReader />} />
+          <Route path="/reflection" element={<DailyReflection />} />
           <Route path="/recall"     element={<RecallSearch />} />
+          <Route path="/approvals"  element={<ApprovalsPage />} />
+          <Route path="/skills"     element={<SkillBank />} />
           <Route path="/goals"      element={<Goals />} />
           <Route path="/browser"    element={<Browser />} />
           <Route path="/pages"      element={<PageViewer />} />
@@ -352,6 +374,19 @@ function MobileApp({ onLogout }: { onLogout?: () => void }) {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+  );
+}
+
+// apex-④ · Desktop approvals page — a thin wrapper around the same
+// <MobileApprovals /> component used on mobile. No props ⇒ it reads
+// baseUrl/secret from useClusterModeStore (coordinatorUrl + clusterSecret),
+// which is what the desktop cluster settings write. Constrained width so the
+// cards don't stretch edge-to-edge on a wide desktop <main>.
+function ApprovalsPage() {
+  return (
+    <div className="max-w-2xl mx-auto h-full">
+      <MobileApprovals />
+    </div>
   );
 }
 

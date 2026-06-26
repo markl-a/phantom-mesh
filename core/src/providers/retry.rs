@@ -1,11 +1,11 @@
 //! Retry + backoff middleware for provider HTTP calls.
 //!
-//! Gated behind Cargo feature `experimental-hermes-providers` (default OFF).
+//! Gated behind Cargo feature `experimental-extra-providers` (default OFF).
 //!
 //! See `docs/superpowers/plans/2026-05-15-track-t11-provider-retry.md` for the
 //! design rationale.
 
-#![cfg(feature = "experimental-hermes-providers")]
+#![cfg(feature = "experimental-extra-providers")]
 
 use std::time::Duration;
 

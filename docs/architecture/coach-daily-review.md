@@ -32,7 +32,7 @@ multimodal understanding（多模態理解））的 AI 教練介面。
 | `core/src/daily_review_wire.rs` | App 視圖模型 wire（線傳）型別 `DailyReviewView` + `load_daily_review`；離線且唯讀，重用引擎的 `aggregate` / `load_events_for_date`。匯出 TS bindings（TypeScript 綁定）。 |
 | `core/src/coach_wire.rs` | SPEC-23 教練引擎的 wire 型別：`DailyReviewRequest`、`DailyReviewOutcome`、`CoachReviewReadyPayload`、`ReviewStatus`、`MemoryInject`，外加排程的 `run_daily_review` / 分層記憶（tiered-memory）契約。 |
 | `core/src/coach_delivery_wire.rs` | 遞送層：`deliver`、`send_telegram`、`send_email`、`write_markdown_file`、`dedup_check`——把一份完成的回顧送往設定好的頻道。 |
-| `core/src/hermes/skill_extractor/from_daily_review.rs` | `extract_from_review_markdown`——從已儲存的回顧中，每個 goal-tag（目標標籤）區段挖掘出一個 `SkillCandidate`（E005 技能管線）。 |
+| `core/src/skillbank/skill_extractor/from_daily_review.rs` | `extract_from_review_markdown`——從已儲存的回顧中，每個 goal-tag（目標標籤）區段挖掘出一個 `SkillCandidate`（E005 技能管線）。 |
 | `core/src/bin/phantom.rs` | `phantom coach review`、`phantom review`、`phantom daily` 的 CLI 指令接線。 |
 | `app/src-tauri/src/commands/daily_review_wire.rs` | Tauri 指令 `daily_review_load` 與 `daily_review_generate`，註冊於 `app/src-tauri/src/lib.rs`。 |
 | `app/src/lib/dailyReview.ts` | 前端輔助函式：`loadDailyReview`、`generateReview`、`parseReview`、`extractTomorrowAction`。 |
@@ -99,7 +99,7 @@ flowchart TD
   `core/src/life_node/daily_review.rs` 中的
   `clean_summary` 與 `aggregate` 案例、`core/src/coach_wire.rs` 中的
   lint 拒絕與往返（round-trip）案例，以及
-  `core/src/hermes/skill_extractor/from_daily_review.rs` 中的萃取器案例。
+  `core/src/skillbank/skill_extractor/from_daily_review.rs` 中的萃取器案例。
 - Tauri 指令測試以行內方式存在於
   `app/src-tauri/src/commands/daily_review_wire.rs`。
 - 整合測試：

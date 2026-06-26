@@ -81,6 +81,6 @@ tdd-next
 ## 這套流程不是什麼
 
 - **不是 100% coverage。**
-- **不是 Hermes upstream tools 的測試框架。**它們使用 upstream CI。
+- **不是技能庫 upstream tools 的測試框架。**它們使用 upstream CI。
 - **不是 greenfield 流程。**目前 codebase 已有約 11K LOC 與 633 個測試；
   這套流程針對 v0.6.0 delta，而不是從零重建。

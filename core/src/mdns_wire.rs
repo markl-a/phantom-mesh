@@ -276,7 +276,26 @@ pub fn start_browser(expected_cluster_id_hash: &str) -> Result<(), MdnsError> {
     //             cluster-filter gate that keeps shared-LAN noise out,
     //         (d) emit `DiscoveryEvent::PeerAdded` / `PeerRemoved` /
     //             `SearchStarted` / `SearchStopped` to the caller.
-    dispatch_browse_events(event_rx, expected_cluster_id_hash)
+    dispatch_browse_events(event_rx, expected_cluster_id_hash, None)
+}
+
+/// Like [`start_browser`], but forwards each matched `DiscoveryEvent` to a
+/// caller-supplied `std::sync::mpsc::Sender` instead of dropping it. This is
+/// the SPEC-11 §7.3 desktop callback path: a consumer (e.g. the SPEC-17 §572
+/// event-bus adapter) creates a channel, hands the `Sender` here, and drains
+/// the matching `Receiver`. `mdns-sd` is sync, so the drain runs on a
+/// `std::thread`; the thread exits on `SearchStopped` or when the receiver is
+/// dropped.
+///
+/// 中文: 同 `start_browser`，但把過濾後的 `DiscoveryEvent` 透過呼叫方給的
+/// `Sender` 往下游送，而不是丟掉 —— 這就是 §7.3 desktop callback 路徑。
+pub fn start_browser_with_sink(
+    expected_cluster_id_hash: &str,
+    sink: std::sync::mpsc::Sender<DiscoveryEvent>,
+) -> Result<(), MdnsError> {
+    let daemon = ensure_service_daemon()?;
+    let event_rx = mdns_browse(daemon)?;
+    dispatch_browse_events(event_rx, expected_cluster_id_hash, Some(sink))
 }
 
 /// Parse raw TXT key/value pairs into a `PeerAdvertisement`.
@@ -481,53 +500,87 @@ fn mdns_browse(
 /// `mdns-sd` 0.13 is sync (its `Receiver` is a `flume::Receiver`), so
 /// we use `std::thread` rather than `tokio::spawn` to keep this module
 /// runtime-agnostic.
+/// Pure reduction of a resolved mDNS service into a `DiscoveryEvent::PeerAdded`,
+/// extracted from the browse thread so the §8 parse-error + cluster-filter drops
+/// and the SRV-port / A-AAAA-addr backfill are unit-testable WITHOUT a live
+/// `mdns_sd::Receiver` or LAN multicast. Returns `None` when the TXT payload
+/// fails to parse (§8 silent drop) or advertises a DIFFERENT cluster
+/// (cluster-filter drop) — the two branches a live test could never reach.
+fn reduce_resolved(
+    raw: &[(String, String)],
+    port: u16,
+    addrs: &[IpAddr],
+    expected_cluster_id_hash: &str,
+) -> Option<DiscoveryEvent> {
+    let mut parsed = parse_txt_records(raw).ok()?; // §8 silent drop on parse error
+    if parsed.cl != expected_cluster_id_hash {
+        return None; // §8 cluster-filter silent drop
+    }
+    // Backfill SRV port + A/AAAA addrs from the resolved ServiceInfo so the
+    // emitted advertisement is complete.
+    parsed.port = port;
+    parsed.addrs = addrs.to_vec();
+    Some(DiscoveryEvent::PeerAdded(parsed))
+}
+
+/// Pure mapping from a single `mdns_sd::ServiceEvent` to the SPEC-11 §8
+/// `DiscoveryEvent`, or `None` for the events that produce no observable
+/// discovery transition: the §8 silent drops (parse error / cluster mismatch,
+/// both inside `reduce_resolved`) and the pre-resolve `ServiceFound` (we wait
+/// for `ServiceResolved` to get the TXT payload). Extracted from the browse
+/// thread so the event → discovery translation is unit-testable WITHOUT a live
+/// `mdns_sd::Receiver` or LAN multicast.
+fn map_service_event(
+    ev: mdns_sd::ServiceEvent,
+    expected_cluster_id_hash: &str,
+) -> Option<DiscoveryEvent> {
+    match ev {
+        mdns_sd::ServiceEvent::ServiceResolved(info) => {
+            // Reconstruct the raw TXT pair list from ServiceInfo's property
+            // iterator so we can reuse the pure `reduce_resolved` (parse +
+            // cluster-filter + SRV/A backfill).
+            let raw: Vec<(String, String)> = info
+                .get_properties()
+                .iter()
+                .map(|p| (p.key().to_string(), p.val_str().to_string()))
+                .collect();
+            let addrs: Vec<IpAddr> = info.get_addresses().iter().copied().collect();
+            reduce_resolved(&raw, info.get_port(), &addrs, expected_cluster_id_hash)
+        }
+        mdns_sd::ServiceEvent::ServiceRemoved(_ty, fullname) => Some(DiscoveryEvent::PeerRemoved {
+            instance_name: fullname,
+        }),
+        mdns_sd::ServiceEvent::SearchStarted(_) => Some(DiscoveryEvent::SearchStarted),
+        mdns_sd::ServiceEvent::SearchStopped(_) => Some(DiscoveryEvent::SearchStopped),
+        // Pre-resolve event; nothing to emit yet — wait for `ServiceResolved`.
+        mdns_sd::ServiceEvent::ServiceFound(_, _) => None,
+    }
+}
+
 fn dispatch_browse_events(
     events: mdns_sd::Receiver<mdns_sd::ServiceEvent>,
     expected_cluster_id_hash: &str,
+    sink: Option<std::sync::mpsc::Sender<DiscoveryEvent>>,
 ) -> Result<(), MdnsError> {
     let expected = expected_cluster_id_hash.to_string();
     std::thread::spawn(move || {
         while let Ok(ev) = events.recv() {
-            match ev {
-                mdns_sd::ServiceEvent::ServiceResolved(info) => {
-                    // Reconstruct the raw TXT pair list from ServiceInfo's
-                    // property iterator so we can reuse `parse_txt_records`.
-                    let raw: Vec<(String, String)> = info
-                        .get_properties()
-                        .iter()
-                        .map(|p| (p.key().to_string(), p.val_str().to_string()))
-                        .collect();
-                    let mut parsed = match parse_txt_records(&raw) {
-                        Ok(p) => p,
-                        Err(_) => continue, // §8 silent drop on parse error
-                    };
-                    if parsed.cl != expected {
-                        continue; // §8 cluster-filter silent drop
+            // `SearchStopped` ends the drain regardless of whether a sink is
+            // wired (§8: clean stop), so latch it before `ev` is consumed.
+            let stop = matches!(ev, mdns_sd::ServiceEvent::SearchStopped(_));
+            if let Some(emit) = map_service_event(ev, &expected) {
+                if let Some(tx) = &sink {
+                    // A dropped receiver means the consumer is gone — there is
+                    // nothing left to forward to, so stop draining.
+                    if tx.send(emit).is_err() {
+                        break;
                     }
-                    // Backfill SRV port + A/AAAA addrs from ServiceInfo so
-                    // the emitted PeerAdvertisement is complete.
-                    parsed.port = info.get_port();
-                    parsed.addrs = info.get_addresses().iter().copied().collect();
-                    // Sink: drop for now (no caller channel wired yet — see
-                    // module-level TODO post-Stage-4).
-                    let _emit = DiscoveryEvent::PeerAdded(parsed);
                 }
-                mdns_sd::ServiceEvent::ServiceRemoved(_ty, fullname) => {
-                    let _emit = DiscoveryEvent::PeerRemoved {
-                        instance_name: fullname,
-                    };
-                }
-                mdns_sd::ServiceEvent::SearchStarted(_) => {
-                    let _emit = DiscoveryEvent::SearchStarted;
-                }
-                mdns_sd::ServiceEvent::SearchStopped(_) => {
-                    let _emit = DiscoveryEvent::SearchStopped;
-                    break; // Stop draining once search is stopped.
-                }
-                mdns_sd::ServiceEvent::ServiceFound(_, _) => {
-                    // Pre-resolve event; nothing to emit yet — wait for
-                    // `ServiceResolved` to get the TXT payload.
-                }
+                // No sink wired (`start_browser`): the event is observed and
+                // discarded, preserving the original scaffold behaviour.
+            }
+            if stop {
+                break;
             }
         }
     });
@@ -777,6 +830,93 @@ mod tests {
         assert!(ad.addrs.is_empty(), "addrs is caller-filled by A/AAAA layer");
     }
 
+    fn valid_raw(cl: &str) -> Vec<(String, String)> {
+        vec![
+            ("v".to_string(), "1".to_string()),
+            ("pf".to_string(), "3f2a91b0".to_string()),
+            ("cl".to_string(), cl.to_string()),
+            ("ca".to_string(), "always-on,gpu".to_string()),
+            ("os".to_string(), "linux".to_string()),
+            ("na".to_string(), "desktop".to_string()),
+        ]
+    }
+
+    #[test]
+    fn reduce_resolved_accepts_matching_cluster() {
+        // Same cluster → PeerAdded with the SRV port + A/AAAA addrs backfilled.
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let out = reduce_resolved(&valid_raw("b4e7d2a8c1f30569"), 7878, &[ip], "b4e7d2a8c1f30569");
+        match out {
+            Some(DiscoveryEvent::PeerAdded(p)) => {
+                assert_eq!(p.cl, "b4e7d2a8c1f30569");
+                assert_eq!(p.port, 7878, "SRV port backfilled");
+                assert_eq!(p.addrs, vec![ip], "A/AAAA addrs backfilled");
+                assert_eq!(p.na, "desktop");
+            }
+            other => panic!("expected PeerAdded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reduce_resolved_drops_cluster_mismatch() {
+        // §8 cluster-filter: a peer on a DIFFERENT cluster is silently dropped.
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        let out = reduce_resolved(&valid_raw("b4e7d2a8c1f30569"), 7878, &[ip], "0000000000000000");
+        assert!(out.is_none(), "mismatched cluster must drop to None");
+    }
+
+    #[test]
+    fn reduce_resolved_drops_parse_error() {
+        // §8 parse-error: a TXT payload missing the required `na` key is dropped.
+        let mut raw = valid_raw("b4e7d2a8c1f30569");
+        raw.retain(|(k, _)| k != "na");
+        let out = reduce_resolved(&raw, 7878, &[], "b4e7d2a8c1f30569");
+        assert!(out.is_none(), "unparseable TXT must drop to None");
+    }
+
+    #[test]
+    fn map_service_event_translates_lifecycle_variants() {
+        // §8 lifecycle: the non-`ServiceResolved` arms map deterministically
+        // without a live daemon (`ServiceResolved` is covered by the
+        // `reduce_resolved_*` tests above).
+        let cl = "b4e7d2a8c1f30569";
+
+        // ServiceRemoved → PeerRemoved, preserving the instance name.
+        let ev = mdns_sd::ServiceEvent::ServiceRemoved(
+            "_phantom-mesh._tcp.local.".to_string(),
+            "z13._phantom-mesh._tcp.local.".to_string(),
+        );
+        match map_service_event(ev, cl) {
+            Some(DiscoveryEvent::PeerRemoved { instance_name }) => {
+                assert_eq!(instance_name, "z13._phantom-mesh._tcp.local.");
+            }
+            other => panic!("expected PeerRemoved, got {other:?}"),
+        }
+
+        // SearchStarted / SearchStopped map to their discovery counterparts.
+        assert!(matches!(
+            map_service_event(
+                mdns_sd::ServiceEvent::SearchStarted("_phantom-mesh._tcp.local.".to_string()),
+                cl,
+            ),
+            Some(DiscoveryEvent::SearchStarted)
+        ));
+        assert!(matches!(
+            map_service_event(
+                mdns_sd::ServiceEvent::SearchStopped("_phantom-mesh._tcp.local.".to_string()),
+                cl,
+            ),
+            Some(DiscoveryEvent::SearchStopped)
+        ));
+
+        // ServiceFound is pre-resolve: nothing to emit yet.
+        let ev = mdns_sd::ServiceEvent::ServiceFound(
+            "_phantom-mesh._tcp.local.".to_string(),
+            "z13._phantom-mesh._tcp.local.".to_string(),
+        );
+        assert!(map_service_event(ev, cl).is_none());
+    }
+
     /// §7.2 — wrong `v` version sentinel must reject with `TxtParseError`. A
     /// future v0.7.0 peer broadcasting `v=2` should not be silently accepted
     /// by a v0.6.0 receiver — handshake renegotiation comes first.
@@ -880,7 +1020,7 @@ mod tests {
     /// Live mDNS smoke test — binds UDP-5353, registers, browses. Behind
     /// `#[ignore]` because it requires a usable network stack and clean
     /// port 5353 (avahi / Bonjour conflicts). Run with
-    /// `cargo test -p phantom-core -- --ignored mdns_wire_live`.
+    /// `cargo test -p phantom-mesh -- --ignored mdns_wire_live`.
     #[test]
     #[ignore]
     fn mdns_wire_live_register_and_browse_smoke() {

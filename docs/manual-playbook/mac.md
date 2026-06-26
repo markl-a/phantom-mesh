@@ -1,5 +1,8 @@
-# Mac 手動測試 Playbook — 親手跑全 130 條的人類版
+# Mac 手動測試 Playbook — 親手跑全 151 條的人類版
 
+> **配套**：自動覆蓋率以 [`docs/test-cases/COVERAGE-MAP-mac.md`](../test-cases/COVERAGE-MAP-mac.md)（canonical 覆蓋率地圖）為準、
+> machine-readable case DB 見 [`docs/test-cases/mac.md`](../test-cases/mac.md)。本檔是其中 ❌ manual 那組的人類 run-sheet。
+>
 > **誰跑**: operator 親手、不是 AI、不是 CI。
 > **何時跑**: ship 前 / 大改 / 月度 sanity / 出 bug 後 regression
 > **預估時長**: 完整一輪 90-120 min (含等待 / install / build)
@@ -15,9 +18,16 @@
 - [ ] Terminal 已給 Full Disk Access（系統設定 → 隱私權與安全性 → 完整磁碟取用權 → 加入 Terminal）
 - [ ] 網路通（`ping phantommesh.io` 回 200）
 - [ ] Disk space ≥ 2 GB
-- [ ] 備份現有 ~/.phantom-mesh/（如果有）：
+- [ ] **設定資料根隔離 `PHANTOM_HOME`**（spec'd data-root override，讓本輪測試不污染真實家目錄）：
   ```bash
-  mv ~/.phantom-mesh ~/.phantom-mesh.bak-$(date +%s) 2>/dev/null || true
+  export PHANTOM_HOME="$(mktemp -d)/.phantom-mesh"   # 或固定一個 sandbox 路徑
+  echo "PHANTOM_HOME=$PHANTOM_HOME"
+  ```
+  > ⚠️ **drift 註**：`PHANTOM_HOME` 是 SPEC'd data-root override，但 **as-built 尚未被 home-resolver honor**（`core/src/config.rs:380-381` 仍走 `dirs::home_dir().join(".phantom-mesh")`；`core/src/tui.rs:8927/8930` 明標「needs PHANTOM_HOME resolver」為 tracked follow-up）。在 #322 home-resolver 統一前，本檔以 `${PHANTOM_HOME:-$HOME/.phantom-mesh}` 引用資料根：設了變數即用 sandbox，未設則 fallback 到實機現行路徑 `~/.phantom-mesh`。#322 落地後此 fallback 可移除。
+- [ ] 備份現有資料根（如果有，且未設 `PHANTOM_HOME`）：
+  ```bash
+  : "${PHANTOM_HOME:=$HOME/.phantom-mesh}"
+  mv "$PHANTOM_HOME" "$PHANTOM_HOME.bak-$(date +%s)" 2>/dev/null || true
   ```
 - [ ] 準備一個記事 app（Notes / TextEdit）紀錄問題
 
@@ -46,8 +56,8 @@
 | 1.1.1 | 開 Terminal | prompt 顯示 `<user>@<host>` | | |
 | 1.1.2 | `curl -fsSL https://phantommesh.io/install.sh \| sh` | 看到 install banner + download URL + "=== installed ===" | | |
 | 1.1.3 | `which phantom` | 印 `~/.local/bin/phantom` | | |
-| 1.1.4 | `phantom --version` | 印 `phantom 0.6.0-rc.1 ...` | | |
-| 1.1.5 | `ls -la ~/.phantom-mesh/` | 看到 `bin/` + `events.jsonl` + 可能其他 | | |
+| 1.1.4 | `phantom --version` | 印 `phantom 0.6.0 ...`（容忍 `0.6.0[-rc.N]` 後綴） | | |
+| 1.1.5 | `ls -la "${PHANTOM_HOME:-$HOME/.phantom-mesh}/"` | 看到 `bin/` + `events.jsonl` + 可能其他 | | |
 
 **❌ 失敗時**：
 - 1.1.2 卡住 → 檢查網路 + phantommesh.io 是否 alive
@@ -58,10 +68,10 @@
 | Step | 命令 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 1.2.1 | `phantom habit water --qty 250` | exit 0、stdout 含 streak | |
-| 1.2.2 | `ls ~/.phantom-mesh/identity.key` | 檔案存在、64 bytes | |
-| 1.2.3 | `ls ~/.phantom-mesh/events.sqlite` | 檔案存在 | |
-| 1.2.4 | `sqlite3 ~/.phantom-mesh/events.sqlite "SELECT count(*) FROM events"` | ≥ 1 | |
-| 1.2.5 | `sqlite3 ~/.phantom-mesh/events.sqlite ".tables"` | 含 `events` + `events_fts` (FTS5) | |
+| 1.2.2 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 檔案存在、64 bytes | |
+| 1.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite"` | 檔案存在 | |
+| 1.2.4 | `find "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 1 個 event 目錄 | |
+| 1.2.5 | `sqlite3 "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite" ".tables"` | 含 `fts5_events` (FTS5 as-built；`events` 主表為 v0.7.0+ planned) | |
 
 ### 1.3 完整第一條 habit (5 min)
 
@@ -72,7 +82,7 @@
 | 1.3.3 | `phantom habit streak --chip water` | 回 streak ≥ 1 | |
 | 1.3.4 | `phantom habit streak --chip coffee` | 回 streak ≥ 1 | |
 | 1.3.5 | `phantom habit "讀完 SICP ch3"` (freetext) | exit 0、event 寫入 | |
-| 1.3.6 | `sqlite3 ~/.phantom-mesh/events.sqlite "SELECT count(*) FROM events"` | ≥ 3 (3 events from 1.2.1 + 1.3.2 + 1.3.5) | |
+| 1.3.6 | `find "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 3 個 event 目錄（1.2.1 + 1.3.2 + 1.3.5） | |
 
 ### 1.4 SLO 量測（manual）
 
@@ -94,8 +104,8 @@
 |---|---|---|---|
 | 2.1.1 | `cp <你的早餐照.jpg> /tmp/breakfast.jpg` | 檔案存在 | |
 | 2.1.2 | `phantom food --image /tmp/breakfast.jpg` | exit 0、印分析結果 | |
-| 2.1.3 | `ls ~/.phantom-mesh/events/*/modality_image.json` | 至少 1 個檔 | |
-| 2.1.4 | `head -c 30 ~/.phantom-mesh/events/*/modality_image.json \| xxd \| head -1` | 開頭含 "age-encryption.org/v1" magic (P4 加密驗證) | |
+| 2.1.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_image.json` | 至少 1 個檔 | |
+| 2.1.4 | `head -c 30 "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_image.json \| xxd \| head -1` | 開頭含 "age-encryption.org/v1" magic (P4 加密驗證) | |
 
 ### 2.2 Focus session (5 min)
 
@@ -103,7 +113,7 @@
 |---|---|---|---|
 | 2.2.1 | `phantom focus start --duration 60` | 開始錄 audio | |
 | 2.2.2 | 等 60s 或 Ctrl+C 結束 | exit 0、印 takeaway | |
-| 2.2.3 | `ls ~/.phantom-mesh/events/*/modality_audio.*` | 至少 1 個 (audio blob 加密) | |
+| 2.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_audio.*` | 至少 1 個 (audio blob 加密) | |
 | 2.2.4 | 麥克風權限提示彈出（首次） | 系統權限對話框、選「允許」 | |
 
 ### 2.3 Habit 進階測試 (5 min)
@@ -125,7 +135,7 @@
 | 2.4.1 | `phantom coach review --date $(date -v-1d +%Y-%m-%d)` | exit 0、印 markdown | |
 | 2.4.2 | output 含「水」or「咖啡」or「冥想」 | 至少一個提到 | |
 | 2.4.3 | `phantom coach schedule install` | exit 0、`~/Library/LaunchAgents/ai.phantommesh.coach.plist` 存在 | |
-| 2.4.4 | （可選）等到隔天 7:00 看 launchd 是否自動跑 | `~/.phantom-mesh/reviews/<date>.md` 自動產 | |
+| 2.4.4 | （可選）等到隔天 7:00 看 launchd 是否自動跑 | `${PHANTOM_HOME:-$HOME/.phantom-mesh}/reviews/<date>.md` 自動產 | |
 
 ---
 
@@ -139,7 +149,7 @@
 |---|---|---|---|
 | 3.1.1 | `phantom login` | 開瀏覽器 OAuth | |
 | 3.1.2 | 登入 (Google / Apple) | 回 callback | |
-| 3.1.3 | `cat ~/.phantom-mesh/broker.json \| jq '.token \| length'` | token 長度 > 0 | |
+| 3.1.3 | `cat "${PHANTOM_HOME:-$HOME/.phantom-mesh}/broker.json" \| jq '.token \| length'` | token 長度 > 0 | |
 | 3.1.4 | `phantom cluster status` | 顯示節點列表 | |
 
 ### 3.2 mac+mac sync (10 min)
@@ -178,10 +188,10 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 4.2.1 | `mv ~/.phantom-mesh/agents.toml /tmp/agents.toml.bak` | 移開 config | |
+| 4.2.1 | `mv "${PHANTOM_HOME:-$HOME/.phantom-mesh}/agents.toml" /tmp/agents.toml.bak` | 移開 config | |
 | 4.2.2 | `phantom habit water --qty 250` | exit 0 (capture 不靠 LLM) | |
 | 4.2.3 | `phantom coach review --date today` | 印「設定 → providers」hint | |
-| 4.2.4 | `mv /tmp/agents.toml.bak ~/.phantom-mesh/agents.toml` | 復原 | |
+| 4.2.4 | `mv /tmp/agents.toml.bak "${PHANTOM_HOME:-$HOME/.phantom-mesh}/agents.toml"` | 復原 | |
 
 ### 4.3 Identity.key 損毀 (5 min, ⚠ 會破壞 events)
 
@@ -190,9 +200,9 @@
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 4.3.1 | `phantom backup --to /tmp/bak.tar.gz` | tar.gz 產出 | |
-| 4.3.2 | `echo "garbage" > ~/.phantom-mesh/identity.key` | 損毀 | |
+| 4.3.2 | `echo "garbage" > "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 損毀 | |
 | 4.3.3 | `phantom habit water --qty 250` | exit 非 0 + "IdentityKeyMissing" 或同義 | |
-| 4.3.4 | `rm -rf ~/.phantom-mesh; tar -xzf /tmp/bak.tar.gz -C ~/` | 復原 | |
+| 4.3.4 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/bak.tar.gz -C "$(dirname "$H")"` | 復原 | |
 | 4.3.5 | `phantom habit streak --chip water` | 之前 event 仍讀得到 | |
 
 ### 4.4 Sqlite 損毀 (5 min, ✅ Sip Recovery shipped)
@@ -200,10 +210,10 @@
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 4.4.1 | `phantom backup --to /tmp/pre.tar.gz` | tar.gz 產出 | |
-| 4.4.2 | `echo "garbage" > ~/.phantom-mesh/events.sqlite` | 損毀 | |
+| 4.4.2 | `echo "garbage" > "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite"` | 損毀 | |
 | 4.4.3 | `phantom habit water --qty 250` | exit 0 + stderr 含 "rotated" + 新建 fresh sqlite | |
-| 4.4.4 | `ls ~/.phantom-mesh/events.sqlite.corrupt-*` | 損毀檔被搬到 .corrupt-<ts> | |
-| 4.4.5 | `rm -rf ~/.phantom-mesh; tar -xzf /tmp/pre.tar.gz -C ~/` | 復原 | |
+| 4.4.4 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events.sqlite.corrupt-*` | 損毀檔被搬到 .corrupt-<ts> | |
+| 4.4.5 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/pre.tar.gz -C "$(dirname "$H")"` | 復原 | |
 
 ---
 
@@ -226,10 +236,10 @@
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 5.2.1 | `phantom data delete --all --yes` | exit 0、events_dir 清空 | |
-| 5.2.2 | `ls ~/.phantom-mesh/events/` | 空 | |
-| 5.2.3 | `ls ~/.phantom-mesh/identity.key` | 仍存在（CUJ-05 DEL-001a 證明 scope 對） | |
+| 5.2.2 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events/"` | 空 | |
+| 5.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 仍存在（CUJ-05 DEL-001a 證明 scope 對） | |
 | 5.2.4 | （optional broker DELETE 等 task #140 ship）| skip | n/a |
-| 5.2.5 | `rm -rf ~/.phantom-mesh; tar -xzf /tmp/full.tar.gz -C ~/; phantom habit streak --chip water` | 從 backup 復原成功、看得到原 streak | |
+| 5.2.5 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/full.tar.gz -C "$(dirname "$H")"; phantom habit streak --chip water` | 從 backup 復原成功、看得到原 streak | |
 
 ---
 
@@ -265,7 +275,7 @@
 
 | Step | 動作 | ✓/✗ |
 |---|---|---|
-| 7.1 | 回復原本 ~/.phantom-mesh/：`mv ~/.phantom-mesh.bak-* ~/.phantom-mesh` | |
+| 7.1 | 回復原本資料根（未設 `PHANTOM_HOME` 時）：`H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; mv "$H".bak-* "$H" 2>/dev/null \|\| true`。若用 sandbox `PHANTOM_HOME`，改為 `rm -rf "$PHANTOM_HOME"`（真實家目錄全程未被污染） | |
 | 7.2 | 砍掉 /tmp 測試檔：`rm -rf /tmp/{bak,pre,full,events,restore-test,breakfast}.* /tmp/{bak,pre,full,events,restore-test,breakfast}` | |
 | 7.3 | （可選）`brew install / cleanup` | |
 | 7.4 | 統計：填本檔總 ✓/✗ + 寫一行 summary | |
@@ -276,7 +286,7 @@
 
 ```
 跑完日期：           __________
-總共題目：           130
+總共題目：           151
 過 (✓):             ____
 失敗 (✗):           ____
 跳過 (n/a):         ____

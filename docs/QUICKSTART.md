@@ -81,7 +81,7 @@ phantom "find all TODO comments in core/src and group by file"
 請見 [INTEGRATIONS.md](INTEGRATIONS.md)。簡短版本：
 
 ```bash
-# Claude Code: edit ~/.claude.json (see CLAUDE-CODE-SETUP.md)
+# Claude Code: edit ~/.claude.json (see dev/CLAUDE-CODE-SETUP.md)
 # Codex CLI 0.39+:
 codex mcp add phantom $(which phantom) mcp
 ```
@@ -136,4 +136,4 @@ cluster_secret = "openssl rand -hex 32"
 
 完整的 mesh（網狀網路）故事請見主要的 [README.md](../README.md)，
 多節點啟用（multi-node bring-up）的操作導覽請見
-[DEPLOYMENT.md](DEPLOYMENT.md)。
+[deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md)。

@@ -20,14 +20,16 @@
 # Exit codes:
 #   0   total >= threshold → SHIP (S1)
 #   1   total <  threshold → SLIP_TO=2026-06-17 (S2)
-#   2   spec format drift (missing "## Acceptance criteria" H2 or no checkboxes
+#   2   spec format drift (missing acceptance-criteria H2 — either
+#       "## Acceptance criteria" or "## 驗收標準" — or no checkboxes
 #       in some epic) — DO NOT cut on a broken scoreboard
 #   64  usage error (bad flag, missing dir)
 #
 # Flags:
 #   --help                Print this header and exit 0.
-#   --strict              Fail with exit 2 if any E00[1-6]-*.md lacks the
-#                         "## Acceptance criteria" H2 (per F600 risk-register).
+#   --strict              Fail with exit 2 if any E00[1-6]-*.md lacks an
+#                         acceptance-criteria H2 ("## Acceptance criteria" or
+#                         "## 驗收標準", per F600 risk-register).
 #   --include-e007        Same as PHANTOM_E007_INCLUDE_E007=1.
 #   --threshold N         Same as PHANTOM_E007_MIN_PERCENT=N.
 #   --specs-dir PATH      Same as PHANTOM_E007_SPECS_DIR=PATH.
@@ -115,12 +117,16 @@ fi
 
 # ---------- per-spec scorer (awk) ----------
 # Reads file on stdin, prints "done total" on stdout.
-# Logic: enter scoring mode at "^## Acceptance criteria", exit at next "^## ".
+# Logic: enter scoring mode at the acceptance-criteria H2 — either the English
+# "^## Acceptance criteria" or the Chinese "^## 驗收標準" (canonical specs in
+# docs/superpowers/specs/_current use the Chinese heading) — exit at next "^## ".
 # Within scoring mode, count "- [x]" / "- [X]" as done, "- [ ]" as pending.
+# The Chinese literal is matched as its UTF-8 byte sequence, which is
+# locale-independent in POSIX awk (gawk, mawk, BSD awk).
 score_one_spec() {
     awk '
         BEGIN { in_section = 0; done = 0; total = 0; have_section = 0 }
-        /^## Acceptance criteria/ {
+        /^## (Acceptance criteria|驗收標準)/ {
             in_section = 1
             have_section = 1
             next
@@ -183,13 +189,13 @@ for f in $EPIC_FILES_SORTED; do
     if [ "$rc" -eq 3 ]; then
         DRIFT=1
         printf '| %s | -    | -     | -   | DRIFT  |\n' "$epic_id"
-        echo "warning: $base has no '## Acceptance criteria' H2 (strict-mode failure)" >&2
+        echo "warning: $base has no acceptance-criteria H2 ('## Acceptance criteria' / '## 驗收標準') (strict-mode failure)" >&2
         continue
     fi
     if [ "$rc" -eq 4 ]; then
         DRIFT=1
         printf '| %s | 0    | 0     | -   | DRIFT  |\n' "$epic_id"
-        echo "warning: $base has '## Acceptance criteria' H2 but no checkboxes" >&2
+        echo "warning: $base has an acceptance-criteria H2 but no checkboxes" >&2
         continue
     fi
     if [ "$rc" -ne 0 ]; then

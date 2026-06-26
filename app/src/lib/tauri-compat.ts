@@ -87,7 +87,10 @@ async function httpFallback(cmd: string, args?: Record<string, unknown>): Promis
       return { total_usd: 0 };
     case "get_task_history":
     case "get_tasks":
-      return get("/task/history").catch(() => ({ tasks: [] }));
+      // `/tasks` is the real persisted task queue; the older `/task/history`
+      // route is a hardcoded stub that always returns `{"tasks": []}` (see
+      // core/src/main.rs), which left the TasksPanel permanently empty.
+      return get("/tasks?limit=50").catch(() => ({ tasks: [] }));
 
     // ── Tools / Hands ──
     case "get_tools":
@@ -138,7 +141,7 @@ async function httpFallback(cmd: string, args?: Record<string, unknown>): Promis
       if (args?.url) window.open(args.url as string, "_blank");
       return {};
 
-    // ── OAuth — open browser, poll result (handled by OnboardingQuickStart directly) ──
+    // ── OAuth — open browser, poll result (handled by the onboarding flow directly) ──
     case "oauth_sign_in":
       throw new Error("OAuth is handled directly by the onboarding component via HTTP.");
 

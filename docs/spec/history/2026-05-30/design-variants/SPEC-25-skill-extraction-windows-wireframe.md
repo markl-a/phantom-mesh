@@ -1,15 +1,15 @@
-# SPEC-25 Skill Extraction (Hermes) — Windows Wireframe（線框稿）
+# SPEC-25 Skill Extraction (skill bank) — Windows Wireframe（線框稿）
 
 > **Stage 1/3** · 線框稿（wireframe，低保真版型骨架）→ [視覺稿（mockup，待補）] → [原型（prototype，待補）]
 > **Status**: draft v0.1 · **Last updated**: 2026-05-28
-> **Scope**: Windows only。SPEC-25 是 **Hermes 6 步技能自我演進迴圈**（judge → extract → store → recall → apply → measure，演化引擎）。引擎多在背景；本檔描述桌面 user 看得到 / 控得到的三面：(1) **skill bank（技能庫）list** — 看抽出的技能；(2) **recalled-skill（喚回技能）apply banner** — 任務命中技能時顯示 + decline（拒絕）；(3) `phantom hermes` CLI。
+> **Scope**: Windows only。SPEC-25 是 **技能庫 6 步技能自我演進迴圈**（judge → extract → store → recall → apply → measure，演化引擎）。引擎多在背景；本檔描述桌面 user 看得到 / 控得到的三面：(1) **skill bank（技能庫）list** — 看抽出的技能；(2) **recalled-skill（喚回技能）apply banner** — 任務命中技能時顯示 + decline（拒絕）；(3) `phantom skill` CLI。
 > **Spec**: [`SPEC-25-SYSTEM-skill-extraction`](../specs/v060-deep-spec/SPEC-25-SYSTEM-skill-extraction.md) · [`SPEC-42`](../specs/v060-deep-spec/SPEC-42-PLATFORM-Windows-foundations.md) · [`SPEC-43`](../specs/v060-deep-spec/SPEC-43-PLATFORM-Windows-screens-flows.md)
 
 ## 設計溯源（trace）
 
 | 維度 | 對應 |
 |---|---|
-| **BIG-GOAL pillar** | **P3 進化網**（主 — 「越用越懂你」line 17 + Hermes 6 步 line 73）；cross-cut **P4 加密為先**（skill bank age 加密）、**P1 跨裝置 Mesh**（`/rpc/skill/sync` 跨 peer）、**X.coach**（coach 消費 skill）。操作原則 **consent-gated（需同意）**（apply 有 decline） |
+| **BIG-GOAL pillar** | **P3 進化網**（主 — 「越用越懂你」line 17 + 技能庫 6 步 line 73）；cross-cut **P4 加密為先**（skill bank age 加密）、**P1 跨裝置 Mesh**（`/rpc/skill/sync` 跨 peer）、**X.coach**（coach 消費 skill）。操作原則 **consent-gated（需同意）**（apply 有 decline） |
 | **Source spec** | SPEC-25-SYSTEM-skill-extraction |
 | **Platform** | windows（桌面） |
 | **Pipeline stage** | 1/3 wireframe |
@@ -25,7 +25,7 @@
 
 > - **skill（技能）**：從重複行為抽出的「下次自動套用的做法」，存 sqlite `skills` 表
 > - **skill bank（技能庫）**：所有 skill 的集合（加密、可跨 peer 同步）
-> - **judge / extract / store / recall / apply / measure**：Hermes 6 步（見 SPEC-25 標題）
+> - **judge / extract / store / recall / apply / measure**：技能庫 6 步（見 SPEC-25 標題）
 > - **recall（喚回）**：新任務進來時撈相關 skill 注入 prompt
 > - **trigger pattern（觸發樣式）**：skill 何時該被 recall 的條件
 > - **quality_score（品質分）**：skill 歷史命中表現分（measure 階段更新）
@@ -36,13 +36,13 @@
 
 | 進入點 | v0.6.0 | 說明 |
 |---|---|---|
-| Main window `[Skills tab]`（由 Hermes 引擎驅動，§10.1 Screen A） | ✅ | skill bank 列表（Core/Recall/Archival 三段）+ 詳情 |
-| **每日「學到新 skill」通知**（§10.2，judge 跑完有新 skill 才發） | ✅ | WinRT toast「Hermes 學到 N 個新 skill 等你 review」→ 點開到 Skills tab |
+| Main window `[Skills tab]`（由技能庫引擎驅動，§10.1 Screen A） | ✅ | skill bank 列表（Core/Recall/Archival 三段）+ 詳情 |
+| **每日「學到新 skill」通知**（§10.2，judge 跑完有新 skill 才發） | ✅ | WinRT toast「技能庫學到 N 個新 skill 等你 review」→ 點開到 Skills tab |
 | **Recalled-skill apply banner**（chat/task 內 inline，§10.1 Screen C） | ✅ | 命中時顯示 + decline；consent-gated |
-| CLI `phantom hermes status / review / decline <id> / delete <id> / sync`（per §9.7） | ✅ | 終端機查統計 / 看上輪新 skill / 拒絕 / 永久刪 / 跨 peer 同步 |
+| CLI `phantom skill status / review / decline <id> / delete <id> / sync`（per §9.7） | ✅ | 終端機查統計 / 看上輪新 skill / 拒絕 / 永久刪 / 跨 peer 同步 |
 | Deep-link `phantom-mesh://skills`（+ `?id=<skill_id>`） | ✅ | toast 啟動 / 外部跳 Skills tab（待加入 SPEC-43 §12.1 白名單，同 capture prefix） |
-| Task Scheduler `PhantomMeshHermesJudge` 每日 | ✅ | 背景 judge → extract（user 不需手動） |
-| Settings → Hermes → 演化開關 | ✅ | 全域 on/off skill 演化（Reversible） |
+| Task Scheduler `PhantomMeshSkillJudge` 每日 | ✅ | 背景 judge → extract（user 不需手動） |
+| Settings → 技能演化 → 演化開關 | ✅ | 全域 on/off skill 演化（Reversible） |
 
 ## 螢幕 A — Skill bank list（Skills tab，列表 + 詳情雙欄）
 
@@ -67,8 +67,8 @@
 **設計重點**：
 - 左列表分 **Core / Recall / Archival 三 tier 段**（每段 `(n)` 計數；archival 預設折疊）— 對齊 SPEC-25 §10.1 Screen A，每 row 顯 `name + tier badge`
 - 右詳情（§10.1 Screen B）：trigger pattern + steps（有序）+ **quality 10 格進度條** + last applied + tier + provenance（來源透明可審）
-- 行動鈕對齊 spec Screen B：**[Edit]**（改 name/steps）/ **[Decline]**（拒絕、降 quality_score、≈ CLI `hermes decline`）/ **[Delete]**（永久刪、不可逆、≈ CLI `hermes delete`、需 confirm）/ **[Promote to Core]**（升 tier 永遠注入）+ **[跨機分享]**（`/rpc/skill/sync`）
-- 「從對話抽取」= 手動觸發 judge（不等每日排程，≈ CLI `hermes review` 看上輪結果）
+- 行動鈕對齊 spec Screen B：**[Edit]**（改 name/steps）/ **[Decline]**（拒絕、降 quality_score、≈ CLI `skill decline`）/ **[Delete]**（永久刪、不可逆、≈ CLI `skill delete`、需 confirm）/ **[Promote to Core]**（升 tier 永遠注入）+ **[跨機分享]**（`/rpc/skill/sync`）
+- 「從對話抽取」= 手動觸發 judge（不等每日排程，≈ CLI `skill review` 看上輪結果）
 
 ## 螢幕 B — Recalled-skill apply banner（consent-gated，inline）
 
@@ -76,7 +76,7 @@
 
 ```
 +----------------------------------------------------------+
-| (sparkle) 套用了你上次的做法：Rust 錯誤先看 cargo check  |  ← 取 hermes.apply.banner
+| (sparkle) 套用了你上次的做法：Rust 錯誤先看 cargo check  |  ← 取 skillbank.apply.banner
 |   會先跑 cargo check 讀第一個 error                       |
 |                              [ 好 ]  [ 這次不要 ]  [詳情] |
 +----------------------------------------------------------+
@@ -92,7 +92,7 @@
 ```
 +------------------------------------------+
 | Phantom Mesh                             |
-|  Hermes 學到 3 個新 skill 等你 review     |  ← 取 hermes.notify.learned (§10.2 文案)
+|  技能庫學到 3 個新 skill 等你 review      |  ← 取 skillbank.notify.learned (§10.2 文案)
 |  Rust 錯誤先看 cargo check 等 . 點開看看  |
 |                          [ 看看 ]        |  ← action → deep-link phantom-mesh://skills
 +------------------------------------------+
@@ -112,11 +112,11 @@
 
 ## Task Scheduler + Settings
 
-- task `PhantomMeshHermesJudge` 每日 23:00（per SPEC-25 §6.1，與 coach 21:00 自然錯開）→ `phantom hermes judge --since 7d`
-- Settings → Hermes → 「技能演化」總開關（off = 不 judge / 不 recall，但保留已存 skill）；「跨機分享」開關（off = skill 只留本機，不 `/rpc/skill/sync`）
+- task `PhantomMeshSkillJudge` 每日 23:00（per SPEC-25 §6.1，與 coach 21:00 自然錯開）→ `phantom skill judge --since 7d`
+- Settings → 技能演化 → 「技能演化」總開關（off = 不 judge / 不 recall，但保留已存 skill）；「跨機分享」開關（off = skill 只留本機，不 `/rpc/skill/sync`）
 - 全域 off 是 Reversible 原則的體現
 
-## 失敗 / 邊界（per SPEC-04 + SPEC-25 §11 P3.hermes.*）
+## 失敗 / 邊界（per SPEC-04 + SPEC-25 §11 P3.skillbank.*）
 
 - judge LLM fail → 該日不抽新 skill（既有 skill 照常 recall）→ log，不崩
 - skill bank empty → recall 回空陣列（SPEC-23 coach graceful degradation 不受影響）

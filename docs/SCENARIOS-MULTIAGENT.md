@@ -1,3 +1,5 @@
+> ⚠️ pre-pivot — 方向已被現行 4-pillar Life/Work(superpowers/BIG-GOAL.md)取代;戰術細節或許仍可用。
+
 # 場景 → phantom 多代理（multi-agent，多重 AI 代理）指令
 
 > **目前在 phantom 0.4.0 上可運作的前 10 名**位於本檔案

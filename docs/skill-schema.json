@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://phantommesh.io/schemas/skill-frontmatter.json",
+  "title": "SkillFrontmatter",
+  "description": "Structured frontmatter block for a Skill Document. The full Skill Document is a Markdown file beginning with a `---`-fenced YAML block matching this schema, followed by free-form Markdown body. See docs/skills/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "description", "triggers"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,63}$",
+      "description": "Kebab-case stable id; doubles as filename and lookup key."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the skill content."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 280,
+      "description": "One-line summary fed to the LLM during retrieval."
+    },
+    "triggers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "maxItems": 32,
+      "description": "Phrases the curator/router matches user intent against."
+    },
+    "tools": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "description": "Names from ToolRegistry this skill expects to use."
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Declared inputs the skill expects (name -> human description)."
+    },
+    "outputs": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "default": [],
+      "description": "Named outputs the skill produces."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "maxItems": 16,
+      "default": [],
+      "description": "Free-form labels for grouping."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "First-authored RFC3339 timestamp."
+    },
+    "author": {
+      "type": "string",
+      "description": "Optional human or agent author label."
+    }
+  }
+}

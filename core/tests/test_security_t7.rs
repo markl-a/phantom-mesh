@@ -124,12 +124,20 @@ async fn api_chat_rejects_request_without_hmac_when_secret_set() {
     let state = app_state_with_secret("topsecret");
     let app = phantom_mesh::serve::router(state);
 
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method("POST")
         .uri("/api/chat")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"prompt":"hello"}"#))
         .unwrap();
+    // api_chat extracts ConnectInfo<SocketAddr> BEFORE the auth gate. `oneshot`
+    // does not run into_make_service_with_connect_info, so without an injected
+    // ConnectInfo the extractor 500s (MissingExtension) before auth runs. Use a
+    // NON-loopback addr so require_cluster_auth_local_ui does not exempt it and
+    // falls through to the strict require_cluster_auth (the remote/gated path).
+    req.extensions_mut().insert(axum::extract::ConnectInfo(
+        std::net::SocketAddr::from(([203, 0, 113, 1], 9)),
+    ));
 
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(
@@ -145,12 +153,17 @@ async fn api_chat_rejects_when_secret_empty_and_no_override() {
     std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
     let app = phantom_mesh::serve::router(state);
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method("POST")
         .uri("/api/chat")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"prompt":"hello"}"#))
         .unwrap();
+    // Non-loopback peer → require_cluster_auth_local_ui falls through to the
+    // strict gate, which fail-closes (403) on empty cluster_secret w/o override.
+    req.extensions_mut().insert(axum::extract::ConnectInfo(
+        std::net::SocketAddr::from(([203, 0, 113, 1], 9)),
+    ));
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(
         resp.status(),
@@ -165,12 +178,18 @@ async fn api_chat_accepts_loopback_when_override_set() {
     std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
     let state = app_state_with_secret("");
     let app = phantom_mesh::serve::router(state);
-    let req = Request::builder()
+    let mut req = Request::builder()
         .method("POST")
         .uri("/api/chat")
         .header("content-type", "application/json")
         .body(Body::from(r#"{"prompt":"hello"}"#))
         .unwrap();
+    // Loopback peer: this test exercises the loopback-exempt path, so inject a
+    // 127.0.0.1 ConnectInfo (without it the handler 500s before auth and the
+    // assert_ne! checks below would pass vacuously).
+    req.extensions_mut().insert(axum::extract::ConnectInfo(
+        std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
+    ));
     let resp = app.oneshot(req).await.unwrap();
     std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
     assert_ne!(
@@ -228,6 +247,16 @@ async fn rpc_task_assign_rejects_bad_hmac_when_secret_set() {
 async fn rpc_task_assign_accepts_valid_hmac() {
     let _g = env_guard();
     std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    // Hermetic isolation (sprint6): `/rpc/task/assign` runs a file-backed
+    // at-most-once dedup (default `~/.phantom-mesh/idempotency.jsonl`) BEFORE the
+    // 202 spawn. Without a fresh ledger this test passes the first time, then
+    // every re-run sees `(master, hello)` as a Duplicate and gets 200 (deduped)
+    // instead of 202 — which made it fail under the SPEC-60 V8 ship-gate collector
+    // (the collector re-runs it). Point the ledger at a unique temp file so a
+    // valid-HMAC NEW task always takes the 202 path. (`PHANTOM_IDEMPOTENCY_STORE`
+    // is the documented test override; env mutation is serialised by env_guard.)
+    let idem_dir = tempfile::tempdir().unwrap();
+    std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", idem_dir.path().join("idempotency.jsonl"));
     let state = app_state_with_secret("topsecret");
     let app = phantom_mesh::serve::router(state.clone());
 
@@ -245,6 +274,7 @@ async fn rpc_task_assign_accepts_valid_hmac() {
     let resp = app.oneshot(req).await.unwrap();
     // 202 ACCEPTED is the documented success code (handler spawns task).
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
+    std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE");
 }
 
 // ── tools::file::safe_path workspace boundary ───────────────────────────────

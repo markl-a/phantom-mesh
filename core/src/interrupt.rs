@@ -1,7 +1,7 @@
 //! Cooperative interrupt mechanism for in-flight agent turns.
 //!
-//! Modeled on Hermes Agent's `_interrupt_requested` + `_interrupt_message`
-//! pair (references/hermes-agent/run_agent.py:1178, 4416, 6460): callers
+//! A cancellation-flag pattern: a cheap atomic flag polled at streaming
+//! sites. Callers
 //! flip a flag, the agent loop polls it at safe points (before each
 //! round, on every streaming chunk) and unwinds, optionally returning a
 //! follow-up user message that the caller can feed straight into the
@@ -9,7 +9,7 @@
 //! doesn't lose the new prompt.
 //!
 //! Rust port uses tokio's `CancellationToken` for the wakeup primitive,
-//! which is cheaper than Hermes' 300 ms thread poll: streaming sites can
+//! which is cheaper than a periodic thread poll: streaming sites can
 //! `tokio::select!` on `cancelled()` and react the moment the flag flips
 //! instead of waiting for the next chunk.
 

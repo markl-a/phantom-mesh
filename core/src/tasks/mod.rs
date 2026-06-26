@@ -4,10 +4,13 @@
 //! Replaces the in-memory JobStore. Designed to host checkpoint/resume and
 //! OpenFang-style guards (see `docs/phase1-specs/P5-task-state-machine.md`).
 
+pub mod approvals;
+pub mod events;
 pub mod session;
 pub mod state;
 pub mod store;
 
+pub use events::{EventStore, TaskEvent, TaskEventKind};
 pub use pm_types::{SessionEntry, TaskRecord, TaskStatus};
 pub use session::{load_and_repair, repair, session_path, RepairedSession, SessionWriter};
 pub use state::TaskQueue;

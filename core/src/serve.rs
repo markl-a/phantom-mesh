@@ -92,7 +92,7 @@ fn push_tool_record(name: String, args: String, output: String, started_ms: i64)
     }
 }
 
-use crate::life_node::multimodal::{AnalysisInput, Modality, MultimodalProvider, ResponseFormat};
+use crate::life_node::multimodal::{AnalysisInput, Modality, ResponseFormat};
 use crate::life_node::providers::gemini::GeminiMultimodalProvider;
 use crate::life_node::providers::groq::GroqTextProvider;
 use crate::life_node::storage::EventStore;
@@ -120,28 +120,46 @@ type ClusterJobStore = Arc<RwLock<HashMap<String, ClusterJob>>>;
 /// route stays DoS-safe; applied to this one route only.
 const EVENT_UPLOAD_BODY_LIMIT: usize = 24 * 1024 * 1024;
 
+/// Per-part caps for `POST /api/events` (#321 bonus hardening). The body-level
+/// `EVENT_UPLOAD_BODY_LIMIT` bounds the TOTAL request, but without per-part
+/// limits a single request under that ceiling can still carry an unbounded
+/// number of `image_*`/`audio_*` parts (each buffered fully in memory before
+/// analysis), and any one part can consume the whole budget. These bound the
+/// fan-out and per-modality size so the (effectively unauthenticated) capture
+/// route can't be used to balloon memory. Over any cap → 413 Payload Too Large.
+const MAX_EVENT_PARTS: usize = 64;
+const MAX_EVENT_PART_BYTES: usize = 32 * 1024 * 1024;
+const MAX_EVENT_TOTAL_BYTES: usize = 128 * 1024 * 1024;
+
 pub fn router(state: Arc<AppState>) -> Router {
-    let jobs: ClusterJobStore = Arc::new(RwLock::new(HashMap::new()));
+    router_with_jobs(state, Arc::new(RwLock::new(HashMap::new())))
+}
+
+/// Same as [`router`] but with a caller-provided [`ClusterJobStore`]. Lets a
+/// test hold the SAME `Arc` the handlers mutate (e.g. to assert that a deduped
+/// `/rpc/task/assign` does NOT insert a second job). Behaviourally identical to
+/// `router` — the only difference is who owns the job map.
+fn router_with_jobs(state: Arc<AppState>, jobs: ClusterJobStore) -> Router {
     let base: Router<Arc<AppState>> = build_base_router();
-    // F400: feature-gated Hermes skill RPC endpoints. Default builds skip
-    // the call entirely — `attach_hermes_routes_opt` is a no-op there.
-    let base = attach_hermes_routes_opt(base);
+    // F400: feature-gated skill RPC endpoints. Default builds skip
+    // the call entirely — `attach_skill_routes_opt` is a no-op there.
+    let base = attach_skill_routes_opt(base);
     base.layer(Extension(jobs))
         .layer(build_cors_layer())
         .with_state(state)
 }
 
-/// F400 — extension point. Returns the router augmented with the Hermes
-/// skill RPC endpoints when `experimental-hermes-memory` is on; otherwise
+/// F400 — extension point. Returns the router augmented with the
+/// skill RPC endpoints when `experimental-memory` is on; otherwise
 /// a no-op pass-through. Kept outside `router()` so the cfg-gated branches
 /// don't clutter the main route table.
-#[cfg(feature = "experimental-hermes-memory")]
-fn attach_hermes_routes_opt(r: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
-    crate::serve_hermes::attach_routes(r)
+#[cfg(feature = "experimental-memory")]
+fn attach_skill_routes_opt(r: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    crate::serve_skillbank::attach_routes(r)
 }
 
-#[cfg(not(feature = "experimental-hermes-memory"))]
-fn attach_hermes_routes_opt(r: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+#[cfg(not(feature = "experimental-memory"))]
+fn attach_skill_routes_opt(r: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     r
 }
 
@@ -216,14 +234,33 @@ fn build_base_router() -> Router<Arc<AppState>> {
         .route("/rpc/ping", get(rpc_ping).post(rpc_ping))
         .route("/rpc/peers", get(rpc_peers))
         .route("/rpc/message", post(rpc_message))
+        .route("/rpc/inbox", post(rpc_inbox))
+        // P2-1 zero-knowledge cloud relay: sealed-blob put/get (server never
+        // sees plaintext; get fails closed).
+        .route("/rpc/zk/put", post(rpc_zk_put))
+        .route("/rpc/zk/get", post(rpc_zk_get))
+        .route("/rpc/approvals/list", post(rpc_approvals_list))
+        .route("/rpc/tasks/list", post(rpc_tasks_list))
+        .route("/rpc/captures/recent", post(rpc_captures_recent))
+        .route("/rpc/review", post(rpc_review))
+        .route("/rpc/session-status", get(rpc_session_status))
         .route("/rpc/task/assign", post(rpc_task_assign))
         .route("/rpc/task/status/:id", get(rpc_task_status))
+        .route("/rpc/task/stop", post(rpc_task_stop))
+        .route("/rpc/task/resume", post(rpc_task_resume))
         .route("/rpc/swarm", post(rpc_swarm))
+        .route("/rpc/tool/call", post(rpc_tool_call))
+        .route("/rpc/dev-verify", post(rpc_dev_verify))
         .route("/rpc/capability-query", post(rpc_capability_query))
         .route("/rpc/evolve-handoff", post(rpc_evolve_handoff))
         .route("/rpc/squad/dispatch", post(rpc_squad_dispatch))
+        .route("/rpc/skill/sync", post(rpc_skill_sync))
         .route("/rpc/admin/self-update", post(rpc_admin_self_update))
         .route("/rpc/admin/shell", post(rpc_admin_shell))
+        // Partner ingress (life-partner MVP) — client-agnostic: curl/iOS app
+        // both POST here. message = reactive half; signal = behaviour ledger.
+        .route("/partner/message", post(partner_message))
+        .route("/partner/signal", post(partner_signal))
         // Mobile onboarding: returns a sanitized agents.toml for a worker node
         .route("/onboarding/config", get(onboarding_config))
         .route("/onboarding/token", get(onboarding_token))
@@ -495,8 +532,8 @@ async fn api_activity() -> Json<Value> {
     }
 
     // Autoevolve JSONL log on disk.
-    if let Some(home) = dirs::home_dir() {
-        let path = home.join(".phantom-mesh/autoevolve.log");
+    if let Ok(data) = crate::cli_config::phantom_data_dir() {
+        let path = data.join("autoevolve.log");
         if let Ok(content) = std::fs::read_to_string(&path) {
             for line in content.lines().rev().take(40) {
                 if let Ok(entry) = serde_json::from_str::<Value>(line) {
@@ -968,11 +1005,18 @@ async fn api_onboarding(
         )
             .into_response();
     }
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return (StatusCode::INTERNAL_SERVER_ERROR, "no home dir").into_response(),
+    // Resolve home via the shared HOME-aware helper (#321 #8 / cc631d16 pattern),
+    // NOT bare `dirs::home_dir()`. On Windows bare `dirs::home_dir()` ignores an
+    // overridden `$HOME` (uses %USERPROFILE%), so this handler read a DIFFERENT
+    // agents.toml than a test (or a `$HOME`-driven deployment) seeded — which is
+    // exactly why the graceful-500 non-table-key regression test passed on macOS
+    // but reported 200 on the Windows node. `resolve_home_dir` prefers $HOME →
+    // %USERPROFILE% → dirs::home_dir(), making the path deterministic across OSes.
+    let home = match crate::cli_config::resolve_home_dir() {
+        Ok(h) => h,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    let cfg_dir = home.join(".phantom-mesh");
+    let cfg_dir = crate::cli_config::phantom_dir_under(&home);
     if let Err(e) = std::fs::create_dir_all(&cfg_dir) {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir: {}", e)).into_response();
     }
@@ -1023,70 +1067,95 @@ async fn api_onboarding(
         }
     };
 
+    // #321 bonus: a parseable-but-non-table value for any of these keys (e.g.
+    // an operator's `core = 1` or `agent = "x"` in agents.toml) previously
+    // panicked via `.as_table_mut().unwrap()` — a panic in an axum handler aborts
+    // the request task and returns an empty 500 with no diagnostic. This helper
+    // turns each into a graceful 500 with the offending key named. It only
+    // inserts a fresh table when the key is ABSENT; an existing non-table is an
+    // error rather than being silently clobbered (preserves operator intent).
+    fn table_entry_mut<'a>(
+        parent: &'a mut toml::value::Table,
+        key: &str,
+    ) -> Result<&'a mut toml::value::Table, String> {
+        let is_table = matches!(parent.get(key), Some(v) if v.is_table()) || parent.get(key).is_none();
+        if !is_table {
+            return Err(format!(
+                "agents.toml key `{key}` is not a table; refusing to overwrite"
+            ));
+        }
+        Ok(parent
+            .entry(key.to_string())
+            .or_insert_with(|| toml::Value::Table(Default::default()))
+            .as_table_mut()
+            .expect("checked above: entry is absent or a table"))
+    }
+
     // Ensure [core]
-    let core = root
-        .entry("core".to_string())
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .unwrap();
+    let core = match table_entry_mut(root, "core") {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    };
     core.entry("host".to_string())
         .or_insert_with(|| toml::Value::String("127.0.0.1".into()));
     core.entry("port".to_string())
         .or_insert_with(|| toml::Value::Integer(7878));
 
     // Helper: insert/replace [providers.NAME]
-    let set_provider =
-        |root: &mut toml::value::Table, name: &str, ptype: &str, key: &str, default_model: &str| {
-            let providers = root
-                .entry("providers".to_string())
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap();
-            let entry = providers
-                .entry(name.to_string())
-                .or_insert_with(|| toml::Value::Table(Default::default()))
-                .as_table_mut()
-                .unwrap();
-            entry.insert("type".to_string(), toml::Value::String(ptype.into()));
-            entry.insert("api_key".to_string(), toml::Value::String(key.into()));
-            entry
-                .entry("default_model".to_string())
-                .or_insert_with(|| toml::Value::String(default_model.into()));
-        };
+    let set_provider = |root: &mut toml::value::Table,
+                        name: &str,
+                        ptype: &str,
+                        key: &str,
+                        default_model: &str|
+     -> Result<(), String> {
+        let providers = table_entry_mut(root, "providers")?;
+        let entry = table_entry_mut(providers, name)?;
+        entry.insert("type".to_string(), toml::Value::String(ptype.into()));
+        entry.insert("api_key".to_string(), toml::Value::String(key.into()));
+        entry
+            .entry("default_model".to_string())
+            .or_insert_with(|| toml::Value::String(default_model.into()));
+        Ok(())
+    };
 
     if !p.groq_api_key.is_empty() {
-        set_provider(
+        if let Err(e) = set_provider(
             root,
             "groq",
             "groq",
             &p.groq_api_key,
             "llama-3.3-70b-versatile",
-        );
+        ) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+        }
     }
     if !p.gemini_api_key.is_empty() {
-        set_provider(
+        if let Err(e) = set_provider(
             root,
             "gemini",
             "gemini",
             &p.gemini_api_key,
             "gemini-2.5-flash",
-        );
+        ) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+        }
     }
     if !p.anthropic_api_key.is_empty() {
-        set_provider(
+        if let Err(e) = set_provider(
             root,
             "anthropic",
             "anthropic",
             &p.anthropic_api_key,
             "claude-sonnet-4-6",
-        );
+        ) {
+            return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response();
+        }
     }
     if !p.cluster_secret.is_empty() {
-        let cluster = root
-            .entry("cluster".to_string())
-            .or_insert_with(|| toml::Value::Table(Default::default()))
-            .as_table_mut()
-            .unwrap();
+        let cluster = match table_entry_mut(root, "cluster") {
+            Ok(t) => t,
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+        };
         cluster.insert(
             "cluster_secret".to_string(),
             toml::Value::String(p.cluster_secret.clone()),
@@ -1094,11 +1163,10 @@ async fn api_onboarding(
     }
 
     // Ensure at least one [agent.master] exists
-    let agent = root
-        .entry("agent".to_string())
-        .or_insert_with(|| toml::Value::Table(Default::default()))
-        .as_table_mut()
-        .unwrap();
+    let agent = match table_entry_mut(root, "agent") {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e).into_response(),
+    };
     if agent.is_empty() {
         let primary = if !p.groq_api_key.is_empty() {
             "groq"
@@ -1282,11 +1350,11 @@ async fn api_chat(
 
 /// GET /api/todos — read ~/.phantom-mesh/todos.json (returns [] if absent or invalid).
 async fn api_todos() -> Json<Value> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Json(Value::Array(vec![])),
+    let data = match crate::cli_config::phantom_data_dir() {
+        Ok(d) => d,
+        Err(_) => return Json(Value::Array(vec![])),
     };
-    let path = home.join(".phantom-mesh").join("todos.json");
+    let path = data.join("todos.json");
     let content = match std::fs::read_to_string(&path) {
         Ok(s) => s,
         Err(_) => return Json(Value::Array(vec![])),
@@ -1304,11 +1372,11 @@ async fn api_todos() -> Json<Value> {
 
 /// GET /api/sessions — list ~/.phantom-mesh/conversations/*.jsonl.
 async fn api_sessions() -> Json<Value> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Json(Value::Array(vec![])),
+    let data = match crate::cli_config::phantom_data_dir() {
+        Ok(d) => d,
+        Err(_) => return Json(Value::Array(vec![])),
     };
-    let dir = home.join(".phantom-mesh").join("conversations");
+    let dir = data.join("conversations");
     let entries = match std::fs::read_dir(&dir) {
         Ok(it) => it,
         Err(_) => return Json(Value::Array(vec![])),
@@ -1888,6 +1956,103 @@ async fn rpc_ping(State(state): State<Arc<AppState>>) -> Json<Value> {
     Json(body)
 }
 
+/// POST /rpc/skill/sync — SPEC-25 §8.7 cross-peer skill ingest. Thin transport
+/// over the fail-closed ingest core (`skillbank::sync::ingest_batch`): verify the
+/// outer X-Cluster-Auth HMAC, enforce the batch cap, resolve the two keys, then
+/// delegate the per-envelope verify+decrypt+LWW-merge. The security logic +
+/// fail-closed semantics live (and are unit-tested) in the core; this handler is
+/// auth + parse + size + key-resolve + dispatch.
+async fn rpc_skill_sync(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    // 1. Outer cluster auth — HMAC over the raw body (same gate as other /rpc/*).
+    if let Err((code, json)) = require_cluster_auth(&state.cluster_manager, &headers, &body) {
+        return (code, json).into_response();
+    }
+
+    // 2. Parse the batch body.
+    let batch: crate::skillbank::sync::SkillSyncBatch = match serde_json::from_slice(&body) {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "bad_request", "detail": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    // 3. Batch cap (SPEC-25 §9.5 → 413).
+    if batch.skills.len() > crate::skillbank::sync::MAX_BATCH {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({
+                "error": "batch_too_large",
+                "max_skills": crate::skillbank::sync::MAX_BATCH,
+            })),
+        )
+            .into_response();
+    }
+
+    // 4. Resolve the two keys. cluster_secret: the outer auth already proved a
+    //    real secret is configured + the token verified, but re-read it for the
+    //    per-envelope signature check — fail CLOSED if the env-override empty-secret
+    //    path let auth through, since we cannot verify envelopes without it.
+    let cluster_secret = match state.cluster_manager.config.cluster_secret.clone() {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(json!({ "error": "cluster_secret_required" })),
+            )
+                .into_response();
+        }
+    };
+    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "no_data_dir" })),
+        )
+            .into_response();
+    };
+    let event_key =
+        match crate::life_node::key_derivation::load_event_key(&data.join("identity.key")) {
+            Ok(k) => k,
+            Err(_) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "no_event_key" })),
+                )
+                    .into_response();
+            }
+        };
+
+    // 5. Ingest on the blocking pool — sqlite + per-envelope age decrypt are sync.
+    let secret_bytes = cluster_secret.into_bytes();
+    let result = tokio::task::spawn_blocking(move || {
+        crate::skillbank::sync::ingest_batch(&batch.skills, &secret_bytes, &event_key)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(r)) => Json(json!({
+            "accepted": r.accepted,
+            "duplicates": r.duplicates,
+            "rejected": r.rejected,
+        }))
+        .into_response(),
+        // Real store/db failure (or a join error) — never partial-applied state
+        // beyond what ingest_batch already committed row-by-row.
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "store_failed" })),
+        )
+            .into_response(),
+    }
+}
+
 /// GET /rpc/peers — return all configured peers (cached) plus self.
 async fn rpc_peers(State(state): State<Arc<AppState>>) -> Json<Value> {
     let peers = state.cluster_manager.status().await;
@@ -1945,6 +2110,507 @@ async fn rpc_message(
         Ok(result) => Json(with_wire_version(json!({ "output": result.output }))).into_response(),
         Err(e) => Json(with_wire_version(json!({ "error": e.to_string() }))).into_response(),
     }
+}
+
+/// POST /rpc/inbox — persist a small coordination message for the dev
+/// session running on this node (S1 of the multi-machine dev framework).
+/// Body: `{ "from": "m1", "text": "...", "topic": "backlog" }` (from/topic
+/// optional). The message lands as a file under `~/.phantom-mesh/inbox/`;
+/// the local session reads + acks it via `phantom inbox list/ack` on its
+/// next loop tick. Unlike `/rpc/message` this never runs an agent — it is
+/// pure mailbox, so delivery is cheap and safe to broadcast.
+///
+/// **Auth:** same `X-Cluster-Auth` HMAC posture as `/rpc/message`.
+async fn rpc_inbox(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/inbox",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(with_wire_version(
+                    json!({ "error": format!("malformed body: {e}") }),
+                )),
+            )
+                .into_response()
+        }
+    };
+    if let Some((code, err)) = check_wire_version(&parsed) {
+        return (code, err).into_response();
+    }
+    let text = parsed["text"].as_str().unwrap_or("");
+    let from = parsed["from"].as_str().unwrap_or("unknown");
+    let topic = parsed["topic"].as_str();
+    let Ok(home) = crate::cli_config::resolve_home_dir() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(json!({ "error": "no home dir" }))),
+        )
+            .into_response();
+    };
+    match crate::inbox::write_message(&home, from, text, topic) {
+        Ok(id) => Json(with_wire_version(json!({ "id": id, "queued": true }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(with_wire_version(json!({ "error": e.to_string() }))),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /rpc/zk/put — zero-knowledge relay (P2-1): accept ONE age-sealed blob
+/// keyed by `(device_id, blob_id)` and store it. The server NEVER sees plaintext
+/// — it stores opaque ciphertext and holds no key material. Body:
+/// `{ "device_id": "...", "blob_id": "...", "sealed_b64": "<base64 age blob>" }`.
+/// A payload that is not an age-sealed blob is REFUSED (400) — the relay can
+/// never be coaxed into storing plaintext.
+///
+/// **Auth:** same `X-Cluster-Auth` HMAC posture as `/rpc/inbox`.
+async fn rpc_zk_put(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    use base64::Engine as _;
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/zk/put",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(with_wire_version(
+                    json!({ "error": format!("malformed body: {e}") }),
+                )),
+            )
+                .into_response()
+        }
+    };
+    if let Some((code, err)) = check_wire_version(&parsed) {
+        return (code, err).into_response();
+    }
+    let device_id = parsed["device_id"].as_str().unwrap_or("");
+    let blob_id = parsed["blob_id"].as_str().unwrap_or("");
+    let sealed = match base64::engine::general_purpose::STANDARD
+        .decode(parsed["sealed_b64"].as_str().unwrap_or(""))
+    {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(with_wire_version(
+                    json!({ "error": format!("sealed_b64 is not valid base64: {e}") }),
+                )),
+            )
+                .into_response()
+        }
+    };
+    let Ok(home) = crate::cli_config::resolve_home_dir() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(json!({ "error": "no home dir" }))),
+        )
+            .into_response();
+    };
+    match crate::zk_cloud::put_blob(&home, device_id, blob_id, &sealed) {
+        Ok(()) => Json(with_wire_version(json!({ "stored": true }))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(with_wire_version(json!({ "error": e.to_string() }))),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /rpc/zk/get — zero-knowledge relay (P2-1): return the sealed blob for
+/// `(device_id, blob_id)` as base64. FAILS CLOSED — a missing/unknown key yields
+/// 404 with a generic error, NEVER plaintext and NEVER a different blob. The
+/// server never decrypts. Body: `{ "device_id": "...", "blob_id": "..." }`.
+///
+/// **Auth:** same `X-Cluster-Auth` HMAC posture as `/rpc/inbox`.
+async fn rpc_zk_get(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    use base64::Engine as _;
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/zk/get",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(with_wire_version(
+                    json!({ "error": format!("malformed body: {e}") }),
+                )),
+            )
+                .into_response()
+        }
+    };
+    if let Some((code, err)) = check_wire_version(&parsed) {
+        return (code, err).into_response();
+    }
+    let device_id = parsed["device_id"].as_str().unwrap_or("");
+    let blob_id = parsed["blob_id"].as_str().unwrap_or("");
+    let Ok(home) = crate::cli_config::resolve_home_dir() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(json!({ "error": "no home dir" }))),
+        )
+            .into_response();
+    };
+    match crate::zk_cloud::get_blob(&home, device_id, blob_id) {
+        Ok(sealed) => {
+            let sealed_b64 = base64::engine::general_purpose::STANDARD.encode(&sealed);
+            Json(with_wire_version(json!({ "sealed_b64": sealed_b64 }))).into_response()
+        }
+        // Fail closed: a missing/unknown key is a generic 404 — we never leak
+        // whether the device or the blob existed, never plaintext, never another
+        // blob.
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(with_wire_version(json!({ "error": "not found" }))),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /rpc/approvals/list — list the high-risk approvals a governed run on
+/// this node is currently BLOCKED on, so a phone app can render decision cards
+/// (apex-④ phone approval UI). Read-only: it just reads the filesystem pending
+/// store that `PhoneEscalator::await_decision` mirrors. Decision *submission*
+/// stays on `/rpc/inbox` (the phone POSTs `{topic: approval_id, text:
+/// "approve"/"deny"/"stop"}`). Returns `{ "pending": [PendingCard...] }`.
+///
+/// **Auth:** same `X-Cluster-Auth` HMAC posture as `/rpc/inbox` (the legacy
+/// body-HMAC arm signs the — typically empty — body; POST-only, no query).
+async fn rpc_approvals_list(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/approvals/list",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let Ok(home) = crate::cli_config::resolve_home_dir() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(json!({ "error": "no home dir" }))),
+        )
+            .into_response();
+    };
+    match crate::pending_approvals::list_pending(&home) {
+        Ok(pending) => {
+            Json(with_wire_version(json!({ "pending": pending }))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(json!({ "error": e.to_string() }))),
+        )
+            .into_response(),
+    }
+}
+
+/// Stable wire projection for one durable task row (P1-2 mobile-supervisor
+/// surface). Pins the field set the phone renders so future `TaskRecord` field
+/// churn can't silently change the contract the app's `parseTasks` reads.
+fn task_record_to_wire(r: &pm_types::TaskRecord) -> Value {
+    json!({
+        "task_id":     r.task_id.to_string(),
+        "agent_name":  r.agent_name,
+        "prompt":      r.prompt,
+        "status":      r.status.as_str(),
+        "created_at":  r.created_at,
+        "started_at":  r.started_at,
+        "finished_at": r.finished_at,
+        "cost_usd":    r.cost_usd,
+        "turns":       r.turns,
+        "error":       r.error,
+        "output":      r.output,
+    })
+}
+
+/// POST /rpc/tasks/list — live supervisor view of backend tasks (P1-2 M1).
+/// Body: `{ "limit"?: number }` (default 50, capped 200). Returns recent durable
+/// tasks (created_at DESC) plus the pending-approval cards awaiting the operator
+/// (the "what's awaiting me" half). HMAC-authed via `require_cluster_auth_dual`
+/// — exposes operator prompts, so same posture as `/rpc/message`.
+async fn rpc_tasks_list(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/tasks/list",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let limit = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v.get("limit").and_then(|n| n.as_u64()))
+        .unwrap_or(50)
+        .min(200) as usize;
+
+    let tasks: Vec<Value> = match &state.task_queue {
+        Some(tq) => match tq.list(None, None, limit).await {
+            Ok(rows) => rows.iter().map(task_record_to_wire).collect(),
+            Err(e) => {
+                tracing::warn!(target: "phantom::serve", "tasks/list failed: {e}");
+                Vec::new()
+            }
+        },
+        None => Vec::new(),
+    };
+
+    let pending: Vec<Value> = crate::cli_config::resolve_home_dir()
+        .ok()
+        .and_then(|h| crate::pending_approvals::list_pending(&h).ok())
+        .map(|cards| {
+            cards
+                .iter()
+                .map(|c| {
+                    json!({
+                        "approval_id": c.approval_id,
+                        "task_id":     c.task_id,
+                        "tool":        c.tool,
+                        "risk":        c.risk,
+                        "reason":      c.reason,
+                        "created_ms":  c.created_ms,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Json(with_wire_version(json!({ "tasks": tasks, "pending": pending }))).into_response()
+}
+
+/// Stable snake_case wire projection for one captured event (P1-2 M2). The
+/// public `EventMeta` is `#[serde(rename_all = "camelCase")]`, so we project to
+/// explicit snake_case keys the phone's `parseCaptures` reads (`kind` stays the
+/// EventKind snake_case string: "food" | "focus" | "habit" | "dispatch" |
+/// "text", matching KIND_EMOJI keys).
+fn event_meta_to_wire(m: &crate::event_storage_wire::EventMeta) -> Value {
+    json!({
+        "event_id":  m.event_id,
+        "timestamp": m.timestamp,
+        "kind":      m.kind,
+        "tags":      m.tags,
+    })
+}
+
+/// POST /rpc/captures/recent — recent captured life-node events (P1-2 M2).
+/// Body: `{ "limit"?: number }` (default 50, cap 200). Enumerates the events dir
+/// (same loader posture as `daily_review::load_events_for_date`), reads each
+/// meta, projects to the stable wire shape, newest-first by UTC instant.
+/// HMAC-authed — exposes captured private life events.
+async fn rpc_captures_recent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/captures/recent",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let limit = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v.get("limit").and_then(|n| n.as_u64()))
+        .unwrap_or(50)
+        .min(200) as usize;
+
+    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+        return Json(with_wire_version(json!({ "captures": [] }))).into_response();
+    };
+    // The enumeration is unbounded synchronous disk I/O + per-event decryption
+    // (read_dir + read_meta), so run it on the blocking pool to avoid starving
+    // the async executor as the events dir grows (review: agy DoS finding).
+    let metas: Vec<crate::event_storage_wire::EventMeta> =
+        tokio::task::spawn_blocking(move || {
+            let events_dir = data.join("events");
+            // Encrypted store when an identity key exists; plaintext fallback
+            // otherwise (older stores + the test fixtures). Mirrors
+            // load_events_for_date.
+            let store =
+                match crate::life_node::key_derivation::load_event_key(&data.join("identity.key")) {
+                    Ok(key) => EventStore::with_key(&events_dir, key),
+                    Err(_) => EventStore::new(&events_dir),
+                };
+            let mut metas: Vec<crate::event_storage_wire::EventMeta> = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(&events_dir) {
+                for entry in rd.flatten() {
+                    if !entry.path().is_dir() {
+                        continue;
+                    }
+                    let id = entry.file_name().to_string_lossy().to_string();
+                    if let Ok(meta) = store.read_meta(&id) {
+                        metas.push(meta);
+                    }
+                }
+            }
+            // Newest first by absolute UTC instant (offset-agnostic, matches the
+            // daily_review sort key).
+            metas.sort_by_key(|m| {
+                std::cmp::Reverse(crate::event_storage_wire::ts_epoch_ms(&m.timestamp))
+            });
+            metas.truncate(limit);
+            metas
+        })
+        .await
+        .unwrap_or_default();
+    let captures: Vec<Value> = metas.iter().map(event_meta_to_wire).collect();
+
+    Json(with_wire_version(json!({ "captures": captures }))).into_response()
+}
+
+/// POST /rpc/review — offline daily-review aggregate for a date (P1-2 M3).
+/// Body: `{ "date"?: "YYYY-MM-DD" }` (defaults to local-today). Mirrors the
+/// `daily_review_load` Tauri command (NO LLM pass — aggregate only) so the
+/// supervisor phone sees the backend's captured-events brief. HMAC-authed.
+async fn rpc_review(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/review",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let date = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v.get("date").and_then(|d| d.as_str().map(String::from)))
+        .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
+
+    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+        return Json(with_wire_version(json!({ "date": date, "markdown": "" }))).into_response();
+    };
+    // load_events_for_date does synchronous dir traversal + per-event decrypt;
+    // run it (and the aggregate) on the blocking pool (review: agy DoS finding).
+    let date_for_task = date.clone();
+    let markdown = tokio::task::spawn_blocking(move || {
+        let events_dir = data.join("events");
+        // Encrypted store when an identity key exists; `None` → plaintext loader
+        // (matches the test fixtures + older stores).
+        let key = crate::life_node::key_derivation::load_event_key(&data.join("identity.key")).ok();
+        match crate::life_node::daily_review::load_events_for_date(&events_dir, &date_for_task, key) {
+            Ok(events) => crate::life_node::daily_review::aggregate(&date_for_task, &events),
+            Err(e) => {
+                tracing::warn!(target: "phantom::serve", "review load failed: {e}");
+                String::new()
+            }
+        }
+    })
+    .await
+    .unwrap_or_default();
+    Json(with_wire_version(json!({ "date": date, "markdown": markdown }))).into_response()
+}
+
+/// GET /rpc/session-status — this node's dev-session heartbeat (S2).
+/// Returns `{ "node": "...", "status": {...}|null, "phantom_version": "..." }`
+/// where `status` is whatever the local routine last wrote via
+/// `phantom status set` (null on a node whose session never reported).
+/// Read-only and cheap — `phantom status mesh` fans this out cluster-wide.
+///
+/// **Auth:** same HMAC posture as the other /rpc routes (clients sign the
+/// empty body with the legacy arm, like the dispatch status poll).
+async fn rpc_session_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "GET",
+        "/rpc/session-status",
+        raw_query.as_deref(),
+        b"",
+    ) {
+        return (code, json).into_response();
+    }
+    let node = crate::cli_config::resolve_self_node_name().unwrap_or_else(|| "unknown".into());
+    let status = crate::cli_config::resolve_home_dir().ok().and_then(|h| crate::session_status::read_status(&h));
+    let age = status.as_ref().map(crate::session_status::age_secs);
+    Json(with_wire_version(json!({
+        "node": node,
+        "status": status,
+        "age_secs": age,
+        "phantom_version": env!("CARGO_PKG_VERSION"),
+    })))
+    .into_response()
+}
+
+/// Derive the at-most-once dedup key for a `/rpc/task/assign` request (review
+/// #321 §5 restore). Thin re-export of the canonical
+/// [`crate::idempotency::task_assign_idem_key`] so this router and the shipped
+/// `main.rs` daemon share ONE keying definition and cannot drift. Prefers the
+/// caller's explicit `idempotency_key`; absent (or blank), falls back to a
+/// stable content hash of `agent\nprompt`. Scoped to `task_assign` so it never
+/// collides with the squad-dispatch (`dispatch`) or partner-message ledgers for
+/// the same body. Pure (no IO) so the keying logic is unit-testable on its own.
+fn task_assign_idem_key(idempotency_key: Option<&str>, agent: &str, prompt: &str) -> String {
+    crate::idempotency::task_assign_idem_key(idempotency_key, agent, prompt)
 }
 
 /// POST /rpc/task/assign — authenticate (HMAC-SHA256 when cluster_secret is set),
@@ -2162,45 +2828,226 @@ async fn rpc_task_assign(
         }
     }
 
+    // ── Best-effort, process-local at-most-once dedup (not strict/distributed;
+    //    DISPATCH-MESH-DURABILITY §3.0) ──────────────────────────────────────
+    // Gap (c)'s hard prerequisite: a re-sent assign — a coordinator re-posting
+    // on its own poll timeout, a forwarded retry carrying the same
+    // `idempotency_key`, or a plain double-POST — should NOT spawn the agent a
+    // second time. The guarantee is best-effort: the ledger is serialized by a
+    // process Mutex and fails open on FS errors (see `idempotency.rs`), so it
+    // collapses the common retry storms but is not exactly-once. It matters now
+    // that dispatched agents hold write tools. Mirrors the squad-dispatch and
+    // partner-message gates wired in b1fb66b6, reusing the same file-backed
+    // ledger (`core/src/idempotency.rs`) — no schema/DB change. Runs AFTER the
+    // forward/reject decisions (a forwarded task dedups on the node that
+    // actually runs it) and BEFORE the local spawn below.
+    //
+    // We mint the candidate `job_id` UP FRONT and record it alongside the dedup
+    // key, so a duplicate can be answered with the ORIGINAL accepted job_id.
+    // This is required for caller compatibility: `mesh::assign_task_to_peer` /
+    // `assign_task_to_peer_full` do `data.job_id.ok_or_else(...)` — a success
+    // response WITHOUT a job_id is treated as a DispatchError, so a forwarded/
+    // retried assign that dedups here would otherwise become a forward failure.
+    let idem_key =
+        task_assign_idem_key(req.idempotency_key.as_deref(), &req.agent, &req.prompt);
     let job_id = uuid::Uuid::new_v4().to_string();
-    let jid = job_id.clone();
-    let jobs_ref = jobs.clone();
-
-    // Mark the job as running immediately so /rpc/task/status can be polled.
-    jobs.write().await.insert(
-        job_id.clone(),
-        ClusterJob {
-            status: "running".into(),
-            output: None,
-            error: None,
-        },
+    let (decision, stored_job_id) = crate::idempotency::check_and_record_value_default(
+        &idem_key,
+        "task_assign",
+        Some(&job_id),
     );
-
-    let runtime = state.agent_runtime.clone();
-    tokio::spawn(async move {
-        match runtime.run(&req.agent, &req.prompt, &[], None).await {
-            Ok(result) => {
-                jobs_ref.write().await.insert(
-                    jid,
-                    ClusterJob {
-                        status: "done".into(),
-                        output: Some(result.output),
-                        error: None,
-                    },
-                );
-            }
-            Err(e) => {
-                jobs_ref.write().await.insert(
-                    jid,
-                    ClusterJob {
-                        status: "error".into(),
-                        output: None,
-                        error: Some(e.to_string()),
-                    },
-                );
-            }
+    if let crate::idempotency::Decision::Duplicate { first_seen } = decision {
+        // STRICT at-most-once (#321 fix): a Duplicate ALWAYS returns and NEVER
+        // falls through to spawn. The previous code did a "resolvability" probe
+        // and re-created the job when the durable row was missing — two bugs:
+        //   (a) a concurrent duplicate could race a not-yet-written durable row
+        //       (ledger recorded before the row exists) into a SECOND spawn;
+        //   (b) a crash-orphaned or legacy value-less id re-spawned on EVERY
+        //       retry (the ledger keeps pointing at the missing id), so a
+        //       resend storm could fan out unbounded extra executions.
+        // The dedup guarantee is execution-safety, not availability: a rare
+        // crash-orphaned id simply polls "not found" until the TTL expires and
+        // the key is re-mintable — never a duplicate agent run.
+        if let Some(original_job_id) = stored_job_id {
+            // Already accepted within the TTL window: hand back the ORIGINAL
+            // job_id so the caller polls the same job. 200 (not 202)
+            // distinguishes "already handled" from "new job accepted". No
+            // resolvability probe / orphan re-create — at-most-once wins over
+            // availability.
+            return (
+                StatusCode::OK,
+                Json(with_wire_version(json!({
+                    "job_id":        original_job_id,
+                    "deduped":       true,
+                    "first_seen":    first_seen,
+                    "dispatched_to": my_node_name,
+                    "forwarded":     false,
+                }))),
+            )
+                .into_response();
         }
-    });
+        // Legacy value-less row (only possible from a pre-fix binary that
+        // recorded this key without a job_id). We cannot resolve an id, but we
+        // MUST NOT spawn — that would duplicate execution of an already-handled
+        // task. Return 200 deduped with a null job_id + a note so the caller
+        // knows the work was already accepted but the id is unrecoverable.
+        // (No debug_assert: a legacy ledger entry is a real, expected state for
+        // a node upgraded in place, not a broken invariant.)
+        return (
+            StatusCode::OK,
+            Json(with_wire_version(json!({
+                "job_id":        Value::Null,
+                "deduped":       true,
+                "first_seen":    first_seen,
+                "dispatched_to": my_node_name,
+                "forwarded":     false,
+                "note":          "deduped: original job_id unrecoverable (legacy value-less ledger entry); not re-spawning to preserve at-most-once",
+            }))),
+        )
+            .into_response();
+    }
+
+    // First sighting (or the unreachable legacy fallback): persist + spawn.
+    let runtime = state.agent_runtime.clone();
+    let agent = req.agent.clone();
+    let prompt = req.prompt.clone();
+
+    // Prefer the DURABLE store (DISPATCH-MESH-DURABILITY gap-a): when a task
+    // queue is configured, persist {job_id, running, agent} so the job — and
+    // its terminal status/output — survive a daemon restart. This is also what
+    // makes the at-most-once dedup above correct by construction: a deduped
+    // job_id stays resolvable by /rpc/task/status even after a restart, instead
+    // of pointing at an in-memory job that the restart wiped. `mark_interrupted`
+    // at boot (core/src/main.rs) turns a pre-restart `Running` row into a
+    // terminal `Failed("interrupted: daemon restart")`, so status returns a
+    // definitive answer rather than "job not found".
+    //
+    // `job_id` was minted via `Uuid::new_v4()` above, so the parse only fails in
+    // the impossible case of a corrupt id — and `task_queue` is `None` only on a
+    // misconfigured node / unavailable DB. Either way we fall back to the legacy
+    // in-memory map so the node degrades rather than 500s (spec §1.3 step 3).
+    let durable_uuid = state
+        .task_queue
+        .as_ref()
+        .and_then(|_| uuid::Uuid::parse_str(&job_id).ok());
+    if let (Some(tq), Some(job_uuid)) = (state.task_queue.clone(), durable_uuid) {
+        // Persist Pending → Running before returning so an immediate poll sees
+        // "running", not "not found".
+        if let Err(e) = tq
+            .create_with_id(job_uuid, &my_node_name, &agent, &prompt)
+            .await
+        {
+            // Durable create failed (DB locked/full/etc). Do NOT fall through to
+            // return 202 with a job_id that has no row — the caller would poll
+            // "job not found". Fail the request so it can retry; the retry
+            // re-derives the same dedup key, the now-orphaned ledger entry is
+            // detected as a missing row above, and a fresh job is created once
+            // the DB recovers.
+            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable job create failed: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(with_wire_version(json!({
+                    "error": format!("failed to persist job: {e}"),
+                }))),
+            )
+                .into_response();
+        }
+        if let Err(e) = tq
+            .transition(job_uuid, pm_types::TaskStatus::Running, None)
+            .await
+        {
+            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable mark-running failed: {e}");
+        }
+        // apex-④ off-switch: register a cooperative-abort handle keyed by job_id
+        // BEFORE launching the runner, and attach it so a `/rpc/task/stop` flip
+        // unwinds the live loop at its next safe point. Removed on completion so
+        // the registry doesn't leak terminal jobs.
+        let abort_handle = crate::interrupt::InterruptHandle::new();
+        state
+            .task_aborts
+            .write()
+            .await
+            .insert(job_uuid, abort_handle.clone());
+        let aborts = state.task_aborts.clone();
+        // apex-④ dispatch↔govern correlation: carry the dispatch row's `job_uuid`
+        // onto the runtime so a governed cli_session run uses it AS the govern
+        // task_id (one correlation key). An approval raised mid-run then stamps its
+        // `approval_id` onto THIS dispatch row live, and `/tasks` /
+        // `/rpc/task/status/:job_id` surface it. Additive: ungoverned runs ignore it.
+        let runtime = runtime
+            .with_interrupt(abort_handle)
+            .with_dispatch_task_id(job_uuid);
+        tokio::spawn(async move {
+            let run_result = runtime.run(&agent, &prompt, &[], None).await;
+            // Drop the abort handle once the runner has finished so the registry
+            // never accumulates terminal jobs.
+            aborts.write().await.remove(&job_uuid);
+            match run_result {
+                Ok(result) => {
+                    if let Err(e) = tq
+                        .record_result(
+                            job_uuid,
+                            pm_types::TaskStatus::Completed,
+                            Some(&result.output),
+                            None,
+                        )
+                        .await
+                    {
+                        tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable record done failed: {e}");
+                    }
+                }
+                Err(e) => {
+                    if let Err(err) = tq
+                        .record_result(
+                            job_uuid,
+                            pm_types::TaskStatus::Failed,
+                            None,
+                            Some(&e.to_string()),
+                        )
+                        .await
+                    {
+                        tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable record error failed: {err}");
+                    }
+                }
+            }
+        });
+    } else {
+        // Legacy in-memory map (degraded; lost on restart).
+        let jid = job_id.clone();
+        let jobs_ref = jobs.clone();
+        jobs.write().await.insert(
+            job_id.clone(),
+            ClusterJob {
+                status: "running".into(),
+                output: None,
+                error: None,
+            },
+        );
+        tokio::spawn(async move {
+            match runtime.run(&agent, &prompt, &[], None).await {
+                Ok(result) => {
+                    jobs_ref.write().await.insert(
+                        jid,
+                        ClusterJob {
+                            status: "done".into(),
+                            output: Some(result.output),
+                            error: None,
+                        },
+                    );
+                }
+                Err(e) => {
+                    jobs_ref.write().await.insert(
+                        jid,
+                        ClusterJob {
+                            status: "error".into(),
+                            output: None,
+                            error: Some(e.to_string()),
+                        },
+                    );
+                }
+            }
+        });
+    }
 
     // C1: include `dispatched_to` on the local-run path too so callers
     // can audit routing decisions uniformly — same field name as the
@@ -2243,6 +3090,230 @@ async fn rpc_task_assign(
 ///   "include_local": true         // default true
 /// }
 /// ```
+/// POST /rpc/dev-verify — run the dev_verify anti-fake-pass gate on THIS node on
+/// behalf of a cluster peer, returning the structured verdict {passed, exit_code,
+/// summary, failed, log_path}. HMAC-authed (require_cluster_auth_dual). This is
+/// what lets heterogeneous AI tools verify on a remote machine through the mesh.
+async fn rpc_dev_verify(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/dev-verify",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let body_slice: &[u8] = if body.is_empty() { b"{}" } else { &body };
+    let mut args: Value = match serde_json::from_slice(body_slice) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response()
+        }
+    };
+    // Never recurse: strip any `remote` so this node runs the verify locally.
+    if let Some(obj) = args.as_object_mut() {
+        obj.remove("remote");
+    }
+    // Route through tools::execute so the permission/trust gate applies — a
+    // cluster peer must not run dev_verify when HOME policy denies it.
+    let result = crate::tools::execute("dev_verify", &args, &crate::config::ToolsConfig::default()).await;
+    match serde_json::from_str::<Value>(&result) {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err(_) => (StatusCode::OK, result).into_response(),
+    }
+}
+
+/// Resolve the explicit machine/human origin marker an inbound `/partner/message`
+/// carries on the wire, if any. The dogfood-moat guard (see
+/// [`crate::partner::MessageOrigin`]): test/bot/loop/smoke traffic can tag itself
+/// so its turn is segregated to the machine ledger and never inflates the
+/// human-usage count, while the real app (which sends no marker) defaults to
+/// Human via [`crate::partner::resolve_origin`].
+///
+/// Markers are read with this precedence (first present wins):
+///   1. body `origin` field (`{"text":"…","origin":"machine"}`)
+///   2. `X-Partner-Origin` header  ← the canonical marker for test/bot clients
+///   3. `X-Phantom-Origin` header  ← historical alias, kept for back-compat
+///
+/// The value is parsed by [`crate::partner::MessageOrigin::from_wire`]
+/// (case-insensitive: `machine`/`bot`/`system`/`classifier`/`loop`/`smoke`/`test`
+/// → Machine; `human`/`user`/`person` → Human). An absent or unrecognized marker
+/// yields `None`, so the caller applies the content heuristic + Human default —
+/// we never silently upgrade an unknown value. Pure (no IO) so it is directly
+/// unit-testable from a `HeaderMap` + parsed body.
+fn parse_origin_marker(
+    headers: &HeaderMap,
+    parsed: &Value,
+) -> Option<crate::partner::MessageOrigin> {
+    let header_marker = |name: &str| -> Option<String> {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty())
+    };
+    parsed["origin"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(str::to_string)
+        .or_else(|| header_marker("X-Partner-Origin"))
+        .or_else(|| header_marker("X-Phantom-Origin"))
+        .and_then(|s| crate::partner::MessageOrigin::from_wire(&s))
+}
+
+/// POST /partner/message — reactive half of the life-partner. Body `{text,
+/// agent?}`; routes the text through an agent turn and returns its reply.
+/// Client-agnostic: a curl test client now, the iOS app later — same contract.
+async fn partner_message(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/partner/message",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response()
+        }
+    };
+    let text = parsed["text"].as_str().unwrap_or("").to_string();
+    if text.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "text field required" })),
+        )
+            .into_response();
+    }
+    let agent = parsed["agent"].as_str().unwrap_or("master");
+    // At-most-once: an explicit client request id (body `idempotency_key` or the
+    // standard `Idempotency-Key` header) dedups a re-sent message; absent one, a
+    // content hash of the text dedups a body resent without a key. A duplicate is
+    // suppressed BEFORE the agent turn / any write tool runs.
+    let idem_key = parsed["idempotency_key"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            headers
+                .get("Idempotency-Key")
+                .and_then(|v| v.to_str().ok())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_string())
+        });
+    // Dogfood-moat guard: an explicit origin marker (body `origin` field, or the
+    // `X-Partner-Origin` / `X-Phantom-Origin` header) lets the app/loops/smoke-
+    // tests tag themselves as machine so their turns don't pollute the human-usage
+    // ledger; absent a marker, the content heuristic still catches legacy untagged
+    // classifier prompts, otherwise it defaults to Human. (See
+    // `parse_origin_marker` + `partner::resolve_origin`.)
+    let explicit_origin = parse_origin_marker(&headers, &parsed);
+    let origin = crate::partner::resolve_origin(explicit_origin, &text);
+    match crate::partner::handle_message_idempotent(
+        &state.agent_runtime,
+        agent,
+        &text,
+        idem_key.as_deref(),
+        origin,
+    )
+    .await
+    {
+        Ok((r, deduped)) => Json(json!({
+            "reply": r.reply,
+            "turns": r.turns,
+            "elapsed_secs": r.elapsed_secs,
+            "deduped": deduped,
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /partner/signal — proactive substrate. Body = arbitrary sensor/behaviour
+/// JSON (location, motion, manual check-in …); appended verbatim to the ledger
+/// the daily alignment reflection reads.
+async fn partner_signal(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/partner/signal",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let body_slice: &[u8] = if body.is_empty() { b"{}" } else { &body };
+    let payload: Value = match serde_json::from_slice(body_slice) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": format!("malformed body: {e}") })),
+            )
+                .into_response()
+        }
+    };
+    // Pollution hard wall (ACCEL-FRAMEWORK §④, owner option B): a signal tagged as
+    // dev-loop / `phantom_self` / machine (body `origin` field or the
+    // `X-Partner-Origin` / `X-Phantom-Origin` header) is diverted to the dev-loop
+    // log and NEVER written to the human-usage moat. Absent any marker the signal
+    // defaults to Human (a sensor check-in carries no classifier markers, so the
+    // content heuristic effectively never fires here — real human use is not
+    // mis-killed). See `parse_origin_marker` + `partner::record_signal_with_origin`.
+    let explicit_origin = parse_origin_marker(&headers, &payload);
+    let origin = crate::partner::resolve_origin(explicit_origin, "");
+    match crate::partner::record_signal_with_origin(origin, "sensor", &payload) {
+        Ok(path) => Json(json!({
+            "ok": true,
+            "stored": path.to_string_lossy(),
+            "origin": match origin {
+                crate::partner::MessageOrigin::Human => "human",
+                crate::partner::MessageOrigin::Machine => "machine",
+            },
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
 async fn rpc_swarm(
     State(state): State<Arc<AppState>>,
     Extension(jobs): Extension<ClusterJobStore>,
@@ -2289,34 +3360,95 @@ async fn rpc_swarm(
     let include_local = parsed["include_local"].as_bool().unwrap_or(true);
     let max_wait_ms = parsed["max_wait_ms"].as_u64().unwrap_or(120_000);
     let max_wait = std::time::Duration::from_millis(max_wait_ms);
+    // Optional selective fan-out: `"targets": ["peer-2", "192.0.2.7"]`.
+    // Absent / empty → fan out to every online peer (original behaviour).
+    let targets: Option<Vec<String>> = parsed["targets"].as_array().map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
 
     let job_id = uuid::Uuid::new_v4().to_string();
-    let jid = job_id.clone();
-    let jobs_ref = jobs.clone();
 
-    // Reserve the slot so callers can immediately start polling.
-    jobs.write().await.insert(
-        job_id.clone(),
-        ClusterJob {
-            status: "running".into(),
-            output: None,
-            error: None,
-        },
-    );
-
-    let state_for_task = state.clone();
-    tokio::spawn(async move {
-        let result =
-            crate::swarm::do_swarm(state_for_task, &agent, &prompt, include_local, max_wait).await;
-        jobs_ref.write().await.insert(
-            jid,
+    // Durable swarm job (DISPATCH-MESH-DURABILITY gap-a): persist the swarm
+    // job so its aggregated result survives a restart, same as a plain assign.
+    // Falls back to the in-memory map when no task queue is configured.
+    let durable_uuid = state
+        .task_queue
+        .as_ref()
+        .and_then(|_| uuid::Uuid::parse_str(&job_id).ok());
+    if let (Some(tq), Some(job_uuid)) = (state.task_queue.clone(), durable_uuid) {
+        if let Err(e) = tq
+            .create_with_id(job_uuid, "swarm", &agent, &prompt)
+            .await
+        {
+            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable swarm create failed: {e}");
+        }
+        if let Err(e) = tq
+            .transition(job_uuid, pm_types::TaskStatus::Running, None)
+            .await
+        {
+            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable swarm mark-running failed: {e}");
+        }
+        let state_for_task = state.clone();
+        tokio::spawn(async move {
+            let result = crate::swarm::do_swarm_with_throttle(
+                state_for_task,
+                &agent,
+                &prompt,
+                include_local,
+                max_wait,
+                None,
+                targets,
+            )
+            .await;
+            if let Err(e) = tq
+                .record_result(
+                    job_uuid,
+                    pm_types::TaskStatus::Completed,
+                    Some(&result.to_json_string()),
+                    None,
+                )
+                .await
+            {
+                tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable swarm record done failed: {e}");
+            }
+        });
+    } else {
+        let jid = job_id.clone();
+        let jobs_ref = jobs.clone();
+        // Reserve the slot so callers can immediately start polling.
+        jobs.write().await.insert(
+            job_id.clone(),
             ClusterJob {
-                status: "done".into(),
-                output: Some(result.to_json_string()),
+                status: "running".into(),
+                output: None,
                 error: None,
             },
         );
-    });
+        let state_for_task = state.clone();
+        tokio::spawn(async move {
+            let result = crate::swarm::do_swarm_with_throttle(
+                state_for_task,
+                &agent,
+                &prompt,
+                include_local,
+                max_wait,
+                None,
+                targets,
+            )
+            .await;
+            jobs_ref.write().await.insert(
+                jid,
+                ClusterJob {
+                    status: "done".into(),
+                    output: Some(result.to_json_string()),
+                    error: None,
+                },
+            );
+        });
+    }
 
     (
         StatusCode::ACCEPTED,
@@ -2328,6 +3460,66 @@ async fn rpc_swarm(
         }))),
     )
         .into_response()
+}
+
+/// POST /rpc/tool/call — execute one built-in tool on this node and return
+/// its output. Generic remote-tool entry point: the counterpart to
+/// `/rpc/message` (which runs a remote *agent*), this runs a single *tool*.
+///
+/// Body: `{ "tool": "shell", "args": { "command": "ls -la" } }`
+/// Reply: `{ "tool": "shell", "output": "..." }`
+///
+/// **Auth:** `require_cluster_auth_dual` (HMAC; tailnet-trusted peers are
+/// exempt) — same posture as `/rpc/message`. Note this can run `shell`,
+/// `file_write`, etc., so it is as powerful as remote agent execution.
+async fn rpc_tool_call(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/tool/call",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let parsed: Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(with_wire_version(
+                    json!({ "error": format!("malformed body: {e}") }),
+                )),
+            )
+                .into_response()
+        }
+    };
+    if let Some((code, err)) = check_wire_version(&parsed) {
+        return (code, err).into_response();
+    }
+    let tool = parsed["tool"].as_str().unwrap_or("").to_string();
+    if tool.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(with_wire_version(json!({ "error": "tool field required" }))),
+        )
+            .into_response();
+    }
+    let args = parsed.get("args").cloned().unwrap_or_else(|| json!({}));
+    // SECURITY/correctness (review #321 §6): use the node's REAL [tools] config,
+    // not `ToolsConfig::default()`. The default discards every configured API key
+    // (web_search, todoist, …) so a remote tool_call would silently run with no
+    // credentials. Mirror the /mcp handler at ~serve.rs:1468 which reads
+    // `state.agent_runtime.config().tools`. Auth above is already fail-closed.
+    let runtime_cfg = state.agent_runtime.config();
+    let output = crate::tools::execute(&tool, &args, &runtime_cfg.tools).await;
+    Json(with_wire_version(json!({ "tool": tool, "output": output }))).into_response()
 }
 
 /// POST /rpc/capability-query (T-CORE-02) - answer "who can do <caps>?".
@@ -2384,9 +3576,34 @@ async fn rpc_capability_query(
 
 /// GET /rpc/task/status/:id — poll async task result.
 async fn rpc_task_status(
+    State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
     Extension(jobs): Extension<ClusterJobStore>,
 ) -> Json<Value> {
+    // Durable store first (DISPATCH-MESH-DURABILITY gap-a): a job created
+    // before a daemon restart is still answerable here (terminal status), not
+    // "job not found". Map the persisted `TaskStatus` back to the legacy
+    // running|done|error wire strings so existing pollers (mesh::poll_task) are
+    // unaffected.
+    if let Some(tq) = &state.task_queue {
+        if let Ok(uuid) = uuid::Uuid::parse_str(&id) {
+            match tq.get(uuid).await {
+                Ok(Some(rec)) => {
+                    return Json(with_wire_version(json!({
+                        "job_id": id,
+                        "status": task_status_to_wire(rec.status),
+                        "output": rec.output,
+                        "error":  rec.error,
+                    })));
+                }
+                Ok(None) => { /* not in durable store — fall through to legacy map */ }
+                Err(e) => {
+                    tracing::warn!(target: "phantom::dispatch", job_id = %id, "durable status read failed: {e}");
+                }
+            }
+        }
+    }
+    // Legacy in-memory fallback (degraded nodes; lost on restart).
     match jobs.read().await.get(&id).cloned() {
         Some(job) => Json(with_wire_version(json!({
             "job_id": id,
@@ -2398,6 +3615,242 @@ async fn rpc_task_status(
             json!({ "error": "job not found", "job_id": id }),
         )),
     }
+}
+
+/// Map a durable `TaskStatus` back to the legacy async-dispatch wire strings
+/// (`running` | `done` | `error`) that `/rpc/task/status` has always returned,
+/// so existing pollers (`mesh::poll_task`) need no change. Non-terminal states
+/// read as "running"; `Completed` as "done"; every other terminal (`Failed`,
+/// `Cancelled`) as "error".
+fn task_status_to_wire(s: pm_types::TaskStatus) -> &'static str {
+    use pm_types::TaskStatus::*;
+    match s {
+        Completed => "done",
+        Failed | Cancelled => "error",
+        Pending | AwaitingApproval | Running => "running",
+    }
+}
+
+/// Parse the `job_id` from a stop/resume request body, returning a 400 shape on
+/// a missing/un-parseable id. Shared by `rpc_task_stop` + `rpc_task_resume` so
+/// both reject malformed input identically.
+fn parse_job_id(body: &[u8]) -> Result<uuid::Uuid, (StatusCode, Json<Value>)> {
+    let v: Value = serde_json::from_slice(body).unwrap_or(json!({}));
+    let id = v.get("job_id").and_then(|x| x.as_str()).unwrap_or("");
+    uuid::Uuid::parse_str(id).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(with_wire_version(
+                json!({ "error": "missing or invalid job_id" }),
+            )),
+        )
+    })
+}
+
+/// POST /rpc/task/stop — apex-④ off-switch. A phone STOP on the shipping assign
+/// flow lands here. HMAC-authed (fail-closed 401/403 like every mesh RPC).
+/// Body: `{ "job_id": "<uuid>" }`.
+///
+/// Effect: (1) fire the cooperative-abort handle if the task is locally in
+/// flight, so the live agent loop unwinds at its next safe point; (2) flip the
+/// durable task off `Running` into `AwaitingApproval` (the "paused, awaiting
+/// operator" state) so it is no longer runnable and CAN be RESUMED. The state
+/// flip is the source of truth — it happens even when no local abort handle
+/// exists (e.g. a restart-orphaned row), so a phone can still stop a job whose
+/// in-memory runner was lost.
+async fn rpc_task_stop(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/task/stop",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let job_id = match parse_job_id(&body) {
+        Ok(id) => id,
+        Err((code, json)) => return (code, json).into_response(),
+    };
+
+    let Some(tq) = state.task_queue.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(with_wire_version(
+                json!({ "error": "no durable task store on this node" }),
+            )),
+        )
+            .into_response();
+    };
+
+    // Look up the durable task.
+    let current = match tq.get(job_id).await {
+        Ok(Some(rec)) => rec,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(with_wire_version(
+                    json!({ "error": "job not found", "job_id": job_id.to_string() }),
+                )),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(with_wire_version(json!({ "error": e.to_string() }))),
+            )
+                .into_response();
+        }
+    };
+
+    // Terminal already → nothing to stop; report current status idempotently.
+    if current.status.is_terminal() {
+        return Json(with_wire_version(json!({
+            "job_id": job_id.to_string(),
+            "status": "stopped",
+            "note":   "task already terminal; no-op",
+            "durable_status": current.status.as_str(),
+        })))
+        .into_response();
+    }
+
+    // 1. Signal the live runner to abort (cooperative; no-op if not in flight).
+    if let Some(handle) = state.task_aborts.read().await.get(&job_id) {
+        handle.interrupt(None);
+    }
+
+    // 2. Flip durable state off Running into the parked AwaitingApproval state.
+    //    Pending → AwaitingApproval and Running → AwaitingApproval are both legal
+    //    (the latter is the STOP edge). AwaitingApproval already-parked is a
+    //    no-op flip that we treat as success.
+    if current.status != pm_types::TaskStatus::AwaitingApproval {
+        if let Err(e) = tq
+            .transition(job_id, pm_types::TaskStatus::AwaitingApproval, None)
+            .await
+        {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(with_wire_version(
+                    json!({ "error": format!("stop transition failed: {e}") }),
+                )),
+            )
+                .into_response();
+        }
+    }
+
+    Json(with_wire_version(json!({
+        "job_id": job_id.to_string(),
+        "status": "stopped",
+    })))
+    .into_response()
+}
+
+/// POST /rpc/task/resume — apex-④ off-switch counterpart. A phone RESUME on a
+/// previously-stopped task lands here. HMAC-authed (fail-closed 401/403).
+/// Body: `{ "job_id": "<uuid>" }`.
+///
+/// Effect: flip a parked (`AwaitingApproval`) task back to `Running` so the
+/// runner/redispatch path can pick it up again. Refuses (409) if the task is
+/// terminal or not in a resumable state.
+async fn rpc_task_resume(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
+    body: Bytes,
+) -> impl IntoResponse {
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/task/resume",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
+    }
+    let job_id = match parse_job_id(&body) {
+        Ok(id) => id,
+        Err((code, json)) => return (code, json).into_response(),
+    };
+
+    let Some(tq) = state.task_queue.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(with_wire_version(
+                json!({ "error": "no durable task store on this node" }),
+            )),
+        )
+            .into_response();
+    };
+
+    let current = match tq.get(job_id).await {
+        Ok(Some(rec)) => rec,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(with_wire_version(
+                    json!({ "error": "job not found", "job_id": job_id.to_string() }),
+                )),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(with_wire_version(json!({ "error": e.to_string() }))),
+            )
+                .into_response();
+        }
+    };
+
+    // Already running → idempotent success.
+    if current.status == pm_types::TaskStatus::Running {
+        return Json(with_wire_version(json!({
+            "job_id": job_id.to_string(),
+            "status": "running",
+            "note":   "already running; no-op",
+        })))
+        .into_response();
+    }
+
+    // Only a parked (AwaitingApproval) task is resumable. Terminal / Pending
+    // states are refused so RESUME never resurrects a finished task.
+    if current.status != pm_types::TaskStatus::AwaitingApproval {
+        return (
+            StatusCode::CONFLICT,
+            Json(with_wire_version(json!({
+                "error":          "task is not in a resumable (stopped) state",
+                "durable_status": current.status.as_str(),
+            }))),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = tq
+        .transition(job_id, pm_types::TaskStatus::Running, None)
+        .await
+    {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(with_wire_version(
+                json!({ "error": format!("resume transition failed: {e}") }),
+            )),
+        )
+            .into_response();
+    }
+
+    Json(with_wire_version(json!({
+        "job_id": job_id.to_string(),
+        "status": "running",
+    })))
+    .into_response()
 }
 
 /// POST /rpc/admin/self-update — download a new phantom binary from a URL,
@@ -3078,8 +4531,8 @@ async fn serve_script(axum::extract::Path(filename): axum::extract::Path<String>
         // 2. <repo-root>/scripts/<file>  (cwd is core/, ../scripts/)
         v.push(std::path::PathBuf::from("../scripts").join(&filename));
         // 3. user-local
-        if let Some(home) = dirs::home_dir() {
-            v.push(home.join(".phantom-mesh/scripts").join(&filename));
+        if let Ok(data) = crate::cli_config::phantom_data_dir() {
+            v.push(data.join("scripts").join(&filename));
         }
         // 4. system-wide
         v.push(std::path::PathBuf::from("/usr/local/share/phantom-mesh/scripts").join(&filename));
@@ -3146,7 +4599,7 @@ async fn serve_dist(axum::extract::Path(filename): axum::extract::Path<String>) 
         v.push(std::path::PathBuf::from("../dist").join(&filename));
         // 3. user-local
         if let Some(home) = dirs::home_dir() {
-            v.push(home.join(".phantom-mesh/dist").join(&filename));
+            v.push(crate::cli_config::phantom_dir_under(&home).join("dist").join(&filename));
             // launchd-friendly install location
             v.push(
                 home.join("Library/Application Support/phantom-mesh/dist")
@@ -3255,32 +4708,26 @@ async fn api_providers_health(State(state): State<Arc<AppState>>) -> Json<Value>
 async fn rpc_evolve_handoff(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
     body: Bytes,
 ) -> impl IntoResponse {
     use crate::evolve_checkpoint::EvolveCheckpoint;
 
-    // HMAC verification — same pattern as rpc_task_assign.
-    let secret_configured = state
-        .cluster_manager
-        .config
-        .cluster_secret
-        .as_deref()
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-    if secret_configured {
-        let token = headers
-            .get("X-Cluster-Auth")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        if !state.cluster_manager.verify_auth(token, &body) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(with_wire_version(
-                    json!({ "error": "unauthorized — bad X-Cluster-Auth" }),
-                )),
-            )
-                .into_response();
-        }
+    // HMAC verification — FAIL-CLOSED (#321 fix): previously this gated the
+    // auth block on `secret_configured`, so an unset/empty cluster_secret
+    // SKIPPED auth entirely and let an unauthenticated remote peer reach
+    // `checkpoint.save()`. Route through the shared `require_cluster_auth_dual`
+    // helper (same as /rpc/message, /rpc/task/assign, …) which refuses outright
+    // when the secret is empty unless PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1.
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/evolve-handoff",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
     }
 
     // Refuse if the peer speaks a newer wire version than this binary.
@@ -3356,30 +4803,25 @@ async fn rpc_evolve_handoff(
 async fn rpc_squad_dispatch(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    axum::extract::RawQuery(raw_query): axum::extract::RawQuery,
     body: Bytes,
 ) -> impl IntoResponse {
-    // 1. HMAC verification (same gate as evolve-handoff).
-    let secret_configured = state
-        .cluster_manager
-        .config
-        .cluster_secret
-        .as_deref()
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-    if secret_configured {
-        let token = headers
-            .get("X-Cluster-Auth")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        if !state.cluster_manager.verify_auth(token, &body) {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(with_wire_version(
-                    json!({ "error": "unauthorized — bad X-Cluster-Auth" }),
-                )),
-            )
-                .into_response();
-        }
+    // 1. HMAC verification — FAIL-CLOSED (#321 fix). The previous
+    //    `if secret_configured { … }` gate meant an unset/empty cluster_secret
+    //    SKIPPED auth, letting an unauthenticated remote peer reach
+    //    `agent_runtime.run()` (unauth RCE). Route through the shared
+    //    `require_cluster_auth_dual` helper (same as /rpc/task/assign,
+    //    /rpc/evolve-handoff, …) which refuses outright when the secret is
+    //    empty unless PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1.
+    if let Err((code, json)) = require_cluster_auth_dual(
+        &state.cluster_manager,
+        &headers,
+        "POST",
+        "/rpc/squad/dispatch",
+        raw_query.as_deref(),
+        &body,
+    ) {
+        return (code, json).into_response();
     }
 
     // 2. Wire-version sanity (same gate as message/handoff).
@@ -3439,14 +4881,43 @@ async fn rpc_squad_dispatch(
             .into_response();
     }
 
-    // 5. Run the agent. Synchronous; output captured in result.
-    let started = std::time::Instant::now();
     let node_name = state
         .cluster_manager
         .config
         .node_name
         .clone()
         .unwrap_or_else(|| "phantom".into());
+
+    // 5. At-most-once: a peer re-posts a dispatch on its own timeout even though
+    //    this node may already be running/finished the same job. Dedup BEFORE the
+    //    agent runs so a re-post doesn't fire the agent (and its write tools)
+    //    twice. Prefer the caller's explicit `idempotency_key`; otherwise hash
+    //    `agent\nprompt`. A duplicate returns 200 with `deduped:true` so the
+    //    Squad Pipeline treats it as already-done, not an error.
+    let idem_key = parsed
+        .get("idempotency_key")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| format!("dispatch:{}", s.trim()))
+        .unwrap_or_else(|| {
+            crate::idempotency::content_key("dispatch", &format!("{agent}\n{prompt}"))
+        });
+    if let crate::idempotency::Decision::Duplicate { first_seen } =
+        crate::idempotency::check_and_record_default(&idem_key, "dispatch")
+    {
+        return Json(with_wire_version(json!({
+            "output":     "",
+            "agent":      agent,
+            "node":       node_name,
+            "elapsed_ms": 0,
+            "deduped":    true,
+            "first_seen": first_seen,
+        })))
+        .into_response();
+    }
+
+    // 6. Run the agent. Synchronous; output captured in result.
+    let started = std::time::Instant::now();
     let result = state.agent_runtime.run(&agent, &prompt, &[], None).await;
     let elapsed_ms = started.elapsed().as_millis() as u64;
 
@@ -3509,6 +4980,35 @@ async fn api_dashboard_status(State(state): State<Arc<AppState>>) -> Json<Value>
 //
 // The handler currently constructs `GeminiMultimodalProvider::from_env()`
 // per request — fine for v0.1; later refactor injects via DI (Task 11+).
+/// #321 bonus: enforce the per-part and running-total media byte caps for
+/// `POST /api/events`. Returns 413 over either cap; otherwise folds `len` into
+/// `total`. Kept as a free fn so both the image and audio branches share it.
+fn check_event_part_caps(
+    len: usize,
+    total: &mut usize,
+) -> Result<(), (StatusCode, String)> {
+    if len > MAX_EVENT_PART_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "multipart part too large ({} bytes, max {})",
+                len, MAX_EVENT_PART_BYTES
+            ),
+        ));
+    }
+    *total += len;
+    if *total > MAX_EVENT_TOTAL_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "total multipart media too large ({} bytes, max {})",
+                total, MAX_EVENT_TOTAL_BYTES
+            ),
+        ));
+    }
+    Ok(())
+}
+
 async fn api_events_post(
     mut mp: Multipart,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -3519,11 +5019,24 @@ async fn api_events_post(
     let mut text: Option<String> = None;
     let mut modalities: Vec<Modality> = Vec::new();
 
+    // #321 bonus hardening: bound the number of parts and the total media bytes
+    // buffered, in addition to the per-part byte cap enforced below. Returns 413
+    // over any cap so the unauthenticated capture route can't balloon memory.
+    let mut part_count: usize = 0;
+    let mut total_media_bytes: usize = 0;
+
     while let Some(field) = mp
         .next_field()
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart: {}", e)))?
     {
+        part_count += 1;
+        if part_count > MAX_EVENT_PARTS {
+            return Err((
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!("too many multipart parts (max {})", MAX_EVENT_PARTS),
+            ));
+        }
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "kind" => {
@@ -3553,6 +5066,7 @@ async fn api_events_post(
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, format!("image bytes: {}", e)))?
                     .to_vec();
+                check_event_part_caps(bytes.len(), &mut total_media_bytes)?;
                 modalities.push(Modality::Image { bytes, mime });
             }
             n if n.starts_with("audio_") => {
@@ -3562,6 +5076,7 @@ async fn api_events_post(
                     .await
                     .map_err(|e| (StatusCode::BAD_REQUEST, format!("audio bytes: {}", e)))?
                     .to_vec();
+                check_event_part_caps(bytes.len(), &mut total_media_bytes)?;
                 modalities.push(Modality::Audio { bytes, mime });
             }
             _ => {} // ignore unknown fields
@@ -3579,15 +5094,16 @@ async fn api_events_post(
         .filter(|s| !s.is_empty())
         .collect();
 
-    let home = dirs::home_dir().ok_or((StatusCode::INTERNAL_SERVER_ERROR, "no home dir".into()))?;
-    let identity_path = home.join(".phantom-mesh").join("identity.key");
+    let data = crate::cli_config::phantom_data_dir()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "no home dir".to_string()))?;
+    let identity_path = data.join("identity.key");
     let key = crate::life_node::key_derivation::load_event_key(&identity_path).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("key derivation: {}", e),
         )
     })?;
-    let store = EventStore::with_key(home.join(".phantom-mesh").join("events"), key);
+    let store = EventStore::with_key(data.join("events"), key);
     let source_node = std::env::var("PHANTOM_NODE_NAME").unwrap_or_else(|_| "unknown".into());
     let meta = store
         .write_event(&kind, &modalities, &goal_tags, &source_node)
@@ -3632,21 +5148,37 @@ async fn api_events_post(
     if let Ok(p) = GroqTextProvider::from_env() {
         provider_chain.push(Box::new(p));
     }
-    if provider_chain.is_empty() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "no LLM provider configured (set a Gemini or Groq API key)".into(),
-        ));
-    }
-    let analysis = crate::life_node::providers::fallback::try_vision_chain(input, &provider_chain)
-        .await
-        .map_err(|e| match e {
-            crate::life_node::multimodal::ProviderError::Modality(m) => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("no image-capable provider for this photo: {}", m),
-            ),
-            other => (StatusCode::BAD_GATEWAY, format!("provider analyze: {}", other)),
-        })?;
+    // E006 graceful no-provider degrade. The event is already persisted above, so
+    // returning 503 here would (a) hand the user an error for a capture that
+    // actually succeeded and (b) leave the event with no analysis file — which
+    // makes `coach review` skip it (load_events_for_date requires meta + analysis).
+    // Instead, write a "skipped" analysis and return 200; set GEMINI_API_KEY or
+    // GROQ_API_KEY to get real analysis.
+    let analysis_skipped = provider_chain.is_empty();
+    let analysis = if analysis_skipped {
+        crate::life_node::multimodal::AnalysisResult {
+            summary:
+                "analysis skipped: no LLM provider configured (set GEMINI_API_KEY or GROQ_API_KEY for analysis)"
+                    .into(),
+            goal_impact: None,
+            suggestion: None,
+            confidence: None,
+            raw_response: json!({ "skipped": true, "reason": "no_provider" }),
+            model_id: "none".into(),
+            latency_ms: 0,
+            cost_usd: None,
+        }
+    } else {
+        crate::life_node::providers::fallback::try_vision_chain(input, &provider_chain)
+            .await
+            .map_err(|e| match e {
+                crate::life_node::multimodal::ProviderError::Modality(m) => (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    format!("no image-capable provider for this photo: {}", m),
+                ),
+                other => (StatusCode::BAD_GATEWAY, format!("provider analyze: {}", other)),
+            })?
+    };
     store
         .write_analysis(&meta.event_id, &analysis)
         .map_err(|e| {
@@ -3659,16 +5191,18 @@ async fn api_events_post(
     Ok(Json(json!({
         "event_id": meta.event_id,
         "analysis": analysis,
+        "analysis_skipped": analysis_skipped,
     })))
 }
 
 async fn api_events_analysis_get(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let home = dirs::home_dir().ok_or((StatusCode::INTERNAL_SERVER_ERROR, "no home dir".into()))?;
-    let identity_path = home.join(".phantom-mesh").join("identity.key");
+    let data = crate::cli_config::phantom_data_dir()
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "no home dir".to_string()))?;
+    let identity_path = data.join("identity.key");
     let store =
-        EventStore::with_identity_file(home.join(".phantom-mesh").join("events"), &identity_path);
+        EventStore::with_identity_file(data.join("events"), &identity_path);
     let analysis = store
         .read_analysis(&id)
         .map_err(|e| (StatusCode::NOT_FOUND, format!("read_analysis: {}", e)))?;
@@ -3861,18 +5395,48 @@ mod squad_dispatch_tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use serde_json::{json, Value};
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tower::ServiceExt; // for `oneshot`
 
-    /// Serialise tests that mutate `PHANTOM_ENFORCE_REQUIRED_CAPS`.
-    /// Without this, `env_override_flips_soft_node_to_strict` (which
-    /// `set_var`s the env) races against the other tests (which
-    /// `remove_var` it) when cargo runs tests in parallel.
+    /// Serialise tests that mutate process env. These tests touch
+    /// `PHANTOM_ENFORCE_REQUIRED_CAPS` AND — now that `/rpc/task/assign`
+    /// records an at-most-once dedup key — `PHANTOM_IDEMPOTENCY_STORE`. Both
+    /// vars are also mutated by tests in other modules (coach, auth_gate,
+    /// mesh), so we share the crate-wide [`crate::env_lock`] rather than a
+    /// module-local mutex; a module-local lock would let those groups race.
     fn env_guard() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
+        crate::env_lock::acquire()
+    }
+
+    /// RAII: point the at-most-once ledger at a throwaway tempdir for one test,
+    /// restoring the prior env on drop. REQUIRED for any test that drives
+    /// `/rpc/task/assign` to the spawn path: the handler records a dedup key in
+    /// the (default, PERSISTENT) ledger keyed by `agent\nprompt`, so without
+    /// isolation an identical body collides across tests AND across runs within
+    /// the 24h TTL — surfacing as a duplicate `200` where `202` is expected.
+    /// The caller must already hold [`env_guard`] (serializes the env mutation).
+    struct IdemStoreGuard {
+        _tmp: tempfile::TempDir,
+        prev: Option<String>,
+    }
+    impl IdemStoreGuard {
+        fn new() -> Self {
+            let tmp = tempfile::TempDir::new().expect("tempdir");
+            let prev = std::env::var("PHANTOM_IDEMPOTENCY_STORE").ok();
+            std::env::set_var(
+                "PHANTOM_IDEMPOTENCY_STORE",
+                tmp.path().join("idempotency.jsonl"),
+            );
+            Self { _tmp: tmp, prev }
+        }
+    }
+    impl Drop for IdemStoreGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", v),
+                None => std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE"),
+            }
+        }
     }
 
     /// Test cluster secret used by every dispatch-filter test in this
@@ -3936,6 +5500,112 @@ mod squad_dispatch_tests {
         serde_json::from_slice(&bytes).expect("parse json body")
     }
 
+    /// Build a signed POST request to an arbitrary `path` (mirrors
+    /// [`assign_request`] but parameterised by path) so the zk-relay endpoints
+    /// can be driven through the same body-HMAC auth path real callers use.
+    fn signed_req(path: &str, body: Value) -> Request<Body> {
+        let body_str = body.to_string();
+        let signing_cfg = ClusterConfig {
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let token = ClusterManager::new(signing_cfg).make_auth_token(&body_str);
+        Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("X-Cluster-Auth", token)
+            .body(Body::from(body_str))
+            .expect("build request")
+    }
+
+    /// P2-1 zero-knowledge relay: a signed put stores an age-sealed blob; a
+    /// signed get returns the EXACT sealed bytes (which the client — not the
+    /// server — decrypts); an unknown key FAILS CLOSED with 404 (never
+    /// plaintext, never another blob).
+    #[tokio::test]
+    async fn zk_put_get_roundtrip_seals_and_fails_closed() {
+        use base64::Engine as _;
+        let _g = env_guard(); // serialize the PHANTOM_HOME mutation
+        let tmp = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("PHANTOM_HOME");
+        // PHANTOM_HOME is the data-root verbatim → isolates the relay store dir.
+        std::env::set_var("PHANTOM_HOME", tmp.path().join(".phantom-mesh"));
+
+        // Client seals plaintext; the server only ever sees this ciphertext.
+        let key = crate::life_node::key_derivation::derive_event_key(&[0x33u8; 32]).unwrap();
+        let plaintext = b"relay roundtrip secret";
+        let sealed = crate::life_node::crypto::encrypt(plaintext, &key).unwrap();
+        let sealed_b64 = base64::engine::general_purpose::STANDARD.encode(&sealed);
+
+        // PUT
+        let put_body =
+            json!({ "device_id": "dev-a", "blob_id": "blob-1", "sealed_b64": sealed_b64 });
+        let resp = router_with_caps(vec![], None)
+            .oneshot(signed_req("/rpc/zk/put", put_body))
+            .await
+            .expect("zk put");
+        assert_eq!(resp.status(), StatusCode::OK, "put must succeed");
+        assert_eq!(body_json(resp).await["stored"], json!(true));
+
+        // GET returns the exact sealed bytes; only the client key recovers plaintext.
+        let resp = router_with_caps(vec![], None)
+            .oneshot(signed_req(
+                "/rpc/zk/get",
+                json!({ "device_id": "dev-a", "blob_id": "blob-1" }),
+            ))
+            .await
+            .expect("zk get");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let got_b64 = body_json(resp).await["sealed_b64"].as_str().unwrap().to_string();
+        let got = base64::engine::general_purpose::STANDARD.decode(got_b64).unwrap();
+        assert_eq!(got, sealed, "server must return the exact sealed bytes");
+        assert_eq!(
+            crate::life_node::crypto::decrypt(&got, &key).unwrap(),
+            plaintext
+        );
+
+        // Unknown key FAILS CLOSED — 404, never plaintext, never another blob.
+        let resp = router_with_caps(vec![], None)
+            .oneshot(signed_req(
+                "/rpc/zk/get",
+                json!({ "device_id": "dev-a", "blob_id": "ghost" }),
+            ))
+            .await
+            .expect("zk get missing");
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND, "missing key must fail closed");
+
+        match prev {
+            Some(v) => std::env::set_var("PHANTOM_HOME", v),
+            None => std::env::remove_var("PHANTOM_HOME"),
+        }
+    }
+
+    /// Both zk-relay endpoints reject an UNauthenticated request (no
+    /// `X-Cluster-Auth`) — they must never be open. 401/403, never 200.
+    #[tokio::test]
+    async fn zk_endpoints_reject_unauthenticated() {
+        for path in ["/rpc/zk/put", "/rpc/zk/get"] {
+            let req = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({ "device_id": "d", "blob_id": "b" }).to_string(),
+                ))
+                .unwrap();
+            let resp = router_with_caps(vec![], None)
+                .oneshot(req)
+                .await
+                .expect("unauth req");
+            assert!(
+                resp.status() == StatusCode::FORBIDDEN || resp.status() == StatusCode::UNAUTHORIZED,
+                "unauthenticated {path} must be rejected, got {}",
+                resp.status()
+            );
+        }
+    }
+
     /// POST a single-image multipart capture of `size` bytes to `/api/events`
     /// on a fresh production router, returning the response status. Used by the
     /// body-limit regression test below.
@@ -3966,6 +5636,80 @@ mod squad_dispatch_tests {
             .await
             .expect("call /api/events")
             .status()
+    }
+
+    /// POST `n` tiny `image_i` parts to `/api/events`, returning the status.
+    /// Used by the #321 part-count-cap regression test. Parts are 1 byte each
+    /// so the whole request stays well under `EVENT_UPLOAD_BODY_LIMIT` — the
+    /// ONLY thing that can reject it is the per-request `MAX_EVENT_PARTS` cap.
+    async fn post_event_n_parts(n: usize) -> StatusCode {
+        let boundary = "XBoundaryPartsTest";
+        let mut body: Vec<u8> = Vec::new();
+        for i in 0..n {
+            body.extend_from_slice(
+                format!(
+                    "--{boundary}\r\nContent-Disposition: form-data; name=\"image_{i}\"; \
+                     filename=\"p.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n\x00\r\n"
+                )
+                .as_bytes(),
+            );
+        }
+        body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/events")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(Body::from(body))
+            .expect("build request");
+        router_with_caps(vec![], None)
+            .oneshot(req)
+            .await
+            .expect("call /api/events")
+            .status()
+    }
+
+    #[tokio::test]
+    async fn events_upload_rejects_too_many_parts_with_413() {
+        // #321 bonus: without a part-count cap, a single sub-body-limit request
+        // could carry an unbounded number of image_*/audio_* parts (each fully
+        // buffered). MAX_EVENT_PARTS bounds the fan-out → 413 over the cap.
+        // Pin HOME + clear provider keys so an UNDER-cap request can't do a real
+        // event write / network call (mirrors the body-limit test's isolation).
+        let _env = crate::env_lock::acquire();
+        struct VarGuard(&'static str, Option<String>);
+        impl Drop for VarGuard {
+            fn drop(&mut self) {
+                match &self.1 {
+                    Some(v) => std::env::set_var(self.0, v),
+                    None => std::env::remove_var(self.0),
+                }
+            }
+        }
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let _h = VarGuard("HOME", std::env::var("HOME").ok());
+        let _g1 = VarGuard("GEMINI_API_KEY", std::env::var("GEMINI_API_KEY").ok());
+        let _g2 = VarGuard("GROQ_API_KEY", std::env::var("GROQ_API_KEY").ok());
+        std::env::set_var("HOME", tmp.path());
+        std::env::remove_var("GEMINI_API_KEY");
+        std::env::remove_var("GROQ_API_KEY");
+
+        // MAX_EVENT_PARTS = 64. One over the cap must be rejected.
+        let over = post_event_n_parts(super::MAX_EVENT_PARTS + 1).await;
+        assert_eq!(
+            over,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "more than MAX_EVENT_PARTS parts must be rejected with 413"
+        );
+        // A handful of parts (well under the cap) must NOT be rejected as 413.
+        let under = post_event_n_parts(3).await;
+        assert_ne!(
+            under,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "a few parts must not trip the part-count cap"
+        );
     }
 
     #[tokio::test]
@@ -4110,6 +5854,7 @@ mod squad_dispatch_tests {
         // response includes a job_id, status is 202 Accepted.
         // (The warn log is fire-and-forget; we don't assert on it.)
         let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
         std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec!["file_in_container".into(), "memory".into()],
@@ -4137,10 +5882,834 @@ mod squad_dispatch_tests {
         );
     }
 
+    /// Build the production router with a caller-owned job store and the test
+    /// cluster secret (so [`assign_request`]'s HMAC passes auth). Same handlers
+    /// as `router_with_caps`, but the test keeps the `Arc` so it can count jobs.
+    fn router_sharing_jobs(jobs: super::ClusterJobStore) -> axum::Router {
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        super::router_with_jobs(Arc::new(state), jobs)
+    }
+
+    #[tokio::test]
+    async fn duplicate_assign_returns_first_job_id_and_spawns_no_second_job() {
+        // VERIFIED-FINDING #1/#2 regression guard (review round 2). A re-sent
+        // /rpc/task/assign must (a) NOT spawn a second job and (b) return a
+        // caller-compatible body whose `job_id` == the first accepted job_id.
+        // Callers (`mesh::assign_task_to_peer` / `_full`) do
+        // `data.job_id.ok_or_else(...)`, so a job_id-less success would be
+        // mis-read as a DispatchError → spurious forward failure.
+        let _g = env_guard(); // process-wide env lock (serializes env-touching tests)
+        let _idem = IdemStoreGuard::new(); // isolate the dedup ledger to a tempdir
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+
+        // One job store shared by both router instances (oneshot consumes the
+        // router, so we build it twice over the SAME Arc).
+        let jobs: super::ClusterJobStore =
+            Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+        let body = json!({ "agent": "master", "prompt": "review-round-2 dedup probe" });
+
+        // First assign: accepted (202), mints a job_id, inserts exactly one job.
+        let resp1 = router_sharing_jobs(jobs.clone())
+            .oneshot(assign_request(body.clone()))
+            .await
+            .expect("first /rpc/task/assign");
+        assert_eq!(resp1.status(), StatusCode::ACCEPTED, "first assign accepted (202)");
+        let body1 = body_json(resp1).await;
+        let first_job_id = body1["job_id"]
+            .as_str()
+            .expect("first response must carry a job_id")
+            .to_string();
+        assert_eq!(
+            jobs.read().await.len(),
+            1,
+            "first assign must spawn exactly one job"
+        );
+
+        // Duplicate assign (identical body → identical derived key): deduped.
+        let resp2 = router_sharing_jobs(jobs.clone())
+            .oneshot(assign_request(body.clone()))
+            .await
+            .expect("duplicate /rpc/task/assign");
+        assert_eq!(
+            resp2.status(),
+            StatusCode::OK,
+            "duplicate must be deduped (200, not a fresh 202)"
+        );
+        let body2 = body_json(resp2).await;
+        assert_eq!(body2["deduped"], json!(true), "duplicate carries deduped:true");
+        assert_eq!(
+            body2["job_id"].as_str(),
+            Some(first_job_id.as_str()),
+            "duplicate MUST return the ORIGINAL job_id for caller compatibility, got {body2}"
+        );
+        assert!(
+            body2.get("first_seen").is_some(),
+            "duplicate should report the original first_seen ts"
+        );
+        assert_eq!(
+            jobs.read().await.len(),
+            1,
+            "duplicate must NOT spawn a second job — store still holds exactly one"
+        );
+    }
+
+    /// #321 fix (#1 + #2): with NO cluster_secret and NO empty-secret override,
+    /// the two formerly fail-OPEN mesh RPC routes — /rpc/squad/dispatch (reached
+    /// agent_runtime.run() = unauth RCE) and /rpc/evolve-handoff (reached
+    /// checkpoint.save()) — must now FAIL CLOSED, rejecting the unauthenticated
+    /// POST with a client error (401/403). They must never be open (200) nor
+    /// unwired (404/405). /rpc/task/assign is included as a parity baseline.
+    #[tokio::test]
+    async fn empty_secret_fails_closed_on_dispatch_handoff_and_assign() {
+        let _g = env_guard();
+        // The whole point of the fix: with the override OFF, empty secret rejects.
+        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+
+        // AppState::new() has no cluster_secret configured (None/empty).
+        let state = AppState::new();
+        assert!(
+            state
+                .cluster_manager
+                .config
+                .cluster_secret
+                .as_deref()
+                .map_or(true, |s| s.is_empty()),
+            "precondition: this test must run with an empty/unset cluster_secret"
+        );
+        let arc = Arc::new(state);
+
+        for (path, body) in [
+            ("/rpc/squad/dispatch", json!({ "agent": "master", "prompt": "rce attempt" })),
+            ("/rpc/evolve-handoff", json!({ "session_id": "x", "current_node": "evil" })),
+            ("/rpc/task/assign", json!({ "agent": "master", "prompt": "rce attempt" })),
+        ] {
+            let req = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("build request");
+            // Rebuild the router per call (oneshot consumes it); same Arc state.
+            let resp = super::router(arc.clone())
+                .oneshot(req)
+                .await
+                .unwrap_or_else(|_| panic!("call {path}"));
+            let code = resp.status().as_u16();
+            assert!(
+                (400..500).contains(&code),
+                "unauthenticated POST {path} with empty cluster_secret MUST fail closed \
+                 (4xx client error), got {code} — fail-OPEN regression",
+            );
+            assert!(
+                code == 401 || code == 403,
+                "empty-secret rejection on {path} should be 401/403 (auth gate), got {code}",
+            );
+        }
+    }
+
+    /// #321 fix (#5): a Duplicate sighting whose durable row is MISSING (a
+    /// crash-orphaned ledger entry, or any not-yet-written row) must NOT
+    /// re-spawn. The old code probed "resolvability" and fell through to a
+    /// SECOND spawn when the row was absent — so a retry storm could fan out
+    /// extra agent executions. Strict at-most-once: the dedup branch always
+    /// returns 200 deduped with the original (possibly-unresolvable) id and the
+    /// job store gains no second entry.
+    #[tokio::test]
+    async fn duplicate_with_missing_durable_row_never_respawns() {
+        let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+
+        // A DURABLE task queue is configured but we will NEVER let the first
+        // assign create a row in it — instead we pre-seed the at-most-once ledger
+        // with a job_id that has no matching durable row, simulating the
+        // crash-orphan gap (ledger recorded, row write lost).
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let db = dir.path().join("phantom.db");
+        let queue = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
+
+        let jobs: super::ClusterJobStore =
+            Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new()));
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        state.task_queue = Some(queue);
+        let arc = Arc::new(state);
+
+        let body = json!({ "agent": "master", "prompt": "orphan-row dedup probe #321" });
+        let idem_key = super::task_assign_idem_key(None, "master", "orphan-row dedup probe #321");
+        // Pre-record the dedup key pointing at an orphaned id (no durable row).
+        let orphan_id = uuid::Uuid::new_v4().to_string();
+        let (decision, _) = crate::idempotency::check_and_record_value_default(
+            &idem_key,
+            "task_assign",
+            Some(&orphan_id),
+        );
+        assert!(
+            matches!(decision, crate::idempotency::Decision::First),
+            "pre-seed must be the FIRST sighting of this key"
+        );
+
+        // Now POST the identical body: it derives the SAME key → Duplicate whose
+        // recorded id (orphan_id) has NO durable row. Strict at-most-once: 200
+        // deduped, original id echoed, and ZERO new jobs spawned.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/task/assign")
+            .header("content-type", "application/json")
+            .header(
+                "X-Cluster-Auth",
+                ClusterManager::new(ClusterConfig {
+                    cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+                    ..ClusterConfig::default()
+                })
+                .make_auth_token(&body.to_string()),
+            )
+            .body(Body::from(body.to_string()))
+            .expect("build request");
+        let resp = super::router_with_jobs(arc.clone(), jobs.clone())
+            .oneshot(req)
+            .await
+            .expect("call /rpc/task/assign");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "orphan-row duplicate must dedup (200), NOT spawn a fresh 202"
+        );
+        let body_resp = body_json(resp).await;
+        assert_eq!(body_resp["deduped"], json!(true), "must be marked deduped");
+        assert_eq!(
+            body_resp["job_id"].as_str(),
+            Some(orphan_id.as_str()),
+            "must echo the ORIGINAL (orphaned) job_id, not mint a new one — got {body_resp}"
+        );
+        assert!(
+            jobs.read().await.is_empty(),
+            "strict at-most-once: a missing-durable-row duplicate must NOT spawn — \
+             in-memory job store must stay empty, got {} jobs",
+            jobs.read().await.len()
+        );
+    }
+
+    /// Build the production router backed by a DURABLE task queue (gap-a).
+    /// Returns the shared `Arc<AppState>` too so a test can read the durable
+    /// store after driving a handler. node_name + cluster_secret are set so
+    /// [`assign_request`]'s HMAC passes auth.
+    fn router_with_queue(queue: crate::TaskQueue) -> (Arc<AppState>, axum::Router) {
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        state.task_queue = Some(queue);
+        let arc = Arc::new(state);
+        (arc.clone(), super::router(arc))
+    }
+
+    // ─── apex-④ off-switch: /rpc/task/stop + /rpc/task/resume ───────────────
+    // A phone STOP/RESUME on the shipping assign flow must actually control a
+    // running durable task. STOP parks a Running task (→ AwaitingApproval, the
+    // durable "paused, awaiting operator" state) and signals the cooperative
+    // interrupt registry so the live runner unwinds; RESUME moves it back to
+    // Running. Both HMAC-authed (fail-closed 401/403 like every mesh RPC).
+
+    /// Seed a durable task already in `Running` (stands in for a long-running
+    /// in-flight job that a phone would want to STOP). Returns its job_id.
+    async fn seed_running_task(queue: &crate::TaskQueue) -> uuid::Uuid {
+        let t = queue.create("ws", "coder", "long task").await.expect("create");
+        queue
+            .transition(t.task_id, pm_types::TaskStatus::Running, None)
+            .await
+            .expect("→running");
+        t.task_id
+    }
+
+    #[tokio::test]
+    async fn rpc_task_stop_authed_parks_running_task() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let job_id = seed_running_task(&queue).await;
+        let (arc, router) = router_with_queue(queue);
+
+        let body = json!({ "job_id": job_id.to_string() }).to_string();
+        let resp = router
+            .oneshot(signed_post("/rpc/task/stop", &body))
+            .await
+            .expect("call /rpc/task/stop");
+        assert_eq!(resp.status(), StatusCode::OK, "valid HMAC stop must 200");
+        let j = body_json(resp).await;
+        assert_eq!(j["job_id"], json!(job_id.to_string()));
+        assert_eq!(j["status"], json!("stopped"), "wire status must read stopped");
+
+        // Durable state actually flipped off the runnable Running state.
+        let rec = arc
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            rec.status,
+            pm_types::TaskStatus::AwaitingApproval,
+            "STOP must park the task off Running (durable state changed)"
+        );
+    }
+
+    #[tokio::test]
+    async fn rpc_task_stop_bad_hmac_fails_closed_no_state_change() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let job_id = seed_running_task(&queue).await;
+        let (arc, router) = router_with_queue(queue);
+
+        // BAD signature: well-formed header, wrong secret.
+        let body = json!({ "job_id": job_id.to_string() }).to_string();
+        let bad_token = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some("WRONG-SECRET".into()),
+            ..ClusterConfig::default()
+        })
+        .make_auth_token(&body);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/task/stop")
+            .header("content-type", "application/json")
+            .header("X-Cluster-Auth", bad_token)
+            .body(Body::from(body.clone()))
+            .expect("build");
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "bad HMAC must 401/403, got {code}");
+
+        // Fail-closed: the task is UNTOUCHED (still Running).
+        let rec = arc
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            rec.status,
+            pm_types::TaskStatus::Running,
+            "bad-HMAC stop must NOT change durable state"
+        );
+    }
+
+    #[tokio::test]
+    async fn rpc_task_stop_missing_hmac_fails_closed() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let job_id = seed_running_task(&queue).await;
+        let (arc, router) = router_with_queue(queue);
+
+        let body = json!({ "job_id": job_id.to_string() }).to_string();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/task/stop")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .expect("build");
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "missing HMAC must 401/403, got {code}");
+
+        let rec = arc
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(rec.status, pm_types::TaskStatus::Running);
+    }
+
+    #[tokio::test]
+    async fn rpc_task_resume_authed_returns_task_to_running() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let job_id = seed_running_task(&queue).await;
+        // Park it first (as STOP would).
+        queue
+            .transition(job_id, pm_types::TaskStatus::AwaitingApproval, None)
+            .await
+            .expect("→park");
+        let (arc, router) = router_with_queue(queue);
+
+        let body = json!({ "job_id": job_id.to_string() }).to_string();
+        let resp = router
+            .oneshot(signed_post("/rpc/task/resume", &body))
+            .await
+            .expect("call /rpc/task/resume");
+        assert_eq!(resp.status(), StatusCode::OK, "valid HMAC resume must 200");
+        let j = body_json(resp).await;
+        assert_eq!(j["status"], json!("running"), "resume reports running");
+
+        let rec = arc
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            rec.status,
+            pm_types::TaskStatus::Running,
+            "RESUME must return the task to Running"
+        );
+    }
+
+    #[tokio::test]
+    async fn rpc_task_resume_bad_hmac_fails_closed_no_state_change() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let job_id = seed_running_task(&queue).await;
+        queue
+            .transition(job_id, pm_types::TaskStatus::AwaitingApproval, None)
+            .await
+            .expect("→park");
+        let (arc, router) = router_with_queue(queue);
+
+        let body = json!({ "job_id": job_id.to_string() }).to_string();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/task/resume")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .expect("build");
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "missing HMAC must 401/403, got {code}");
+
+        let rec = arc
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            rec.status,
+            pm_types::TaskStatus::AwaitingApproval,
+            "bad-HMAC resume must NOT change durable state"
+        );
+    }
+
+    /// Route-presence: both new routes are WIRED (not 404/405). An
+    /// unauthenticated POST is rejected with an auth error (401/403) — never
+    /// "not found" (404) or "method not allowed" (405).
+    #[tokio::test]
+    async fn rpc_task_stop_and_resume_routes_exist() {
+        let _g = env_guard();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let (_arc, _r) = router_with_queue(queue);
+        for path in ["/rpc/task/stop", "/rpc/task/resume"] {
+            // Fresh router per call (oneshot consumes it).
+            let dir2 = tempfile::TempDir::new().expect("tempdir");
+            let q2 = crate::TaskQueue::new(
+                crate::TaskStore::open_at(dir2.path().join("phantom.db")).expect("open"),
+            );
+            let (_a, router) = router_with_queue(q2);
+            let req = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .expect("build");
+            let resp = router.oneshot(req).await.expect("call");
+            let code = resp.status().as_u16();
+            assert_ne!(code, 404, "{path} must be WIRED (got 404)");
+            assert_ne!(code, 405, "{path} must accept POST (got 405)");
+            assert!(
+                code == 401 || code == 403,
+                "{path} must fail closed for unauthed POST, got {code}"
+            );
+        }
+    }
+
+    // ─── P1-2 mobile-supervisor RPC tests ──────────────────────────────────
+    // `/rpc/tasks/list`, `/rpc/captures/recent`, `/rpc/review` — HMAC-authed
+    // read endpoints that the phone supervisor tabs poll. All hermetic: a
+    // temp PHANTOM_HOME data-root + plaintext on-disk fixtures + oneshot.
+
+    /// RAII: point the phantom DATA-ROOT (`PHANTOM_HOME`) at a throwaway dir for
+    /// one test, restoring the prior value on drop. `phantom_data_dir()` honors
+    /// `PHANTOM_HOME` verbatim, so `events/` and `pending/` both resolve under it
+    /// (MEMORY: windows-home-resolution-phantom-home). Caller must hold
+    /// [`env_guard`] (serializes the env mutation).
+    struct PhantomHomeGuard {
+        _tmp: tempfile::TempDir,
+        prev: Option<std::ffi::OsString>,
+    }
+    impl PhantomHomeGuard {
+        fn new() -> Self {
+            let tmp = tempfile::TempDir::new().expect("tempdir");
+            let prev = std::env::var_os("PHANTOM_HOME");
+            std::env::set_var("PHANTOM_HOME", tmp.path());
+            Self { _tmp: tmp, prev }
+        }
+        fn data_dir(&self) -> std::path::PathBuf {
+            self._tmp.path().to_path_buf()
+        }
+    }
+    impl Drop for PhantomHomeGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("PHANTOM_HOME", v),
+                None => std::env::remove_var("PHANTOM_HOME"),
+            }
+        }
+    }
+
+    /// Build a signed POST request for a P1-2 supervisor RPC: `X-Cluster-Auth`
+    /// is the HMAC-SHA256 of the exact body keyed by [`TEST_CLUSTER_SECRET`],
+    /// matching how the phone's `clusterPost` signs the raw body.
+    fn signed_post(uri: &str, body: &str) -> Request<Body> {
+        let token = ClusterManager::new(ClusterConfig {
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        })
+        .make_auth_token(body);
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("X-Cluster-Auth", token)
+            .body(Body::from(body.to_string()))
+            .expect("build signed request")
+    }
+
+    /// Build a router with a configured cluster_secret but NO task_queue — for
+    /// the captures/review tests, which read the events dir, not the queue.
+    fn router_secret_only() -> axum::Router {
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(TEST_CLUSTER_SECRET.into()),
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        super::router(Arc::new(state))
+    }
+
+    /// Write a plaintext event fixture (`meta.json` [+ optional `analysis.json`])
+    /// under `events_dir/<id>/`. `kind` is the on-disk free-form string
+    /// (`"food_log"` → projects to `EventKind::Food` → wire `"food"`).
+    fn write_event_fixture(
+        events_dir: &std::path::Path,
+        id: &str,
+        kind: &str,
+        timestamp: &str,
+        tags: &[&str],
+        analysis_summary: Option<&str>,
+    ) {
+        let ev = events_dir.join(id);
+        std::fs::create_dir_all(&ev).expect("mkdir event");
+        let meta = json!({
+            "event_id": id,
+            "kind": kind,
+            "timestamp": timestamp,
+            "source_node": "test",
+            "goal_tags": tags,
+            "modality_files": [],
+            "user_text": "salad"
+        });
+        std::fs::write(ev.join("meta.json"), meta.to_string()).expect("write meta");
+        if let Some(summary) = analysis_summary {
+            let analysis = json!({
+                "summary": summary,
+                "confidence": 0.9,
+                "goal_impact": "",
+                "suggestion": "",
+                "cost_usd": 0.0,
+                "latency_ms": 0,
+                "model_id": "test:offline",
+                "raw_response": ""
+            });
+            std::fs::write(ev.join("analysis.json"), analysis.to_string()).expect("write analysis");
+        }
+    }
+
+    #[tokio::test]
+    async fn rpc_tasks_list_returns_durable_tasks_authed() {
+        let _g = env_guard();
+        let _home = PhantomHomeGuard::new(); // isolate pending dir
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let db = dir.path().join("phantom.db");
+        let queue = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
+        // Seed one durable task.
+        queue
+            .create("ws", "coder", "fix the bug")
+            .await
+            .expect("create");
+
+        let (_arc, router) = router_with_queue(queue);
+        let body = json!({ "limit": 50 }).to_string();
+        let resp = router
+            .oneshot(signed_post("/rpc/tasks/list", &body))
+            .await
+            .expect("call /rpc/tasks/list");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let j = body_json(resp).await;
+        assert_eq!(j["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(j["tasks"][0]["agent_name"], "coder");
+        assert_eq!(j["tasks"][0]["prompt"], "fix the bug");
+        assert!(j["pending"].is_array(), "pending key must always be present");
+    }
+
+    #[tokio::test]
+    async fn rpc_tasks_list_rejects_unauthed() {
+        let _g = env_guard();
+        let _home = PhantomHomeGuard::new();
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let queue = crate::TaskQueue::new(
+            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+        );
+        let (_arc, router) = router_with_queue(queue);
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/tasks/list")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "unauthed must be rejected, got {code}");
+    }
+
+    #[tokio::test]
+    async fn rpc_captures_recent_lists_event_metas_authed() {
+        let _g = env_guard();
+        let home = PhantomHomeGuard::new();
+        let events_dir = home.data_dir().join("events");
+        write_event_fixture(
+            &events_dir,
+            "e1",
+            "food_log",
+            "2026-06-17T01:02:03Z",
+            &["fat_loss"],
+            None,
+        );
+
+        let router = router_secret_only();
+        let resp = router
+            .oneshot(signed_post("/rpc/captures/recent", "{}"))
+            .await
+            .expect("call");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let j = body_json(resp).await;
+        let caps = j["captures"].as_array().unwrap();
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0]["event_id"], "e1");
+        // On-disk "food_log" → EventKind::Food → snake_case wire "food".
+        assert_eq!(caps[0]["kind"], "food");
+        assert_eq!(caps[0]["tags"][0], "fat_loss");
+    }
+
+    #[tokio::test]
+    async fn rpc_captures_recent_rejects_unauthed() {
+        let _g = env_guard();
+        let _home = PhantomHomeGuard::new();
+        let router = router_secret_only();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/captures/recent")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "unauthed must be rejected, got {code}");
+    }
+
+    #[tokio::test]
+    async fn rpc_review_aggregates_events_for_date_authed() {
+        let _g = env_guard();
+        let home = PhantomHomeGuard::new();
+        let events_dir = home.data_dir().join("events");
+        // 01:02:03Z is the same local calendar day for any TZ ≥ UTC-1, which
+        // covers the operator's UTC+8 host; load_events_for_date matches on the
+        // LOCAL date. Provide analysis so the (meta, analysis) pair is kept.
+        write_event_fixture(
+            &events_dir,
+            "e1",
+            "food_log",
+            "2026-06-17T01:02:03Z",
+            &["fat_loss"],
+            Some("ate a salad"),
+        );
+
+        let router = router_secret_only();
+        let body = json!({ "date": "2026-06-17" }).to_string();
+        let resp = router
+            .oneshot(signed_post("/rpc/review", &body))
+            .await
+            .expect("call");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let j = body_json(resp).await;
+        assert_eq!(j["date"], "2026-06-17");
+        let md = j["markdown"].as_str().unwrap();
+        assert!(
+            md.contains("Daily review"),
+            "markdown should be the aggregate brief, got: {md}"
+        );
+        assert!(
+            md.contains("ate a salad"),
+            "aggregate should include the analysis summary, got: {md}"
+        );
+    }
+
+    #[tokio::test]
+    async fn rpc_review_rejects_unauthed() {
+        let _g = env_guard();
+        let _home = PhantomHomeGuard::new();
+        let router = router_secret_only();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/rpc/review")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let resp = router.oneshot(req).await.expect("call");
+        let code = resp.status().as_u16();
+        assert!(code == 401 || code == 403, "unauthed must be rejected, got {code}");
+    }
+
+    #[tokio::test]
+    async fn durable_status_survives_restart() {
+        // gap-a done-when: a job accepted before a daemon restart is still
+        // answerable by /rpc/task/status — a terminal status, NOT "job not
+        // found". Deterministic (no agent spawn): we persist a Running row,
+        // drop the connection (≈ process exit), reopen the same db file, run
+        // the boot-time mark_interrupted sweep, then poll via the handler.
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let db = dir.path().join("phantom.db");
+
+        // Before restart: accept + mark running, persisted to the db file.
+        let job_id = {
+            let q = crate::TaskQueue::new(crate::TaskStore::open_at(db.clone()).expect("open"));
+            let id = uuid::Uuid::new_v4();
+            q.create_with_id(id, "test", "master", "long job")
+                .await
+                .expect("create");
+            q.transition(id, pm_types::TaskStatus::Running, None)
+                .await
+                .expect("running");
+            id
+        }; // queue (and its sqlite connection) dropped → simulates exit
+
+        // Restart: reopen the SAME file; boot runs mark_interrupted.
+        let q = crate::TaskQueue::new(crate::TaskStore::open_at(db.clone()).expect("reopen"));
+        let swept = q.mark_interrupted().await.expect("sweep");
+        assert_eq!(swept, 1, "the pre-restart Running job must be swept to Failed");
+
+        let (_state, router) = router_with_queue(q);
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/rpc/task/status/{job_id}"))
+            .body(Body::empty())
+            .expect("build status req");
+        let resp = router.oneshot(req).await.expect("call /rpc/task/status");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp).await;
+        assert_ne!(
+            body["error"],
+            json!("job not found"),
+            "durable job must NOT read as 'job not found' after restart, got {body}"
+        );
+        assert_eq!(
+            body["status"],
+            json!("error"),
+            "an interrupted job maps to the legacy wire 'error', got {body}"
+        );
+        assert_eq!(body["job_id"], json!(job_id.to_string()));
+        assert!(
+            body["error"].as_str().unwrap_or("").contains("interrupted"),
+            "error should explain the restart interruption, got {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn assign_persists_durable_row() {
+        // The /rpc/task/assign handler must write to the durable store when a
+        // task queue is configured, so the returned job_id is resolvable (and
+        // survives a restart). Asserts row existence + identity, tolerant of
+        // whatever terminal status the background agent run lands on.
+        let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
+        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let db = dir.path().join("phantom.db");
+        let q = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
+        let (state, router) = router_with_queue(q);
+
+        let body = json!({ "agent": "master", "prompt": "durable-roundtrip probe" });
+        let resp = router
+            .oneshot(assign_request(body))
+            .await
+            .expect("call /rpc/task/assign");
+        assert_eq!(
+            resp.status(),
+            StatusCode::ACCEPTED,
+            "durable assign must accept (202)"
+        );
+        let rb = body_json(resp).await;
+        let job_id = rb["job_id"].as_str().expect("response carries job_id").to_string();
+        let job_uuid = uuid::Uuid::parse_str(&job_id).expect("job_id is a uuid");
+
+        let rec = state
+            .task_queue
+            .as_ref()
+            .unwrap()
+            .get(job_uuid)
+            .await
+            .expect("durable get")
+            .expect("assigned job must exist in the durable store under its job_id");
+        assert_eq!(rec.task_id, job_uuid);
+        assert_eq!(rec.agent_name, "master");
+    }
+
     #[tokio::test]
     async fn strict_mode_accepts_subset_match() {
         // required ⊆ local, strict mode → 202 Accepted, job_id present.
         let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
         std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec!["file_in_container".into(), "memory".into(), "web".into()],
@@ -4166,6 +6735,7 @@ mod squad_dispatch_tests {
         // Forward-compat invariant from PR #32: missing field == [].
         // Even a tight sandbox worker in strict mode must accept.
         let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
         std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(vec!["file_in_container".into()], Some(EnforceMode::Strict));
         let req = assign_request(json!({
@@ -4189,6 +6759,7 @@ mod squad_dispatch_tests {
         // must still accept even exotic required_caps because the
         // worker_caps=[] sentinel means "no restriction".
         let _g = env_guard();
+        let _idem = IdemStoreGuard::new();
         std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec![], // full worker
@@ -4282,6 +6853,43 @@ mod squad_dispatch_tests {
             err_msg.contains("unauthorized"),
             "error body should say unauthorized, got: {body}",
         );
+    }
+
+    /// SECURITY regression (review #321 §1 + §2): the previous handlers gated the
+    /// HMAC check behind `if secret_configured`, so an EMPTY cluster_secret made
+    /// `/rpc/squad/dispatch` (unauth RCE) and `/rpc/evolve-handoff` (unauth disk
+    /// write) FAIL OPEN. With the fail-closed `require_cluster_auth_dual` fix, an
+    /// unauthenticated POST to either route must be REJECTED (not 200) when the
+    /// secret is empty and the migration override is unset.
+    #[tokio::test]
+    async fn empty_secret_fails_closed_on_dispatch_and_handoff() {
+        let _g = crate::env_lock::acquire();
+        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+
+        // Router with an EMPTY cluster_secret (the fail-open trigger).
+        let cfg = ClusterConfig {
+            node_name: Some("test".into()),
+            cluster_secret: Some(String::new()),
+            ..ClusterConfig::default()
+        };
+        let mut state = AppState::new();
+        state.cluster_manager = ClusterManager::new(cfg);
+        let router = super::router(Arc::new(state));
+
+        for path in ["/rpc/squad/dispatch", "/rpc/evolve-handoff"] {
+            let req = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "agent": "master", "prompt": "x" }).to_string()))
+                .expect("build request");
+            let resp = router.clone().oneshot(req).await.expect("call route");
+            assert!(
+                resp.status().is_client_error(),
+                "{path}: empty secret + no auth must FAIL CLOSED (got {})",
+                resp.status()
+            );
+        }
     }
 }
 
@@ -4394,6 +7002,63 @@ mod api_events_route_tests {
             "unauthenticated POST /rpc/capability-query must be rejected (401/403), got {code}"
         );
     }
+
+    /// #321 bonus: a parseable-but-non-table `core` (or any of core/providers/
+    /// cluster/agent) in an existing agents.toml previously panicked the
+    /// onboarding handler via `.as_table_mut().unwrap()` — an axum handler panic
+    /// returns an empty 500 (or aborts the task) with no diagnostic. It must now
+    /// return a graceful 500 naming the offending key. Driven with `dryrun=1`
+    /// (no file write) + the empty-secret override so the HMAC gate passes.
+    #[tokio::test]
+    async fn onboarding_non_table_key_returns_graceful_500_not_panic() {
+        let _g = crate::env_lock::acquire();
+        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        struct VarGuard(&'static str, Option<String>);
+        impl Drop for VarGuard {
+            fn drop(&mut self) {
+                match &self.1 {
+                    Some(v) => std::env::set_var(self.0, v),
+                    None => std::env::remove_var(self.0),
+                }
+            }
+        }
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let _h = VarGuard("HOME", std::env::var("HOME").ok());
+        let _a = VarGuard(
+            "PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET",
+            std::env::var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET").ok(),
+        );
+        std::env::set_var("HOME", tmp.path());
+
+        // Seed ~/.phantom-mesh/agents.toml with a NON-TABLE `core` key. This is
+        // valid TOML (parses fine) but breaks the `core.as_table_mut()` assumption.
+        let cfg_dir = tmp.path().join(".phantom-mesh");
+        std::fs::create_dir_all(&cfg_dir).expect("mkdir cfg");
+        std::fs::write(cfg_dir.join("agents.toml"), "core = 1\n").expect("seed toml");
+
+        let state = AppState::new();
+        let router = super::router(Arc::new(state));
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/onboarding?dryrun=1")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"groq_api_key":"gsk_test"}"#))
+            .expect("build request");
+        let resp = router.oneshot(req).await.expect("call /api/onboarding");
+        assert_eq!(
+            resp.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "a non-table `core` must produce a graceful 500, not a panic/empty response"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .expect("read body");
+        let msg = String::from_utf8_lossy(&bytes);
+        assert!(
+            msg.contains("core") && msg.contains("not a table"),
+            "graceful 500 should name the offending non-table key, got: {msg}"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -4474,6 +7139,68 @@ mod dual_auth_gate_tests {
         assert!(
             require_cluster_auth_dual(&mgr, &h, "POST", "/rpc/message", None, body).is_err(),
             "a canonical sig minted for /rpc/swarm must not authorize /rpc/message"
+        );
+    }
+
+    #[test]
+    fn inbox_auth_accepts_legacy_body_hmac_and_binds_canonical_to_path() {
+        // /rpc/inbox is gated by the same dual scheme as the other /rpc routes:
+        // (1) the legacy body-HMAC arm (what `phantom inbox send` mints) must
+        // pass, and (2) a canonical sig minted for a different path must NOT
+        // authorize /rpc/inbox.
+        let secret = "seal-the-mesh";
+        let mgr = cm(secret);
+        let body = br#"{"from":"m1","text":"tick"}"#;
+        let legacy = {
+            use hmac::{Hmac, Mac};
+            use sha2::Sha256;
+            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+            mac.update(body);
+            hex::encode(mac.finalize().into_bytes())
+        };
+        let mut h = HeaderMap::new();
+        h.insert("X-Cluster-Auth", legacy.parse().unwrap());
+        assert!(
+            require_cluster_auth_dual(&mgr, &h, "POST", "/rpc/inbox", None, body).is_ok(),
+            "legacy body-HMAC (the `phantom inbox send` client arm) must authorize /rpc/inbox"
+        );
+
+        let canonical =
+            crate::rpc_wire::build_canonical_string("POST", "/rpc/message", "", body, None);
+        let sig = crate::rpc_wire::sign_hmac(secret.as_bytes(), &canonical);
+        let mut h2 = HeaderMap::new();
+        h2.insert("X-Cluster-Auth", sig.parse().unwrap());
+        assert!(
+            require_cluster_auth_dual(&mgr, &h2, "POST", "/rpc/inbox", None, body).is_err(),
+            "a canonical sig minted for /rpc/message must not authorize /rpc/inbox"
+        );
+    }
+
+    #[test]
+    fn session_status_auth_accepts_legacy_empty_body_hmac() {
+        // GET /rpc/session-status is signed over the EMPTY body with the
+        // legacy arm (what `phantom status mesh` mints, same as the dispatch
+        // status poll). Must pass; and a sig over a non-empty body must not.
+        let secret = "seal-the-mesh";
+        let mgr = cm(secret);
+        let legacy_empty = {
+            use hmac::{Hmac, Mac};
+            use sha2::Sha256;
+            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+            mac.update(b"");
+            hex::encode(mac.finalize().into_bytes())
+        };
+        let mut h = HeaderMap::new();
+        h.insert("X-Cluster-Auth", legacy_empty.parse().unwrap());
+        assert!(
+            require_cluster_auth_dual(&mgr, &h, "GET", "/rpc/session-status", None, b"").is_ok(),
+            "legacy empty-body HMAC must authorize GET /rpc/session-status"
+        );
+        let mut h2 = HeaderMap::new();
+        h2.insert("X-Cluster-Auth", "deadbeef".repeat(8).parse().unwrap());
+        assert!(
+            require_cluster_auth_dual(&mgr, &h2, "GET", "/rpc/session-status", None, b"").is_err(),
+            "a wrong sig must reject"
         );
     }
 
@@ -4600,6 +7327,244 @@ mod dual_auth_gate_tests {
         assert!(
             require_cluster_auth_dual(&mgr, &h, "POST", "/rpc/message", None, body).is_ok(),
             "the same canonical sig must still authorize a query-free request"
+        );
+    }
+}
+
+/// `/partner/message` origin marker → ledger routing (the dogfood-moat guard).
+///
+/// These pin the wire contract the `/partner/message` handler implements via
+/// [`parse_origin_marker`] + [`crate::partner::resolve_origin`] +
+/// [`crate::partner::record_interaction`]: a test/bot client that tags itself
+/// machine is kept OUT of the human-usage ledger, while the real app (no marker)
+/// defaults to Human. We drive the SAME parsing the handler uses and the SAME
+/// recorder it calls (skipping only the LLM agent turn, which needs a live model),
+/// then assert which ledger file the interaction landed in.
+///
+/// `PHANTOM_PARTNER_SIGNALS` relocates BOTH the human ledger and its derived
+/// `.machine.jsonl` into a tempdir; it is taken under the crate-wide
+/// [`crate::env_lock`] mutex — the SAME lock `partner.rs`'s env-touching tests
+/// now use — so the two groups never race on the var.
+#[cfg(test)]
+mod partner_origin_marker_tests {
+    use super::parse_origin_marker;
+    use crate::partner::{
+        machine_signals_path, record_interaction, resolve_origin, MessageOrigin,
+    };
+    use axum::http::HeaderMap;
+    use serde_json::json;
+
+    #[test]
+    fn machine_marker_routes_to_machine_ledger_not_human() {
+        // (a) A message tagged machine (header OR body field) must land in the
+        // segregated `.machine.jsonl` and NEVER in the human-usage ledger.
+        let _g = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let human = tmp.path().join("partner-signals.jsonl");
+        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        let machine = machine_signals_path();
+
+        // (a-1) Header form: `X-Partner-Origin: machine` (the canonical marker).
+        // Text is an untagged "記:" note — exactly the kind of E2E traffic that
+        // used to leak into the human ledger before the marker existed.
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Partner-Origin", "machine".parse().unwrap());
+        let body_hdr = json!({ "text": "記: header bot note" });
+        let origin_hdr =
+            resolve_origin(parse_origin_marker(&headers, &body_hdr), "記: header bot note");
+        record_interaction(origin_hdr, &json!({ "user": "記: header bot note" })).unwrap();
+
+        // (a-2) Body form: `{"origin":"machine"}` — same effect, no header.
+        let body_field = json!({ "text": "一句話 body bot", "origin": "machine" });
+        let origin_field = resolve_origin(
+            parse_origin_marker(&HeaderMap::new(), &body_field),
+            "一句話 body bot",
+        );
+        record_interaction(origin_field, &json!({ "user": "一句話 body bot" })).unwrap();
+
+        let machine_content = std::fs::read_to_string(&machine).unwrap_or_default();
+        // The human ledger may not even be created — treat absent as empty.
+        let human_content = std::fs::read_to_string(&human).unwrap_or_default();
+        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+
+        // Both machine-marked messages landed in the segregated machine log...
+        assert!(machine_content.contains("header bot note"), "machine: {machine_content}");
+        assert!(machine_content.contains("body bot"), "machine: {machine_content}");
+        assert_eq!(
+            machine_content.lines().filter(|l| !l.trim().is_empty()).count(),
+            2,
+            "both machine-marked messages in the machine log"
+        );
+        // ...and NOTHING leaked into the human-usage ledger (the moat).
+        assert!(
+            !human_content.contains("header bot note") && !human_content.contains("body bot"),
+            "machine-marked traffic must NOT pollute the human ledger: {human_content:?}"
+        );
+        assert!(
+            human_content.lines().all(|l| l.trim().is_empty()),
+            "human ledger must be empty for machine-only traffic: {human_content:?}"
+        );
+    }
+
+    #[test]
+    fn no_marker_routes_to_human_ledger() {
+        // (b) Real-app behaviour: the iOS chat box sends NO origin marker, so an
+        // ordinary message must default to Human and land in the human-usage
+        // ledger — proving the marker is opt-in and the app needs no change.
+        let _g = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let human = tmp.path().join("partner-signals.jsonl");
+        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        let machine = machine_signals_path();
+
+        // No header, no `origin` field — exactly what the real app sends.
+        let body = json!({ "text": "今天天氣如何" });
+        assert_eq!(
+            parse_origin_marker(&HeaderMap::new(), &body),
+            None,
+            "an unmarked message carries no explicit origin"
+        );
+        let origin = resolve_origin(parse_origin_marker(&HeaderMap::new(), &body), "今天天氣如何");
+        record_interaction(origin, &json!({ "user": "今天天氣如何" })).unwrap();
+
+        let human_content = std::fs::read_to_string(&human).unwrap_or_default();
+        let machine_content = std::fs::read_to_string(&machine).unwrap_or_default();
+        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+
+        // The unmarked (real-app) message is in the human-usage ledger...
+        assert!(human_content.contains("今天天氣如何"), "human: {human_content}");
+        assert_eq!(
+            human_content.lines().filter(|l| !l.trim().is_empty()).count(),
+            1,
+            "the single unmarked message counts as human usage"
+        );
+        // ...and never touched the machine log.
+        assert!(
+            machine_content.lines().all(|l| l.trim().is_empty()),
+            "unmarked human traffic must not reach the machine log: {machine_content:?}"
+        );
+    }
+
+    #[test]
+    fn parse_origin_marker_precedence_and_aliases() {
+        // Pin the wire-marker precedence + header aliases the handler relies on,
+        // without IO: body `origin` > `X-Partner-Origin` > `X-Phantom-Origin`,
+        // unknown/absent → None (caller applies heuristic + Human default).
+
+        // Body field wins over both headers.
+        let mut h = HeaderMap::new();
+        h.insert("X-Partner-Origin", "machine".parse().unwrap());
+        let body = json!({ "text": "x", "origin": "human" });
+        assert_eq!(
+            parse_origin_marker(&h, &body),
+            Some(MessageOrigin::Human),
+            "body `origin` field wins over the header"
+        );
+
+        // `X-Partner-Origin` recognized (the brief's canonical marker).
+        let mut h = HeaderMap::new();
+        h.insert("X-Partner-Origin", "machine".parse().unwrap());
+        assert_eq!(
+            parse_origin_marker(&h, &json!({ "text": "x" })),
+            Some(MessageOrigin::Machine),
+            "X-Partner-Origin: machine → Machine"
+        );
+
+        // `X-Phantom-Origin` still recognized (historical alias / back-compat).
+        let mut h = HeaderMap::new();
+        h.insert("X-Phantom-Origin", "bot".parse().unwrap());
+        assert_eq!(
+            parse_origin_marker(&h, &json!({ "text": "x" })),
+            Some(MessageOrigin::Machine),
+            "X-Phantom-Origin alias still honored"
+        );
+
+        // `X-Partner-Origin` takes precedence over `X-Phantom-Origin`.
+        let mut h = HeaderMap::new();
+        h.insert("X-Partner-Origin", "human".parse().unwrap());
+        h.insert("X-Phantom-Origin", "machine".parse().unwrap());
+        assert_eq!(
+            parse_origin_marker(&h, &json!({ "text": "x" })),
+            Some(MessageOrigin::Human),
+            "X-Partner-Origin outranks the X-Phantom-Origin alias"
+        );
+
+        // No marker anywhere → None (real-app default path).
+        assert_eq!(parse_origin_marker(&HeaderMap::new(), &json!({ "text": "x" })), None);
+        // An unknown marker → None (never silently upgraded).
+        let mut h = HeaderMap::new();
+        h.insert("X-Partner-Origin", "wat".parse().unwrap());
+        assert_eq!(parse_origin_marker(&h, &json!({ "text": "x" })), None);
+    }
+}
+
+#[cfg(test)]
+mod task_assign_idempotency_tests {
+    use super::task_assign_idem_key;
+
+    #[test]
+    fn explicit_key_wins_and_is_scoped() {
+        // A caller-supplied idempotency_key is used verbatim under the
+        // task_assign scope (this is the key a re-dispatch/forward preserves).
+        assert_eq!(
+            task_assign_idem_key(Some("req-7"), "master", "do x"),
+            "task_assign:req-7"
+        );
+        // Surrounding whitespace is trimmed.
+        assert_eq!(
+            task_assign_idem_key(Some("  req-7  "), "master", "do x"),
+            "task_assign:req-7"
+        );
+    }
+
+    #[test]
+    fn blank_or_absent_key_falls_back_to_content_hash() {
+        let absent = task_assign_idem_key(None, "master", "do x");
+        let blank = task_assign_idem_key(Some("   "), "master", "do x");
+        // Both fall back to the same content hash (scope-prefixed), not the
+        // explicit-key form.
+        assert!(absent.starts_with("task_assign:"));
+        assert_eq!(absent, blank, "absent and blank keys hash identically");
+        assert_ne!(absent, "task_assign:req-7");
+    }
+
+    #[test]
+    fn content_hash_is_stable_and_distinguishes_body() {
+        let a = task_assign_idem_key(None, "master", "do x");
+        let a2 = task_assign_idem_key(None, "master", "do x");
+        assert_eq!(a, a2, "identical agent+prompt → identical key");
+        let diff_prompt = task_assign_idem_key(None, "master", "do y");
+        assert_ne!(a, diff_prompt, "different prompt → different key");
+        let diff_agent = task_assign_idem_key(None, "worker", "do x");
+        assert_ne!(a, diff_agent, "different agent → different key");
+    }
+
+    #[test]
+    fn scope_does_not_collide_with_squad_dispatch() {
+        // The same agent+prompt body must NOT dedup across the task_assign and
+        // squad-dispatch ingresses — they are independent front doors.
+        let assign = task_assign_idem_key(None, "master", "do x");
+        let dispatch = crate::idempotency::content_key("dispatch", "master\ndo x");
+        assert_ne!(assign, dispatch, "ingress scopes must stay distinct");
+    }
+
+    #[test]
+    fn ledger_dedups_a_resent_assign() {
+        // End-to-end over the real ledger primitive: first sighting proceeds,
+        // an immediate re-post of the same derived key is a duplicate.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("idempotency.jsonl");
+        let key = task_assign_idem_key(None, "master", "remind me to call mum");
+        let now = 1_000_000;
+        assert!(
+            crate::idempotency::check_and_record_at(&path, &key, "task_assign", 3600, now)
+                .is_first(),
+            "first assign proceeds"
+        );
+        assert!(
+            crate::idempotency::check_and_record_at(&path, &key, "task_assign", 3600, now + 1)
+                .is_duplicate(),
+            "re-sent assign within TTL is a duplicate"
         );
     }
 }

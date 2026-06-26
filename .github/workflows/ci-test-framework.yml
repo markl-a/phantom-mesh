@@ -55,7 +55,7 @@ jobs:
 
       - name: cargo test tracing
         working-directory: core
-        run: cargo test --lib tracing:: -- --nocapture
+        run: "cargo test --lib tracing:: -- --nocapture"
 
   script-checks:
     if: ${{ inputs.run_script_checks }}

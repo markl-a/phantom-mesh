@@ -21,11 +21,12 @@ fn main() {
         .map(|s| if s.is_empty() { "" } else { "+" })
         .unwrap_or("");
 
-    // Use UTC for reproducibility; fall back to local if `date -u` flag isn't
-    // accepted (rare).
-    let build_date = run("date", &["-u", "+%Y-%m-%d"])
-        .or_else(|| run("date", &["+%Y-%m-%d"]))
-        .unwrap_or_else(|| "unknown".into());
+    // Build date stamp. Previously this shelled out to the unix `date -u`
+    // binary, which does not exist on Windows — the stamp degraded to `?` /
+    // `unknown` there. chrono is cross-platform and is already a (build-)dep,
+    // so `Utc::now()` gives a real UTC date on every host. It can never be
+    // empty, so the `--version` printer always shows a well-formed YYYY-MM-DD.
+    let build_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
     println!("cargo:rustc-env=PHANTOM_GIT_HASH={}{}", git_hash, git_dirty);
     println!("cargo:rustc-env=PHANTOM_BUILD_DATE={}", build_date);

@@ -56,9 +56,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// Where screenshots land.
 fn capture_dir() -> std::io::Result<PathBuf> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "home dir not found"))?;
-    let dir = home.join(".phantom-mesh").join("captures");
+    let data = crate::cli_config::phantom_data_dir()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
+    let dir = data.join("captures");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

@@ -32,8 +32,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::clock::{Clock, SystemClock};
 use crate::keys::ModelInfo;
 
 /// Default TTL: 1 hour. Catalogs change rarely; this keeps users on the
@@ -72,7 +72,9 @@ pub fn cache_path() -> Option<PathBuf> {
             return Some(PathBuf::from(dir).join("models-cache.json"));
         }
     }
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("models-cache.json"))
+    crate::cli_config::phantom_data_dir()
+        .ok()
+        .map(|d| d.join("models-cache.json"))
 }
 
 pub fn read_cache() -> ModelsCache {
@@ -102,19 +104,26 @@ pub fn write_cache(cache: &ModelsCache) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Wall-clock epoch milliseconds, via the canonical [`SystemClock`] (reproduces
+/// the previous `SystemTime::now() - UNIX_EPOCH`, saturating to 0, byte-for-byte).
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemClock.now_ms()
 }
 
 /// Read cached entry for `provider`, returning models if the entry exists
 /// and is younger than `max_age_ms`. Returns None for missing OR stale.
 pub fn get_fresh(provider: &str, max_age_ms: u64) -> Option<Vec<ModelInfo>> {
+    get_fresh_on(&SystemClock, provider, max_age_ms)
+}
+
+/// Clock-injected core of [`get_fresh`]: freshness is judged against `clock`'s
+/// "now" instead of the wall clock, so a test can pin a [`MockClock`] and assert
+/// the fresh→stale TTL boundary deterministically (no wall-clock dependence /
+/// `fetched_at = now - delta` arithmetic).
+pub fn get_fresh_on(clock: &dyn Clock, provider: &str, max_age_ms: u64) -> Option<Vec<ModelInfo>> {
     let cache = read_cache();
     let entry = cache.providers.get(provider)?;
-    let age = now_ms().saturating_sub(entry.fetched_at_ms);
+    let age = clock.now_ms().saturating_sub(entry.fetched_at_ms);
     if age >= max_age_ms {
         return None;
     }
@@ -170,8 +179,14 @@ pub async fn refresh_provider(
 /// Convenience: report which entries in the cache are stale beyond `max_age_ms`.
 /// For a future `phantom models status` UX. Sorted by name for deterministic output.
 pub fn stale_entries(max_age_ms: u64) -> Vec<(String, u64)> {
+    stale_entries_on(&SystemClock, max_age_ms)
+}
+
+/// Clock-injected core of [`stale_entries`] — judges age against `clock`'s "now"
+/// so staleness reporting is deterministically testable with a [`MockClock`].
+pub fn stale_entries_on(clock: &dyn Clock, max_age_ms: u64) -> Vec<(String, u64)> {
     let cache = read_cache();
-    let now = now_ms();
+    let now = clock.now_ms();
     let mut out: Vec<(String, u64)> = cache
         .providers
         .iter()
@@ -297,8 +312,11 @@ mod tests {
 
     impl CacheSandbox {
         fn new(tag: &str) -> Self {
-            let dir = std::env::temp_dir()
-                .join(format!("phantom-test-mc-{}-{}", tag, std::process::id()));
+            let dir = std::env::temp_dir().join(format!(
+                "phantom-test-mc-{}-{}",
+                tag,
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
             let prev = std::env::var("PHANTOM_MESH_DIR").ok();
@@ -471,7 +489,10 @@ mod tests {
         let stale = stale_entries(1_000);
         assert_eq!(stale.len(), 1, "only the old entry is stale");
         assert_eq!(stale[0].0, "alpha");
-        assert!(stale[0].1 >= 10_000, "reported age should reflect staleness");
+        assert!(
+            stale[0].1 >= 10_000,
+            "reported age should reflect staleness"
+        );
 
         // A huge TTL → nothing is stale.
         assert!(stale_entries(u64::MAX).is_empty());
@@ -492,5 +513,52 @@ mod tests {
         let b = now_ms();
         assert!(a > 0, "now_ms should return a real unix-epoch millis value");
         assert!(b >= a, "now_ms should be non-decreasing within a test");
+    }
+
+    #[test]
+    fn get_fresh_on_crosses_ttl_boundary_under_a_pinned_clock() {
+        // With an injected clock the fresh→stale transition is exact and
+        // wall-clock-independent — replacing the `fetched_at = now - delta` /
+        // `max_age_ms = 0` workarounds the wall-clock tests have to use.
+        use crate::clock::MockClock;
+        let _guard = crate::env_lock::acquire();
+        let _sb = CacheSandbox::new("mockclock");
+
+        let mut cache = ModelsCache::default();
+        cache.providers.insert(
+            "groq".into(),
+            CachedProvider {
+                fetched_at_ms: 1_000_000,
+                models: vec![mi_cached("llama-3.3-70b", true)],
+            },
+        );
+        write_cache(&cache).unwrap();
+
+        let clock = MockClock::new(1_000_000); // now == fetched_at → age 0
+        assert!(
+            get_fresh_on(&clock, "groq", 5_000).is_some(),
+            "age 0 < ttl → fresh"
+        );
+
+        clock.advance_ms(5_000); // age now exactly 5_000
+        assert!(
+            get_fresh_on(&clock, "groq", 5_000).is_none(),
+            "age == ttl is stale (age >= max_age_ms boundary)"
+        );
+        assert!(
+            get_fresh_on(&clock, "groq", 5_001).is_some(),
+            "age just under ttl is still fresh"
+        );
+
+        // stale_entries uses a strict `age > max_age_ms`.
+        assert_eq!(
+            stale_entries_on(&clock, 4_999),
+            vec![("groq".to_string(), 5_000)],
+            "age 5_000 > 4_999 → listed with its exact age"
+        );
+        assert!(
+            stale_entries_on(&clock, 5_000).is_empty(),
+            "age 5_000 is NOT > 5_000 → not listed"
+        );
     }
 }

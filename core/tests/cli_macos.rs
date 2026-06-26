@@ -31,7 +31,10 @@ fn repl_macos() {
         .or_else(|_| std::env::var("GROQ_API_KEY"))
         .is_err()
     {
-        eprintln!("no provider key in env — skip (source ~/.phantom-mesh/env first)");
+        eprintln!(
+            "SKIPPED: repl_macos — no provider key in env \
+             (source ~/.phantom-mesh/env first)"
+        );
         return;
     }
     let bin = phantom_bin();
@@ -73,7 +76,10 @@ fn exec_json_stream_macos() {
         .or_else(|_| std::env::var("GROQ_API_KEY"))
         .is_err()
     {
-        eprintln!("no provider key in env — skip (source ~/.phantom-mesh/env first)");
+        eprintln!(
+            "SKIPPED: exec_json_stream_macos — no provider key in env \
+             (source ~/.phantom-mesh/env first)"
+        );
         return;
     }
     let bin = phantom_bin();

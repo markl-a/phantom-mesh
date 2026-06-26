@@ -41,4 +41,18 @@ providerSlug: string | null,
  * onboarding even after the user later sets a real BYOM key — so the
  * TTFR (Time To First Response) metric can be attributed correctly.
  */
-demoRelayUsed: boolean, };
+demoRelayUsed: boolean, 
+/**
+ * D1 (login-first): the OAuth provider slug the account was signed in with
+ * (e.g. `"google"` / `"apple"`), or None if the user has not logged in.
+ * Sourced from the broker login (`broker_login_finish`) and carried here
+ * so the FSM can enforce "login before identity" per the GUI D1 decision.
+ * Sanitised: a stable provider id, never a token.
+ */
+identityProvider: string | null, 
+/**
+ * D1 (login-first): the OAuth account subject / fingerprint (the broker's
+ * stable account id, e.g. the email or `sub` claim), or None if not logged
+ * in. Sanitised display value only — never a token or raw credential.
+ */
+identitySub: string | null, };

@@ -119,7 +119,7 @@ impl PlatformAdapter for Platform {
         if let Ok(appdata) = std::env::var("APPDATA") {
             return std::path::PathBuf::from(appdata).join("phantom-mesh");
         }
-        let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-        home.join(".phantom-mesh")
+        crate::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
     }
 }

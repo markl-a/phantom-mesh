@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSystemHealth, CheckStatus } from "../hooks/useSystemHealth";
-import { clearSession } from "./onboarding/OnboardingQuickStart";
+import { clearSession } from "./onboarding/types";
 
 interface Props {
   onPass: () => void;

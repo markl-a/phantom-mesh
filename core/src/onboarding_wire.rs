@@ -124,6 +124,16 @@ pub struct OnboardingContext {
     /// onboarding even after the user later sets a real BYOM key — so the
     /// TTFR (Time To First Response) metric can be attributed correctly.
     pub demo_relay_used: bool,
+    /// D1 (login-first): the OAuth provider slug the account was signed in with
+    /// (e.g. `"google"` / `"apple"`), or None if the user has not logged in.
+    /// Sourced from the broker login (`broker_login_finish`) and carried here
+    /// so the FSM can enforce "login before identity" per the GUI D1 decision.
+    /// Sanitised: a stable provider id, never a token.
+    pub identity_provider: Option<String>,
+    /// D1 (login-first): the OAuth account subject / fingerprint (the broker's
+    /// stable account id, e.g. the email or `sub` claim), or None if not logged
+    /// in. Sanitised display value only — never a token or raw credential.
+    pub identity_sub: Option<String>,
 }
 
 // ─── §1 / §12 TTFRMetric — Time To First Response ───────────────────────────
@@ -313,24 +323,335 @@ pub fn advance(
     // Step 1 — Lookup (current, Forward) in the FSM transition table per
     // SPEC-28 §8. Table is a static phf::Map keyed on the
     // `(OnboardingState, OnboardingTransition)` pair so the dispatch stays
-    // O(1) and is exhaustively code-reviewable in one place.
-    let _next_state = fsm_table_pseudo(snapshot.current_state, OnboardingTransition::Forward);
+    // O(1) and is exhaustively code-reviewable in one place. A `None` here
+    // means the terminal `FirstReplyReceived` state — onboarding is already
+    // complete, so there is no forward edge. There is no dedicated wire
+    // variant for "already complete" in the §11.1 catalog (it is FSM-internal
+    // per the module docstring), so we surface the nearest stable terminal
+    // signal: the journey is done, no provider step remains.
+    let next_state = match fsm_table_pseudo(snapshot.current_state, OnboardingTransition::Forward) {
+        Some(s) => s,
+        None => return Ok(snapshot.current_state),
+    };
 
     // Step 2 — Validate that the per-state preconditions encoded in §7.1 are
     // actually satisfied by the runtime `ctx`. E.g. moving INTO
     // `CreatedIdentity` requires `ctx.identity_fingerprint.is_some()`; moving
     // INTO `JoinedCluster` requires `ctx.cluster_id_hash.is_some()`; moving
     // INTO `SetProvider` requires `ctx.provider_slug.is_some()` OR
-    // `ctx.demo_relay_used == true`.
-    let _precondition_ok = precondition_check_pseudo(snapshot.current_state, ctx);
+    // `ctx.demo_relay_used == true`. On failure the precondition check returns
+    // the closest §11.1 wire variant already mapped, so we propagate it.
+    precondition_check_pseudo(snapshot.current_state, ctx)?;
 
-    // Step 3 — Return the new state on success, or
-    // `OnboardingError::PreconditionFailed`-equivalent (mapped to the
-    // closest §11.1 wire variant — `IdentityCreationFailed` /
-    // `ClusterJoinFailed` / `NoProviderConfigured` depending on which
-    // precondition tripped) when validation fails.
-    let _ = (snapshot, ctx);
-    unimplemented!("Stage 3: wire FSM table + precondition check into the advance() return path")
+    // Step 3 — Preconditions held: return the new state.
+    Ok(next_state)
+}
+
+// ─── D1–D5 effectful shell — the side-effects the GUI `advance` performs ─────
+//
+// `advance()` above stays pure (FSM lookup + precondition validation) so the
+// unit suite can exercise the table without touching the filesystem, network,
+// or spawning processes. The GUI flow needs the *real* side-effects from the
+// CLI (a7c5701f) on each forward edge, so the Tauri command calls
+// `advance_with_effects()` instead. It runs the transition's side-effect, folds
+// the derived results back into `ctx`, then defers to the pure `advance()` for
+// the FSM move. This is the standard pure-core / effectful-shell split and
+// reuses the exact functions the shipped `phantom` CLI onboarding uses.
+
+/// Result of running the side-effect for one forward edge: the (possibly)
+/// mutated context plus the resulting next state. The caller persists both.
+#[derive(Debug, Clone)]
+pub struct AdvanceOutcome {
+    /// Context after the side-effect folded its derived results in.
+    pub context: OnboardingContext,
+    /// FSM state after the (validated) forward transition.
+    pub next_state: OnboardingState,
+}
+
+/// GUI-facing forward step: run the real side-effect for the current edge,
+/// then advance the FSM. `login` carries the OAuth identity the GUI obtained
+/// from the broker login BEFORE calling this (D1 login-first happens in the UI
+/// via `broker_login_*`; we only fold its result in + mint the local key here).
+///
+/// Side-effects per edge (matching the shipped CLI `run_first_time_onboarding`):
+/// - `FreshInstall → CreatedIdentity` (D1): fold in `login` (provider/sub),
+///   then `identity::init` → ed25519 keystore mint → `identity_fingerprint`.
+/// - `CreatedIdentity → JoinedCluster` (D4 staged): spawn detached
+///   `phantom serve` (binds 127.0.0.1:7878 + mDNS-advertises this node) and
+///   record a single-node `cluster_id_hash`. Peer-join / vault sync = Stage 2.
+/// - `JoinedCluster → SetProvider` (D5): detect subscription CLIs + local
+///   Ollama, rank them, set `provider_slug` to the best available.
+/// - `SetProvider → FirstReplyReceived`: no side-effect — the first real LLM
+///   call happens later in the chat UI; we only validate a provider exists.
+pub async fn advance_with_effects(
+    snapshot: &OnboardingStateSnapshot,
+    ctx: &OnboardingContext,
+    login: Option<OnboardingLogin>,
+) -> Result<AdvanceOutcome, OnboardingError> {
+    let mut next_ctx = ctx.clone();
+
+    match snapshot.current_state {
+        OnboardingState::FreshInstall => {
+            // Talk-first: an account login is OPTIONAL here — if the GUI happened
+            // to log in first, fold it in; otherwise we proceed straight to a
+            // usable provider so the user can chat (login becomes a later
+            // soft-prompt, not a gate).
+            if let Some(l) = login {
+                next_ctx.identity_provider = Some(l.provider);
+                next_ctx.identity_sub = Some(l.sub);
+            }
+            // The ONE thing needed to reach a first reply: a provider.
+            perform_provider_detection(&mut next_ctx).await?;
+            // Device identity + the mesh node come up in the BACKGROUND —
+            // best-effort, never fail the flow, never block the first reply.
+            perform_identity_and_serve_background(&mut next_ctx);
+        }
+        // Legacy snapshots mid old-flow converge into set_provider: make sure a
+        // provider is detected (idempotent) so the precondition holds.
+        OnboardingState::CreatedIdentity | OnboardingState::JoinedCluster => {
+            perform_provider_detection(&mut next_ctx).await?;
+        }
+        // SetProvider → FirstReplyReceived and the terminal state have no
+        // side-effect.
+        _ => {}
+    }
+
+    // Defer to the pure FSM for validation + the actual state move so there is
+    // exactly one source of truth for the legal-edge table + preconditions.
+    let next_state = advance(snapshot, &next_ctx)?;
+    Ok(AdvanceOutcome {
+        context: next_ctx,
+        next_state,
+    })
+}
+
+/// OAuth login result the GUI passes into the `FreshInstall → CreatedIdentity`
+/// edge. Both fields are sanitised display values (a stable provider slug and
+/// the broker account id / email) — never a token. Mirrors the broker login
+/// response (`broker_login_finish`).
+#[derive(Debug, Clone)]
+pub struct OnboardingLogin {
+    /// OAuth provider slug, e.g. `"google"` / `"apple"`.
+    pub provider: String,
+    /// Stable account subject (broker account id or email).
+    pub sub: String,
+}
+
+// (The old login-first `perform_login_and_identity` was removed in the
+// talk-first reorg: login is now optional + folded inline in
+// `advance_with_effects`, and the no-login identity mint lives in
+// `perform_identity_and_serve_background`.)
+
+/// D4 (Stage 1) side-effect — spawn a detached `phantom serve`, which binds
+/// 127.0.0.1:7878 and mDNS-advertises this machine as a mesh node, then record
+/// a single-node `cluster_id_hash`. This matches the CLI wizard's Step 2: a
+/// node is discoverable on the LAN. Full peer-join (pairing with an existing
+/// cluster) + vault E2EE sync are Stage 2.
+///
+/// TODO(stage 2): interactive peer-join (SPEC-11 mDNS pair + SPEC-10
+/// `/rpc/cluster/pair`) and pull shared provider keys from the broker vault.
+fn perform_serve_advertise(ctx: &mut OnboardingContext) -> Result<(), OnboardingError> {
+    // Platform split: on DESKTOP the node hosts its own `phantom serve` (the
+    // mesh "home"), spawned detached. On MOBILE (iOS/Android) the OS sandbox
+    // forbids spawning child processes (EPERM / "Operation not permitted"), AND
+    // by design a phone is NOT a serve home — it is a client that reaches the
+    // user's desktop/cloud node (anchor: "phone + cloud"). So on mobile we skip
+    // the spawn entirely and just record single-node membership; the in-app
+    // runtime / remote node handles serving. (Found via real-device TestFlight
+    // dogfood 2026-06-07: cluster_join_failed os error 1 on iOS.)
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        let self_exe =
+            std::env::current_exe().map_err(|e| OnboardingError::ClusterJoinFailed {
+                detail: format!("could not locate phantom binary: {e}"),
+            })?;
+        // Detached spawn — serve owns the daemon lifecycle + the mDNS advertise.
+        // Redirect its output to ~/.phantom-mesh/serve.log (and detach stdin) so
+        // the daemon's startup/tracing lines don't bleed into the talk-first
+        // wizard's terminal.
+        let (out, errout) = crate::cli_config::serve_log_stdio();
+        std::process::Command::new(&self_exe)
+            .arg("serve")
+            .stdin(std::process::Stdio::null())
+            .stdout(out)
+            .stderr(errout)
+            .spawn()
+            .map_err(|e| OnboardingError::ClusterJoinFailed {
+                detail: format!("could not start `phantom serve`: {e}"),
+            })?;
+    }
+
+    // Stage 1: single-node membership. Derive a stable self-hash from the
+    // identity fingerprint when present so re-runs are idempotent; otherwise a
+    // fixed "single-node" sentinel. Stage 2 replaces this with the real joined
+    // cluster id hash once peer-join lands.
+    let self_hash = match &ctx.identity_fingerprint {
+        Some(fp) => format!("self-{fp}"),
+        None => "self-single-node".to_string(),
+    };
+    ctx.cluster_id_hash = Some(self_hash);
+    Ok(())
+}
+
+/// TALK-FIRST background side-effect — mint the device identity + bring up the
+/// mesh node WITHOUT requiring login and WITHOUT being able to fail the flow.
+/// Identity (a fast local keystore op) and `phantom serve` (already detached)
+/// must never block or break the path to a first reply; any error is swallowed
+/// (the user can retry via `phantom auth keys init` / `phantom serve`). Account
+/// login is deliberately NOT done here — it is a later soft-prompt.
+#[allow(deprecated)] // legacy file-based InitOutcome — same as the CLI wizard
+fn perform_identity_and_serve_background(ctx: &mut OnboardingContext) {
+    // Identity mint (no login required). Best-effort.
+    if let Ok(outcome) = crate::identity::init(false) {
+        let fingerprint = crate::identity::load_pub_hex()
+            .ok()
+            .and_then(|h| hex::decode(h.trim()).ok())
+            .map(|bytes| crate::identity_wire::fingerprint_short(&bytes))
+            .unwrap_or_else(|| outcome.pub_hex.chars().take(12).collect());
+        ctx.identity_fingerprint = Some(fingerprint);
+    }
+    // Node up (detached serve + single-node hash). Best-effort: ignore errors —
+    // a missing node does not stop the user from chatting.
+    let _ = perform_serve_advertise(ctx);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnboardingLoginChoice {
+    Login,
+    SkipLocalOnly,
+}
+
+pub const SUBSCRIPTION_CLI_SIGNIN_COMMANDS: [&str; 3] = ["claude", "codex", "gemini"];
+
+pub fn parse_onboarding_login_choice(input: &str) -> OnboardingLoginChoice {
+    // SYS-B local-first (operator-locked 2026-06-13): a phantom account is an
+    // OPT-IN add-on, not the default path. Only an explicit affirmative signs
+    // in; blank/Enter and anything ambiguous keep the node local-only so the
+    // first run can never dead-end on a broker that's offline or unwanted.
+    match input.trim().to_ascii_lowercase().as_str() {
+        "1" | "login" | "signin" | "sign-in" | "yes" | "y" | "google" | "apple" | "email"
+        | "broker" => OnboardingLoginChoice::Login,
+        _ => OnboardingLoginChoice::SkipLocalOnly,
+    }
+}
+
+/// Rank the detected *subscription* providers (claude / codex / gemini) in
+/// priority order. Ollama is NOT appended here: it is a local-server fallback
+/// that must be gated on real detection (`detect_local_servers().await`), which
+/// this sync helper cannot do. Callers that want the always-on Ollama fallback
+/// append `local-ollama` themselves *after* confirming it is present — see
+/// `perform_provider_detection` (gated push) and `write_onboarding_config`
+/// (appends the local-ollama block last). Pushing it unconditionally here was a
+/// regression: it made desktops with no Ollama never reach
+/// `NoProviderConfigured`, handed mobile a nonexistent provider, and turned the
+/// fallback branches in `perform_provider_detection` into dead code.
+pub fn ranked_onboarding_providers(
+    has_claude: bool,
+    has_codex: bool,
+    has_gemini: bool,
+) -> Vec<&'static str> {
+    let mut ranked = Vec::new();
+    if has_claude {
+        ranked.push("claude_cli");
+    }
+    if has_codex {
+        ranked.push("codex_oauth");
+    }
+    if has_gemini {
+        ranked.push("gemini_oauth");
+    }
+    ranked
+}
+
+/// D5 side-effect — detect already-signed-in subscription CLIs (Claude / Codex
+/// / Gemini) and rank them, with local Ollama as the always-on fallback. Mirrors
+/// the CLI wizard's Step 3 detection + priority order.
+/// Ollama is the always-available fallback (D5b) when no subscription is found.
+///
+/// TODO(stage 2): pull shared API keys from the broker vault (D5a paid-tier
+/// unlock) and enforce a subscription tier check before defaulting to Ollama.
+async fn perform_provider_detection(ctx: &mut OnboardingContext) -> Result<(), OnboardingError> {
+    let mut ranked = ranked_onboarding_providers(
+        crate::providers::claude_cli::find_claude_token().is_some(),
+        crate::providers::codex_cli::find_codex_auth().is_some(),
+        crate::providers::gemini_cli::find_gemini_auth().is_some(),
+    );
+
+    // D5a — free cloud plugin (default-on): if a free (no-credit-card) key is
+    // already present in the environment, add that provider as a cloud fallback,
+    // ranked above local Ollama (a real free key beats a maybe-offline local
+    // server). This is what lets a desktop with no subscription + no Ollama still
+    // resolve a provider instead of dead-ending at `NoProviderConfigured`. No
+    // key is read here — only its presence — and nothing secret is stored.
+    if let Some(fp) = crate::providers::free_plugin::detect_free_from_env() {
+        ranked.push(fp.slug);
+    }
+
+    // D5b: local Ollama is the always-on fallback, but ONLY when it is actually
+    // running. Gate the push on real detection so a desktop with no Ollama
+    // correctly falls through to `NoProviderConfigured` below, and a phone
+    // (no local server by design) falls through to the mobile sentinel. An
+    // unconditional push here was a regression that broke both paths.
+    let local = crate::providers::local_servers::detect_local_servers().await;
+    let has_ollama = local.iter().any(|s| s.name == "ollama");
+    if has_ollama {
+        ranked.push("local-ollama"); // ranked last
+    }
+
+    match ranked.first() {
+        Some(best) => {
+            ctx.provider_slug = Some((*best).to_string());
+            Ok(())
+        }
+        None => match empty_scan_outcome()? {
+            Some(slug) => {
+                ctx.provider_slug = Some(slug.to_string());
+                Ok(())
+            }
+            // No arm currently returns Ok(None); kept total so a future variant
+            // (e.g. "leave unset, prompt later") can't silently fall through.
+            None => Ok(()),
+        },
+    }
+}
+
+/// Decide the provider slug when the local scan found NOTHING — no subscription
+/// CLI, no free env key, no running local server. Split out of
+/// [`perform_provider_detection`] so the no-dead-end decision is unit-testable
+/// without touching the filesystem / env / loopback probes (a dev or CI machine
+/// may legitimately have Ollama running or a `*_API_KEY` set, which would stop
+/// the full detector from ever reaching this branch).
+///
+/// - MOBILE: a phone has no local CLI tokens and no local server by design — it
+///   answers by dispatching to the user's desktop/cloud node (anchor: "phone +
+///   cloud") and/or a subscription login set up later. So an empty scan is
+///   EXPECTED, not a hard failure: record a sentinel so onboarding completes;
+///   the real provider is resolved at runtime. (Found via real-device
+///   TestFlight dogfood 2026-06-07.)
+/// - DESKTOP: nothing-found is a real "configure a provider" state →
+///   `NoProviderConfigured`, UNLESS the opt-in `offline-stub-model` feature is
+///   built in, in which case the built-in always-available stub model is
+///   selected so a zero-config offline desktop never dead-ends (SPEC-03 §8).
+fn empty_scan_outcome() -> Result<Option<&'static str>, OnboardingError> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        Ok(Some("remote-or-subscription"))
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
+        // SYS-B: never dead-end a zero-config offline desktop. The built-in
+        // stub model is always available with nothing installed. Opt-in only —
+        // the default build keeps the NoProviderConfigured "configure a
+        // provider" state (no regression for cloud/account users).
+        #[cfg(feature = "offline-stub-model")]
+        {
+            Ok(Some("local-stub"))
+        }
+        #[cfg(not(feature = "offline-stub-model"))]
+        {
+            Err(OnboardingError::NoProviderConfigured)
+        }
+    }
 }
 
 /// Stage 4 — static FSM transition table keyed on `"<state>:<transition>"`
@@ -350,27 +671,39 @@ fn fsm_table_pseudo(
     transition: OnboardingTransition,
 ) -> Option<OnboardingState> {
     use OnboardingState::*;
+    // TALK-FIRST reorg (DESIGN-ONBOARDING §7): the critical path to a first
+    // reply is `fresh_install → set_provider → first_reply_received`. A provider
+    // is the ONLY thing needed to chat, so we go straight there; device identity
+    // + the mesh node (serve/mDNS) come up in the BACKGROUND and account login
+    // is a later soft-prompt — none of them block the first reply.
+    //
+    // `picked_language` (D2 English-only) and `created_identity` / `joined_cluster`
+    // are KEPT as enum variants for wire back-compat, but they are no longer
+    // forward TARGETS. A persisted snapshot still sitting on one of the legacy
+    // mid-flow states converges forward into `set_provider` (pass-through) so it
+    // can never wedge.
+    //   fresh_install → set_provider → first_reply_received   (live path)
+    //   created_identity / joined_cluster → set_provider      (legacy converge)
     static FSM: phf::Map<&'static str, OnboardingState> = phf::phf_map! {
-        // ─── Forward edges (5 per §7.1) ──────────────────────────────────
-        "fresh_install:forward"        => PickedLanguage,
-        "picked_language:forward"      => CreatedIdentity,
-        "created_identity:forward"     => JoinedCluster,
-        "joined_cluster:forward"       => SetProvider,
+        // ─── Forward edges (talk-first) ──────────────────────────────────
+        "fresh_install:forward"        => SetProvider,       // talk-first: provider first
+        "created_identity:forward"     => SetProvider,       // legacy converge
+        "joined_cluster:forward"       => SetProvider,       // legacy converge
         "set_provider:forward"         => FirstReplyReceived,
         // `first_reply_received:forward` is intentionally omitted — terminal
         // state. Callers translate the `None` into `onboarding_already_complete`.
 
-        // ─── Rollback edges (4 reversible per §8) ────────────────────────
-        "picked_language:rollback"     => FreshInstall,
-        "created_identity:rollback"    => PickedLanguage,
+        // ─── Rollback edges ──────────────────────────────────────────────
+        // The live path is fresh_install → set_provider, so rolling back from
+        // set_provider returns to fresh_install. Legacy rollbacks are retained
+        // as harmless pass-throughs.
+        "set_provider:rollback"        => FreshInstall,
         "joined_cluster:rollback"      => CreatedIdentity,
-        "set_provider:rollback"        => JoinedCluster,
         // FreshInstall / FirstReplyReceived rollback returns input
         // unchanged → handled by the NoOp branch below (slug fallback).
 
         // ─── NoOp edges (always return input state) ──────────────────────
         "fresh_install:noop"           => FreshInstall,
-        "picked_language:noop"         => PickedLanguage,
         "created_identity:noop"        => CreatedIdentity,
         "joined_cluster:noop"          => JoinedCluster,
         "set_provider:noop"            => SetProvider,
@@ -407,11 +740,83 @@ fn transition_slug(t: OnboardingTransition) -> &'static str {
 }
 
 /// Stage 3 pseudo — verify §7.1 preconditions hold for the next state.
+///
+/// Pure FSM-table logic (no extra crate, no I/O). Given the `current` state we
+/// resolve the forward target via `fsm_table_pseudo` and assert the runtime
+/// `ctx` carries the side-effect that target state implies. The guards mirror
+/// the `advance()` docstring one-to-one:
+///
+/// - `FreshInstall → PickedLanguage`: refuse if `identity_fingerprint.is_some()`
+///   (identity already created — a wizard bug). Maps to `IdentityCreationFailed`.
+/// - `PickedLanguage → CreatedIdentity`: require `identity_fingerprint.is_some()`
+///   else `IdentityCreationFailed`.
+/// - `CreatedIdentity → JoinedCluster`: require `cluster_id_hash.is_some()`
+///   else `ClusterJoinFailed`.
+/// - `JoinedCluster → SetProvider` / `SetProvider → FirstReplyReceived`:
+///   require `provider_slug.is_some()` OR `demo_relay_used` else
+///   `NoProviderConfigured`.
+///
+/// States with no forward edge (terminal `FirstReplyReceived`) have no
+/// precondition to check and return `Ok(())`; the missing-edge case is handled
+/// by `advance()` itself.
 fn precondition_check_pseudo(
-    _current: OnboardingState,
-    _ctx: &OnboardingContext,
+    current: OnboardingState,
+    ctx: &OnboardingContext,
 ) -> Result<(), OnboardingError> {
-    unimplemented!("Stage 3: match-on-next-state precondition guards (no extra crate)")
+    use OnboardingState::*;
+    // Resolve the forward target; if there is none (terminal) there is no
+    // INTO-state precondition to enforce here.
+    let next = match fsm_table_pseudo(current, OnboardingTransition::Forward) {
+        Some(n) => n,
+        None => return Ok(()),
+    };
+    match next {
+        // PickedLanguage is no longer a reachable forward target (D2:
+        // English-only). It is retained as a no-precondition pass-through so
+        // any stale persisted snapshot pointing at it cannot wedge the FSM.
+        PickedLanguage => Ok(()),
+        // Moving INTO CreatedIdentity (D1, login-first): BOTH the OAuth login
+        // AND the ed25519 identity must have succeeded. This single GUI step
+        // covers broker login (→ identity_provider + identity_sub) and the
+        // local keystore mint (→ identity_fingerprint), so all three must be
+        // present before we record CreatedIdentity.
+        CreatedIdentity => {
+            if ctx.identity_provider.is_none() || ctx.identity_sub.is_none() {
+                return Err(OnboardingError::IdentityCreationFailed {
+                    detail: "login required before identity (provider/sub missing)".to_string(),
+                });
+            }
+            if ctx.identity_fingerprint.is_none() {
+                return Err(OnboardingError::IdentityCreationFailed {
+                    detail: "identity fingerprint missing".to_string(),
+                });
+            }
+            Ok(())
+        }
+        // Moving INTO JoinedCluster (D4, auto-mesh staged): a cluster id hash
+        // must be present, but for Stage 1 this MAY be a "self" / single-node
+        // hash — the node serves + mDNS-advertises itself and full peer-join
+        // (vault sync, SPEC-10 `/rpc/cluster/pair`) is deferred to Stage 2.
+        JoinedCluster => {
+            if ctx.cluster_id_hash.is_none() {
+                return Err(OnboardingError::ClusterJoinFailed {
+                    detail: "cluster id hash missing".to_string(),
+                });
+            }
+            Ok(())
+        }
+        // Moving INTO SetProvider or FirstReplyReceived: a provider must be
+        // configured, either a BYOM slug or the demo-relay path.
+        SetProvider | FirstReplyReceived => {
+            if ctx.provider_slug.is_some() || ctx.demo_relay_used {
+                Ok(())
+            } else {
+                Err(OnboardingError::NoProviderConfigured)
+            }
+        }
+        // No other state is a forward target.
+        FreshInstall => Ok(()),
+    }
 }
 
 /// Apply one rollback FSM transition per the §8 mermaid diagram. Only 4
@@ -441,8 +846,10 @@ pub fn rollback(
 ) -> Result<OnboardingState, OnboardingError> {
     // Step 1 — Lookup (current, Rollback) in the same FSM table per
     // SPEC-28 §8. Reusing the static phf::Map keeps forward + rollback
-    // dispatch symmetric and avoids two-table drift.
-    let _previous_state = fsm_table_pseudo(snapshot.current_state, OnboardingTransition::Rollback);
+    // dispatch symmetric and avoids two-table drift. The table only carries
+    // the 4 reversible edges; FreshInstall (initial) and FirstReplyReceived
+    // (terminal) are absent → `None`.
+    let previous_state = fsm_table_pseudo(snapshot.current_state, OnboardingTransition::Rollback);
 
     // Step 2 — Some §8 edges are explicitly NOT reversible because the
     // forward side effect cannot be safely undone:
@@ -451,10 +858,24 @@ pub fn rollback(
     //     refused — e.g. a hypothetical future `RotatedIdentity` step
     //     would orphan the prior key and is therefore not in the rollback
     //     table.
-    // For those states we return an `OnboardingError` variant that signals
-    // "not reversible from here" so the wizard UI hides the rollback button.
-    let _ = snapshot;
-    unimplemented!("Stage 3: map non-reversible states to a stable wire OnboardingError variant")
+    // For the non-reversible boundary states (table miss: FreshInstall /
+    // FirstReplyReceived) we return a stable wire `OnboardingError` so the
+    // wizard UI can hide the rollback button. The §11.1 catalog has no
+    // dedicated "not reversible" variant (that is FSM-internal per the module
+    // docstring); among the available variants `NoProviderConfigured` is the
+    // only one that is both non-retryable AND carries no payload implying a
+    // transient I/O failure, so it is the stable sentinel for "this FSM
+    // boundary cannot move backward".
+    match previous_state {
+        Some(prev) => Ok(prev),
+        // FreshInstall / FirstReplyReceived are non-reversible. We surface a
+        // stable, non-retryable wire variant so the UI funnels correctly
+        // rather than silently no-op'ing. `NoProviderConfigured` is the only
+        // §11.1 variant that is both non-retryable and carries no payload
+        // implying a transient I/O failure, so it is the stable sentinel for
+        // "this FSM boundary cannot move backward".
+        None => Err(OnboardingError::NoProviderConfigured),
+    }
 }
 
 /// Compute the TTFR metric from the two endpoint timestamps and enforce the
@@ -483,31 +904,51 @@ pub fn compute_ttfr(
 ) -> Result<TTFRMetric, OnboardingError> {
     // Step 1 — Compute `total_ms = first_reply_at_ms - install_at_ms` with
     // saturating subtraction so a backwards clock skew (NTP adjustment
-    // during onboarding) does NOT underflow to ~u64::MAX.
-    let _total_ms: u64 = first_reply_at_ms.saturating_sub(install_at_ms);
+    // during onboarding) does NOT underflow to ~u64::MAX. A negative delta
+    // clamps to 0 and is surfaced as an in-budget metric (the analytics sink
+    // flags the skew separately per the §1 docstring).
+    let total_ms: u64 = first_reply_at_ms.saturating_sub(install_at_ms);
 
-    // Step 2 — Enforce the §1 / §12 p95 budget: `total_ms <= 30_000` (the
+    // Step 2 — Emit the metric on the telemetry sink so SPEC-50 analytics can
+    // compute the rolling p50 / p95 distributions. Emitted unconditionally so
+    // even an over-budget value is still recorded.
+    otel_emit_pseudo("onboarding.ttfr.total_ms", total_ms);
+
+    // Step 3 — Assemble the wire metric. `total_ms` is stored explicitly and
+    // MUST equal `first_reply_at_ms - install_complete_at_ms` (saturating).
+    let metric = TTFRMetric {
+        install_complete_at_ms: install_at_ms,
+        first_reply_at_ms,
+        total_ms,
+    };
+
+    // Step 4 — Enforce the §1 / §12 p95 budget: `total_ms <= 30_000` (the
     // SPEC is inclusive on the boundary). A value of exactly 30_000 ms is
-    // allowed; 30_001 ms is over budget.
-    let _within_budget: bool = _total_ms <= 30_000;
-
-    // Step 3 — Emit the metric on the OpenTelemetry pipeline so SPEC-50
-    // analytics can compute the rolling p50 / p95 distributions.
-    otel_emit_pseudo("onboarding.ttfr.total_ms", _total_ms);
-
-    // Step 4 — Return `TTFRMetric` on success or
-    // `OnboardingError::TtfrBudgetExceeded { total_ms }` when over budget.
-    // Stage 3 may evolve the signature to also return the metric on
-    // failure so the over-budget value is still recorded.
-    let _ = (install_at_ms, first_reply_at_ms);
-    unimplemented!("Stage 3: assemble TTFRMetric + branch on budget per SPEC-28 §1 / §12")
+    // allowed; 30_001 ms is over budget → surface `TtfrBudgetExceeded` so the
+    // telemetry sink can track the regression, carrying the over-budget value.
+    if total_ms <= 30_000 {
+        Ok(metric)
+    } else {
+        Err(OnboardingError::TtfrBudgetExceeded { total_ms })
+    }
 }
 
 /// Stage 3 pseudo — emit one numeric metric on the OTEL (OpenTelemetry,
 /// 開放遙測標準) pipeline. Backed by `opentelemetry` crate; no other
 /// dependency is allowed at this seam to keep the wire layer slim.
 fn otel_emit_pseudo(_metric_name: &'static str, _value: u64) {
-    unimplemented!("Stage 3: opentelemetry")
+    // Default build: no-op sink. A real OpenTelemetry exporter is wired behind
+    // an opt-in feature so the wire layer stays dependency-slim and
+    // `compute_ttfr` is callable on a default build (SPEC-13 telemetry is
+    // opt-in only per §13). When the `otel` feature lands it replaces this
+    // body with the `opentelemetry` meter emit; the call site is unchanged.
+    #[cfg(feature = "otel")]
+    {
+        // Placeholder for the real exporter (feature-gated to keep default
+        // builds free of the dependency). Intentionally references the args so
+        // the gated build still type-checks.
+        let _ = (_metric_name, _value);
+    }
 }
 
 /// Decide whether the wizard should fall back to the demo-relay (SPEC-52)
@@ -671,23 +1112,38 @@ mod tests {
 
     #[test]
     fn fsm_table_pseudo_forward_chain_advances_one_step() {
-        // SPEC-28 §7.1 / §8 invariant (Stage 4 promotion): the compile-time
-        // phf::Map covers all 5 forward edges from `FreshInstall` through to
-        // `FirstReplyReceived`, returning the next state for each. Replaces
-        // the Stage 2/3 `#[should_panic]` marker now that the table is real.
+        // TALK-FIRST invariant: the live forward path is
+        //   fresh_install → set_provider → first_reply_received
+        // (identity/cluster are background, not forward targets).
         let mut state = OnboardingState::FreshInstall;
         let expected = [
-            OnboardingState::PickedLanguage,
-            OnboardingState::CreatedIdentity,
-            OnboardingState::JoinedCluster,
-            OnboardingState::SetProvider,
+            OnboardingState::SetProvider, // talk-first: straight to provider
             OnboardingState::FirstReplyReceived,
         ];
         for next in expected {
             state = fsm_table_pseudo(state, OnboardingTransition::Forward)
-                .expect("legal forward edge per §7.1");
+                .expect("legal forward edge");
             assert_eq!(state, next);
         }
+    }
+
+    #[test]
+    fn fsm_table_pseudo_fresh_install_goes_straight_to_set_provider() {
+        // TALK-FIRST: fresh_install jumps directly to set_provider; identity +
+        // cluster are no longer forward targets (they run in the background).
+        assert_eq!(
+            fsm_table_pseudo(OnboardingState::FreshInstall, OnboardingTransition::Forward),
+            Some(OnboardingState::SetProvider),
+        );
+        // legacy mid-flow snapshots converge forward into set_provider too.
+        assert_eq!(
+            fsm_table_pseudo(OnboardingState::CreatedIdentity, OnboardingTransition::Forward),
+            Some(OnboardingState::SetProvider),
+        );
+        assert_eq!(
+            fsm_table_pseudo(OnboardingState::JoinedCluster, OnboardingTransition::Forward),
+            Some(OnboardingState::SetProvider),
+        );
     }
 
     #[test]
@@ -707,20 +1163,25 @@ mod tests {
 
     #[test]
     fn fsm_table_pseudo_rollback_only_on_reversible_edges() {
-        // §8 invariant: rollback succeeds on the 4 reversible edges
-        // (PickedLanguage→FreshInstall, CreatedIdentity→PickedLanguage,
-        // JoinedCluster→CreatedIdentity, SetProvider→JoinedCluster) and
-        // returns `None` from FreshInstall / FirstReplyReceived (terminal).
+        // TALK-FIRST: the live path is fresh_install → set_provider, so rolling
+        // back from set_provider returns to fresh_install. The legacy
+        // joined_cluster→created_identity rollback is kept as a harmless
+        // pass-through. FreshInstall / CreatedIdentity / FirstReplyReceived have
+        // no rollback edge.
+        assert_eq!(
+            fsm_table_pseudo(OnboardingState::SetProvider, OnboardingTransition::Rollback),
+            Some(OnboardingState::FreshInstall),
+        );
         assert_eq!(
             fsm_table_pseudo(OnboardingState::JoinedCluster, OnboardingTransition::Rollback),
             Some(OnboardingState::CreatedIdentity),
         );
-        assert_eq!(
-            fsm_table_pseudo(OnboardingState::SetProvider, OnboardingTransition::Rollback),
-            Some(OnboardingState::JoinedCluster),
-        );
         assert!(
             fsm_table_pseudo(OnboardingState::FreshInstall, OnboardingTransition::Rollback)
+                .is_none()
+        );
+        assert!(
+            fsm_table_pseudo(OnboardingState::CreatedIdentity, OnboardingTransition::Rollback)
                 .is_none()
         );
         assert!(
@@ -733,12 +1194,12 @@ mod tests {
     }
 
     #[test]
-    fn fsm_table_pseudo_noop_returns_input_for_every_state() {
-        // §9.3 invariant: NoOp is a pure read of the current state — every
-        // one of the 6 states must round-trip through the table unchanged.
+    fn fsm_table_pseudo_noop_returns_input_for_every_reachable_state() {
+        // §9.3 invariant: NoOp is a pure read of the current state — every one
+        // of the 5 reachable states (D2: `picked_language` removed) must
+        // round-trip through the table unchanged.
         for state in [
             OnboardingState::FreshInstall,
-            OnboardingState::PickedLanguage,
             OnboardingState::CreatedIdentity,
             OnboardingState::JoinedCluster,
             OnboardingState::SetProvider,
@@ -762,6 +1223,8 @@ mod tests {
                 identity_fingerprint: Some("abcdef012345".to_string()),
                 provider_slug: None,
                 demo_relay_used: false,
+                identity_provider: Some("google".to_string()),
+                identity_sub: Some("user42@example.com".to_string()),
             },
             snapshot_at_ms: 1_716_563_400_000,
         };
@@ -770,5 +1233,288 @@ mod tests {
         assert_eq!(ev.state, back.state);
         assert_eq!(ev.context.identity_fingerprint, back.context.identity_fingerprint);
         assert_eq!(ev.snapshot_at_ms, back.snapshot_at_ms);
+    }
+
+    // ─── Pure FSM helper tests (advance / rollback / precondition_check) ─────
+
+    fn snap(state: OnboardingState) -> OnboardingStateSnapshot {
+        OnboardingStateSnapshot {
+            current_state: state,
+            entered_at_ms: 0,
+            retry_count: 0,
+            last_error: None,
+        }
+    }
+
+    #[test]
+    fn onboarding_login_choice_distinguishes_login_from_skip() {
+        // SYS-B local-first: only an explicit affirmative signs in.
+        assert_eq!(parse_onboarding_login_choice("1"), OnboardingLoginChoice::Login);
+        assert_eq!(
+            parse_onboarding_login_choice("google"),
+            OnboardingLoginChoice::Login
+        );
+        // Blank/Enter is the local-first DEFAULT (the SYS-B change): a fresh run
+        // stays local-only unless the user opts in.
+        assert_eq!(
+            parse_onboarding_login_choice(""),
+            OnboardingLoginChoice::SkipLocalOnly
+        );
+        assert_eq!(
+            parse_onboarding_login_choice("skip"),
+            OnboardingLoginChoice::SkipLocalOnly
+        );
+        assert_eq!(
+            parse_onboarding_login_choice("2"),
+            OnboardingLoginChoice::SkipLocalOnly
+        );
+    }
+
+    #[test]
+    fn onboarding_provider_ranking_orders_detected_subscriptions() {
+        // The helper ranks subscription providers only; `local-ollama` is NOT
+        // appended here (it is gated on real `detect_local_servers()` in
+        // `perform_provider_detection`). See the regression fix from review #321.
+        assert_eq!(
+            ranked_onboarding_providers(true, true, true),
+            vec!["claude_cli", "codex_oauth", "gemini_oauth"]
+        );
+        assert_eq!(
+            ranked_onboarding_providers(false, true, false),
+            vec!["codex_oauth"]
+        );
+    }
+
+    #[test]
+    fn onboarding_provider_ranking_none_detected_is_empty() {
+        // No subscriptions → empty ranking. Ollama is NOT auto-appended; whether
+        // a local fallback exists is decided later by real Ollama detection, so a
+        // desktop without Ollama correctly reaches `NoProviderConfigured`.
+        assert_eq!(
+            ranked_onboarding_providers(false, false, false),
+            Vec::<&'static str>::new()
+        );
+    }
+
+    // P0-7 S2 — the empty-scan (no sub / no free / no local server) decision.
+    // Tested via the extracted `empty_scan_outcome` helper so the assertion is
+    // deterministic regardless of the test machine's real Ollama / *_API_KEY /
+    // CLI-token state (which would otherwise stop the full detector from ever
+    // reaching this branch).
+    #[cfg(all(
+        feature = "offline-stub-model",
+        not(any(target_os = "ios", target_os = "android"))
+    ))]
+    #[test]
+    fn empty_scan_resolves_local_stub_with_feature() {
+        // Offline desktop, nothing installed, stub feature ON: must NOT
+        // dead-end — the built-in always-available stub model is selected.
+        let outcome = empty_scan_outcome();
+        assert!(
+            matches!(outcome, Ok(Some("local-stub"))),
+            "offline desktop with offline-stub-model must resolve the built-in stub, not dead-end: {outcome:?}"
+        );
+    }
+
+    #[cfg(all(
+        not(feature = "offline-stub-model"),
+        not(any(target_os = "ios", target_os = "android"))
+    ))]
+    #[test]
+    fn empty_scan_is_no_provider_configured_without_feature() {
+        // No-regression guard (Step 6): WITHOUT the opt-in feature, an empty
+        // desktop scan still returns NoProviderConfigured — opted-in / cloud
+        // users' flow is byte-identical to before P0-7.
+        let outcome = empty_scan_outcome();
+        assert!(
+            matches!(outcome, Err(OnboardingError::NoProviderConfigured)),
+            "default build must keep the desktop dead-end behavior: {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn advance_fresh_install_to_set_provider_requires_provider_only() {
+        // TALK-FIRST: FreshInstall advances DIRECTLY to SetProvider, and the
+        // ONLY precondition is a provider (login + identity are background, not
+        // required). No provider → NoProviderConfigured.
+        let bare = OnboardingContext::default();
+        let err = advance(&snap(OnboardingState::FreshInstall), &bare)
+            .expect_err("no provider must be refused");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+
+        let with_provider = OnboardingContext {
+            provider_slug: Some("groq".to_string()),
+            ..Default::default()
+        };
+        let next = advance(&snap(OnboardingState::FreshInstall), &with_provider)
+            .expect("a provider advances to set_provider");
+        assert_eq!(next, OnboardingState::SetProvider);
+    }
+
+    #[test]
+    fn advance_fresh_install_does_not_require_login() {
+        // TALK-FIRST: a provider with NO login/identity still advances — login
+        // is a later soft-prompt, never a gate.
+        let provider_no_login = OnboardingContext {
+            provider_slug: Some("groq".to_string()),
+            ..Default::default()
+        };
+        assert!(provider_no_login.identity_provider.is_none());
+        let next = advance(&snap(OnboardingState::FreshInstall), &provider_no_login)
+            .expect("login is NOT required for the first reply");
+        assert_eq!(next, OnboardingState::SetProvider);
+    }
+
+    #[test]
+    fn advance_legacy_created_identity_converges_to_set_provider() {
+        // A persisted snapshot stuck on the legacy CreatedIdentity state
+        // converges forward into SetProvider — needing only a provider.
+        let no_provider = OnboardingContext {
+            identity_fingerprint: Some("abcdef012345".to_string()),
+            ..Default::default()
+        };
+        let err = advance(&snap(OnboardingState::CreatedIdentity), &no_provider)
+            .expect_err("legacy state still needs a provider to converge");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+
+        let with_provider = OnboardingContext {
+            provider_slug: Some("groq".to_string()),
+            ..Default::default()
+        };
+        let next = advance(&snap(OnboardingState::CreatedIdentity), &with_provider)
+            .expect("legacy state converges to set_provider");
+        assert_eq!(next, OnboardingState::SetProvider);
+    }
+
+    #[test]
+    fn advance_into_set_provider_requires_provider_or_demo_relay() {
+        // JoinedCluster → SetProvider needs provider_slug OR demo_relay_used.
+        let none_configured = OnboardingContext {
+            identity_fingerprint: Some("abcdef012345".to_string()),
+            cluster_id_hash: Some("deadbeef".to_string()),
+            ..Default::default()
+        };
+        let err = advance(&snap(OnboardingState::JoinedCluster), &none_configured)
+            .expect_err("no provider configured must be refused");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+
+        // BYOM slug satisfies it.
+        let byom = OnboardingContext {
+            provider_slug: Some("groq".to_string()),
+            cluster_id_hash: Some("deadbeef".to_string()),
+            ..Default::default()
+        };
+        let next = advance(&snap(OnboardingState::JoinedCluster), &byom)
+            .expect("byom provider advances");
+        assert_eq!(next, OnboardingState::SetProvider);
+
+        // demo-relay path also satisfies it.
+        let demo = OnboardingContext {
+            demo_relay_used: true,
+            cluster_id_hash: Some("deadbeef".to_string()),
+            ..Default::default()
+        };
+        let next = advance(&snap(OnboardingState::JoinedCluster), &demo)
+            .expect("demo relay path advances");
+        assert_eq!(next, OnboardingState::SetProvider);
+    }
+
+    #[test]
+    fn advance_set_provider_to_first_reply_requires_provider() {
+        let configured = OnboardingContext {
+            provider_slug: Some("openai".to_string()),
+            ..Default::default()
+        };
+        let next = advance(&snap(OnboardingState::SetProvider), &configured)
+            .expect("configured provider advances to first reply");
+        assert_eq!(next, OnboardingState::FirstReplyReceived);
+
+        let bare = OnboardingContext::default();
+        let err = advance(&snap(OnboardingState::SetProvider), &bare)
+            .expect_err("no provider at set_provider must be refused");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+    }
+
+    #[test]
+    fn advance_terminal_state_is_noop_ok() {
+        // FirstReplyReceived has no forward edge — advance returns input
+        // unchanged (onboarding already complete), not an error.
+        let ctx = OnboardingContext::default();
+        let next = advance(&snap(OnboardingState::FirstReplyReceived), &ctx)
+            .expect("terminal advance is a no-op Ok");
+        assert_eq!(next, OnboardingState::FirstReplyReceived);
+    }
+
+    #[test]
+    fn rollback_succeeds_on_reversible_edges() {
+        // TALK-FIRST: set_provider rolls back to fresh_install (the live path).
+        // The legacy joined_cluster→created_identity rollback is kept.
+        assert_eq!(
+            rollback(&snap(OnboardingState::SetProvider)).unwrap(),
+            OnboardingState::FreshInstall,
+        );
+        assert_eq!(
+            rollback(&snap(OnboardingState::JoinedCluster)).unwrap(),
+            OnboardingState::CreatedIdentity,
+        );
+    }
+
+    #[test]
+    fn rollback_non_reversible_states_return_stable_error() {
+        // FreshInstall (initial), CreatedIdentity (login+identity is not
+        // un-done) and FirstReplyReceived (terminal) are non-reversible →
+        // stable non-retryable wire error.
+        let err = rollback(&snap(OnboardingState::FreshInstall))
+            .expect_err("initial state is non-reversible");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+
+        let err = rollback(&snap(OnboardingState::CreatedIdentity))
+            .expect_err("created_identity is non-reversible (D2: no language step)");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+
+        let err = rollback(&snap(OnboardingState::FirstReplyReceived))
+            .expect_err("terminal state is non-reversible");
+        assert!(matches!(err, OnboardingError::NoProviderConfigured));
+    }
+
+    #[test]
+    fn precondition_check_terminal_is_ok() {
+        // No forward edge from the terminal state → nothing to guard → Ok.
+        let ctx = OnboardingContext::default();
+        assert!(precondition_check_pseudo(OnboardingState::FirstReplyReceived, &ctx).is_ok());
+    }
+
+    // ─── compute_ttfr — SPEC-28 §1 / §12 budget gate (table test) ───────────
+
+    #[test]
+    fn compute_ttfr_budget_boundary_table() {
+        // SPEC-28 §1 / §12: budget is inclusive on 30_000 ms.
+        // Each row: (install_at_ms, first_reply_at_ms) → expectation.
+
+        // Row 1 — exactly 30_000 ms → Ok (budget is `<=`).
+        let m = compute_ttfr(1_000, 31_000).expect("30_000 ms is within budget");
+        assert_eq!(m.total_ms, 30_000, "boundary diff exact");
+        assert_eq!(m.install_complete_at_ms, 1_000);
+        assert_eq!(m.first_reply_at_ms, 31_000);
+
+        // Row 2 — 30_001 ms → Err(TtfrBudgetExceeded { total_ms: 30_001 }).
+        let e = compute_ttfr(1_000, 31_001).expect_err("30_001 ms overshoots budget");
+        assert!(
+            matches!(e, OnboardingError::TtfrBudgetExceeded { total_ms } if total_ms == 30_001),
+            "over-budget must surface TtfrBudgetExceeded with the over-budget total_ms, got {e:?}",
+        );
+
+        // Row 3 — clock skew (start > end) → saturating_sub yields 0 → Ok with total_ms==0.
+        let skew = compute_ttfr(50_000, 10_000).expect("clock skew clamps to 0, not underflow");
+        assert_eq!(skew.total_ms, 0, "saturating_sub clamps negative delta to 0");
+        assert_eq!(skew.install_complete_at_ms, 50_000);
+        assert_eq!(skew.first_reply_at_ms, 10_000);
+
+        // Row 4 — typical happy path 12_500 ms → Ok with the exact diff.
+        let happy = compute_ttfr(1_716_563_400_000, 1_716_563_412_500)
+            .expect("12_500 ms is well within budget");
+        assert_eq!(happy.total_ms, 12_500, "happy-path diff exact");
+        assert_eq!(happy.install_complete_at_ms, 1_716_563_400_000);
+        assert_eq!(happy.first_reply_at_ms, 1_716_563_412_500);
     }
 }

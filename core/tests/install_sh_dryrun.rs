@@ -7,6 +7,12 @@
 // binary was created anywhere under the isolated HOME. "Safe preview" is the
 // invariant — a user inspecting the installer must be able to see what it would
 // do with zero side effects.
+
+// scripts/install.sh is a POSIX shell script; this test shells out to `sh`.
+// On Windows `sh` is usually absent, so Command::new("sh").output().expect(...)
+// below would PANIC (a hard FAIL, not a skip). Gate the whole file to Unix.
+#![cfg(unix)]
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -39,7 +45,10 @@ fn has_phantom_binary(dir: &std::path::Path) -> bool {
 fn install_sh_dry_run_previews_without_writing() {
     let script = repo_root().join("scripts").join("install.sh");
     if !script.exists() {
-        eprintln!("skip: install.sh not found at {script:?}");
+        eprintln!(
+            "SKIPPED: install_sh_dry_run_previews_without_writing — install.sh not \
+             found at {script:?}"
+        );
         return;
     }
 

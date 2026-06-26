@@ -37,9 +37,8 @@ pub struct Task {
 }
 
 fn tasks_path(session: &str) -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("tasks")
         .join(format!("{}.json", session))
 }

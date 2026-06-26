@@ -7,7 +7,7 @@
 //! get spurious red on `cargo test`.
 //!
 //! These bypass the gated `core/src/providers/{mistral,groq,...}.rs`
-//! modules (`experimental-hermes-providers`) and talk to each
+//! modules (`experimental-extra-providers`) and talk to each
 //! provider's OpenAI-compatible endpoint directly. They catch the
 //! class of regressions that matter day-to-day:
 //!   - key rotated by the provider
@@ -71,7 +71,10 @@ async fn round_trip_macos_groq() {
     let key = match std::env::var("GROQ_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            eprintln!("GROQ_API_KEY unset — skip (source ~/.phantom-mesh/env first)");
+            eprintln!(
+                "SKIPPED: round_trip_macos_groq — GROQ_API_KEY unset \
+                 (source ~/.phantom-mesh/env first)"
+            );
             return;
         }
     };
@@ -94,7 +97,10 @@ async fn round_trip_macos_mistral() {
     let key = match std::env::var("MISTRAL_API_KEY") {
         Ok(k) if !k.is_empty() => k,
         _ => {
-            eprintln!("MISTRAL_API_KEY unset — skip (source ~/.phantom-mesh/env first)");
+            eprintln!(
+                "SKIPPED: round_trip_macos_mistral — MISTRAL_API_KEY unset \
+                 (source ~/.phantom-mesh/env first)"
+            );
             return;
         }
     };

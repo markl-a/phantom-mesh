@@ -616,17 +616,9 @@ pub fn dedup_check(
     // Step 1: render the channel enum to its snake_case wire string so the
     //         SQL parameter exactly matches what the ledger writer stored
     //         (e.g. "markdown" / "telegram" / "email"). Push is reserved so
-    //         it never reaches this path.
-    let channel_str: &'static str = match channel {
-        DeliveryChannel::Markdown => "markdown",
-        DeliveryChannel::Telegram => "telegram",
-        DeliveryChannel::Email => "email",
-        DeliveryChannel::Push => {
-            return Err(DeliveryError::ConfigMissing {
-                channel: "push".to_string(),
-            });
-        }
-    };
+    //         it never reaches this path. Shared slug fn with the writer
+    //         (`persist_receipts`) so reader + writer can never drift.
+    let channel_str: &'static str = delivery_channel_slug(channel)?;
 
     // Step 2: run a count query against the dedup ledger. SQL is intentionally
     //         a count(*) instead of EXISTS so the bound params stay positional
@@ -643,6 +635,131 @@ pub fn dedup_check(
 
     // Step 3: any prior Sent row in the window means we suppress this attempt.
     Ok(count > 0)
+}
+
+/// Channel → ledger/wire snake_case slug. **Single source of truth** shared by
+/// the ledger WRITER ([`persist_receipts`]) and the READER ([`dedup_check`]) so
+/// the `channel` column value they compare on can never drift (a drift would
+/// silently break dedup — the reader would look for `"telegram"` while the
+/// writer stored `"Telegram"`). `Push` is reserved/inactive in v0.6.0 → maps to
+/// `ConfigMissing` per the cycle-break rule, so it never reaches the ledger.
+fn delivery_channel_slug(channel: DeliveryChannel) -> Result<&'static str, DeliveryError> {
+    match channel {
+        DeliveryChannel::Markdown => Ok("markdown"),
+        DeliveryChannel::Telegram => Ok("telegram"),
+        DeliveryChannel::Email => Ok("email"),
+        DeliveryChannel::Push => Err(DeliveryError::ConfigMissing {
+            channel: "push".to_string(),
+        }),
+    }
+}
+
+/// Status → ledger snake_case slug, matching the `#[serde(rename_all =
+/// "snake_case")]` wire form (`"sent"` is the exact value [`dedup_check`]'s
+/// `WHERE status = 'sent'` predicate compares on — keep them in lockstep).
+fn delivery_status_slug(status: DeliveryStatus) -> &'static str {
+    match status {
+        DeliveryStatus::Pending => "pending",
+        DeliveryStatus::Sent => "sent",
+        DeliveryStatus::Failed => "failed",
+        DeliveryStatus::Suppressed => "suppressed",
+    }
+}
+
+/// Persist a batch of [`DeliveryReceipt`]s into the `coach_delivery_ledger`
+/// sqlite table — the WRITE half that [`deliver`] deliberately leaves to its
+/// caller (see `deliver` step 4). Until this exists the ledger is **write-never**,
+/// so [`dedup_check`] can never observe a `Sent` row and the 24-hour dedup
+/// window is dead. `INSERT OR REPLACE` keyed on the PK `(review_id, channel,
+/// attempted_at_ms)` makes re-persisting the same attempt idempotent.
+///
+/// Returns the number of rows written. Any rusqlite / I/O failure maps to
+/// `DeliveryError::ConfigMissing { channel: "ledger" }` (never panics) so a
+/// caller fanning out a review surfaces a clean error rather than aborting. A
+/// `Push` receipt (reserved channel) is rejected via [`delivery_channel_slug`].
+///
+/// 中文: 把一批 `DeliveryReceipt` 寫進 `coach_delivery_ledger`(deliver 刻意
+/// 留給呼叫端的「寫」那半 — 沒有它 ledger 永遠是空的、dedup 形同虛設)。以
+/// PK `INSERT OR REPLACE` 保證同一次嘗試重寫具冪等性。回傳寫入列數;任何
+/// sqlite/I-O 失敗收斂為 `ConfigMissing{channel:"ledger"}`,永不 panic。
+pub fn persist_receipts(receipts: &[DeliveryReceipt]) -> Result<usize, DeliveryError> {
+    if receipts.is_empty() {
+        return Ok(0);
+    }
+    let ledger_err = || DeliveryError::ConfigMissing {
+        channel: "ledger".to_string(),
+    };
+    let mut conn = open_delivery_ledger_db()?;
+    // Wrap the whole batch in one transaction so a mid-batch failure leaves the
+    // ledger UNCHANGED (all-or-nothing) instead of partially written. On any
+    // `?` below `tx` drops un-committed → automatic rollback.
+    let tx = conn.transaction().map_err(|_| ledger_err())?;
+    let mut written = 0usize;
+    for r in receipts {
+        // `Push` is a reserved/inactive channel. `deliver()` emits a *Failed*
+        // receipt carrying `channel: Push` for it, which must NOT be persisted —
+        // and crucially must NOT abort the batch (else one Push receipt would
+        // drop the valid Markdown/Telegram/Email rows alongside it). Skip it.
+        let channel_str = match delivery_channel_slug(r.channel) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let status_str = delivery_status_slug(r.status);
+        tx.execute(
+            "INSERT OR REPLACE INTO coach_delivery_ledger \
+             (review_id, channel, attempted_at_ms, status, error_message, retry_count) \
+             VALUES (?, ?, ?, ?, ?, 0)",
+            rusqlite::params![
+                r.review_id,
+                channel_str,
+                r.attempted_at_ms as i64,
+                status_str,
+                r.error_message,
+            ],
+        )
+        .map_err(|_| ledger_err())?;
+        written += 1;
+    }
+    tx.commit().map_err(|_| ledger_err())?;
+    Ok(written)
+}
+
+/// Caller-facing entry point: run [`deliver`] then [`persist_receipts`] in one
+/// call so the dedup ledger actually records what was sent. This is the wiring
+/// a scheduler / dispatcher uses — calling bare `deliver` leaves the ledger
+/// empty, so `Suppressed` could never trigger and the same review would re-send
+/// on every fire. Returns the receipts `deliver` produced (the ledger is a
+/// side-effect).
+///
+/// **Best-effort persistence**: the sends in `deliver` have ALREADY happened by
+/// the time we persist, so a ledger-write failure must NOT (a) discard the
+/// receipts — the caller needs to know which channels were delivered — nor (b)
+/// be reported as a delivery failure. The worst case of a dropped ledger write
+/// is one possible duplicate on the next fan-out, not a correctness break, so we
+/// log a warning and still return the receipts. Callers that need the persist
+/// outcome explicitly should call [`deliver`] + [`persist_receipts`] separately.
+///
+/// 中文: 對外單一入口 — 一次跑完 `deliver` + `persist_receipts`,讓 dedup
+/// ledger 真的記下送了什麼(只呼 `deliver` 會讓 ledger 空著、`Suppressed`
+/// 永不觸發、同一份 review 每次都重送)。**盡力持久化**:send 早已發生,所以
+/// ledger 寫入失敗既不丟棄 receipts、也不算派送失敗(最壞只是下次可能重送一
+/// 次),記一筆 warn 後照常回傳 receipts。需要明確得知持久化結果者請改分開呼
+/// `deliver` + `persist_receipts`。
+pub fn deliver_and_persist(
+    review_id: &str,
+    markdown_path: &Path,
+    channels: &[DeliveryChannel],
+) -> Result<Vec<DeliveryReceipt>, DeliveryError> {
+    let receipts = deliver(review_id, markdown_path, channels)?;
+    if let Err(e) = persist_receipts(&receipts) {
+        tracing::warn!(
+            review_id,
+            error = %e,
+            "coach delivery: receipts sent but ledger persist failed \
+             (dedup may re-send next cycle)"
+        );
+    }
+    Ok(receipts)
 }
 
 // ─── Stage 2 inner pseudocode helpers (Stage 3+4 progressively replace bodies) ─
@@ -727,19 +844,146 @@ fn read_md_age_pseudo(path: &Path) -> Result<String, DeliveryError> {
     })
 }
 
-fn vault_read_pseudo(_ref_str: &str) -> Result<String, DeliveryError> {
-    unimplemented!(
-        "Stage 4: broker_vault_wire — vault::get(_ref_str) -> String secret; missing ref maps to DeliveryError::ConfigMissing{{channel: <derived from ref scheme>}} (broker_vault_wire still Stage 2)"
-    )
+/// Parse a SPEC-15 vault reference `"vault://<service>/<key>"` into its
+/// `(service, key)` parts. Anything not matching the scheme (or with an empty
+/// component) maps to `ConfigMissing` so the caller surfaces a clean config
+/// error rather than attempting a malformed broker GET.
+fn parse_vault_ref(ref_str: &str) -> Result<(String, String), DeliveryError> {
+    let rest = ref_str
+        .strip_prefix("vault://")
+        .ok_or_else(|| DeliveryError::ConfigMissing {
+            channel: "vault".to_string(),
+        })?;
+    let (service, key) = rest
+        .split_once('/')
+        .ok_or_else(|| DeliveryError::ConfigMissing {
+            channel: "vault".to_string(),
+        })?;
+    if service.is_empty() || key.is_empty() {
+        return Err(DeliveryError::ConfigMissing {
+            channel: "vault".to_string(),
+        });
+    }
+    Ok((service.to_string(), key.to_string()))
 }
 
-fn https_post_pseudo(
-    _url: &str,
-    _body_json: &str,
-) -> Result<(u16, String), DeliveryError> {
-    unimplemented!(
-        "Stage 4: reqwest — need either (a) `blocking` feature added to core/Cargo.toml reqwest dep, or (b) make send_telegram async + wrap with tokio runtime; current sync wire surface blocks (a). Stage 4 commit either enables blocking feature or refactors send_telegram to async fn"
-    )
+/// Testable core of the SPEC-15 vault GET: fetch the sealed payload for
+/// `service`/`key` from the broker's dumb-storage `/vault/get` endpoint,
+/// FAIL CLOSED on a missing/mismatched integrity HMAC (so a malicious or buggy
+/// broker can't substitute or replay ciphertext — the binding lives in
+/// `service‖key‖sealed‖ts_ms`), then unseal locally with the device seal key.
+/// Mirrors `cli_config::config_pull_sealed_lines`' per-item read path; the
+/// plaintext lives only in the returned String. Any transport / parse / HMAC /
+/// unseal failure maps to `ConfigMissing` — never a panic.
+fn vault_get_unseal(
+    base_url: &str,
+    token: &str,
+    seal_key: &crate::broker_vault_wire::VaultSealKey,
+    service: &str,
+    key: &str,
+) -> Result<String, DeliveryError> {
+    let cfg_missing = || DeliveryError::ConfigMissing {
+        channel: "vault".to_string(),
+    };
+    let url = format!(
+        "{}/{}?service={}&key={}",
+        base_url.trim_end_matches('/'),
+        crate::broker_vault_wire::BrokerEndpoint::VaultGet.path_slug(),
+        service,
+        key,
+    );
+    let auth_header = format!("Bearer {}", token);
+    let body = crate::providers_wire::block_on_async(async move {
+        let resp = reqwest::Client::new()
+            .get(&url)
+            .header("Authorization", auth_header)
+            .send()
+            .await
+            .map_err(|_| DeliveryError::ConfigMissing {
+                channel: "vault".to_string(),
+            })?;
+        if !resp.status().is_success() {
+            return Err(DeliveryError::ConfigMissing {
+                channel: "vault".to_string(),
+            });
+        }
+        Ok::<String, DeliveryError>(resp.text().await.unwrap_or_default())
+    })?;
+
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|_| cfg_missing())?;
+    let value_sealed = v
+        .get("value_sealed")
+        .or_else(|| v.get("valueSealed"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    let ts_ms = v
+        .get("ts_ms")
+        .or_else(|| v.get("tsMs"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0);
+    let server_hmac = v
+        .get("server_hmac_hex")
+        .or_else(|| v.get("serverHmacHex"))
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    if value_sealed.is_empty() || server_hmac.trim().is_empty() {
+        return Err(cfg_missing());
+    }
+    // FAIL CLOSED: re-derive the integrity HMAC locally; mismatch ⇒ refuse.
+    let local =
+        crate::broker_vault_wire::compute_client_hmac(seal_key, service, key, value_sealed, ts_ms);
+    if !local.eq_ignore_ascii_case(server_hmac.trim()) {
+        return Err(cfg_missing());
+    }
+    let plaintext =
+        crate::broker_vault_wire::unseal_vault_value(value_sealed, seal_key).map_err(|_| cfg_missing())?;
+    String::from_utf8(plaintext).map_err(|_| cfg_missing())
+}
+
+/// Stage 4 real impl — resolve a `"vault://service/key"` reference to its
+/// plaintext secret via the SPEC-15 broker vault. Loads the broker URL + token
+/// from `auth.json` (`phantom login broker`) and the device seal key, then
+/// delegates to [`vault_get_unseal`]. A missing login / seal key / ref maps to
+/// `ConfigMissing` (the channel surfaces a clean "run phantom login" style
+/// error) — the plaintext secret never touches disk, config, or logs.
+fn vault_read_pseudo(ref_str: &str) -> Result<String, DeliveryError> {
+    let (service, key) = parse_vault_ref(ref_str)?;
+    let chan_missing = || DeliveryError::ConfigMissing {
+        channel: format!("vault:{}", service),
+    };
+    let auth = crate::auth::load().ok_or_else(chan_missing)?;
+    if auth.broker_url.is_empty() || auth.broker_token.is_empty() {
+        return Err(chan_missing());
+    }
+    let seal_key = crate::broker_vault_wire::load_vault_seal_key().map_err(|_| chan_missing())?;
+    vault_get_unseal(&auth.broker_url, &auth.broker_token, &seal_key, &service, &key)
+}
+
+/// Stage 4 real impl — POST `body_json` (application/json) to `url` and return
+/// `(status_code, response_body)`. reqwest 0.12 has no `blocking` feature in
+/// `core/Cargo.toml`, and this wire surface is sync, so we bridge to the async
+/// client via the crate-wide `block_on_async` helper (same pattern providers_wire
+/// uses) rather than adding a blocking dep or making the whole deliver() chain
+/// async. A transport failure (could not reach the server / no response) has no
+/// dedicated `DeliveryError` variant, so it maps to the channel's generic
+/// `ConfigMissing` bucket — consistent with `send_telegram`'s non-ok handling.
+fn https_post_pseudo(url: &str, body_json: &str) -> Result<(u16, String), DeliveryError> {
+    let url = url.to_string();
+    let body = body_json.to_string();
+    crate::providers_wire::block_on_async(async move {
+        let resp = reqwest::Client::new()
+            .post(&url)
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(|_| DeliveryError::ConfigMissing {
+                channel: "telegram".to_string(),
+            })?;
+        let status = resp.status().as_u16();
+        let text = resp.text().await.unwrap_or_default();
+        Ok((status, text))
+    })
 }
 
 /// Stage 3 real impl — build the Telegram Bot API `sendMessage` JSON body.
@@ -1026,7 +1270,7 @@ fn ledger_parent_dir() -> Option<std::path::PathBuf> {
             return Some(std::path::PathBuf::from(override_dir));
         }
     }
-    dirs::home_dir().map(|h| h.join(".phantom-mesh"))
+    crate::cli_config::phantom_data_dir().ok()
 }
 
 /// Stage 4 real impl — load `DeliveryConfig.telegram_config` from
@@ -1083,6 +1327,81 @@ fn now_ms_pseudo() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn https_post_pseudo_returns_status_and_body() {
+        // Stage 4 https_post_pseudo bridges the sync wire to the async reqwest
+        // client via block_on_async. Drive a wiremock server from a setup
+        // runtime, then call the sync helper from this (non-runtime) test thread
+        // so block_on_async spins its own runtime — exercising the real POST.
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mock = rt.block_on(MockServer::start());
+        rt.block_on(
+            Mock::given(method("POST"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_string(r#"{"ok":true,"result":{}}"#),
+                )
+                .mount(&mock),
+        );
+
+        let url = format!("{}/bot123/sendMessage", mock.uri());
+        let (status, body) =
+            https_post_pseudo(&url, r#"{"chat_id":"42","text":"hi"}"#).expect("post should succeed");
+        assert_eq!(status, 200);
+        assert!(body.contains("\"ok\":true"), "got: {body}");
+
+        // Unreachable host → transport error maps to the channel's generic
+        // ConfigMissing bucket (no dedicated transport variant), never a panic.
+        let err = https_post_pseudo("http://127.0.0.1:1/bot/x", "{}")
+            .expect_err("connection refused must be an error");
+        assert!(matches!(err, DeliveryError::ConfigMissing { .. }));
+    }
+
+    #[test]
+    fn vault_get_unseal_round_trips_and_fails_closed_on_hmac() {
+        // Seal a secret with a test seal key, stand up a mock broker that echoes
+        // the sealed payload + a valid integrity HMAC, and confirm vault_get_unseal
+        // recovers the exact plaintext. Then confirm a key the HMAC wasn't bound to
+        // is rejected (fail-closed) — proving the tamper/replay guard.
+        use crate::broker_vault_wire::{compute_client_hmac, generate_vault_seal_key, seal_vault_value};
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let seal_key = generate_vault_seal_key();
+        let secret = "123456:AA-real-bot-token";
+        let sealed = seal_vault_value(secret.as_bytes(), &seal_key).expect("seal");
+        let ts_ms: u64 = 1_700_000_000_000;
+        let hmac = compute_client_hmac(&seal_key, "telegram", "bot_token", &sealed, ts_ms);
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mock = rt.block_on(MockServer::start());
+        let body = serde_json::json!({
+            "value_sealed": sealed,
+            "ts_ms": ts_ms,
+            "server_hmac_hex": hmac,
+        })
+        .to_string();
+        rt.block_on(
+            Mock::given(method("GET"))
+                .and(path("/vault/get"))
+                .respond_with(ResponseTemplate::new(200).set_body_string(body))
+                .mount(&mock),
+        );
+
+        // Correct service/key → plaintext recovered.
+        let got = vault_get_unseal(&mock.uri(), "tok", &seal_key, "telegram", "bot_token")
+            .expect("round-trip should recover the secret");
+        assert_eq!(got, secret);
+
+        // Same payload, but the HMAC was bound to "bot_token" — reading it as a
+        // different key recomputes a non-matching HMAC ⇒ fail closed.
+        let tampered = vault_get_unseal(&mock.uri(), "tok", &seal_key, "telegram", "other_key")
+            .expect_err("HMAC bound to a different key must be rejected");
+        assert!(matches!(tampered, DeliveryError::ConfigMissing { .. }));
+    }
 
     #[test]
     fn delivery_receipt_round_trip_smoke() {

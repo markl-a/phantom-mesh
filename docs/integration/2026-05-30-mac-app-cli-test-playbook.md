@@ -1,10 +1,19 @@
 # Mac App + CLI 測試總表（第一版，2026-05-30）
 
+> **範疇**：本檔是 **app+CLI/serve/browser 功能級盤點**（S1–S7、99 條），與 5-CUJ 測試覆蓋率地圖
+> [`docs/test-cases/COVERAGE-MAP-mac.md`](../test-cases/COVERAGE-MAP-mac.md) 互補、**不重疊**：那邊是 5 CUJ 的加密/capture/sync 自動化覆蓋，
+> 這邊是每個 GUI 畫面 + serve endpoint + CLI 子命令的逐項 happy-path 盤點。實跑結果見
+> [`test-cases/CLI-mac-results-2026-05-30.md`](test-cases/CLI-mac-results-2026-05-30.md)；Android 對照證據見
+> `app/tests/android/ANDROID-EVIDENCE-mac-app-cli-playbook.md`。
+>
 > 由 4-agent inventory workflow（四代理盤點流程，`wn1lpd4wi`）產出，共 **99 條功能級測試案例**，依場景分組。
 > 每條是 happy-path（正常路徑）；要展開「空狀態/錯誤/離線/無金鑰/權限/邊界」等多情境，用 `2026-05-30-test-prompt-kit.md` 把 N 調高重跑。
 > 介面：CLI=終端機 · App-手機 · App-桌面 · serve · MCP。自動化：cli / playwright-browser / 真實app才行 / 手動。
 
 勾選說明：`☐` 未測 · 自行改成 `☑ pass` / `✗ fail`。
+
+> **資料根隔離（`PHANTOM_HOME`，跑前先設）**：本檔凡會寫入資料根的可執行步驟一律引用 `${PHANTOM_HOME:-$HOME/.phantom-mesh}`，先 `export PHANTOM_HOME="$(mktemp -d)/.phantom-mesh"` 即可讓測試落在 sandbox、不污染真實家目錄；未設則 fallback 到實機現行路徑 `~/.phantom-mesh`。
+> **⚠️ drift 註**：`PHANTOM_HOME` 是 SPEC'd data-root override，但 **as-built 尚未被 home-resolver honor** —— `core/src/config.rs:380-381` 仍以 `dirs::home_dir().join(".phantom-mesh")` 解析資料根，`core/src/tui.rs:8927/8930` 明標「needs PHANTOM_HOME resolver」為 tracked follow-up（#322 home-resolver 統一）。因此下文「備註/預期」欄中描述 binary **實際**寫入位置的敘述（例如 `~/.phantom-mesh/keys`、`~/.phantom-mesh/events`、`~/.phantom-mesh/crashes`、`~/.phantom-mesh/peers.json`）刻意保留實機真相、未改寫成變數；待 #322 落地後 binary 才會真正改寫到 `$PHANTOM_HOME`，屆時敘述與 fallback 一併收斂。
 
 
 ## S1 安裝與首次設定 Onboarding （12 條）
@@ -35,14 +44,14 @@
 | ☐ | CHA-005 | **phantom evolve (test-driven self-fix loop)（測試驅動自我修復迴圈）** | cli | phantom evolve 'fix failing unit test' --max-rounds 1 | 執行有界的 TDD（測試驅動開發）修復迴圈並回報回合數／結果 | 迴圈執行並在 max-rounds 內回報 green/red 結果 | cli | 會更動程式碼 — 唯讀下優先用 'phantom evolve list' / 'evolve goals list'（不更動）。含 replay/handoff/goals 子指令。 |
 | ☐ | CHA-006 | **phantom evolve goals / list / replay / handoff** | cli | phantom evolve goals list --json <br> phantom evolve list --active --json | 把 EVOLVE-GOALS.md 里程碑佇列與作用中的 evolve 檢查點印成 JSON | 兩個指令都輸出有效 JSON（或空清單）且 exit 0 | cli | evolve 的唯讀檢視路徑；可安全執行。 |
 | ☐ | CHA-007 | **phantom autoevolve (daemon self-improve)（常駐自我改進）** | cli | phantom autoevolve log --n 5 <br> phantom autoevolve schedule status | log 美化印出近期 JSONL 執行；schedule status 顯示 LaunchAgent 狀態 | log 顯示近期執行條目，schedule status 回報 registered/not（已註冊／否） | cli | 已透過 doctor 驗證：上次執行 2026-05-30 green，排程已註冊。--once/--watch 會更動程式碼 — 唯讀下用 log/digest/schedule-status。 |
-| ☐ | CHA-008 | **phantom skill run (Hermes Skill runtime)（技能執行環境）** | cli | phantom skill run path/to/skill.md --dry-run | 列出將執行的步驟（dry-run 不會生出任何東西） | Dry-run（試跑）印出規劃的步驟而不執行 | cli | 實驗性：需要以 --features experimental-hermes-curator 建置；目前 rc binary 可能回報不可用。 |
+| ☐ | CHA-008 | **phantom skill run (skill bank 技能執行環境)** | cli | phantom skill run path/to/skill.md --dry-run | 列出將執行的步驟（dry-run 不會生出任何東西） | Dry-run（試跑）印出規劃的步驟而不執行 | cli | 實驗性：需要以 --features experimental-curator 建置；目前 rc binary 可能回報不可用。 |
 | ☐ | CHA-009 | **對話 — Chat tab (MobileConversation)** | playwright_browser | 先完成 onboarded 讓 MobileShell 渲染；確認 對話（MessageSquare）分頁為作用中（它是落地分頁） <br> 觀察空狀態歡迎詞 '嗨，我是 Phantom' 與 4 個提示建議分類（創作/學習/工作/生活） <br> 點一個建議提示，或在底部 textarea 輸入後按 Enter / 點發送（arr | 標題顯示模式（Phantom / Phantom Cluster / Phantom Provider），含一個 Zap provider-direct（直連供應商）切換與一個 cluster 開關（cluster 設定好前 disabled）。送出的使用者氣泡靠右；助理串流時顯示 'Thinking…' 指示。 | 輸入 + 發送會加上一個使用者氣泡與一個助理佔位；空狀態提示晶片與標題切換全部渲染。 | playwright_browser | 真正的回覆需要後端：本機路徑用 Tauri send_message，cluster 路徑 POST 到 coordinator /rpc/task/assign，provider 路徑用 providers wire（線路）。browser-dev 下發送會浮現人性化錯誤（例如 設定金鑰 / coordinator 不可達）。UI、切換、提示晶片、錯誤 CTA（→ /settings/clust |
 | ☐ | CHA-010 | **對話 / Conversation (sidebar /)** | playwright_browser | 點左側邊欄的 對話（route /） <br> 確認歡迎格渲染出分類 學業與考試 / 事業與財務 / 健康與生活 / 技能與成長 與可點的目標卡 <br> 在 輸入訊息... 框輸入一則訊息並按 Enter（或點發送） <br> 用 ConversationSelector 建立／切換一個對話 | 歡迎格顯示出來；發送訊息會串流出助理回覆（streamComplete）；工具呼叫透過 ToolCallDisplay 渲染；選擇器透過 list_conversations 列出對話。 | 輸入的訊息產生串流助理回應（或清楚的「provider 未設定」錯誤），且輸入在載入中時停用。 | playwright_browser | 串流使用 lib/providers + Tauri event listen；瀏覽器模式下 listen 是空操作，且 provider 呼叫需要已設定金鑰。空白／純空白輸入維持發送停用。 |
 | ☐ | CHA-011 | **LABS 目標 / Goals (/goals)** | playwright_browser | 點 Labs 下的 目標（route /goals） <br> 確認作用中目標、今日任務與每週摘要載入 <br> 開啟一個目標檢視 進度 / 里程碑 / 週期任務 / check-ins（簽到） | goals_list/goals_today/goals_weekly_summary 填入清單；選取一個目標會呼叫 goals_progress/milestones/recurring_tasks/checkins。 | 目標檢視渲染而不崩潰；選取目標載入其詳情子面板（或優雅的空陣列）。 | playwright_browser | 所有 goals_* 都是 Tauri invoke 指令，含 .catch 退回空；以 daemon 為後端。 |
 | ☐ | CHA-012 | **LABS 瀏覽器 / Browser (/browser)** | real_app_only | 點 Labs 下的 瀏覽器（route /browser） <br> 輸入一個 URL 並觸發 navigate（browser_navigate） <br> 觀察 current_url 更新與動作記錄 | browser_navigate 驅動後端瀏覽器；current_url 輪詢／更新，動作被記錄。 | 導覽更新顯示的 current_url（或顯示清楚的「後端不可用」狀態）。 | real_app_only | 需要後端 browser-control（瀏覽器控制）daemon；無它時純 webview 中為空操作／空。 |
 | ☐ | CHA-013 | **LABS 頁面 / PageViewer (/pages)** | playwright_browser | 點 Labs 下的 頁面（route /pages） <br> 確認頁面清單／檢視器渲染 | PageViewer 渲染擷取頁面的介面。 | 路由載入 PageViewer 元件而不崩潰。 | playwright_browser | 取決於後端頁面產物；無瀏覽器管線時很可能為空。 |
 | ☐ | CHA-014 | **設定 → 進化 / EvolutionPanel (/settings/evolution)** | playwright_browser | 點 設定 再點 進化 <br> 在 已安裝技能 / 已安裝 Plugin / 自動調適記錄 分頁間切換 | 進化系統 頁面渲染三個分頁區段，列出 skills、plugins 與調適記錄。 | 三個分頁都能切換並渲染各自清單（或空狀態）。 | playwright_browser | 唯讀檢視（只有分頁；這裡沒有即時 evolve 觸發按鈕）。以 daemon 為後端；/evolution 舊路由轉址到此。 |
-| ☐ | CHA-015 | **Autoevolve schedule (hourly LaunchAgent) + queue + digest** | cli | phantom autoevolve schedule status <br> phantom autoevolve --once --no-commit <br> phantom autoevolve digest --since-hours 24 --json <br> echo '<task>' >> ~/.phantom-mesh/autoevolve.queue.txt   # enqueue | schedule status 顯示 registered:yes、interval 3600s、plist 路徑、queue N pending、failed N 條。--once --no-commit 跑一輪但不 commit。digest --json 輸出一份 JSON 摘要。 | schedule status 回傳 registered:yes interval 3600s；--once --no-commit exit 0。 | cli | ⚠️ 乾跑用 `--no-commit`，**不要用 `--dry-run`**：`--dry-run` 不是合法旗標、會被靜默忽略，導致 autoevolve 以 commit=ON 真實執行並可能更動程式碼/git。已實機驗證：registered yes、interval 3600s、0 pending、2 failed。selftest 檔 40（autoevolve --once --no-commit）、45（queue FIFO 先進先出）、85（digest --json）。--distributed (-D) 把失敗測試扇出到各 peer。 |
+| ☐ | CHA-015 | **Autoevolve schedule (hourly LaunchAgent) + queue + digest** | cli | phantom autoevolve schedule status <br> phantom autoevolve --once --no-commit <br> phantom autoevolve digest --since-hours 24 --json <br> echo '<task>' >> "${PHANTOM_HOME:-$HOME/.phantom-mesh}/autoevolve.queue.txt"   # enqueue | schedule status 顯示 registered:yes、interval 3600s、plist 路徑、queue N pending、failed N 條。--once --no-commit 跑一輪但不 commit。digest --json 輸出一份 JSON 摘要。 | schedule status 回傳 registered:yes interval 3600s；--once --no-commit exit 0。 | cli | ⚠️ 乾跑用 `--no-commit`，**不要用 `--dry-run`**：`--dry-run` 不是合法旗標、會被靜默忽略，導致 autoevolve 以 commit=ON 真實執行並可能更動程式碼/git。已實機驗證：registered yes、interval 3600s、0 pending、2 failed。selftest 檔 40（autoevolve --once --no-commit）、45（queue FIFO 先進先出）、85（digest --json）。--distributed (-D) 把失敗測試扇出到各 peer。 |
 
 ## S3 生活擷取 Life-Track Capture （8 條）
 
@@ -116,7 +125,7 @@
 
 | ☐ | 編號 | 功能 | 介面 | 測試步驟 | 預期 | 通過判準 | 自動化 | 備註/已知缺口 |
 |---|------|------|------|----------|------|----------|--------|----------------|
-| ☐ | SVI-001 | **phantom serve** | cli | curl -s http://127.0.0.1:7878/healthz | Daemon（常駐服務）已運行於 :7878；/healthz 回傳 200 OK | GET /healthz 回傳 HTTP 200 | cli | 勿啟動第二個 serve（已有一個在 :7878，pid 16201，healthz ok）。--openclaw-telegram 加上一個 Telegram bot（token 透過 --bot-token-env）。 |
+| ☐ | SVI-001 | **phantom serve** | cli | curl -s http://127.0.0.1:7878/healthz | Daemon（常駐服務）已運行於 :7878；/healthz 回傳 200 OK | GET /healthz 回傳 HTTP 200 | cli | 勿啟動第二個 serve（已有一個在 :7878，pid 16201，healthz ok）。--remote-telegram 加上一個 Telegram bot（遠端控制；token 透過 --bot-token-env）。 |
 | ☐ | SVI-002 | **phantom service install/uninstall/status** | cli | phantom service status | status 回報 registered=yes、pid、plist 路徑、healthz ok | service status 顯示 registered + healthz ok | cli | 已實機驗證：registered yes、pid 16201、plist ai.phantommesh.serve.plist、healthz ok。install/uninstall 會更動 launchd。 |
 | ☐ | SVI-003 | **phantom mcp (stdio MCP server)（標準輸入輸出 MCP 伺服器）** | cli | printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' \\| phantom mcp | 透過 stdio 回應 MCP（模型上下文協議）工具目錄（約 50 個 mcp__phantom__* 工具） | tools/list 回傳一個列出工具的 JSON-RPC 結果 | cli | doctor 回報共 57 個工具（55 內建 + 2 cluster RPC）。已註冊為 Claude Code MCP 伺服器；透過 scripts/test-mcp-tools.sh 測試。 |
 | ☐ | SVI-004 | **phantom selftest** | cli | phantom selftest --list <br> phantom selftest --json --out /tmp/selftest.json | --list 顯示已註冊功能；完整執行產出表格 + JSON 報告 | selftest 執行已註冊的功能檔並回報每個功能的 pass/fail | cli | 對 COORD daemon 執行 scripts/selftest.d/*。較重；--feature/--p0-only 縮窄範圍。 |

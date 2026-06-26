@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# ⛔ GATED (2026-06-07): 閘門前禁跑(ACCEL doc §③)。
+if [ "${PHANTOM_GATE_PASSED:-0}" != "1" ] && [ "${1:-}" != "--break-glass" ]; then
+  echo "GATED: partner app 未過 7 天真用閘門 (docs/ACCEL-FRAMEWORK-AS-PHANTOM-FEATURE.md §③)。" >&2
+  echo "解法: 過閘後 PHANTOM_GATE_PASSED=1;或 --break-glass(手動逃生,輸出只准寫 ~/.phantom-mesh/dev-loop-log.jsonl)。" >&2
+  exit 2
+fi
+
 # phantom self-evolve: run phantom evolve on its own codebase
 # Usage: ./scripts/self-evolve.sh [rounds]
 #

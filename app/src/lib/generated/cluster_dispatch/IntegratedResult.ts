@@ -7,4 +7,10 @@
  * (`max(completed_at_ms) - min(started_at_ms)`) since subtasks run
  * concurrently (0 when nothing completed).
  */
-export type IntegratedResult = { markdown: string, succeeded: number, failed: number, totalLatencyMs: bigint, };
+export type IntegratedResult = { markdown: string, succeeded: number, failed: number, totalLatencyMs: bigint, 
+/**
+ * Sum of every subtask's `cost_usd` (SPEC-26 J5 — the "$0.0238 across N
+ * machines" headline). Per the G6 invariant the master decompose/integrate
+ * step costs 0, so this equals exactly the sum of per-subtask costs.
+ */
+totalCostUsd: number, };

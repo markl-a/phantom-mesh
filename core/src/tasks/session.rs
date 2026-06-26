@@ -38,9 +38,8 @@ fn sessions_root() -> PathBuf {
     if let Ok(p) = std::env::var("PHANTOM_SESSIONS_DIR") {
         return PathBuf::from(p);
     }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
         .join("sessions")
 }
 

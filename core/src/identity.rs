@@ -167,10 +167,15 @@ pub fn fingerprint_identity(bytes: &[u8]) -> String {
 }
 
 /// Path to `~/.phantom-mesh/keys/`.
+///
+/// Routed through the canonical `phantom_data_dir()` (I6/#322) so the identity
+/// keys, `identity.key`, and every other phantom state file share ONE data root
+/// — honoring `PHANTOM_HOME` / `$HOME` on Windows. This keeps the W3 DPAPI
+/// write/read paths from splitting off onto a different root than the rest of
+/// the codebase. Falls back to `./.phantom-mesh` exactly as before.
 pub fn keys_dir() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
         .join("keys")
 }
 
@@ -280,12 +285,88 @@ pub fn init(force: bool) -> Result<InitOutcome> {
     })
 }
 
+/// Outcome of `phantom keys reset` — which of the three identity files were
+/// present and removed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ResetOutcome {
+    /// `keys/ed25519.priv` existed and was removed.
+    pub removed_priv: bool,
+    /// `keys/ed25519.pub` existed and was removed.
+    pub removed_pub: bool,
+    /// `identity.key` (per-device root IKM) existed and was removed.
+    pub removed_root: bool,
+}
+
+impl ResetOutcome {
+    /// True when nothing was present to remove — reset is idempotent, so a
+    /// re-run on an already-clean home is a successful no-op.
+    pub fn was_noop(&self) -> bool {
+        !self.removed_priv && !self.removed_pub && !self.removed_root
+    }
+}
+
+/// SYS-D (operator-locked 2026-06-13) symmetric undo of `phantom keys init`:
+/// delete this machine's ed25519 keypair (`keys/ed25519.{priv,pub}`) and the
+/// per-device root identity key (`identity.key`), returning `~/.phantom-mesh`
+/// to its pre-`keys init` baseline so a fresh init can re-mint cleanly. Minting
+/// an identity must NOT be a one-way street (the SYS-D gap this closes).
+///
+/// Idempotent — removing an already-absent file is not an error, so a re-run
+/// after a partial reset still succeeds.
+///
+/// DESTRUCTIVE: orphans every signature issued by the old key and makes every
+/// event encrypted under the old `identity.key` undecryptable. The CLI gates
+/// this behind an explicit `--yes` confirmation; this function assumes the
+/// caller already confirmed.
+pub fn reset() -> Result<ResetOutcome> {
+    reset_in(&phantom_mesh_dir())
+}
+
+/// Path-injectable core of [`reset`] — `dir` is the `.phantom-mesh` directory.
+/// Kept separate so tests target a tempdir without mutating process-global
+/// `$HOME` / `PHANTOM_HOME` (mirrors [`ensure_root_identity_key_in`]).
+pub fn reset_in(dir: &Path) -> Result<ResetOutcome> {
+    let keys_dir = dir.join("keys");
+    let removed_priv = remove_if_present(&keys_dir.join("ed25519.priv"))?;
+    let removed_pub = remove_if_present(&keys_dir.join("ed25519.pub"))?;
+    let removed_root = remove_if_present(&dir.join("identity.key"))?;
+    // Fully restore the pre-init baseline: `keys init` created the `keys/`
+    // directory, so remove it too once reset emptied it. Best-effort — only an
+    // EMPTY dir is removed (`remove_dir` errors on a non-empty dir, e.g. if the
+    // user kept their own files under `keys/`, in which case we keep it), and an
+    // already-absent dir is a no-op. This is what makes reset symmetric to init.
+    if keys_dir.exists() {
+        let _ = fs::remove_dir(&keys_dir);
+    }
+    Ok(ResetOutcome { removed_priv, removed_pub, removed_root })
+}
+
+/// Remove `path`. `Ok(true)` when a file was removed, `Ok(false)` when it was
+/// already absent. Idempotent helper for [`reset_in`]. Removal is attempted
+/// directly (no `exists()` pre-check) so there is no TOCTOU window — a
+/// concurrently-vanished file maps to `Ok(false)`, not an error.
+fn remove_if_present(path: &Path) -> Result<bool> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(anyhow!("removing {}: {e}", path.display())),
+    }
+}
+
 /// Load this machine's signing key from disk. Errors if the keypair
 /// hasn't been initialised yet (`phantom keys init` first).
 pub fn load_signing_key() -> Result<SigningKey> {
     let path = priv_key_path();
     let bytes = fs::read(&path)
         .with_context(|| format!("reading {} — run `phantom keys init` first", path.display()))?;
+    // W3: on Windows the seed is DPAPI-wrapped at rest; unwrap it back to the
+    // raw 32-byte seed. `Ok(None)` = legacy plaintext (use bytes as-is).
+    let bytes = match crate::identity_wire::unprotect_at_rest(&bytes)
+        .map_err(|e| anyhow!("unwrapping DPAPI-protected {}: {e}", path.display()))?
+    {
+        Some(seed) => seed,
+        None => bytes,
+    };
     if bytes.len() != SECRET_KEY_LENGTH {
         return Err(anyhow!(
             "{} is {} bytes, expected {}",
@@ -367,10 +448,11 @@ fn write_priv_secure(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 #[cfg(not(unix))]
 fn write_priv_secure(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    // Windows: no chmod equivalent in std; rely on filesystem ACL.
-    // The file is per-user under %APPDATA% which has user-only ACL by
-    // default on standard Windows installs.
-    fs::write(path, bytes)
+    // Windows (W3): no chmod equivalent in std. NTFS ACL alone leaves the seed
+    // recoverable by a raw file copy, so wrap it per-user with DPAPI at rest
+    // (MAGIC || CryptProtectData) to match the app's keystore. `load_signing_key`
+    // detects the magic and unwraps; legacy plaintext files still load.
+    fs::write(path, crate::identity_wire::protect_at_rest(bytes))
 }
 
 /// Like `write_priv_secure` but fails with `AlreadyExists` instead of
@@ -393,11 +475,15 @@ fn write_new_secure(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn write_new_secure(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+    // Windows (W3): DPAPI-wrap the root IKM at rest (see write_priv_secure).
+    // `create_new` still gives the atomic no-clobber first-boot guarantee; only
+    // the on-disk bytes change. `load_event_key` detects the magic and unwraps.
+    let payload = crate::identity_wire::protect_at_rest(bytes);
     let mut f = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)?;
-    f.write_all(bytes)
+    f.write_all(&payload)
 }
 
 #[cfg(test)]
@@ -459,6 +545,31 @@ mod tests {
         assert!(key.is_ok(), "load_event_key must succeed on the provisioned key");
     }
 
+    /// P0-7 S1 — identity creation is OFFLINE by construction. The keypair +
+    /// root IKM are minted from the OS CSPRNG and the filesystem only; this
+    /// module must never reach for an HTTP client. A self-scan of the source
+    /// documents that invariant in-tree (the real enforcement is the
+    /// `p0_7_identity_offline_hermetic` integration test + the
+    /// `p0_7_no_boot_network_static` gate). Kept tiny on purpose.
+    #[test]
+    fn identity_creation_has_no_network_symbol() {
+        let src = include_str!("identity.rs");
+        // Build the needles from fragments so the literals do NOT appear
+        // verbatim in this source — otherwise the self-scan would match its
+        // own assertion lines.
+        let http_client = concat!("req", "west");
+        let http_url = concat!("ht", "tp://");
+        let https_url = concat!("ht", "tps://");
+        assert!(
+            !src.contains(http_client),
+            "identity.rs must not pull in an HTTP client — keys are made offline"
+        );
+        assert!(
+            !src.contains(http_url) && !src.contains(https_url),
+            "identity.rs must not reference any remote URL — keys never leave the device"
+        );
+    }
+
     #[test]
     fn sign_and_verify_round_trip() {
         let tmp = tempdir().unwrap();
@@ -498,5 +609,92 @@ mod tests {
         assert!(verify("not-hex", b"x", &"00".repeat(64)).is_err());
         assert!(verify(&"00".repeat(31), b"x", &"00".repeat(64)).is_err()); // wrong pub len
         assert!(verify(&"00".repeat(32), b"x", &"00".repeat(63)).is_err()); // wrong sig len
+    }
+
+    #[test]
+    #[allow(deprecated)] // exercises the real (legacy) init() public path
+    fn keys_init_then_reset_returns_to_baseline() {
+        // SYS-D round-trip: `phantom keys init` mints the keypair + root IKM;
+        // `phantom keys reset` is the symmetric undo that returns the home to
+        // its pre-init baseline so a fresh init can re-mint cleanly. Hermetic
+        // via PHANTOM_HOME (the verbatim data-root) under env_lock.
+        let _env = crate::env_lock::acquire();
+        let tmp = tempdir().unwrap();
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
+                    None => std::env::remove_var("PHANTOM_HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("PHANTOM_HOME");
+        std::env::set_var("PHANTOM_HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        // Baseline: nothing minted yet.
+        assert!(
+            !priv_key_path().exists() && !pub_key_path().exists() && !root_identity_key_path().exists(),
+            "a fresh home must have no identity files"
+        );
+
+        // DO: init mints both the ed25519 keypair and the per-device root IKM.
+        let out = init(false).expect("keys init");
+        assert!(out.created, "first init must create the keypair");
+        assert!(priv_key_path().exists(), "ed25519.priv minted");
+        assert!(pub_key_path().exists(), "ed25519.pub minted");
+        assert!(root_identity_key_path().exists(), "identity.key minted");
+
+        // UNDO: reset removes all three → baseline restored.
+        let r = reset().expect("keys reset");
+        assert_eq!(
+            r,
+            ResetOutcome { removed_priv: true, removed_pub: true, removed_root: true },
+            "reset removes the keypair + root IKM"
+        );
+        assert!(
+            !priv_key_path().exists() && !pub_key_path().exists() && !root_identity_key_path().exists(),
+            "after reset the home is back to baseline"
+        );
+        assert!(
+            !keys_dir().exists(),
+            "reset removes the now-empty keys/ dir too — full pre-init baseline"
+        );
+
+        // SYMMETRY: a fresh init after reset re-mints cleanly (not a one-way street).
+        let out2 = init(false).expect("re-init after reset");
+        assert!(out2.created, "init after reset must re-mint, not report 'already exists'");
+
+        // Idempotent: reset on an already-clean home is a successful no-op.
+        let _ = reset().expect("reset the re-minted keys");
+        let noop = reset().expect("reset on clean home");
+        assert!(noop.was_noop(), "reset on an already-clean home is a no-op");
+    }
+
+    #[test]
+    fn reset_in_is_idempotent_and_path_injected() {
+        // Path-injected core: hermetic, no env mutation (mirrors the
+        // ensure_root_identity_key_in tests).
+        let tmp = tempdir().unwrap();
+        let dir = tmp.path().join(".phantom-mesh");
+        fs::create_dir_all(dir.join("keys")).unwrap();
+        fs::write(dir.join("keys").join("ed25519.priv"), b"seed").unwrap();
+        fs::write(dir.join("keys").join("ed25519.pub"), b"pub\n").unwrap();
+        ensure_root_identity_key_in(&dir).unwrap(); // lays down identity.key
+
+        let r = reset_in(&dir).unwrap();
+        assert_eq!(
+            r,
+            ResetOutcome { removed_priv: true, removed_pub: true, removed_root: true }
+        );
+        assert!(!dir.join("keys").join("ed25519.priv").exists());
+        assert!(!dir.join("keys").join("ed25519.pub").exists());
+        assert!(!dir.join("identity.key").exists());
+        assert!(!dir.join("keys").exists(), "the emptied keys/ dir is removed too");
+
+        // Idempotent: a second reset on the now-clean dir is a no-op, not an error.
+        let again = reset_in(&dir).unwrap();
+        assert!(again.was_noop(), "second reset_in must be a successful no-op");
     }
 }

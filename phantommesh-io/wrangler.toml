@@ -4,7 +4,8 @@ compatibility_date = "2026-04-28"
 compatibility_flags = ["nodejs_compat"]
 # Cloudflare account this Worker deploys into. Replace with your account id
 # (dash.cloudflare.com → any zone → right sidebar "Account ID").
-account_id = "__CF_ACCOUNT_ID__"
+# account_id is supplied at deploy via CLOUDFLARE_ACCOUNT_ID (wrangler-action input / env)
+# so it is never hardcoded here — keeps the public OSS mirror clean and avoids drift.
 
 # Bound to the live phantommesh.io zone (NS already on Cloudflare per
 # DNS probe 2026-05-03). The Worker takes precedence over the existing
@@ -18,17 +19,17 @@ routes = [
 [[d1_databases]]
 binding       = "DB"
 database_name = "phantommesh-prod"
-database_id   = "__D1_ID__"
+database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
 
 # ── KV (short-lived OAuth state) ──────────────────────────────────────────
 [[kv_namespaces]]
 binding = "SESSIONS"
-id      = "__KV_ID__"
+id      = "54738150373145229745d88f18a86a15"
 
 # ── R2 (signed binaries served by /dist/* and /install.ps1) ──────────────
 [[r2_buckets]]
 binding     = "BINARIES"
-bucket_name = "__R2_BUCKET__"
+bucket_name = "phantom-binaries"
 
 # ── Durable Objects ──────────────────────────────────────────────────────
 # F205: DispatchStream is one DO instance per dispatch job_id. It mirrors
@@ -45,15 +46,31 @@ class_name = "DispatchStream"
 # a backwards-incompatible way requires a NEW class_name (e.g. DispatchStreamV2)
 # at a clean release boundary — see F205 risk register row 7.
 [[migrations]]
-tag          = "v1-dispatch-stream"
-new_classes  = ["DispatchStream"]
+tag              = "v1-dispatch-stream"
+# SQLite-backed DO: required on the Workers free plan (classic key-value
+# `new_classes` is rejected with error 10097 there) and the modern default.
+# Backwards-compatible with the existing storage KV API; safe because this
+# DO has never been deployed (it postdates the last live build, 2026-05-05).
+new_sqlite_classes = ["DispatchStream"]
 
 # ── Vars (non-secret) ─────────────────────────────────────────────────────
 [vars]
 APP_URL                = "https://phantommesh.io"
 GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.googleusercontent.com"
 BROKER_TOKEN_TTL_SECS  = "604800"      # 7 days
-BROKER_VERSION         = "0.1.3-multi-tenant-2026-05-05"
+BROKER_VERSION         = "0.1.4-2026-06-07"
+# Apple Sign In (non-secret config). Leave empty to keep the Apple flow
+# dark — the login button + /api/health "apple" only appear when all four
+# (these three + the APPLE_PRIVATE_KEY secret) are set. To enable:
+#   APPLE_CLIENT_ID = the Services ID (e.g. io.phantommesh.signin)
+#   APPLE_TEAM_ID   = 10-char Apple Developer Team ID
+#   APPLE_KEY_ID    = 10-char key id for the AuthKey_<KEY_ID>.p8
+# then: wrangler secret put APPLE_PRIVATE_KEY   # paste the .p8 PEM
+# Apple's redirect URI (set in the Services ID config) must be
+#   https://phantommesh.io/auth/apple/callback
+APPLE_CLIENT_ID        = ""
+APPLE_TEAM_ID          = ""
+APPLE_KEY_ID           = ""
 # Cloudflare Web Analytics beacon token — leave empty to disable.
 # Get one at: dash.cloudflare.com → Web Analytics → Add a site →
 # select "Manual setup" → copy the data-cf-beacon "token" value.
@@ -63,6 +80,7 @@ CF_ANALYTICS_TOKEN     = ""
 # ── Secrets (set via `wrangler secret put`) ───────────────────────────────
 # wrangler secret put GOOGLE_CLIENT_SECRET
 # wrangler secret put BROKER_JWT_SECRET    # any 32+ random bytes
+# wrangler secret put APPLE_PRIVATE_KEY    # optional — .p8 PEM for Apple
 
 # ─────────────────────────────────────────────────────────────────────────
 # STAGING ENV — for Mac local manual deploys, experiments, branch preview.

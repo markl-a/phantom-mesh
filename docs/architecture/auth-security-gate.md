@@ -28,7 +28,7 @@ phantom 節點（node，網路節點）對話，以及已連線的代理（agent
 | `core/src/permission.rs` | `Tool(specifier)` 規則 DSL + `Engine::evaluate`（allow/ask/deny）、bash 重新導向（redirect）強化、deny-wins（拒絕優先）排序。 |
 | `core/src/mesh.rs` | `ClusterManager::make_auth_token` / `verify_auth` — 閘門實際呼叫的 HMAC-SHA256 鑄造（mint）+ 常數時間驗證。 |
 | `core/src/serve.rs` | UI/serve 路由器；在每個受保護的處理器（handler）上呼叫 `require_cluster_auth`。 |
-| `core/src/serve_hermes.rs` | Hermes RPC 路由器；透過共享閘門使用相同的 `X-Cluster-Auth` HMAC 機制。 |
+| `core/src/serve_skillbank.rs` | 技能庫（skill bank）RPC 路由器；透過共享閘門使用相同的 `X-Cluster-Auth` HMAC 機制。 |
 | `core/src/main.rs` | Daemon 路由器（`build_router`）；為 `/agent/:name/run*` 重複使用相同的閘門。 |
 | `app/src/components/settings/SecurityPanel.tsx` | 前端設定面板，顯示工具權限稽核紀錄（audit log）（allow/block/review，允許／封鎖／審查）。 |
 | `app/src/components/onboarding/StepSecurity.tsx` | 上手導引（onboarding）步驟，向使用者呈現安全／權限的設定。 |
@@ -38,7 +38,7 @@ phantom 節點（node，網路節點）對話，以及已連線的代理（agent
 ```mermaid
 sequenceDiagram
     participant Caller as "對等節點／代理"
-    participant Router as "路由器（serve / hermes / daemon）"
+    participant Router as "路由器（serve / skillbank / daemon）"
     participant Gate as "auth_gate::require_cluster_auth"
     participant CM as "ClusterManager (mesh.rs)"
     participant Perm as "permission::Engine"
@@ -70,7 +70,7 @@ sequenceDiagram
 ## 擴充點
 
 - **新增受保護的端點（endpoint）** — 在新處理器的最上方呼叫 `require_cluster_auth(&state.cluster_manager,
-  &headers, &body)?`（參見 `serve.rs` / `serve_hermes.rs` / `main.rs` 中既有的處理器）。當代理轉送到另一個跳躍點（hop）時，用
+  &headers, &body)?`（參見 `serve.rs` / `serve_skillbank.rs` / `main.rs` 中既有的處理器）。當代理轉送到另一個跳躍點（hop）時，用
   `ClusterManager::make_auth_token_bytes` 重新簽署轉送的主體。
 - **新增身分供應商（identity provider）** — 擴充
   `auth.rs`（`human_summary`）中的 `provider` 比對分支，並在 `oauth.rs` 中加入該流程。

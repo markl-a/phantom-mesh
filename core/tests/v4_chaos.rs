@@ -234,7 +234,7 @@ fn v4_coach_send_email_invalid_smtp_host_returns_smtp_failed() {
 
 // ─── 8/8 — skill_wire recall_skills on absent FTS5 DB ────────────────────────
 //
-// SPEC-25: `recall_skills` is the public entry to the hermes recall stack.
+// SPEC-25: `recall_skills` is the public entry to the skill recall stack.
 // `fts5_search` (its sqlite FTS5 leg) MUST degrade to an empty hit set
 // when the DB file is absent (fresh install before SPEC-16 migration).
 // We point `HOME` + `PHANTOM_DB_PATH` at a tempdir to guarantee absence.

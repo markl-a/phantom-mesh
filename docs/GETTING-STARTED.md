@@ -238,7 +238,7 @@ curl -fsS http://<peer-ip>:7878/healthz
 
 | 目標 | 閱讀 |
 |---|---|
-| 多節點 Tailscale 拓撲（topology） | [TAILSCALE-SETUP.md](TAILSCALE-SETUP.md) |
-| 24/7 雲端節點 | [DEPLOY.md](DEPLOY.md) / [DEPLOYMENT.md](DEPLOYMENT.md) |
+| 多節點 Tailscale 拓撲（topology） | [mesh/TAILSCALE-SETUP.md](mesh/TAILSCALE-SETUP.md) |
+| 24/7 雲端節點 | [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md)（部署）／ [deploy/DEPLOY-AUTOUPDATE.md](deploy/DEPLOY-AUTOUPDATE.md)（簽章 + release CI + OTA） |
 | 架構總覽 | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | 各角色設定範本 | [`configs/`](../configs/) |

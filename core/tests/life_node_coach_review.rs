@@ -34,7 +34,10 @@ fn phantom_binary() -> Option<PathBuf> {
 #[test]
 fn coach_review_outputs_markdown_referencing_seeded_event() {
     let Some(bin) = phantom_binary() else {
-        eprintln!("SKIP: phantom binary not found — build with `cargo build --bin phantom`");
+        eprintln!(
+            "SKIPPED: coach_review_outputs_markdown_referencing_seeded_event — phantom \
+             binary not found (build with `cargo build --bin phantom`)"
+        );
         return;
     };
 
@@ -118,7 +121,7 @@ fn coach_review_outputs_markdown_referencing_seeded_event() {
 #[test]
 fn coach_review_save_flag_writes_reviews_dir() {
     let Some(bin) = phantom_binary() else {
-        eprintln!("SKIP: phantom binary not found");
+        eprintln!("SKIPPED: coach_review_save_flag_writes_reviews_dir — phantom binary not found");
         return;
     };
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -151,7 +154,10 @@ fn coach_review_save_flag_writes_reviews_dir() {
 #[test]
 fn coach_review_save_encrypts_when_identity_key_present() {
     let Some(bin) = phantom_binary() else {
-        eprintln!("SKIP: phantom binary not found");
+        eprintln!(
+            "SKIPPED: coach_review_save_encrypts_when_identity_key_present — phantom \
+             binary not found"
+        );
         return;
     };
     let tmp = tempfile::tempdir().expect("tempdir");

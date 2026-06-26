@@ -25,6 +25,11 @@
 *.css          text eol=lf
 *.svelte       text eol=lf
 *.html         text eol=lf
+# Plain-text test fixtures (e.g. the shame-free 100/100 battery) — LF so the
+# byte content is identical on Windows + WSL + CI (autocrlf must not flip them).
+*.txt          text eol=lf
+# Golden-output artifacts — LF, byte-exact across platforms (SPEC-23 §G5 parity).
+*.golden.md    text eol=lf
 
 # Cargo + npm lockfiles — LF (canonical)
 Cargo.lock     text eol=lf

@@ -51,9 +51,9 @@ fn events(limit: usize) -> String {
 }
 
 fn crashes(limit: usize) -> String {
-    let dir = match dirs::home_dir() {
-        Some(h) => h.join(".phantom-mesh/crashes"),
-        None => return "[diag] no home dir".to_string(),
+    let dir = match crate::cli_config::phantom_data_dir() {
+        Ok(d) => d.join("crashes"),
+        Err(_) => return "[diag] no home dir".to_string(),
     };
     let entries = match std::fs::read_dir(&dir) {
         Ok(e) => e,
@@ -71,7 +71,7 @@ fn crashes(limit: usize) -> String {
     if paths.is_empty() {
         return format!("[diag] no crashes recorded ({})", dir.display());
     }
-    paths.sort_by(|a, b| b.0.cmp(&a.0));
+    paths.sort_by_key(|p| std::cmp::Reverse(p.0));
     paths.truncate(limit);
     let mut out = format!("=== {} most recent crash log(s) ===\n", paths.len());
     for (modified, path) in &paths {
@@ -116,7 +116,7 @@ fn last_crash() -> String {
 
 fn summary() -> String {
     let events = crate::diag::snapshot();
-    let dir = dirs::home_dir().map(|h| h.join(".phantom-mesh/crashes"));
+    let dir = crate::cli_config::phantom_data_dir().ok().map(|d| d.join("crashes"));
     let crash_count: usize = dir
         .as_ref()
         .and_then(|d| std::fs::read_dir(d).ok())
@@ -129,7 +129,7 @@ fn summary() -> String {
         *counts.entry(ev.kind.clone()).or_insert(0) += 1;
     }
     let mut sorted: Vec<(String, usize)> = counts.into_iter().collect();
-    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted.sort_by_key(|kc| std::cmp::Reverse(kc.1));
 
     let mut out = String::from("=== phantom diag summary ===\n");
     out.push_str(&format!("events in ring : {}\n", events.len()));

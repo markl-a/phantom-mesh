@@ -1,9 +1,11 @@
+> ⚠️ 架構參考 only — 本檔早於 2026-05-19 Life-Node pivot,描述已實作 daemon 架構但非現行產品範圍。治理見 superpowers/GOVERNANCE.md。
+
 # Phantom Mesh 架構
 
 [English version](ARCHITECTURE.md)
 
 > 本文件是 `ARCHITECTURE.md` 的繁體中文閱讀版。產品方向仍以
-> [`superpowers/BIG-GOAL.zh-TW.md`](superpowers/BIG-GOAL.zh-TW.md) 為準。
+> [`superpowers/BIG-GOAL.md`](superpowers/BIG-GOAL.md)（已是繁中正本）為準。
 
 ## 1. 概觀
 
@@ -224,7 +226,7 @@ GET  /rpc/task/status/<job_id>
 GET  /rpc/peers
 ```
 
-Life Node 與 Hermes APIs 另外由 `serve.rs` 提供。
+Life Node 與技能庫(skill bank) APIs 另外由 `serve.rs` 提供。
 
 ## 5. 設定
 
@@ -286,7 +288,7 @@ Life Node events 依 UUID 分目錄保存。v0.6.0 已透過 age v1 at-rest encr
 
 ### memory.db
 
-Hermes FTS5 memory backend。用於 skill store、recall 與搜尋。目前完整加密仍是
+技能庫(skill bank) FTS5 memory backend。用於 skill store、recall 與搜尋。目前完整加密仍是
 v0.7.0+ 工作。
 
 ### costs.json

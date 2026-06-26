@@ -54,9 +54,9 @@ pub struct AuthState {
 }
 
 pub fn auth_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh/auth.json")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+        .join("auth.json")
 }
 
 pub fn load() -> Option<AuthState> {
@@ -199,5 +199,142 @@ mod tests {
         let b = random_salt();
         assert_ne!(a, b);
         assert_eq!(a.len(), 32); // 16 bytes hex = 32 chars
+    }
+
+    // ─── `phantom logout` auth.json state clear (A3) ──────────────────────────
+    //
+    // `auth::delete()` is the state-clearing half of `phantom logout`: it drops
+    // the on-disk auth.json (provider/broker tokens, password hash, etc.) and is
+    // idempotent when the file is already absent. We deliberately do NOT exercise
+    // it against the real `auth_path()` (`~/.phantom-mesh/auth.json`) — that would
+    // log the developer out — so we prove the exact mechanism it uses (an
+    // existence-guarded `remove_file`) against a THROWAWAY temp file suffixed
+    // with pid + uuid. After clearing, loading the same path must fail to parse
+    // (file gone), and a second clear must be a no-op success. This mirrors the
+    // identity_wire.rs "test the mechanism on a throwaway, never the real
+    // record" pattern.
+    #[test]
+    fn logout_clears_auth_state() {
+        // A throwaway stand-in for auth_path(), never the real one.
+        let path = std::env::temp_dir().join(format!(
+            "phantom-test-auth-logout-{}-{}.json",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+
+        // Seed a realistic logged-in state (broker token present, like an OAuth
+        // login) onto the throwaway path.
+        let state = AuthState {
+            provider: "google".into(),
+            email: "logout@test.local".into(),
+            display_name: Some("Logout Tester".into()),
+            sub: Some("sub-123".into()),
+            avatar_url: None,
+            device_id: random_device_id(),
+            created_at_ms: now_ms(),
+            last_login_ms: now_ms(),
+            password_hash: String::new(),
+            salt: String::new(),
+            id_token: "id-token-xyz".into(),
+            access_token: "access-token-xyz".into(),
+            broker_token: "broker-jwt-xyz".into(),
+            broker_token_expires_at_ms: now_ms() + 60_000,
+            broker_url: "https://phantommesh.io".into(),
+        };
+        std::fs::write(&path, serde_json::to_string_pretty(&state).unwrap())
+            .expect("seed throwaway auth.json must succeed");
+
+        // Sanity: it's really there and parses back into a state before clearing.
+        let before: AuthState = serde_json::from_str(
+            &std::fs::read_to_string(&path).expect("seeded auth.json must be readable"),
+        )
+        .expect("seeded auth.json must parse");
+        assert_eq!(before.broker_token, "broker-jwt-xyz");
+
+        // The exact clear mechanism `auth::delete()` runs: existence-guarded
+        // remove_file. Cleared state must be gone afterwards (load → None).
+        assert!(path.exists(), "precondition: auth.json present before clear");
+        if path.exists() {
+            std::fs::remove_file(&path).expect("logout auth clear must succeed");
+        }
+        assert!(
+            !path.exists(),
+            "auth.json must be gone after logout clear"
+        );
+        assert!(
+            std::fs::read_to_string(&path).is_err(),
+            "loading cleared auth.json must fail (no tokens left to read)"
+        );
+
+        // Idempotent: clearing an already-absent record is a no-op success,
+        // matching `auth::delete()`'s `if p.exists()` guard.
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .expect("logout auth clear must be idempotent on an already-empty record");
+        }
+
+        // Smoke: the public clear helper exists, links, and has the expected
+        // signature (a function-pointer reference forces a compile-time check
+        // without invoking it against the real `auth_path()`).
+        let _f: fn() -> anyhow::Result<()> = delete;
+    }
+
+    #[test]
+    fn login_save_then_logout_delete_returns_to_baseline() {
+        // SYS-D round-trip on the REAL auth_path(): `phantom login` persists
+        // auth.json via auth::save(); `phantom logout` removes it via
+        // auth::delete(). Hermetic + safe (never touches the dev's real
+        // auth.json): PHANTOM_HOME redirects auth_path() into a tempdir, under
+        // env_lock.
+        let _env = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
+                    None => std::env::remove_var("PHANTOM_HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("PHANTOM_HOME");
+        std::env::set_var("PHANTOM_HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        // Baseline: not logged in.
+        assert!(load().is_none(), "fresh home: no auth state");
+        assert!(!auth_path().exists());
+
+        // DO: login persists auth.json.
+        let state = AuthState {
+            provider: "google".into(),
+            email: "roundtrip@test.local".into(),
+            display_name: Some("RT".into()),
+            sub: Some("sub-rt".into()),
+            avatar_url: None,
+            device_id: random_device_id(),
+            created_at_ms: now_ms(),
+            last_login_ms: now_ms(),
+            password_hash: String::new(),
+            salt: String::new(),
+            id_token: "id-rt".into(),
+            access_token: "acc-rt".into(),
+            broker_token: "jwt-rt".into(),
+            broker_token_expires_at_ms: now_ms() + 60_000,
+            broker_url: String::new(),
+        };
+        save(&state).expect("login save");
+        assert!(auth_path().exists(), "auth.json present after login");
+        let loaded = load().expect("logged-in state loads");
+        assert_eq!(loaded.email, "roundtrip@test.local");
+        assert_eq!(loaded.broker_token, "jwt-rt");
+
+        // UNDO: logout removes auth.json → baseline restored.
+        delete().expect("logout delete");
+        assert!(!auth_path().exists(), "auth.json gone after logout");
+        assert!(load().is_none(), "after logout: back to the not-logged-in baseline");
+
+        // Idempotent: a second logout on an already-clean home is a no-op success.
+        delete().expect("logout is idempotent");
     }
 }

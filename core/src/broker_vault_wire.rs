@@ -135,8 +135,9 @@ impl std::fmt::Debug for VaultSealKey {
 /// 中文: 從 `~/.phantom-mesh/vault-seal.key` 載入 per-account seal key（base64url
 /// 32 byte）。公開給 app crate 用；檔案缺失/損毀回 Err,呼叫端必須 fail closed。
 pub fn load_vault_seal_key() -> Result<VaultSealKey, String> {
-    let path = dirs::home_dir()
-        .map(|h| h.join(".phantom-mesh").join("vault-seal.key"))
+    let path = crate::cli_config::phantom_data_dir()
+        .ok()
+        .map(|d| d.join("vault-seal.key"))
         .ok_or_else(|| "no home dir for vault-seal.key".to_string())?;
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| format!("vault-seal.key unreadable ({}): {e}", path.display()))?;
@@ -1339,6 +1340,52 @@ mod tests {
             "sealed payload must start with age v1 magic, first 32 bytes = {:?}",
             &raw[..raw.len().min(32)]
         );
+    }
+
+    #[test]
+    fn seal_then_unseal_round_trips_plaintext() {
+        // Symmetry invariant the `unseal_vault_value` doc demands:
+        // `unseal_vault_value(seal_vault_value(p)) == p` for the same key.
+        // Without this the §7 read path was never proven end-to-end.
+        let key = VaultSealKey { bytes: [0x44u8; 32] };
+        for plaintext in [
+            &b""[..],
+            &b"x"[..],
+            &b"super-secret-api-token-value"[..],
+            &[0u8; 1024][..],
+        ] {
+            let sealed = seal_vault_value(plaintext, &key).expect("seal");
+            let recovered = unseal_vault_value(&sealed, &key).expect("unseal");
+            assert_eq!(recovered, plaintext, "round trip must recover plaintext");
+        }
+    }
+
+    #[test]
+    fn unseal_with_wrong_key_fails() {
+        // A different seal key derives a different x25519 identity → the age
+        // recipient stanza will not decrypt → NetworkError (not a panic, not a
+        // wrong-but-successful plaintext).
+        let key = VaultSealKey { bytes: [0x44u8; 32] };
+        let other = VaultSealKey { bytes: [0x45u8; 32] };
+        let sealed = seal_vault_value(b"secret", &key).expect("seal");
+        let err = unseal_vault_value(&sealed, &other).unwrap_err();
+        assert!(matches!(err, BrokerError::NetworkError { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn unseal_rejects_non_base64url_and_garbage_ciphertext() {
+        let key = VaultSealKey { bytes: [0x44u8; 32] };
+        // Not valid base64url at all.
+        assert!(matches!(
+            unseal_vault_value("not base64!!!", &key).unwrap_err(),
+            BrokerError::NetworkError { .. }
+        ));
+        // Valid base64url but not an age blob.
+        let junk = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"definitely not age");
+        assert!(matches!(
+            unseal_vault_value(&junk, &key).unwrap_err(),
+            BrokerError::NetworkError { .. }
+        ));
     }
 
     #[test]

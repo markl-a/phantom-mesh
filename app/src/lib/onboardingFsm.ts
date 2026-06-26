@@ -4,9 +4,9 @@
 //
 // Why this module exists
 // ----------------------
-// 4 React components (`MobileFirstLaunch`, `MobileOnboardingV2`,
-// `MobileJoinCluster`, `OnboardingQuickStart`) all advance the same FSM
-// at slightly different moments. Each needs to:
+// Several React components (`OnboardingHello` — the desktop+mobile D1–D5
+// flow — plus the legacy `MobileOnboardingV2` / `MobileJoinCluster` paths)
+// all advance the same FSM at slightly different moments. Each needs to:
 //   1. load / persist the current `OnboardingStateSnapshot` + `OnboardingContext`
 //   2. call `onboarding_advance` whenever the user finishes a step
 //   3. call `onboarding_rollback` when the user backs out of a half-joined
@@ -34,11 +34,15 @@ const CONTEXT_KEY = "phantom_mesh_onboarding_context";
 /** Wire layer panic prefix — see commands/onboarding_wire.rs `NOT_YET_WIRED`. */
 const NOT_YET_WIRED_PREFIX = "onboarding.not_yet_wired";
 
-/** Forward order per SPEC-28 §7.1. Mirrors `core/src/onboarding_wire.rs`. */
+/** Forward order for the GUI D1–D5 flow. Mirrors the reachable forward edges
+ *  in `core/src/onboarding_wire.rs` `fsm_table_pseudo`.
+ *
+ *  D2 (English-only): `picked_language` is removed — `fresh_install` advances
+ *  DIRECTLY into `created_identity` (D1 login-first: OAuth login + ed25519
+ *  identity happen together in that one step). 5 reachable states total. */
 export const FORWARD_ORDER: readonly OnboardingState[] = [
   "fresh_install",
-  "picked_language",
-  "created_identity",
+  "created_identity", // D1: login + identity; D2: picked_language removed
   "joined_cluster",
   "set_provider",
   "first_reply_received",
@@ -74,6 +78,8 @@ function freshContext(): OnboardingContext {
     identityFingerprint: null,
     providerSlug: null,
     demoRelayUsed: false,
+    identityProvider: null,
+    identitySub: null,
   };
 }
 
@@ -141,6 +147,8 @@ export function loadContext(): OnboardingContext {
       identityFingerprint: parsed.identityFingerprint ?? null,
       providerSlug: parsed.providerSlug ?? null,
       demoRelayUsed: Boolean(parsed.demoRelayUsed),
+      identityProvider: parsed.identityProvider ?? null,
+      identitySub: parsed.identitySub ?? null,
     };
   } catch {
     return freshContext();

@@ -19,7 +19,41 @@
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde_json::{json, Value};
-use std::net::SocketAddr;
+use std::collections::HashSet;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+/// Cached set of **all** online Tailscale peer IPv4s (via
+/// `mesh::online_tailnet_peer_ips`, which does NOT collapse peers by hostname —
+/// so two devices both named "localhost" both count). Refreshed at most every
+/// [`TAILNET_TTL`] to avoid a subprocess per request. Empty on any failure
+/// (tailscale absent / logged out) so the gate **fails closed** — an empty set
+/// trusts nobody extra.
+fn cached_trusted_tailnet_ips() -> HashSet<IpAddr> {
+    const TAILNET_TTL: Duration = Duration::from_secs(30);
+    static CACHE: OnceLock<Mutex<(Option<Instant>, HashSet<IpAddr>)>> = OnceLock::new();
+    let cell = CACHE.get_or_init(|| Mutex::new((None, HashSet::new())));
+    let mut guard = cell.lock().unwrap();
+    let stale = guard.0.map_or(true, |t| t.elapsed() >= TAILNET_TTL);
+    if stale {
+        let ips: HashSet<IpAddr> = crate::mesh::online_tailnet_peer_ips()
+            .iter()
+            .filter_map(|s| s.parse::<IpAddr>().ok())
+            .collect();
+        *guard = (Some(Instant::now()), ips);
+    }
+    guard.1.clone()
+}
+
+/// Pure decision: may a local-UI request skip the cluster HMAC based on its
+/// peer IP? Loopback is always exempt (same host). When `trust_tailnet` is on,
+/// an IP in the verified Tailscale peer set is also exempt (WireGuard already
+/// authenticated the transport). Split out so it is unit-testable without a
+/// real `tailscale` binary.
+fn local_ui_exempt(peer: IpAddr, trust_tailnet: bool, tailnet_ips: &HashSet<IpAddr>) -> bool {
+    peer.is_loopback() || (trust_tailnet && tailnet_ips.contains(&peer))
+}
 
 /// Like [`require_cluster_auth`], but additionally exempts requests that
 /// originate from the loopback interface (`127.0.0.0/8` / `::1`).
@@ -40,7 +74,13 @@ pub fn require_cluster_auth_local_ui(
     headers: &HeaderMap,
     body: &[u8],
 ) -> Result<(), (StatusCode, Json<Value>)> {
-    if peer.ip().is_loopback() {
+    let trust_tailnet = cm.config.trust_tailnet_peers;
+    let tailnet_ips = if trust_tailnet {
+        cached_trusted_tailnet_ips()
+    } else {
+        HashSet::new()
+    };
+    if local_ui_exempt(peer.ip(), trust_tailnet, &tailnet_ips) {
         return Ok(());
     }
     require_cluster_auth(cm, headers, body)
@@ -199,6 +239,26 @@ mod tests {
         h.insert("X-Cluster-Auth", token.parse().unwrap());
         let remote: std::net::SocketAddr = "100.64.1.2:443".parse().unwrap();
         assert!(require_cluster_auth_local_ui(&cm, remote, &h, body).is_ok());
+    }
+
+    #[test]
+    fn exempt_loopback_always() {
+        let empty: HashSet<IpAddr> = HashSet::new();
+        assert!(local_ui_exempt("127.0.0.1".parse().unwrap(), false, &empty));
+        assert!(local_ui_exempt("::1".parse().unwrap(), false, &empty));
+    }
+
+    #[test]
+    fn exempt_tailnet_peer_only_when_enabled_and_known() {
+        let ip: IpAddr = "100.100.100.100".parse().unwrap(); // synthetic tailnet-range peer
+        let mut set: HashSet<IpAddr> = HashSet::new();
+        set.insert(ip);
+        // trust ON + peer in the verified set → exempt
+        assert!(local_ui_exempt(ip, true, &set));
+        // trust ON + peer NOT in set → still gated (no blanket 100.64/10 trust)
+        assert!(!local_ui_exempt("100.64.1.2".parse().unwrap(), true, &set));
+        // trust OFF (opt-in) → even an in-set peer is NOT exempt
+        assert!(!local_ui_exempt(ip, false, &set));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 ```
                     ┌────────────────────────────────────────┐
                     │  ① phantom-mesh (this repo)             │
-                    │  Rust + 5 OS client + Hermes evolve     │
+                    │  Rust + 5 OS client + skill evolve      │
                     │  P1 跨裝置 / P2 多模態 / P3 evolve       │
                     │  P4 加密 / 12 provider trait / FTS5      │
                     └────────────────────────────────────────┘
@@ -37,7 +37,7 @@
 
 每天自動爬 arxiv / HN / r/LocalLLaMA,LLM 摘要進 phantom FTS5,每週六出面試題。
 
-- **基礎**:Hermes Curator + FTS5 + 12-provider trait
+- **基礎**:技能庫策展器(Curator) + FTS5 + 12-provider trait
 - **獨特**:第一個中文 AI 工程師導向 + 面試題自動生成 + on-prem RAG
 - **目標客戶**:Substack 訂閱者 + 中文 LLM 學習者(Hahow 課程)
 
@@ -98,7 +98,7 @@ phantom-mesh 上的 n8n / Zapier —從 phantom 的 trigger / RAG / skill 組成
 |---|---|
 | LLM router | provider trait(12 個 LLM) |
 | RAG / Memory | FTS5 backend |
-| Skill bank | Hermes 6-step loop |
+| Skill bank | 技能庫六步閉環 |
 | Cross-device dispatch | cluster RPC + capability-aware forwarding |
 | Encryption | HKDF-SHA256 + age v1 + per-device key |
 | Channel adapters | Telegram / Slack / WhatsApp / future SSE web |

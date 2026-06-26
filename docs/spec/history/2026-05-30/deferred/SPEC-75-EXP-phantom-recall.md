@@ -69,7 +69,7 @@
 
 ### 2.1 為什麼現在（其實是現在不做、未來做）
 
-v0.6.0 cycle 把所有預算放在 4 pillars + 2 tracks 主幹 + 7 個 Sunday-deadline epic（食物 capture / focus 計時 / habit / coach / Hermes evolve / 30s hello / release pipeline），沒有空間開新 surface。但有 4 個觀察累積出「時間層」這個方向：
+v0.6.0 cycle 把所有預算放在 4 pillars + 2 tracks 主幹 + 7 個 Sunday-deadline epic（食物 capture / focus 計時 / habit / coach / 技能庫 evolve / 30s hello / release pipeline），沒有空間開新 surface。但有 4 個觀察累積出「時間層」這個方向：
 
 1. **既有 capture wire 已 60% 寫好**——SPEC-20 / 21 / 22 已實作食物、focus、habit 三類 capture 的 event ingestion + age 加密 + sqlite 落地。Substrate 化（變成「萬物皆 chunk」）的增量成本比想像低。
 2. **dogfood 反覆撞同一問題**——Operator 自己用 phantom 一個月，最常想要的「就一個 query」是「上次跟 X 講過 Y 那段在哪」。既有 chat history 不夠（不涵蓋語音 + 螢幕）。
@@ -81,7 +81,7 @@ v0.6.0 cycle 把所有預算放在 4 pillars + 2 tracks 主幹 + 7 個 Sunday-de
 ### 2.2 在 BIG-GOAL 哪裡
 
 - **「看得到你的生活與程式」**（BIG-GOAL line 27）——這句話原本只承諾「event 當下看得到」；recall 把它延伸到「任意過去時刻可回放」。生活的時間維度從「現在」展開到「整個過往」。
-- **「越用越懂你」**（BIG-GOAL line 17）——Hermes skill bank（SPEC-25）是「行為 → 技能」的短時演進；recall 是「行為 → 永久記憶」的長時演進。兩者相補：skill 是「歸納」，recall 是「原始素材庫」。skill 想升級時可以回頭翻 recall 找更多 example。
+- **「越用越懂你」**（BIG-GOAL line 17）——skill bank 技能庫（SPEC-25）是「行為 → 技能」的短時演進；recall 是「行為 → 永久記憶」的長時演進。兩者相補：skill 是「歸納」，recall 是「原始素材庫」。skill 想升級時可以回頭翻 recall 找更多 example。
 - **「陪你進步」**（BIG-GOAL line 29，Life Track 主承諾）——You-Echo Mirror 直接服務這條：把 user 自己這週的語句 / 行為 pattern 映回他自己面前（不是 coach 來說教，是 user 自己看），是「自鏡進步」的具體機制。
 - **P1 跨裝置 Mesh** + **P2 多模態理解** + **P3 進化網** + **P4 加密為先**——同時擊中 4 個 pillar 是少見的特性，這是把 recall 升到「flagship 候選」的關鍵理由。
 
@@ -89,7 +89,7 @@ v0.6.0 cycle 把所有預算放在 4 pillars + 2 tracks 主幹 + 7 個 Sunday-de
 
 - v0.5.0：完全沒有時間層；只有當下對話 + chat history（單一 sessionId 內）。
 - v0.6.0：SPEC-16 event storage 引入 sqlite + FTS5，能搜「過去某類事件」但**沒有 audio / screen / sensor 的 raw chunk**；SPEC-20/21/22 三條 capture wire 只在 user 主動觸發時 capture（單張食物照、單次 focus session、單筆 habit chip），不是 ambient。
-- v0.6.0：SPEC-25 Hermes skill bank 把「行為 → 技能」做成 6 步迴圈，但 skill 的原始素材依賴 capture wire 觸發 — 沒有 continuous source，skill 的廣度有上限。
+- v0.6.0：SPEC-25 skill bank 技能庫把「行為 → 技能」做成 6 步迴圈，但 skill 的原始素材依賴 capture wire 觸發 — 沒有 continuous source，skill 的廣度有上限。
 
 ### 2.4 相關 spec
 
@@ -464,9 +464,9 @@ n/a（新功能 — 從零部署，無既有 user data 要轉）。
 
 **什麼條件會回來**：智慧戒指（Ultrahuman / Oura）作為 **Cognitive Ring 觸發器**（而非主 capture source）會在 v0.7.0+ 回來——但僅當 ring tap 是 trigger、capture 主源仍是 mesh peer 既有 mic / screen。
 
-### 17.4 把 recall 收進 SPEC-25 Hermes skill bank（不獨立 spec）
+### 17.4 把 recall 收進 SPEC-25 skill bank 技能庫（不獨立 spec）
 
-**方案**：把 recall 看成 Hermes skill bank 的「raw event 來源延伸」，不另立 spec、不另立 wire；既有 SPEC-25 的 6 步迴圈直接消費 continuous capture。
+**方案**：把 recall 看成 skill bank 技能庫的「raw event 來源延伸」，不另立 spec、不另立 wire；既有 SPEC-25 的 6 步迴圈直接消費 continuous capture。
 
 **為何沒選**：(a) skill bank 是「歸納後的可重用模式」，recall 是「原始 raw stream」——抽象層級不同，混在一起會讓 SPEC-25 scope 爆炸；(b) recall 的三個 surface（pull / realtime / push）跟 skill bank 的 6 步是完全不同 UX 模型，不該共 spec；(c) recall 的法律 / 隱私 / 電力風險面比 skill bank 大一個量級，需獨立 review。
 

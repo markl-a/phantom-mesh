@@ -7,7 +7,7 @@
 #   2. for at least ONE provider whose API key IS in the operator's env, a
 #      `phantom repl --agent master -c "<short prompt>"` round-trip through
 #      that provider's adapter returns a non-empty assistant response — i.e.
-#      the binary was built with `--features experimental-hermes-providers`
+#      the binary was built with `--features experimental-extra-providers`
 #      and dispatches correctly through the H4 adapter, not the openai_compat
 #      fallback.
 #
@@ -126,7 +126,7 @@ out=$( cd "$WORKDIR" && timeout 90 "$PHANTOM_BIN" repl --agent master -c "Reply 
 if printf '%s' "$out" | grep -qiE 'unknown provider type|no such provider|provider type.*not.*found'; then
   warn "skip: PHANTOM_BIN does not recognize provider type '$TARGET' — pre-H4 build."
   warn "      Rebuild from a post-PR-#25 commit with --features"
-  warn "      experimental-hermes-providers to enable this scenario."
+  warn "      experimental-extra-providers to enable this scenario."
   exit 77
 fi
 

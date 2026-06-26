@@ -51,6 +51,11 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
     BROKER_VERSION: "test",
     CF_ANALYTICS_TOKEN: "",
     GOOGLE_CLIENT_SECRET: "test-secret",
+    // Apple defaults empty → flow stays dark unless a test overrides them.
+    APPLE_CLIENT_ID: "",
+    APPLE_TEAM_ID: "",
+    APPLE_KEY_ID: "",
+    APPLE_PRIVATE_KEY: "",
     BROKER_JWT_SECRET: "test-jwt-secret-must-be-at-least-32-bytes-long-for-hs256",
     ENV_VAULT_KEY: Buffer.alloc(32, 1).toString("base64"),
     ...overrides,
@@ -286,4 +291,127 @@ test("[B2] /auth/web/start also sets the nonce cookie", async () => {
   assert.ok(nonce, "webStart must also set the nonce cookie (B2 covers web flow too)");
   assert.ok(setCookie?.includes("HttpOnly"),
     "nonce cookie must be HttpOnly on web flow as well");
+});
+
+/* ─────────────────────────────────────────────────────────────────────── */
+/* Apple Sign In — config gating + ES256 client-secret minting             */
+/* ─────────────────────────────────────────────────────────────────────── */
+//
+// Apple is optional: the button, the /api/health "apple" entry, and the
+// /auth/apple/* routes all stay dark until APPLE_CLIENT_ID/TEAM_ID/KEY_ID
+// plus the APPLE_PRIVATE_KEY secret are present (lib/oauth.appleConfigured).
+
+import { generateKeyPairSync } from "node:crypto";
+import { appleConfigured, appleClientSecret, type AppleConfig } from "../src/lib/oauth";
+import { decodeJwt, decodeProtectedHeader } from "jose";
+
+// A throwaway P-256 key, generated fresh per run — never a real Apple key.
+function testAppleCfg(): AppleConfig {
+  const { privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  return {
+    clientId:   "io.phantommesh.test",
+    teamId:     "ABCDE12345",
+    keyId:      "KEY1234567",
+    privateKey: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+  };
+}
+
+test("[apple] appleConfigured is false unless all four bindings are set", () => {
+  assert.equal(appleConfigured({}), false);
+  assert.equal(appleConfigured({ clientId: "x", teamId: "y", keyId: "z" }), false,
+    "missing privateKey must fail");
+  assert.equal(appleConfigured(testAppleCfg()), true);
+});
+
+test("[apple] /auth/apple/start 404s when Apple is not configured", async () => {
+  const env = makeEnv();  // Apple fields empty by default
+  const res = await app.request("https://phantommesh.io/auth/apple/start?state=x", {}, env);
+  assert.equal(res.status, 404);
+});
+
+test("[apple] /api/health advertises apple only when configured", async () => {
+  const dark = await app.request("https://phantommesh.io/api/health", {}, makeEnv());
+  const darkJson = await dark.json() as { providers: string[] };
+  assert.ok(!darkJson.providers.includes("apple"), "apple must be absent when dark");
+
+  const cfg = testAppleCfg();
+  const lit = await app.request("https://phantommesh.io/api/health", {}, makeEnv({
+    APPLE_CLIENT_ID: cfg.clientId,
+    APPLE_TEAM_ID:   cfg.teamId,
+    APPLE_KEY_ID:    cfg.keyId,
+    APPLE_PRIVATE_KEY: cfg.privateKey,
+  }));
+  const litJson = await lit.json() as { providers: string[] };
+  assert.ok(litJson.providers.includes("apple"), "apple must appear when configured");
+});
+
+test("[apple] client secret is a well-formed ES256 JWT with Apple's claims", async () => {
+  const cfg = testAppleCfg();
+  const jwt = await appleClientSecret(cfg);
+  const header = decodeProtectedHeader(jwt);
+  assert.equal(header.alg, "ES256");
+  assert.equal(header.kid, cfg.keyId);
+  const claims = decodeJwt(jwt);
+  assert.equal(claims.iss, cfg.teamId, "iss must be the team id");
+  assert.equal(claims.sub, cfg.clientId, "sub must be the Services ID");
+  assert.equal(claims.aud, "https://appleid.apple.com");
+  assert.ok(typeof claims.exp === "number" && claims.exp > (claims.iat as number),
+    "must carry a future expiry");
+});
+
+test("[apple] private key with literal \\n escapes is unescaped before signing", async () => {
+  const cfg = testAppleCfg();
+  // Simulate a secret pasted with literal backslash-n instead of newlines.
+  const escaped = { ...cfg, privateKey: cfg.privateKey.replace(/\n/g, "\\n") };
+  const jwt = await appleClientSecret(escaped);
+  assert.equal(decodeProtectedHeader(jwt).alg, "ES256",
+    "escaped \\n PEM must still parse and sign");
+});
+
+test("[apple] cli/start with provider=apple jumps straight to /auth/apple/start when configured", async () => {
+  const cfg = testAppleCfg();
+  const env = makeEnv({
+    APPLE_CLIENT_ID: cfg.clientId,
+    APPLE_TEAM_ID:   cfg.teamId,
+    APPLE_KEY_ID:    cfg.keyId,
+    APPLE_PRIVATE_KEY: cfg.privateKey,
+  });
+  const deviceId = "11111111-2222-3333-4444-555555555555";
+  const redirect = "http://127.0.0.1:48181/oauth/callback";
+  const res = await app.request(
+    `https://phantommesh.io/auth/cli/start?device_id=${deviceId}&port=48181&redirect=${encodeURIComponent(redirect)}&provider=apple`,
+    { method: "GET", redirect: "manual" },
+    env,
+  );
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("Location") ?? "", /^\/auth\/apple\/start\?state=/,
+    "provider=apple hint must skip the picker and go to /auth/apple/start");
+});
+
+test("[apple] cli/start with provider=apple falls back to picker when Apple is dark", async () => {
+  const env = makeEnv();  // Apple not configured
+  const deviceId = "11111111-2222-3333-4444-555555555555";
+  const redirect = "http://127.0.0.1:48181/oauth/callback";
+  const res = await app.request(
+    `https://phantommesh.io/auth/cli/start?device_id=${deviceId}&port=48181&redirect=${encodeURIComponent(redirect)}&provider=apple`,
+    { method: "GET", redirect: "manual" },
+    env,
+  );
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("Location") ?? "", /^\/login\?state=/,
+    "an apple hint on a dark broker must not 404 — fall through to /login");
+});
+
+test("[apple] cli/start with provider=google jumps straight to /auth/google/start", async () => {
+  const env = makeEnv();
+  const deviceId = "11111111-2222-3333-4444-555555555555";
+  const redirect = "http://127.0.0.1:48181/oauth/callback";
+  const res = await app.request(
+    `https://phantommesh.io/auth/cli/start?device_id=${deviceId}&port=48181&redirect=${encodeURIComponent(redirect)}&provider=google`,
+    { method: "GET", redirect: "manual" },
+    env,
+  );
+  assert.equal(res.status, 302);
+  assert.match(res.headers.get("Location") ?? "", /^\/auth\/google\/start\?state=/,
+    "provider=google hint must go straight to /auth/google/start");
 });

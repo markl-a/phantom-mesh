@@ -26,6 +26,7 @@ import type { ProviderClass } from "./generated/providers/ProviderClass";
 import type { LatencyClass } from "./generated/providers/LatencyClass";
 import type { Message as ProviderMessage } from "./generated/providers/Message";
 import type { ResponseFormat } from "./generated/providers/ResponseFormat";
+import type { ToolDef } from "./generated/providers/ToolDef";
 
 const COMPLETE_EVENT = "providers_complete_event";
 
@@ -169,6 +170,7 @@ export function buildRequest(opts: {
   maxTokens?: number | null;
   temperature?: number | null;
   responseFormat?: ResponseFormat;
+  tools?: ToolDef[];
 }): ProviderRequest {
   return {
     model: opts.model,
@@ -177,6 +179,7 @@ export function buildRequest(opts: {
     maxTokens: opts.maxTokens ?? null,
     temperature: opts.temperature ?? null,
     responseFormat: opts.responseFormat ?? "plain_text",
+    tools: opts.tools ?? [],
   };
 }
 

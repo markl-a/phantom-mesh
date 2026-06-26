@@ -10,9 +10,8 @@ use std::path::{Path, PathBuf};
 
 /// Returns the canonical path to agents.toml — `~/.phantom-mesh/agents.toml`.
 pub fn agents_toml_path() -> PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+    crate::cli_config::phantom_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
         .join("agents.toml")
 }
 
@@ -127,7 +126,61 @@ pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()>
         .get_mut(provider)
         .and_then(|v| v.as_table_mut())
         .ok_or_else(|| anyhow::anyhow!("[providers.{}] is not a table", provider))?;
-    entry.insert("api_key", toml_edit::value(key));
+    // apex P4: seal the key at rest when PHANTOM_ENCRYPT_AGENTS is on. When OFF
+    // this returns `key` unchanged, so the written bytes are byte-identical to
+    // today. Fail closed: if sealing is enabled but no EventKey is available,
+    // refuse the write instead of persisting the key in plaintext.
+    let stored = crate::skillbank::agents_seal::seal_api_key_for_save(key)
+        .map_err(|e| anyhow::anyhow!("seal api_key for provider '{}': {}", provider, e))?;
+    entry.insert("api_key", toml_edit::value(stored));
+
+    // Make sure the parent dir exists (first-run case).
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).ok();
+    }
+    write_atomic(path, &doc.to_string())?;
+    Ok(())
+}
+
+/// Set a secret string `field` on a top-level table (`[tools]` or `[core]`) of
+/// agents.toml, sealing it at rest under the SAME seam as [`set_api_key`].
+///
+/// apex P4 follow-up: covers the non-provider secrets
+/// (`[tools].brave_search_api_key`, `[tools].todoist_api_token`,
+/// `[core].hub_api_key`). Creates the `[table]` if absent. Preserves all other
+/// formatting (comments, ordering) via `toml_edit`.
+///
+/// Sealing semantics are identical to `set_api_key`: with
+/// `PHANTOM_ENCRYPT_AGENTS` OFF the written bytes are byte-identical to today
+/// (plaintext); with it ON the value is sealed via `agents_seal`, and a missing
+/// `EventKey` makes the write FAIL CLOSED rather than persisting plaintext.
+pub fn set_table_secret(path: &Path, table: &str, field: &str, value: &str) -> anyhow::Result<()> {
+    let content = if path.exists() {
+        fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?
+    } else {
+        // Fresh file — a bare header; the table is inserted below.
+        String::from("# phantom agents.toml\n")
+    };
+
+    let mut doc: toml_edit::DocumentMut = content
+        .parse()
+        .map_err(|e| anyhow::anyhow!("parse toml: {}", e))?;
+
+    if doc.get(table).is_none() {
+        doc.insert(table, toml_edit::Item::Table(toml_edit::Table::new()));
+    }
+    let tbl = doc
+        .get_mut(table)
+        .and_then(|v| v.as_table_mut())
+        .ok_or_else(|| anyhow::anyhow!("[{}] is not a table", table))?;
+
+    // apex P4: seal the secret at rest when PHANTOM_ENCRYPT_AGENTS is on. When
+    // OFF this returns `value` unchanged, so the written bytes are byte-identical
+    // to today. Fail closed: if sealing is enabled but no EventKey is available,
+    // refuse the write instead of persisting the secret in plaintext.
+    let stored = crate::skillbank::agents_seal::seal_api_key_for_save(value)
+        .map_err(|e| anyhow::anyhow!("seal {}.{}: {}", table, field, e))?;
+    tbl.insert(field, toml_edit::value(stored));
 
     // Make sure the parent dir exists (first-run case).
     if let Some(parent) = path.parent() {
@@ -149,8 +202,8 @@ pub fn default_provider_meta(name: &str) -> Option<(&'static str, &'static str)>
         "openai" => Some(("openai", "https://api.openai.com/v1")),
         // OpenCode Zen gateway — /api/v1 returns 404, /zen/v1 is live.
         "opencode" => Some(("opencode", "https://opencode.ai/zen/v1")),
-        // OpenClaw Telegram channel adapter — track [O1].
-        // `type` is informational; the openclaw::telegram module reads
+        // remote-control Telegram adapter — track [O1].
+        // `type` is informational; the remote_control::telegram module reads
         // the api_key directly. url points at the Bot API root for
         // any future probe path that wants to GET /bot<token>/getMe.
         "telegram_bot" => Some(("telegram_bot", "https://api.telegram.org")),
@@ -649,7 +702,7 @@ mod tests {
 
     #[test]
     fn default_provider_meta_recognises_telegram_bot() {
-        // Track [O1] — OpenClaw Telegram channel adapter.
+        // Track [O1] — remote-control Telegram adapter.
         // The keys.rs flow needs an entry so that
         //   phantom keys add telegram_bot <token>     (TUI /keys add)
         // creates a sensible [providers.telegram_bot] table without

@@ -1,10 +1,12 @@
+> ⚠️ pre-pivot — 方向已被現行 4-pillar Life/Work(superpowers/BIG-GOAL.md)取代;戰術細節或許仍可用。
+
 # phantom-mesh 定位（2026-05-15）
 
 本文件是 phantom-mesh 對外自我描述的權威來源（canonical source）——
 電梯簡報（elevator pitch）、我們是什麼、我們不是什麼、我們在生態系中與誰相鄰，
 以及哪些口號（slogan）已停用。
 
-本文件取代 `README.md`、`docs/MULTI-AGENT-DEEP-ANALYSIS.md`、簡報投影片
+本文件取代 `README.md`、`docs/mesh/MULTI-AGENT-DEEP-ANALYSIS.md`、簡報投影片
 或演講摘要中任何較舊的定位文案。
 
 ## 1. 核心簡報（The pitch）

@@ -11,7 +11,9 @@
     Runbook: docs/superpowers/runbooks/E007-freeze-week.md
 
 .PARAMETER Strict
-    Fail (exit 2) if any E00[1-6]-*.md lacks a "## Acceptance criteria" H2.
+    Fail (exit 2) if any E00[1-6]-*.md lacks an acceptance-criteria H2 —
+    either the English "## Acceptance criteria" or the Chinese "## <U+9A57><U+6536><U+6A19><U+6E96>"
+    (yan shou biao zhun) used by the canonical specs in docs/superpowers/specs/_current.
 
 .PARAMETER IncludeE007
     Include E007 in the total (default off — gate is about E001-E006 per F600).
@@ -93,14 +95,25 @@ if (-not $epicFiles -or $epicFiles.Count -eq 0) {
 }
 
 # ---------- score one file ----------
+# The acceptance-criteria H2 is either English "## Acceptance criteria" or the
+# Chinese heading (code points U+9A57 U+6536 U+6A19 U+6E96, "yan shou biao
+# zhun") used by the canonical specs in docs/superpowers/specs/_current. The
+# Chinese chars are built from [char] code points so this script stays pure
+# ASCII (immune to script-file encoding misreads on PS 5.1, which assumes ANSI
+# for BOM-less files).
+$zhAcceptanceHeading = -join ([char]0x9A57, [char]0x6536, [char]0x6A19, [char]0x6E96)
+$acceptanceHeadingRegex = '^## (Acceptance criteria|' + [regex]::Escape($zhAcceptanceHeading) + ')'
+
 function Score-OneSpec {
     param([string]$Path)
     $inSection = $false
     $haveSection = $false
     $done = 0
     $total = 0
-    foreach ($line in Get-Content -LiteralPath $Path) {
-        if ($line -match '^## Acceptance criteria') {
+    # -Encoding UTF8: the specs are UTF-8 (Chinese headings); Windows
+    # PowerShell 5.1 would otherwise read BOM-less files as ANSI.
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
+        if ($line -match $script:acceptanceHeadingRegex) {
             $inSection = $true
             $haveSection = $true
             continue
@@ -140,13 +153,13 @@ foreach ($f in $epicFiles) {
     if (-not $r.HaveSection) {
         $drift = $true
         Write-Output ('| {0} | -    | -     | -   | DRIFT  |' -f $epicId)
-        Write-Warning ("$($f.Name) has no '## Acceptance criteria' H2 (strict-mode failure)")
+        Write-Warning ("$($f.Name) has no acceptance-criteria H2 (English or Chinese; strict-mode failure)")
         continue
     }
     if ($r.Total -eq 0) {
         $drift = $true
         Write-Output ('| {0} | 0    | 0     | -   | DRIFT  |' -f $epicId)
-        Write-Warning ("$($f.Name) has '## Acceptance criteria' H2 but no checkboxes")
+        Write-Warning ("$($f.Name) has an acceptance-criteria H2 but no checkboxes")
         continue
     }
 

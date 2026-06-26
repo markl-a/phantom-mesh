@@ -1,0 +1,5 @@
+# Repo-wide rustfmt config — pins the edition so `cargo fmt` is deterministic across
+# machines/toolchains. Style is intentionally rustfmt defaults; this file exists so a
+# future one-time `cargo fmt` baseline (deferred — would conflict with ~25 live worktrees)
+# is reproducible. Applies to all crates (core/, crates/pm-types/, app/src-tauri/).
+edition = "2021"

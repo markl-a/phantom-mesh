@@ -182,10 +182,10 @@ fn notarytool_submit_dryrun_validates() {
         );
     } else {
         eprintln!(
-            "PHANTOM_NOTARY_PROFILE unset — skipping notarytool history \
-             round-trip. Set via `xcrun notarytool store-credentials \
-             <name>` then export PHANTOM_NOTARY_PROFILE=<name> for the \
-             stronger variant of this test."
+            "SKIPPED: notarytool_submit_dryrun_validates (history round-trip only) — \
+             PHANTOM_NOTARY_PROFILE unset. Set via `xcrun notarytool \
+             store-credentials <name>` then export PHANTOM_NOTARY_PROFILE=<name> for \
+             the stronger variant of this test."
         );
     }
 }

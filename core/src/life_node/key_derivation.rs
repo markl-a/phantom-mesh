@@ -101,6 +101,25 @@ pub fn load_event_key(identity_path: &Path) -> Result<EventKey, KeyDerivationErr
     // derived key). std::fs::read hands back a heap Vec that would be freed —
     // not scrubbed — on return; zeroize it after derivation, on every path.
     let mut bytes = std::fs::read(identity_path)?;
+    // W3: on Windows the root IKM is DPAPI-wrapped at rest. Unwrap BEFORE
+    // derivation — derive_event_key accepts any >=16 bytes, so feeding it the
+    // wrapped blob would silently derive a WRONG key. unprotect_at_rest is a
+    // no-op (Ok(None)) on unix, so this is called unconditionally — NO
+    // statement-level #[cfg], which the save-time formatter strips. `Ok(None)`
+    // = legacy/unix plaintext (use bytes as-is); `Err` = unwrap failed.
+    match crate::identity_wire::unprotect_at_rest(&bytes) {
+        Ok(Some(mut seed)) => {
+            bytes.zeroize();
+            let result = derive_event_key(&seed);
+            seed.zeroize();
+            return result;
+        }
+        Ok(None) => {}
+        Err(e) => {
+            bytes.zeroize();
+            return Err(KeyDerivationError::Io(e));
+        }
+    }
     let result = derive_event_key(&bytes);
     bytes.zeroize();
     result

@@ -116,6 +116,7 @@ trait 為未來的工作（外掛載入器、hook 生命週期、跨對等節點
 | [`fetch.rs`](fetch.rs) | （fetch 工具的輔助程式） | 共用的 fetch 實作 / 字元數上限。 |
 | [`memory.rs`](memory.rs) | `memory_store`、`memory_recall`、`memory_list`、`memory_delete`、`memory_search` | Agent 的長期記憶層。 |
 | [`todo.rs`](todo.rs) | `todo_add`、`todo_update`、`todo_list`、`todo_clear` | Agent 內部的 TODO 清單。 |
+| [`todoist.rs`](todoist.rs) | `todoist_add_task`、`todoist_list_tasks`、`todoist_complete_task` | 夥伴對使用者**真實 Todoist** 的有界 DO-actions(新增任務 / 列出待辦 / 標記完成)。委派給 [`crate::todoist`](../todoist.rs) REST client(API v1),token 來自 `[tools] todoist_api_token` 或 `TODOIST_API_TOKEN`,絕不寫死。`todoist_complete_task` 只能關閉指定 id 的單一任務(有界寫入,不執行任何命令)。 |
 | [`diff_view.rs`](diff_view.rs) | `diff_files`、`diff_strings` | 產生檔案之間 / 字串之間的差異（diff）。 |
 | [`ask_user.rs`](ask_user.rs) | `ask_user` | 暫停 agent 並向人類提問。 |
 | [`subagent.rs`](subagent.rs) | `task`、`subagent`、`parallel_tasks` | 生成（spawn）另一個已設定的 agent；`parallel_tasks` 會扇出（fan out）。 |

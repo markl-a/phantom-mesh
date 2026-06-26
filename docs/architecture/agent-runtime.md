@@ -97,8 +97,8 @@ flowchart TD
   在執行階段對個別工具呼叫進行核准、拒絕或提示。
 - **Cooperative interrupt（協作式中斷）**：用
   `with_interrupt(...)` 接上一個 `InterruptHandle`，讓第二個訊號得以展開（unwind）目前的回合。
-- **Memory augmentation（記憶體增強）**：在 `experimental-hermes-*` 功能旗標（feature flag）後方，一個
-  Hermes 執行階段可用 `with_hermes(...)` 接上，把回想起的
+- **Memory augmentation（記憶體增強）**：在 `experimental-skillbank` 功能旗標（feature flag）後方，一個
+  技能庫執行階段可用 `with_hermes(...)` 接上，把回想起的
   長期記憶（long-term memory）前置插入系統提示中。預設建置會將此編譯排除（compile out）。
 
 ## Tests（測試）

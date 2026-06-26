@@ -1,0 +1,8 @@
+GOAL (apex ② owned-memory): wire the skill bank Store dispatch hand-off in core/src/skill_wire.rs so the parameterless `skill_store()` stub actually persists an extracted skill via the real `store_skill(&skill)` path.
+CONTEXT: `store_skill(&skill)` already does a real rusqlite INSERT + self-provisions the 0008 schema + is FTS5-recallable. `skill_store()` returns SkillError::StoreFailed because run_skill_step(SkillStep::Store) does not thread the extracted Skill payload through. `extract_skill_from_candidate(...)` produces the Skill.
+TDD STEPS:
+1. Write a FAILING test in skill_wire.rs's #[cfg(test)] mod tests: run the Store step with an extracted Skill (build a fixture Skill), assert the skill is afterwards recalled via recall_skills/fts5 (reuse the existing store_skill_then_recall_finds_it_via_fts5 pattern).
+2. Run it, confirm it fails.
+3. Thread the extracted Skill into the Store dispatch (e.g. give run_skill_step(Store) access to the payload, or have the Store branch call store_skill(&skill)); keep skill_store() returning a typed error only when there is genuinely no payload.
+4. Run `cargo test --manifest-path core/Cargo.toml skill_wire` — all green, no regressions.
+REPORT what you changed + the test result. Touch only skill_wire.rs (+ a fixture). Do NOT add dependencies. Do NOT run cargo fmt repo-wide.

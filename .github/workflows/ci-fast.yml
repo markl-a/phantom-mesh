@@ -141,8 +141,10 @@ jobs:
         run: cd core && cargo test --test wire_round_trip
       - name: V3 wire schema validation
         run: cd core && cargo test --test wire_schema_validation
-      - name: V8 event migration legacy → wire
-        run: cd core && cargo test --test event_migration_v8
+      # V8 event-migration test (core/tests/event_migration_v8.rs) was retired in
+      # 92d5281d "Phase G — retire EventMeta": the legacy EventMeta -> wire migration
+      # it covered no longer exists, so `cargo test --test event_migration_v8` failed
+      # with "no test target named event_migration_v8". Step removed (dead reference).
 
   windows-unit-tests:
     name: Windows unit tests (lean PR gate)

@@ -13,7 +13,7 @@
 // the only remaining gap and lives behind `gemini_multimodal` for now,
 // surfacing the deficit as an upstream-text-only `analyze_food` call.
 // `uuid_v7` remains Stage 4 because the `uuid/v7` feature is gated under
-// `experimental-hermes-tools` in core/Cargo.toml.
+// `experimental-tools` in core/Cargo.toml.
 //
 // 中文: 本檔對應 SPEC-20 §7（資料模型 (data model)）。「拍餐點 → AI 估熱量 →
 // 加密落地」的 wire-shape 介面 (interface)。Stage 3 把六個 helper（檔案大小、
@@ -23,7 +23,7 @@
 // TODO Stage 4: wire into core/src/lib.rs; add `image` crate (0.25+); bridge
 // `FoodCaptureError` ↔ SPEC-04 `FOOD_BLOB_TOO_LARGE` / `FOOD_ANALYSIS_FAILED`
 // / `FOOD_DECRYPT_FAILED` 3-code public surface; enable `uuid/v7` (currently
-// gated under `experimental-hermes-tools` feature); upgrade
+// gated under `experimental-tools` feature); upgrade
 // `gemini_multimodal` to inline image bytes as `inline_data` parts (today
 // it ships only the path string in the prompt — model sees a description,
 // not the pixels).
@@ -35,6 +35,13 @@ use ts_rs::TS;
 
 use crate::event_storage_wire::{self, AnalysisResult, EventMeta, EventStoreError};
 use crate::rpc_wire::EventKind;
+// Machine-origin isolation (R1): a food capture always originates from a HUMAN
+// surface — `FoodCaptureRequest` arrives from the app UI, watch voice, the
+// share-extension, or a human-run CLI (see `FoodCaptureSource`). There is no
+// autonomous food-logging path, so `food_request_origin` resolves to `Human`;
+// threading it explicitly keeps the write/index calls origin-aware and ready if
+// a machine importer is ever added.
+use crate::partner::MessageOrigin;
 
 // ─── SPEC-13 / SPEC-16 EventStore routing (P4-perimeter fix) ─────────────────
 //
@@ -358,6 +365,16 @@ pub fn record_food(request: &FoodCaptureRequest) -> Result<String, FoodCaptureEr
 ///
 /// 中文: 把一餐寫進加密 EventStore — PII body 走 age v1 加密，明文 meta 只放
 /// 非 PII tag。SPEC-13 encrypt / EventStore 寫入失敗 → `FoodCaptureError::Storage`.
+/// Resolve the [`MessageOrigin`] of a food capture for the event store's
+/// machine-origin isolation (R1). Food logging is always a HUMAN action — the
+/// `FoodCaptureRequest` originates from the app, watch voice, share-extension, or
+/// a human-run CLI; there is no autonomous food-logging loop — so this is
+/// `Human`. Centralised so a hypothetical machine food-importer can flip it in
+/// exactly one place.
+fn food_request_origin(_request: &FoodCaptureRequest) -> MessageOrigin {
+    MessageOrigin::Human
+}
+
 fn write_food_event(
     request: &FoodCaptureRequest,
     analysis: &FoodAnalysisResult,
@@ -391,8 +408,36 @@ fn write_food_event(
         tags,
     };
     // Step 4: append to the encrypted EventStore; map any STORE-* failure to
-    // the `Storage` catalog entry (maps to public FOOD_ANALYSIS_FAILED).
-    event_storage_wire::write_event(&meta, &encrypted_body, None).map_err(store_err_to_food)
+    // the `Storage` catalog entry (maps to public FOOD_ANALYSIS_FAILED). Tag the
+    // event with its provenance (Human — food capture has no autonomous path) so
+    // it is correctly retained in human recall.
+    let origin = food_request_origin(request);
+    let event_id = event_storage_wire::write_event_with_origin(&meta, &encrypted_body, None, origin)
+        .map_err(store_err_to_food)?;
+    // Step 5: index the non-PII LLM `summary` into the FTS5 free-text store so
+    // `event_storage_wire::search_fts5` / recall can find this meal by keyword
+    // (SPEC-16 §7.2 + §12.1 — `summary` is the designated PII-scrubbed field;
+    // the PII-bearing `note` / `image_path` stay only in the encrypted body).
+    // Best-effort: a failed index must NOT lose the just-persisted event — the
+    // canonical record already landed in step 4 and can be re-indexed later via
+    // `phantom data export`, so we log + continue instead of unwinding.
+    if let Err(e) = event_storage_wire::index_fts5_with_origin(&event_id, &analysis.summary, origin) {
+        crate::diag::record(
+            "fts5_index_failed",
+            format!("food event {}: {}", event_id, e),
+        );
+    }
+    // Semantic index (the recall-engine moat): embed the same PII-scrubbed
+    // summary into events_emb. Best-effort, same as FTS5 above — a missing
+    // embedder (Ollama down) must NOT lose the just-persisted event or block
+    // capture; `embed_and_store` logs + continues internally.
+    if let Err(e) = event_storage_wire::embed_and_store(&event_id, &analysis.summary, origin) {
+        crate::diag::record(
+            "embed_index_failed",
+            format!("food event {}: {}", event_id, e),
+        );
+    }
+    Ok(event_id)
 }
 
 /// Age-encrypt plaintext bytes against the per-process EventKey (SPEC-13). The
@@ -565,6 +610,8 @@ fn gemini_multimodal_pseudo(
         max_tokens: Some(1024),
         temperature: Some(0.2),
         response_format: ResponseFormat::Json,
+        // Text-only completion path — no tool-calling here.
+        tools: Vec::new(),
     };
 
     let resp = providers_wire::complete(req).map_err(|_e| {
@@ -836,7 +883,7 @@ mod tests {
     //
     // `build_food_event_meta` Step 1 still calls `uuid_v7_pseudo` which is
     // Stage 4 (gated by `uuid/v7` feature being under
-    // `experimental-hermes-tools` in core/Cargo.toml). When that Cargo.toml
+    // `experimental-tools` in core/Cargo.toml). When that Cargo.toml
     // change lands, `uuid_v7_pseudo` is promoted to real and this test
     // flips — that's the cue to replace it with the real behavioural
     // assertion (UUIDv7 string parses as a valid v7 UUID + ISO-8601 + tag
@@ -1016,11 +1063,22 @@ mod tests {
     /// (4) round-trip the encrypted body back to the original PII via the
     /// per-process EventKey. Uses OSS-safe placeholder PII (user42/example.com).
     #[ignore = "integration / env-dependent — run via --ignored"]
+    // unix-only: isolates the store by redirecting $HOME, which `dirs::home_dir()`
+    // honours on unix but ignores on Windows (it reads USERPROFILE). Running this
+    // on Windows would write into the real ~/.phantom-mesh and then fail the
+    // read-back — gate it the same way the hermetic capture/broker-login tests are.
+    #[cfg(unix)]
     #[test]
     fn record_food_routes_through_encrypted_event_store_no_plaintext_pii() {
         use crate::encryption_wire;
         use base64::Engine as _;
 
+        // Serialize the $HOME mutation against every other env-mutating test via
+        // the shared lock the rest of the suite uses. Without it, the default
+        // multi-threaded test runner lets a concurrent HOME writer clobber our
+        // value, so write_food_event lands in the wrong store and the read-back
+        // finds nothing (a flaky failure that only surfaces under the full suite).
+        let _env = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         // `event_storage_wire::expand_tilde` resolves `~/.phantom-mesh/` via
         // `dirs::home_dir()`, which honours `$HOME` on unix — point HOME at the
@@ -1110,6 +1168,171 @@ mod tests {
                 .is_err()
                 || !body_blob.is_empty(),
             "body.age should be raw age v1 bytes"
+        );
+
+        encryption_wire::clear_event_key_cache();
+    }
+
+    /// events_fts gap (SPEC-16 §7.2): a meal persisted through the REAL capture
+    /// storage entrypoint (`write_food_event`) must ALSO land in the FTS5
+    /// free-text index, so `event_storage_wire::search_fts5` (the recall read
+    /// path) finds it by a keyword from the LLM `summary`. Before the fix the
+    /// capture flow wrote the encrypted event + meta.json but never called
+    /// `index_fts5`, so `search_fts5` was always empty. Uses a `$HOME`-backed
+    /// tempdir so it never touches the real `~/.phantom-mesh` store.
+    // unix-only: see sibling — relies on $HOME redirect, which Windows ignores.
+    #[cfg(unix)]
+    #[test]
+    fn record_food_indexes_summary_into_fts5_so_recall_finds_it() {
+        use crate::encryption_wire;
+
+        // See the sibling test: serialize $HOME mutation under the shared env lock
+        // so the parallel runner cannot race us onto another test's HOME.
+        let _env = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        // `event_storage_wire::expand_tilde` resolves `~/.phantom-mesh/` via
+        // `dirs::home_dir()` (honours `$HOME` on unix) — both the encrypted
+        // event dir AND `events.sqlite` (the FTS5 store) land inside the tempdir.
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("HOME", v),
+                    None => std::env::remove_var("HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("HOME");
+        std::env::set_var("HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        // EventKey so the SPEC-13 encrypt hop inside write_food_event succeeds.
+        let seed = [0x73u8; 32];
+        encryption_wire::install_event_key_from_seed(&seed).expect("install key");
+
+        let request = FoodCaptureRequest {
+            text: Some("ate a bowl of teriyaki salmon".into()),
+            image_path: None,
+            kind: FOOD_LOG_KIND.into(),
+            tag: vec!["fat_loss".into()],
+            timestamp_ms: 1_716_563_400_000,
+        };
+        let analysis = FoodAnalysisResult {
+            summary: "teriyaki salmon bento on plan".into(),
+            macro_estimate: None,
+            fat_loss_score: 0.8,
+            suggestion: String::new(),
+            confidence: 0.9,
+        };
+
+        // Go through the REAL storage entrypoint (not index_fts5 directly).
+        let event_id = write_food_event(&request, &analysis).expect("write_food_event");
+
+        // The FTS5 recall read path must now find the event by a summary keyword.
+        let hits = event_storage_wire::search_fts5("teriyaki", 10).expect("search_fts5");
+        assert!(
+            hits.iter().any(|id| id == &event_id),
+            "captured food event must be FTS5-indexed and recallable; hits: {:?}, id: {}",
+            hits,
+            event_id
+        );
+        // A non-matching token must NOT return it (proves real MATCH, not a
+        // blanket return-everything stub).
+        let miss = event_storage_wire::search_fts5("zzznope", 10).expect("search_fts5 miss");
+        assert!(!miss.iter().any(|id| id == &event_id), "miss: {:?}", miss);
+
+        encryption_wire::clear_event_key_cache();
+    }
+
+    /// END-TO-END (capture → recall): a meal persisted through the REAL capture
+    /// storage entrypoint (`write_food_event`) must be returned by the SAME
+    /// function the user-facing `phantom recall` CLI calls
+    /// (`life_node::recall::search_events`) — not just the low-level
+    /// `search_fts5` unit. This guards the wiring seam D3 left: capture indexes
+    /// FTS5, but `phantom recall` reads `life_node::recall`, which (before the
+    /// fix) walked only the file store and skipped wire-store food events
+    /// (plaintext meta + no `analysis.json`), so recall came back empty. Uses a
+    /// `$HOME`-backed tempdir so the real `~/.phantom-mesh` is never touched.
+    // unix-only: see sibling — relies on $HOME redirect, which Windows ignores.
+    #[cfg(unix)]
+    #[test]
+    fn captured_food_event_is_returned_by_phantom_recall_read_path() {
+        use crate::encryption_wire;
+
+        // See the sibling test: serialize $HOME mutation under the shared env lock
+        // so the parallel runner cannot race us onto another test's HOME.
+        let _env = crate::env_lock::acquire();
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        struct HomeGuard(Option<std::ffi::OsString>);
+        impl Drop for HomeGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(v) => std::env::set_var("HOME", v),
+                    None => std::env::remove_var("HOME"),
+                }
+            }
+        }
+        let prev = std::env::var_os("HOME");
+        std::env::set_var("HOME", tmp.path());
+        let _guard = HomeGuard(prev);
+
+        // EventKey so the SPEC-13 encrypt hop inside write_food_event succeeds.
+        let seed = [0x71u8; 32];
+        encryption_wire::install_event_key_from_seed(&seed).expect("install key");
+
+        let request = FoodCaptureRequest {
+            text: Some("grilled chicken caesar wrap for lunch".into()),
+            image_path: None,
+            kind: FOOD_LOG_KIND.into(),
+            tag: vec!["fat_loss".into()],
+            timestamp_ms: 1_716_563_400_000,
+        };
+        let analysis = FoodAnalysisResult {
+            summary: "grilled chicken caesar wrap on plan".into(),
+            macro_estimate: None,
+            fat_loss_score: 0.8,
+            suggestion: String::new(),
+            confidence: 0.9,
+        };
+
+        // Capture through the REAL storage entrypoint (writes wire meta.json +
+        // body.age + FTS5 index — the exact path the app / `phantom habit` use).
+        let event_id = write_food_event(&request, &analysis).expect("write_food_event");
+
+        // Now call the EXACT function `phantom recall` invokes (phantom.rs:5301).
+        // The wire-store food hit surfaces from the PLAINTEXT meta.json + the
+        // FTS5 `content` summary — neither needs an EventKey — so `None` here is
+        // sufficient (and proves the hit does not depend on body decryption).
+        let events_dir = tmp.path().join(".phantom-mesh").join("events");
+        let hits = crate::life_node::recall::search_events(
+            &events_dir,
+            None,
+            &crate::life_node::recall::RecallFilter::text("caesar"),
+            10,
+        )
+        .expect("recall search_events");
+        assert!(
+            hits.iter().any(|h| h.event_id == event_id
+                && h.kind == "food"
+                && h.summary.contains("caesar")),
+            "phantom recall read path must return the captured food event; hits: {:?}, id: {}",
+            hits,
+            event_id
+        );
+
+        // A non-matching keyword must NOT return it (proves real search, not a
+        // blanket return-everything).
+        let miss = crate::life_node::recall::search_events(
+            &events_dir,
+            None,
+            &crate::life_node::recall::RecallFilter::text("zzznope"),
+            10,
+        )
+        .expect("recall miss");
+        assert!(
+            !miss.iter().any(|h| h.event_id == event_id),
+            "miss: {:?}",
+            miss
         );
 
         encryption_wire::clear_event_key_cache();

@@ -3,14 +3,34 @@
 > 為生活軌跡擷取（食物 / 專注 / 習慣 / 文字 / 圖片 / 音訊）提供的裝置端儲存層。
 > 實作 SPEC-16 §7（資料模型）與 §10（延遲載入規則）。
 
+> **🟥 DRIFT 標記（P0-1 · 2026-06-12 以 `core/src` 實機碼裁決）：** 本文件下方的「資料流」與 mermaid 圖描述的是
+> `core/src/event_storage_wire.rs` 的 **wire-layer 設計**（`meta.json` 明文 + `body.age` 加密 + `analysis.json`）。
+> **這不是 `phantom food` 等生產擷取路徑的實際磁碟佈局。** 實機真相（as-built）如下，以此為準：
+>
+> - **生產擷取路徑** = `phantom food`（CLI → daemon `POST /api/events` → `serve.rs:4360` `EventStore::with_key`）、
+>   `phantom note`（`note_capture.rs:60`）、`phantom focus`（`focus_session.rs:200`）一律走
+>   `core/src/life_node/storage.rs` 的 `EventStore`。
+> - **磁碟佈局** = `events/<uuid>/` 內含 `meta.json` + `modality_<idx>.<ext>`（每個非文字 modality 一檔，
+>   如 `modality_0.jpeg` / `modality_1.wav`；文字 modality 內嵌進 `meta.json`，無 `body.age`）+ `analysis.json`。
+> - **加密邊界** = 當 `identity.key` 存在時，`EventStore::write_file`（`storage.rs:126–134`）對
+>   **上述每一個檔**（`meta.json`、每個 `modality_*`、`analysis.json`）做 age v1 加密；magic = `age-encryption.org/v1\n`
+>   （`crypto.rs:125–128`）。**沒有「明文 metadata」落地，沒有 `body.age`，沒有 sqlite `events` 主表。**
+>   證據：`storage.rs:229`（meta.json 走 write_file）、`:192/:203`（modality 走 write_file）、`:268`（analysis 走 write_file）；
+>   in-module 測試 `encrypted_store_writes_age_format_on_disk`（`storage.rs:381–402`）斷言 `meta.json` 為 age 密文。
+> - `events.sqlite` 僅含 FTS5 contentless 虛擬表 `fts5_events`（搜尋索引），由 wire 層的
+>   `index_fts5`（食物/習慣 wire 路徑）填入；**不存在** SPEC-16 §7.1.1 的 `events` 主表 / `metadata_json BLOB` / `blobs/<sha256>.age`（皆為 planned，未實作）。
+> - `event_storage_wire::write_event_with_origin`（`meta.json` 明文 + `body.age`）目前**只有測試呼叫**，未接進 CLI/serve 生產路徑。
+
 ## 用途（Purpose）
 
 event-storage 子系統是每一個使用者所擷取「事件（event）」的持久、裝置端存放處。
 每個事件是一個小型集合，包含：
 
-- 可查詢的明文 **metadata（中繼資料）**（id、timestamp、kind、tags），
-- 一個 **age 加密的 body（內文）**（敏感內容），
-- 一個選用的 **analysis side-car（分析附帶檔）**（LLM 針對某個目標對事件的評分）。
+- **metadata（中繼資料）**（id、timestamp、kind、tags）— ⚠️ as-built：生產路徑（`storage.rs`）的 `meta.json`
+  在有 `identity.key` 時是 **age 加密的**，並非明文；只有 wire-layer 設計才把 metadata 留明文（見上方 DRIFT 標記），
+- 一個 **age 加密的 body（內文）**（敏感內容）— ⚠️ as-built：生產路徑無獨立 `body.age`；文字內文內嵌進加密的
+  `meta.json`，image/audio 為加密的 `modality_<idx>.<ext>` 檔，
+- 一個選用的 **analysis side-car（分析附帶檔）** `analysis.json`（LLM 針對某個目標對事件的評分）— as-built：有 key 時亦 age 加密。
 
 事件以 **file-per-event（每事件一檔）** 的配置存放在使用者的資料目錄底下
 （`events/<uuid>/`），並搭配一個 **SQLite FTS5**（Full-Text Search v5，全文搜尋第 5 版）
@@ -53,8 +73,10 @@ flowchart TD
 
 1. **擷取（Capture）** — 一個擷取流程建構出一個 `EventMeta`（UUIDv7 id、ISO timestamp、
    `EventKind`、tags）以及加密後的 body 位元組。
-2. **寫入（Write）** — `write_event` 執行 `mkdir -p events/<uuid>/`，寫入 `meta.json`
-   （明文 metadata）、`body.age`（age 加密的 body），並選擇性寫入 `analysis.json`。
+2. **寫入（Write）** — `write_event` 執行 `mkdir -p events/<uuid>/`，寫入 `meta.json`、`body.age`、並選擇性
+   寫入 `analysis.json`。⚠️ as-built（`storage.rs` 生產路徑）：寫的是 `meta.json` + `modality_<idx>.<ext>`
+   + `analysis.json`（**無 `body.age`**），且當 `identity.key` 存在時三類檔**全部** age 加密、沒有任何明文落地
+   （見上方 DRIFT 標記）。本步描述的「`meta.json` 明文 + `body.age`」屬 wire-layer 設計，非生產磁碟佈局。
 3. **索引（Index）** — `index_fts5` 將一份已清除 PII（個人識別資訊）的摘要 upsert 進
    `events.sqlite` 中的 FTS5 contentless 虛擬表（冪等的 `INSERT OR REPLACE`）。
 4. **查詢（Query）** — `query_events` 只讀取明文 `meta.json` 附帶檔，

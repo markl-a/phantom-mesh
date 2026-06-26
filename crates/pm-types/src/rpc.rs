@@ -114,4 +114,73 @@ mod tests {
         let back: RpcResponse = serde_json::from_str(&json).unwrap();
         assert!(back.is_success());
     }
+
+    #[test]
+    fn test_rpc_response_unknown_is_neither() {
+        // The third state must report as neither success nor error so callers
+        // route it through the "retry once then surface" path rather than
+        // misclassifying it as a hard failure or a clean result.
+        let resp = RpcResponse::Unknown { message: "peer dropped mid-stream".into() };
+        assert!(!resp.is_success());
+        assert!(!resp.is_error());
+    }
+
+    #[test]
+    fn test_rpc_response_unknown_serde_roundtrip() {
+        let resp = RpcResponse::Unknown { message: "timeout before headers".into() };
+        let json = serde_json::to_string(&resp).unwrap();
+        let back: RpcResponse = serde_json::from_str(&json).unwrap();
+        assert!(!back.is_success());
+        assert!(!back.is_error());
+        match back {
+            RpcResponse::Unknown { message } => assert_eq!(message, "timeout before headers"),
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_epoch_serde_roundtrip() {
+        let epoch = Epoch(7);
+        let json = serde_json::to_string(&epoch).unwrap();
+        assert_eq!(json, "7"); // newtype serializes transparently as the inner u64
+        let back: Epoch = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Epoch(7));
+    }
+
+    #[test]
+    fn test_term_serde_roundtrip() {
+        let term = Term(3);
+        let json = serde_json::to_string(&term).unwrap();
+        assert_eq!(json, "3");
+        let back: Term = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, term);
+    }
+
+    #[test]
+    fn test_term_and_epoch_are_hashable() {
+        // Both derive Hash so they can key split-brain / election bookkeeping
+        // maps; exercise that the derive is actually usable as a map key.
+        use std::collections::HashMap;
+        let mut votes: HashMap<Term, u32> = HashMap::new();
+        *votes.entry(Term(1)).or_insert(0) += 1;
+        *votes.entry(Term(1)).or_insert(0) += 1;
+        *votes.entry(Term(2)).or_insert(0) += 1;
+        assert_eq!(votes.get(&Term(1)), Some(&2));
+        assert_eq!(votes.get(&Term(2)), Some(&1));
+
+        let mut seen: HashMap<Epoch, &str> = HashMap::new();
+        seen.insert(Epoch(10), "a");
+        seen.insert(Epoch(10), "b"); // overwrites — same key
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen.get(&Epoch(10)), Some(&"b"));
+    }
+
+    #[test]
+    fn test_term_next_is_monotonic() {
+        let mut t = Term(0);
+        for expected in 1..=5 {
+            t = t.next();
+            assert_eq!(t, Term(expected));
+        }
+    }
 }

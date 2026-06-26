@@ -71,7 +71,8 @@ fn cuj05_data_export_json_emits_parseable_array() {
         Some(r) => r,
         None => {
             eprintln!(
-                "SKIP: no built phantom bin found — run `cargo build --release --bin phantom`"
+                "SKIPPED: cuj05_data_export_json_emits_parseable_array — no built \
+                 phantom bin found (run `cargo build --release --bin phantom`)"
             );
             return;
         }
@@ -98,7 +99,8 @@ fn cuj05_data_export_md_has_life_node_header() {
         Some(r) => r,
         None => {
             eprintln!(
-                "SKIP: no built phantom bin found — run `cargo build --release --bin phantom`"
+                "SKIPPED: cuj05_data_export_md_has_life_node_header — no built phantom \
+                 bin found (run `cargo build --release --bin phantom`)"
             );
             return;
         }

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { safeInvoke as invoke, isTauri } from "../../lib/tauri-compat";
-import { Play, RefreshCw, Trash2, Square, Zap } from "lucide-react";
+import { Play, RefreshCw, Trash2, Square, Zap, HeartHandshake } from "lucide-react";
+import { useClusterModeStore } from "../../stores/clusterModeStore";
+import { sendToPartner } from "../../lib/partnerBrain";
 import type { Message, AgentEvent, DaemonInfo, ToolCall } from "../../lib/types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
@@ -93,6 +95,15 @@ export default function ConversationView() {
   const [providerMode, setProviderMode] = useState(false);
   const [activeProvider, setActiveProvider] = useState<string | null>(null);
   const streamRef = useRef<StreamHandle | null>(null);
+
+  // ── Partner-brain mode (NORTH-STAR Q2, partner MVP §B) ───────────────────────
+  // When ON, send() routes the message to the partner brain via
+  // clusterPost(.../partner/message) instead of the local agent loop — so 記東西
+  // (記:…) + 查資料 behave exactly like the partner core. Uses the same cluster
+  // config (coordinator URL + secret) as the rest of the app; on the coordinator
+  // host that's localhost:7878. Mutually exclusive with raw provider mode.
+  const [partnerMode, setPartnerMode] = useState(false);
+  const cluster = useClusterModeStore();
 
   // ── Load history whenever chatId changes ─────────────────────────────────────
   const loadHistory = (id: string) => {
@@ -265,6 +276,36 @@ export default function ConversationView() {
     streamRef.current = handle;
   };
 
+  // ── Send via the partner brain (POST /partner/message) ───────────────────────
+  // Talks straight to the partner core through the HMAC-signed clusterPost
+  // transport and shows the real reply. Note capture (記:…) and agent-turn
+  // lookups (查資料) both flow through this one endpoint, mirroring the core.
+  const sendViaPartner = async (msg: string) => {
+    if (!cluster.isConfigured()) {
+      setError("夥伴大腦未設定 — 到「設定 → Cluster 派送」填 coordinator URL + secret（協調器本機就是 http://localhost:7878），或關掉上方「夥伴大腦」改用本機 Agent");
+      setMessages(prev => prev.slice(0, -1));
+      setLoading(false);
+      return;
+    }
+    try {
+      const r = await sendToPartner(cluster.coordinatorUrl, cluster.clusterSecret, msg);
+      setMessages(prev => {
+        const updated = [...prev];
+        const idx = updated.length - 1;
+        if (updated[idx]?.role === "assistant") {
+          updated[idx] = { ...updated[idx], content: r.reply || "（夥伴沒有回覆內容）" };
+        }
+        return updated;
+      });
+      setStatus(s => ({ ...s, daemonHealthy: true }));
+    } catch (e) {
+      setError(`夥伴大腦連線失敗：${String(e)}（確認 coordinator URL + secret，或關掉「夥伴大腦」用本機 Agent）`);
+      setMessages(prev => prev.slice(0, -1));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ── Stop / cancel in-flight stream (provider mode) ───────────────────────────
   const stop = () => {
     streamRef.current?.cancel();
@@ -292,6 +333,12 @@ export default function ConversationView() {
     setMessages(prev => [...prev, { role: "user", content: msg }]);
     setLoading(true);
     setMessages(prev => [...prev, { role: "assistant", content: "", tool_calls: [] }]);
+
+    // Branch: partner-brain mode routes through /partner/message (記/查).
+    if (partnerMode) {
+      await sendViaPartner(msg);
+      return;
+    }
 
     // Branch: raw provider mode skips the agent loop entirely.
     if (providerMode) {
@@ -439,9 +486,26 @@ export default function ConversationView() {
         {/* Spacer */}
         <div className="flex-1" />
 
+        {/* Partner-brain mode toggle — routes chat through /partner/message (記/查) */}
+        <button
+          onClick={() => setPartnerMode(m => { const next = !m; if (next) setProviderMode(false); return next; })}
+          disabled={loading}
+          title={partnerMode
+            ? "夥伴大腦模式（走 /partner/message:記東西 + 查資料）— 點擊切回本機 Agent"
+            : "切換到夥伴大腦模式(走 /partner/message)"}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition disabled:opacity-40 ${
+            partnerMode
+              ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
+              : "border-phantom-border text-phantom-muted hover:text-phantom-text"
+          }`}
+        >
+          <HeartHandshake size={12} />
+          夥伴大腦
+        </button>
+
         {/* SPEC-14 provider mode toggle — bypasses agent loop, hits providers wire directly */}
         <button
-          onClick={() => setProviderMode(m => !m)}
+          onClick={() => setProviderMode(m => { const next = !m; if (next) setPartnerMode(false); return next; })}
           disabled={loading}
           title={providerMode
             ? `Provider 直連模式（${activeProvider ?? "解析中"}）— 點擊切回 Agent`

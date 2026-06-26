@@ -64,6 +64,12 @@ use ts_rs::TS;
 use crate::event_storage_wire::{
     self, EventKind, EventMeta, EventStoreError, EventStoreQuery,
 };
+// Machine-origin isolation (R1): a check-in's provenance is derived from its
+// `HabitCheckinSource` (see `checkin_origin`). All current sources are human
+// device surfaces (manual tap / watch / widget / shortcut), so they map to
+// `Human`; the explicit threading keeps the door open for a future autonomous
+// auto-checkin to declare itself `Machine` without re-plumbing the call site.
+use crate::partner::MessageOrigin;
 
 /// SPEC-22 §7.1.3 `HabitMetadata` — the encrypted-body payload for a single
 /// habit check-in event. Distinct from the wire-facing `HabitCheckin`: this is
@@ -470,7 +476,7 @@ pub fn compute_streak(habit_slug: &str) -> Result<HabitStreak, HabitCaptureError
 // Per docs/superpowers/SPEC-TO-CODE-PLAYBOOK.md the seven Stage 2 pseudocode
 // stubs below were promoted in this Stage 3 commit:
 //   • `rusqlite` (already a non-optional core dep — used by tasks::store +
-//     experimental-hermes-memory) backs the chip_palette + habit_checkins
+//     experimental-memory) backs the chip_palette + habit_checkins
 //     tables.
 //   • `chrono` (non-optional since E002 Task 8) backs the day-bucket walker
 //     in `streak_walk_pseudo`.
@@ -625,6 +631,20 @@ fn habit_insert_pseudo(def: &HabitDefinition) -> Result<(), HabitCaptureError> {
 ///
 /// 中文: 把打卡寫進加密 EventStore（事件儲存）— 含 PII 的 `note`（備註）封進
 /// age v1 加密 body，不再寫明文 sqlite。SPEC-13 encrypt 失敗 → HABIT-005 Store。
+/// Map a check-in's `HabitCheckinSource` to its [`MessageOrigin`] for the event
+/// store's machine-origin isolation (R1). Every current source is a HUMAN device
+/// surface — a person tapping the app, watch, widget, or firing a shortcut they
+/// configured — so all map to `Human`. Centralised so a future autonomous
+/// auto-checkin source can flip to `Machine` in exactly one place.
+fn checkin_origin(source: HabitCheckinSource) -> MessageOrigin {
+    match source {
+        HabitCheckinSource::Manual
+        | HabitCheckinSource::Watch
+        | HabitCheckinSource::Widget
+        | HabitCheckinSource::Shortcut => MessageOrigin::Human,
+    }
+}
+
 fn checkin_insert_pseudo(checkin: &HabitCheckin) -> Result<(), HabitCaptureError> {
     // Step 1: build the SPEC-22 §7.1.3 `HabitMetadata` body — carries the
     // potentially-PII `free_text` (note) + source; this whole blob is encrypted.
@@ -650,10 +670,34 @@ fn checkin_insert_pseudo(checkin: &HabitCheckin) -> Result<(), HabitCaptureError
         tags: vec!["habit".to_string(), habit_tag(&checkin.habit_slug)],
     };
     // Step 4: append to the encrypted EventStore; map any STORE-* failure to
-    // the HABIT-005 catalog entry.
-    event_storage_wire::write_event(&meta, &encrypted_body, None)
-        .map(|_| ())
-        .map_err(store_err_to_habit)
+    // the HABIT-005 catalog entry. Tag the event with its provenance so an
+    // autonomous loop's check-in (if one is ever added) cannot pollute human
+    // recall — today every `HabitCheckinSource` is a human surface → Human.
+    let origin = checkin_origin(checkin.source);
+    let event_id = event_storage_wire::write_event_with_origin(&meta, &encrypted_body, None, origin)
+        .map_err(store_err_to_habit)?;
+    // Step 5: index a NON-PII summary into the FTS5 free-text store so recall /
+    // `search_fts5` can find this check-in by keyword (SPEC-16 §7.2 + §12.1).
+    // The free-text `note` is PII and stays ONLY in the encrypted body — we
+    // index the habit slug + source (both already plaintext in `meta` / known
+    // non-PII). Best-effort: a failed index must not lose the persisted event.
+    let fts_summary = format!("habit {} {}", checkin.habit_slug, checkin.source.slug());
+    if let Err(e) = event_storage_wire::index_fts5_with_origin(&event_id, &fts_summary, origin) {
+        crate::diag::record(
+            "fts5_index_failed",
+            format!("habit event {}: {}", event_id, e),
+        );
+    }
+    // Semantic index (recall-engine moat): best-effort embed of the same non-PII
+    // summary into events_emb. A missing embedder must not lose the persisted
+    // check-in or block capture — `embed_and_store` logs + continues internally.
+    if let Err(e) = event_storage_wire::embed_and_store(&event_id, &fts_summary, origin) {
+        crate::diag::record(
+            "embed_index_failed",
+            format!("habit event {}: {}", event_id, e),
+        );
+    }
+    Ok(())
 }
 
 /// Age-encrypt plaintext bytes against the per-process EventKey (SPEC-13). The
@@ -733,7 +777,19 @@ fn checkin_window_counts_pseudo(
     slug: &str,
 ) -> Result<(u32, u32, Option<String>), HabitCaptureError> {
     let rows = checkin_query_pseudo(slug)?;
-    let now = chrono::Utc::now();
+    Ok(window_counts_from_rows_with_clock(&rows, &crate::clock::SystemClock))
+}
+
+/// Clock-injectable 7d/30d date-bucketing core. Pure over its inputs: given the
+/// already-loaded check-in rows and a clock, count the rows inside the last-7-day
+/// and last-30-day windows (cutoffs derived from `clock.now_utc()`) and return
+/// the newest `last_checkin_at` as an ISO-8601 UTC string. With `SystemClock`
+/// this is identical to the previous `Utc::now() - Duration::days(N)` math.
+fn window_counts_from_rows_with_clock(
+    rows: &[HabitCheckin],
+    clock: &dyn crate::clock::Clock,
+) -> (u32, u32, Option<String>) {
+    let now = clock.now_utc();
     let cutoff_7d = (now - chrono::Duration::days(7)).timestamp_millis();
     let cutoff_30d = (now - chrono::Duration::days(30)).timestamp_millis();
 
@@ -745,7 +801,7 @@ fn checkin_window_counts_pseudo(
         .max()
         .and_then(ts_ms_to_rfc3339);
 
-    Ok((last_7d_count, last_30d_count, last_checkin_at))
+    (last_7d_count, last_30d_count, last_checkin_at)
 }
 
 /// Load every check-in for `slug` from the SPEC-16 encrypted EventStore,
@@ -785,7 +841,7 @@ fn checkin_query_pseudo(slug: &str) -> Result<Vec<HabitCheckin>, HabitCaptureErr
         });
     }
     // EventStore sorts ascending; the streak walker wants newest-first.
-    out.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+    out.sort_by_key(|c| std::cmp::Reverse(c.timestamp_ms));
     Ok(out)
 }
 
@@ -797,8 +853,21 @@ fn checkin_query_pseudo(slug: &str) -> Result<Vec<HabitCheckin>, HabitCaptureErr
 /// SPEC-12 user-pref surface settles. The lenient grace-until-EOD window is
 /// preserved by treating "no checkin today" as a soft state: the streak only
 /// resets when a full empty day has passed (today + yesterday both empty).
+/// `&SystemClock` wrapper preserving the original signature + production
+/// behavior. The wall-clock "today" comes from `SystemClock`, identical to the
+/// previous `Utc::now().date_naive()`.
 fn streak_walk_pseudo(
     rows: &[HabitCheckin],
+) -> Result<(u16, u16, Option<String>), HabitCaptureError> {
+    streak_walk_pseudo_with_clock(rows, &crate::clock::SystemClock)
+}
+
+/// Clock-injectable streak walker — the hermetic daily-transition core. "Today"
+/// is taken from the injected `clock` (tests pin it via `MockClock`), so the
+/// day-boundary decision is deterministic. Bucketing math is unchanged.
+fn streak_walk_pseudo_with_clock(
+    rows: &[HabitCheckin],
+    clock: &dyn crate::clock::Clock,
 ) -> Result<(u16, u16, Option<String>), HabitCaptureError> {
     use chrono::{DateTime, Datelike, NaiveDate, Utc};
 
@@ -825,7 +894,7 @@ fn streak_walk_pseudo(
     // Step 2: current_streak walks back from today (or the most-recent logged
     // day if today is missing — grace-until-EOD). Day-by-day decrement; the
     // moment we hit a gap, stop counting.
-    let today = Utc::now().date_naive();
+    let today = clock.now_utc().date_naive();
     let mut cursor = today;
     let mut current: u16 = 0;
     // Grace window: if `today` is not in the set but `today - 1` IS, allow
@@ -938,6 +1007,97 @@ fn parse_source_slug(s: &str) -> HabitCheckinSource {
 mod tests {
     use super::*;
 
+    /// Daily-transition determinism: pin "today" to a fixed date via MockClock,
+    /// seed three consecutive days ending on that pinned today, and assert the
+    /// streak is exactly 3 — with NO dependence on the real wall clock (this is
+    /// the flake the old `streak_walk_three_consecutive_days_yields_three` test
+    /// risked near a midnight boundary).
+    #[test]
+    fn streak_walk_with_clock_pins_today_deterministically() {
+        use crate::clock::{Clock, MockClock};
+        // Pinned "today" = 2026-06-17 00:00 UTC. Day length in ms.
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        let today_ms = clock.now_ms() as i64;
+        let day = 24 * 60 * 60 * 1_000_i64;
+        // Three consecutive UTC days ending today: 06-17, 06-16, 06-15.
+        let rows = vec![
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms,            note: None, source: HabitCheckinSource::Manual },
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms - day,      note: None, source: HabitCheckinSource::Manual },
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms - 2 * day,  note: None, source: HabitCheckinSource::Manual },
+        ];
+        let (current, longest, last) = streak_walk_pseudo_with_clock(&rows, &clock).expect("walk");
+        assert_eq!(current, 3, "three consecutive days ending pinned-today → current 3");
+        assert_eq!(longest, 3);
+        assert!(last.is_some());
+    }
+
+    /// Grace-until-EOD: today has NO check-in but yesterday does. With "today"
+    /// pinned, the cursor starts from yesterday and the streak is preserved —
+    /// not reset — which is exactly the SPEC-22 §8.3 lenient rule. Deterministic
+    /// because "today" is the injected clock, not the wall clock.
+    #[test]
+    fn streak_walk_with_clock_grace_keeps_streak_when_today_empty() {
+        use crate::clock::{Clock, MockClock};
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        let today_ms = clock.now_ms() as i64;
+        let day = 24 * 60 * 60 * 1_000_i64;
+        // Logs on 06-16 and 06-15 only (today 06-17 is empty).
+        let rows = vec![
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms - day,     note: None, source: HabitCheckinSource::Manual },
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms - 2 * day, note: None, source: HabitCheckinSource::Manual },
+        ];
+        let (current, _longest, _last) = streak_walk_pseudo_with_clock(&rows, &clock).expect("walk");
+        assert_eq!(current, 2, "today empty but yesterday logged → grace keeps the 2-day streak");
+    }
+
+    /// Two fully-empty days (today AND yesterday) → current streak resets to 0.
+    /// Pinning "today" makes this assertion exact instead of clock-relative.
+    #[test]
+    fn streak_walk_with_clock_resets_after_two_empty_days() {
+        use crate::clock::{Clock, MockClock};
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        let today_ms = clock.now_ms() as i64;
+        let day = 24 * 60 * 60 * 1_000_i64;
+        // Last log was 06-14 (3 days before pinned today) → today + yesterday empty.
+        let rows = vec![
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: today_ms - 3 * day, note: None, source: HabitCheckinSource::Manual },
+        ];
+        let (current, longest, _last) = streak_walk_pseudo_with_clock(&rows, &clock).expect("walk");
+        assert_eq!(current, 0, "two empty days → current streak resets to 0");
+        assert_eq!(longest, 1, "the single historical day still counts toward longest");
+    }
+
+    /// Date-bucketing determinism: with "now" pinned via MockClock, a row 6 days
+    /// old falls inside BOTH windows, a row 10 days old falls inside only the
+    /// 30-day window, and a row 40 days old falls inside NEITHER. No wall clock.
+    #[test]
+    fn window_counts_with_clock_buckets_7d_and_30d_deterministically() {
+        use crate::clock::{Clock, MockClock};
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        let now_ms = clock.now_ms() as i64;
+        let day = 24 * 60 * 60 * 1_000_i64;
+        let rows = vec![
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: now_ms - 6 * day,  note: None, source: HabitCheckinSource::Manual },
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: now_ms - 10 * day, note: None, source: HabitCheckinSource::Manual },
+            HabitCheckin { habit_slug: "x".into(), timestamp_ms: now_ms - 40 * day, note: None, source: HabitCheckinSource::Manual },
+        ];
+        let (c7, c30, last) = window_counts_from_rows_with_clock(&rows, &clock);
+        assert_eq!(c7, 1, "only the 6-day-old row is within 7 days");
+        assert_eq!(c30, 2, "the 6- and 10-day-old rows are within 30 days");
+        assert!(last.is_some(), "last_checkin_at is the newest row's ts");
+    }
+
+    /// Empty rows → both counts 0 and last None, regardless of the clock.
+    #[test]
+    fn window_counts_with_clock_empty_is_zero() {
+        use crate::clock::MockClock;
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        let (c7, c30, last) = window_counts_from_rows_with_clock(&[], &clock);
+        assert_eq!(c7, 0);
+        assert_eq!(c30, 0);
+        assert!(last.is_none());
+    }
+
     #[test]
     fn habit_summary_round_trip_smoke() {
         // §7.1.5 invariant: the dashboard wire row survives a JSON round trip
@@ -1047,6 +1207,14 @@ mod tests {
     struct HomeGuard {
         prev: Option<std::ffi::OsString>,
         _lock: std::sync::MutexGuard<'static, ()>,
+        // Held for the whole guard lifetime so these $HOME-mutating tests also
+        // serialise against the crate-wide `env_lock` that the rest of the suite
+        // (capture_food_wire / event_storage_wire / …) uses. Without it this
+        // module's local HOME_LOCK only excludes sibling tests, not the other
+        // files' HOME writers — the cross-file race behind the FTS5 flakes.
+        // Declared last so it drops AFTER `drop()` restores HOME and after the
+        // local `_lock`: HOME is put back while env_lock is still held.
+        _env: std::sync::MutexGuard<'static, ()>,
     }
     impl Drop for HomeGuard {
         fn drop(&mut self) {
@@ -1057,12 +1225,16 @@ mod tests {
         }
     }
     fn isolate_home(tmp: &tempfile::TempDir) -> HomeGuard {
+        // Acquire the crate-wide env lock FIRST (consistent ordering with every
+        // other file, which only takes env_lock) so there is no lock-order
+        // inversion, then the module-local HOME_LOCK.
+        let env = crate::env_lock::acquire();
         // Recover from a poisoned lock (a panicking test) so unrelated tests
         // still serialise rather than all panicking on `.lock()`.
         let lock = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var_os("HOME");
         std::env::set_var("HOME", tmp.path());
-        HomeGuard { prev, _lock: lock }
+        HomeGuard { prev, _lock: lock, _env: env }
     }
 
     /// SPEC-22 §8.2 — create + lookup round trip: a newly-created chip can
@@ -1335,7 +1507,14 @@ mod tests {
     /// run ending today: current_streak == 3, longest_streak == 3.
     #[test]
     fn streak_walk_three_consecutive_days_yields_three() {
-        let now_ms = chrono::Utc::now().timestamp_millis();
+        // Pin BOTH the row timestamps AND "today" to the same MockClock instant,
+        // so the test can never straddle a UTC midnight between the row-build and
+        // the internal "today" read (the old flake with two separate Utc::now()
+        // reads). Use mid-day (12:00 UTC) so the three day-buckets are unambiguous.
+        use crate::clock::{Clock, MockClock};
+        let clock = MockClock::at_utc_date(2026, 6, 17);
+        clock.advance_ms(12 * 60 * 60 * 1_000); // 2026-06-17T12:00:00Z
+        let now_ms = clock.now_ms() as i64;
         let day = 24 * 60 * 60 * 1_000_i64;
         let rows = vec![
             HabitCheckin {
@@ -1357,7 +1536,8 @@ mod tests {
                 source: HabitCheckinSource::Manual,
             },
         ];
-        let (current, longest, last) = streak_walk_pseudo(&rows).expect("walk");
+        let (current, longest, last) =
+            streak_walk_pseudo_with_clock(&rows, &clock).expect("walk");
         assert_eq!(current, 3);
         assert_eq!(longest, 3);
         assert!(last.is_some());

@@ -78,6 +78,7 @@ export const KIND_META: Record<EventKind, { label: string; emoji: string }> = {
   food: { label: "飲食", emoji: "🍽" },
   focus: { label: "專注", emoji: "🎯" },
   habit: { label: "習慣", emoji: "✅" },
+  dispatch: { label: "派工", emoji: "📤" },
   text: { label: "文字", emoji: "📝" },
 };
 

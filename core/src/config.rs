@@ -158,6 +158,10 @@ pub struct AgentsConfig {
     /// preserves legacy `PHANTOM_PERM=allow` behaviour (allow all).
     #[serde(default)]
     pub permissions: PermissionsConfig,
+    /// `[trust]` block — Project Trust enforcement (the 4-layer onboarding
+    /// model's project layer). Default off; see [`crate::project_trust`].
+    #[serde(default)]
+    pub trust: TrustConfig,
     /// `[telegram]` block — optional bot token/chat for notifications.
     #[serde(default)]
     pub telegram: Option<crate::TelegramConfig>,
@@ -221,6 +225,7 @@ impl AgentsConfig {
             cluster: crate::mesh::ClusterConfig::default(),
             workspace: WorkspaceConfig::default(),
             permissions: PermissionsConfig::default(),
+            trust: TrustConfig::default(),
             telegram: None,
             mcp_servers: Vec::new(),
             default_model: default_model(),
@@ -368,28 +373,80 @@ impl AgentsConfig {
     /// 2. `./PHANTOM.toml`
     /// 3. `~/.phantom-mesh/agents.toml`
     /// 4. `~/.config/phantom-mesh/config.toml`
-    pub fn find_and_load() -> Option<Self> {
-        let candidates: Vec<std::path::PathBuf> = {
-            let mut v: Vec<std::path::PathBuf> =
-                vec!["./agents.toml".into(), "./PHANTOM.toml".into()];
-            if let Some(home) = dirs::home_dir() {
-                v.push(home.join(".phantom-mesh").join("agents.toml"));
-                v.push(
-                    home.join(".config")
-                        .join("phantom-mesh")
-                        .join("config.toml"),
-                );
-            }
-            v
-        };
+    ///
+    /// A candidate that exists but fails to read or parse emits a warning to
+    /// stderr (so a corrupted config doesn't silently look like a fresh
+    /// install) and is then skipped, preserving the historical fallback to
+    /// the next candidate and ultimately the caller's built-in defaults.
+    /// The ordered config-file candidates phantom searches, first match wins:
+    /// `<cwd>/agents.toml` → `<cwd>/PHANTOM.toml` → `<home>/.phantom-mesh/agents.toml`
+    /// → `<home>/.config/phantom-mesh/config.toml`.
+    ///
+    /// Single source of truth for "where does phantom look for its config",
+    /// shared by the runtime loader ([`find_and_load`](Self::find_and_load)) and
+    /// `diagnostics::diagnose`, so `phantom doctor` can never report a different
+    /// file than the runtime actually loads. Hermetic (takes explicit paths) so
+    /// both callers — and unit tests — agree by construction.
+    pub fn candidate_config_paths(
+        home: &std::path::Path,
+        cwd: &std::path::Path,
+    ) -> Vec<std::path::PathBuf> {
+        vec![
+            cwd.join("agents.toml"),
+            cwd.join("PHANTOM.toml"),
+            home.join(".phantom-mesh").join("agents.toml"),
+            home.join(".config").join("phantom-mesh").join("config.toml"),
+        ]
+    }
 
+    /// Load config from the HOME tier ONLY — `~/.phantom-mesh/agents.toml` then
+    /// `~/.config/phantom-mesh/config.toml` — deliberately skipping the cwd
+    /// candidates that [`find_and_load`](Self::find_and_load) walks first.
+    ///
+    /// Security knobs (project-trust enforcement, the permission profile/ceiling)
+    /// MUST be read from here, not from `find_and_load`: a malicious project's
+    /// own `cwd/agents.toml` is cwd-first, so reading the policy via the normal
+    /// loader would let an untrusted directory disable the very protection meant
+    /// to contain it.
+    /// True if a HOME-tier config file EXISTS (regardless of whether it parses).
+    /// Lets the security gate distinguish "no config → legacy allow-all is fine"
+    /// from "config present but malformed → fail closed".
+    pub fn home_config_present() -> bool {
+        dirs::home_dir().is_some_and(|home| {
+            home.join(".phantom-mesh").join("agents.toml").exists()
+                || home
+                    .join(".config")
+                    .join("phantom-mesh")
+                    .join("config.toml")
+                    .exists()
+        })
+    }
+
+    pub fn load_home_only() -> Option<Self> {
+        let home = dirs::home_dir()?;
+        let candidates = [
+            home.join(".phantom-mesh").join("agents.toml"),
+            home.join(".config").join("phantom-mesh").join("config.toml"),
+        ];
         for path in candidates {
             if path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&path) {
-                    if let Ok(mut cfg) = toml::from_str::<AgentsConfig>(&content) {
+                match Self::load_path(&path) {
+                    Ok(mut cfg) => {
                         cfg.resolve_env_vars();
                         cfg.apply_env_overrides();
                         return Some(cfg);
+                    }
+                    // A malformed HOME config must NOT silently disable the
+                    // security gate (the caller falls back to allow-all). Warn
+                    // loudly so the user knows their profile/trust isn't applied.
+                    Err(err) => {
+                        if warn_once_for_path(&path) {
+                            eprintln!(
+                                "warning: {err}; HOME security config ignored — \
+                                 permission profile / trust enforcement NOT applied. \
+                                 Fix the TOML or run `phantom doctor`."
+                            );
+                        }
                     }
                 }
             }
@@ -397,7 +454,75 @@ impl AgentsConfig {
         None
     }
 
+    pub fn find_and_load() -> Option<Self> {
+        let candidates: Vec<std::path::PathBuf> = {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            match dirs::home_dir() {
+                // Same candidate order as `candidate_config_paths` — that is the
+                // shared source of truth `diagnostics::diagnose` reads too.
+                Some(home) => Self::candidate_config_paths(&home, &cwd),
+                // No home → only the cwd-relative candidates are reachable.
+                None => vec![cwd.join("agents.toml"), cwd.join("PHANTOM.toml")],
+            }
+        };
+
+        for path in candidates {
+            if path.exists() {
+                match Self::load_path(&path) {
+                    Ok(mut cfg) => {
+                        cfg.resolve_env_vars();
+                        cfg.apply_env_overrides();
+                        return Some(cfg);
+                    }
+                    Err(err) => {
+                        // A corrupted config must not masquerade as a fresh
+                        // install (providers silently vanish with no clue
+                        // why). Say what went wrong, then keep the old
+                        // fallback behavior: try the next candidate, and
+                        // ultimately the caller's built-in defaults.
+                        //
+                        // find_and_load runs many times per CLI invocation, so
+                        // gate the warning behind a once-per-process per-path
+                        // guard — otherwise a single broken file spams the same
+                        // line on every call. First sighting of a given path
+                        // warns; later sightings stay silent.
+                        if warn_once_for_path(&path) {
+                            eprintln!(
+                                "warning: {err}; ignoring this config file \
+                                 (falling back to next config location or built-in defaults)"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Read and parse a single config file. On failure returns a descriptive
+    /// error naming the path and the underlying read/parse error so
+    /// [`AgentsConfig::find_and_load`] can surface it instead of silently
+    /// falling back to defaults.
+    /// Canonical single-file loader (used by [`AgentsConfig::find_and_load`] and
+    /// by tests). Public so the at-rest-sealing round-trip can be exercised
+    /// against the real load path.
+    pub fn load_path(path: &std::path::Path) -> Result<Self, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read config {}: {}", path.display(), e))?;
+        let mut cfg = toml::from_str::<AgentsConfig>(&content)
+            .map_err(|e| format!("failed to parse config {}: {}", path.display(), e))?;
+        // apex P4: decrypt any at-rest-sealed provider API keys. No-op unless
+        // `PHANTOM_ENCRYPT_AGENTS` is on (so OFF stays byte-identical to today).
+        // Fail closed — a sealed-but-undecryptable key surfaces as a load error
+        // rather than handing back ciphertext as if it were the key.
+        crate::skillbank::agents_seal::unseal_on_load(&mut cfg)
+            .map_err(|e| format!("failed to decrypt sealed keys in {}: {}", path.display(), e))?;
+        Ok(cfg)
+    }
+
     // ── Display summary ───────────────────────────────────────────────────
+    // (warn-once dedup helper lives at module scope below, see
+    // `warn_once_for_path` / `should_warn_in`.)
 
     /// Return a concise human-readable summary of this configuration.
     pub fn display_summary(&self) -> String {
@@ -471,6 +596,40 @@ impl AgentsConfig {
     }
 }
 
+/// Process-wide set of config paths whose load-failure warning has already
+/// been printed. `find_and_load` is called many times per CLI invocation, so
+/// without this guard a single corrupted config spams the same warning on
+/// every call. Keyed by path so distinct broken files each still get one line.
+///
+/// `OnceLock<Mutex<HashSet<PathBuf>>>` matches the crate's existing
+/// process-local-table idiom (cf. `capture_focus_wire::session_table`).
+fn warned_config_paths() -> &'static std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>
+{
+    static WARNED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>> =
+        std::sync::OnceLock::new();
+    WARNED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// True the first time a given path's warning should be emitted, false on every
+/// subsequent call for the same path in this process. Records the path as seen
+/// as a side effect. Wraps [`should_warn_in`] over the process-global set.
+fn warn_once_for_path(path: &std::path::Path) -> bool {
+    let mut seen = warned_config_paths()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    should_warn_in(&mut seen, path)
+}
+
+/// Pure dedup decision, extracted so it is testable without touching the
+/// process-global `OnceLock`: returns true (and inserts) only the first time
+/// `path` is seen in `seen`, false afterwards.
+fn should_warn_in(
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+    path: &std::path::Path,
+) -> bool {
+    seen.insert(path.to_path_buf())
+}
+
 /// Shorten a model ID to a brief human-readable label, e.g.
 /// "claude-sonnet-4-5-20251022" → "claude-sonnet-4-5", "gpt-4o" → "gpt-4o".
 fn short_model_label(model: &str) -> String {
@@ -511,6 +670,11 @@ pub struct ToolsConfig {
     /// API key for the Brave Search backend of the `web_search` tool.
     #[serde(default)]
     pub brave_search_api_key: Option<String>,
+    /// Todoist API token (Settings → Integrations → Developer) for the
+    /// `todoist_*` tools and the partner's goal model. Falls back to the
+    /// `TODOIST_API_TOKEN` env var when unset (see `crate::todoist::resolve_token`).
+    #[serde(default)]
+    pub todoist_api_token: Option<String>,
 }
 
 /// `[permissions]` TOML block. Each list is a sequence of rule strings
@@ -528,8 +692,23 @@ pub struct ToolsConfig {
 /// Default mode (when the user provides no rules at all) is allow-all,
 /// preserving legacy `PHANTOM_PERM=allow` behaviour. Once any rule is
 /// present, unmatched calls fall through to `Ask`.
+/// `[trust]` — Project Trust enforcement policy. The trusted-directory *set*
+/// lives in `~/.phantom-mesh/trust.json` (CLI-managed); this only holds the
+/// enforcement knob so a malicious cwd config can't trust itself.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TrustConfig {
+    /// "off" (default) / "prompt" / "observe" — see [`crate::project_trust::TrustPolicy`].
+    #[serde(default)]
+    pub enforcement: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct PermissionsConfig {
+    /// A named preset (observe / suggest / workspace-write / developer-full) —
+    /// see [`crate::permission_profiles`]. Used as the base rule set when no
+    /// explicit deny/ask/allow rules are given; explicit rules take precedence.
+    #[serde(default)]
+    pub profile: Option<String>,
     #[serde(default)]
     pub deny: Vec<String>,
     #[serde(default)]
@@ -587,6 +766,23 @@ pub struct WorkspaceConfig {
 }
 
 /// A single `[providers.<name>]` block describing one LLM backend.
+///
+/// Local servers (Ollama / LM Studio / Lemonade) can be *probed* at request
+/// time on their standard localhost ports (see
+/// [`crate::providers::local_servers::detect_local_servers`]).
+///
+/// IMPORTANT (corrected doc, fix #3): detection results are **not** synthesized
+/// into config blocks. The `PHANTOM_LOCAL_FIRST` reorder only promotes providers
+/// that *already exist in the resolved chain*, i.e. that have an explicit
+/// `[providers.NAME]` block. So **local-first only takes effect when you add a
+/// `[providers.<name>]` block** for the local server. By codebase convention
+/// that name is `local-`prefixed — e.g. `[providers.local-ollama]` — and the
+/// reorder bridges the bare detected slug (`ollama`) to it. Without such a block
+/// the flag is a no-op and the default cloud order stands.
+///
+/// When `PHANTOM_LOCAL_FIRST` is set (`1`/`true`/`yes`), a detected local server
+/// that *also* has a configured block is moved to the front of the provider
+/// chain — cloud providers stay in the chain for graceful fallback.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProviderEntry {
     /// Provider kind, e.g. `anthropic`, `openai`, `groq` (TOML key `type`).
@@ -835,6 +1031,281 @@ mod tests {
         cfg.resolve_env_vars();
         assert_eq!(cfg.providers["groq"].api_key.as_deref(), Some("gsk_real"));
         std::env::remove_var("PHANTOM_TEST_GROQ_K4");
+    }
+
+    // ── Load robustness ───────────────────────────────────────────────────
+    //
+    // `AgentsConfig` is intentionally load-only: it derives `Deserialize`
+    // (and so do its sub-structs and the external `ClusterConfig` /
+    // `TelegramConfig` / `McpServerConfig` it embeds) but NOT `Serialize`,
+    // and there is no `save` / `to_toml` writer. There is therefore no
+    // serialize→re-parse round-trip to exercise. What we *can* and should
+    // pin down is that the parse side is robust: a representative file
+    // parses into the expected fields, missing optional blocks fall back to
+    // defaults, and malformed input fails cleanly (Err, not panic).
+
+    /// A representative `agents.toml` exercising every top-level block.
+    const REPRESENTATIVE_TOML: &str = r#"
+default_model = "claude-sonnet-4-5-20251022"
+max_rounds = 30
+token_budget = 150000
+
+[core]
+host = "127.0.0.1"
+port = 9000
+hub_api_key = "hub-secret"
+
+[providers.anthropic]
+type = "anthropic"
+api_key = "sk-anthropic"
+default_model = "claude-sonnet-4-5-20251022"
+
+[providers.groq]
+type = "groq"
+api_key_env = "GROQ_API_KEY"
+tier = "free"
+
+[agent.master]
+provider = "anthropic"
+model = "claude-sonnet-4-5-20251022"
+tools = ["shell", "file_read", "file_write"]
+instructions = "be helpful"
+
+[agent.coder]
+providers = ["groq", "anthropic"]
+tools = ["shell"]
+
+[tools]
+brave_search_api_key = "brave-key"
+
+[workspace]
+default_dir = "/work/project"
+pinned_agent = "coder"
+
+[permissions]
+deny = ["Read(./.env)"]
+ask = ["WebFetch"]
+allow = ["Bash(git status)"]
+"#;
+
+    #[test]
+    fn representative_toml_parses_all_blocks() {
+        let cfg: AgentsConfig =
+            toml::from_str(REPRESENTATIVE_TOML).expect("representative toml must parse");
+
+        // Top-level scalars.
+        assert_eq!(cfg.default_model, "claude-sonnet-4-5-20251022");
+        assert_eq!(cfg.max_rounds, 30);
+        assert_eq!(cfg.token_budget, 150_000);
+
+        // [core]
+        assert_eq!(cfg.core.host, "127.0.0.1");
+        assert_eq!(cfg.core.port, 9000);
+        assert_eq!(cfg.core.hub_api_key.as_deref(), Some("hub-secret"));
+
+        // [providers.*]
+        assert_eq!(cfg.providers.len(), 2);
+        let anthropic = &cfg.providers["anthropic"];
+        assert_eq!(anthropic.provider_type, "anthropic");
+        assert_eq!(anthropic.api_key.as_deref(), Some("sk-anthropic"));
+        let groq = &cfg.providers["groq"];
+        assert_eq!(groq.api_key_env.as_deref(), Some("GROQ_API_KEY"));
+        assert_eq!(groq.tier.as_deref(), Some("free"));
+
+        // [agent.*]
+        assert_eq!(cfg.agent.len(), 2);
+        let master = &cfg.agent["master"];
+        assert_eq!(master.provider, "anthropic");
+        assert_eq!(master.tools, vec!["shell", "file_read", "file_write"]);
+        assert_eq!(master.instructions, "be helpful");
+        let coder = &cfg.agent["coder"];
+        assert_eq!(
+            coder.providers.as_deref(),
+            Some(["groq".to_string(), "anthropic".to_string()].as_slice())
+        );
+
+        // [tools] / [workspace] / [permissions]
+        assert_eq!(cfg.tools.brave_search_api_key.as_deref(), Some("brave-key"));
+        assert_eq!(cfg.workspace.default_dir.as_deref(), Some("/work/project"));
+        assert_eq!(cfg.workspace.pinned_agent.as_deref(), Some("coder"));
+        assert_eq!(cfg.permissions.deny, vec!["Read(./.env)"]);
+        assert_eq!(cfg.permissions.ask, vec!["WebFetch"]);
+        assert_eq!(cfg.permissions.allow, vec!["Bash(git status)"]);
+    }
+
+    #[test]
+    fn empty_toml_falls_back_to_defaults() {
+        // An empty file is valid: every block is `#[serde(default)]`, so
+        // scalars take their `default_*` helpers and collections are empty.
+        let cfg: AgentsConfig = toml::from_str("").expect("empty toml must parse");
+        assert_eq!(cfg.default_model, default_model());
+        assert_eq!(cfg.max_rounds, default_max_rounds());
+        assert_eq!(cfg.token_budget, default_token_budget());
+        assert_eq!(cfg.core.host, default_host());
+        assert_eq!(cfg.core.port, default_port());
+        assert!(cfg.core.hub_api_key.is_none());
+        assert!(cfg.providers.is_empty());
+        assert!(cfg.agent.is_empty());
+        assert!(cfg.tools.brave_search_api_key.is_none());
+        assert!(cfg.workspace.default_dir.is_none());
+        assert!(cfg.permissions.deny.is_empty());
+        assert!(cfg.mcp_servers.is_empty());
+        assert!(cfg.telegram.is_none());
+    }
+
+    #[test]
+    fn missing_optional_fields_in_blocks_default() {
+        // A provider/agent block that omits every optional field must still
+        // parse, with the omitted fields taking their type defaults.
+        let toml_str = r#"
+            [providers.minimal]
+            type = "openai"
+
+            [agent.bare]
+            provider = "minimal"
+        "#;
+        let cfg: AgentsConfig = toml::from_str(toml_str).expect("minimal blocks must parse");
+        let p = &cfg.providers["minimal"];
+        assert_eq!(p.provider_type, "openai");
+        assert!(p.url.is_none());
+        assert!(p.api_key.is_none());
+        assert!(p.api_key_env.is_none());
+        assert!(p.default_model.is_none());
+        assert!(p.tier.is_none());
+
+        let a = &cfg.agent["bare"];
+        assert_eq!(a.provider, "minimal");
+        assert!(a.providers.is_none());
+        assert_eq!(a.model, "");
+        assert!(a.tools.is_empty());
+        assert_eq!(a.instructions, "");
+    }
+
+    #[test]
+    fn base_url_alias_parses() {
+        // `[providers.X] base_url = ...` must populate `url` via the serde alias.
+        let toml_str = r#"
+            [providers.local]
+            type = "openai"
+            base_url = "http://localhost:1234/v1"
+        "#;
+        let cfg: AgentsConfig = toml::from_str(toml_str).expect("base_url alias must parse");
+        assert_eq!(
+            cfg.providers["local"].url.as_deref(),
+            Some("http://localhost:1234/v1")
+        );
+    }
+
+    #[test]
+    fn malformed_toml_errors_cleanly() {
+        // Syntactically broken TOML must return Err, never panic.
+        let bad = "this is = not valid = toml [[[";
+        assert!(toml::from_str::<AgentsConfig>(bad).is_err());
+    }
+
+    #[test]
+    fn wrong_typed_field_errors_cleanly() {
+        // A field with the wrong type (string where a u16 port is expected)
+        // must surface as a deserialization error, not a silent default.
+        let toml_str = r#"
+            [core]
+            port = "not-a-number"
+        "#;
+        assert!(toml::from_str::<AgentsConfig>(toml_str).is_err());
+    }
+
+    #[test]
+    fn load_path_malformed_toml_errs_naming_path_and_reason() {
+        // Regression: find_and_load used to swallow read/parse errors
+        // silently, so a corrupted agents.toml looked like a fresh install
+        // (providers vanished, no diagnostic). The inner load fn must return
+        // a descriptive error naming the path so find_and_load can warn.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agents.toml");
+        std::fs::write(&path, "this is = not valid = toml [[[").unwrap();
+        let err = AgentsConfig::load_path(&path).unwrap_err();
+        assert!(
+            err.contains("failed to parse config"),
+            "error should say parsing failed: {err}"
+        );
+        assert!(
+            err.contains(&path.display().to_string()),
+            "error should name the offending path: {err}"
+        );
+    }
+
+    #[test]
+    fn load_path_unreadable_file_errs_naming_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("does-not-exist.toml");
+        let err = AgentsConfig::load_path(&path).unwrap_err();
+        assert!(
+            err.contains("failed to read config"),
+            "error should say reading failed: {err}"
+        );
+        assert!(
+            err.contains(&path.display().to_string()),
+            "error should name the offending path: {err}"
+        );
+    }
+
+    #[test]
+    fn load_path_valid_toml_parses() {
+        // Sanity: the happy path through the extracted helper still loads.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agents.toml");
+        std::fs::write(&path, "default_model = \"gpt-4o\"\n").unwrap();
+        let cfg = AgentsConfig::load_path(&path).expect("valid toml must load");
+        assert_eq!(cfg.default_model, "gpt-4o");
+    }
+
+    // ── Warn-once dedup ─────────────────────────────────────────────────────
+    //
+    // The process-global `warn_once_for_path` guard cannot be exercised
+    // deterministically from a parallel test runner (a `OnceLock<Mutex<…>>`
+    // shared across all tests in the process has no reset). The dedup *decision*
+    // is therefore extracted into the pure `should_warn_in(&mut set, path)`,
+    // which takes the set explicitly and is fully testable in isolation.
+
+    #[test]
+    fn should_warn_in_emits_once_per_path() {
+        let mut seen = std::collections::HashSet::new();
+        let a = std::path::Path::new("/tmp/agents.toml");
+        let b = std::path::Path::new("/tmp/PHANTOM.toml");
+
+        // First sighting of `a` warns; repeats stay silent.
+        assert!(should_warn_in(&mut seen, a), "first sighting must warn");
+        assert!(!should_warn_in(&mut seen, a), "second sighting must be silent");
+        assert!(!should_warn_in(&mut seen, a), "third sighting must be silent");
+
+        // A different path warns once on its own, independent of `a`.
+        assert!(should_warn_in(&mut seen, b), "distinct path warns once");
+        assert!(!should_warn_in(&mut seen, b), "distinct path then silent");
+
+        // `a` is still suppressed after `b`'s first warning.
+        assert!(!should_warn_in(&mut seen, a), "a stays suppressed");
+    }
+
+    #[test]
+    fn warn_once_for_path_is_idempotent_for_a_given_path() {
+        // Smoke-test the process-global wrapper end-to-end. We can't assert the
+        // *first* call returns true (another test in the same process may have
+        // already recorded this path), but we can assert that once a path has
+        // been observed, every subsequent observation returns false — which is
+        // the property that stops the warning from spamming.
+        let path = std::path::Path::new(
+            "/tmp/phantom-mesh-warn-once-test-UNIQUE-d8f1/agents.toml",
+        );
+        // Force it into the seen-set, then confirm it never warns again.
+        let _ = warn_once_for_path(path);
+        assert!(
+            !warn_once_for_path(path),
+            "an already-seen path must never warn again in this process"
+        );
+        assert!(
+            !warn_once_for_path(path),
+            "still silent on a third observation"
+        );
     }
 }
 

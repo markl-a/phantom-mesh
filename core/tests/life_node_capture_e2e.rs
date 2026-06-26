@@ -77,14 +77,14 @@ fn phantom_bin_path() -> String {
 async fn capture_round_trip_image_only() {
     // ── Skip gates ────────────────────────────────────────────────────────
     if std::env::var("GEMINI_API_KEY").is_err() {
-        eprintln!("SKIP: GEMINI_API_KEY unset");
+        eprintln!("SKIPPED: capture_round_trip_image_only — GEMINI_API_KEY unset");
         return;
     }
     let bin = phantom_bin_path();
     if !std::path::Path::new(&bin).exists() {
         eprintln!(
-            "SKIP: phantom binary not at {} — run `cargo build --release --bin phantom` \
-             first (or set PHANTOM_TEST_BIN)",
+            "SKIPPED: capture_round_trip_image_only — phantom binary not at {} \
+             (run `cargo build --release --bin phantom` first, or set PHANTOM_TEST_BIN)",
             bin
         );
         return;

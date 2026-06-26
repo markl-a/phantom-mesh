@@ -194,6 +194,7 @@ mod tests {
     /// `tdd-<pid>` label) so it can't collide with the real
     /// `ai.phantommesh.serve` daemon running on the dev's Mac.
     #[test]
+    #[ignore = "integration / env-dependent — real launchctl bootstrap (needs root / clean launchd session); run via --ignored"]
     fn launchctl_bootstrap_succeeds() {
         let (label, path) = write_test_plist();
         let uid = nix_uid();
@@ -232,6 +233,7 @@ mod tests {
     /// half-registered service that the next bootstrap rejects with
     /// "Bootstrap failed: 5: Input/output error".
     #[test]
+    #[ignore = "integration / env-dependent — real launchctl bootout/bootstrap round-trip (needs root / clean launchd session); run via --ignored"]
     fn unload_then_load_round_trip() {
         let (label, path) = write_test_plist();
         let uid = nix_uid();

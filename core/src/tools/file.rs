@@ -96,8 +96,7 @@ fn allowed_roots() -> Vec<PathBuf> {
             roots.push(cwd);
         }
     }
-    if let Some(home) = dirs::home_dir() {
-        let phantom_dir = home.join(".phantom-mesh");
+    if let Ok(phantom_dir) = crate::cli_config::phantom_data_dir() {
         if let Ok(c) = phantom_dir.canonicalize() {
             roots.push(c);
         } else {
@@ -465,5 +464,135 @@ pub async fn edit(args: &Value) -> String {
             }
             Err(e) => format!("Error writing {}: {}", path.display(), e),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — safe_path allowed-roots boundary
+// ---------------------------------------------------------------------------
+//
+// `safe_path` is the allowed-roots confinement that backs file_read /
+// file_write / file_edit (T7 fix, codex audit 2026-05-15). It must:
+//   (a) accept writes INSIDE an allowed root (incl. not-yet-existing files),
+//   (b) reject writes OUTSIDE every allowed root,
+//   (c) reject `..` traversal that escapes the root (canonicalisation
+//       collapses `..`, so the resolved path must still be bounded).
+//
+// `allowed_roots()` reads `PHANTOM_EXTRA_ALLOWED_ROOTS` fresh on every call,
+// so the tests register a tempdir as an extra root and exercise paths
+// relative to it. The env var is process-global, so we serialise via the
+// shared `crate::sandbox::test_lock()` (already used by other tool tests).
+#[cfg(test)]
+mod safe_path_tests {
+    use super::safe_path;
+
+    /// RAII guard that sets PHANTOM_EXTRA_ALLOWED_ROOTS to `dir` for the
+    /// duration of a test and restores the previous value (or removes it)
+    /// on drop. Holds the process-global sandbox test lock so concurrent
+    /// tests don't clobber each other's env.
+    struct RootGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        prev: Option<String>,
+    }
+    impl RootGuard {
+        fn new(dir: &std::path::Path) -> Self {
+            let lock = crate::sandbox::test_lock();
+            let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
+            std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", dir);
+            RootGuard { _lock: lock, prev }
+        }
+    }
+    impl Drop for RootGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v),
+                None => std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS"),
+            }
+        }
+    }
+
+    #[test]
+    fn write_inside_allowed_root_is_accepted() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Canonicalise so the comparison matches what safe_path computes
+        // (macOS /var → /private/var symlink etc.).
+        let root = tmp.path().canonicalize().unwrap();
+        let _g = RootGuard::new(&root);
+
+        // New (not-yet-existing) file whose parent IS the allowed root.
+        let target = root.join("new_file.txt");
+        let resolved = safe_path(target.to_str().unwrap())
+            .expect("path inside the allowed root must be accepted");
+        assert!(
+            resolved.starts_with(&root),
+            "resolved {} should be under root {}",
+            resolved.display(),
+            root.display()
+        );
+
+        // Nested-not-yet-existing path (only an ancestor exists) is also fine.
+        let nested = root.join("a/b/c/leaf.txt");
+        let resolved = safe_path(nested.to_str().unwrap())
+            .expect("nested new path inside the root must be accepted");
+        assert!(resolved.starts_with(&root), "got: {}", resolved.display());
+    }
+
+    #[test]
+    fn write_outside_allowed_roots_is_rejected() {
+        // Two sibling tempdirs: one allowed, one NOT registered as a root.
+        let allowed = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let allowed_root = allowed.path().canonicalize().unwrap();
+        let outside_root = outside.path().canonicalize().unwrap();
+        let _g = RootGuard::new(&allowed_root);
+
+        let target = outside_root.join("escape.txt");
+        let err = safe_path(target.to_str().unwrap())
+            .expect_err("path outside every allowed root must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("outside workspace"),
+            "expected an outside-workspace error, got: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn dotdot_traversal_escaping_root_is_rejected() {
+        // Allowed root is a SUBDIR of the tempdir; `..` from inside it
+        // climbs back out of the allowed root and must be rejected even
+        // though the literal string starts with the root prefix.
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().canonicalize().unwrap();
+        let allowed_root = base.join("allowed");
+        std::fs::create_dir(&allowed_root).unwrap();
+        // A sibling target that exists outside the allowed root.
+        let secret_dir = base.join("secret");
+        std::fs::create_dir(&secret_dir).unwrap();
+        std::fs::write(secret_dir.join("loot.txt"), b"x").unwrap();
+
+        let _g = RootGuard::new(&allowed_root);
+
+        // `allowed/../secret/loot.txt` canonicalises to base/secret/loot.txt,
+        // which is OUTSIDE allowed_root → must be rejected.
+        let traversal = allowed_root.join("../secret/loot.txt");
+        let err = safe_path(traversal.to_str().unwrap())
+            .expect_err("`..` escaping the allowed root must be rejected");
+        assert!(
+            err.to_string().contains("outside workspace"),
+            "got: {}",
+            err
+        );
+
+        // Sanity: a `..` that stays inside the root is still fine.
+        std::fs::create_dir(allowed_root.join("sub")).unwrap();
+        let inside = allowed_root.join("sub/../kept.txt");
+        let resolved = safe_path(inside.to_str().unwrap())
+            .expect("`..` that stays inside the root must be accepted");
+        assert!(
+            resolved.starts_with(&allowed_root),
+            "got: {}",
+            resolved.display()
+        );
     }
 }

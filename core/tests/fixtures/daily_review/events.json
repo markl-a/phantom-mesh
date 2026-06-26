@@ -1,0 +1,110 @@
+[
+  {
+    "meta": {
+      "eventId": "evt-food-1",
+      "kind": "food",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": ["fat_loss"]
+    },
+    "analysis": {
+      "summary": "Two slices of toast with butter — moderate carb load.",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  },
+  {
+    "meta": {
+      "eventId": "evt-focus-1",
+      "kind": "focus",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": ["focus"]
+    },
+    "analysis": {
+      "summary": "50m 0s focus session on \"spec\", 0 interruption(s).",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  },
+  {
+    "meta": {
+      "eventId": "evt-food-2",
+      "kind": "food",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": ["fat_loss", "habit"]
+    },
+    "analysis": {
+      "summary": "Caesar salad and grilled chicken — within targets.",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  },
+  {
+    "meta": {
+      "eventId": "evt-habit-1",
+      "kind": "habit",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": ["habit"]
+    },
+    "analysis": {
+      "summary": "Evening walk 30 min, weather mild.",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  },
+  {
+    "meta": {
+      "eventId": "evt-food-3",
+      "kind": "food",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": ["fat_loss"]
+    },
+    "analysis": {
+      "summary": "Small portion of pasta, late-ish dinner.",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  },
+  {
+    "meta": {
+      "eventId": "evt-note-1",
+      "kind": "text",
+      "timestamp": "2026-05-22T12:00:00Z",
+      "tags": []
+    },
+    "analysis": {
+      "summary": "Rebased the daily loop onto the mockable clock.",
+      "goal_impact": null,
+      "suggestion": null,
+      "confidence": 0.8,
+      "raw_response": {},
+      "model_id": "test-model",
+      "latency_ms": 100,
+      "cost_usd": null
+    }
+  }
+]

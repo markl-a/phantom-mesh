@@ -8,7 +8,7 @@ import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import type { Env } from "./types";
 import { health } from "./routes/health";
-import { authStart, webStart, logout, googleStart, googleCallback } from "./routes/oauth";
+import { authStart, webStart, logout, googleStart, googleCallback, appleStart, appleCallback } from "./routes/oauth";
 import { emailLogin, emailRegister } from "./routes/email";
 import { loginPage, accountPage, landingPage } from "./routes/pages";
 import { me, devices, claimDevice, revokeDevice, getSettings, getSettingsRaw, putSettings, getClusterPeers, putClusterPeers, upsertClusterPeer, getSessions, postSessionHeartbeat, deleteSession } from "./routes/api";
@@ -82,6 +82,10 @@ app.post("/auth/logout", logout);
 // the identity payload.
 app.get("/auth/google/start", googleStart);
 app.get("/auth/google/callback", googleCallback);
+
+// Apple replies via response_mode=form_post → the callback is a POST.
+app.get("/auth/apple/start", appleStart);
+app.post("/auth/apple/callback", appleCallback);
 
 // Email tier — local-only, doesn't touch any IdP.
 app.post("/auth/email/login", emailLogin);

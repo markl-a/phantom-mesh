@@ -28,7 +28,7 @@ Phantom-Mesh 設計上可在四種模式下使用：
 
 Claude Code 把 phantom 當作 MCP 伺服器來使用。設定完成後，全部 45 個 phantom
 工具都能在任何 Claude Code 工作階段（session）中被呼叫。完整指南見
-[CLAUDE-CODE-SETUP.md](CLAUDE-CODE-SETUP.md)；以下是精簡版。
+[dev/CLAUDE-CODE-SETUP.md](dev/CLAUDE-CODE-SETUP.md)；以下是精簡版。
 
 ### 設定
 

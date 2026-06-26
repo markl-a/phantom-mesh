@@ -6,7 +6,7 @@
 use serde::Serialize;
 
 use phantom_mesh::life_node::data_cli::{compute_stats, delete_event, run_export, ExportFormat};
-use phantom_mesh::life_node::recall::RecallFilter;
+use phantom_mesh::life_node::recall::{RecallFilter, RecallMode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -61,6 +61,9 @@ pub async fn data_export(
         query: "",
         kind: kind.as_deref(),
         since: since.as_deref(),
+        // Export lists everything offline — keep it keyword-only (matches the
+        // CLI export path; never depends on or calls the embedder).
+        mode: RecallMode::Keyword,
     };
     let res = run_export(&home, fmt, &filter).map_err(|e| format!("data_export.failed: {e}"))?;
     let dir = home.join(".phantom-mesh").join("exports");

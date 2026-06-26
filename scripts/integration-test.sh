@@ -56,7 +56,12 @@ TOML
 
 # ── Start daemon ─────────────────────────────────────────────────────────────
 
-"$BINARY" daemon --port "$PORT" --config "$TMPDIR_TEST/agents.toml" > "$TMPDIR_TEST/daemon.log" 2>&1 &
+# The HTTP API (e.g. POST /conversations/:id/reset) is cluster-auth-gated since the
+# #321/#324 security work. This integration daemon runs on loopback with an EMPTY
+# cluster_secret, so without an explicit allow the gate fail-closes → 403 → the
+# `curl --fail` assertions exit 22 (#326). Opt this test daemon into empty-secret
+# loopback calls; production behaviour (empty secret ⇒ 403) is unchanged.
+PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 "$BINARY" daemon --port "$PORT" --config "$TMPDIR_TEST/agents.toml" > "$TMPDIR_TEST/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
 echo "Waiting for daemon to be ready..."

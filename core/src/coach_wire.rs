@@ -25,7 +25,7 @@
 // 真實邏輯接進 `life_node::coach_engine` 與 `life_node::daily_review`。
 //
 // **Cycle-break note (cross-spec)**: 本檔引用 `MemoryInject` 概念，
-// 但 **不** import SPEC-25 hermes recall 的 trait — `inject_tiered_memory()`
+// 但 **不** import SPEC-25 tiered skill recall 的 trait — `inject_tiered_memory()`
 // 是純 stub，Stage 2 若 SPEC-25 尚未 ready 就 fall back 空 Vec，不阻擋本檔。
 //
 // TODO Stage 2:
@@ -35,7 +35,7 @@
 //     markdown formatter 改用本 wire 型別（field 名對齊）。
 //   - `propose_tomorrow_action()` 現有實作在 `daily_review.rs`，Stage 2 收
 //     斂到此處 wire 統一。
-//   - `inject_tiered_memory()` Stage 2 嘗試 `hermes::recall()`；SPEC-25
+//   - `inject_tiered_memory()` Stage 2 嘗試 `skillbank::recall()`；SPEC-25
 //     不 ready → 回 `MemoryInject::default()`（三段都空 Vec）。
 //   - 把 `CoachReviewReadyPayload` 5 欄位 schema 寫進 SPEC-23 §9.7 / SPEC-24
 //     §20.1 round-trip test（已在 §7.2 標明統一 payload）。
@@ -62,7 +62,7 @@ use crate::event_storage_wire::{AnalysisResult, EventMeta};
 /// audit pinned coach at `recall_k = 5`; raise via Stage 2 config flag).
 ///
 /// 中文: 教練每日複盤的輸入。`date` 是要回顧的「當地日期」（local-tz
-/// date，預設昨日，user 可指定 backfill）；`recall_k` 是 SPEC-25 hermes
+/// date，預設昨日，user 可指定 backfill）；`recall_k` 是 SPEC-25 分層技能
 /// 記憶系統第二層 recall 抓幾筆（教練固定 5 筆，per audit）。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/coach/")]
@@ -199,13 +199,13 @@ pub struct CoachReviewDegradedPayload {
 // ─── §7.1 / SPEC-25 §7 MemoryInject — tiered memory injection ────────────────
 
 /// Three-tier memory bundle injected into the LLM prompt before
-/// `propose_tomorrow_action`. Mirrors SPEC-25 hermes recall layering:
+/// `propose_tomorrow_action`. Mirrors SPEC-25 tiered skill recall layering:
 ///
 /// - `core` — always-on identity / goals / non-negotiables
 /// - `recall` — top-K FTS5 matches against the day's events (K = 5 per audit)
 /// - `archival` — long-tail summaries (off for coach: `archival_k = 0`)
 ///
-/// 中文: SPEC-25 hermes 三層記憶注入 bundle。`core`（核心，永遠注入）/
+/// 中文: SPEC-25 三層技能記憶注入 bundle。`core`（核心，永遠注入）/
 /// `recall`（即時召回，FTS5 top-K）/ `archival`（長尾摘要，教練固定關閉）。
 /// 教練配置：`RecallPolicy { core_all: true, recall_k: 5, archival_k: 0 }`。
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
@@ -323,7 +323,7 @@ pub enum CoachError {
     /// Recovery: `phantom keys restore` from backup.
     #[error("coach.decrypt_failed")]
     DecryptFailed,
-    /// SPEC-25 hermes recall errored. Stage 2 may downgrade this to a
+    /// SPEC-25 skill recall errored. Stage 2 may downgrade this to a
     /// degraded-but-continue path (inject empty memory + log warning).
     #[error("coach.memory_inject_failed: {detail}")]
     MemoryInjectFailed { detail: String },
@@ -363,7 +363,7 @@ pub fn run_daily_review(
     let brief = aggregate(&events);
 
     // Step 3 — inject SPEC-25 tiered memory context. Graceful-empty when the
-    // skill index / hermes embedding leg is not yet present, so a missing
+    // skill index / embedding leg is not yet present, so a missing
     // recall backend never blocks a review (cycle-break per §7.1).
     let policy = RecallPolicy {
         recall_k: req.recall_k,
@@ -467,7 +467,7 @@ fn derive_takeaways(events: &[(EventMeta, AnalysisResult)]) -> Vec<String> {
 /// age-encrypted at rest (SPEC-13); only the non-PII meta stays plaintext.
 /// Returns the assigned event_id (UUIDv7). Both the happy and degraded review
 /// paths persist — a degraded review is still a row the user can retry from.
-fn persist_review(date: &str, markdown: &str) -> Result<String, CoachError> {
+pub(crate) fn persist_review(date: &str, markdown: &str) -> Result<String, CoachError> {
     use crate::event_storage_wire::{ts_ms_to_rfc3339_utc, write_event, EventKind, EventMeta};
 
     let encrypted_body = encrypt_review_body(markdown.as_bytes())?;
@@ -757,6 +757,8 @@ fn call_providers_complete(
         max_tokens: None,
         temperature: None,
         response_format: ResponseFormat::PlainText,
+        // Text-only completion path — no tool-calling here.
+        tools: Vec::new(),
     };
 
     // Every provider-side failure (chain exhausted, auth, network, rate
@@ -794,12 +796,12 @@ fn extract_response_text(response: &str) -> Result<String, CoachError> {
 }
 
 /// Inject tiered memories per `policy`. Stage 2 calls SPEC-25
-/// `hermes::recall(query, policy)`; if SPEC-25 is **not yet built** (Stage
+/// `skillbank::recall(query, policy)`; if SPEC-25 is **not yet built** (Stage
 /// 1 reality — cycle-break note), this returns
 /// `Ok(MemoryInject::default())` so coach gracefully degrades to「no extra
 /// memory injected」rather than hard-failing.
 ///
-/// 中文: 注入三層記憶。Stage 2 接 SPEC-25 hermes recall；SPEC-25 還沒做
+/// 中文: 注入三層記憶。Stage 2 接 SPEC-25 技能 recall；SPEC-25 還沒做
 /// 好就回空 `MemoryInject`（cycle-break：不要因為 SPEC-25 還沒 ready 就
 /// 卡死 coach engine）。
 pub fn inject_tiered_memory(
@@ -813,7 +815,7 @@ pub fn inject_tiered_memory(
 
     // Step 2 — graceful degrade per cycle-break note: SPEC-25 missing OR
     // recall errored OR recall returned empty → emit MemoryInject::default()
-    // so coach does not hard-fail when hermes is not yet built.
+    // so coach does not hard-fail when skill recall is not yet built.
     let _raw = match recall_result {
         Ok(v) if !v.is_empty() => v,
         _ => return Ok(MemoryInject::default()),
@@ -821,7 +823,7 @@ pub fn inject_tiered_memory(
 
     // Step 3 — place the recalled snippets into the `recall` tier. The `core`
     // (always-on identity / goals) and `archival` tiers stay empty until
-    // SPEC-25 hermes lands its own tiering; fts5 only populates `recall`.
+    // SPEC-25 skill recall lands its own tiering; fts5 only populates `recall`.
     Ok(MemoryInject {
         core: Vec::new(),
         recall: _raw,
@@ -1109,7 +1111,7 @@ mod tests {
         // path is covered hermetically in tests/cuj04_stats_only_fallback.rs.
         let mem = inject_tiered_memory("brief", &RecallPolicy::default())
             .expect("inject_tiered_memory must not error");
-        // core + archival tiers are always empty until hermes lands its tiering.
+        // core + archival tiers are always empty until skill recall lands its tiering.
         assert!(mem.core.is_empty() && mem.archival.is_empty());
     }
 
@@ -1126,5 +1128,40 @@ mod tests {
         assert_eq!(p.review_id, back.review_id);
         assert_eq!(p.date, back.date);
         assert_eq!(p.reason, back.reason);
+    }
+
+    #[test]
+    fn propose_tomorrow_action_maps_exhausted_chain_to_degraded_trigger() {
+        // LOAD-BEARING coach-failover link (SPEC-23 §11.1): when the LLM
+        // provider fallback chain is EXHAUSTED, `call_providers_complete` maps
+        // `providers_wire::complete_with_fallback`'s `Err(FallbackExhausted)`
+        // to `CoachError::LlmAllProvidersFailed` — the exact error the daily
+        // review converts into `ReviewStatus::Degraded { reason =
+        // "all_providers_failed" }`. We drive the deterministic exhaustion via
+        // an EMPTY `[routing].fallback_chain` (no network: the chain walk
+        // short-circuits to FallbackExhausted), proving the coach engine
+        // degrades GRACEFULLY (no panic, no bogus action) on total LLM failure.
+        let _lock = crate::sandbox::test_lock();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml_path = tmp.path().join("agents.toml");
+        std::fs::write(
+            &toml_path,
+            r#"
+[routing]
+fallback_chain = []
+"#,
+        )
+        .expect("write agents.toml");
+        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &toml_path);
+
+        let result = propose_tomorrow_action("brief: had a productive day", "groq:llama-3.1-8b-instant");
+
+        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+
+        assert!(
+            matches!(result, Err(CoachError::LlmAllProvidersFailed)),
+            "an exhausted provider chain must surface LlmAllProvidersFailed \
+             (the SPEC-23 §11.1 degraded trigger), got {result:?}"
+        );
     }
 }

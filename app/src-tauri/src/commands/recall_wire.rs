@@ -8,7 +8,7 @@
 use serde::Serialize;
 
 use phantom_mesh::life_node::key_derivation::load_event_key;
-use phantom_mesh::life_node::recall::{search_events, RecallFilter};
+use phantom_mesh::life_node::recall::{search_events, RecallFilter, RecallMode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +35,9 @@ pub async fn recall_search(
         query: query.trim(),
         kind: kind.as_deref(),
         since: since.as_deref(),
+        // Desktop recall stays lexical/offline (no embedder dependency); the
+        // CLI `recall --mode` exposes semantic/hybrid explicitly.
+        mode: RecallMode::Keyword,
     };
     let hits = search_events(&phantom.join("events"), key, &filter, limit.unwrap_or(50))
         .map_err(|e| format!("recall.failed: {e:?}"))?;

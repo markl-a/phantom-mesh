@@ -139,7 +139,7 @@ fi
 if [ -f LICENSE ]; then
   pass "LICENSE file exists"
 else
-  fail "LICENSE file does not exist — add one (e.g. Apache-2.0, MIT) before launch"
+  fail "LICENSE file does not exist — add the AGPL-3.0 core license before launch"
 fi
 
 # ── 12. SECURITY.md exists ───────────────────────────────────

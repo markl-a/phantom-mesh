@@ -111,13 +111,8 @@ fn lang_file_path() -> Option<std::path::PathBuf> {
             return Some(std::path::PathBuf::from(p));
         }
     }
-    let home = dirs::home_dir().or_else(|| {
-        std::env::var("HOME")
-            .ok()
-            .filter(|h| !h.is_empty())
-            .map(std::path::PathBuf::from)
-    })?;
-    Some(home.join(".phantom-mesh").join("lang"))
+    let data = crate::cli_config::phantom_data_dir().ok()?;
+    Some(data.join("lang"))
 }
 
 /// The persisted language preference, if any (written by `phantom lang set …`).

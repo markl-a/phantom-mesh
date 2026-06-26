@@ -48,6 +48,11 @@ pub const PROPAGATED_ENV_KEYS: &[&str] = &[
     // phantom runtime knobs
     "PHANTOM_MAX_TOKENS",
     "PHANTOM_NODE_NAME",
+    // L1 governed-worker knobs — so `phantom service install` produces a DURABLE
+    // governed worker (flight-recorder + governor) on macOS/Linux, not just an
+    // ungoverned serve. (Windows scheduled tasks inherit the user env directly.)
+    "PHANTOM_GOVERN_CLI",
+    "PHANTOM_CLI_SESSION_REPO",
 ];
 
 /// Dispatch `phantom service <action>` to the active OS's implementation.

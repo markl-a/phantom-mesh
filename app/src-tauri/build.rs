@@ -106,6 +106,25 @@ fn main() {
             .compile("phantom_ios_fetch");
         println!("cargo:rerun-if-changed=native/ios_fetch.m");
         println!("cargo:rustc-link-lib=framework=Foundation");
+
+        // Native one-shot GPS via CoreLocation (phantom_ios_location).
+        cc::Build::new()
+            .file("native/ios_location.m")
+            .flag("-fobjc-arc")
+            .compile("phantom_ios_location");
+        println!("cargo:rerun-if-changed=native/ios_location.m");
+        println!("cargo:rustc-link-lib=framework=CoreLocation");
+
+        // Native multi-sensor one-shot via CoreMotion + UIDevice
+        // (phantom_ios_sensors): accel/gyro/attitude/magnetometer/battery +
+        // best-effort pedometer/activity. See native/ios_motion.m.
+        cc::Build::new()
+            .file("native/ios_motion.m")
+            .flag("-fobjc-arc")
+            .compile("phantom_ios_motion");
+        println!("cargo:rerun-if-changed=native/ios_motion.m");
+        println!("cargo:rustc-link-lib=framework=CoreMotion");
+        println!("cargo:rustc-link-lib=framework=UIKit");
     }
 
     // ── Standard Tauri build (validates externalBin, generates code) ────────

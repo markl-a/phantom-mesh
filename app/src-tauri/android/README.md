@@ -20,7 +20,8 @@ android/
 │   ├── FocusSessionState.kt      shared focus-session state (prefs FSM)
 │   ├── FocusUpkeepWorker.kt       WorkManager stale-focus cleanup (no FGS)
 │   ├── HabitChipPaletteWidget.kt  SPEC-34 §10E Glance habit widget → capture queue
-│   └── BootReceiver.kt            re-arm upkeep + best-effort restart node on reboot
+│   ├── BootReceiver.kt            re-arm upkeep + best-effort restart node on reboot
+│   └── IdentityKeystore.kt        SPEC-12 §7.3 JNI bridge — EncryptedSharedPreferences (AndroidKeyStore) master-seed store
 └── res/
     ├── drawable/ic_focus_tile.xml
     ├── xml/habit_chip_palette_widget_info.xml  ← Glance appwidget-provider
@@ -62,6 +63,7 @@ npm run tauri android build                # build APK (needs Android SDK)
 - [x] tile live countdown refresh — FocusQuickTile re-paints every 30s while the shade is open (onStartListening→Handler loop, cancelled on onStopListening); FocusSessionState adds startedAt/elapsedMinutes/hasStaleSession (2026-05-29 z13-android)
 - [x] MeshNodeService manifest FGS registration — specialUse foreground service + PROPERTY_SPECIAL_USE_FGS_SUBTYPE + FOREGROUND_SERVICE(_SPECIAL_USE) perms via inject.sh (was unregistered → API34 startForeground crash) (2026-05-29 z13-android)
 - [x] widget habit slugs aligned to STARTER_PALETTE (water/coffee/exercise/breath) + F1 allowlist — were stand/breathe/log which don't exist in the in-app palette (2026-05-29 z13-android)
+- [x] IdentityKeystore.kt — SPEC-12 §7.3 — Kotlin `@JvmStatic write/read/delete` JNI counterpart to `core/src/identity_wire.rs` Android keystore arm; EncryptedSharedPreferences (file `phantom_identity_keystore`) + MasterKey(AES256_GCM, AndroidKeyStore-backed) stores base64(master seed) per account; `androidx.security:security-crypto` injected into build.gradle.kts via inject.sh; jni 0.21 in core Cargo.toml + Cargo.lock (2026-06-10). Device-proof (cargo ndk android build + instrumented round-trip e2e on real device/emulator) = open follow-up
 - [ ] FOLLOW-UP F2: drain SharedPreferences `phantom_habit_queue` (widget taps) into the real SPEC-22 capture pipeline + an in-app mobile habit screen — needs a Tauri/Rust command to read the SP queue from JS (cross-scope: core + components/mobile)
 - [ ] FOLLOW-UP (refinement): POST_NOTIFICATIONS is now requested once at onboarding; optionally add an inline request gate right before the focus/habit notifications fire (better contextual UX if the user dismissed the onboarding prompt) — Android 13+
 - [ ] FOLLOW-UP: true background node revival (FCM data push / user-granted exact alarm) — WorkManager can't startForegroundService on API31+; currently relies on START_STICKY
@@ -77,7 +79,7 @@ npm run tauri android build                # build APK (needs Android SDK)
 | # | SPEC-33 §2 foundation | Built? | Notes |
 |---|---|---|---|
 | 1 | Kotlin↔Rust JNI command matrix (SPEC-17) | ⚠️ default | Tauri 2 provides the command bridge (TauriActivity + RustWebView); no custom matrix beyond Tauri defaults yet |
-| 2 | AndroidKeyStore + EncryptedSharedPreferences (identity.key / LLM keys / broker JWT, SPEC-12 G7) | ❌ not built | core/Rust Android branch — **out of z13-android scope**. App SharedPreferences in use (focus state, habit queue) are non-secret + allowBackup=false |
+| 2 | AndroidKeyStore + EncryptedSharedPreferences (identity.key / LLM keys / broker JWT, SPEC-12 G7) | ⚠️ wrapper built | `IdentityKeystore.kt` now provides the Kotlin `@JvmStatic write/read/delete` wrapper over EncryptedSharedPreferences + MasterKey(AES256_GCM, AndroidKeyStore-backed) that `core/src/identity_wire.rs` calls via JNI (`ai/phantommesh/app/IdentityKeystore`); jni 0.21 is in core Cargo.toml/lock and `androidx.security:security-crypto` is injected into build.gradle.kts. NOT yet device-proven: `cargo ndk` android build + the instrumented `android_encrypted_shared_preferences_round_trips_master_seed` e2e on a real device/emulator (filed as follow-ups). Covers the identity-master seed; LLM keys / broker JWT remain separate. App SharedPreferences (focus state, habit queue) are non-secret + allowBackup=false |
 | 3 | FCM token register + encrypted push receive (SPEC-24) | ❌ not built | needs Firebase + Rust — **cross-scope** (filed T-MESH-FCM) |
 | 4 | Real foreground service (notification + FGS type + audio-focus + wakelock) | ⚠️ partial | DONE: MeshNodeService is a registered `specialUse` FGS w/ ongoing + focus notifications, START_STICKY, BootReceiver revival. NOT yet: audio-focus + wakelock for the SPEC-21 25-min *recording* (audio pipeline is core, under-built) |
 | 5 | MIUI compatibility guide | ✅ built | MobilePermissions panel — autostart + battery-optimization deep-links (SPEC-34 §10F) |

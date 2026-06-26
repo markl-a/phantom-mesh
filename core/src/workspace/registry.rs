@@ -16,9 +16,7 @@ pub struct WorkspaceRegistry {
 impl WorkspaceRegistry {
     /// Open (or create) the SQLite registry at `~/.phantom-mesh/phantom.db`.
     pub fn open_default() -> Result<Self> {
-        let dir = dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".phantom-mesh");
+        let dir = crate::cli_config::phantom_data_dir()?;
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
         let db_path = dir.join("phantom.db");
         Self::open_at(db_path)

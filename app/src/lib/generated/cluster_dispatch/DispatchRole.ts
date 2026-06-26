@@ -5,4 +5,4 @@
  * `Master` is the fallback: when an input matches no role keywords the master
  * node runs it itself (degenerate single-node path).
  */
-export type DispatchRole = "master" | "coder" | "researcher";
+export type DispatchRole = "master" | "coder" | "researcher" | "reviewer";

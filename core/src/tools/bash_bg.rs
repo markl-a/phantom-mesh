@@ -517,6 +517,7 @@ mod tests {
         assert!(status == "exited" || status == "running", "got: {}", status);
     }
 
+    #[cfg(unix)] // uses POSIX sleep 30; Windows cmd lacks it (process exits before kill)
     #[tokio::test]
     async fn bg_kill_running_job() {
         let res = run_background(&json!({"command": "sleep 30"})).await;

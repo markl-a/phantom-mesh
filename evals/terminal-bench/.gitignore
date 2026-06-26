@@ -1,0 +1,13 @@
+# Build artifacts / caches from build-linux-binary.sh (~1.3GB) — never commit.
+.target-linux/
+.cargo-registry/
+
+# The compiled linux binary (host it via release asset / http.server instead).
+phantom-*-linux
+
+# Terminal-Bench run outputs (trajectories, logs, results.json).
+runs/
+
+# Python
+__pycache__/
+*.pyc

@@ -135,9 +135,8 @@ impl CostTracker {
     /// per-model state always starts empty; a missing or unreadable ledger
     /// falls back to zeroed totals.
     pub fn new() -> Self {
-        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
-        let path = std::path::PathBuf::from(home)
-            .join(".phantom-mesh")
+        let path = crate::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
             .join("costs.json");
         let inner = if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {

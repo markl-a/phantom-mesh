@@ -47,4 +47,11 @@ resultSummary: string | null,
  * `None` for success terminals (Completed). The machine-readable
  * code lives in `DispatchError`; this field is the rendered message.
  */
-error: string | null, };
+error: string | null, 
+/**
+ * USD cost attributed to executing this subtask on its peer (SPEC-26 G6/J5).
+ * `0.0` for local / no-cost peers and until the peer's RPC `TaskResult`
+ * carries a real per-task cost (that cross-peer wiring is a deferred
+ * follow-up); `integrate` sums these into `IntegratedResult.total_cost_usd`.
+ */
+costUsd: number, };

@@ -41,6 +41,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::providers::traits::ChatMessage;
+use crate::vault::conversation_seal;
 
 /// Maximum number of messages kept in a cached history before the hard-cap
 /// compaction in [`ConversationStore::maybe_compact`] trims the oldest ones.
@@ -83,9 +84,8 @@ impl ConversationStore {
     /// Create a store rooted at `~/.phantom-mesh/conversations` (falling back to
     /// `./conversations` if `$HOME` is unset). Creates the directory if missing.
     pub fn new() -> Self {
-        let home = std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())).unwrap_or_else(|| ".".to_string());
-        let base_dir = std::path::PathBuf::from(home)
-            .join(".phantom-mesh")
+        let base_dir = crate::cli_config::phantom_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
             .join("conversations");
         std::fs::create_dir_all(&base_dir).ok();
         Self {
@@ -132,24 +132,67 @@ impl ConversationStore {
         content
             .lines()
             .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str(l).ok())
+            .filter_map(|l| match conversation_seal::open_line(l) {
+                Ok(json) => serde_json::from_str(&json).ok(),
+                Err(_) => {
+                    tracing::error!(
+                        chat_id = chat_id,
+                        "conversation line undecryptable, skipped (fail-closed)"
+                    );
+                    None
+                }
+            })
             .collect()
     }
 
     fn write_to_file(&self, chat_id: &str, user_msg: &ChatMessage, asst_msg: &ChatMessage) {
         use std::io::Write;
         let path = self.chat_file(chat_id);
+        let enabled = conversation_seal::conversations_e2ee_enabled();
+
+        let Ok(user_json) = serde_json::to_string(user_msg) else {
+            return;
+        };
+        let Ok(asst_json) = serde_json::to_string(asst_msg) else {
+            return;
+        };
+
+        let user_line = if enabled {
+            match conversation_seal::seal_line(&user_json) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        chat_id = chat_id,
+                        "conversation seal failed, refusing to write plaintext: {e}"
+                    );
+                    return;
+                }
+            }
+        } else {
+            user_json
+        };
+        let asst_line = if enabled {
+            match conversation_seal::seal_line(&asst_json) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(
+                        chat_id = chat_id,
+                        "conversation seal failed, refusing to write plaintext: {e}"
+                    );
+                    return;
+                }
+            }
+        } else {
+            asst_json
+        };
+
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
         {
-            if let Ok(line) = serde_json::to_string(user_msg) {
-                let _ = writeln!(f, "{}", line);
-            }
-            if let Ok(line) = serde_json::to_string(asst_msg) {
-                let _ = writeln!(f, "{}", line);
-            }
+            let _ = writeln!(f, "{}", user_line);
+            let _ = writeln!(f, "{}", asst_line);
         }
     }
 
@@ -247,11 +290,18 @@ impl ConversationStore {
         use std::io::Write;
         let path = self.chat_file(chat_id);
         let tmp = path.with_extension("jsonl.tmp");
+        let enabled = conversation_seal::conversations_e2ee_enabled();
         {
             let mut f = std::fs::File::create(&tmp)?;
             for m in &new_history {
                 let line = serde_json::to_string(m)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                let line = if enabled {
+                    conversation_seal::seal_line(&line)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?
+                } else {
+                    line
+                };
                 writeln!(f, "{}", line)?;
             }
         }

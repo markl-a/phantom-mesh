@@ -24,16 +24,123 @@ use crate::config::AgentsConfig;
 
 // ── Paths ────────────────────────────────────────────────────────────────
 
+/// Cross-platform home-directory resolver for the dev-session surfaces
+/// (`phantom inbox` / `phantom status`) that hand a `home` base to modules
+/// which then append `.phantom-mesh/...` (see `crate::inbox::inbox_dir` and
+/// `crate::session_status`). Bare `dirs::home_dir()` returns `None` on Windows
+/// when `%HOME%` is unset (it is by default), which broke these two surfaces —
+/// the Windows $HOME gap. Mirror the fallback the rest of phantom uses: prefer
+/// `$HOME`, then the Windows `%USERPROFILE%`, then `dirs::home_dir()`.
+///
+/// `pub` (not `pub(crate)`) so the `phantom` binary's `doctor` can resolve the
+/// same home the rest of phantom uses — a bare `dirs::home_dir()` there returns
+/// `None` on Windows when `%HOME%` is unset, making `doctor` read `./` and
+/// falsely report "no identity / no config".
+pub fn resolve_home_dir() -> anyhow::Result<PathBuf> {
+    // Pure OS-home resolver: `$HOME` → `%USERPROFILE%` → `dirs::home_dir()`.
+    // PHANTOM_HOME is NOT consulted here — it is the DATA-ROOT override (the
+    // `.phantom-mesh` dir itself, per DOCUMENTATION-CHARTER P0-3 / SPEC-44 /
+    // the playbooks) and is applied in `phantom_data_dir()`. Code that needs the
+    // phantom data root must call `phantom_data_dir()`, NOT
+    // `resolve_home_dir()?.join(".phantom-mesh")`, or it will miss a
+    // PHANTOM_HOME override.
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .map(PathBuf::from)
+                .filter(|p| !p.as_os_str().is_empty())
+        })
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| anyhow::anyhow!("could not resolve home directory ($HOME / %USERPROFILE%)"))
+}
+
+/// Canonical phantom **data-root** resolver (I6 / SPEC-46): the directory that
+/// holds `events/`, `keys/`, `agents.toml`, `identity.key`, etc. — i.e. the
+/// `~/.phantom-mesh` root.
+///
+/// DATA-ROOT semantics (DOCUMENTATION-CHARTER P0-3 / SPEC-44 / the integration +
+/// manual playbooks all use `${PHANTOM_HOME:-$HOME/.phantom-mesh}`):
+///   1. `PHANTOM_HOME` — the data root, used VERBATIM (it *is* the
+///      `.phantom-mesh` equivalent; nothing is appended). e.g. SPEC-44's
+///      `PHANTOM_HOME=%h/.phantom-mesh`, tests' `$(mktemp -d)/.phantom-mesh`.
+///   2. otherwise `resolve_home_dir()/.phantom-mesh`.
+///
+/// This is the single source of truth the ad-hoc
+/// `dirs::home_dir().join(".phantom-mesh")` call sites migrate onto (#322). Bare
+/// `dirs::home_dir()` ignores `$HOME`/`PHANTOM_HOME` on Windows; routing through
+/// here fixes both. Code that hands a base to a callee which then appends
+/// `.phantom-mesh` must pass THIS (the data root), not `resolve_home_dir()`, so
+/// the callee honors a `PHANTOM_HOME` override.
+pub fn phantom_data_dir() -> anyhow::Result<PathBuf> {
+    if let Some(root) = std::env::var_os("PHANTOM_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        return Ok(root);
+    }
+    Ok(resolve_home_dir()?.join(".phantom-mesh"))
+}
+
+/// Resolve the phantom data root given an EXPLICIT home base.
+///
+/// The "base-injection" surfaces (`data_cli`, `focus_session`, `inbox`,
+/// `session_status`, daily-review/recall/goals/capture helpers) take a
+/// caller-supplied `home` so hermetic tests can point them at a tempdir. Those
+/// callees historically did `home.join(".phantom-mesh")` directly, which MISSED
+/// a `PHANTOM_HOME` data-root override (the caller resolves `home` without
+/// consulting it). Route them through here instead: a non-empty `PHANTOM_HOME`
+/// wins (verbatim data root — so `PHANTOM_HOME`-only test isolation and SPEC-44
+/// service installs work), otherwise `home/.phantom-mesh` (so an explicitly
+/// injected tempdir home stays honored). Equivalent to `phantom_data_dir()`
+/// whenever `home == resolve_home_dir()`.
+pub fn phantom_dir_under(home: &Path) -> PathBuf {
+    if let Some(root) = std::env::var_os("PHANTOM_HOME")
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        return root;
+    }
+    home.join(".phantom-mesh")
+}
+
+/// Stdio targets for a detached `phantom serve` spawned from an interactive
+/// surface (the first-run wizard / onboarding FSM). The daemon's startup +
+/// tracing output is sent to `~/.phantom-mesh/serve.log` (append) instead of
+/// inheriting the terminal, where it would bleed into the wizard's own prompts.
+/// Best-effort: if the log file can't be opened, the streams are discarded
+/// (`Stdio::null`) rather than inherited — never let serve noise reach the TTY.
+pub fn serve_log_stdio() -> (std::process::Stdio, std::process::Stdio) {
+    if let Ok(home) = resolve_home_dir() {
+        let dir = home.join(".phantom-mesh");
+        let _ = fs::create_dir_all(&dir);
+        if let Ok(log) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("serve.log"))
+        {
+            if let Ok(log2) = log.try_clone() {
+                return (
+                    std::process::Stdio::from(log),
+                    std::process::Stdio::from(log2),
+                );
+            }
+        }
+    }
+    (std::process::Stdio::null(), std::process::Stdio::null())
+}
+
 /// `~/.phantom-mesh/env` — line-oriented `KEY=value` file phantom auto-loads
 /// at process start. Sourced by shell idiom `set -a; source <file>; set +a`
 /// for parity with operator runbooks.
 pub fn env_file_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("env"))
+    phantom_data_dir().ok().map(|d| d.join("env"))
 }
 
 /// `~/.phantom-mesh/agents.toml` — primary phantom config.
 pub fn agents_toml_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("agents.toml"))
+    phantom_data_dir().ok().map(|d| d.join("agents.toml"))
 }
 
 /// `~/.phantom-mesh/runtime-override` — single-line file containing the
@@ -44,7 +151,7 @@ pub fn agents_toml_path() -> Option<PathBuf> {
 /// Without this file the override is per-process via PHANTOM_RUNTIME_OVERRIDE
 /// env var, which doesn't reach a separately-spawned `phantom serve`.
 pub fn runtime_override_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("runtime-override"))
+    phantom_data_dir().ok().map(|d| d.join("runtime-override"))
 }
 
 /// Read the cluster-wide override file. None when missing or empty.
@@ -344,8 +451,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
 
     // 7. most recent crash
     println!("## most recent crash (~/.phantom-mesh/crashes/, head 100 lines)");
-    if let Some(home) = dirs::home_dir() {
-        let crashes_dir = home.join(".phantom-mesh").join("crashes");
+    if let Some(crashes_dir) = phantom_data_dir().ok().map(|d| d.join("crashes")) {
         let recent = fs::read_dir(&crashes_dir).ok().and_then(|rd| {
             let mut entries: Vec<(std::time::SystemTime, std::path::PathBuf)> = rd
                 .filter_map(|e| e.ok())
@@ -356,7 +462,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
                         .map(|t| (t, e.path()))
                 })
                 .collect();
-            entries.sort_by(|a, b| b.0.cmp(&a.0));
+            entries.sort_by_key(|v| v.0);
             entries.into_iter().next().map(|(_, p)| p)
         });
         match recent {
@@ -427,7 +533,7 @@ fn redact_secrets(s: &str) -> String {
 // not in this view (they have their own tooling — `phantom doctor`, etc.).
 
 pub fn events_log_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("events.jsonl"))
+    phantom_data_dir().ok().map(|d| d.join("events.jsonl"))
 }
 
 pub fn run_logs(args: &[String]) -> anyhow::Result<()> {
@@ -589,13 +695,14 @@ fn parse_duration_to_ms(s: &str) -> Option<i64> {
     let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
     let n: i64 = num.parse().ok()?;
     let mult = match unit {
+        "ms" => 1,
         "s" => 1_000,
         "m" => 60 * 1_000,
         "h" => 60 * 60 * 1_000,
         "d" => 24 * 60 * 60 * 1_000,
         _ => return None,
     };
-    Some(n * mult)
+    n.checked_mul(mult)
 }
 
 /// "2026-05-03T07:30:42Z"-style timestamp from epoch millis. No external
@@ -689,13 +796,14 @@ fn cluster_peers_to_capabilities(
 /// (same policy as the focus/food capture paths); plaintext fallback otherwise.
 /// Returns the new event id. `base` is the home dir (a temp dir in tests).
 fn persist_dispatch_event(
-    base: &std::path::Path,
+    phantom: &std::path::Path,
     result: &crate::cluster_dispatch_wire::IntegratedResult,
 ) -> std::io::Result<String> {
     use crate::life_node::key_derivation::event_key_for_write;
     use crate::life_node::multimodal::Modality;
     use crate::life_node::storage::EventStore;
-    let phantom = base.join(".phantom-mesh");
+    // `phantom` is the `.phantom-mesh` data root (W6/#322: callers pass
+    // phantom_data_dir(), which already honors PHANTOM_HOME / $HOME).
     let events_dir = phantom.join("events");
     // Shared no-silent-downgrade policy (D24): present-but-corrupt key → refuse.
     let store = match event_key_for_write(&phantom.join("identity.key")).map_err(|e| {
@@ -707,14 +815,45 @@ fn persist_dispatch_event(
         Some(k) => EventStore::with_key(&events_dir, k),
         None => EventStore::new(&events_dir),
     };
+    let cost_str = format!("${:.4}", result.total_cost_usd);
     let body = format!(
-        "tri-role dispatch — {} ok, {} failed, {}ms\n\n{}",
-        result.succeeded, result.failed, result.total_latency_ms, result.markdown
+        "dispatch — {} ok, {} failed, {}ms, {}\n\n{}",
+        result.succeeded, result.failed, result.total_latency_ms, cost_str, result.markdown
     );
     let source_node = std::env::var("PHANTOM_NODE")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "local".to_string());
     let meta = store.write_event("dispatch", &[Modality::Text(body)], &[], &source_node)?;
+    // Also write analysis.json with a one-line outcome summary. `phantom recall`
+    // skips any event without an analysis.json (recall.rs file-walk), so without
+    // this a dispatch event exists on disk but never surfaces in search — the
+    // summary is the searchable, human-facing text that makes a dispatch
+    // observable via `phantom recall --kind dispatch`.
+    let summary = format!(
+        "dispatch — {} ok, {} failed, {}ms, {}",
+        result.succeeded, result.failed, result.total_latency_ms, cost_str
+    );
+    let analysis = crate::life_node::multimodal::AnalysisResult {
+        summary,
+        goal_impact: None,
+        suggestion: None,
+        confidence: None,
+        raw_response: serde_json::Value::Null,
+        model_id: "dispatch".to_string(),
+        latency_ms: result.total_latency_ms,
+        cost_usd: Some(result.total_cost_usd as f32),
+    };
+    // Best-effort (cross-review catch, 2026-06-08): the event meta is ALREADY on
+    // disk by this point. A failed analysis-summary write must NOT report the whole
+    // dispatch-persist as failed — it just means this event won't surface in
+    // `phantom recall` (the prior behaviour), not that the dispatch was lost.
+    if let Err(e) = store.write_analysis(&meta.event_id, &analysis) {
+        tracing::warn!(
+            event_id = %meta.event_id,
+            error = %e,
+            "dispatch event saved, but its recall summary (analysis.json) write failed"
+        );
+    }
     Ok(meta.event_id)
 }
 
@@ -807,8 +946,8 @@ pub async fn run_dispatch(args: &[String]) -> anyhow::Result<()> {
         println!("{}", result.markdown);
         // Persist to the encrypted event log (audit / coach review). Best-effort:
         // a storage hiccup must not fail the dispatch the user already saw.
-        if let Some(home) = dirs::home_dir() {
-            match persist_dispatch_event(&home, &result) {
+        if let Ok(data) = phantom_data_dir() {
+            match persist_dispatch_event(&data, &result) {
                 Ok(id) => eprintln!("(saved to event log: {})", id),
                 Err(e) => eprintln!("(warning: dispatch not saved to event log: {})", e),
             }
@@ -1071,6 +1210,26 @@ pub async fn dispatch_lines(
                     started.elapsed().as_millis(),
                     output
                 ));
+                // Persist a durable, recallable record of this dispatch. Covers
+                // the everyday plain/--to/--all paths (--all delegates here per
+                // peer), not just --tri — so every dispatch is observable via
+                // `phantom recall --kind dispatch`. Best-effort: a failed write
+                // must not fail a dispatch that already succeeded.
+                if let Ok(data) = phantom_data_dir() {
+                    let result = crate::cluster_dispatch_wire::IntegratedResult {
+                        markdown: format!(
+                            "dispatch to {} ({})\nagent: {}\nprompt: {}\n\noutput:\n{}",
+                            target.name, target.url, agent, prompt, output
+                        ),
+                        succeeded: 1,
+                        failed: 0,
+                        total_latency_ms: started.elapsed().as_millis() as u64,
+                        total_cost_usd: 0.0,
+                    };
+                    if let Ok(id) = persist_dispatch_event(&data, &result) {
+                        out.push(format!("  (saved to event log: {})", id));
+                    }
+                }
                 break;
             }
             "error" => {
@@ -1096,6 +1255,542 @@ pub async fn dispatch_lines(
     }
 
     Ok(out)
+}
+
+/// `phantom inbox` — node mailbox for cross-machine dev-session coordination.
+///
+/// `send` POSTs a small message to a peer's `/rpc/inbox` (HMAC, same legacy
+/// body-signing arm as `phantom dispatch`); the receiving serve daemon drops
+/// it under `~/.phantom-mesh/inbox/`. `list`/`ack` operate on THIS node's
+/// inbox files — the dev session reads its directives on each loop tick and
+/// acks what it has handled. Messages are coordination traffic (≤16 KB);
+/// anything bigger travels as a git branch/commit ref inside the text.
+pub async fn run_inbox(args: &[String]) -> anyhow::Result<()> {
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("list");
+    match sub {
+        "send" => run_inbox_send(args).await,
+        "list" => {
+            let json = args.iter().any(|a| a == "--json");
+            let home = resolve_home_dir()?;
+            let msgs = crate::inbox::list_messages(&home)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&msgs)?);
+            } else if msgs.is_empty() {
+                eprintln!("inbox empty");
+            } else {
+                for m in &msgs {
+                    let topic = m.topic.as_deref().unwrap_or("-");
+                    // single-line preview; full text via --json
+                    let one_line = m.text.replace('\n', " ");
+                    let preview: String = one_line.chars().take(120).collect();
+                    let ellipsis = if one_line.chars().count() > 120 { "…" } else { "" };
+                    println!("{}  [{}] {} → {}{}", m.id, topic, m.from, preview, ellipsis);
+                }
+                eprintln!();
+                eprintln!(
+                    "{} message(s) — `phantom inbox list --json` for full text, `phantom inbox ack <id>` when handled",
+                    msgs.len()
+                );
+            }
+            Ok(())
+        }
+        "ack" => {
+            let home = resolve_home_dir()?;
+            if args.iter().any(|a| a == "--all") {
+                let n = crate::inbox::ack_all(&home)?;
+                eprintln!("✓ acked {} message(s)", n);
+                return Ok(());
+            }
+            let id = args
+                .get(3)
+                .filter(|s| !s.starts_with("--"))
+                .ok_or_else(|| anyhow::anyhow!("usage: phantom inbox ack <id> | --all"))?;
+            crate::inbox::ack_message(&home, id)?;
+            eprintln!("✓ acked {}", id);
+            Ok(())
+        }
+        "help" | "--help" | "-h" => {
+            eprintln!("phantom inbox — node mailbox for dev-session coordination");
+            eprintln!();
+            eprintln!("  phantom inbox send <node> \"<text>\"     deliver to one peer's inbox");
+            eprintln!("  phantom inbox send all \"<text>\"        broadcast to every peer (skips self)");
+            eprintln!("  phantom inbox send <node> --topic backlog \"<text>\"   tag with a topic");
+            eprintln!("  phantom inbox list [--json]            pending messages on THIS node");
+            eprintln!("  phantom inbox ack <id> | --all         mark handled (moves to inbox/done/)");
+            eprintln!();
+            eprintln!("Peers come from ~/.phantom-mesh/peers.json; auth = cluster_secret HMAC");
+            eprintln!("(same as `phantom dispatch`). Text cap 16 KB — send git refs, not diffs.");
+            Ok(())
+        }
+        other => anyhow::bail!(
+            "unknown `phantom inbox` subcommand: {} — try `phantom inbox help`",
+            other
+        ),
+    }
+}
+
+async fn run_inbox_send(args: &[String]) -> anyhow::Result<()> {
+    let mut topic: Option<String> = None;
+    let mut positional: Vec<String> = Vec::new();
+    let mut i = 3;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--topic" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    topic = Some(v.clone());
+                }
+            }
+            other if !other.starts_with("--") => positional.push(other.to_string()),
+            other => anyhow::bail!("unknown flag {} for `phantom inbox send`", other),
+        }
+        i += 1;
+    }
+    if positional.len() < 2 {
+        anyhow::bail!("usage: phantom inbox send <node|all> [--topic t] \"<text>\"");
+    }
+    let target = positional.remove(0);
+    let text = positional.join(" ");
+
+    let me = resolve_self_node_name().unwrap_or_else(|| "unknown".to_string());
+    let peers = read_peers_json().ok_or_else(|| {
+        anyhow::anyhow!("no ~/.phantom-mesh/peers.json — run `phantom config pull` or `phantom cluster join <name>` first")
+    })?;
+
+    // Same secret source as `phantom dispatch` (agents.toml [cluster]).
+    let cfg_path = agents_toml_path().ok_or_else(|| anyhow::anyhow!("no $HOME"))?;
+    let raw = fs::read_to_string(&cfg_path)
+        .map_err(|e| anyhow::anyhow!("read {}: {}", cfg_path.display(), e))?;
+    let cfg: AgentsConfig =
+        toml::from_str(&raw).map_err(|e| anyhow::anyhow!("parse {}: {}", cfg_path.display(), e))?;
+    let secret = cfg
+        .cluster
+        .cluster_secret
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "cluster_secret missing in [cluster] block of {} — run `phantom cluster join <name>` first",
+                cfg_path.display()
+            )
+        })?;
+
+    let targets: Vec<ClusterPeer> = if target == "all" {
+        peers
+            .into_iter()
+            .filter(|p| p.name != me)
+            .collect()
+    } else {
+        let p = peers
+            .into_iter()
+            .find(|p| p.name == target)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no peer named '{}' in peers.json — try `phantom cluster sync` first",
+                    target
+                )
+            })?;
+        vec![p]
+    };
+    if targets.is_empty() {
+        anyhow::bail!("no peers to send to (peers.json only contains this node?)");
+    }
+
+    let body = serde_json::json!({ "from": me, "text": text, "topic": topic });
+    let body_str = serde_json::to_string(&body)?;
+    let auth = hmac_sha256_hex(&secret, body_str.as_bytes());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let mut failed = 0usize;
+    let total = targets.len();
+    for peer in &targets {
+        let url = format!("{}/rpc/inbox", peer.url.trim_end_matches('/'));
+        let resp = client
+            .post(&url)
+            .header("X-Cluster-Auth", &auth)
+            .header("Content-Type", "application/json")
+            .body(body_str.clone())
+            .send()
+            .await;
+        match resp {
+            Ok(r) if r.status().is_success() => {
+                let v: serde_json::Value =
+                    serde_json::from_str(&r.text().await.unwrap_or_default())
+                        .unwrap_or(serde_json::Value::Null);
+                let id = v.get("id").and_then(|x| x.as_str()).unwrap_or("?");
+                eprintln!("✓ {} ← queued ({})", peer.name, id);
+            }
+            Ok(r) => {
+                failed += 1;
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                eprintln!(
+                    "✗ {} — HTTP {}: {}",
+                    peer.name,
+                    status.as_u16(),
+                    body.chars().take(160).collect::<String>()
+                );
+            }
+            Err(e) => {
+                failed += 1;
+                eprintln!("✗ {} — {}", peer.name, e);
+            }
+        }
+    }
+    // Same posture as dispatch --all (D32): every target failing must be a
+    // nonzero exit, or scripts checking $? will treat a dead mesh as success.
+    if failed == total {
+        anyhow::bail!("inbox send failed: all {} target(s) errored", total);
+    }
+    Ok(())
+}
+
+/// `phantom status` — dev-session heartbeat surface (S2).
+///
+/// `set` is what the routine calls each tick; `show` reads the local file;
+/// `mesh` rolls up every node's heartbeat over the tailnet (GET
+/// /rpc/session-status on each peer, in parallel — self is read locally).
+pub async fn run_status(args: &[String]) -> anyhow::Result<()> {
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("show");
+    match sub {
+        "set" => {
+            let mut state: Option<String> = None;
+            let mut task: Option<String> = None;
+            let mut branch: Option<String> = None;
+            let mut verdict: Option<String> = None;
+            let mut detail_parts: Vec<String> = Vec::new();
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--state" => {
+                        i += 1;
+                        state = args.get(i).cloned();
+                    }
+                    "--task" => {
+                        i += 1;
+                        task = args.get(i).cloned();
+                    }
+                    "--branch" => {
+                        i += 1;
+                        branch = args.get(i).cloned();
+                    }
+                    "--verdict" => {
+                        i += 1;
+                        verdict = args.get(i).cloned();
+                    }
+                    other if !other.starts_with("--") => detail_parts.push(other.to_string()),
+                    other => anyhow::bail!("unknown flag {} for `phantom status set`", other),
+                }
+                i += 1;
+            }
+            let state = state.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "usage: phantom status set --state <working|idle|blocked> [--task t] [--branch b] [--verdict v] [detail...]"
+                )
+            })?;
+            let detail = if detail_parts.is_empty() {
+                None
+            } else {
+                Some(detail_parts.join(" "))
+            };
+            let home = resolve_home_dir()?;
+            let node = resolve_self_node_name().unwrap_or_else(|| "unknown".to_string());
+            crate::session_status::write_status(
+                &home,
+                &node,
+                &state,
+                task.as_deref(),
+                branch.as_deref(),
+                verdict.as_deref(),
+                detail.as_deref(),
+            )?;
+            eprintln!("✓ session status: {} ({})", state, node);
+            Ok(())
+        }
+        "show" => {
+            let json = args.iter().any(|a| a == "--json");
+            let home = resolve_home_dir()?;
+            match crate::session_status::read_status(&home) {
+                Some(s) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&s)?);
+                    } else {
+                        println!("{}", format_status_line(&s.node, Some(&s)));
+                    }
+                }
+                None => eprintln!("no session status on this node yet — `phantom status set --state ...`"),
+            }
+            Ok(())
+        }
+        "mesh" => {
+            let json = args.iter().any(|a| a == "--json");
+            run_status_mesh(json).await
+        }
+        "help" | "--help" | "-h" => {
+            eprintln!("phantom status — dev-session heartbeat");
+            eprintln!();
+            eprintln!("  phantom status set --state working --task \"S2\" --branch step3 [--verdict v] [detail]");
+            eprintln!("  phantom status show [--json]      this node's heartbeat");
+            eprintln!("  phantom status mesh [--json]      every node's heartbeat (tailnet roll-up)");
+            Ok(())
+        }
+        other => anyhow::bail!(
+            "unknown `phantom status` subcommand: {} — try `phantom status help`",
+            other
+        ),
+    }
+}
+
+/// `phantom nodes <subcommand>` — read-only view of known mesh nodes.
+///
+/// LOCAL/known-peers view only: composes this node's `[cluster]` config +
+/// runtime platform/capability detector + the broker-pulled `peers.json`
+/// roster into `NodeManifest`s. Makes NO network calls (no `/rpc/join`, no
+/// heartbeat) — that lives in a separate lane.
+///
+/// Subcommands:
+///   phantom nodes inspect <node> [--json]   one node's full manifest
+///   phantom nodes caps [--json]             this node's caps + each peer's
+///   phantom nodes list [--json]             every known node, one per line
+pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
+    use crate::node_manifest::{all_known_nodes, resolve_node, NodeManifest};
+
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("help");
+    let json = args.iter().any(|a| a == "--json");
+
+    match sub {
+        "inspect" => {
+            // The node name is the first non-flag arg after `inspect`.
+            let target = args
+                .iter()
+                .skip(3)
+                .find(|a| !a.starts_with("--"))
+                .cloned();
+            let Some(target) = target else {
+                anyhow::bail!(
+                    "usage: phantom nodes inspect <node> [--json]  (try `phantom nodes list`)"
+                );
+            };
+            match resolve_node(&target) {
+                Some(manifest) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&manifest)?);
+                    } else {
+                        println!("Node: {}", manifest.node_id);
+                        print!("{}", manifest.render_table());
+                    }
+                    Ok(())
+                }
+                None => {
+                    // Clean error + nonzero exit for an unknown node.
+                    anyhow::bail!(
+                        "unknown node '{}' — not the local node and not in peers.json (try `phantom nodes list`)",
+                        target
+                    )
+                }
+            }
+        }
+        "caps" => {
+            let nodes = all_known_nodes();
+            if json {
+                // Machine-readable: {node_id, is_local, capabilities} per node.
+                let rows: Vec<serde_json::Value> = nodes
+                    .iter()
+                    .map(|n| {
+                        serde_json::json!({
+                            "node_id": n.node_id,
+                            "is_local": n.is_local,
+                            "capabilities": n.capabilities,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&rows)?);
+                return Ok(());
+            }
+            // ASCII table: NODE | KIND | CAPABILITIES.
+            println!("{:<18} {:<6} {}", "NODE", "KIND", "CAPABILITIES");
+            println!("{}", "-".repeat(60));
+            for n in &nodes {
+                let kind = if n.is_local { "local" } else { "peer" };
+                let caps = if n.capabilities.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    n.capabilities.join(", ")
+                };
+                println!("{:<18} {:<6} {}", n.node_id, kind, caps);
+            }
+            Ok(())
+        }
+        "list" => {
+            let nodes = all_known_nodes();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&nodes)?);
+                return Ok(());
+            }
+            println!("{:<18} {:<6} {}", "NODE", "KIND", "ADDRESS");
+            println!("{}", "-".repeat(60));
+            for n in &nodes {
+                let kind = if n.is_local { "local" } else { "peer" };
+                let addr = n.base_url.as_deref().unwrap_or("(local)");
+                println!("{:<18} {:<6} {}", n.node_id, kind, addr);
+            }
+            Ok(())
+        }
+        "help" | "--help" | "-h" => {
+            // Keep `NodeManifest` referenced so doc consumers see the type.
+            let _ = NodeManifest::binary_version();
+            eprintln!("phantom nodes — read-only view of known mesh nodes (local + peers.json)");
+            eprintln!();
+            eprintln!("  phantom nodes inspect <node> [--json]   one node's full manifest");
+            eprintln!("  phantom nodes caps [--json]             this node + each peer's caps");
+            eprintln!("  phantom nodes list [--json]             every known node");
+            eprintln!();
+            eprintln!("  <node> resolves case-insensitively: 'local' or this node's name");
+            eprintln!("  -> the local manifest; otherwise a peer name/label from peers.json.");
+            eprintln!("  No network calls (no /rpc/join, no heartbeat).");
+            Ok(())
+        }
+        other => anyhow::bail!(
+            "unknown `phantom nodes` subcommand: {} — try `phantom nodes help`",
+            other
+        ),
+    }
+}
+
+fn format_status_line(node: &str, s: Option<&crate::session_status::SessionStatus>) -> String {
+    match s {
+        Some(s) => {
+            let age = crate::session_status::age_secs(s);
+            let age_h = if age < 120 {
+                format!("{}s", age)
+            } else if age < 7200 {
+                format!("{}m", age / 60)
+            } else {
+                format!("{}h", age / 3600)
+            };
+            format!(
+                "{:<16} {:<9} {:<28} {:<22} {:<18} {}",
+                node,
+                s.state,
+                s.task.as_deref().unwrap_or("-"),
+                s.branch.as_deref().unwrap_or("-"),
+                s.last_verdict.as_deref().unwrap_or("-"),
+                age_h
+            )
+        }
+        None => format!("{:<16} (no session status reported)", node),
+    }
+}
+
+async fn run_status_mesh(json: bool) -> anyhow::Result<()> {
+    let me = resolve_self_node_name().unwrap_or_else(|| "unknown".to_string());
+    let home = resolve_home_dir()?;
+    let peers = read_peers_json().unwrap_or_default();
+
+    // Secret for the HMAC GET (legacy empty-body arm, same as the dispatch
+    // status poll). Missing secret → only self is shown, honestly labelled.
+    let secret: Option<String> = agents_toml_path()
+        .and_then(|p| fs::read_to_string(p).ok())
+        .and_then(|raw| toml::from_str::<AgentsConfig>(&raw).ok())
+        .and_then(|cfg| cfg.cluster.cluster_secret)
+        .filter(|s| !s.trim().is_empty());
+
+    #[derive(serde::Serialize)]
+    struct NodeRow {
+        node: String,
+        reachable: bool,
+        error: Option<String>,
+        status: Option<crate::session_status::SessionStatus>,
+    }
+
+    let mut rows: Vec<NodeRow> = Vec::new();
+    // Self: read locally, no HTTP round-trip.
+    rows.push(NodeRow {
+        node: format!("{me} (self)"),
+        reachable: true,
+        error: None,
+        status: crate::session_status::read_status(&home),
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let auth = secret.as_deref().map(|s| hmac_sha256_hex(s, b""));
+    let probes = peers
+        .iter()
+        .filter(|p| p.name != me)
+        .map(|p| {
+            let client = client.clone();
+            let auth = auth.clone();
+            let name = p.name.clone();
+            let url = format!("{}/rpc/session-status", p.url.trim_end_matches('/'));
+            async move {
+                let Some(auth) = auth else {
+                    return NodeRow {
+                        node: name,
+                        reachable: false,
+                        error: Some("no cluster_secret locally".into()),
+                        status: None,
+                    };
+                };
+                match client.get(&url).header("X-Cluster-Auth", auth).send().await {
+                    Ok(r) if r.status().is_success() => {
+                        let v: serde_json::Value =
+                            serde_json::from_str(&r.text().await.unwrap_or_default())
+                                .unwrap_or(serde_json::Value::Null);
+                        let status = v
+                            .get("status")
+                            .cloned()
+                            .and_then(|s| serde_json::from_value(s).ok());
+                        NodeRow { node: name, reachable: true, error: None, status }
+                    }
+                    Ok(r) => NodeRow {
+                        node: name,
+                        reachable: false,
+                        error: Some(format!(
+                            "HTTP {}{}",
+                            r.status().as_u16(),
+                            if r.status().as_u16() == 404 {
+                                " (old binary — no /rpc/session-status yet)"
+                            } else {
+                                ""
+                            }
+                        )),
+                        status: None,
+                    },
+                    Err(e) => NodeRow {
+                        node: name,
+                        reachable: false,
+                        error: Some(if e.is_timeout() {
+                            "timeout".into()
+                        } else {
+                            "unreachable".into()
+                        }),
+                        status: None,
+                    },
+                }
+            }
+        });
+    rows.extend(futures::future::join_all(probes).await);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
+    println!(
+        "{:<16} {:<9} {:<28} {:<22} {:<18} {}",
+        "node", "state", "task", "branch", "verdict", "age"
+    );
+    for row in &rows {
+        if let Some(err) = &row.error {
+            println!("{:<16} ✗ {}", row.node, err);
+        } else {
+            println!("{}", format_status_line(&row.node, row.status.as_ref()));
+        }
+    }
+    Ok(())
 }
 
 /// `phantom git ...` — cluster git operations.
@@ -1434,10 +2129,121 @@ pub fn start_session_heartbeat(agent: String, cwd: String) -> Option<SessionHand
     Some(SessionHandle { id, stop: tx })
 }
 
-/// Fetch + format active TUI sessions from the broker. Returns lines
-/// suitable for either CLI stdout (run_sessions) or in-TUI transcript
-/// (`/cluster who`). Caller decides where to write them.
+/// Base URL of the local plane (`phantom serve` on this machine). The
+/// local `/api/sessions` endpoint is loopback-only and needs no auth, so
+/// `phantom sessions` can always show *this machine's* sessions even
+/// before the user has logged in to the cross-mesh broker.
+pub fn local_plane_base_url() -> String {
+    format!("http://127.0.0.1:{}", detect_listen_port())
+}
+
+/// Render the local plane's `/api/sessions` payload (a JSON array of
+/// `{id, size_bytes, modified, message_count}` rows — see
+/// `serve::api_sessions`) into display lines. Pure: no I/O, so it is
+/// trivially unit-testable.
+pub fn render_local_sessions(arr: &[serde_json::Value]) -> Vec<String> {
+    let mut out = Vec::new();
+    if arr.is_empty() {
+        out.push("no active sessions on this machine".into());
+        return out;
+    }
+    out.push(format!(
+        "◆ {} local session{}:",
+        arr.len(),
+        if arr.len() == 1 { "" } else { "s" }
+    ));
+    for s in arr {
+        let id = s.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let msgs = s.get("message_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let bytes = s.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+        out.push(format!("  {:32} · {} msgs · {} bytes", id, msgs, bytes));
+    }
+    out
+}
+
+/// Fetch + render this machine's sessions from the LOCAL plane (no auth;
+/// loopback only). `base_url` is the scheme+host+port of `phantom serve`
+/// (see `local_plane_base_url`); the path `/api/sessions` is appended.
+///
+/// Factored out so the local-first path can be exercised against a mock
+/// HTTP server in tests without standing up a real `phantom serve`.
+pub async fn local_sessions_lines(base_url: &str) -> anyhow::Result<Vec<String>> {
+    let url = format!("{}/api/sessions", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("GET {}: {}", url, e))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        anyhow::bail!(
+            "local HTTP {}: {}",
+            status.as_u16(),
+            body.chars().take(200).collect::<String>()
+        );
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| anyhow::anyhow!("non-JSON response: {} — {}", e, body))?;
+    let arr = parsed.as_array().cloned().unwrap_or_default();
+    Ok(render_local_sessions(&arr))
+}
+
+/// Fetch + format active TUI sessions across the user's mesh.
+///
+/// LOCAL-FIRST: we always try the loopback plane first
+/// (`GET http://127.0.0.1:<port>/api/sessions`, no auth) so the command
+/// works on a freshly-installed / not-yet-logged-in machine instead of
+/// hard-erroring with HTTP 401. The cross-mesh broker view is then
+/// appended *only* when the user is logged in. If neither the local plane
+/// nor the broker yields anything, we degrade to a friendly notice rather
+/// than bailing.
+///
+/// Returns lines suitable for either CLI stdout (run_sessions) or in-TUI
+/// transcript (`/cluster who`). Caller decides where to write them.
 pub async fn sessions_lines() -> anyhow::Result<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+
+    // 1. Local plane first — loopback, no auth required.
+    match local_sessions_lines(&local_plane_base_url()).await {
+        Ok(lines) => out.extend(lines),
+        Err(e) => {
+            // No local `phantom serve` running (or it errored). Not fatal —
+            // we may still get the cross-mesh view from the broker below.
+            tracing::debug!("local sessions plane unavailable: {}", e);
+        }
+    }
+
+    // 2. Cross-mesh broker view — only when logged in. Absence of auth
+    //    DEGRADES gracefully (we keep whatever the local plane gave us)
+    //    rather than erroring with HTTP 401 / "not logged in".
+    match broker_sessions_lines().await {
+        Ok(lines) => {
+            if !out.is_empty() && !lines.is_empty() {
+                out.push(String::new());
+            }
+            out.extend(lines);
+        }
+        Err(e) => {
+            tracing::debug!("broker sessions view unavailable: {}", e);
+        }
+    }
+
+    if out.is_empty() {
+        out.push("no active sessions".into());
+        out.push("(start `phantom serve` here, or run `phantom login` for the cross-mesh view)".into());
+    }
+    Ok(out)
+}
+
+/// Fetch + format active TUI sessions from the cross-mesh broker. Errors
+/// (including "not logged in") are returned to the caller, which decides
+/// whether to surface or swallow them — `sessions_lines` swallows so the
+/// local-only path stays usable.
+async fn broker_sessions_lines() -> anyhow::Result<Vec<String>> {
     let auth = crate::auth::load()
         .ok_or_else(|| anyhow::anyhow!("not logged in — run `phantom login` first"))?;
     if auth.broker_token.is_empty() || auth.broker_url.is_empty() {
@@ -1802,7 +2608,7 @@ pub struct ClusterPeer {
 }
 
 pub fn peers_json_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("peers.json"))
+    phantom_data_dir().ok().map(|d| d.join("peers.json"))
 }
 
 /// Read the broker-pulled peer list. Returns Some only when the file
@@ -2636,7 +3442,7 @@ pub fn cluster_leave_lines() -> anyhow::Result<Vec<String>> {
 // you can re-pull without arguments.
 
 pub fn broker_config_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("broker.json"))
+    phantom_data_dir().ok().map(|d| d.join("broker.json"))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
@@ -2717,7 +3523,7 @@ fn vault_e2ee_enabled() -> bool {
 /// follow-up; the flat-file form keeps the migration self-contained and is no
 /// worse than the existing `broker.json` token storage.
 fn vault_seal_key_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".phantom-mesh").join("vault-seal.key"))
+    phantom_data_dir().ok().map(|d| d.join("vault-seal.key"))
 }
 
 /// Load the per-account `VaultSealKey`, generating + persisting a fresh one on
@@ -3057,6 +3863,90 @@ async fn config_push_sealed_lines(
         out.push(format!("    {}", n));
     }
     Ok(out)
+}
+
+/// Resolve the broker `(url, token)` if the user is logged in (or has pulled
+/// once). Returns `None` when there is no usable token — callers then stay
+/// silent rather than nagging a no-account local user. Mirrors the resolution
+/// in the `phantom config push` branch (stored broker.json → auth session).
+pub fn broker_auth() -> Option<(String, String)> {
+    let stored = read_broker_config();
+    let from_auth = crate::auth::load();
+    let url = stored
+        .as_ref()
+        .map(|s| s.url.clone())
+        .or_else(|| from_auth.as_ref().map(|a| a.broker_url.clone()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://phantommesh.io".to_string());
+    let token = stored
+        .as_ref()
+        .map(|s| s.token.clone())
+        .or_else(|| from_auth.as_ref().map(|a| a.broker_token.clone()))
+        .filter(|s| !s.is_empty())?;
+    Some((url, token))
+}
+
+/// Seal + upload a SINGLE key to the E2EE vault (`POST /vault/set`). Powers the
+/// post-key-set "sync to your other machines?" prompt: it pushes just the one
+/// key the user entered (not the whole env, unlike `config push`). The sealed
+/// item is keyed by the env-var name so the generic pull writes it back verbatim
+/// (see `config_pull_sealed_lines`). Requires the sealed path — the legacy
+/// plaintext broker has no client write endpoint.
+pub async fn push_single_key_to_vault(
+    broker_url: &str,
+    token: &str,
+    env_var_name: &str,
+    value: &str,
+) -> anyhow::Result<String> {
+    use crate::broker_vault_wire::{
+        compute_client_hmac, seal_vault_value, BrokerEndpoint, VaultSetRequest,
+    };
+    if value.is_empty() {
+        anyhow::bail!("refusing to sync an empty value for {env_var_name}");
+    }
+    if !vault_e2ee_enabled() {
+        anyhow::bail!("vault sync needs the sealed E2EE path, but PHANTOM_VAULT_E2EE is disabled");
+    }
+    let base = broker_url.trim_end_matches('/');
+    let seal_key = load_or_create_vault_seal_key()?;
+    let ts_ms = now_ms();
+    let sealed = seal_vault_value(value.as_bytes(), &seal_key)
+        .map_err(|e| anyhow::anyhow!("seal {}: {}", env_var_name, e))?;
+    // HMAC covers service‖key‖sealed‖ts_ms (same binding the pull verifies).
+    let client_hmac_hex =
+        compute_client_hmac(&seal_key, env_var_name, env_var_name, &sealed, ts_ms);
+    let item = VaultSetRequest {
+        service: env_var_name.to_string(),
+        key: env_var_name.to_string(),
+        value_sealed: sealed,
+        client_hmac_hex,
+        ts_ms,
+    };
+    let set_url = format!("{}/{}", base, BrokerEndpoint::VaultSet.path_slug());
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let batch = serde_json::json!({ "items": [item] });
+    let resp = client
+        .post(&set_url)
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&batch)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("POST {}: {}", set_url, e))?;
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let head: String = body.chars().take(200).collect();
+        anyhow::bail!(
+            "broker /vault/set returned HTTP {} — {}",
+            status.as_u16(),
+            head
+        );
+    }
+    Ok(format!(
+        "✓ {env_var_name} synced to your vault (E2EE — broker stores ciphertext only)"
+    ))
 }
 
 /// Minimal percent-encoding for query-string values (service/key are slugs but
@@ -4331,11 +5221,597 @@ fn human_age(ms: u64) -> String {
     }
 }
 
+// ── `phantom task` — user-facing CLI over the durable TaskStore/TaskQueue ──
+//
+// S0 lane F2: surfaces the already-built `tasks::{TaskStore, TaskQueue}`
+// (SQLite at `~/.phantom-mesh/phantom.db`) as four verbs:
+//
+//   phantom task submit "<prompt>" [--agent <name>] [--json]
+//   phantom task show <id> [--json]
+//   phantom task logs <id>
+//   phantom task cancel <id>
+//
+// v1 `submit` ENQUEUES only — it mints a durable Pending TaskRecord and returns
+// the id. Wiring it to actual agent execution is a deliberate follow-up (it
+// would pull in the full AgentRuntime + provider chain); a daemon/dispatch path
+// is the right place to drive these to Running/Completed.
+
+/// Default workspace id for tasks minted from the local CLI. The durable store
+/// is keyed per-workspace; the CLI surface is single-workspace in v1.
+const TASK_CLI_WORKSPACE: &str = "default";
+
+/// Open the durable task store under the resolved phantom home
+/// (`<home>/.phantom-mesh/phantom.db`). Resolving via [`resolve_home_dir`]
+/// (rather than `TaskStore::open_default`, which uses a bare
+/// `dirs::home_dir()`) keeps the surface honest about `$HOME` / `%USERPROFILE%`
+/// — the same resolver the rest of phantom uses — so a redirected `$HOME`
+/// (tests, sandboxes) lands the DB in the right place.
+fn open_task_store() -> anyhow::Result<crate::tasks::TaskStore> {
+    let dir = resolve_home_dir()?.join(".phantom-mesh");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| anyhow::anyhow!("create {}: {}", dir.display(), e))?;
+    crate::tasks::TaskStore::open_at(dir.join("phantom.db"))
+}
+
+/// Serialize a [`TaskRecord`] to a stable JSON object for `--json` surfaces.
+fn task_record_json(t: &crate::tasks::TaskRecord) -> serde_json::Value {
+    serde_json::json!({
+        "task_id": t.task_id.to_string(),
+        "workspace_id": t.workspace_id,
+        "session_id": t.session_id,
+        "agent_name": t.agent_name,
+        "prompt": t.prompt,
+        "status": t.status.as_str(),
+        "created_at": t.created_at,
+        "started_at": t.started_at,
+        "finished_at": t.finished_at,
+        "cost_usd": t.cost_usd,
+        "turns": t.turns,
+        "error": t.error,
+        "output": t.output,
+        "trace_id": t.trace_id.to_string(),
+    })
+}
+
+/// Serialize a [`TaskEvent`] to a stable JSON object for `replay --json`.
+fn task_event_json(e: &crate::tasks::TaskEvent) -> serde_json::Value {
+    serde_json::json!({
+        "seq": e.seq,
+        "task_id": e.task_id.to_string(),
+        "kind": e.kind.as_str(),
+        "timestamp_ms": e.timestamp_ms,
+        "detail": e.detail,
+    })
+}
+
+fn task_help() {
+    eprintln!("phantom task — manage durable long-running tasks");
+    eprintln!();
+    eprintln!("  phantom task submit \"<prompt>\" [--agent <name>] [--json]");
+    eprintln!("                                       enqueue a Pending task, print its id");
+    eprintln!("  phantom task show <id> [--json]      print a task's fields + status");
+    eprintln!("  phantom task logs <id>               print a task's output / error so far");
+    eprintln!("  phantom task replay <id> [--json]    re-emit the task's event timeline in order");
+    eprintln!("  phantom task export <id>             print a Markdown report (header + timeline)");
+    eprintln!("  phantom task cancel <id>             transition a task to Cancelled");
+    eprintln!();
+    eprintln!("Tasks persist in ~/.phantom-mesh/phantom.db (durable across restarts).");
+    eprintln!("v1 `submit` enqueues only — it does not run the task inline.");
+}
+
+/// Parse a task-id argument into a Uuid with a clear, non-panicking error.
+/// First positional arg at or after `from` that is not a `--flag`. Lets the
+/// task id appear either before OR after a flag — so both `task replay <id>
+/// --json` and `task replay --json <id>` resolve the id (previously only slot 3
+/// was checked, so a leading `--json` masked the id with a confusing
+/// "missing <id>" error). Found by the multi-AI review (2026-06-16).
+fn first_non_flag_arg(args: &[String], from: usize) -> Option<&String> {
+    args.iter().skip(from).find(|a| !a.starts_with("--"))
+}
+
+fn parse_task_id(raw: Option<&String>) -> anyhow::Result<uuid::Uuid> {
+    let raw = raw.ok_or_else(|| anyhow::anyhow!("missing <id> — usage: phantom task show <id>"))?;
+    uuid::Uuid::parse_str(raw)
+        .map_err(|_| anyhow::anyhow!("invalid task id `{}` (expected a UUID)", raw))
+}
+
+/// `phantom agents probe [--json]` — detect which external coding agents
+/// (Claude Code / Codex / Gemini) are signed in on this machine. Pure local
+/// detection (reuses the provider credential finders); no network, no API calls.
+pub fn run_agents(args: &[String]) -> anyhow::Result<()> {
+    use crate::external_agent::probe_all;
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("probe");
+    let json = args.iter().any(|a| a == "--json");
+    match sub {
+        "probe" | "list" => {
+            let probes = probe_all();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&probes)?);
+                return Ok(());
+            }
+            println!("{:<10} {:<12} {}", "AGENT", "SIGNED-IN", "SIGN-IN CMD");
+            for p in &probes {
+                println!(
+                    "{:<10} {:<12} {}",
+                    p.name,
+                    if p.signed_in { "yes" } else { "no" },
+                    p.signin_command
+                );
+            }
+            Ok(())
+        }
+        "help" | "--help" | "-h" => {
+            println!("phantom agents probe [--json]   detect signed-in external coding agents");
+            Ok(())
+        }
+        other => anyhow::bail!("unknown `agents` subcommand `{other}` (try `agents probe`)"),
+    }
+}
+
+pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
+    let sub = args.get(2).map(|s| s.as_str()).unwrap_or("help");
+    match sub {
+        "submit" => {
+            // Collect the positional prompt + parse flags. The prompt is every
+            // non-flag arg joined (so an unquoted multi-word prompt still works,
+            // mirroring `phantom dispatch`).
+            let mut agent = "master".to_string();
+            let mut json = false;
+            let mut prompt_parts: Vec<String> = Vec::new();
+            let mut i = 3;
+            while i < args.len() {
+                match args[i].as_str() {
+                    "--agent" | "-a" => {
+                        i += 1;
+                        agent = args.get(i).cloned().ok_or_else(|| {
+                            anyhow::anyhow!("--agent requires a value")
+                        })?;
+                    }
+                    "--json" => json = true,
+                    "--help" | "-h" => {
+                        task_help();
+                        return Ok(());
+                    }
+                    other if !other.starts_with("--") => prompt_parts.push(other.to_string()),
+                    other => anyhow::bail!("unknown flag {} for `phantom task submit`", other),
+                }
+                i += 1;
+            }
+            let prompt = prompt_parts.join(" ");
+            if prompt.trim().is_empty() {
+                anyhow::bail!(
+                    "no prompt — usage: phantom task submit \"<prompt>\" [--agent <name>] [--json]"
+                );
+            }
+
+            let queue = crate::tasks::TaskQueue::new(open_task_store()?);
+            let task = queue.create(TASK_CLI_WORKSPACE, &agent, &prompt).await?;
+
+            if json {
+                println!("{}", serde_json::to_string(&task_record_json(&task))?);
+            } else {
+                println!("{}", task.task_id);
+                eprintln!(
+                    "queued task {} (agent={}, status=pending) — `phantom task show {}`",
+                    task.task_id, task.agent_name, task.task_id
+                );
+                eprintln!("note: v1 enqueues only; the task is not executed inline.");
+            }
+            Ok(())
+        }
+        "show" => {
+            let json = args.iter().any(|a| a == "--json");
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let store = open_task_store()?;
+            let task = store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            if json {
+                println!("{}", serde_json::to_string(&task_record_json(&task))?);
+            } else {
+                println!("task_id:    {}", task.task_id);
+                println!("status:     {}", task.status.as_str());
+                println!("agent:      {}", task.agent_name);
+                println!("workspace:  {}", task.workspace_id);
+                println!("prompt:     {}", task.prompt);
+                println!("created_at: {}", task.created_at);
+                if let Some(s) = task.started_at {
+                    println!("started_at: {}", s);
+                }
+                if let Some(f) = task.finished_at {
+                    println!("finished_at:{}", f);
+                }
+                println!("turns:      {}", task.turns);
+                println!("cost_usd:   {}", task.cost_usd);
+                if let Some(e) = &task.error {
+                    println!("error:      {}", e);
+                }
+            }
+            Ok(())
+        }
+        "logs" => {
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let store = open_task_store()?;
+            let task = store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            // Output is the agent's result text; error is the failure reason.
+            // Print whichever the task carries; if neither, say so on stderr so
+            // a `phantom task logs <id> > file` capture stays clean (empty file).
+            let mut had_any = false;
+            if let Some(out) = &task.output {
+                print!("{}", out);
+                if !out.ends_with('\n') {
+                    println!();
+                }
+                had_any = true;
+            }
+            if let Some(err) = &task.error {
+                eprintln!("error: {}", err);
+                had_any = true;
+            }
+            if !had_any {
+                eprintln!(
+                    "(no output yet — task {} is {})",
+                    task.task_id,
+                    task.status.as_str()
+                );
+            }
+            Ok(())
+        }
+        "replay" => {
+            // READ-ONLY re-emission of the append-only event log for a task.
+            let json = args.iter().any(|a| a == "--json");
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let store = open_task_store()?;
+            // Confirm the task exists so a typo'd id is a clean error, not an
+            // empty timeline (a task can legitimately have zero events, but an
+            // unknown id should report "not found" like the other subcommands).
+            let task = store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            let events = crate::tasks::EventStore::from_conn(store.conn())
+                .events_for(id)
+                .await?;
+            if json {
+                let arr: Vec<serde_json::Value> =
+                    events.iter().map(task_event_json).collect();
+                println!("{}", serde_json::to_string(&arr)?);
+            } else if events.is_empty() {
+                eprintln!(
+                    "(no events recorded for task {} — status {})",
+                    task.task_id,
+                    task.status.as_str()
+                );
+            } else {
+                for ev in &events {
+                    // seq  ISO-timestamp  kind  [detail]
+                    print!(
+                        "{:>4}  {}  {}",
+                        ev.seq,
+                        iso_ms(ev.timestamp_ms),
+                        ev.kind.as_str()
+                    );
+                    if let Some(d) = &ev.detail {
+                        print!("  {}", d);
+                    }
+                    println!();
+                }
+            }
+            Ok(())
+        }
+        "export" => {
+            // Markdown report: header (task fields, mirroring `show`) + a
+            // "## Timeline" section listing the events in order. Printed to
+            // stdout so `phantom task export <id> > report.md` captures cleanly.
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let store = open_task_store()?;
+            let task = store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            let events = crate::tasks::EventStore::from_conn(store.conn())
+                .events_for(id)
+                .await?;
+
+            println!("# Task {}", task.task_id);
+            println!();
+            println!("- status: {}", task.status.as_str());
+            println!("- agent: {}", task.agent_name);
+            println!("- workspace: {}", task.workspace_id);
+            println!("- prompt: {}", task.prompt);
+            println!("- created_at: {}", iso_ms(task.created_at));
+            if let Some(s) = task.started_at {
+                println!("- started_at: {}", iso_ms(s));
+            }
+            if let Some(f) = task.finished_at {
+                println!("- finished_at: {}", iso_ms(f));
+            }
+            println!("- turns: {}", task.turns);
+            println!("- cost_usd: {}", task.cost_usd);
+            if let Some(e) = &task.error {
+                println!("- error: {}", e);
+            }
+            println!();
+            println!("## Timeline");
+            println!();
+            if events.is_empty() {
+                println!("_(no events recorded)_");
+            } else {
+                for ev in &events {
+                    match &ev.detail {
+                        Some(d) => println!(
+                            "- `{:>4}` {} **{}** - {}",
+                            ev.seq,
+                            iso_ms(ev.timestamp_ms),
+                            ev.kind.as_str(),
+                            d
+                        ),
+                        None => println!(
+                            "- `{:>4}` {} **{}**",
+                            ev.seq,
+                            iso_ms(ev.timestamp_ms),
+                            ev.kind.as_str()
+                        ),
+                    }
+                }
+            }
+            println!();
+            println!("## Summary");
+            println!();
+            match &task.output {
+                Some(out) if !out.trim().is_empty() => {
+                    println!("```");
+                    print!("{}", out);
+                    if !out.ends_with('\n') {
+                        println!();
+                    }
+                    println!("```");
+                }
+                _ => println!("_(no output)_"),
+            }
+            Ok(())
+        }
+        "cancel" => {
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let queue = crate::tasks::TaskQueue::new(open_task_store()?);
+            let current = queue
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            // Respect terminal-state guards: cancelling an already-finished task
+            // reports cleanly (and exits 0 — it IS in a terminal state) rather
+            // than surfacing the queue's "illegal transition" error.
+            if current.status.is_terminal() {
+                println!(
+                    "task {} is already {} — nothing to cancel",
+                    id,
+                    current.status.as_str()
+                );
+                return Ok(());
+            }
+            let task = queue
+                .transition(id, crate::tasks::TaskStatus::Cancelled, None)
+                .await?;
+            println!("cancelled task {} (was {})", id, current.status.as_str());
+            let _ = task; // status now Cancelled; printed above
+            Ok(())
+        }
+        "approvals" => {
+            // List execution contracts on a task that are still awaiting an
+            // operator decision (the durable deny-until-approved ledger).
+            let json = args.iter().any(|a| a == "--json");
+            let id = parse_task_id(first_non_flag_arg(args, 3))?;
+            let store = open_task_store()?;
+            store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            let events = crate::tasks::EventStore::from_conn(store.conn());
+            let pending = crate::tasks::approvals::pending_for(&events, id).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&pending)?);
+            } else if pending.is_empty() {
+                eprintln!("no pending approvals for task {}", id);
+            } else {
+                let now = now_ms() as i64;
+                for c in &pending {
+                    println!("{}\n", c.render(now));
+                }
+            }
+            Ok(())
+        }
+        "approve" | "deny" => {
+            use crate::execution_contract::{apply, ApprovalDecision, ContractState};
+            // `task approve <task-id> <contract-id>` — two positional args.
+            let non_flags: Vec<&String> =
+                args.iter().skip(3).filter(|a| !a.starts_with("--")).collect();
+            let id = parse_task_id(non_flags.first().copied())?;
+            let contract_id = non_flags.get(1).copied().ok_or_else(|| {
+                anyhow::anyhow!("usage: phantom task {} <task-id> <contract-id>", sub)
+            })?;
+            let store = open_task_store()?;
+            store
+                .get(id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
+            let events = crate::tasks::EventStore::from_conn(store.conn());
+            match crate::tasks::approvals::latest_state(&events, id, contract_id).await? {
+                None => anyhow::bail!(
+                    "no contract `{}` awaiting approval on task {}",
+                    contract_id,
+                    id
+                ),
+                Some(ContractState::Pending) => {}
+                Some(s) => anyhow::bail!(
+                    "contract `{}` is already {:?} — cannot {}",
+                    contract_id,
+                    s,
+                    sub
+                ),
+            }
+            let decision = if sub == "approve" {
+                ApprovalDecision::ApproveOnce
+            } else {
+                ApprovalDecision::Deny
+            };
+            // `ApprovalDecision` is no longer `Copy` (the apex-④ Redirect variant
+            // carries a `String`), so clone for `apply` and move the value into
+            // `record_decision` below.
+            let new_state = apply(ContractState::Pending, decision.clone());
+            crate::tasks::approvals::record_decision(
+                &events,
+                id,
+                contract_id,
+                decision,
+                new_state,
+            )
+            .await?;
+            println!(
+                "contract {} {} (task {})",
+                contract_id,
+                if sub == "approve" { "approved" } else { "denied" },
+                id
+            );
+            Ok(())
+        }
+        "help" | "--help" | "-h" => {
+            task_help();
+            Ok(())
+        }
+        other => anyhow::bail!(
+            "unknown `phantom task` subcommand: {} (try `phantom task --help`)",
+            other
+        ),
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phantom_data_dir_honors_override_then_falls_back() {
+        let _guard = crate::env_lock::acquire();
+        let saved_ph = std::env::var_os("PHANTOM_HOME");
+        let saved_home = std::env::var_os("HOME");
+
+        // DATA-ROOT semantics (charter P0-3 / SPEC-44 / playbooks): PHANTOM_HOME
+        // IS the .phantom-mesh data root, used verbatim (nothing appended), and
+        // it does NOT affect the pure home resolver.
+        std::env::set_var("PHANTOM_HOME", "/tmp/pm-data-root-test/.phantom-mesh");
+        assert_eq!(
+            phantom_data_dir().unwrap(),
+            PathBuf::from("/tmp/pm-data-root-test/.phantom-mesh"),
+            "PHANTOM_HOME is the data root verbatim"
+        );
+
+        // phantom_dir_under: PHANTOM_HOME override beats the injected home.
+        assert_eq!(
+            phantom_dir_under(std::path::Path::new("/some/injected/home")),
+            PathBuf::from("/tmp/pm-data-root-test/.phantom-mesh"),
+            "PHANTOM_HOME override wins over an injected home base"
+        );
+
+        // Empty PHANTOM_HOME is ignored; fall back to <base>/.phantom-mesh.
+        std::env::set_var("PHANTOM_HOME", "");
+        std::env::set_var("HOME", "/tmp/pm-home-test");
+        assert_eq!(
+            phantom_data_dir().unwrap(),
+            PathBuf::from("/tmp/pm-home-test").join(".phantom-mesh"),
+            "fallback must be $HOME/.phantom-mesh"
+        );
+        // Without an override, phantom_dir_under honors the INJECTED home (so
+        // hermetic tests that pass a tempdir stay isolated).
+        assert_eq!(
+            phantom_dir_under(std::path::Path::new("/tmp/pm-injected")),
+            PathBuf::from("/tmp/pm-injected/.phantom-mesh"),
+            "no override => injected home is honored"
+        );
+
+        // Restore so we don't leak into other serialized tests.
+        match saved_ph {
+            Some(v) => std::env::set_var("PHANTOM_HOME", v),
+            None => std::env::remove_var("PHANTOM_HOME"),
+        }
+        match saved_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+    }
+
+    #[test]
+    fn cluster_join_then_leave_returns_to_baseline() {
+        // SYS-D round-trip on agents.toml: `phantom cluster join <name>` writes a
+        // [cluster] membership block; `phantom cluster leave` removes it,
+        // restoring the file to its pre-join baseline (other sections preserved).
+        // Hermetic: PHANTOM_HOME tempdir + CLUSTER_SECRET in env, under env_lock;
+        // no peers.json, so effective_topology() uses the hardcoded
+        // CLUSTER_TOPOLOGY (where "peer-alpha" is a known node name).
+        let _guard = crate::env_lock::acquire();
+        struct EnvGuard {
+            ph: Option<std::ffi::OsString>,
+            secret: Option<std::ffi::OsString>,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.ph {
+                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
+                    None => std::env::remove_var("PHANTOM_HOME"),
+                }
+                match &self.secret {
+                    Some(v) => std::env::set_var("CLUSTER_SECRET", v),
+                    None => std::env::remove_var("CLUSTER_SECRET"),
+                }
+            }
+        }
+        let _restore = EnvGuard {
+            ph: std::env::var_os("PHANTOM_HOME"),
+            secret: std::env::var_os("CLUSTER_SECRET"),
+        };
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        std::env::set_var("PHANTOM_HOME", tmp.path());
+        std::env::set_var("CLUSTER_SECRET", "test-cluster-secret");
+
+        // Seed agents.toml with an unrelated section that MUST survive the round-trip.
+        let toml_path = agents_toml_path().unwrap();
+        std::fs::create_dir_all(toml_path.parent().unwrap()).unwrap();
+        std::fs::write(&toml_path, "[providers.demo]\nkind = \"ollama\"\n").unwrap();
+        assert!(!std::fs::read_to_string(&toml_path).unwrap().contains("[cluster]"));
+
+        // DO: join writes the [cluster] block (peers from the topology).
+        let join_out = cluster_join_lines("peer-alpha").expect("cluster join");
+        assert!(join_out.iter().any(|l| !l.is_empty()), "join emits a result line");
+        let after_join = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(after_join.contains("[cluster]"), "join writes a [cluster] block");
+        assert!(
+            after_join.contains("node_name = \"peer-alpha\""),
+            "join records the node name, got:\n{after_join}"
+        );
+        assert!(after_join.contains("[providers.demo]"), "join preserves other sections");
+
+        // UNDO: leave removes the [cluster] block → baseline restored.
+        let leave_out = cluster_leave_lines().expect("cluster leave");
+        assert!(
+            leave_out.iter().any(|l| l.contains("removed")),
+            "leave reports removal, got {leave_out:?}"
+        );
+        let after_leave = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(!after_leave.contains("[cluster]"), "leave removes the [cluster] block (baseline)");
+        assert!(after_leave.contains("[providers.demo]"), "leave preserves other sections");
+
+        // Idempotent: a second leave on a clusterless file is a no-op success.
+        let leave_again = cluster_leave_lines().expect("second leave");
+        assert!(
+            leave_again.iter().any(|l| l.contains("no [cluster]")),
+            "second leave is a no-op, got {leave_again:?}"
+        );
+    }
 
     #[test]
     fn seal_then_unseal_round_trips_the_plaintext() {
@@ -4377,6 +5853,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_duration_to_ms_handles_units_and_invalid_input() {
+        assert_eq!(parse_duration_to_ms("500ms"), Some(500));
+        assert_eq!(parse_duration_to_ms("30s"), Some(30_000));
+        assert_eq!(parse_duration_to_ms("5m"), Some(300_000));
+        assert_eq!(parse_duration_to_ms("2h"), Some(7_200_000));
+        assert_eq!(parse_duration_to_ms("1d"), Some(86_400_000));
+        assert_eq!(parse_duration_to_ms("99999999999999999999d"), None);
+        assert_eq!(parse_duration_to_ms(""), None);
+        assert_eq!(parse_duration_to_ms("5x"), None);
+        assert_eq!(parse_duration_to_ms("100"), None);
+    }
+
+    #[test]
+    fn iso_ms_formats_known_timestamps() {
+        // Non-positive (epoch boundary / invalid) input yields a placeholder that is NOT a
+        // real ISO-8601 timestamp. Assert the *contract* (distinguishable, stable across
+        // all non-positive inputs) rather than blessing the exact sentinel width/format.
+        let placeholder = iso_ms(0);
+        assert!(!placeholder.contains('T') && !placeholder.contains('Z'));
+        assert_eq!(placeholder, iso_ms(-1));
+        // A real positive timestamp formats to full ISO-8601.
+        assert_eq!(iso_ms(1_700_000_000_000), "2023-11-14T22:13:20.000Z");
+    }
+
+    #[test]
+    fn days_to_ymd_formats_known_days() {
+        assert_eq!(days_to_ymd(0), (1970, 1, 1));
+        assert_eq!(days_to_ymd(19_723), (2024, 1, 1));
+    }
+
+    #[test]
     fn urlencode_escapes_reserved_chars() {
         assert_eq!(urlencode("groq_api_key"), "groq_api_key");
         assert_eq!(urlencode("a b"), "a%20b");
@@ -4396,6 +5903,20 @@ mod tests {
         assert_eq!(
             provider_env_var_name("local-ollama"),
             "LOCAL_OLLAMA_API_KEY"
+        );
+    }
+
+    #[tokio::test]
+    async fn push_single_key_rejects_empty_value() {
+        // The empty-value guard runs before any network or seal-key load, so a
+        // blank value fails fast (the post-key-set sync offer never uploads an
+        // empty secret). Deterministic regardless of broker/env state.
+        let err = push_single_key_to_vault("https://example.invalid", "tok", "GROQ_API_KEY", "")
+            .await
+            .expect_err("empty value must be rejected");
+        assert!(
+            err.to_string().contains("empty"),
+            "expected empty-value guard, got: {err}"
         );
     }
 
@@ -4572,13 +6093,13 @@ mod tests {
             succeeded: 2,
             failed: 0,
             total_latency_ms: 240,
+            total_cost_usd: 0.0238,
         };
-        let id = persist_dispatch_event(tmp.path(), &result).unwrap();
-        let meta = tmp
-            .path()
-            .join(".phantom-mesh/events")
-            .join(&id)
-            .join("meta.json");
+        // persist_dispatch_event now takes the data root directly (W6); pass the
+        // tmp's .phantom-mesh so the asserted on-disk layout is unchanged.
+        let data_root = tmp.path().join(".phantom-mesh");
+        let id = persist_dispatch_event(&data_root, &result).unwrap();
+        let meta = data_root.join("events").join(&id).join("meta.json");
         assert!(meta.exists(), "dispatch event meta.json written");
         // No identity.key in the temp home → plaintext meta; kind is "dispatch"
         // and the body carries the succeeded/failed tally.
@@ -4591,6 +6112,21 @@ mod tests {
             raw
         );
         assert!(raw.contains("2 ok, 0 failed"), "body carries the result tally");
+
+        // SPEC-26 J5: the dispatch spend ($0.0238) reaches the recall summary
+        // (analysis.json) so `phantom recall --kind dispatch` shows cost.
+        let analysis = data_root.join("events").join(&id).join("analysis.json");
+        let araw = std::fs::read_to_string(&analysis).unwrap();
+        assert!(
+            araw.contains("0.0238"),
+            "analysis.json must carry the cost_usd ($0.0238): {}",
+            araw
+        );
+        assert!(
+            araw.contains("$0.0238"),
+            "summary must render the dollar cost: {}",
+            araw
+        );
     }
 
     #[test]
@@ -4606,8 +6142,10 @@ mod tests {
             succeeded: 0,
             failed: 0,
             total_latency_ms: 0,
+            total_cost_usd: 0.0,
         };
-        let err = persist_dispatch_event(tmp.path(), &result).unwrap_err();
+        // W6: persist_dispatch_event now takes the .phantom-mesh data root directly.
+        let err = persist_dispatch_event(&phantom, &result).unwrap_err();
         assert!(
             err.to_string().contains("unloadable"),
             "corrupt key must error, not write plaintext: {}",
