@@ -22,6 +22,17 @@
 > work in progress. Some subsystems below are solid and tested; others are early or stubbed — each is
 > marked explicitly. 方向與介面仍在演進,部分子系統已可用、部分仍在早期,文中均如實標註。
 
+## Preview — mobile console 🚧
+
+<p align="center">
+  <img src="site/mobile-console-preview.png" alt="Phantom Mesh mobile console — governance flight recorder, MCP tool exposure, goal orchestration" width="360">
+</p>
+
+<p align="center">
+  <em>🚧 正在建構中 / Under construction — the iOS console app, running live against a 5-node mesh:<br>
+  signed governance flight-recorder, MCP tool exposure, and goal orchestration. Not yet released.</em>
+</p>
+
 ---
 
 ## What it is
