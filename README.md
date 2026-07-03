@@ -22,7 +22,16 @@
 > work in progress. Some subsystems below are solid and tested; others are early or stubbed — each is
 > marked explicitly. 方向與介面仍在演進,部分子系統已可用、部分仍在早期,文中均如實標註。
 
-## Preview — mobile console 🚧
+## Preview 🚧
+
+<p align="center">
+  <img src="site/phantom-cli-demo.gif" alt="phantom CLI demo — version, doctor, status mesh, then the interactive REPL: /tools, two real LLM turns via a local subscription CLI (no API keys), and /cost" width="720">
+</p>
+
+<p align="center">
+  <em>The <code>phantom</code> CLI, unedited: <code>doctor</code> health check → mesh status → interactive REPL —<br>
+  tool listing, two real model turns driven by a locally signed-in subscription CLI (zero API keys on disk), live cost summary.</em>
+</p>
 
 <p align="center">
   <img src="site/mobile-console-preview.png" alt="Phantom Mesh mobile console — governance flight recorder, MCP tool exposure, goal orchestration" width="360">
