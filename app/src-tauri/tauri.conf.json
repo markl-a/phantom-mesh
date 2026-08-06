@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://*:7878 https://api.telegram.org https://phantommesh.io https://*.phantommesh.io https://*.ts.net; img-src 'self' data: https: asset: http://asset.localhost",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* http://*:7878 https://api.telegram.org https://phantommesh.io https://*.phantommesh.io https://spectynmesh.com https://*.spectynmesh.com https://*.ts.net; img-src 'self' data: https: asset: http://asset.localhost",
       "assetProtocol": {
         "enable": false,
         "scope": {

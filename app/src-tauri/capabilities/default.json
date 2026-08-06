@@ -30,6 +30,8 @@
         { "url": "http://*:7879/*" },
         { "url": "https://phantommesh.io/*" },
         { "url": "https://*.phantommesh.io/*" },
+        { "url": "https://spectynmesh.com/*" },
+        { "url": "https://*.spectynmesh.com/*" },
         { "url": "https://*.ts.net/*" },
         { "url": "https://*.ts.net:*/*" },
         { "url": "https://api.telegram.org/*" }

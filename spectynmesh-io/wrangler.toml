@@ -11,8 +11,15 @@ compatibility_flags = ["nodejs_compat"]
 # DNS probe 2026-05-03). The Worker takes precedence over the existing
 # A/CNAME records pointing at the legacy GoDaddy hosting for any URL
 # matching the pattern below.
+# Dual-domain phase (started 2026-08-06). spectynmesh.com is the destination;
+# phantommesh.io stays live and is NOT retired, because /dist/* and
+# /install.ps1 under it are printed inside install scripts already running on
+# other people's machines. Both routes serve the same Worker, so a client can
+# use either during the transition; APP_URL flips only after the new domain's
+# OAuth callback is registered in Google Cloud Console.
 routes = [
-  { pattern = "phantommesh.io/*", zone_name = "phantommesh.io" }
+  { pattern = "phantommesh.io/*",   zone_name = "phantommesh.io" },
+  { pattern = "spectynmesh.com/*",  zone_name = "spectynmesh.com" }
 ]
 
 # ── D1 (users / devices / oauth_sessions / broker_tokens) ─────────────────
