@@ -16,7 +16,7 @@
 - [ ] mac 已 update 到最新 macOS（系統設定 → 一般 → 軟體更新）
 - [ ] Apple Silicon (Apple → 關於 → 含 "M1/M2/M3/M4" 字樣)。Intel mac 不在本 playbook 範圍
 - [ ] Terminal 已給 Full Disk Access（系統設定 → 隱私權與安全性 → 完整磁碟取用權 → 加入 Terminal）
-- [ ] 網路通（`ping phantommesh.io` 回 200）
+- [ ] 網路通（`ping spectynmesh.com` 回 200）
 - [ ] Disk space ≥ 2 GB
 - [ ] **設定資料根隔離 `SPECTYN_HOME`**（spec'd data-root override，讓本輪測試不污染真實家目錄）：
   ```bash
@@ -54,13 +54,13 @@
 | Step | 命令 / 動作 | 預期看到 | ✓/✗ | Notes |
 |---|---|---|---|---|
 | 1.1.1 | 開 Terminal | prompt 顯示 `<user>@<host>` | | |
-| 1.1.2 | `curl -fsSL https://phantommesh.io/install.sh \| sh` | 看到 install banner + download URL + "=== installed ===" | | |
+| 1.1.2 | `curl -fsSL https://spectynmesh.com/install.sh \| sh` | 看到 install banner + download URL + "=== installed ===" | | |
 | 1.1.3 | `which spectyn` | 印 `~/.local/bin/spectyn` | | |
 | 1.1.4 | `spectyn --version` | 印 `spectyn 0.6.0 ...`（容忍 `0.6.0[-rc.N]` 後綴） | | |
 | 1.1.5 | `ls -la "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/"` | 看到 `bin/` + `events.jsonl` + 可能其他 | | |
 
 **❌ 失敗時**：
-- 1.1.2 卡住 → 檢查網路 + phantommesh.io 是否 alive
+- 1.1.2 卡住 → 檢查網路 + spectynmesh.com 是否 alive
 - 1.1.4 "command not found" → 重新開 Terminal 視窗讓 PATH 更新
 
 ### 1.2 First-run 環境 (3 min)

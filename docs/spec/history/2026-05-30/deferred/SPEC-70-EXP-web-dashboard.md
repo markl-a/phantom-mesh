@@ -1,4 +1,4 @@
-# SPEC-70-EXP · phantommesh.io 唯讀網頁儀表板（read-only web dashboard for cluster health visibility）
+# SPEC-70-EXP · spectynmesh.com 唯讀網頁儀表板（read-only web dashboard for cluster health visibility）
 
 > **EXP（experimental，實驗性）spec — 不是 v0.6.0 contract。** 本檔目的是把「未來想做」的設計輪廓畫出來，讓 v0.7.0+ cycle 開實作 spec 時有起點；§7-§10 等需要 wire-level 精度的章節在 EXP 階段刻意留白（OoS — out of scope，暫不做），不是漏寫。
 
@@ -9,7 +9,7 @@
 | Field | Value |
 |---|---|
 | Spec ID | `SPEC-70-EXP-web-dashboard` |
-| Title | `phantommesh.io 唯讀網頁儀表板` (English subtitle: `Opt-in read-only web dashboard for cluster health`) |
+| Title | `spectynmesh.com 唯讀網頁儀表板` (English subtitle: `Opt-in read-only web dashboard for cluster health`) |
 | Status | `DRAFT (post-v0.6.0)` |
 | Version | `0.1.0` |
 | Last updated | `2026-05-25` |
@@ -33,20 +33,20 @@
 
 **問題**：使用者目前要知道 cluster（叢集 = 自己的 mesh）健康狀態，只能在某一台機器跑 `spectyn cluster status` 或開該機器的 native（原生）app；若手邊只有 web browser（網頁瀏覽器）或沒裝 spectyn 的裝置就完全看不到。Operator（操作者，本檔指 cluster 擁有者）需要一個「不必登入任何特定機器」的 read-only（唯讀）觀察面。
 
-**方案**：在已部署的 `phantommesh.io` broker（中介伺服器）上加一個唯讀 web dashboard（網頁儀表板）。重用 SPEC-15 的 OAuth（開放授權）+ JWT（JSON Web Token，網頁權杖）登入 — 使用者用 Google/Apple 登入後，broker 從各 peer（節點）拉到的健康 metadata（中介資料 = 描述資料的資料）渲染成總覽 / cluster 詳情 / peer 列表 / event 串流四個畫面。所有 cluster 內容資料（vault 明文、event payload 明文）broker 端永遠看不到 — dashboard 只看 metadata。
+**方案**：在已部署的 `spectynmesh.com` broker（中介伺服器）上加一個唯讀 web dashboard（網頁儀表板）。重用 SPEC-15 的 OAuth（開放授權）+ JWT（JSON Web Token，網頁權杖）登入 — 使用者用 Google/Apple 登入後，broker 從各 peer（節點）拉到的健康 metadata（中介資料 = 描述資料的資料）渲染成總覽 / cluster 詳情 / peer 列表 / event 串流四個畫面。所有 cluster 內容資料（vault 明文、event payload 明文）broker 端永遠看不到 — dashboard 只看 metadata。
 
 **代價**：明確不做控制面板（不能改設定、不能派 task、不能讀 vault 明文 / event 明文）；不取代 native app；不離線可用（純 web，靠 broker 連線）；v0.6.0 不出，留 v0.7.0+；本檔不寫 wire-level schema/API（留給未來 implementable spec）。
 
 ### 1.2 English abstract
 
-phantommesh.io will expose an opt-in, read-only web dashboard so operators can observe cluster health from any browser without installing spectyn. Authentication reuses SPEC-15's Google/Apple OAuth plus broker-issued JWTs. The dashboard surfaces metadata that peers voluntarily publish to the broker — peer liveness, capability flags, recent task counts, error rate — across four screens (overview, cluster detail, peers, event stream). It never exposes vault plaintext or event payload plaintext: peer-side data is sealed with the user's identity key before upload, and the broker only stores metadata. The dashboard is explicitly not a control plane — no settings edit, no task dispatch, no plaintext read — and is deferred to v0.7.0+. This EXP spec sketches the design only; wire-level schema and API contracts are left to a follow-up implementable spec.
+spectynmesh.com will expose an opt-in, read-only web dashboard so operators can observe cluster health from any browser without installing spectyn. Authentication reuses SPEC-15's Google/Apple OAuth plus broker-issued JWTs. The dashboard surfaces metadata that peers voluntarily publish to the broker — peer liveness, capability flags, recent task counts, error rate — across four screens (overview, cluster detail, peers, event stream). It never exposes vault plaintext or event payload plaintext: peer-side data is sealed with the user's identity key before upload, and the broker only stores metadata. The dashboard is explicitly not a control plane — no settings edit, no task dispatch, no plaintext read — and is deferred to v0.7.0+. This EXP spec sketches the design only; wire-level schema and API contracts are left to a follow-up implementable spec.
 
 ### 1.3 Glossary
 
 > 本表覆蓋本檔用到的核心縮寫 + 英文名詞，繁中對照。同檔第二次出現後允許只用英文。
 >
 > - **dashboard（儀表板）** — 唯讀的健康狀態瀏覽介面，非控制面板
-> - **broker（中介伺服器）** — `phantommesh.io` 上跑的 Cloudflare Worker，本檔指它新增的 dashboard 路由
+> - **broker（中介伺服器）** — `spectynmesh.com` 上跑的 Cloudflare Worker，本檔指它新增的 dashboard 路由
 > - **OAuth（開放授權）** — RFC 6749 三方授權框架；登入用 Google/Apple，重用 SPEC-15
 > - **JWT（JSON Web Token，網頁權杖）** — RFC 7519 bearer token，broker 簽發給瀏覽器 session
 > - **peer（節點）** — spectyn mesh 裡的一台機器（手機 / 筆電 / 桌機都算）
@@ -95,7 +95,7 @@ v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / mu
 
 ### 3.1 Goals
 
-- `[G1]` 使用者用 Google 或 Apple 登入 `phantommesh.io/dashboard`，30 秒內看到自己 cluster 的 overview（peer 數 / 線上數 / 最近 24h task 數）。`(verifies via: T-dashboard-overview-load)`
+- `[G1]` 使用者用 Google 或 Apple 登入 `spectynmesh.com/dashboard`，30 秒內看到自己 cluster 的 overview（peer 數 / 線上數 / 最近 24h task 數）。`(verifies via: T-dashboard-overview-load)`
 - `[G2]` Dashboard 提供 4 個唯讀畫面：overview（總覽）/ cluster detail（叢集詳情）/ peers list（節點列表）/ events stream（事件串流摘要）— 全程不暴露任何 vault 明文或 event payload 明文。`(verifies via: T-dashboard-readonly-audit)`
 - `[G3]` Broker 端對 dashboard 資料的處理符合「broker 不存明文」原則 — peer 上傳到 broker 的 health snapshot 必須先用 user 端 identity key 加密 metadata 欄位中的敏感片段（如 hostname、IP），broker 只在 dashboard render 前由 client 端 JavaScript 解密。`(verifies via: T-dashboard-privacy-e2e)`
 - `[G4]` Dashboard 是 opt-in — 使用者第一次登入 broker 不會自動 enable，需在 broker settings 明示啟用 `dashboard_enabled = true` 後 peer 才開始上傳 health snapshot。`(verifies via: T-dashboard-optin-default-off)`
@@ -154,7 +154,7 @@ v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / mu
 flowchart LR
     User(["使用者（瀏覽器）"])
     Browser["Web Browser<br/>（dashboard 前端 SPA）"]
-    Broker["phantommesh.io broker<br/>（Cloudflare Worker + D1 + R2）"]
+    Broker["spectynmesh.com broker<br/>（Cloudflare Worker + D1 + R2）"]
     D1[("D1 SQL<br/>（metadata 密文）")]
     R2[("R2 blob<br/>（events summary 密文）")]
     PeerA["Peer A<br/>（Mac native app）"]
@@ -193,7 +193,7 @@ sequenceDiagram
     autonumber
     actor U as "使用者"
     participant B as "Browser SPA"
-    participant K as "phantommesh.io broker"
+    participant K as "spectynmesh.com broker"
     participant O as "Google/Apple OAuth"
     participant D as "D1 metadata 表"
 
@@ -477,7 +477,7 @@ n/a（新功能 — 從零部署）。
 | # | Question | Default assumption（v0.7.0 spec 不另議決時採用） | When needed |
 |---|---|---|---|
 | Q1 | Browser 端如何取得 identity unwrap material — QR scan 既有 device、貼 phrase、device-link 配對？三選一還是並陳？ | **並陳三種**，預設提 QR scan（最 friction-low） | v0.7.0 implementable spec |
-| Q2 | Dashboard SPA host 在哪 — 跟 broker 同 origin（`phantommesh.io/dashboard`） 還是分 subdomain（`dashboard.phantommesh.io`）？ | **分 subdomain**（CSP 隔離較乾淨） | v0.7.0 deploy stage |
+| Q2 | Dashboard SPA host 在哪 — 跟 broker 同 origin（`spectynmesh.com/dashboard`） 還是分 subdomain（`dashboard.spectynmesh.com`）？ | **分 subdomain**（CSP 隔離較乾淨） | v0.7.0 deploy stage |
 | Q3 | Browser session 結束後 identity material 是否完全清除，還是允許 IndexedDB encrypt-at-rest 加快下次登入？ | **完全清除**（隱私優先；下次登入再次 unwrap） | v0.7.0 UX 決策 |
 | Q4 | Peer 上傳 health snapshot 的最小間隔是固定（60s）還是 adaptive（隨 cluster 活躍度調整）？ | **固定 60s**（簡單） | v0.7.0 peer-side spec |
 | Q5 | Events stream summary 的 category 列表用哪份 schema？沿用 SPEC-16 event_storage 還是另立摘要分類？ | **沿用 SPEC-16** category 直接 group by | v0.7.0 schema 階段 |

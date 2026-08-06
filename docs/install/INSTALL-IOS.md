@@ -126,15 +126,15 @@ APPLE_TEAM_ID=F7683B69U7 ./scripts/install-ios-rebuild-agent.sh
 強制手動執行一次（適合首次驗證）：
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/ai.phantommesh.ios-rebuild
+launchctl kickstart -k gui/$(id -u)/ai.spectynmesh.coms-rebuild
 tail -f ~/Library/Logs/spectyn-ios-rebuild.log
 ```
 
 解除安裝：
 
 ```bash
-launchctl bootout gui/$(id -u)/ai.phantommesh.ios-rebuild
-rm ~/Library/LaunchAgents/ai.phantommesh.ios-rebuild.plist
+launchctl bootout gui/$(id -u)/ai.spectynmesh.coms-rebuild
+rm ~/Library/LaunchAgents/ai.spectynmesh.coms-rebuild.plist
 ```
 
 ---

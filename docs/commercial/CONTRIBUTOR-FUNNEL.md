@@ -52,7 +52,7 @@ attribution（署名歸屬）。
 | 1 | **每位使用者的 identity（身分）** — ed25519 金鑰對 | ✅ 已出貨（commit `4a61a0c`） | v0.1.0 — `spectyn keys init` |
 | 2a | Recipe（配方）匯出 — `spectyn evolve publish`（本地 + ed25519 簽署） | ✅ 已出貨（commit `cbbbe50`） | v0.1.0 — `--private` 為預設 |
 | 2b | `spectyn evolve adopt <recipe>` — 驗證 + 套用 | ⏸ 延後 | v0.2 |
-| 3 | **Broker（中介伺服器）作為 recipe 收件匣** — phantommesh.io 接受已簽署的 recipe、分類 tier（分層）、排入佇列 | ⏸ 延後（Cloudflare DNS 遷移為前置條件） | v0.2 |
+| 3 | **Broker（中介伺服器）作為 recipe 收件匣** — spectynmesh.com 接受已簽署的 recipe、分類 tier（分層）、排入佇列 | ⏸ 延後（Cloudflare DNS 遷移為前置條件） | v0.2 |
 | 4 | **選擇加入式自動發布** — `spectyn autoevolve --share-recipes` | ⏸ 延後 | v0.2（依賴 §3） |
 | 5 | **Auto-PR 管線** — broker fork 上游、推送 patch、開啟 PR | ⏸ 延後 | v0.2 |
 | 6 | **合併時自動附加至 CONTRIBUTORS.md** | ⏸ 延後 | v0.2（依賴 §5） |
@@ -106,10 +106,10 @@ USER LAYER 使用者層（每位使用者的機器）
       - signature: ed25519(body, 使用者的私鑰)
       - author: { pub_key, github_user（入門時連結） }
       ↓
-    POST https://phantommesh.io/recipe
+    POST https://spectynmesh.com/recipe
 
 ═══════════════════════════════════════════════════════════════════════
-BROKER LAYER 中介伺服器層（phantommesh.io / Cloudflare Workers）
+BROKER LAYER 中介伺服器層（spectynmesh.com / Cloudflare Workers）
 ═══════════════════════════════════════════════════════════════════════
 
   POST /recipe 處理器:
@@ -246,7 +246,7 @@ $ spectyn keys init
 
 ```
 $ spectyn keys link --github
-→ 開啟瀏覽器 → 在 phantommesh.io 上進行 OAuth 流程
+→ 開啟瀏覽器 → 在 spectynmesh.com 上進行 OAuth 流程
 → broker 儲存: pub_key_b64 → github_username → noreply_email
 → 這是 spectyn 攜帶至上游的唯一識別資訊
 ```
@@ -257,7 +257,7 @@ $ spectyn keys link --github
 $ spectyn autoevolve --watch --share-recipes
 ... [agent 達成目標，cargo test 綠燈]
 ✓ Recipe ~/.spectyn-mesh/recipes/cdf3a8b9.json（已簽署）
-✓ 已發布至 phantommesh.io/recipe → tier=2, status=queued
+✓ 已發布至 spectynmesh.com/recipe → tier=2, status=queued
 ✓ PR https://github.com/markl-a/spectyn-mesh/pull/847 由 spectyn-bot 開啟
   Co-Authored-By: yourname <yourname@users.noreply.github.com>
 ```
@@ -331,7 +331,7 @@ issue，執行 `spectyn evolve --solve <num>`，PR 就會自動
 
 ## 7. 聲望 + 能見度（選用但有價值）
 
-phantommesh.io 公開儀表板:
+spectynmesh.com 公開儀表板:
 - 依被接受的 recipe 數排名的頂尖貢獻者
 - 依被合併的 Tier 3 PR 數排名的頂尖貢獻者
 - 被採用 N 次的 recipe（人氣）
@@ -416,7 +416,7 @@ $ spectyn evolve publish --private
 ### v0.4 衝刺（5/29 → 6/5；1 週）
 
 ```
-- [ ] CONTRIBUTOR-FUNNEL §7 — phantommesh.io 貢獻者儀表板
+- [ ] CONTRIBUTOR-FUNNEL §7 — spectynmesh.com 貢獻者儀表板
 - [ ] CO-EVO Phase 6 — spectyn evolve sync（每日上游拉取
       選用；替換前驗證簽章）
 - [ ] Recipe registry / 人氣計數器 / 搜尋
@@ -468,7 +468,7 @@ CO-EVOLUTION.md 的 3 層模型提供了圍堵。
 ## 12. 待解問題（針對 v0.5+）
 
 - **多 broker 聯邦（federation）** — 是否應該有替代的 broker
-  （不只 phantommesh.io）？對於想在公司內部有私有
+  （不只 spectynmesh.com）？對於想在公司內部有私有
   貢獻者漏斗的組織很有用。
 - **Recipe 版本管理** — recipe 標示「for spectyn 0.2.0」；它能否
   被自動 rebase 到 0.3.0？

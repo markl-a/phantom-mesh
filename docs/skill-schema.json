@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://phantommesh.io/schemas/skill-frontmatter.json",
+  "$id": "https://spectynmesh.com/schemas/skill-frontmatter.json",
   "title": "SkillFrontmatter",
   "description": "Structured frontmatter block for a Skill Document. The full Skill Document is a Markdown file beginning with a `---`-fenced YAML block matching this schema, followed by free-form Markdown body. See docs/skills/README.md.",
   "type": "object",

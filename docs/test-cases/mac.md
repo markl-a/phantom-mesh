@@ -34,16 +34,16 @@
 
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
-| MAC-CUJ01-INST-001 | e2e | ⚠ HOME=tmp | `HOME=$(mktemp -d)` 清乾淨 | `curl -fsSL https://phantommesh.io/install.sh \| sh` | exit 0 + `~/.local/bin/spectyn` 存在 | CUJ-01 step 1 / SPEC-28 | ⬜ | ⬜ |
-| MAC-CUJ01-INST-002 | e2e | ⚠ aarch64 | uname=arm64 | `curl phantommesh.io/install.sh \| sh; cat /tmp/install.log` | log 含 `spectyn-darwin-arm64` 字串 | SPEC-28 §arch detect | ⬜ | ⬜ |
-| MAC-CUJ01-INST-003 | e2e | ❌ Intel | x86_64 機 | `curl phantommesh.io/install.sh \| sh` | exit 非 0 + stderr 有 "Intel Macs not supported" | SPEC-28 anti-goal | ⬜ | ⬜ |
+| MAC-CUJ01-INST-001 | e2e | ⚠ HOME=tmp | `HOME=$(mktemp -d)` 清乾淨 | `curl -fsSL https://spectynmesh.com/install.sh \| sh` | exit 0 + `~/.local/bin/spectyn` 存在 | CUJ-01 step 1 / SPEC-28 | ⬜ | ⬜ |
+| MAC-CUJ01-INST-002 | e2e | ⚠ aarch64 | uname=arm64 | `curl spectynmesh.com/install.sh \| sh; cat /tmp/install.log` | log 含 `spectyn-darwin-arm64` 字串 | SPEC-28 §arch detect | ⬜ | ⬜ |
+| MAC-CUJ01-INST-003 | e2e | ❌ Intel | x86_64 機 | `curl spectynmesh.com/install.sh \| sh` | exit 非 0 + stderr 有 "Intel Macs not supported" | SPEC-28 anti-goal | ⬜ | ⬜ |
 | MAC-CUJ01-INST-004 | e2e | ✅ | - | `SPECTYN_INSTALL_BASE=http://x.com sh scripts/install.sh` | exit 非 0 + stderr "HTTPS only" | F-CRIT-3 invariant | ⬜ | ⬜ |
 | MAC-CUJ01-INST-005 | e2e | ⚠ R2 mock | 篡改 R2 binary、不改 sha256 | (跑線上 install) | exit 非 0 + "SHA mismatch" | F-CRIT-3 sidecar verify | ⬜ | ⬜ |
 | MAC-CUJ01-INST-006 | e2e | ✅ | - | `SPECTYN_SKIP_VERIFY=1 sh scripts/install.sh` | install 過 + stderr loud warning | install.sh §override flag | ⬜ | 🟡 |
 | MAC-CUJ01-INST-007 | integ | ✅ | isolated HOME | `SPECTYN_INSTALL_DRY_RUN=1 sh scripts/install.sh` | exit 0 + dry-run banner/"no files written" + 無 spectyn binary | dry-run invariant | 2026-05-31 cargo | ✅ install_sh_dryrun |
 | MAC-CUJ01-INST-008 | manual | ❌ | 先 install 過一次 | (重 install) | 舊 binary 覆蓋、size 變新 | re-install idempotent | ⬜ | ⬜ |
 | MAC-CUJ01-INST-009 | e2e | ⚠ kill mid | curl 半途 Ctrl+C | (重複跑 install + kill) | 半成 binary 刪掉、`ls ~/.local/bin/` 乾淨 | atomic install | ⬜ | ⬜ |
-| MAC-CUJ01-INST-010 | e2e | ⚠ no-network | wifi off | `curl phantommesh.io/install.sh \| sh` | exit 非 0 + 印 connect error | graceful no-network | ⬜ | ⬜ |
+| MAC-CUJ01-INST-010 | e2e | ⚠ no-network | wifi off | `curl spectynmesh.com/install.sh \| sh` | exit 非 0 + 印 connect error | graceful no-network | ⬜ | ⬜ |
 | MAC-CUJ01-INST-011 | manual | ❌ | 3 個 shell | bash/zsh/dash 各跑 install | 3 個都 exit 0 | POSIX compat | ⬜ | ⬜ |
 | MAC-CUJ01-INST-012 | monitor | ⏰ nightly | CI 從 clean | (cron job) | 24h ≤ 1 fail | install regression guard | ⬜ | ⬜ |
 

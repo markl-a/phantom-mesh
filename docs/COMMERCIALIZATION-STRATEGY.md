@@ -382,7 +382,7 @@ that backs this document.
   repo root are what need to be replaced with the AGPL core decision.
 - **Satellite tie-in:** the personalized-distillation SKU in §5 is implemented by the
   `spectyn-training` satellite (see `docs/ECOSYSTEM.md`); the relay rendezvous server reuses the
-  existing mesh RPC code, and the OAuth/login broker work is the `phantommesh.io` Cloudflare Worker
+  existing mesh RPC code, and the OAuth/login broker work is the `spectynmesh.com` Cloudflare Worker
   already described in `docs/commercial/CONTRIBUTOR-FUNNEL.md`.
 - **Decision artifact:** this document is the polished form of the decisive internal strategy memo;
   the underlying research artifact (≈130 sources with per-record findings/caveats) is retained in

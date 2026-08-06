@@ -442,7 +442,7 @@ n/a（新功能 — 從零部署，無既有 user data 要轉）。
 
 ### 17.1 Cloud-side capture upload + cloud LLM index（最快但違反 P4）
 
-**方案**：substrate 把 chunk 上傳到 phantommesh.io broker，broker 跑 transcript + index，user 從任何 device 走 web dashboard query。Tech 最熟、entirely Cloudflare Worker + R2 + 第三方 transcription（如 Whisper API）即可，4 週做完。
+**方案**：substrate 把 chunk 上傳到 spectynmesh.com broker，broker 跑 transcript + index，user 從任何 device 走 web dashboard query。Tech 最熟、entirely Cloudflare Worker + R2 + 第三方 transcription（如 Whisper API）即可，4 週做完。
 
 **為何沒選**：徹底破壞 P4「資料加密，只你能讀」。chunk 一旦上傳明文，broker 員工 / 攻擊者 / 法庭傳票任一條都能讀。即便加密上傳，cloud LLM transcript 要解密才能跑，明文窗一定打開。違反 BIG-GOAL §What this rules out 的「Cloud-only or SaaS-only」+ 「Background recording / surveillance defaults」雙條。
 

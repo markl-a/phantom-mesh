@@ -21,12 +21,12 @@
 
 ## Happy path (7 steps)
 
-1. user 從 phantommesh.io 或 store 下載 + install
+1. user 從 spectynmesh.com 或 store 下載 + install
 2. 第一次開啟 app → 看到「Spectyn Mesh — 你的私人 AI 隊伍」歡迎畫面 + 一鍵繼續
 3. 系統背景產 identity.key (Ed25519 + HKDF event-key) + 初始化 ~/.spectyn-mesh/events.sqlite
 4. 顯示 12 starter habit palette (水 / 咖啡 / 運動 / 冥想 / ...)
 5. user tap 任一 chip (例: 水) → 直接寫入第一筆 habit event (P4 加密)
-6. 顯示「✓ 已記錄。streak=1」+ 引導下一步 (「想看到 coach review？登入 phantommesh.io」 / 「先逛逛」)
+6. 顯示「✓ 已記錄。streak=1」+ 引導下一步 (「想看到 coach review？登入 spectynmesh.com」 / 「先逛逛」)
 7. 完成 ── ≤90 秒、≤3 tap (welcome / palette / chip)
 
 ## Degraded paths (must-test)
@@ -66,6 +66,6 @@
 
 ## 出 CUJ 範圍 (deliberately not here)
 
-- 登入 phantommesh.io broker → CUJ-03 (cross-device resume) 的事
+- 登入 spectynmesh.com broker → CUJ-03 (cross-device resume) 的事
 - 第一次 food / focus capture → CUJ-02 (daily loop) 的事
 - 多 device 同步 → CUJ-03

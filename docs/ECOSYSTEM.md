@@ -87,7 +87,7 @@ spectyn-mesh 上的 n8n / Zapier —從 spectyn 的 trigger / RAG / skill 組成
 
 ## 對外網站(衛星,不算 7 個之一)
 
-- **[phantommesh.io](https://phantommesh.io)** — Cloudflare Worker(OAuth broker + 主站)
+- **[spectynmesh.com](https://spectynmesh.com)** — Cloudflare Worker(OAuth broker + 主站)
 - **[markl-ai.space](https://markl-ai.space)** — maintainer 個人網站
 
 ## 共用底層架構

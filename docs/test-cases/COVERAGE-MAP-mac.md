@@ -208,7 +208,7 @@ wrangler r2 object put phantom-binaries/spectyn-x86_64-apple-darwin.sha256 --fil
 **B. 確認 install.sh 認 mac 命名規約**
 ```bash
 SPECTYN_INSTALL_DRY_RUN=1 sh scripts/install.sh
-# 預期印: would download https://phantommesh.io/dist/spectyn-aarch64-apple-darwin
+# 預期印: would download https://spectynmesh.com/dist/spectyn-aarch64-apple-darwin
 ```
 如果命名不對、改 install.sh map 表。
 
@@ -219,7 +219,7 @@ SPECTYN_INSTALL_DRY_RUN=1 sh scripts/install.sh
 > 對應測試 ID 見上方覆蓋率地圖 §8 ship gate 對映 / `mac.md §8`。
 
 - **Gate 1 — Mac binary 本機 build**：`cargo build --release --bin spectyn --target {aarch64,x86_64}-apple-darwin` 兩個 `--version` match `spectyn v?0\.6\.0(-rc\.[0-9]+)?`、`--help` ≥ 10 subcommand。
-- **Gate 2 — 上傳 R2 + install.sh**：兩 binary + 兩 .sha256 上 R2、清乾淨 `~/.spectyn-mesh/`（先備份）後跑 `curl phantommesh.io/install | sh`、`~/.spectyn-mesh/bin/spectyn` 存在可執行、PATH 自動加入。
+- **Gate 2 — 上傳 R2 + install.sh**：兩 binary + 兩 .sha256 上 R2、清乾淨 `~/.spectyn-mesh/`（先備份）後跑 `curl spectynmesh.com/install | sh`、`~/.spectyn-mesh/bin/spectyn` 存在可執行、PATH 自動加入。
 - **Gate 3 — CUJ-01 first habit**：`spectyn habit water --qty 250` 不報錯、`spectyn habit streak --chip water` ≥ 1、`events/<uuid>/` 目錄 ≥ 1（或 EventStore 讀回斷言）。
 - **Gate 4 — CUJ-02 一個 capture**：`spectyn food --image <test.jpg>` 走 LLM、`spectyn coach review` 產 markdown。
 - **Gate 5 — CUJ-03 mac+mac**：mac1 `spectyn login` → token、log 一筆 habit、mac2 同帳號 `spectyn habit streak` 看得到 ≤ 30s。
@@ -239,6 +239,6 @@ SPECTYN_INSTALL_DRY_RUN=1 sh scripts/install.sh
 ## SR-5. README 應更新處
 
 1. Version badge: v0.5.0 → v0.6.0（內文已有但 badge 沒同步）
-2. §安裝 加 mac 段：「mac 上開 terminal: `curl -fsSL https://phantommesh.io/install | sh`」
+2. §安裝 加 mac 段：「mac 上開 terminal: `curl -fsSL https://spectynmesh.com/install | sh`」
 3. §已知限制：「CUJ-05 export+uninstall — 早期狀態、EU release pending」（現況見覆蓋率地圖 §5：CUJ-05 已是覆蓋率最高的 CUJ）
 4. §測試現況：指向本覆蓋率地圖 + `docs/status.md`

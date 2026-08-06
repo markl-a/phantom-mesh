@@ -29,8 +29,8 @@ any broker that *is* configured (it routes through `/auth/cli/start?provider=app
      `io.spectynmesh.signin`). Enable **Sign in with Apple** on it and click
      **Configure**:
      - **Primary App ID**: the App ID above.
-     - **Domains**: `phantommesh.io`
-     - **Return URLs**: `https://phantommesh.io/auth/apple/callback`
+     - **Domains**: `spectynmesh.com`
+     - **Return URLs**: `https://spectynmesh.com/auth/apple/callback`
        (must match exactly — Apple is strict; no trailing slash).
 2. **Key (.p8).** Keys → **+** → enable **Sign in with Apple** → register.
    Download the `AuthKey_<KEY_ID>.p8` **once** (Apple won't let you
@@ -68,7 +68,7 @@ npm run test:security          # 18 tests incl. the apple suite — should pass
 wrangler deploy                # prod (CI-gated; or --env staging for a dry run)
 
 # verify the flow is now lit:
-curl -s https://phantommesh.io/api/health | jq .providers
+curl -s https://spectynmesh.com/api/health | jq .providers
 #   → [...,"apple"]   (absent until all four bindings are set)
 ```
 

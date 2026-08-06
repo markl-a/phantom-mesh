@@ -271,7 +271,7 @@ Android + Mac mesh）。錄 2 分鐘影片：*「拍一張午餐照，手機上�
   `LICENSE-APACHE` + `LICENSE-MIT` 就是需被 AGPL 核心決策取代的檔案。
 - **衛星串接：** §5 的個人化蒸餾 SKU 由 `spectyn-training` 衛星實作（見 `docs/ECOSYSTEM.md`）；
   relay 會合伺服器複用既有 mesh RPC 碼；OAuth/login broker 是 `docs/commercial/CONTRIBUTOR-FUNNEL.md` 已述
-  的 `phantommesh.io` Cloudflare Worker。
+  的 `spectynmesh.com` Cloudflare Worker。
 - **決策成品：** 本文件是決策版內部策略備忘錄的潤飾形；底層研究成品（≈130 個來源含各記錄
   findings/caveats）保留在操作者的 plans 目錄，不在 repo。
 ```

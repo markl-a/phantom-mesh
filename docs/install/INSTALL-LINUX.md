@@ -179,7 +179,7 @@ autoevolve
 
 identity
   ✓ identity: local-only (broker not deployed yet — login becomes available
-              once phantommesh.io/healthz returns 200)
+              once spectynmesh.com/healthz returns 200)
 
 diagnostics
   ✓ crash logs: 0 (no panics recorded)
@@ -198,7 +198,7 @@ done.
   以 `spectyn autoevolve --once` 修正
 - `autoevolve/schedule: not scheduled` —— 若你跳過了該步驟，這是正常的
 - `identity: local-only (broker not deployed)` —— 預期狀況；位於
-  phantommesh.io 的 broker（中介伺服器）尚未上線，因此登入功能尚未可用
+  spectynmesh.com 的 broker（中介伺服器）尚未上線，因此登入功能尚未可用
 
 **需要修正的紅色 ✗ 行：**
 - `agents.toml: not found` → 執行 `spectyn onboarding`

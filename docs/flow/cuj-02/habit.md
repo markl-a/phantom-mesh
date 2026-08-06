@@ -94,7 +94,7 @@
 ```
 1. user 早上 iPhone widget 點「水」三次
 2. iPhone HabitModule → EventStore::append（本地加密 + sqlite）
-3. ≤5s 內 broker vault sync (SPEC-15) 把 sealed events 推上 phantommesh.io
+3. ≤5s 內 broker vault sync (SPEC-15) 把 sealed events 推上 spectynmesh.com
 4. Desktop on poll cycle pull → unseal → 寫進本地 events 表
 5. （隔日早上 7:00）coach.agent 跑 daily review、讀 last 24h events
 6. review 內容提到「你今早喝水 750ml、最近 5 天 streak」

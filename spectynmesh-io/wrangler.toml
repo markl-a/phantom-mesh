@@ -62,7 +62,7 @@ new_sqlite_classes = ["DispatchStream"]
 
 # ── Vars (non-secret) ─────────────────────────────────────────────────────
 [vars]
-APP_URL                = "https://phantommesh.io"
+APP_URL                = "https://spectynmesh.com"
 GOOGLE_CLIENT_ID       = "869770808980-1dj7ejan7rnpbpb0djdff8317o4uhrkt.apps.googleusercontent.com"
 BROKER_TOKEN_TTL_SECS  = "604800"      # 7 days
 BROKER_VERSION         = "0.1.4-2026-06-07"

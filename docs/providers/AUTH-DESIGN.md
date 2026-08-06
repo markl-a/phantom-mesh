@@ -69,4 +69,4 @@ Phase 1 目前信任「**所有** online tailnet peer」——對**單人 tailne
 - Apple App ID(Sign in with Apple)→ `ai.spectynmesh.app`
 - 衛星 launchd `com.markl-a.spectyn-*` → 可選 `ai.spectynmesh.<name>`(cosmetic,低優先)
 - 修 `docs/install/APPLE-SIGN-IN-SETUP.md` 的 `io.spectynmesh.signin` → `ai.spectynmesh.signin`
-- 已一致:Tauri/iOS/Android = `ai.spectynmesh.app`;launchd serve/nosleep/autoevolve = `ai.spectynmesh.*`;顯示名 `Spectyn Mesh`;網域 `phantommesh.io`。
+- 已一致:Tauri/iOS/Android = `ai.spectynmesh.app`;launchd serve/nosleep/autoevolve = `ai.spectynmesh.*`;顯示名 `Spectyn Mesh`;網域 `spectynmesh.com`。

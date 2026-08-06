@@ -52,7 +52,7 @@ This experimental spec extends Spectyn Mesh from a single-user model to a househ
 > | cluster | 叢集 | 共享一份 `cluster_secret` 而能 RPC（Remote Procedure Call，遠端程序呼叫）互通的 peer 集合 |
 > | vault | 保險庫 | 個人加密資料儲存區（`~/.spectyn-mesh/vault/*.age`） |
 > | identity.key | 身分金鑰檔 | 每台 device 一把的 ed25519 私鑰，HKDF（雜湊金鑰衍生函數）派生 |
-> | broker | 中介伺服器 | phantommesh.io 的雲端服務，跨 NAT 配對 + 付費同步 |
+> | broker | 中介伺服器 | spectynmesh.com 的雲端服務，跨 NAT 配對 + 付費同步 |
 > | SaaS（Software as a Service） | 軟體即服務 | 廠商主機跑、使用者付費、廠商看得到資料的雲端產品模型 |
 > | grant（noun） | 授權 | 一條 child → parent 的彙整分享允許紀錄 |
 > | summary | 彙整 / 摘要 | 從 raw event 算出的非還原性聚合（如 daily focus minutes） |
@@ -162,7 +162,7 @@ flowchart LR
         Shared["共用 cluster_secret<br/>RPC 互通"]
     end
 
-    subgraph Broker ["phantommesh.io broker"]
+    subgraph Broker ["spectynmesh.com broker"]
         BAuth["OAuth account<br/>1 個 Google 帳號"]
         Vaults["Per-identity vault 儲存<br/>各自加密、broker 不可讀"]
         Grants["SharedSummaryGrant 表<br/>分享授權登記"]

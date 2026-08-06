@@ -264,7 +264,7 @@ spectyn --version
 ```
 
 > A prebuilt binary is also served by `scripts/install.sh`
-> (`curl -fsSL https://phantommesh.io/install | sh`, SHA256-verified,
+> (`curl -fsSL https://spectynmesh.com/install | sh`, SHA256-verified,
 > installs to `~/.spectyn-mesh/bin/spectyn`). The prebuilt path is the
 > fastest first touch, but **build from source with the features above** when
 > you want the full learning loop on a deploy node.

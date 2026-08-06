@@ -34,7 +34,7 @@
 ## Happy path B: uninstall (要真實刪除)
 
 1. user 從 export 完之後 (or 直接) → 「永久刪除我的資料」
-2. UI 顯示「這會 (a) 刪除本機 ~/.spectyn-mesh/ (b) 從 phantommesh.io broker 刪除所有 sealed blob (c) 撤銷 broker token、無法復原」+ 二次確認
+2. UI 顯示「這會 (a) 刪除本機 ~/.spectyn-mesh/ (b) 從 spectynmesh.com broker 刪除所有 sealed blob (c) 撤銷 broker token、無法復原」+ 二次確認
 3. user 二確 → 系統:
    - DELETE all broker vault entries via SPEC-50 API
    - DELETE broker session (token 失效)
@@ -61,7 +61,7 @@
 
 ### broker 已關 server (server side outage)
 - happy path B step 3 (a) (c) 本地刪 OK
-- (b) broker delete 失敗 → queue retry、UI 顯示「本機已刪、雲端待 24h 重試、可手動到 phantommesh.io 後台確認」
+- (b) broker delete 失敗 → queue retry、UI 顯示「本機已刪、雲端待 24h 重試、可手動到 spectynmesh.com 後台確認」
 
 ### user 重灌沒留 identity.key (典型遺失)
 - 顯示明確警示「沒 identity.key 無法解 events、若 broker 還有 sealed blob 也讀不了」

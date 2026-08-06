@@ -50,17 +50,17 @@ https://github.com/markl-a/spectyn-mesh/releases/download/v0.1.0/SHA256SUMS     
 
 取用者：`setup-cloud-linux.sh`、`dev/deploy-gcp.sh`、`update-daemon.sh`。
 
-### Cloudflare R2（phantommesh.io，透過 `publish-spectyn-binary.yml`）
+### Cloudflare R2（spectynmesh.com，透過 `publish-spectyn-binary.yml`）
 
 每次 R2 上傳也會在相同的 key 後綴推送一個 `.sha256` 伴隨物件（companion object）：
 
 ```
-https://phantommesh.io/dist/spectyn-linux-x86_64
-https://phantommesh.io/dist/spectyn-linux-x86_64.sha256   ← 由安裝程式取用
+https://spectynmesh.com/dist/spectyn-linux-x86_64
+https://spectynmesh.com/dist/spectyn-linux-x86_64.sha256   ← 由安裝程式取用
 ```
 
 取用者：`install-mac.sh`、`install-spectyn-windows.ps1`、
-`termux-setup.sh`（後者是在 `SPECTYN_URL` 指向 phantommesh.io
+`termux-setup.sh`（後者是在 `SPECTYN_URL` 指向 spectynmesh.com
 而非協調器時）。
 
 ### 相對於協調器的 `<COORD>/dist/`
@@ -111,7 +111,7 @@ stderr（標準錯誤輸出）上發出醒目的警告；在下列少數情況�
 ✗ SHA256 mismatch for /tmp/spectyn.XXXXXX
   expected: 26d39c…b71e
   actual:   a14b32…0099
-  Source:   https://phantommesh.io/dist/spectyn-linux-x86_64.sha256
+  Source:   https://spectynmesh.com/dist/spectyn-linux-x86_64.sha256
   The downloaded binary has been deleted.
 ```
 
@@ -121,7 +121,7 @@ stderr（標準錯誤輸出）上發出醒目的警告；在下列少數情況�
    檢查失敗的整個重點，就在於有東西出錯了。
 2. 直接重新抓取該 sidecar 並檢視它：
    ```
-   curl -sSL https://phantommesh.io/dist/spectyn-linux-x86_64.sha256
+   curl -sSL https://spectynmesh.com/dist/spectyn-linux-x86_64.sha256
    ```
    若該檔案是空的／404／HTML — 表示正規鏡像站掛了，或
    資產名稱有誤。請提交一個 issue（問題回報）。

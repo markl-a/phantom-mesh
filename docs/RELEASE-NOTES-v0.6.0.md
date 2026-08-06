@@ -85,7 +85,7 @@ v0.6.0 = rc1 的四支柱核心 + 三週的誠實收尾：E003 教練節點與 E
 
 1. **cluster-heartbeat 仍 feature-gated**（`experimental-cluster-heartbeat`，預設 build 不含）：預設發行的二進位**永遠不會**把節點翻成 Unhealthy/恢復 Healthy；`cross_host_recovery.sh` 需要旗標建置的二進位。心跳狀態機的單元/整合測試在旗標 build 下全綠——這是範圍決策，不是壞掉。
 2. **E005 技能庫 feature-gated 且未接線**（`experimental-memory`，預設 off）：即使旗標編譯，`spectyn serve` 也不會把 `state.skill_memory` 接成 `Some`，三個端點回 503。`spectyn skill extract --commit` CLI、F402 recall-trace 端點、與 serve 端正式接線**延後至 v0.7**（位於 lineage 管制檔案內）。FTS5 p99 < 200ms 從未實測；FTS5 用 `unicode61` tokenizer，**CJK 斷詞未測試**。萃取器本體（`from_daily_review.rs`）預設編譯且有測試。
-3. **L1 安裝路徑未驗證**：`phantommesh.io` 的 curl|sh / ps1 一鍵端點需要操作者持有的 Cloudflare 憑證，切版時未開通。`install.sh` / `install.ps1` 腳本本身在 main 上且過審（SHA256 先驗後執行）；**已驗證的替代路徑**是 GitHub Releases 工件直下。60 秒全新機器安裝檢核未對 live 端點執行過。
+3. **L1 安裝路徑未驗證**：`spectynmesh.com` 的 curl|sh / ps1 一鍵端點需要操作者持有的 Cloudflare 憑證，切版時未開通。`install.sh` / `install.ps1` 腳本本身在 main 上且過審（SHA256 先驗後執行）；**已驗證的替代路徑**是 GitHub Releases 工件直下。60 秒全新機器安裝檢核未對 live 端點執行過。
 4. **Pi 節點以艦隊替代（documented substitute）**：E001 spec 硬性要求 Pi 4 aarch64 Linux 實機；本次切版無 Pi 可用，依 roadmap 滑點規則以艦隊節點（ayaneo=Windows、WSL=Linux、acer=Android、Mac 兩標的）替代並如實記錄。aarch64-Linux-on-Pi 在切版時未測。
 5. **lineage 殘留項**（Mac/codex keystore lineage，~170 commits，截至本稿未合併）：#321 finding #6（`rpc_tool_call` 的 `ToolsConfig::default`）僅 lineage 已修、main 未修；macOS/iOS Keychain 原生 arm；Android keystore arm 優雅降級 + logout 非短路清除；coach scheduler/install-schedule 整合主幹（`step3-coach-install-schedule`）。隨 lineage 合併或 v0.6.x 收。
 6. **承襲 rc1 未變**：8/11 LLM 供應商回 `ConfigInvalid`；embedding 語意召回延 v0.7；iOS keychain 退回沙箱加密檔案；2 個 `service::macos` launchctl 測試 fixture 紅（執行期路徑可用）。

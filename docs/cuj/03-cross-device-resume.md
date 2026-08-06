@@ -18,11 +18,11 @@
 | SPEC-26 cluster-dispatch | task routing 給能執行 node |
 | SPEC-13 encryption-age | 跨裝置 event 保持加密 |
 | SPEC-12 identity-keypair | 跨裝置驗證身分 |
-| SPEC-50 broker-api | phantommesh.io broker 服務 |
+| SPEC-50 broker-api | spectynmesh.com broker 服務 |
 
 ## Happy path (8 steps)
 
-1. user 已在 iPhone 跟 mac 兩端都登入 phantommesh.io 同帳號 (broker token granted)
+1. user 已在 iPhone 跟 mac 兩端都登入 spectynmesh.com 同帳號 (broker token granted)
 2. iPhone home widget tap「水」chip → SPEC-22 record_checkin
 3. SPEC-15 client `seal_vault_value(event_bytes)` → broker 推 sealed blob
 4. mac 端 SPEC-15 client 在 background poll (or push notification 觸發) pull

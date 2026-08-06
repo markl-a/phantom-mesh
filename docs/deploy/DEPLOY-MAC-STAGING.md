@@ -1,7 +1,7 @@
-# Mac local deploys — staging env (不影響 phantommesh.io 線上)
+# Mac local deploys — staging env (不影響 spectynmesh.com 線上)
 
 > 用途：Mac 開發時想試 spectynmesh-io 改動，但不想動到 production 的
-> phantommesh.io 服務。answer = 用 wrangler 的 `--env staging`。
+> spectynmesh.com 服務。answer = 用 wrangler 的 `--env staging`。
 
 ---
 
@@ -10,14 +10,14 @@
 | | **production** (default) | **staging** |
 |---|---|---|
 | Worker name | `spectynmesh-io` | `spectynmesh-io-staging` |
-| 公開 URL | https://phantommesh.io | https://spectynmesh-io-staging.`<account>`.workers.dev |
+| 公開 URL | https://spectynmesh.com | https://spectynmesh-io-staging.`<account>`.workers.dev |
 | 誰能 deploy | **GitHub Actions only** | **任何機器** (Mac/Win) `wrangler deploy --env staging` |
 | 觸發方式 | git push → CI 自動 | 手動 `wrangler deploy --env staging` |
 | Bindings (D1/R2/KV) | `phantommesh-prod` 等 | **同上**（共享資料） |
-| Routes | `phantommesh.io/*` | 無 route，純 workers.dev URL |
+| Routes | `spectynmesh.com/*` | 無 route，純 workers.dev URL |
 
 > 共享 bindings = staging 看得到 prod 的真實 user/keys/peers/binary data。
-> 但 staging 的 **code** 改變不會影響 phantommesh.io 上面跑的版本。
+> 但 staging 的 **code** 改變不會影響 spectynmesh.com 上面跑的版本。
 > 想要連 data 都隔離見「[完全隔離 staging](#完全隔離-staging)」一節。
 
 ---
@@ -70,7 +70,7 @@ git commit -m "feat: ..."
 git push origin phase1-r1-foundations
 ```
 
-GitHub Actions 自動 deploy 到 prod = phantommesh.io。**Mac 永遠不該手動部 prod**。
+GitHub Actions 自動 deploy 到 prod = spectynmesh.com。**Mac 永遠不該手動部 prod**。
 
 ---
 
@@ -79,7 +79,7 @@ GitHub Actions 自動 deploy 到 prod = phantommesh.io。**Mac 永遠不該手�
 | Action | 允不允許 |
 |---|---|
 | Mac: `npx wrangler deploy --env staging` | ✅ 任何時候 |
-| Mac: `npx wrangler deploy` (無 --env，等於 production) | ❌ **不要做**（會繞過 git，直接覆蓋 phantommesh.io） |
+| Mac: `npx wrangler deploy` (無 --env，等於 production) | ❌ **不要做**（會繞過 git，直接覆蓋 spectynmesh.com） |
 | Win: `npx wrangler deploy --env staging` | ✅ 跟 Mac 一樣 |
 | Win: `npx wrangler deploy` | ❌ 同上 |
 | `git push` 觸發 CI deploy 到 prod | ✅ 唯一 prod 部屬路徑 |
@@ -112,7 +112,7 @@ npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0003_cl
 
 然後改 `wrangler.toml` 的 `[env.staging.*]` bindings 用新 id。
 
-之後 staging 跟 prod 完全分離 — staging 寫 user 資料、修 schema，全都不影響 phantommesh.io。
+之後 staging 跟 prod 完全分離 — staging 寫 user 資料、修 schema，全都不影響 spectynmesh.com。
 
 ---
 
@@ -136,7 +136,7 @@ curl -sS https://spectynmesh-io-staging.<account>.workers.dev/api/me/cluster-pee
 ### `wrangler deploy --env staging` 失敗：「Worker not found」
 你還沒第一次 deploy。這個是雞生蛋問題 — 第一次部會自動建。檢查 token 有 `Workers Scripts: Edit` 權限。
 
-### Mac deploy 後 `phantommesh.io` 變了
+### Mac deploy 後 `spectynmesh.com` 變了
 你忘記加 `--env staging`，部到 default env 把 prod 蓋了。回 GitHub repo `git pull`，再 push 一次（CI 會把 prod 改回 git HEAD）。
 
 ### staging 用同個 D1 但你不想資料動

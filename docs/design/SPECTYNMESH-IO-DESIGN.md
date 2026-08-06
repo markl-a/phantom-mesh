@@ -1,11 +1,11 @@
-# phantommesh.io — Broker（中介伺服器）前端 + 後端設計
+# spectynmesh.com — Broker（中介伺服器）前端 + 後端設計
 
 > `spectyn login` 的網頁端。本文件是實作契約（implementation
-> contract）：它明確告訴你 phantommesh.io 必須提供哪些 URL，以及
+> contract）：它明確告訴你 spectynmesh.com 必須提供哪些 URL，以及
 > 回應必須是什麼形狀，因為 spectyn CLI（命令列工具）已經會講這套
 > 協定（見 `core/src/bin/spectyn.rs` 的 `login_broker`）。
 >
-> 一旦 phantommesh.io 在下列 URL 上就位，**`spectyn login` 就能直接
+> 一旦 spectynmesh.com 在下列 URL 上就位，**`spectyn login` 就能直接
 > 運作（Just Works）** — CLI 端不需要再改任何程式碼。
 
 ---
@@ -13,7 +13,7 @@
 ## 0. 兩個部件
 
 ```
-   spectyn CLI (your laptop)        phantommesh.io                  OAuth providers
+   spectyn CLI (your laptop)        spectynmesh.com                  OAuth providers
                                     ┌──────────────────┐             ┌──────────┐
                                     │  Frontend (web)  │             │  Google  │
    spectyn login   ─────────────►   │   /              │  ─────►    │  Apple   │
@@ -32,7 +32,7 @@
    ◄───────  loopback :48181/oauth/callback  ─────────
 ```
 
-phantommesh.io 是**受信任的中間人（trusted middleman）**。它代表使用者
+spectynmesh.com 是**受信任的中間人（trusted middleman）**。它代表使用者
 向 Google / Apple 講 OAuth（開放授權），然後透過 localhost loopback
 （本機回送）把產生的身分交給 spectyn CLI。CLI 永遠看不到使用者的
 Google 密碼，永遠看不到 Apple 的 id_token 簽章金鑰，只會看到一份
@@ -45,7 +45,7 @@ Google 密碼，永遠看不到 Apple 的 id_token 簽章金鑰，只會看到�
 ### 1.1 健康探測（Health probe）
 
 ```
-GET https://phantommesh.io/api/health
+GET https://spectynmesh.com/api/health
 
   200 OK   { "status": "ok", "version": "1.0.0", "providers": ["google","apple","email"] }
   503      anything else → CLI falls back to local provider menu
@@ -58,7 +58,7 @@ GET https://phantommesh.io/api/health
 ### 1.2 啟動登入流程
 
 ```
-GET https://phantommesh.io/auth/cli/start
+GET https://spectynmesh.com/auth/cli/start
   ?device_id=8de1a55b-7412-...           (CLI's stable uuid)
   &port=48181                             (CLI loopback listener port)
   &redirect=http%3A%2F%2F127.0.0.1%3A48181%2Foauth%2Fcallback
@@ -79,7 +79,7 @@ GET https://phantommesh.io/auth/cli/start
 
 | 供應商 | 流程 |
 |---|---|
-| Google | 透過 `accounts.google.com` 的標準 PKCE OAuth。把你的 Google OAuth Client（Web App 類型）設定成以 `https://phantommesh.io/auth/google/callback` 作為 redirect URI（重新導向網址）。 |
+| Google | 透過 `accounts.google.com` 的標準 PKCE OAuth。把你的 Google OAuth Client（Web App 類型）設定成以 `https://spectynmesh.com/auth/google/callback` 作為 redirect URI（重新導向網址）。 |
 | Apple | 「Sign in with Apple」網頁流程。把你的 Apple Service ID（`ai.spectynmesh.auth` — 已存在於 `core/src/oauth.rs`）設定成相同的 redirect domain（重新導向網域）。使用 `.p8` 私鑰 + Team ID + Key ID 來產生 client secret JWT。 |
 | email | 對 broker 的使用者資料庫做伺服器端 bcrypt 驗證。沒有外部 IdP（身分供應商）。 |
 
@@ -128,7 +128,7 @@ core/src/bin/spectyn.rs）。新增欄位是可累加的（additive） — CLI �
 > 兌換碼（one-time exchange code）：
 >   `Location: http://127.0.0.1:48181/oauth/callback?code=<short-lived>`
 >   然後讓 CLI 把該 code 以 POST 送到
->   `https://phantommesh.io/api/exchange` 以取得真正的 payload。
+>   `https://spectynmesh.com/api/exchange` 以取得真正的 payload。
 >   代價是多一趟來回（round-trip）；好處是 URL 中零 token 曝光。
 
 ### 1.5 已驗證的 API 介面（供日後 `spectyn devices` 等使用）
@@ -244,7 +244,7 @@ import { me, devices } from "./routes/api";
 import { login } from "./routes/login";
 
 const app = new Hono<{ Bindings: Env }>();
-app.use("*", cors({ origin: ["https://phantommesh.io"] }));
+app.use("*", cors({ origin: ["https://spectynmesh.com"] }));
 
 app.get("/api/health", health);
 app.get("/auth/cli/start", authStart);
@@ -341,7 +341,7 @@ export async function appleCallback(c: Context) {
 | **2** | `/auth/cli/start` + `/login` 頁 + Google OAuth callback 端到端串接完成。第一次成功的 `spectyn login` 來回（僅 Google）。 |
 | **3** | 串好 Apple Sign In（這是單一整合中最耗時的 — 需要在 Apple Developer console 中設定 .p8 金鑰、Team ID、Service ID）。 |
 | **4** | Email/password（bcrypt）+ `/api/me`/`/api/devices` 端點。 |
-| **5** | phantommesh.io 的 DNS + TLS 憑證（Cloudflare proxy 一鍵搞定）。打磨登入頁。加入帳號儀表板（dashboard）。 |
+| **5** | spectynmesh.com 的 DNS + TLS 憑證（Cloudflare proxy 一鍵搞定）。打磨登入頁。加入帳號儀表板（dashboard）。 |
 | **6** | 速率限制（rate limiting）+ 濫用防護 + 監控。部署到正式環境（production）。 |
 
 這就是 broker 的 MVP（最小可行產品）。一位專注的工程師約 6 天；若你
@@ -353,7 +353,7 @@ export async function appleCallback(c: Context) {
 ## 6. CLI 端今天保證的事
 
 - CLI **已經** 會在 `spectyn login` 不帶參數執行的當下，以 3 秒逾時
-  探測 `https://phantommesh.io/api/health`。當它回 200，CLI 就完全
+  探測 `https://spectynmesh.com/api/health`。當它回 200，CLI 就完全
   交棒過去。
 - CLI 在 `127.0.0.1:48181/oauth/callback` 上監聽，接受 GET（帶
   `?p=base64(json)`）或 POST（帶 `body: json`）。兩種形狀皆可 —
@@ -377,7 +377,7 @@ export async function appleCallback(c: Context) {
 
 ## 7. broker 必須遵守的信任 + 隱私保證
 
-登入信任界線（trust line）：當使用者把驗證委派給 phantommesh.io 時，
+登入信任界線（trust line）：當使用者把驗證委派給 spectynmesh.com 時，
 他們信任我們的只有三件事，也僅有這三件事：
 
 1. **他們的 email**（讓我們能辨識他們的帳號）
@@ -389,7 +389,7 @@ broker 絕對不可以（MUST NOT）：
 
 - 以明文（plaintext）儲存供應商密碼（email 層請用 bcrypt）
 - 接收任何 LLM（大型語言模型）供應商的 API 金鑰 — 那些留在使用者的
-  `~/.spectyn-mesh/agents.toml` 裡，永遠不該靠近 phantommesh.io
+  `~/.spectyn-mesh/agents.toml` 裡，永遠不該靠近 spectynmesh.com
 - 接收使用者的 prompt（提示詞）、agent 輸出、檔案路徑或 commit
   訊息
 - 把來自 Google / Apple 的 `id_token` / `access_token` 保留得比驗證
@@ -411,7 +411,7 @@ broker 絕對不可以（MUST NOT）：
 | 在免費方案對 `/api/me` 呼叫加上計量（metering） | OSS 使用者的可被發現性（discoverability）比速率限制帶來的營收更重要。 |
 | 打造任何由 broker 在二進位檔內強制執行的「Pro 功能」 | 把它移到獨立的套件；spectyn-core 保持開放。 |
 | 把我們的雲端 broker URL 以無法關閉的方式綑進二進位檔 | `SPECTYN_AUTH_URL=''` 必須永遠有效。 |
-| 在 phantommesh.io 上使用第一方分析工具（GA / Mixpanel） | 只用自架的 Plausible / Umami。 |
+| 在 spectynmesh.com 上使用第一方分析工具（GA / Mixpanel） | 只用自架的 Plausible / Umami。 |
 
 ---
 
@@ -426,9 +426,9 @@ broker 絕對不可以（MUST NOT）：
 
 ---
 
-## 10. phantommesh.io 上線之後
+## 10. spectynmesh.com 上線之後
 
-一旦 `https://phantommesh.io/api/health` 回 200 且 OAuth 交握成功，
+一旦 `https://spectynmesh.com/api/health` 回 200 且 OAuth 交握成功，
 既有的 `spectyn` 二進位檔就能直接運作 — 不需重新建置（rebuild）、
 不需重新燒錄（re-flash）。已安裝 spectyn v0.1.0 的使用者，在下一次
 執行 `spectyn login` 時就會拿到 broker 登入，因為 broker URL 在建置
