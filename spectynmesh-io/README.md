@@ -35,9 +35,9 @@ npm install                 # 安裝 hono + jose + types
 wrangler login
 
 # 3. D1 資料庫
-wrangler d1 create spectynmesh-prod
+wrangler d1 create phantommesh-prod
 # → 把 database_id 貼進 wrangler.toml 的 [[d1_databases]] 區段
-wrangler d1 execute spectynmesh-prod --file=./migrations/0001_init.sql
+wrangler d1 execute phantommesh-prod --file=./migrations/0001_init.sql
 
 # 4. 給 OAuth 工作階段用的 KV namespace（鍵值命名空間）
 wrangler kv:namespace create SESSIONS

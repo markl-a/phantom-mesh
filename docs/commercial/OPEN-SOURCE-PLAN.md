@@ -22,8 +22,8 @@
   D1 `database_id = 1d49ebb9-8a63-4116-a2de-f590e48d6a8b`, KV
   `id = 54738150373145229745d88f18a86a15`, CF account id
   `9dc655af3fd4ac4487eade25edcbaa7d`, Google OAuth `client_id 869770808980-...`
-  (public by design), zone `phantommesh.io`, R2 `spectyn-binaries`, D1
-  `spectynmesh-prod`. These are IDENTIFIERS not CREDENTIALS — you can't access
+  (public by design), zone `phantommesh.io`, R2 `phantom-binaries`, D1
+  `phantommesh-prod`. These are IDENTIFIERS not CREDENTIALS — you can't access
   anything with them without the (un-committed) CF API token — but they fingerprint
   the production infra. **`.public-exclude` does NOT exclude `spectynmesh-io/`, so
   the next sync keeps publishing them** unless we placeholderize or exclude.

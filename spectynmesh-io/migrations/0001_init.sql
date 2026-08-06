@@ -1,5 +1,5 @@
 -- phantommesh.io initial D1 schema.
--- Apply via: wrangler d1 execute spectynmesh-prod --file=./migrations/0001_init.sql
+-- Apply via: wrangler d1 execute phantommesh-prod --file=./migrations/0001_init.sql
 
 CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

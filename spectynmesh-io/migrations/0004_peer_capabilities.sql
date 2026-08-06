@@ -8,6 +8,6 @@
 -- Default '[]' means "no caps declared yet" — caller can still --to
 -- that peer explicitly, just no auto-routing match.
 --
--- Apply: wrangler d1 execute spectynmesh-prod --remote --file=./migrations/0004_peer_capabilities.sql
+-- Apply: wrangler d1 execute phantommesh-prod --remote --file=./migrations/0004_peer_capabilities.sql
 
 ALTER TABLE user_cluster_peers ADD COLUMN capabilities TEXT NOT NULL DEFAULT '[]';

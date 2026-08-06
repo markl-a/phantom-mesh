@@ -9,7 +9,7 @@
 -- rest in v1 — D1 is on Cloudflare's storage, the broker JWT secret rotates
 -- access. Add column-level encryption later if/when threat model warrants.
 --
--- Apply via: wrangler d1 execute spectynmesh-prod --remote --file=./migrations/0002_user_settings.sql
+-- Apply via: wrangler d1 execute phantommesh-prod --remote --file=./migrations/0002_user_settings.sql
 
 CREATE TABLE IF NOT EXISTS user_settings (
     user_id    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

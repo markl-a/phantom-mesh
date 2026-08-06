@@ -13,7 +13,7 @@
 | 公開 URL | https://phantommesh.io | https://spectynmesh-io-staging.`<account>`.workers.dev |
 | 誰能 deploy | **GitHub Actions only** | **任何機器** (Mac/Win) `wrangler deploy --env staging` |
 | 觸發方式 | git push → CI 自動 | 手動 `wrangler deploy --env staging` |
-| Bindings (D1/R2/KV) | `spectynmesh-prod` 等 | **同上**（共享資料） |
+| Bindings (D1/R2/KV) | `phantommesh-prod` 等 | **同上**（共享資料） |
 | Routes | `phantommesh.io/*` | 無 route，純 workers.dev URL |
 
 > 共享 bindings = staging 看得到 prod 的真實 user/keys/peers/binary data。
@@ -96,18 +96,18 @@ GitHub Actions 自動 deploy 到 prod = phantommesh.io。**Mac 永遠不該手�
 cd spectynmesh-io
 
 # 建新資源
-npx wrangler d1 create spectynmesh-staging
+npx wrangler d1 create phantommesh-staging
 # 印出 database_id，記下來
 
 npx wrangler kv namespace create SESSIONS_STAGING
 # 印出 id，記下來
 
-npx wrangler r2 bucket create spectyn-binaries-staging
+npx wrangler r2 bucket create phantom-binaries-staging
 
 # 套用同樣的 schema migrations 到新 DB
-npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0001_init.sql
-npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0002_user_settings.sql
-npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0003_cluster_peers.sql
+npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0001_init.sql
+npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0002_user_settings.sql
+npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0003_cluster_peers.sql
 ```
 
 然後改 `wrangler.toml` 的 `[env.staging.*]` bindings 用新 id。

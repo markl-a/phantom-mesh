@@ -16,7 +16,7 @@
 --                          verbatim. It CANNOT verify the MAC.
 --   * NO plaintext column exists. There is intentionally no value_clear.
 --
--- Apply via: wrangler d1 execute spectynmesh-prod --remote --file=./migrations/0010_vault_e2ee.sql
+-- Apply via: wrangler d1 execute phantommesh-prod --remote --file=./migrations/0010_vault_e2ee.sql
 
 -- ── Sealed vault items (POST /vault/set, GET /vault/get) ───────────────
 CREATE TABLE IF NOT EXISTS vault_items (

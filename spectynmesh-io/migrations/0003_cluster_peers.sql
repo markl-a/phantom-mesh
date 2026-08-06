@@ -8,7 +8,7 @@
 -- Not encrypted at rest — URLs + names aren't secret. The cross-node auth
 -- secret (CLUSTER_SECRET) IS encrypted via the env_json AES-GCM path.
 --
--- Apply: wrangler d1 execute spectynmesh-prod --remote --file=./migrations/0003_cluster_peers.sql
+-- Apply: wrangler d1 execute phantommesh-prod --remote --file=./migrations/0003_cluster_peers.sql
 
 CREATE TABLE IF NOT EXISTS user_cluster_peers (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

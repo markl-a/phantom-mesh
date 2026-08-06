@@ -102,9 +102,9 @@ CF_ANALYTICS_TOKEN     = ""
 # Bindings: staging uses its OWN D1 / KV / R2 (the [[env.staging.X]]
 # overrides below), so a staging deploy never reads or mutates prod data.
 # Create the staging resources and fill in the placeholder ids via:
-#   npx wrangler d1   create spectynmesh-staging
+#   npx wrangler d1   create phantommesh-staging
 #   npx wrangler kv   namespace create SESSIONS_STAGING
-#   npx wrangler r2   bucket create spectyn-binaries-staging
+#   npx wrangler r2   bucket create phantom-binaries-staging
 # Then paste the returned ids into the overrides.
 #
 # Secrets are env-scoped — set via:

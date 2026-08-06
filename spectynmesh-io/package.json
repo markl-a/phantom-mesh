@@ -14,8 +14,8 @@
     "test:f205": "tsx --test scripts/test-f205.ts",
     "test": "npm run test:security && npm run test:f205",
     "typecheck": "tsc --noEmit",
-    "db:create": "wrangler d1 create spectynmesh-prod",
-    "db:migrate": "wrangler d1 execute spectynmesh-prod --file=./migrations/0001_init.sql",
+    "db:create": "wrangler d1 create phantommesh-prod",
+    "db:migrate": "wrangler d1 execute phantommesh-prod --file=./migrations/0001_init.sql",
     "kv:create": "wrangler kv:namespace create SESSIONS"
   },
   "dependencies": {

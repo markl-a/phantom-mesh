@@ -1,7 +1,7 @@
 name: Publish spectyn binary to R2
 
 # On-demand build of the `spectyn` CLI binary for a specific target
-# triple, then upload to the spectyn-binaries R2 bucket so the public
+# triple, then upload to the phantom-binaries R2 bucket so the public
 # install scripts (https://phantommesh.io/install.{ps1,sh}) serve it.
 #
 # Why this exists separately from release-daemon.yml:
@@ -241,12 +241,12 @@ jobs:
           BIN="../core/target/${TARGET}/release/spectyn"
           SUMS="$BIN.sha256"
           # Upload the binary first
-          npx wrangler r2 object put "spectyn-binaries/${R2_OBJECT_NAME}" \
+          npx wrangler r2 object put "phantom-binaries/${R2_OBJECT_NAME}" \
             --file "$BIN" \
             --content-type application/octet-stream
           # Then its sidecar at "<name>.sha256" — the path
           # scripts/_verify-download.sh fetches.
-          npx wrangler r2 object put "spectyn-binaries/${R2_OBJECT_NAME}.sha256" \
+          npx wrangler r2 object put "phantom-binaries/${R2_OBJECT_NAME}.sha256" \
             --file "$SUMS" \
             --content-type text/plain
 

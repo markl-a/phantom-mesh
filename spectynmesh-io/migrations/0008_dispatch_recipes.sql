@@ -9,7 +9,7 @@
 -- which IS encrypted). Recipe prompts are operational config of the same
 -- trust class as cluster_peers (also plaintext).
 --
--- Apply: wrangler d1 execute spectynmesh-prod --remote --file=./migrations/0008_dispatch_recipes.sql
+-- Apply: wrangler d1 execute phantommesh-prod --remote --file=./migrations/0008_dispatch_recipes.sql
 
 CREATE TABLE IF NOT EXISTS dispatch_recipes (
     id            TEXT    NOT NULL,                  -- uuid generated client-side OR by worker on POST

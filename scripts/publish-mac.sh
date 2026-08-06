@@ -3,7 +3,7 @@
 #
 # What it does, in order:
 #   1. Build (delegates to scripts/build-mac.sh — codesigns + mirrors to dist/)
-#   2. Upload dist/spectyn-aarch64-apple-darwin → R2 spectyn-binaries/spectyn-darwin-arm64
+#   2. Upload dist/spectyn-aarch64-apple-darwin → R2 phantom-binaries/spectyn-darwin-arm64
 #   3. Deploy spectynmesh-io Worker (registers /install.sh + Mac entry in /dist/*)
 #   4. Verify via curl that /install.sh + /dist/spectyn-darwin-arm64 are live
 #
@@ -45,9 +45,9 @@ SIZE_MB=$(( $(wc -c < "$BIN_LOCAL") / 1024 / 1024 ))
 ok "$BIN_LOCAL ($SIZE_MB MB)"
 
 # ── 2. Upload to R2 ───────────────────────────────────────────────────────
-step "2. upload to R2 (spectyn-binaries/$BIN_R2_KEY)"
+step "2. upload to R2 (phantom-binaries/$BIN_R2_KEY)"
 npx --prefix "$PMIO_DIR" wrangler r2 object put \
-  "spectyn-binaries/$BIN_R2_KEY" \
+  "phantom-binaries/$BIN_R2_KEY" \
   --file "$BIN_LOCAL" \
   --content-type application/octet-stream
 ok "uploaded"

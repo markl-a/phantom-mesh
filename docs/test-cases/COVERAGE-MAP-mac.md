@@ -199,10 +199,10 @@ shasum -a 256 x86_64-apple-darwin/release/spectyn > spectyn-x86_64-apple-darwin.
 # Rename + upload to R2 (user 操作 wrangler)
 cp aarch64-apple-darwin/release/spectyn /tmp/spectyn-aarch64-apple-darwin
 cp x86_64-apple-darwin/release/spectyn /tmp/spectyn-x86_64-apple-darwin
-wrangler r2 object put spectyn-binaries/spectyn-aarch64-apple-darwin --file /tmp/spectyn-aarch64-apple-darwin
-wrangler r2 object put spectyn-binaries/spectyn-x86_64-apple-darwin --file /tmp/spectyn-x86_64-apple-darwin
-wrangler r2 object put spectyn-binaries/spectyn-aarch64-apple-darwin.sha256 --file ...
-wrangler r2 object put spectyn-binaries/spectyn-x86_64-apple-darwin.sha256 --file ...
+wrangler r2 object put phantom-binaries/spectyn-aarch64-apple-darwin --file /tmp/spectyn-aarch64-apple-darwin
+wrangler r2 object put phantom-binaries/spectyn-x86_64-apple-darwin --file /tmp/spectyn-x86_64-apple-darwin
+wrangler r2 object put phantom-binaries/spectyn-aarch64-apple-darwin.sha256 --file ...
+wrangler r2 object put phantom-binaries/spectyn-x86_64-apple-darwin.sha256 --file ...
 ```
 
 **B. 確認 install.sh 認 mac 命名規約**

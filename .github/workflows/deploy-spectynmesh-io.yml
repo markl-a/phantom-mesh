@@ -117,7 +117,7 @@ jobs:
           find . -type f | while read -r f; do
             key="app/${f#./}"
             echo "uploading $key"
-            npx -y wrangler@3 r2 object put "spectyn-binaries/$key" \
+            npx -y wrangler@3 r2 object put "phantom-binaries/$key" \
               --file "$f" --remote
           done
 
