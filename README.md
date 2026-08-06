@@ -25,15 +25,6 @@
 ## Preview 🚧
 
 <p align="center">
-  <img src="site/spectyn-cli-demo.gif" alt="spectyn CLI demo — version, doctor, status mesh, then the interactive REPL: /tools, two real LLM turns via a local subscription CLI (no API keys), and /cost" width="720">
-</p>
-
-<p align="center">
-  <em>The <code>spectyn</code> CLI, unedited: <code>doctor</code> health check → mesh status → interactive REPL —<br>
-  tool listing, two real model turns driven by a locally signed-in subscription CLI (zero API keys on disk), live cost summary.</em>
-</p>
-
-<p align="center">
   <img src="site/mobile-console-preview.png" alt="Spectyn Mesh mobile console — governance flight recorder, MCP tool exposure, goal orchestration" width="360">
 </p>
 
