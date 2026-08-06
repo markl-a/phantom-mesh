@@ -11,7 +11,7 @@
 /// `subtle` swap that landed Wave 13.
 #[test]
 fn v5_rpc_sign_verify_round_trip() {
-    use phantom_mesh::rpc_wire::{build_canonical_string, sign_hmac, verify_hmac};
+    use spectyn_mesh::rpc_wire::{build_canonical_string, sign_hmac, verify_hmac};
 
     // Both secrets MUST be exactly 32 bytes (matches SPEC-12 §7.2
     // `KeyPurpose::ClusterHmac` HKDF output length).
@@ -34,17 +34,17 @@ fn v5_rpc_sign_verify_round_trip() {
 // ─── 2/7 — identity HKDF subkey → encryption EventKey (SPEC-12 → SPEC-13) ──
 
 /// SPEC-12 `KeyPurpose::EventEncrypt` and SPEC-13 `derive_event_key_from_identity`
-/// share the canonical info-string `phantom-mesh.v1.event-encrypt`. Determinism
+/// share the canonical info-string `spectyn-mesh.v1.event-encrypt`. Determinism
 /// on repeat call is load-bearing: without it E004 encrypted-events lose data
 /// across restarts.
 #[test]
 fn v5_identity_hkdf_feeds_encryption_event_key() {
-    use phantom_mesh::encryption_wire::derive_event_key_from_identity;
-    use phantom_mesh::identity_wire::KeyPurpose;
+    use spectyn_mesh::encryption_wire::derive_event_key_from_identity;
+    use spectyn_mesh::identity_wire::KeyPurpose;
 
     assert_eq!(
         KeyPurpose::EventEncrypt.info_string(),
-        "phantom-mesh.v1.event-encrypt",
+        "spectyn-mesh.v1.event-encrypt",
         "SPEC-12 §7.2 reserved prefix invariant",
     );
 
@@ -72,8 +72,8 @@ fn v5_identity_hkdf_feeds_encryption_event_key() {
 /// used by `SubTask.required_caps` is the load-bearing cross-module symbol.
 #[test]
 fn v5_decompose_dag_validates_then_dispatch_plan_shape() {
-    use phantom_mesh::cluster_dispatch_wire::{CapabilityTag, DispatchPlan};
-    use phantom_mesh::smart_decompose_wire::{
+    use spectyn_mesh::cluster_dispatch_wire::{CapabilityTag, DispatchPlan};
+    use spectyn_mesh::smart_decompose_wire::{
         validate_dag, DecomposeRequest, SubTask, TopologyHint,
     };
 
@@ -129,10 +129,10 @@ fn v5_decompose_dag_validates_then_dispatch_plan_shape() {
 /// the same `review_id`. Drift here breaks all coach → delivery dispatch.
 #[test]
 fn v5_coach_review_payload_matches_delivery_schema() {
-    use phantom_mesh::coach_delivery_wire::{
+    use spectyn_mesh::coach_delivery_wire::{
         DeliveryChannel, DeliveryReceipt, DeliveryStatus,
     };
-    use phantom_mesh::coach_wire::CoachReviewReadyPayload;
+    use spectyn_mesh::coach_wire::CoachReviewReadyPayload;
 
     let review_id = "01890000-0000-7000-8000-000000000099".to_string();
     let payload = CoachReviewReadyPayload {
@@ -140,7 +140,7 @@ fn v5_coach_review_payload_matches_delivery_schema() {
         event_id: review_id.clone(),
         date: "2026-05-25".to_string(),
         takeaways_count: 4,
-        markdown_path: "/home/user/.phantom-mesh/coach/2026-05-25.md.age".to_string(),
+        markdown_path: "/home/user/.spectyn-mesh/coach/2026-05-25.md.age".to_string(),
     };
 
     let j = serde_json::to_string(&payload).expect("payload serializes");
@@ -187,7 +187,7 @@ fn v5_coach_review_payload_matches_delivery_schema() {
 /// SRV / A lookup at the caller layer).
 #[test]
 fn v5_mdns_txt_records_parse_to_advertisement() {
-    use phantom_mesh::mdns_wire::{parse_txt_records, PeerOs};
+    use spectyn_mesh::mdns_wire::{parse_txt_records, PeerOs};
 
     let raw: Vec<(String, String)> = vec![
         ("v".to_string(), "1".to_string()),
@@ -216,12 +216,12 @@ fn v5_mdns_txt_records_parse_to_advertisement() {
 /// canonical snake_case slugs + survive a snapshot round-trip. The Stage 4
 /// `phf::Map`-backed FSM table is the source of truth for transitions; this
 /// integration test asserts the **observable** wire surface (slug strings +
-/// state ordering) that UI + persisted `~/.phantom-mesh/onboarding.json`
+/// state ordering) that UI + persisted `~/.spectyn-mesh/onboarding.json`
 /// depend on. We do NOT call `advance()` here — Stage 3 leaves it
 /// `unimplemented!()` until V11 wave (see TODO at top of onboarding_wire.rs).
 #[test]
 fn v5_onboarding_forward_chain_states_round_trip() {
-    use phantom_mesh::onboarding_wire::{
+    use spectyn_mesh::onboarding_wire::{
         should_fallback_to_demo_relay, OnboardingContext, OnboardingState,
         OnboardingStateSnapshot,
     };

@@ -1,4 +1,4 @@
-# Critical User Journeys (CUJ) — phantom-mesh v0.6.0
+# Critical User Journeys (CUJ) — spectyn-mesh v0.6.0
 
 > **What is this folder**: 5 condensed user journeys that cover the **entire user lifecycle** for v0.6.0 (Life Track 領頭). Per Google SRE definition, a CUJ is an "ordered sequence of interactions that the user cares about, which we measure (SLO) and rehearse end-to-end (test + synthetic monitor)."
 >

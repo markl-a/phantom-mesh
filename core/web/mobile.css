@@ -1,4 +1,4 @@
-/* phantom mobile — terminal-style chat
+/* spectyn mobile — terminal-style chat
  * font: SF Mono (iOS) / Roboto Mono (Android) / Menlo (mac safari) fallback
  * dark cream-noir palette tuned for OLED + low-light demo
  */
@@ -10,7 +10,7 @@
   --fg:        #e8e2d4;     /* warm cream */
   --fg-dim:    #8a8578;
   --fg-muted:  #4d4a42;
-  --accent:    #d6b270;     /* phantom gold */
+  --accent:    #d6b270;     /* spectyn gold */
   --accent-dim:#9c8154;
   --user:      #88ccaa;     /* prompt-line green */
   --think:     #6a6a78;     /* reasoning grey-italic */

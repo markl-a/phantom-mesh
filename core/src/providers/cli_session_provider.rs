@@ -44,7 +44,7 @@ fn fold_events<I: IntoIterator<Item = CliEvent>>(
 /// (content may be a plain string or an array of text parts). Used by the agent
 /// runtime short-circuit — we pass the raw user task to the agentic CLI, NOT a
 /// system-prompt-prepended render (the CLI has its own agent behaviour; prepending
-/// phantom's system prompt makes codex/agy answer the framing, not the task).
+/// spectyn's system prompt makes codex/agy answer the framing, not the task).
 pub(crate) fn last_user_text(messages: &[Value]) -> String {
     let text_of = |m: &Value| -> String {
         if let Some(s) = m.get("content").and_then(|c| c.as_str()) {
@@ -99,9 +99,9 @@ fn cli_short(cli: CliKind) -> &'static str {
 /// Who commits/pushes the worker's changes after the CLI edits the repo.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum GitMode {
-    /// phantom runs git deterministically (default — the CLI is flaky at git).
-    Phantom,
-    /// the CLI handles its own git (the prompt told it to); phantom skips git.
+    /// spectyn runs git deterministically (default — the CLI is flaky at git).
+    Spectyn,
+    /// the CLI handles its own git (the prompt told it to); spectyn skips git.
     Cli,
 }
 
@@ -110,15 +110,15 @@ struct GitDirective {
     mode: GitMode,
 }
 
-/// An optional FIRST line `[phantom-git branch=<name> mode=phantom|cli]` lets the
+/// An optional FIRST line `[spectyn-git branch=<name> mode=spectyn|cli]` lets the
 /// dispatched task pick the branch + who runs git. Returns the directive + the
-/// prompt with that header line stripped. Absent → phantom mode, auto branch.
+/// prompt with that header line stripped. Absent → spectyn mode, auto branch.
 fn parse_git_directive(prompt: &str) -> (GitDirective, String) {
     let first = prompt.lines().next().unwrap_or("").trim();
-    if first.starts_with("[phantom-git") && first.ends_with(']') {
+    if first.starts_with("[spectyn-git") && first.ends_with(']') {
         let inner = &first[1..first.len() - 1];
         let mut branch = None;
-        let mut mode = GitMode::Phantom;
+        let mut mode = GitMode::Spectyn;
         for tok in inner.split_whitespace() {
             if let Some(b) = tok.strip_prefix("branch=") {
                 if !b.is_empty() {
@@ -126,13 +126,13 @@ fn parse_git_directive(prompt: &str) -> (GitDirective, String) {
                 }
             }
             if let Some(m) = tok.strip_prefix("mode=") {
-                mode = if m == "cli" { GitMode::Cli } else { GitMode::Phantom };
+                mode = if m == "cli" { GitMode::Cli } else { GitMode::Spectyn };
             }
         }
         let rest = prompt.splitn(2, '\n').nth(1).unwrap_or("").to_string();
         return (GitDirective { branch, mode }, rest);
     }
-    (GitDirective { branch: None, mode: GitMode::Phantom }, prompt.to_string())
+    (GitDirective { branch: None, mode: GitMode::Spectyn }, prompt.to_string())
 }
 
 /// Run one git command in `repo`; error carries stderr.
@@ -189,9 +189,9 @@ fn git_commit_push(
 /// Receiver). Shared by `CliSessionProvider::complete` and the agent runtime's
 /// non-streaming short-circuit.
 ///
-/// REPO MODE: if `PHANTOM_CLI_SESSION_REPO` is set, the CLI runs IN that repo
+/// REPO MODE: if `SPECTYN_CLI_SESSION_REPO` is set, the CLI runs IN that repo
 /// (cwd = repo) so it can read/edit the code, and — unless the task's
-/// `[phantom-git mode=cli]` directive says otherwise — phantom commits + pushes
+/// `[spectyn-git mode=cli]` directive says otherwise — spectyn commits + pushes
 /// the changes to a branch (the git/GitHub collaboration path). Unset → the CLI
 /// runs in a neutral home dir (Q&A mode, no repo, no git).
 pub(crate) async fn run_cli_session(
@@ -204,11 +204,11 @@ pub(crate) async fn run_cli_session(
     // / `serve.rs` `rpc_task_assign`). Threaded into `GovernConfig.dispatch_task_id`
     // so a governed run uses it AS the govern `task_id` (one correlation key) and an
     // approval raised mid-run stamps its `approval_id` onto the dispatch row live.
-    // `None` (ungoverned, standalone `phantom govern`, or the bare provider path) =
+    // `None` (ungoverned, standalone `spectyn govern`, or the bare provider path) =
     // a fresh govern id is minted as before — byte-identical behavior.
     dispatch_task_id: Option<uuid::Uuid>,
 ) -> Result<(String, Value), ProviderError> {
-    let repo = std::env::var("PHANTOM_CLI_SESSION_REPO")
+    let repo = std::env::var("SPECTYN_CLI_SESSION_REPO")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .map(std::path::PathBuf::from);
@@ -218,7 +218,7 @@ pub(crate) async fn run_cli_session(
             .unwrap_or_else(|| std::path::PathBuf::from("."))
     });
 
-    // GOVERNED PATH (apex ④ — safe unattended runs): when `PHANTOM_GOVERN_CLI` is
+    // GOVERNED PATH (apex ④ — safe unattended runs): when `SPECTYN_GOVERN_CLI` is
     // truthy, the run is driven through L1 — every ToolCall is risk-classified,
     // the whole session is captured by the flight-recorder, and high-risk actions
     // escalate (codex/opencode/agy are PostActionObserved: record + alert +
@@ -230,17 +230,17 @@ pub(crate) async fn run_cli_session(
         run_ungoverned(cli, clean_prompt, cwd, model, timeout_secs).await?
     };
 
-    // REPO MODE: phantom commits + pushes the worker's edits (unless the task asked
+    // REPO MODE: spectyn commits + pushes the worker's edits (unless the task asked
     // the CLI to do its own git). The push summary is appended so the master sees
     // the branch it must fetch/integrate. Shared by both governance paths.
     if let Some(repo_path) = repo {
-        if directive.mode == GitMode::Phantom {
+        if directive.mode == GitMode::Spectyn {
             let branch = directive.branch.clone();
             let note = tokio::task::spawn_blocking(move || {
                 match git_commit_push(&repo_path, branch.as_deref(), cli) {
-                    Ok(Some(info)) => format!("[phantom-git] {info}"),
-                    Ok(None) => "[phantom-git] no file changes to commit".to_string(),
-                    Err(e) => format!("[phantom-git] FAILED: {e}"),
+                    Ok(Some(info)) => format!("[spectyn-git] {info}"),
+                    Ok(None) => "[spectyn-git] no file changes to commit".to_string(),
+                    Err(e) => format!("[spectyn-git] FAILED: {e}"),
                 }
             })
             .await
@@ -251,9 +251,9 @@ pub(crate) async fn run_cli_session(
     Ok((text, usage))
 }
 
-/// `PHANTOM_GOVERN_CLI` truthy → route worker CLI runs through L1 governance.
+/// `SPECTYN_GOVERN_CLI` truthy → route worker CLI runs through L1 governance.
 fn govern_enabled() -> bool {
-    std::env::var("PHANTOM_GOVERN_CLI")
+    std::env::var("SPECTYN_GOVERN_CLI")
         .map(|v| {
             matches!(
                 v.trim().to_ascii_lowercase().as_str(),
@@ -512,14 +512,14 @@ mod tests {
 
     #[test]
     fn parse_git_directive_extracts_branch_mode_and_strips_header() {
-        let (d, rest) = parse_git_directive("[phantom-git branch=feat/x mode=cli]\nDo the thing");
+        let (d, rest) = parse_git_directive("[spectyn-git branch=feat/x mode=cli]\nDo the thing");
         assert_eq!(d.branch.as_deref(), Some("feat/x"));
         assert_eq!(d.mode, GitMode::Cli);
         assert_eq!(rest, "Do the thing");
 
         let (d2, rest2) = parse_git_directive("just a task, no header");
         assert!(d2.branch.is_none());
-        assert_eq!(d2.mode, GitMode::Phantom);
+        assert_eq!(d2.mode, GitMode::Spectyn);
         assert_eq!(rest2, "just a task, no header");
     }
 

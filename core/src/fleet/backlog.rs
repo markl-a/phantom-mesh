@@ -74,15 +74,15 @@ mod tests {
 
     #[test]
     fn task_id_is_stable_and_repo_scoped() {
-        let a = task_id("phantom-quant", "add-sma");
-        assert_eq!(a, task_id("phantom-quant", "add-sma")); // stable
-        assert_ne!(a, task_id("phantom-finance", "add-sma")); // repo-scoped
+        let a = task_id("spectyn-quant", "add-sma");
+        assert_eq!(a, task_id("spectyn-quant", "add-sma")); // stable
+        assert_ne!(a, task_id("spectyn-finance", "add-sma")); // repo-scoped
     }
 
     #[test]
     fn task_id_golden_is_toolchain_stable() {
         // Locks the FNV-1a output so an accidental algorithm change is caught.
-        assert_eq!(task_id("phantom-quant", "add-sma"), "e3594fe796141f4d");
+        assert_eq!(task_id("spectyn-quant", "add-sma"), "e3594fe796141f4d");
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         .unwrap();
         std::fs::write(bl.join("README.md"), "ignore me").unwrap();
 
-        let tasks = scan_repo("phantom-quant", dir.path()).unwrap();
+        let tasks = scan_repo("spectyn-quant", dir.path()).unwrap();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].slug, "add-sma");
         assert_eq!(tasks[0].component, "add SMA indicator");
@@ -111,7 +111,7 @@ mod tests {
         let done = dir.path().join("backlog").join("done");
         std::fs::create_dir_all(&done).unwrap();
         std::fs::write(done.join("finished.toml"), "[spec]\ncomponent = \"x\"\n").unwrap();
-        let tasks = scan_repo("phantom-quant", dir.path()).unwrap();
+        let tasks = scan_repo("spectyn-quant", dir.path()).unwrap();
         assert!(tasks.is_empty(), "done/ items must not be ingested");
     }
 }

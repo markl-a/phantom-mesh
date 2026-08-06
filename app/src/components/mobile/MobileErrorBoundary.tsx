@@ -42,12 +42,12 @@ export default class MobileErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <div className="p-6 text-sm" role="alert" data-testid="mobile-route-error">
-          <p className="text-phantom-text font-medium mb-1">這個畫面出了點問題</p>
-          <p className="text-phantom-muted mb-4 break-words">
+          <p className="text-spectyn-text font-medium mb-1">這個畫面出了點問題</p>
+          <p className="text-spectyn-muted mb-4 break-words">
             {this.state.error.message || "未知錯誤"}
           </p>
           <button
-            className="px-4 py-2 rounded-lg bg-phantom-card border border-phantom-border text-phantom-text"
+            className="px-4 py-2 rounded-lg bg-spectyn-card border border-spectyn-border text-spectyn-text"
             onClick={() => this.setState({ error: null })}
           >
             重試

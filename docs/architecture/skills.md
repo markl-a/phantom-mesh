@@ -2,7 +2,7 @@
 
 ## 目的（Purpose）
 
-技能庫（skill bank）子系統是 phantom-mesh 的 **技能自我演化迴圈（skill self-evolution loop）**：它
+技能庫（skill bank）子系統是 spectyn-mesh 的 **技能自我演化迴圈（skill self-evolution loop）**：它
 把代理人（agent）自己的工作轉化為可重複使用、可被喚回的知識。在一個工作階段（session）中，
 代理人會產生 evolve 檢查點（checkpoint）與每日回顧（daily review）；策展器（curator）評斷這些
 結果、將其萃取（distil）為結構化的 **技能文件（Skill Documents）**、存入一個
@@ -101,4 +101,4 @@ flowchart TD
 - `core/src/skill_wire.rs` 為 SPEC-25 線路型別攜帶自己的內嵌測試套件。
 
 Feature-gated（功能封閉）的測試必須以對應的 feature 執行，例如
-`cargo test -p phantom-core --features experimental-skillbank`。
+`cargo test -p spectyn-core --features experimental-skillbank`。

@@ -1,6 +1,6 @@
 # macOS Desktop App (Tauri 2) — 全測試用例庫 v1 (2026-06-12)
 
-> **Surface**: `mac desktop app`（`app/` React + `app/src-tauri` Rust，Tauri 2，productName "Phantom Mesh"）。本檔是 Charter Wave 2 為「桌面兩面」補的對等 mac.md 級逐條 case DB（解 BRK-10 / INV-15 K2）。
+> **Surface**: `mac desktop app`（`app/` React + `app/src-tauri` Rust，Tauri 2，productName "Spectyn Mesh"）。本檔是 Charter Wave 2 為「桌面兩面」補的對等 mac.md 級逐條 case DB（解 BRK-10 / INV-15 K2）。
 >
 > **覆蓋範圍**: 桌面 daily-loop 主要 CUJ（onboarding → 每日 capture/you-talk/review → 5 能力面 → 跨面 supervision → error/empty/offline）× macOS 桌面行為（NSStatusItem / 全域捷徑 / Keychain / Gatekeeper / TCC）+ 跨 SPEC P4/SPEC-31 invariant。
 >
@@ -47,7 +47,7 @@
 | MACAPP-CUJ01-ONB-003 | unit | ✅ | - | `cargo test --lib onboarding_wire::tests`（FORWARD_ORDER 順序）| 5 step 順序 == `fresh_install,created_identity,joined_cluster,set_provider,first_reply_received` | §1 FSM SSOT | ⬜ | ✅ existing |
 | MACAPP-CUJ01-ONB-004 | integ | ⚠ broker mock | `BROKER_URL=mock` | `onboarding_advance(fresh_install)` → broker OAuth loopback | exit 0、session 建立、進 created_identity | §1 D1 login-first | ⬜ | 🟡 |
 | MACAPP-CUJ01-ONB-005 | integ | ✅ | TempDir HOME | `onboarding_advance(created_identity)` | ed25519 mint + 寫入 macOS Keychain（SPEC-40 §7.5）| §1 created_identity / SPEC-12 | ⬜ | 🟡 |
-| MACAPP-CUJ01-ONB-006 | integ | ✅ | TempDir | `onboarding_advance(joined_cluster)` | detached `phantom serve` 起 + mDNS advertise（**SINGLE-NODE**）| §1 joined_cluster | ⬜ | 🟡 |
+| MACAPP-CUJ01-ONB-006 | integ | ✅ | TempDir | `onboarding_advance(joined_cluster)` | detached `spectyn serve` 起 + mDNS advertise（**SINGLE-NODE**）| §1 joined_cluster | ⬜ | 🟡 |
 | MACAPP-CUJ01-ONB-007 | integ | ⚠ mock provider | mock Claude CLI/Codex/Ollama | `onboarding_advance(set_provider)` → detect + drag-rank | 偵測到 ≥1 provider、可排序、Ollama always-on fallback | §1 set_provider / D5 | ⬜ | 🟡 |
 | MACAPP-CUJ01-ONB-008 | e2e | ⚠ fresh | full flow | 跑完 5 step | `localStorage[ONBOARDED_KEY]=="true"` + onComplete() | §1 first_reply_received | ⬜ | ⬜ |
 
@@ -157,15 +157,15 @@
 
 ## §4. 跨面 supervision handoff（phone ↔ backend，5 條）
 
-> 流程權威: surface-mac-app.md §4。`phantom://` deep-link 在 Rust on_open_url 解析/allowlist → re-emit `deep-link://navigate`；`lib/deepLink.ts` 映射 hosts→routes（chat→/、mesh→/cluster、settings→/settings/<section>）。
+> 流程權威: surface-mac-app.md §4。`spectyn://` deep-link 在 Rust on_open_url 解析/allowlist → re-emit `deep-link://navigate`；`lib/deepLink.ts` 映射 hosts→routes（chat→/、mesh→/cluster、settings→/settings/<section>）。
 
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
-| MACAPP-CUJ04-DL-001 | integ | ✅ | app 起 | 傳 `phantom://chat/<id>` | on_open_url validate → emit `deep-link://navigate` → 導 / | §4 / SPEC-17 §11.2 | ⬜ | 🟡 |
-| MACAPP-CUJ04-DL-002 | integ | ✅ | app 起 | 傳 `phantom://settings/agents` | 導 /settings/agents | §4 deepLink.ts | ⬜ | 🟡 |
-| MACAPP-CUJ04-DL-003 | integ | ✅ | app 起 | 傳 `phantom://coach/review?date=...`（SPEC-41 §10.6 cold-launch landing）| 導 /review（不落 null）| §4 gap | ⬜ | 🟥 FAIL [code-backlog]：`deepLink.ts` 無 `coach` host → phone push 點進 mac review 落 null（無 nav）。修法=加 coach/supervise host + Rust allowlist（surface-mac-app.md §4 To build a）|
-| MACAPP-CUJ04-DL-004 | integ | ✅ | app 起 | 傳 `phantom://supervise/<task>` | 解析為 approve/redirect/stop channel | §4 gap | ⬜ | 🟥 FAIL [code-backlog]：無 supervise deep-link、無 tool-call-boundary 核准 channel（單向 nav plumbing only）|
-| MACAPP-CUJ04-DL-005 | integ | ✅ | 非 allowlist URL | 傳惡意 `phantom://evil` | drop + 不 nav（defense-in-depth、僅 log code 不 log raw URL）| §4 / §13 privacy | ⬜ | 🟡 |
+| MACAPP-CUJ04-DL-001 | integ | ✅ | app 起 | 傳 `spectyn://chat/<id>` | on_open_url validate → emit `deep-link://navigate` → 導 / | §4 / SPEC-17 §11.2 | ⬜ | 🟡 |
+| MACAPP-CUJ04-DL-002 | integ | ✅ | app 起 | 傳 `spectyn://settings/agents` | 導 /settings/agents | §4 deepLink.ts | ⬜ | 🟡 |
+| MACAPP-CUJ04-DL-003 | integ | ✅ | app 起 | 傳 `spectyn://coach/review?date=...`（SPEC-41 §10.6 cold-launch landing）| 導 /review（不落 null）| §4 gap | ⬜ | 🟥 FAIL [code-backlog]：`deepLink.ts` 無 `coach` host → phone push 點進 mac review 落 null（無 nav）。修法=加 coach/supervise host + Rust allowlist（surface-mac-app.md §4 To build a）|
+| MACAPP-CUJ04-DL-004 | integ | ✅ | app 起 | 傳 `spectyn://supervise/<task>` | 解析為 approve/redirect/stop channel | §4 gap | ⬜ | 🟥 FAIL [code-backlog]：無 supervise deep-link、無 tool-call-boundary 核准 channel（單向 nav plumbing only）|
+| MACAPP-CUJ04-DL-005 | integ | ✅ | 非 allowlist URL | 傳惡意 `spectyn://evil` | drop + 不 nav（defense-in-depth、僅 log code 不 log raw URL）| §4 / §13 privacy | ⬜ | 🟡 |
 
 ---
 
@@ -209,7 +209,7 @@
 | MACAPP-PLAT-GK-002 | manual | ❌ | 未簽 .app | 開 | macOS 印「無法驗證開發者」 | SPEC-63 | ⬜ | ⬜ |
 | MACAPP-PLAT-TCC-001 | manual | ❌ | TCC 鎖 | 截圖/麥克風請求 | 印權限請求對話框（不寫垃圾）| macOS TCC | ⬜ | ⬜ |
 | MACAPP-PLAT-NOT-001 | manual | ❌ | first coach delivery | coach 推 notification | 印 NSUNotificationCenter 權限請求 | macOS notification / SPEC-24 | ⬜ | ⬜ |
-| MACAPP-PLAT-REV-001 | e2e | ✅ | onboarded | Settings → Security 找「Delete all my data」 | 有 GUI 資料刪除 affordance（含 confirm）| §reversibility / findings medium#7 | ⬜ | 🟥 FAIL [code-backlog]：現況無 GUI 'delete all'；`phantom data delete --all` kill-switch CLI-only；sidebar 「登出/重新設定」只清 localStorage 不刪 key/token。違反 INV-12 可逆性。修法=Settings 加 delete-all action（surface-mac-app.md findings medium#7）|
+| MACAPP-PLAT-REV-001 | e2e | ✅ | onboarded | Settings → Security 找「Delete all my data」 | 有 GUI 資料刪除 affordance（含 confirm）| §reversibility / findings medium#7 | ⬜ | 🟥 FAIL [code-backlog]：現況無 GUI 'delete all'；`spectyn data delete --all` kill-switch CLI-only；sidebar 「登出/重新設定」只清 localStorage 不刪 key/token。違反 INV-12 可逆性。修法=Settings 加 delete-all action（surface-mac-app.md findings medium#7）|
 
 ---
 

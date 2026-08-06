@@ -1,10 +1,10 @@
 //! Device identity: keypair generation, persistence, and node-id derivation.
 //!
 //! This module (`identity_wire`) is the single source of truth for a device's
-//! cryptographic identity in phantom-mesh. It owns three concerns:
+//! cryptographic identity in spectyn-mesh. It owns three concerns:
 //!
 //! 1. **Generation** — [`build_init_outcome`] creates a fresh ed25519 master
-//!    seed via `OsRng` ([`keygen_ed25519`]) on first `phantom keys init`, and
+//!    seed via `OsRng` ([`keygen_ed25519`]) on first `spectyn keys init`, and
 //!    re-derives the verifying (public) key from a pre-existing seed on
 //!    subsequent calls. The 32-byte master seed is the root of all identity
 //!    material; every subkey is HKDF-derived from it via [`derive_subkey`].
@@ -12,7 +12,7 @@
 //! 2. **Persistence** — the master seed is stored in the host's native secret
 //!    store via the [`KeystoreBackend`] matrix (macOS/iOS Keychain, Android
 //!    EncryptedSharedPreferences, Windows Credential Manager + DPAPI, Linux
-//!    Secret Service), with a desktop-only `~/.phantom-mesh/<account>.key`
+//!    Secret Service), with a desktop-only `~/.spectyn-mesh/<account>.key`
 //!    file fallback (mode 0600). See [`write_to_keystore`] /
 //!    [`read_from_keystore`] / [`delete_from_keystore`].
 //!
@@ -24,7 +24,7 @@
 //! ## Analysis observation: hardcoded node-id prefix
 //!
 //! The runtime-facing *node-id string* is built elsewhere
-//! (`core/src/runtime.rs`, `PhantomMeshRuntime::init`) as
+//! (`core/src/runtime.rs`, `SpectynMeshRuntime::init`) as
 //! `format!("mac-{:08x}", ...)`. The `"mac-"` prefix is **hardcoded** there —
 //! it does not reflect the actual host platform, so a Linux or Windows node
 //! still reports a `mac-`-prefixed id. This is a pre-existing observation only;
@@ -34,7 +34,7 @@
 //!
 //! ## 中文
 //!
-//! 本模組是 phantom-mesh 裝置加密身份（device identity）的唯一真實來源，負責：
+//! 本模組是 spectyn-mesh 裝置加密身份（device identity）的唯一真實來源，負責：
 //! 身份金鑰產生（generation）、持久化（persistence，存進各 OS 的原生 keystore），
 //! 以及 node-id（節點識別碼）衍生。對外可見的識別碼是 12-hex 短指紋
 //! `SHA-256(公鑰)[..12]`。
@@ -46,7 +46,7 @@
 
 // SPEC-12 §7 — Identity keypair wire types (single source of truth for the
 // public identity surface + per-OS keystore matrix + HKDF subkey purposes that
-// every other crypto consumer in phantom-mesh shares).
+// every other crypto consumer in spectyn-mesh shares).
 //
 // Stage 3 (partial real impl — core crypto + file fallback + **Linux Secret
 // Service** live): the `ed25519-dalek` / `hkdf` / `sha2` / `hex` / `chrono` /
@@ -67,7 +67,7 @@
 // 中文: 本檔對應 SPEC-12 §7（資料模型）。master seed（主種子）以 Rust-internal
 // `IdentityKey` 持有，**永遠不過 FFI / 不出 core crate**；對 UI / TS 曝光的只有
 // `IdentityPublic`（公鑰 + fingerprint + createdAt）。HKDF info-string 公式為
-// `phantom-mesh.v1.<purpose>` — purpose（用途）列舉於 `KeyPurpose` enum。
+// `spectyn-mesh.v1.<purpose>` — purpose（用途）列舉於 `KeyPurpose` enum。
 //
 // TODO Stage 4:
 //   - replace `[u8; 32]` raw seed in `IdentityKey` with `zeroize::Zeroizing<[u8; 32]>`
@@ -99,17 +99,17 @@ pub struct IdentityPublic {
     pub public_key: String,
     /// First 12 hex chars of SHA-256(publicKey) — for display & backup confirm.
     pub fingerprint: String,
-    /// ISO-8601 of master creation (from `~/.phantom-mesh/identity.key` mtime).
+    /// ISO-8601 of master creation (from `~/.spectyn-mesh/identity.key` mtime).
     pub created_at: String,
 }
 
-// ─── §6.2 / §9.3 InitOutcome — `phantom keys init` CLI / Tauri result ───────
+// ─── §6.2 / §9.3 InitOutcome — `spectyn keys init` CLI / Tauri result ───────
 
-/// Result of `phantom keys init` (CLI) or `invoke('identity_init')` (Tauri).
+/// Result of `spectyn keys init` (CLI) or `invoke('identity_init')` (Tauri).
 /// Idempotent: `created == false` when an existing identity was found and the
 /// caller did not pass `--force`.
 ///
-/// 中文: `phantom keys init` 的結果結構。`created=false` 代表已存在身份且
+/// 中文: `spectyn keys init` 的結果結構。`created=false` 代表已存在身份且
 /// 沒有強制覆寫；CLI 會顯示「已存在的身份 abc123 — 略過」。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/identity/")]
@@ -132,13 +132,13 @@ pub struct InitOutcome {
 // ─── §7.2 KeyPurpose — HKDF info-string purposes ─────────────────────────────
 
 /// Purpose tags for HKDF subkey derivation. Each variant maps to a fixed
-/// info-string `phantom-mesh.v1.<slug>` consumed by exactly one downstream
+/// info-string `spectyn-mesh.v1.<slug>` consumed by exactly one downstream
 /// subsystem (see SPEC-12 §7.2 mapping table).
 ///
 /// 中文: HKDF 子金鑰用途列舉。每個 variant 對應一個固定的 info-string，給一個
 /// 下游子系統使用 — 嚴禁兩個 consumer 共用同一個 purpose。
 ///
-/// **Reserved prefix**: `phantom-mesh.v1.*` — `v2` is reserved for future
+/// **Reserved prefix**: `spectyn-mesh.v1.*` — `v2` is reserved for future
 /// master rotation upgrade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/identity/")]
@@ -152,7 +152,7 @@ pub enum KeyPurpose {
     BrokerJwtSign,
     /// SPEC-29 skill-sync author MAC (32 B, never rotated).
     SkillSyncMac,
-    /// `phantom keys backup` wrap key (32 B, per backup).
+    /// `spectyn keys backup` wrap key (32 B, per backup).
     BackupWrap,
 }
 
@@ -160,7 +160,7 @@ impl KeyPurpose {
     /// Lower-kebab slug used inside the HKDF info-string.
     /// `EventEncrypt` → `"event-encrypt"`, etc.
     ///
-    /// 中文: 回傳 lower-kebab purpose slug，組成 `phantom-mesh.v1.<slug>`。
+    /// 中文: 回傳 lower-kebab purpose slug，組成 `spectyn-mesh.v1.<slug>`。
     pub const fn slug(self) -> &'static str {
         match self {
             KeyPurpose::EventEncrypt => "event-encrypt",
@@ -171,11 +171,11 @@ impl KeyPurpose {
         }
     }
 
-    /// Full HKDF info-string: `"phantom-mesh.v1.<slug>"`.
+    /// Full HKDF info-string: `"spectyn-mesh.v1.<slug>"`.
     /// Stable across versions — bumping the `v1` prefix requires a master
     /// rotation migration (see §7.5).
     pub fn info_string(self) -> String {
-        format!("phantom-mesh.v1.{}", self.slug())
+        format!("spectyn-mesh.v1.{}", self.slug())
     }
 }
 
@@ -195,7 +195,7 @@ pub enum KeystoreBackend {
     /// macOS Keychain (`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`).
     MacosKeychain,
     /// iOS Keychain (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`,
-    /// access-group=`group.ai.phantommesh.app`).
+    /// access-group=`group.ai.spectynmesh.app`).
     IosKeychain,
     /// Android EncryptedSharedPreferences backed by AndroidKeyStore.
     AndroidEncryptedSharedPreferences,
@@ -203,7 +203,7 @@ pub enum KeystoreBackend {
     WindowsCredentialManager,
     /// Linux Secret Service (`org.freedesktop.secrets`, default collection).
     LinuxSecretService,
-    /// File fallback `~/.phantom-mesh/identity.key` mode 0600 (desktop only).
+    /// File fallback `~/.spectyn-mesh/identity.key` mode 0600 (desktop only).
     FileChmod0600,
 }
 
@@ -232,9 +232,9 @@ impl KeystoreBackend {
     }
 }
 
-// ─── §7.4 BackupArtifact — `phantom keys backup` output ─────────────────────
+// ─── §7.4 BackupArtifact — `spectyn keys backup` output ─────────────────────
 
-/// Output of `phantom keys backup --to <path>` — base64 of master seed +
+/// Output of `spectyn keys backup --to <path>` — base64 of master seed +
 /// SHA-256 footer fingerprint for tamper-evidence and import-time confirm.
 ///
 /// 中文: backup 匯出格式。`master_seed_b64` 是 base64-encoded 32-byte seed；
@@ -334,9 +334,9 @@ pub struct IdentityKey {
 /// Generate or load the master seed, then build `InitOutcome` per §6.2 flow.
 ///
 /// `force == true` overwrites any pre-existing identity (used by
-/// `phantom keys init --force` after explicit user confirmation).
+/// `spectyn keys init --force` after explicit user confirmation).
 ///
-/// 中文: `phantom keys init` 主邏輯。`force=true` 會覆寫既有身份 — 配合 CLI
+/// 中文: `spectyn keys init` 主邏輯。`force=true` 會覆寫既有身份 — 配合 CLI
 /// 端 `--force` 旗標 + 使用者二次確認。
 pub fn build_init_outcome(_force: bool) -> Result<InitOutcome, KeyDerivationError> {
     // Step 1: probe the default backend for an existing `identity-master`
@@ -399,20 +399,20 @@ pub fn build_init_outcome(_force: bool) -> Result<InitOutcome, KeyDerivationErro
 
 /// HKDF-SHA256 subkey derivation. Deterministic for the same master + purpose.
 ///
-/// info-string is `phantom-mesh.v1.<purpose.slug()>` per §7.2.
+/// info-string is `spectyn-mesh.v1.<purpose.slug()>` per §7.2.
 /// Returns `KeyDerivationError::MasterNotFound` if `init` has not been called.
 ///
 /// 中文: HKDF-SHA256 子金鑰派生器。同一 master + 同一 purpose 永遠回同一結果。
 pub fn derive_subkey(_purpose: KeyPurpose) -> Result<[u8; 32], KeyDerivationError> {
     // Step 1: load the master seed from the OS-default keystore. Propagate
     //         `MasterNotFound` straight back so the caller can prompt
-    //         `phantom keys init` per the §11 error catalog UX rules.
+    //         `spectyn keys init` per the §11 error catalog UX rules.
     let default_backend = default_backend_for_os();
     let master_seed: Vec<u8> =
         read_from_default_backend_with_migration(default_backend, "identity-master")?;
 
     // Step 2: HKDF-SHA256(extract → expand). `info` is the stable
-    //         `phantom-mesh.v1.<slug>` string from `KeyPurpose::info_string()`.
+    //         `spectyn-mesh.v1.<slug>` string from `KeyPurpose::info_string()`.
     //         Salt is intentionally empty — the master seed is already 256-bit
     //         uniform from OsRng so HKDF's salt-mixing isn't needed here.
     let info: String = _purpose.info_string();
@@ -461,7 +461,7 @@ pub fn write_to_keystore(
     match _backend {
         // Step 2: macOS + iOS share the Keychain Services API surface.
         //         Stage 3 will gate the iOS arm behind `cfg(target_os="ios")`
-        //         so it picks the access-group `group.ai.phantommesh.app`.
+        //         so it picks the access-group `group.ai.spectynmesh.app`.
         KeystoreBackend::MacosKeychain | KeystoreBackend::IosKeychain => {
             keychain_write_pseudo(_account, _secret)
         }
@@ -565,7 +565,7 @@ pub fn delete_from_keystore(
     }
 }
 
-/// Clear the local identity master seed for `phantom logout`.
+/// Clear the local identity master seed for `spectyn logout`.
 ///
 /// Unlike [`delete_from_keystore`] (the §6.3 destroy-my-key flow that requires
 /// a fingerprint confirmation so a user can't nuke their key by accident), this
@@ -573,9 +573,9 @@ pub fn delete_from_keystore(
 /// and idempotently. It deletes the `identity-master` record from the OS-default
 /// keystore and returns `Ok(())` when no record exists — there is no
 /// confirmation prompt because logout is an expected, reversible action
-/// (`phantom login` / `phantom keys init` re-establish identity).
+/// (`spectyn login` / `spectyn keys init` re-establish identity).
 ///
-/// 中文: `phantom logout` 用的清除路徑。和 [`delete_from_keystore`]（需指紋二次
+/// 中文: `spectyn logout` 用的清除路徑。和 [`delete_from_keystore`]（需指紋二次
 /// 確認的「永久砍 key」流程）不同，這裡是登出時無條件、幂等地刪掉 keystore 裡的
 /// `identity-master` 記錄；不存在時回 `Ok(())`，因為登出本來就可逆。
 pub fn logout_clear_keystore() -> Result<(), KeyDerivationError> {
@@ -686,14 +686,14 @@ fn iso8601_now() -> String {
 /// per-OS dispatch. Any other value is ignored (warn-once) and falls through
 /// to the OS default.
 ///
-/// 中文: keystore 後端的環境變數覆寫。`PHANTOM_KEYSTORE=file` 會在所有平台強制
-/// 使用 `~/.phantom-mesh/<account>.key` 純檔案後端（無需 D-Bus / OS keystore，
+/// 中文: keystore 後端的環境變數覆寫。`SPECTYN_KEYSTORE=file` 會在所有平台強制
+/// 使用 `~/.spectyn-mesh/<account>.key` 純檔案後端（無需 D-Bus / OS keystore，
 /// 適合 CI / headless）；`auto` 或未設定則走正常的各 OS 預設。其他值會被忽略
 /// （只警告一次）並退回 OS 預設。
-const PHANTOM_KEYSTORE_ENV: &str = "PHANTOM_KEYSTORE";
+const SPECTYN_KEYSTORE_ENV: &str = "SPECTYN_KEYSTORE";
 
-/// Emit a one-shot `warn!` for an unrecognised `PHANTOM_KEYSTORE` value so a
-/// typo (e.g. `PHANTOM_KEYSTORE=fil`) is visible without spamming the log on
+/// Emit a one-shot `warn!` for an unrecognised `SPECTYN_KEYSTORE` value so a
+/// typo (e.g. `SPECTYN_KEYSTORE=fil`) is visible without spamming the log on
 /// every backend lookup. Backed by a `std::sync::Once` (the crate-wide
 /// warn-once idiom) keyed to this single message.
 fn warn_unrecognized_keystore_override(raw: &str) {
@@ -702,13 +702,13 @@ fn warn_unrecognized_keystore_override(raw: &str) {
     WARN_ONCE.call_once(|| {
         tracing::warn!(
             value = %raw,
-            "ignoring unrecognized {PHANTOM_KEYSTORE_ENV}={raw:?}; \
+            "ignoring unrecognized {SPECTYN_KEYSTORE_ENV}={raw:?}; \
              expected `file` or `auto` (unset) — falling back to the OS default keystore"
         );
     });
 }
 
-/// Resolve the explicit [`PHANTOM_KEYSTORE_ENV`] override, if any.
+/// Resolve the explicit [`SPECTYN_KEYSTORE_ENV`] override, if any.
 ///
 /// Returns `Some(FileChmod0600)` for `file` (case-insensitive, trimmed) so a
 /// user / CI can force the plaintext-file backend regardless of OS. `auto` (or
@@ -717,7 +717,7 @@ fn warn_unrecognized_keystore_override(raw: &str) {
 /// [`default_backend_for_os`] so backend selection stays unit-testable without
 /// mutating process-global env around the cfg!-driven dispatch.
 fn keystore_override_from_env() -> Option<KeystoreBackend> {
-    match std::env::var(PHANTOM_KEYSTORE_ENV) {
+    match std::env::var(SPECTYN_KEYSTORE_ENV) {
         Ok(raw) => {
             let trimmed = raw.trim();
             if trimmed.eq_ignore_ascii_case("file") {
@@ -739,8 +739,8 @@ fn keystore_override_from_env() -> Option<KeystoreBackend> {
 /// other target_os we ship to currently lands here, but the fall-through
 /// keeps the function total).
 ///
-/// **Override (LIN-KS-1)**: the [`PHANTOM_KEYSTORE_ENV`] env var takes
-/// precedence over the per-OS dispatch — `PHANTOM_KEYSTORE=file` forces
+/// **Override (LIN-KS-1)**: the [`SPECTYN_KEYSTORE_ENV`] env var takes
+/// precedence over the per-OS dispatch — `SPECTYN_KEYSTORE=file` forces
 /// [`KeystoreBackend::FileChmod0600`] on every platform (headless / CI escape
 /// hatch). See [`keystore_override_from_env`]. This is purely additive: it
 /// does NOT change the missing-D-Bus → `KeystoreUnavailable` behaviour of the
@@ -808,7 +808,7 @@ fn migrate_plaintext_master_seed_to_android(_account: &str) -> Result<Vec<u8>, K
 //
 // Schema: every record is a generic-password Keychain item keyed by
 // `(service, account)`. The service is the constant `KEYCHAIN_SERVICE`
-// (`"phantom-mesh"`); the account is the `account` string the caller passes
+// (`"spectyn-mesh"`); the account is the `account` string the caller passes
 // (e.g. `"identity-master"`). The secret payload is the raw 32-byte master
 // seed. `set_generic_password` upserts (creates or replaces in place) so a
 // re-`init` overwrites cleanly instead of erroring on a duplicate item — this
@@ -816,11 +816,11 @@ fn migrate_plaintext_master_seed_to_android(_account: &str) -> Result<Vec<u8>, K
 // login Keychain is the default item store, so the seed lands in the user's
 // login keychain instead of a plaintext file on disk.
 
-/// Generic-password service name shared by every phantom-mesh Keychain item.
+/// Generic-password service name shared by every spectyn-mesh Keychain item.
 /// The `(service, account)` pair is the item's primary key, so this constant
 /// plus the per-record `account` uniquely identify the master seed.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-const KEYCHAIN_SERVICE: &str = "phantom-mesh";
+const KEYCHAIN_SERVICE: &str = "spectyn-mesh";
 
 /// `errSecItemNotFound` (`-25300`) — the `OSStatus` the Keychain returns when a
 /// `(service, account)` item does not exist. Inlined as a named constant so we
@@ -895,7 +895,7 @@ fn keychain_delete_pseudo(_account: &str) -> Result<(), KeyDerivationError> {
 // --- Android EncryptedSharedPreferences (jni) ---
 
 #[cfg(target_os = "android")]
-const ANDROID_IDENTITY_BRIDGE_CLASS: &str = "ai/phantommesh/app/IdentityKeystore";
+const ANDROID_IDENTITY_BRIDGE_CLASS: &str = "ai/spectynmesh/app/IdentityKeystore";
 #[cfg(target_os = "android")]
 const ANDROID_IDENTITY_WRITE_METHOD: &str = "write";
 #[cfg(target_os = "android")]
@@ -1259,7 +1259,7 @@ fn dpapi_write_pseudo(account: &str, secret: &[u8]) -> Result<(), KeyDerivationE
 
     let protected = dpapi_protect(secret)?;
     let mut target_name = dpapi_target_name(account);
-    let mut user_name = dpapi_target_name("phantom-mesh");
+    let mut user_name = dpapi_target_name("spectyn-mesh");
 
     let credential = CREDENTIALW {
         Flags: CRED_FLAGS(0),
@@ -1357,7 +1357,7 @@ fn dpapi_delete_pseudo(_account: &str) -> Result<(), KeyDerivationError> {
 // returns `LinuxSecretService` when `cfg!(target_os = "linux")`.
 //
 // Schema: every item is stored in the default collection under attributes
-// `{ "application": "phantom-mesh", "account": <account> }`. The label is the
+// `{ "application": "spectyn-mesh", "account": <account> }`. The label is the
 // account string itself (shown verbatim in GNOME Seahorse / KDE Wallet UIs).
 // The secret payload is the raw 32-byte master seed; we pin
 // `content_type = "application/octet-stream"` so the keystore doesn't try to
@@ -1367,7 +1367,7 @@ fn dpapi_delete_pseudo(_account: &str) -> Result<(), KeyDerivationError> {
 #[cfg(target_os = "linux")]
 fn libsecret_attributes(account: &str) -> std::collections::HashMap<&str, &str> {
     let mut attrs = std::collections::HashMap::new();
-    attrs.insert("application", "phantom-mesh");
+    attrs.insert("application", "spectyn-mesh");
     attrs.insert("account", account);
     attrs
 }
@@ -1483,11 +1483,11 @@ fn libsecret_delete_pseudo(_account: &str) -> Result<(), KeyDerivationError> {
 // --- Desktop file fallback (std::fs + chmod 0600) — real ---
 
 /// Compute the on-disk path for a per-account key file:
-/// `<home>/.phantom-mesh/<account>.key`. The parent directory is created
+/// `<home>/.spectyn-mesh/<account>.key`. The parent directory is created
 /// (mode 0o700 on unix) if it does not exist so callers don't have to
-/// pre-create `~/.phantom-mesh/` themselves.
+/// pre-create `~/.spectyn-mesh/` themselves.
 fn file_chmod0600_path(account: &str) -> Result<std::path::PathBuf, KeyDerivationError> {
-    let dir = crate::cli_config::phantom_data_dir().map_err(|_| {
+    let dir = crate::cli_config::spectyn_data_dir().map_err(|_| {
         KeyDerivationError::Io("home_dir unavailable for FileChmod0600 backend".to_string())
     })?;
     if !dir.exists() {
@@ -1501,7 +1501,7 @@ fn file_chmod0600_path(account: &str) -> Result<std::path::PathBuf, KeyDerivatio
     Ok(dir.join(format!("{}.key", account)))
 }
 
-/// Write `secret` to `~/.phantom-mesh/<account>.key` atomically: write to a
+/// Write `secret` to `~/.spectyn-mesh/<account>.key` atomically: write to a
 /// `.tmp` sibling, fsync, rename, then chmod 0600 (no-op on Windows). The
 /// tmp-then-rename pattern is the standard atomic file write trick — a crash
 /// between steps leaves either the old file intact or the new file intact,
@@ -1529,7 +1529,7 @@ fn file_chmod0600_write_pseudo(
     Ok(())
 }
 
-/// Read `~/.phantom-mesh/<account>.key` back as raw bytes. NotFound maps to
+/// Read `~/.spectyn-mesh/<account>.key` back as raw bytes. NotFound maps to
 /// `MasterNotFound` so callers can branch into the init flow; any other I/O
 /// error surfaces as `Io`.
 fn file_chmod0600_read_pseudo(account: &str) -> Result<Vec<u8>, KeyDerivationError> {
@@ -1543,7 +1543,7 @@ fn file_chmod0600_read_pseudo(account: &str) -> Result<Vec<u8>, KeyDerivationErr
     }
 }
 
-/// Delete `~/.phantom-mesh/<account>.key`. Idempotent — NotFound is silently
+/// Delete `~/.spectyn-mesh/<account>.key`. Idempotent — NotFound is silently
 /// treated as success so a double-delete doesn't error.
 fn file_chmod0600_delete_pseudo(account: &str) -> Result<(), KeyDerivationError> {
     let path = file_chmod0600_path(account)?;
@@ -1609,26 +1609,26 @@ mod tests {
     #[test]
     fn key_purpose_info_string_is_stable() {
         // §7.2 reserved prefix invariant: all v1 purposes use
-        // `phantom-mesh.v1.<slug>`. Any change to this string is a wire-break.
+        // `spectyn-mesh.v1.<slug>`. Any change to this string is a wire-break.
         assert_eq!(
             KeyPurpose::EventEncrypt.info_string(),
-            "phantom-mesh.v1.event-encrypt"
+            "spectyn-mesh.v1.event-encrypt"
         );
         assert_eq!(
             KeyPurpose::ClusterHmac.info_string(),
-            "phantom-mesh.v1.cluster-hmac"
+            "spectyn-mesh.v1.cluster-hmac"
         );
         assert_eq!(
             KeyPurpose::BrokerJwtSign.info_string(),
-            "phantom-mesh.v1.broker-jwt-sign"
+            "spectyn-mesh.v1.broker-jwt-sign"
         );
         assert_eq!(
             KeyPurpose::SkillSyncMac.info_string(),
-            "phantom-mesh.v1.skill-sync-mac"
+            "spectyn-mesh.v1.skill-sync-mac"
         );
         assert_eq!(
             KeyPurpose::BackupWrap.info_string(),
-            "phantom-mesh.v1.backup-wrap"
+            "spectyn-mesh.v1.backup-wrap"
         );
     }
 
@@ -1747,11 +1747,11 @@ mod tests {
 
     /// File fallback round trip: write → read → delete → read-returns-NotFound.
     /// Uses a one-off account name so the test doesn't collide with any real
-    /// identity material in `~/.phantom-mesh/`.
+    /// identity material in `~/.spectyn-mesh/`.
     #[test]
     fn file_chmod0600_round_trip() {
         let account =
-            format!("phantom-test-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+            format!("spectyn-test-{}-{}", std::process::id(), uuid::Uuid::new_v4());
         let secret = b"stage3-test-secret-bytes";
 
         // Write
@@ -1777,9 +1777,9 @@ mod tests {
             .expect("delete must be idempotent on missing");
     }
 
-    // ─── PHANTOM_KEYSTORE env override (LIN-KS-1) ────────────────────────────
+    // ─── SPECTYN_KEYSTORE env override (LIN-KS-1) ────────────────────────────
     //
-    // `PHANTOM_KEYSTORE` is process-global, so these tests serialise their env
+    // `SPECTYN_KEYSTORE` is process-global, so these tests serialise their env
     // mutation through a shared mutex and ALWAYS restore the prior value before
     // returning (even on the assertion path) so they never race or leak the
     // override into sibling tests in the same binary. We test the pure
@@ -1788,10 +1788,10 @@ mod tests {
     // a headless write→read round-trip through the public keystore API.
 
     use std::sync::Mutex;
-    /// Serialises every test that mutates the process-global `PHANTOM_KEYSTORE`.
+    /// Serialises every test that mutates the process-global `SPECTYN_KEYSTORE`.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    /// RAII guard: snapshots `PHANTOM_KEYSTORE` on construction and restores it
+    /// RAII guard: snapshots `SPECTYN_KEYSTORE` on construction and restores it
     /// on drop, so an override never leaks past the test that set it — even if
     /// an assertion panics mid-test.
     struct KeystoreEnvGuard {
@@ -1799,10 +1799,10 @@ mod tests {
     }
     impl KeystoreEnvGuard {
         fn set(value: Option<&str>) -> Self {
-            let prev = std::env::var(PHANTOM_KEYSTORE_ENV).ok();
+            let prev = std::env::var(SPECTYN_KEYSTORE_ENV).ok();
             match value {
-                Some(v) => std::env::set_var(PHANTOM_KEYSTORE_ENV, v),
-                None => std::env::remove_var(PHANTOM_KEYSTORE_ENV),
+                Some(v) => std::env::set_var(SPECTYN_KEYSTORE_ENV, v),
+                None => std::env::remove_var(SPECTYN_KEYSTORE_ENV),
             }
             KeystoreEnvGuard { prev }
         }
@@ -1810,8 +1810,8 @@ mod tests {
     impl Drop for KeystoreEnvGuard {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var(PHANTOM_KEYSTORE_ENV, v),
-                None => std::env::remove_var(PHANTOM_KEYSTORE_ENV),
+                Some(v) => std::env::set_var(SPECTYN_KEYSTORE_ENV, v),
+                None => std::env::remove_var(SPECTYN_KEYSTORE_ENV),
             }
         }
     }
@@ -1825,13 +1825,13 @@ mod tests {
         assert_eq!(
             keystore_override_from_env(),
             Some(KeystoreBackend::FileChmod0600),
-            "PHANTOM_KEYSTORE=file must select FileChmod0600"
+            "SPECTYN_KEYSTORE=file must select FileChmod0600"
         );
         // And the public selection function must honour it on every platform.
         assert_eq!(
             default_backend_for_os(),
             KeystoreBackend::FileChmod0600,
-            "default_backend_for_os must honour PHANTOM_KEYSTORE=file on this OS"
+            "default_backend_for_os must honour SPECTYN_KEYSTORE=file on this OS"
         );
     }
 
@@ -1843,7 +1843,7 @@ mod tests {
             assert_eq!(
                 keystore_override_from_env(),
                 Some(KeystoreBackend::FileChmod0600),
-                "PHANTOM_KEYSTORE={v:?} must select FileChmod0600 (case/space-insensitive)"
+                "SPECTYN_KEYSTORE={v:?} must select FileChmod0600 (case/space-insensitive)"
             );
         }
     }
@@ -1879,16 +1879,16 @@ mod tests {
         assert_eq!(
             keystore_override_from_env(),
             None,
-            "unrecognized PHANTOM_KEYSTORE value must fall through to OS default"
+            "unrecognized SPECTYN_KEYSTORE value must fall through to OS default"
         );
     }
 
-    /// End-to-end headless proof: with `PHANTOM_KEYSTORE=file`, the selected
+    /// End-to-end headless proof: with `SPECTYN_KEYSTORE=file`, the selected
     /// backend is `FileChmod0600` AND a write→read round-trip through the
     /// public `write_to_keystore` / `read_from_keystore(FileChmod0600, ...)`
     /// API works with no D-Bus / OS keystore. Uses a throwaway account name
     /// (pid + uuid) so it never touches the real `identity-master` record in
-    /// `~/.phantom-mesh/`, and cleans up after itself.
+    /// `~/.spectyn-mesh/`, and cleans up after itself.
     #[test]
     fn keystore_override_file_round_trip_headless() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1901,7 +1901,7 @@ mod tests {
         // Round-trip through the PUBLIC keystore API on the selected backend —
         // no D-Bus needed, so this passes on a headless CI box.
         let account =
-            format!("phantom-test-ksenv-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+            format!("spectyn-test-ksenv-{}-{}", std::process::id(), uuid::Uuid::new_v4());
         let secret = b"lin-ks-1-env-override-roundtrip-secret";
 
         write_to_keystore(backend, &account, secret)
@@ -1944,7 +1944,7 @@ mod tests {
     #[test]
     fn keychain_round_trip_apple_only() {
         let account = format!(
-            "phantom-test-keychain-{}-{}",
+            "spectyn-test-keychain-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         );
@@ -1994,7 +1994,7 @@ mod tests {
             .expect("keychain delete must be idempotent on missing");
     }
 
-    // ─── `phantom logout` keystore clear (A3) ────────────────────────────────
+    // ─── `spectyn logout` keystore clear (A3) ────────────────────────────────
     //
     // Proves the exact mechanism `logout_clear_keystore` uses on macOS/iOS:
     // a stored identity record is removed and subsequent reads return
@@ -2007,7 +2007,7 @@ mod tests {
     #[test]
     fn logout_clears_keystore_identity_apple_only() {
         let account = format!(
-            "phantom-test-logout-{}-{}",
+            "spectyn-test-logout-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         );
@@ -2059,7 +2059,7 @@ mod tests {
     #[test]
     fn logout_clear_mechanism_file_fallback() {
         let account = format!(
-            "phantom-test-logout-file-{}-{}",
+            "spectyn-test-logout-file-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         );
@@ -2104,14 +2104,14 @@ mod tests {
     //     and would block waiting for a desktop prompt
     // Run manually on a Linux desktop with:
     //     CARGO_TARGET_DIR=target cargo test \
-    //       -p phantom_core identity_wire::tests::libsecret_round_trip \
+    //       -p spectyn_core identity_wire::tests::libsecret_round_trip \
     //       --release -- --ignored --nocapture
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore]
     fn libsecret_round_trip_linux_only() {
         let account =
-            format!("phantom-test-libsecret-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+            format!("spectyn-test-libsecret-{}-{}", std::process::id(), uuid::Uuid::new_v4());
         let secret = b"stage3-libsecret-test-secret-bytes-32b!";
 
         // Write

@@ -1,4 +1,4 @@
-# Phantom Mesh 快速上手
+# Spectyn Mesh 快速上手
 
 > 從 clone（複製倉庫）到第一次 agent（代理）執行，只需五分鐘。完整的操作者
 > 操作導覽請見 [GETTING-STARTED.md](GETTING-STARTED.md)；若要快速
@@ -9,22 +9,22 @@
 
 ```bash
 # Build from source (Rust 1.75+)
-git clone https://github.com/your-org/phantom-mesh.git
-cd phantom-mesh
-cargo install --path core --bin phantom
+git clone https://github.com/your-org/spectyn-mesh.git
+cd spectyn-mesh
+cargo install --path core --bin spectyn
 
 # Verify
-phantom --version    # → 0.1.0
-which phantom        # → ~/.cargo/bin/phantom
+spectyn --version    # → 0.1.0
+which spectyn        # → ~/.cargo/bin/spectyn
 ```
 
 ## 2. 設定
 
-在 `~/.phantom-mesh/env` 中至少設定一組供應商（provider）API 金鑰：
+在 `~/.spectyn-mesh/env` 中至少設定一組供應商（provider）API 金鑰：
 
 ```bash
-mkdir -p ~/.phantom-mesh
-cat >> ~/.phantom-mesh/env <<'EOF'
+mkdir -p ~/.spectyn-mesh
+cat >> ~/.spectyn-mesh/env <<'EOF'
 GROQ_API_KEY=gsk_...          # free tier, fast — recommended for first run
 GEMINI_API_KEY=AIza...        # optional
 ANTHROPIC_API_KEY=sk-ant-...  # optional
@@ -34,9 +34,9 @@ EOF
 或者執行 onboarding（新手導引）精靈，它會幫你寫好 `agents.toml`：
 
 ```bash
-phantom onboarding             # opens browser
+spectyn onboarding             # opens browser
 # or
-phantom                        # terminal wizard auto-runs on first launch
+spectyn                        # terminal wizard auto-runs on first launch
 ```
 
 ## 3. 首次執行 — 挑選一種介面
@@ -44,7 +44,7 @@ phantom                        # terminal wizard auto-runs on first launch
 ### 獨立 REPL（讀取-求值-輸出循環，Claude Code 風格）
 
 ```bash
-phantom
+spectyn
 > use shell to run "ls" and summarize
 ```
 
@@ -54,7 +54,7 @@ phantom
 ### 全螢幕 TUI（終端使用者介面，採用 ratatui）
 
 ```bash
-phantom tui
+spectyn tui
 ```
 
 持久的多行輸入框、可捲動的對話記錄、狀態列。
@@ -63,7 +63,7 @@ phantom tui
 ### 網頁儀表板（dashboard）
 
 ```bash
-phantom serve                  # default :7878
+spectyn serve                  # default :7878
 open http://localhost:7878
 ```
 
@@ -73,7 +73,7 @@ xterm.js 終端機面板、**Cmd+K** 命令面板（command palette）、
 ### 一次性執行（one-shot）
 
 ```bash
-phantom "find all TODO comments in core/src and group by file"
+spectyn "find all TODO comments in core/src and group by file"
 ```
 
 ### 作為 Claude Code 或 Codex CLI 的子代理（subagent）
@@ -83,7 +83,7 @@ phantom "find all TODO comments in core/src and group by file"
 ```bash
 # Claude Code: edit ~/.claude.json (see dev/CLAUDE-CODE-SETUP.md)
 # Codex CLI 0.39+:
-codex mcp add phantom $(which phantom) mcp
+codex mcp add spectyn $(which spectyn) mcp
 ```
 
 兩者都會暴露 45 個工具。
@@ -91,7 +91,7 @@ codex mcp add phantom $(which phantom) mcp
 ### 自我迭代（self-iteration）
 
 ```bash
-phantom evolve "fix the warning in core/src/cost.rs" --max-rounds 3 --agent coder
+spectyn evolve "fix the warning in core/src/cost.rs" --max-rounds 3 --agent coder
 ```
 
 讀取檔案、編輯程式碼、重試直到完成。worked example（完整範例）
@@ -105,7 +105,7 @@ phantom evolve "fix the warning in core/src/cost.rs" --max-rounds 3 --agent code
 | `/agents`, `/agent <name>` | 列出 / 切換目前作用中的 agent |
 | `/tools` | 可用工具的分類清單 |
 | `/sessions`, `/resume <prefix>` | session（工作階段）管理 |
-| `/todo` | 傾印 `~/.phantom-mesh/todos.json` |
+| `/todo` | 傾印 `~/.spectyn-mesh/todos.json` |
 | `/plan` | 切換 plan-mode（計畫模式）閘控（在你說 `go` 之前拒絕工具） |
 | `/show`, `/show <n>` | 列出 / 展開已擷取的工具呼叫 |
 | `/density compact\|full` | 工具結果預覽長度 |
@@ -116,10 +116,10 @@ phantom evolve "fix the warning in core/src/cost.rs" --max-rounds 3 --agent code
 ## 5. 常用設定
 
 ```bash
-PHANTOM_PERM=ask phantom         # launch with permission-prompt mode on
-PHANTOM_DENSITY=compact phantom  # compact tool results
-PHANTOM_MD=0 phantom             # disable markdown highlight
-NO_COLOR=1 phantom               # disable all ANSI colors
+SPECTYN_PERM=ask spectyn         # launch with permission-prompt mode on
+SPECTYN_DENSITY=compact spectyn  # compact tool results
+SPECTYN_MD=0 spectyn             # disable markdown highlight
+NO_COLOR=1 spectyn               # disable all ANSI colors
 ```
 
 ## 6. 叢集（Cluster）
@@ -132,7 +132,7 @@ peers = ["http://100.x.x.2:7878", "http://100.x.x.3:7878"]
 cluster_secret = "openssl rand -hex 32"
 ```
 
-`phantom coordinator` 會透過 mDNS（多播網域名稱服務）進行零設定的節點探索。
+`spectyn coordinator` 會透過 mDNS（多播網域名稱服務）進行零設定的節點探索。
 
 完整的 mesh（網狀網路）故事請見主要的 [README.md](../README.md)，
 多節點啟用（multi-node bring-up）的操作導覽請見

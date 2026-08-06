@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install phantom-mesh git hooks into .git/hooks/ (symlink so updates auto-apply).
+# Install spectyn-mesh git hooks into .git/hooks/ (symlink so updates auto-apply).
 # Run once per clone: bash scripts/hooks/install.sh
 set -uo pipefail
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }

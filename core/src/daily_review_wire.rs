@@ -5,7 +5,7 @@
 // understanding, serving the Life Track.
 //
 // Read-only + offline by construction: it reuses the SAME backend
-// (`life_node::daily_review`) that `phantom coach review` uses —
+// (`life_node::daily_review`) that `spectyn coach review` uses —
 // `load_events_for_date` + `aggregate` — and deliberately does NOT run the
 // network "tomorrow's action" pass (that stays on the CLI / a future opt-in).
 // Never errors hard: missing events dir → empty; missing identity.key →
@@ -39,7 +39,7 @@ pub struct DailyReviewView {
     pub flagged: bool,
 }
 
-/// Build the daily-review view for `date_iso` from `<base>/.phantom-mesh`.
+/// Build the daily-review view for `date_iso` from `<base>/.spectyn-mesh`.
 /// `base` is the home directory, injected so tests can point at a tempdir.
 ///
 /// State resolution mirrors the TUI `/review` pane (fixed by node-a in 7321bbbd):
@@ -49,9 +49,9 @@ pub struct DailyReviewView {
 /// are no readable events AND a genuinely age-encrypted event exists that we
 /// have no key for — otherwise it's just empty.
 pub fn load_daily_review(base: &Path, date_iso: &str) -> DailyReviewView {
-    let phantom = crate::cli_config::phantom_dir_under(base);
-    let events_dir = phantom.join("events");
-    let identity_path = phantom.join("identity.key");
+    let spectyn = crate::cli_config::spectyn_dir_under(base);
+    let events_dir = spectyn.join("events");
+    let identity_path = spectyn.join("identity.key");
 
     let key = load_event_key(&identity_path).ok();
     let has_key = key.is_some();
@@ -117,7 +117,7 @@ mod tests {
     fn no_key_with_encrypted_event_is_locked() {
         let tmp = tempfile::tempdir().unwrap();
         // An age-encrypted event on disk + no key → genuinely Locked.
-        let ev = tmp.path().join(".phantom-mesh").join("events").join("evt-enc");
+        let ev = tmp.path().join(".spectyn-mesh").join("events").join("evt-enc");
         std::fs::create_dir_all(&ev).unwrap();
         std::fs::write(ev.join("meta.json"), b"age-encryption.org/v1\n<ciphertext>").unwrap();
         let v = load_daily_review(tmp.path(), "2026-05-28");
@@ -129,7 +129,7 @@ mod tests {
     fn no_key_with_plaintext_event_is_not_locked() {
         let tmp = tempfile::tempdir().unwrap();
         // A plaintext meta.json (no age magic) → must NOT falsely lock.
-        let ev = tmp.path().join(".phantom-mesh").join("events").join("evt-plain");
+        let ev = tmp.path().join(".spectyn-mesh").join("events").join("evt-plain");
         std::fs::create_dir_all(&ev).unwrap();
         std::fs::write(ev.join("meta.json"), b"{\"event_id\":\"x\"}").unwrap();
         let v = load_daily_review(tmp.path(), "2026-05-28");

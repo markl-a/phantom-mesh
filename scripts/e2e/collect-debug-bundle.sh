@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # collect-debug-bundle.sh — G-DBG-4: tar up everything needed to debug a failed
-# E2E run: the run log, screenshots, the isolated ~/.phantom-mesh tree, a sqlite
-# dump, and a KEY-MASKED agents.toml. Output: /tmp/phantom-debug-<ts>.tar.gz.
+# E2E run: the run log, screenshots, the isolated ~/.spectyn-mesh tree, a sqlite
+# dump, and a KEY-MASKED agents.toml. Output: /tmp/spectyn-debug-<ts>.tar.gz.
 #
 # Usage: collect-debug-bundle.sh <run_home> <log_file> [shots_dir]
 set -uo pipefail
@@ -9,8 +9,8 @@ RUN_HOME="${1:?run_home required}"
 LOG="${2:-}"
 SHOTS="${3:-}"
 TS="$(date +%Y%m%d-%H%M%S)"
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/phantom-debug-stage-$TS.XXXXXX")"
-OUT="${TMPDIR:-/tmp}/phantom-debug-$TS.tar.gz"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/spectyn-debug-stage-$TS.XXXXXX")"
+OUT="${TMPDIR:-/tmp}/spectyn-debug-$TS.tar.gz"
 
 mkdir -p "$STAGE/bundle"
 
@@ -20,11 +20,11 @@ mkdir -p "$STAGE/bundle"
 # 2. screenshots
 [ -n "$SHOTS" ] && [ -d "$SHOTS" ] && cp -R "$SHOTS" "$STAGE/bundle/screenshots" 2>/dev/null || true
 
-# 3. the ~/.phantom-mesh tree (structure + small non-secret files), but NEVER
+# 3. the ~/.spectyn-mesh tree (structure + small non-secret files), but NEVER
 #    identity.key (the root secret) — copy a listing + safe files only.
-pm="$RUN_HOME/.phantom-mesh"
+pm="$RUN_HOME/.spectyn-mesh"
 if [ -d "$pm" ]; then
-  ( cd "$pm" && find . -type f | sort ) > "$STAGE/bundle/phantom-mesh.filelist.txt" 2>/dev/null || true
+  ( cd "$pm" && find . -type f | sort ) > "$STAGE/bundle/spectyn-mesh.filelist.txt" 2>/dev/null || true
   # sqlite dumps (schema + row counts; not full PII rows)
   for db in "$pm"/*.sqlite; do
     [ -f "$db" ] || continue
@@ -43,8 +43,8 @@ if [ -d "$pm" ]; then
   fi
 fi
 
-# 4. env snapshot (phantom-relevant, masked)
-env | grep -iE '^PHANTOM_|_API_KEY=' | sed -E 's/(_API_KEY=).*/\1***MASKED***/' \
+# 4. env snapshot (spectyn-relevant, masked)
+env | grep -iE '^SPECTYN_|_API_KEY=' | sed -E 's/(_API_KEY=).*/\1***MASKED***/' \
   > "$STAGE/bundle/env.masked.txt" 2>/dev/null || true
 
 ( cd "$STAGE" && tar czf "$OUT" bundle ) 2>/dev/null

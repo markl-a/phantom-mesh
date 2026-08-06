@@ -21,16 +21,16 @@ interface SecurityPageState {
 }
 
 const RISK_CONFIG: Record<RiskLevel, { label: string; color: string }> = {
-  low: { label: "Low", color: "bg-phantom-success/20 text-phantom-success" },
-  medium: { label: "Medium", color: "bg-phantom-warning/20 text-phantom-warning" },
+  low: { label: "Low", color: "bg-spectyn-success/20 text-spectyn-success" },
+  medium: { label: "Medium", color: "bg-spectyn-warning/20 text-spectyn-warning" },
   high: { label: "High", color: "bg-orange-500/20 text-orange-400" },
-  critical: { label: "Critical", color: "bg-phantom-danger/20 text-phantom-danger" },
+  critical: { label: "Critical", color: "bg-spectyn-danger/20 text-spectyn-danger" },
 };
 
 const RESULT_STYLE: Record<string, string> = {
-  "允許": "text-phantom-success",
-  "阻擋": "text-phantom-danger",
-  "審核中": "text-phantom-warning",
+  "允許": "text-spectyn-success",
+  "阻擋": "text-spectyn-danger",
+  "審核中": "text-spectyn-warning",
 };
 
 function isValidRiskLevel(value: string): value is RiskLevel {
@@ -146,7 +146,7 @@ export default function SecurityPanel() {
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">安全與審計</h1>
           {state.isOffline && (
-            <span className="text-xs px-2 py-0.5 rounded bg-phantom-warning/20 text-phantom-warning">
+            <span className="text-xs px-2 py-0.5 rounded bg-spectyn-warning/20 text-spectyn-warning">
               (離線模式)
             </span>
           )}
@@ -154,7 +154,7 @@ export default function SecurityPanel() {
         {!state.loading && (
           <button
             onClick={() => fetchEvents(riskFilter)}
-            className="text-xs text-phantom-muted hover:text-phantom-text border border-phantom-border rounded px-2 py-1"
+            className="text-xs text-spectyn-muted hover:text-spectyn-text border border-spectyn-border rounded px-2 py-1"
           >
             重新整理
           </button>
@@ -167,15 +167,15 @@ export default function SecurityPanel() {
       {state.isOffline && (
         <div
           data-testid="audit-offline-banner"
-          className="mb-4 bg-phantom-danger/10 border border-phantom-danger/30 rounded-lg px-4 py-3 flex items-center justify-between"
+          className="mb-4 bg-spectyn-danger/10 border border-spectyn-danger/30 rounded-lg px-4 py-3 flex items-center justify-between"
         >
-          <span className="text-sm text-phantom-danger">
+          <span className="text-sm text-spectyn-danger">
             無法取得審計日誌（離線）— 目前無審計資料可顯示
             {state.error ? `: ${state.error}` : ""}
           </span>
           <button
             onClick={() => fetchEvents(riskFilter)}
-            className="text-xs text-phantom-danger border border-phantom-danger/30 rounded px-2 py-1 hover:bg-phantom-danger/10"
+            className="text-xs text-spectyn-danger border border-spectyn-danger/30 rounded px-2 py-1 hover:bg-spectyn-danger/10"
           >
             重試
           </button>
@@ -185,7 +185,7 @@ export default function SecurityPanel() {
       {/* Loading State */}
       {state.loading && (
         <div className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-3 text-phantom-muted">
+          <div className="flex items-center gap-3 text-spectyn-muted">
             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -199,27 +199,27 @@ export default function SecurityPanel() {
         <>
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">今日事件</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">今日事件</p>
               <p className="text-2xl font-bold mt-1">{stats.totalToday}</p>
             </div>
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">已阻擋</p>
-              <p className="text-2xl font-bold mt-1 text-phantom-danger">{stats.blocked}</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">已阻擋</p>
+              <p className="text-2xl font-bold mt-1 text-spectyn-danger">{stats.blocked}</p>
             </div>
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">高風險動作</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">高風險動作</p>
               <p className="text-2xl font-bold mt-1 text-orange-400">{stats.highRisk}</p>
             </div>
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">審核中</p>
-              <p className="text-2xl font-bold mt-1 text-phantom-warning">{stats.reviewing}</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">審核中</p>
+              <p className="text-2xl font-bold mt-1 text-spectyn-warning">{stats.reviewing}</p>
             </div>
           </div>
 
           {/* Filter */}
           <div className="flex items-center gap-2 mb-4">
-            <span className="text-sm text-phantom-muted">篩選風險等級:</span>
+            <span className="text-sm text-spectyn-muted">篩選風險等級:</span>
             {(["all", "low", "medium", "high", "critical"] as const).map((level) => (
               <button
                 key={level}
@@ -227,9 +227,9 @@ export default function SecurityPanel() {
                 className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                   riskFilter === level
                     ? level === "all"
-                      ? "bg-phantom-primary text-phantom-bg"
+                      ? "bg-spectyn-primary text-spectyn-bg"
                       : RISK_CONFIG[level].color
-                    : "bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text"
+                    : "bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
                 }`}
               >
                 {level === "all" ? "全部" : RISK_CONFIG[level].label}
@@ -238,33 +238,33 @@ export default function SecurityPanel() {
           </div>
 
           {/* Audit Log Table */}
-          <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-phantom-border">
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">時間</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">Agent</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">動作</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">工具</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">風險等級</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">結果</th>
+                <tr className="border-b border-spectyn-border">
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">時間</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">Agent</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">動作</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">工具</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">風險等級</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">結果</th>
                 </tr>
               </thead>
               <tbody>
                 {displayedEvents.map((event, i) => (
                   <tr
                     key={event.id}
-                    className={`border-b border-phantom-border last:border-0 ${
-                      i % 2 === 1 ? "bg-phantom-bg/50" : ""
+                    className={`border-b border-spectyn-border last:border-0 ${
+                      i % 2 === 1 ? "bg-spectyn-bg/50" : ""
                     }`}
                   >
-                    <td className="px-4 py-3 text-phantom-muted font-mono text-xs">
+                    <td className="px-4 py-3 text-spectyn-muted font-mono text-xs">
                       {event.timestamp}
                     </td>
                     <td className="px-4 py-3">{event.agent}</td>
                     <td className="px-4 py-3">{event.action}</td>
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-phantom-bg px-1.5 py-0.5 rounded border border-phantom-border">
+                      <span className="font-mono text-xs bg-spectyn-bg px-1.5 py-0.5 rounded border border-spectyn-border">
                         {event.tool}
                       </span>
                     </td>
@@ -286,7 +286,7 @@ export default function SecurityPanel() {
                 ))}
                 {displayedEvents.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-phantom-muted">
+                    <td colSpan={6} className="px-4 py-8 text-center text-spectyn-muted">
                       {state.isOffline
                         ? "離線中 — 無審計資料可顯示"
                         : "沒有符合條件的審計事件"}
@@ -298,18 +298,18 @@ export default function SecurityPanel() {
           </div>
 
           {/* Security Policy Info */}
-          <div className="mt-6 bg-phantom-card border border-phantom-border rounded-lg p-4">
+          <div className="mt-6 bg-spectyn-card border border-spectyn-border rounded-lg p-4">
             <h3 className="text-sm font-medium mb-2">安全策略</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-phantom-muted leading-relaxed">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-spectyn-muted leading-relaxed">
               <div>
-                <p className="font-medium text-phantom-text mb-1">工具權限</p>
+                <p className="font-medium text-spectyn-text mb-1">工具權限</p>
                 <p>
                   每個 Agent 僅能存取已授權的工具。High/Critical 風險動作需經 Master Agent 核准，
                   或由使用者透過 Telegram 即時確認。
                 </p>
               </div>
               <div>
-                <p className="font-medium text-phantom-text mb-1">自動阻擋規則</p>
+                <p className="font-medium text-spectyn-text mb-1">自動阻擋規則</p>
                 <p>
                   外部上傳、系統檔案刪除、認證資訊洩露等行為自動阻擋。
                   所有 Agent 動作均記錄於不可竄改的審計日誌中。

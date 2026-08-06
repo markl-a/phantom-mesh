@@ -1,10 +1,10 @@
-//! End-to-end smoke for `phantom event capture` → `phantom serve` →
+//! End-to-end smoke for `spectyn event capture` → `spectyn serve` →
 //! real Gemini → analysis back. Skips if `GEMINI_API_KEY` is unset, so
 //! CI without keys still passes; dev boxes with the key catch real
 //! contract drift.
 //!
-//! **Build pre-req:** `cargo build --release --bin phantom` (see
-//! `PHANTOM_TEST_BIN` env var to override the binary path). The test
+//! **Build pre-req:** `cargo build --release --bin spectyn` (see
+//! `SPECTYN_TEST_BIN` env var to override the binary path). The test
 //! SKIPs gracefully if the binary isn't found — `cargo test --test ...`
 //! does NOT build the BIN target.
 
@@ -58,18 +58,18 @@ const TINY_RED_PIXEL_JPEG: &[u8] = &[
     0x28, 0xa2, 0x8a, 0xf9, 0xa3, 0xf6, 0xd3, 0xff, 0xd9,
 ];
 
-/// Resolve the path to the prebuilt `phantom` binary. Override with
-/// `PHANTOM_TEST_BIN`; otherwise falls back to the conventional E002
-/// dev path (`D:/tmp/win-target-e002/release/phantom.exe` on Windows,
-/// `<repo>/target/release/phantom` elsewhere — adjust as needed).
-fn phantom_bin_path() -> String {
-    if let Ok(p) = std::env::var("PHANTOM_TEST_BIN") {
+/// Resolve the path to the prebuilt `spectyn` binary. Override with
+/// `SPECTYN_TEST_BIN`; otherwise falls back to the conventional E002
+/// dev path (`D:/tmp/win-target-e002/release/spectyn.exe` on Windows,
+/// `<repo>/target/release/spectyn` elsewhere — adjust as needed).
+fn spectyn_bin_path() -> String {
+    if let Ok(p) = std::env::var("SPECTYN_TEST_BIN") {
         return p;
     }
     if cfg!(windows) {
-        "D:/tmp/win-target-e002/release/phantom.exe".into()
+        "D:/tmp/win-target-e002/release/spectyn.exe".into()
     } else {
-        "target/release/phantom".into()
+        "target/release/spectyn".into()
     }
 }
 
@@ -80,11 +80,11 @@ async fn capture_round_trip_image_only() {
         eprintln!("SKIPPED: capture_round_trip_image_only — GEMINI_API_KEY unset");
         return;
     }
-    let bin = phantom_bin_path();
+    let bin = spectyn_bin_path();
     if !std::path::Path::new(&bin).exists() {
         eprintln!(
-            "SKIPPED: capture_round_trip_image_only — phantom binary not at {} \
-             (run `cargo build --release --bin phantom` first, or set PHANTOM_TEST_BIN)",
+            "SKIPPED: capture_round_trip_image_only — spectyn binary not at {} \
+             (run `cargo build --release --bin spectyn` first, or set SPECTYN_TEST_BIN)",
             bin
         );
         return;
@@ -92,7 +92,7 @@ async fn capture_round_trip_image_only() {
 
     // ── Reserve a free loopback port ──────────────────────────────────────
     // Bind 127.0.0.1:0 to let the OS pick, then drop the listener so the
-    // spawned `phantom serve` can claim the same port. Tiny TOCTOU window;
+    // spawned `spectyn serve` can claim the same port. Tiny TOCTOU window;
     // not a real concern on a local dev box.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -100,13 +100,13 @@ async fn capture_round_trip_image_only() {
     let port = listener.local_addr().unwrap().port();
     drop(listener);
 
-    // ── Spawn `phantom serve` in the background ───────────────────────────
+    // ── Spawn `spectyn serve` in the background ───────────────────────────
     let mut child = std::process::Command::new(&bin)
         .args(["serve", "--host", "127.0.0.1", "--port", &port.to_string()])
-        .env("PHANTOM_NODE_NAME", "e2e-test")
+        .env("SPECTYN_NODE_NAME", "e2e-test")
         .env("GEMINI_API_KEY", std::env::var("GEMINI_API_KEY").unwrap())
         .spawn()
-        .expect("spawn phantom serve");
+        .expect("spawn spectyn serve");
 
     // ── Wait for /healthz (up to ~6s) ─────────────────────────────────────
     let client = reqwest::Client::new();
@@ -126,7 +126,7 @@ async fn capture_round_trip_image_only() {
     }
     if !ready {
         let _ = child.kill();
-        panic!("phantom serve never became healthy on :{}", port);
+        panic!("spectyn serve never became healthy on :{}", port);
     }
 
     // ── Write the test image to a tempdir ─────────────────────────────────
@@ -134,7 +134,7 @@ async fn capture_round_trip_image_only() {
     let img_path = tmp.path().join("pixel.jpg");
     std::fs::write(&img_path, TINY_RED_PIXEL_JPEG).expect("write tmp jpeg");
 
-    // ── Run `phantom event capture` ───────────────────────────────────────
+    // ── Run `spectyn event capture` ───────────────────────────────────────
     let out = std::process::Command::new(&bin)
         .args([
             "event",
@@ -150,7 +150,7 @@ async fn capture_round_trip_image_only() {
         ])
         .env("GEMINI_API_KEY", std::env::var("GEMINI_API_KEY").unwrap())
         .output()
-        .expect("run phantom event capture");
+        .expect("run spectyn event capture");
 
     // ── Tear down the daemon BEFORE assertions ────────────────────────────
     // If an assertion below fails we don't want to leak a serve process.
@@ -160,7 +160,7 @@ async fn capture_round_trip_image_only() {
     // ── Assert on the CLI's stdout ────────────────────────────────────────
     assert!(
         out.status.success(),
-        "phantom event capture failed: status={:?}\nstderr=\n{}",
+        "spectyn event capture failed: status={:?}\nstderr=\n{}",
         out.status.code(),
         String::from_utf8_lossy(&out.stderr)
     );

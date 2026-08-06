@@ -4,11 +4,11 @@
 
 use std::cell::Cell;
 
-use phantom_mesh::clock::MockClock;
-use phantom_mesh::providers::circuit_breaker::{
+use spectyn_mesh::clock::MockClock;
+use spectyn_mesh::providers::circuit_breaker::{
     classify_failure, BreakerConfig, BreakerState, CircuitBreaker, FailureKind,
 };
-use phantom_mesh::providers::traits::ProviderError;
+use spectyn_mesh::providers::traits::ProviderError;
 
 /// A provider-class fixture: fails `fail_k` times (with `err`), then succeeds.
 struct FlakyProvider {

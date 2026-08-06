@@ -1,6 +1,6 @@
-# Phantom Mesh — agent-behavior evals (promptfoo)
+# Spectyn Mesh — agent-behavior evals (promptfoo)
 
-LLM/agent-behavior evaluation for the parts of phantom-mesh that unit tests
+LLM/agent-behavior evaluation for the parts of spectyn-mesh that unit tests
 can't judge — does the Coach give **one concrete, shame-free next action**?
 Uses [promptfoo](https://github.com/promptfoo/promptfoo) (MIT, runs locally).
 
@@ -41,8 +41,8 @@ Or via the npm scripts here: `npm run eval` / `npm run eval:offline` / `npm run 
   setup; the **offline** config runs anywhere and proves the harness + asserts.
 - The coach prompt in `promptfooconfig.yaml` mirrors
   `core/src/life_node/coach_prompts/templates.rs` — keep them in sync. A future
-  improvement is an `exec` provider that drives `phantom coach review` directly
-  (needs `phantom serve` + an LLM key) so the eval exercises the real pipeline,
+  improvement is an `exec` provider that drives `spectyn coach review` directly
+  (needs `spectyn serve` + an LLM key) so the eval exercises the real pipeline,
   not just the prompt.
 - Files: `promptfooconfig.yaml` (live), `promptfooconfig.offline.yaml` (CI/offline),
   `providers/coach-mock.js` (offline mock provider).

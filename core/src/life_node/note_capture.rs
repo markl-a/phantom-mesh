@@ -1,12 +1,12 @@
 //! Synchronous free-text note capture into the Life Node event store.
 //!
-//! Unlike `phantom event capture` / `phantom food` (which POST to the local
-//! `phantom serve` daemon for multimodal analysis), a plain text note needs no
+//! Unlike `spectyn event capture` / `spectyn food` (which POST to the local
+//! `spectyn serve` daemon for multimodal analysis), a plain text note needs no
 //! image/audio and no LLM round-trip. So this writes **directly** to the same
-//! `~/.phantom-mesh/events` store the `/review` pane reads — the path focus
+//! `~/.spectyn-mesh/events` store the `/review` pane reads — the path focus
 //! events already use. No daemon dependency; instant; offline-friendly.
 //!
-//! P4: honors `<phantom_dir>/identity.key` via `event_key_for_write` — when a
+//! P4: honors `<spectyn_dir>/identity.key` via `event_key_for_write` — when a
 //! usable key is present the event is age-encrypted at rest (SPEC-13); when no
 //! key exists the note is written plaintext (the intended pre-encryption state,
 //! which `/identity` + `doctor` already surface). A PRESENT-but-corrupt key is
@@ -28,28 +28,28 @@ pub struct NoteCaptured {
     pub encrypted: bool,
 }
 
-/// Source-node label, from `$PHANTOM_NODE` / `$HOSTNAME`, else `"local"`.
+/// Source-node label, from `$SPECTYN_NODE` / `$HOSTNAME`, else `"local"`.
 /// Mirrors the focus-session capture path.
 fn source_node() -> String {
-    std::env::var("PHANTOM_NODE")
+    std::env::var("SPECTYN_NODE")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "local".to_string())
 }
 
 /// Capture `text` as a `kind="note"` Life Node event under
-/// `<phantom_dir>/events`. `phantom_dir` is the `.phantom-mesh` directory
-/// (so the real call passes `~/.phantom-mesh`). Returns the new event id +
+/// `<spectyn_dir>/events`. `spectyn_dir` is the `.spectyn-mesh` directory
+/// (so the real call passes `~/.spectyn-mesh`). Returns the new event id +
 /// encryption state.
 pub fn capture_note(
-    phantom_dir: &Path,
+    spectyn_dir: &Path,
     text: &str,
     tags: &[String],
 ) -> std::io::Result<NoteCaptured> {
-    let events_dir = phantom_dir.join("events");
+    let events_dir = spectyn_dir.join("events");
     // D24: distinguish "no identity.key" (plaintext is the intended
     // pre-encryption state) from "key present but corrupt" — the latter must
     // NOT silently downgrade a private note to plaintext on disk.
-    let key = event_key_for_write(&phantom_dir.join("identity.key")).map_err(|e| {
+    let key = event_key_for_write(&spectyn_dir.join("identity.key")).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("identity.key present but unloadable — refusing to write a plaintext note: {e}"),
@@ -91,15 +91,15 @@ mod tests {
     #[test]
     fn capture_note_writes_plaintext_event_when_no_key() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
 
-        let out = capture_note(&phantom, "call the dentist", &["note".to_string()]).unwrap();
+        let out = capture_note(&spectyn, "call the dentist", &["note".to_string()]).unwrap();
         assert!(!out.event_id.is_empty(), "event id returned");
         assert!(!out.encrypted, "no identity.key → plaintext");
 
         // The event dir + meta.json must exist with kind=note.
-        let meta_path = phantom
+        let meta_path = spectyn
             .join("events")
             .join(&out.event_id)
             .join("meta.json");
@@ -111,16 +111,16 @@ mod tests {
     #[test]
     fn capture_note_round_trips_via_daily_review() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
 
-        capture_note(&phantom, "shipped the note feature", &["note".to_string()]).unwrap();
+        capture_note(&spectyn, "shipped the note feature", &["note".to_string()]).unwrap();
 
         // Today's events (plaintext, no key) load back through the same path
         // the /review pane uses.
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
         let pairs = crate::life_node::daily_review::load_events_for_date(
-            &phantom.join("events"),
+            &spectyn.join("events"),
             &today,
             None,
         )

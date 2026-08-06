@@ -27,13 +27,13 @@ selftest_requires() {
 }
 
 selftest_run() {
-  local sess="phantom-fuzz-$$"
+  local sess="spectyn-fuzz-$$"
   local pane_log="$SELFTEST_ARTIFACTS/fuzz-pane.txt"
   local keys_log="$SELFTEST_ARTIFACTS/fuzz-keys-sent.log"
   T_ARTIFACT="$pane_log"
 
   tmux kill-session -t "$sess" 2>/dev/null || true
-  tmux new-session -d -s "$sess" -x 120 -y 40 "$PHANTOM" 2>/dev/null
+  tmux new-session -d -s "$sess" -x 120 -y 40 "$SPECTYN" 2>/dev/null
   sleep 2
 
   # Seed bash $RANDOM deterministically so fuzz failures replay.
@@ -69,13 +69,13 @@ selftest_run() {
   # see what the TUI looked like at the end of the fuzz).
   tmux capture-pane -t "$sess" -p > "$pane_log" 2>/dev/null || true
 
-  # Is the tmux session still alive? If phantom panicked, the session
+  # Is the tmux session still alive? If spectyn panicked, the session
   # would have ended (tmux kills the session when the only command
   # exits).
   T_REPRO="see $keys_log; replay with: while IFS= read -r k; do tmux send-keys -t fuzz-debug \"\$k\"; done < $keys_log"
 
   if tmux has-session -t "$sess" 2>/dev/null; then
-    # Session alive — does it still LOOK like the TUI? A crashed phantom
+    # Session alive — does it still LOOK like the TUI? A crashed spectyn
     # might leave the session up but show a stack trace instead. Look
     # for ratatui's box-drawing chars or the typing-prompt indicator
     # which the TUI always renders.
@@ -88,7 +88,7 @@ selftest_run() {
     fi
 
     # Bonus: is there a panic / abort signature in the captured pane?
-    # phantom prints panics to stderr but sometimes they leak through.
+    # spectyn prints panics to stderr but sometimes they leak through.
     if grep -qiE "panicked at|RUST_BACKTRACE|core dumped|assertion failed" "$pane_log"; then
       t_fail "no panic signature in pane" "panic text visible — see artifact"
     else
@@ -96,7 +96,7 @@ selftest_run() {
     fi
   else
     t_fail "tmux session alive after 120 random keys" \
-            "session died — phantom likely panicked. see $keys_log to replay"
+            "session died — spectyn likely panicked. see $keys_log to replay"
   fi
 
   # Cleanup (tmux session may already be dead).

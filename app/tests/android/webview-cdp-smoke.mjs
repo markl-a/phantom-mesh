@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// WebView CDP smoke for the phantom-mesh Tauri Android app.
+// WebView CDP smoke for the spectyn-mesh Tauri Android app.
 //
 // WHY: the app is a Tauri WebView, so `uiautomator dump` shows NO DOM text
 // (the WebView is opaque) and `adb shell input tap x,y` is flaky. The reliable
 // way to drive/verify the real UI is the Chrome DevTools Protocol (CDP), which
 // debug builds expose as an abstract unix socket `@webview_devtools_remote_<pid>`.
 // This complements scripts/smoke-android-emulator.sh: that one proves the NATIVE
-// side (process alive, MeshNodeService foreground, phantom:// deep-link); this
+// side (process alive, MeshNodeService foreground, spectyn:// deep-link); this
 // one proves the WEBVIEW side (DOM reachable, not a blank/white screen, and —
 // when --expr is given — that a real DOM path runs through safeInvoke→native).
 //
@@ -15,7 +15,7 @@
 //
 // Usage:
 //   node app/tests/android/webview-cdp-smoke.mjs
-//   node app/tests/android/webview-cdp-smoke.mjs --pkg ai.phantommesh.app --port 9222
+//   node app/tests/android/webview-cdp-smoke.mjs --pkg ai.spectynmesh.app --port 9222
 //   node app/tests/android/webview-cdp-smoke.mjs --expr "document.title"
 //   node app/tests/android/webview-cdp-smoke.mjs --testid mesh-status   # assert a [data-testid] exists
 //
@@ -30,7 +30,7 @@ const arg = (name, def) => {
   const i = argv.indexOf(name);
   return i >= 0 && i + 1 < argv.length ? argv[i + 1] : def;
 };
-const PKG = arg("--pkg", "ai.phantommesh.app");
+const PKG = arg("--pkg", "ai.spectynmesh.app");
 const PORT = arg("--port", "9222");
 const EXPR = arg("--expr", null); // arbitrary probe; must be truthy to pass
 const TESTID = arg("--testid", null); // assert document.querySelector([data-testid=..]) exists

@@ -23,7 +23,7 @@ tags:
   - docs
   - git
 created_at: "2026-05-15T00:00:00Z"
-author: phantom-mesh weekend push T32
+author: spectyn-mesh weekend push T32
 ---
 
 # generate-changelog
@@ -46,8 +46,8 @@ merge（合併）泡泡排除在變更紀錄之外——它們幾乎不帶有用
 
 ```bash
 git log --no-merges --pretty=format:'%h %s' "${FROM_REF:-HEAD~50}..${TO_REF:-HEAD}" \
-  > /tmp/phantom-skill-changelog-raw.txt
-wc -l /tmp/phantom-skill-changelog-raw.txt
+  > /tmp/spectyn-skill-changelog-raw.txt
+wc -l /tmp/spectyn-skill-changelog-raw.txt
 ```
 
 原始清單現在已存在磁碟上。後續每個步驟都能讀取它，而不必
@@ -59,16 +59,16 @@ wc -l /tmp/phantom-skill-changelog-raw.txt
 ```bash
 {
   echo "## Features"
-  grep -E "^\S+ feat(\(|:)" /tmp/phantom-skill-changelog-raw.txt || echo "_(none)_"
+  grep -E "^\S+ feat(\(|:)" /tmp/spectyn-skill-changelog-raw.txt || echo "_(none)_"
   echo
   echo "## Fixes"
-  grep -E "^\S+ fix(\(|:)" /tmp/phantom-skill-changelog-raw.txt || echo "_(none)_"
+  grep -E "^\S+ fix(\(|:)" /tmp/spectyn-skill-changelog-raw.txt || echo "_(none)_"
   echo
   echo "## Docs"
-  grep -E "^\S+ docs(\(|:)" /tmp/phantom-skill-changelog-raw.txt || echo "_(none)_"
+  grep -E "^\S+ docs(\(|:)" /tmp/spectyn-skill-changelog-raw.txt || echo "_(none)_"
   echo
   echo "## Other"
-  grep -Ev "^\S+ (feat|fix|docs)(\(|:)" /tmp/phantom-skill-changelog-raw.txt || echo "_(none)_"
+  grep -Ev "^\S+ (feat|fix|docs)(\(|:)" /tmp/spectyn-skill-changelog-raw.txt || echo "_(none)_"
 } > "${OUTPUT_PATH:-CHANGELOG.draft.md}"
 ```
 

@@ -1,12 +1,12 @@
-# Phantom Mesh - Windows MSI / NSIS installer build (Tauri bundle)
+# Spectyn Mesh - Windows MSI / NSIS installer build (Tauri bundle)
 #
 # Wraps `tauri build --bundles <fmt>` with the node-a Windows gotchas:
 #
-#   1. Stops any running phantom.exe / app exe first - Windows refuses to
+#   1. Stops any running spectyn.exe / app exe first - Windows refuses to
 #      overwrite a binary held open by Defender real-time scan or an active
 #      process during the link / bundle step.
 #   2. Sets CARGO_TARGET_DIR outside the worktree (default
-#      D:\tmp\phantom-windows-target) so Defender's real-time scan does not
+#      D:\tmp\spectyn-windows-target) so Defender's real-time scan does not
 #      lock newly-emitted build-script-build.exe files mid-build
 #      (surfaces as os error 5 / access denied otherwise).
 #   3. Runs `npm install` only if node_modules is missing (idempotent).
@@ -30,7 +30,7 @@ param(
 
     [switch]$Sign,
     [switch]$SkipNpmInstall,
-    [string]$TargetDir = 'D:\tmp\phantom-windows-target'
+    [string]$TargetDir = 'D:\tmp\spectyn-windows-target'
 )
 
 # NOT 'Stop'. Windows PowerShell 5.1 wraps every native-command stderr line
@@ -48,7 +48,7 @@ if (-not (Test-Path (Join-Path $TauriDir 'tauri.conf.json'))) {
     throw "Cannot find app/src-tauri/tauri.conf.json at $TauriDir - is the script in <repo>/scripts/?"
 }
 
-Write-Host "=== Phantom Mesh Windows installer build ===" -ForegroundColor Cyan
+Write-Host "=== Spectyn Mesh Windows installer build ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  repo        : $RepoRoot"
 Write-Host "  app         : $AppDir"
@@ -64,8 +64,8 @@ foreach ($tool in @('node', 'npm', 'cargo')) {
 }
 Write-Host "[probe] node $(node --version), cargo present" -ForegroundColor DarkGray
 
-# ---- Stop running phantom / app exe so the link/bundle step does not hit access-denied ----
-foreach ($procName in @('phantom', 'phantom-mesh-app', 'phantom-mesh')) {
+# ---- Stop running spectyn / app exe so the link/bundle step does not hit access-denied ----
+foreach ($procName in @('spectyn', 'spectyn-mesh-app', 'spectyn-mesh')) {
     $running = Get-Process $procName -ErrorAction SilentlyContinue
     if ($running) {
         Write-Host "[pre] Stopping $($running.Count) running $procName instance(s)..." -ForegroundColor Yellow

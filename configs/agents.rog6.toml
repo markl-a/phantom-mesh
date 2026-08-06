@@ -1,4 +1,4 @@
-# Phantom Mesh — ROG Phone 6 Worker Node
+# Spectyn Mesh — ROG Phone 6 Worker Node
 # ========================================
 # 硬體: ASUS ROG Phone 6
 #   CPU: Snapdragon 8+ Gen 1 (4nm), 8核心
@@ -12,10 +12,10 @@
 #
 # 安裝步驟:
 #   1. 安裝 Tailscale (Play Store)
-#   2. 安裝 phantom-mesh.apk
-#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.phantommesh.app/agents.toml
+#   2. 安裝 spectyn-mesh.apk
+#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.spectynmesh.app/agents.toml
 #      (或透過 App → 設定 → 匯入設定)
-#   4. 設定 → 電池 → 為 Phantom Mesh 關閉電池最佳化
+#   4. 設定 → 電池 → 為 Spectyn Mesh 關閉電池最佳化
 #   5. 開啟 App → 節點自動在背景持續運行
 
 [core]
@@ -46,7 +46,7 @@ default_model = "claude-haiku-4-5"
 node_name = "rog6"
 cluster_secret = "REPLACE_WITH_SHARED_SECRET"
 # Worker caps advertised to peers. Other nodes dispatch via
-# `phantom peer assign --required-caps ...`; this node is picked only when
+# `spectyn peer assign --required-caps ...`; this node is picked only when
 # its `worker_caps` is a superset of the required set (see
 # `core/src/mesh.rs::select_best_peer_with_caps`). Mobile workers run in
 # a sandbox, so we advertise the sandbox-safe set instead of "full".
@@ -76,6 +76,6 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """你是 Phantom Mesh 叢集中的高效能 Android 工作節點 (ROG Phone 6)。
+instructions = """你是 Spectyn Mesh 叢集中的高效能 Android 工作節點 (ROG Phone 6)。
 你負責接收協調者指派的計算任務，使用快速的雲端 LLM (Groq Llama) 完成。
 回覆簡潔，專注於任務執行。"""

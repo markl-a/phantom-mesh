@@ -336,11 +336,11 @@ mod toctou_tests {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     /// Build a unique temp file inside `safe_path`'s allowed roots so the
-    /// validator accepts it. We use `$HOME/.phantom-mesh/test-t58-toctou/`
+    /// validator accepts it. We use `$HOME/.spectyn-mesh/test-t58-toctou/`
     /// — created on demand, since that root is always permitted.
     async fn fresh_temp(initial: &str) -> std::path::PathBuf {
         let home = dirs::home_dir().expect("HOME");
-        let dir = home.join(".phantom-mesh").join("test-t58-toctou");
+        let dir = home.join(".spectyn-mesh").join("test-t58-toctou");
         tokio::fs::create_dir_all(&dir).await.expect("mkdir");
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = dir.join(format!("t58-toctou-{}-{}.txt", std::process::id(), n));
@@ -401,7 +401,7 @@ mod toctou_tests {
 
         let result = execute(&json!({
             "edits": [
-                {"path": path_str, "old_string": "world", "new_string": "phantom"}
+                {"path": path_str, "old_string": "world", "new_string": "spectyn"}
             ]
         }))
         .await;
@@ -413,7 +413,7 @@ mod toctou_tests {
         );
         let after = tokio::fs::read_to_string(&path).await.unwrap();
         assert_eq!(
-            after, "hello phantom\n",
+            after, "hello spectyn\n",
             "file content mismatch: {:?}",
             after
         );
@@ -540,7 +540,7 @@ mod toctou_tests {
 
             let result = execute(&serde_json::json!({
                 "edits": [
-                    {"path": path_str, "old_string": "target", "new_string": "phantom"}
+                    {"path": path_str, "old_string": "target", "new_string": "spectyn"}
                 ]
             }))
             .await;
@@ -549,11 +549,11 @@ mod toctou_tests {
             if result.contains("ERROR (TOCTOU)") {
                 saw_toctou = true;
                 // Critical invariant: on TOCTOU rejection the file must
-                // NOT contain our edit "phantom" — we refused to write.
+                // NOT contain our edit "spectyn" — we refused to write.
                 let after = tokio::fs::read_to_string(&path).await.unwrap();
                 assert!(
-                    !after.contains("phantom"),
-                    "attempt {}: TOCTOU was reported yet 'phantom' is present \
+                    !after.contains("spectyn"),
+                    "attempt {}: TOCTOU was reported yet 'spectyn' is present \
                      on disk — write was NOT actually refused. content={:?}",
                     attempt,
                     after,
@@ -567,13 +567,13 @@ mod toctou_tests {
                 // or to our original seed).
                 let after = tokio::fs::read_to_string(&path).await.unwrap();
                 // The valid "Applied" outcomes are:
-                //   (a) "alpha phantom omega\n" — gate read our seed, wrote
+                //   (a) "alpha spectyn omega\n" — gate read our seed, wrote
                 //       our edit; writer landed AFTER our write OR never
                 //       interleaved.
-                //   (b) "ALPHA phantom OMEGA\n" — gate read the writer's
+                //   (b) "ALPHA spectyn OMEGA\n" — gate read the writer's
                 //       snapshot in BOTH Phase 1 and Phase 3, applied edit
                 //       to it. Also fine — no clobber.
-                // What would be BROKEN: "alpha phantom omega" while disk
+                // What would be BROKEN: "alpha spectyn omega" while disk
                 // currently shows the writer's "ALPHA ... OMEGA" content,
                 // i.e. we wrote our edit over the writer's bytes without
                 // catching the divergence.
@@ -583,10 +583,10 @@ mod toctou_tests {
                 // write. The gate read+hashed+wrote against a stable seed (so
                 // it legitimately reported Applied), then the writer clobbered
                 // it. Final disk = the writer's pristine "ALPHA target OMEGA\n"
-                // with no "phantom" — last-writer-wins, NOT a gate-side clobber
+                // with no "spectyn" — last-writer-wins, NOT a gate-side clobber
                 // of a concurrent edit. Safe.
-                let acceptable = after == "alpha phantom omega\n"
-                    || after == "ALPHA phantom OMEGA\n"
+                let acceptable = after == "alpha spectyn omega\n"
+                    || after == "ALPHA spectyn OMEGA\n"
                     || after == "ALPHA target OMEGA\n";
                 assert!(
                     acceptable,
@@ -730,9 +730,9 @@ mod sandbox_guard_tests {
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    async fn fresh_temp_in_phantom(initial: &str) -> std::path::PathBuf {
+    async fn fresh_temp_in_spectyn(initial: &str) -> std::path::PathBuf {
         let home = dirs::home_dir().expect("HOME");
-        let dir = home.join(".phantom-mesh").join("test-c5-sandbox");
+        let dir = home.join(".spectyn-mesh").join("test-c5-sandbox");
         tokio::fs::create_dir_all(&dir).await.expect("mkdir");
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = dir.join(format!("c5-{}-{}.txt", std::process::id(), n));
@@ -769,8 +769,8 @@ mod sandbox_guard_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_allows_multi_edit_in_phantom_mesh_dir() {
-        let path = fresh_temp_in_phantom("hello world\n").await;
+    async fn sandbox_allows_multi_edit_in_spectyn_mesh_dir() {
+        let path = fresh_temp_in_spectyn("hello world\n").await;
         let path_str = path.to_string_lossy().to_string();
 
         let _g = crate::sandbox::test_lock();
@@ -778,7 +778,7 @@ mod sandbox_guard_tests {
 
         let result = execute(&json!({
             "edits": [
-                {"path": path_str, "old_string": "world", "new_string": "phantom"}
+                {"path": path_str, "old_string": "world", "new_string": "spectyn"}
             ]
         }))
         .await;
@@ -787,17 +787,17 @@ mod sandbox_guard_tests {
 
         assert!(
             result.starts_with("Applied"),
-            "edit on ~/.phantom-mesh/ should be allowed under sandbox, got: {}",
+            "edit on ~/.spectyn-mesh/ should be allowed under sandbox, got: {}",
             result
         );
         let after = tokio::fs::read_to_string(&path).await.unwrap();
-        assert_eq!(after, "hello phantom\n");
+        assert_eq!(after, "hello spectyn\n");
         let _ = tokio::fs::remove_file(&path).await;
     }
 
     #[tokio::test]
     async fn sandbox_disabled_back_compat_multi_edit() {
-        let path = fresh_temp_in_phantom("seed value\n").await;
+        let path = fresh_temp_in_spectyn("seed value\n").await;
         let path_str = path.to_string_lossy().to_string();
 
         let _g = crate::sandbox::test_lock();

@@ -11,7 +11,7 @@ pub mod workspace;
 
 // Re-export all public types for convenience.
 pub use capability::{Capability, CapabilityLevel, CapabilityQualifier, CapabilityRequirement};
-pub use errors::{ErrorKind, PhantomError, TraceContext, TraceId};
+pub use errors::{ErrorKind, SpectynError, TraceContext, TraceId};
 pub use events::{
     ClusterEvent, DomainEvent, DomainEventType, EventSource, EventSummary, EventVisibility,
     PayloadRef, PushPolicy, SystemEvent,

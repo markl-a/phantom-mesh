@@ -3,14 +3,14 @@
 ## 用途
 
 auth-security-gate 是一個子系統，負責決定**誰**可以和某個
-phantom 節點（node，網路節點）對話，以及已連線的代理（agent，自動代理）**被允許做什麼**。它位於每個 HTTP/RPC 進入點的最前緣，也位於每個工具呼叫（tool invocation）的邊界。它有四項彼此協作的關注點：
+spectyn 節點（node，網路節點）對話，以及已連線的代理（agent，自動代理）**被允許做什麼**。它位於每個 HTTP/RPC 進入點的最前緣，也位於每個工具呼叫（tool invocation）的邊界。它有四項彼此協作的關注點：
 
 1. **叢集驗證（cluster authentication）** — 每個跨節點請求（`/rpc/*`、`/api/*`、
    `/mcp`、`/ws`、`/onboarding/*`）都必須攜帶一個有效的 `X-Cluster-Auth`
    HMAC-SHA256（hash-based message authentication code，基於雜湊的訊息驗證碼），這個值是用共享的 `cluster_secret` 對請求主體（request body）計算而得。此閘門採**失敗即關閉（fails closed）**策略：
    若未設定任何密鑰（secret），請求一律拒絕，除非操作者主動選擇啟用僅維持一個發行版的舊版逃生出口（legacy escape hatch）。
-2. **本地身分（local identity）** — `phantom login` / `whoami` / `logout` 會在
-   `~/.phantom-mesh/auth.json`（權限模式 `0600`）儲存一個本地身分（email、Google 或 Apple）。OSS（open-source software，開放原始碼軟體）二進位檔運作時不需要任何雲端帳號。
+2. **本地身分（local identity）** — `spectyn login` / `whoami` / `logout` 會在
+   `~/.spectyn-mesh/auth.json`（權限模式 `0600`）儲存一個本地身分（email、Google 或 Apple）。OSS（open-source software，開放原始碼軟體）二進位檔運作時不需要任何雲端帳號。
 3. **OAuth** — 針對 Google 與 Apple 供應商的裝置流程（device-flow）/ 回送（loopback）OAuth 2.0（open authorization，開放授權），外加 Apple `client_secret` 的 JWT（JSON Web
    Token，網頁權杖）簽署路徑。
 4. **權限引擎（permission engine）** — 一套 Claude-Code 風格的 `Tool(specifier)` 規則 DSL
@@ -23,7 +23,7 @@ phantom 節點（node，網路節點）對話，以及已連線的代理（agent
 | File | Role |
 | --- | --- |
 | `core/src/auth_gate.rs` | 共享的 `require_cluster_auth()` HMAC 閘門，serve 路由器與 daemon（常駐服務）路由器皆使用；失敗即關閉政策 + 遷移提示。 |
-| `core/src/auth.rs` | 本地身分儲存（`AuthState`）、密碼雜湊（SHA-256 ×100k + salt 鹽值）、常數時間驗證、`~/.phantom-mesh/auth.json` 的載入／儲存。 |
+| `core/src/auth.rs` | 本地身分儲存（`AuthState`）、密碼雜湊（SHA-256 ×100k + salt 鹽值）、常數時間驗證、`~/.spectyn-mesh/auth.json` 的載入／儲存。 |
 | `core/src/oauth.rs` | 針對 Google + Apple 的 OAuth 2.0 裝置／回送流程；Apple `client_secret` 的 ES256 JWT 簽署；待處理流程（pending-flow）+ 結果狀態。 |
 | `core/src/permission.rs` | `Tool(specifier)` 規則 DSL + `Engine::evaluate`（allow/ask/deny）、bash 重新導向（redirect）強化、deny-wins（拒絕優先）排序。 |
 | `core/src/mesh.rs` | `ClusterManager::make_auth_token` / `verify_auth` — 閘門實際呼叫的 HMAC-SHA256 鑄造（mint）+ 常數時間驗證。 |
@@ -60,7 +60,7 @@ sequenceDiagram
 2. 路由器將 `(ClusterManager, headers, body)` 交給
    `require_cluster_auth`。
 3. 若 `cluster_secret` 為空：拒絕並回傳 `403`（除非
-   `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1`）。否則透過
+   `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1`）。否則透過
    `ClusterManager::verify_auth` 驗證 HMAC（常數時間比對）。
 4. 不相符時回傳 `401 Unauthorized`；成功時處理器繼續執行。
 5. 在執行任何工具之前，權限 `Engine` 會評估

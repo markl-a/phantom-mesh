@@ -2,7 +2,7 @@
 //!
 //! The 6 entries here mirror the user's GitHub-pinned repos. Each is
 //! discoverable from any device on the same Tailscale network via
-//! `phantom serve`'s `/projects` HTML route or the `/api/projects`
+//! `spectyn serve`'s `/projects` HTML route or the `/api/projects`
 //! JSON route, with a one-tap [Run Demo] button that streams subprocess
 //! output back over Server-Sent Events.
 //!
@@ -15,7 +15,7 @@
 //! surface.
 //!
 //! Demo commands assume:
-//!   * The sibling repos live as siblings of phantom-mesh under
+//!   * The sibling repos live as siblings of spectyn-mesh under
 //!     `~/Documents/GitHub/` (matches the user's actual layout).
 //!   * `make demo-mock` exists in each repo where the README claims a
 //!     demo is runnable. Where it doesn't (Automation_with_Agent at
@@ -24,7 +24,7 @@
 //!     not yet available, click GitHub link" rather than a broken run.
 //!
 //! Stable IDs (lowercase, no spaces) are used by the run-demo POST
-//! route as the URL segment, e.g. `POST /api/projects/phantom-mesh/run`.
+//! route as the URL segment, e.g. `POST /api/projects/spectyn-mesh/run`.
 
 use serde::Serialize;
 
@@ -66,15 +66,15 @@ pub struct DemoCmd {
 pub fn registry() -> Vec<Project> {
     vec![
         Project {
-            id: "phantom-mesh",
-            name: "phantom-mesh",
+            id: "spectyn-mesh",
+            name: "spectyn-mesh",
             tagline:
                 "Self-hostable AI agent runtime — Mac/Linux/Windows/Android/iOS, Tailscale cluster",
-            repo_url: "https://github.com/markl-a/phantom-mesh",
+            repo_url: "https://github.com/markl-a/spectyn-mesh",
             demo_cmd: Some(DemoCmd {
-                cwd_under_home: "path/to/phantom-mesh",
+                cwd_under_home: "path/to/spectyn-mesh",
                 argv: &[
-                    "phantom",
+                    "spectyn",
                     "autoevolve",
                     "--once",
                     "--no-commit",
@@ -89,12 +89,12 @@ pub fn registry() -> Vec<Project> {
             stack: "Rust",
         },
         Project {
-            id: "phantom-secops",
-            name: "phantom-secops",
-            tagline: "Red/blue-team agent simulation — built on phantom-mesh runtime",
-            repo_url: "https://github.com/markl-a/phantom-secops",
+            id: "spectyn-secops",
+            name: "spectyn-secops",
+            tagline: "Red/blue-team agent simulation — built on spectyn-mesh runtime",
+            repo_url: "https://github.com/markl-a/spectyn-secops",
             demo_cmd: Some(DemoCmd {
-                cwd_under_home: "Documents/GitHub/phantom-secops",
+                cwd_under_home: "Documents/GitHub/spectyn-secops",
                 argv: &["make", "demo-mock"],
                 expected_duration_secs: 90,
             }),
@@ -102,13 +102,13 @@ pub fn registry() -> Vec<Project> {
             stack: "Python · MCP",
         },
         Project {
-            id: "phantom-mobile",
-            name: "phantom-mobile",
+            id: "spectyn-mobile",
+            name: "spectyn-mobile",
             tagline:
                 "Agentic E2E testing for Android — vision-LLM scenario judge across emulator matrix",
-            repo_url: "https://github.com/markl-a/phantom-mobile",
+            repo_url: "https://github.com/markl-a/spectyn-mobile",
             demo_cmd: Some(DemoCmd {
-                cwd_under_home: "Documents/GitHub/phantom-mobile",
+                cwd_under_home: "Documents/GitHub/spectyn-mobile",
                 argv: &["make", "demo-mock"],
                 expected_duration_secs: 90,
             }),

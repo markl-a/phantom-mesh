@@ -1,7 +1,7 @@
 //! Agent / runtime configuration loading and validation.
 //!
 //! [`AgentsConfig`] is the deserialized form of a `agents.toml` /
-//! `PHANTOM.toml` file plus a set of built-in defaults. It holds providers,
+//! `SPECTYN.toml` file plus a set of built-in defaults. It holds providers,
 //! agents, tools, cluster, workspace, and permission settings.
 //!
 //! # Loading precedence (lowest → highest)
@@ -14,16 +14,16 @@
 //!    provider, the full default tool list, etc.).
 //! 2. **Config file** — [`AgentsConfig::find_and_load`] searches standard
 //!    locations and parses the first file found, in this order:
-//!    `./agents.toml` → `./PHANTOM.toml` →
-//!    `~/.phantom-mesh/agents.toml` → `~/.config/phantom-mesh/config.toml`.
+//!    `./agents.toml` → `./SPECTYN.toml` →
+//!    `~/.spectyn-mesh/agents.toml` → `~/.config/spectyn-mesh/config.toml`.
 //!    After parsing, `${ENV_VAR}` references inside provider string fields are
 //!    resolved by [`AgentsConfig::resolve_env_vars`] /
 //!    [`interpolate_env_vars`].
 //! 3. **Environment variable overrides** —
 //!    [`AgentsConfig::apply_env_overrides`] applies well-known vars on top of
 //!    the loaded file. Recognized: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-//!    `PHANTOM_MODEL`, `PHANTOM_MAX_ROUNDS`, `PHANTOM_TOKEN_BUDGET`.
-//!    [`default_max_tokens`] separately honors `PHANTOM_MAX_TOKENS` at call
+//!    `SPECTYN_MODEL`, `SPECTYN_MAX_ROUNDS`, `SPECTYN_TOKEN_BUDGET`.
+//!    [`default_max_tokens`] separately honors `SPECTYN_MAX_TOKENS` at call
 //!    time.
 //!
 //! Invalid or empty override values are ignored and fall back to the prior
@@ -146,7 +146,7 @@ pub struct AgentsConfig {
     /// `[cluster]` block — multi-machine mesh peer configuration.
     #[serde(default)]
     pub cluster: crate::mesh::ClusterConfig,
-    /// Per-machine workspace pin — when set, `phantom` (no args) auto-cd
+    /// Per-machine workspace pin — when set, `spectyn` (no args) auto-cd
     /// to default_dir before launching the TUI, pre-selects pinned_agent,
     /// and the resulting conversation history lives under that path's
     /// cwd-hash. Lets you keep one Windows box dedicated to one project
@@ -155,7 +155,7 @@ pub struct AgentsConfig {
     pub workspace: WorkspaceConfig,
     /// `[permissions]` block — Tool(specifier) DSL rules. See
     /// `permission` module. Empty/missing means "no rules", which
-    /// preserves legacy `PHANTOM_PERM=allow` behaviour (allow all).
+    /// preserves legacy `SPECTYN_PERM=allow` behaviour (allow all).
     #[serde(default)]
     pub permissions: PermissionsConfig,
     /// `[trust]` block — Project Trust enforcement (the 4-layer onboarding
@@ -342,22 +342,22 @@ impl AgentsConfig {
             }
         }
 
-        // PHANTOM_MODEL → override default_model.
-        if let Ok(model) = std::env::var("PHANTOM_MODEL") {
+        // SPECTYN_MODEL → override default_model.
+        if let Ok(model) = std::env::var("SPECTYN_MODEL") {
             if !model.is_empty() {
                 self.default_model = model;
             }
         }
 
-        // PHANTOM_MAX_ROUNDS → override max_rounds.
-        if let Ok(val) = std::env::var("PHANTOM_MAX_ROUNDS") {
+        // SPECTYN_MAX_ROUNDS → override max_rounds.
+        if let Ok(val) = std::env::var("SPECTYN_MAX_ROUNDS") {
             if let Ok(n) = val.trim().parse::<usize>() {
                 self.max_rounds = n;
             }
         }
 
-        // PHANTOM_TOKEN_BUDGET → override token_budget.
-        if let Ok(val) = std::env::var("PHANTOM_TOKEN_BUDGET") {
+        // SPECTYN_TOKEN_BUDGET → override token_budget.
+        if let Ok(val) = std::env::var("SPECTYN_TOKEN_BUDGET") {
             if let Ok(n) = val.trim().parse::<usize>() {
                 self.token_budget = n;
             }
@@ -370,21 +370,21 @@ impl AgentsConfig {
     ///
     /// Search order:
     /// 1. `./agents.toml`
-    /// 2. `./PHANTOM.toml`
-    /// 3. `~/.phantom-mesh/agents.toml`
-    /// 4. `~/.config/phantom-mesh/config.toml`
+    /// 2. `./SPECTYN.toml`
+    /// 3. `~/.spectyn-mesh/agents.toml`
+    /// 4. `~/.config/spectyn-mesh/config.toml`
     ///
     /// A candidate that exists but fails to read or parse emits a warning to
     /// stderr (so a corrupted config doesn't silently look like a fresh
     /// install) and is then skipped, preserving the historical fallback to
     /// the next candidate and ultimately the caller's built-in defaults.
-    /// The ordered config-file candidates phantom searches, first match wins:
-    /// `<cwd>/agents.toml` → `<cwd>/PHANTOM.toml` → `<home>/.phantom-mesh/agents.toml`
-    /// → `<home>/.config/phantom-mesh/config.toml`.
+    /// The ordered config-file candidates spectyn searches, first match wins:
+    /// `<cwd>/agents.toml` → `<cwd>/SPECTYN.toml` → `<home>/.spectyn-mesh/agents.toml`
+    /// → `<home>/.config/spectyn-mesh/config.toml`.
     ///
-    /// Single source of truth for "where does phantom look for its config",
+    /// Single source of truth for "where does spectyn look for its config",
     /// shared by the runtime loader ([`find_and_load`](Self::find_and_load)) and
-    /// `diagnostics::diagnose`, so `phantom doctor` can never report a different
+    /// `diagnostics::diagnose`, so `spectyn doctor` can never report a different
     /// file than the runtime actually loads. Hermetic (takes explicit paths) so
     /// both callers — and unit tests — agree by construction.
     pub fn candidate_config_paths(
@@ -393,14 +393,14 @@ impl AgentsConfig {
     ) -> Vec<std::path::PathBuf> {
         vec![
             cwd.join("agents.toml"),
-            cwd.join("PHANTOM.toml"),
-            home.join(".phantom-mesh").join("agents.toml"),
-            home.join(".config").join("phantom-mesh").join("config.toml"),
+            cwd.join("SPECTYN.toml"),
+            home.join(".spectyn-mesh").join("agents.toml"),
+            home.join(".config").join("spectyn-mesh").join("config.toml"),
         ]
     }
 
-    /// Load config from the HOME tier ONLY — `~/.phantom-mesh/agents.toml` then
-    /// `~/.config/phantom-mesh/config.toml` — deliberately skipping the cwd
+    /// Load config from the HOME tier ONLY — `~/.spectyn-mesh/agents.toml` then
+    /// `~/.config/spectyn-mesh/config.toml` — deliberately skipping the cwd
     /// candidates that [`find_and_load`](Self::find_and_load) walks first.
     ///
     /// Security knobs (project-trust enforcement, the permission profile/ceiling)
@@ -413,10 +413,10 @@ impl AgentsConfig {
     /// from "config present but malformed → fail closed".
     pub fn home_config_present() -> bool {
         dirs::home_dir().is_some_and(|home| {
-            home.join(".phantom-mesh").join("agents.toml").exists()
+            home.join(".spectyn-mesh").join("agents.toml").exists()
                 || home
                     .join(".config")
-                    .join("phantom-mesh")
+                    .join("spectyn-mesh")
                     .join("config.toml")
                     .exists()
         })
@@ -425,8 +425,8 @@ impl AgentsConfig {
     pub fn load_home_only() -> Option<Self> {
         let home = dirs::home_dir()?;
         let candidates = [
-            home.join(".phantom-mesh").join("agents.toml"),
-            home.join(".config").join("phantom-mesh").join("config.toml"),
+            home.join(".spectyn-mesh").join("agents.toml"),
+            home.join(".config").join("spectyn-mesh").join("config.toml"),
         ];
         for path in candidates {
             if path.exists() {
@@ -444,7 +444,7 @@ impl AgentsConfig {
                             eprintln!(
                                 "warning: {err}; HOME security config ignored — \
                                  permission profile / trust enforcement NOT applied. \
-                                 Fix the TOML or run `phantom doctor`."
+                                 Fix the TOML or run `spectyn doctor`."
                             );
                         }
                     }
@@ -462,7 +462,7 @@ impl AgentsConfig {
                 // shared source of truth `diagnostics::diagnose` reads too.
                 Some(home) => Self::candidate_config_paths(&home, &cwd),
                 // No home → only the cwd-relative candidates are reachable.
-                None => vec![cwd.join("agents.toml"), cwd.join("PHANTOM.toml")],
+                None => vec![cwd.join("agents.toml"), cwd.join("SPECTYN.toml")],
             }
         };
 
@@ -512,7 +512,7 @@ impl AgentsConfig {
         let mut cfg = toml::from_str::<AgentsConfig>(&content)
             .map_err(|e| format!("failed to parse config {}: {}", path.display(), e))?;
         // apex P4: decrypt any at-rest-sealed provider API keys. No-op unless
-        // `PHANTOM_ENCRYPT_AGENTS` is on (so OFF stays byte-identical to today).
+        // `SPECTYN_ENCRYPT_AGENTS` is on (so OFF stays byte-identical to today).
         // Fail closed — a sealed-but-undecryptable key surfaces as a load error
         // rather than handing back ciphertext as if it were the key.
         crate::skillbank::agents_seal::unseal_on_load(&mut cfg)
@@ -690,10 +690,10 @@ pub struct ToolsConfig {
 /// ```
 ///
 /// Default mode (when the user provides no rules at all) is allow-all,
-/// preserving legacy `PHANTOM_PERM=allow` behaviour. Once any rule is
+/// preserving legacy `SPECTYN_PERM=allow` behaviour. Once any rule is
 /// present, unmatched calls fall through to `Ask`.
 /// `[trust]` — Project Trust enforcement policy. The trusted-directory *set*
-/// lives in `~/.phantom-mesh/trust.json` (CLI-managed); this only holds the
+/// lives in `~/.spectyn-mesh/trust.json` (CLI-managed); this only holds the
 /// enforcement knob so a malicious cwd config can't trust itself.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct TrustConfig {
@@ -717,7 +717,7 @@ pub struct PermissionsConfig {
     pub allow: Vec<String>,
 }
 
-/// `[core]` block — the `phantom serve` listener and hub auth settings.
+/// `[core]` block — the `spectyn serve` listener and hub auth settings.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CoreConfig {
     /// Bind address for the server (default `0.0.0.0`).
@@ -742,9 +742,9 @@ impl Default for CoreConfig {
 }
 
 /// Per-machine workspace pin. All fields optional — empty/missing block
-/// means "no pin, phantom uses caller's cwd as before".
+/// means "no pin, spectyn uses caller's cwd as before".
 ///
-/// When `default_dir` is set, the bare `phantom` command (no args, no
+/// When `default_dir` is set, the bare `spectyn` command (no args, no
 /// flags, no prompt) cd's to that dir before launching the TUI so the
 /// session, conversation history, and tool actions all happen relative
 /// to the pinned project. Saves having to remember which dir to be in
@@ -772,7 +772,7 @@ pub struct WorkspaceConfig {
 /// [`crate::providers::local_servers::detect_local_servers`]).
 ///
 /// IMPORTANT (corrected doc, fix #3): detection results are **not** synthesized
-/// into config blocks. The `PHANTOM_LOCAL_FIRST` reorder only promotes providers
+/// into config blocks. The `SPECTYN_LOCAL_FIRST` reorder only promotes providers
 /// that *already exist in the resolved chain*, i.e. that have an explicit
 /// `[providers.NAME]` block. So **local-first only takes effect when you add a
 /// `[providers.<name>]` block** for the local server. By codebase convention
@@ -780,7 +780,7 @@ pub struct WorkspaceConfig {
 /// reorder bridges the bare detected slug (`ollama`) to it. Without such a block
 /// the flag is a no-op and the default cloud order stands.
 ///
-/// When `PHANTOM_LOCAL_FIRST` is set (`1`/`true`/`yes`), a detected local server
+/// When `SPECTYN_LOCAL_FIRST` is set (`1`/`true`/`yes`), a detected local server
 /// that *also* has a configured block is moved to the front of the provider
 /// chain — cloud providers stay in the chain for graceful fallback.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -845,28 +845,28 @@ mod tests {
     #[test]
     fn default_max_tokens_floors_at_8192_and_respects_env_override() {
         // No env var set: floor of 8192. We don't unconditionally remove
-        // PHANTOM_MAX_TOKENS first because cargo test runs tests in
+        // SPECTYN_MAX_TOKENS first because cargo test runs tests in
         // parallel within one process and another test might be using it
         // — but since this whole module is the only writer and we set
         // then unset within this test, ordering is fine when run alone.
-        std::env::remove_var("PHANTOM_MAX_TOKENS");
+        std::env::remove_var("SPECTYN_MAX_TOKENS");
         assert_eq!(default_max_tokens(), 8192);
 
         // Valid override above the sanity floor (256) is honored.
-        std::env::set_var("PHANTOM_MAX_TOKENS", "16384");
+        std::env::set_var("SPECTYN_MAX_TOKENS", "16384");
         assert_eq!(default_max_tokens(), 16384);
 
         // Below sanity floor falls back to default — protects against
-        // a typo like `PHANTOM_MAX_TOKENS=10` silently destroying every
+        // a typo like `SPECTYN_MAX_TOKENS=10` silently destroying every
         // chat reply.
-        std::env::set_var("PHANTOM_MAX_TOKENS", "10");
+        std::env::set_var("SPECTYN_MAX_TOKENS", "10");
         assert_eq!(default_max_tokens(), 8192);
 
         // Garbage falls back to default.
-        std::env::set_var("PHANTOM_MAX_TOKENS", "not-a-number");
+        std::env::set_var("SPECTYN_MAX_TOKENS", "not-a-number");
         assert_eq!(default_max_tokens(), 8192);
 
-        std::env::remove_var("PHANTOM_MAX_TOKENS");
+        std::env::remove_var("SPECTYN_MAX_TOKENS");
     }
 
     #[test]
@@ -885,7 +885,7 @@ mod tests {
         // result is deterministic regardless of the ambient test environment.
         for p in cfg.providers.values_mut() {
             p.api_key = None;
-            p.api_key_env = Some("PHANTOM_TEST_DEFINITELY_UNSET_KEY".to_string());
+            p.api_key_env = Some("SPECTYN_TEST_DEFINITELY_UNSET_KEY".to_string());
         }
         assert!(!cfg.has_usable_provider_key(), "all key sources cleared → none usable");
 
@@ -926,29 +926,29 @@ mod tests {
 
     #[test]
     fn env_override_model() {
-        std::env::set_var("PHANTOM_MODEL", "gpt-4o");
+        std::env::set_var("SPECTYN_MODEL", "gpt-4o");
         let mut cfg = AgentsConfig::with_defaults();
         cfg.apply_env_overrides();
         assert_eq!(cfg.default_model, "gpt-4o");
-        std::env::remove_var("PHANTOM_MODEL");
+        std::env::remove_var("SPECTYN_MODEL");
     }
 
     #[test]
     fn env_override_max_rounds() {
-        std::env::set_var("PHANTOM_MAX_ROUNDS", "50");
+        std::env::set_var("SPECTYN_MAX_ROUNDS", "50");
         let mut cfg = AgentsConfig::with_defaults();
         cfg.apply_env_overrides();
         assert_eq!(cfg.max_rounds, 50);
-        std::env::remove_var("PHANTOM_MAX_ROUNDS");
+        std::env::remove_var("SPECTYN_MAX_ROUNDS");
     }
 
     #[test]
     fn env_override_token_budget() {
-        std::env::set_var("PHANTOM_TOKEN_BUDGET", "200000");
+        std::env::set_var("SPECTYN_TOKEN_BUDGET", "200000");
         let mut cfg = AgentsConfig::with_defaults();
         cfg.apply_env_overrides();
         assert_eq!(cfg.token_budget, 200_000);
-        std::env::remove_var("PHANTOM_TOKEN_BUDGET");
+        std::env::remove_var("SPECTYN_TOKEN_BUDGET");
     }
 
     #[test]
@@ -981,21 +981,21 @@ mod tests {
 
     #[test]
     fn interpolate_env_resolves_set_var() {
-        std::env::set_var("PHANTOM_TEST_KEY_K1", "secret-abc");
-        assert_eq!(interpolate_env_vars("${PHANTOM_TEST_KEY_K1}"), "secret-abc");
+        std::env::set_var("SPECTYN_TEST_KEY_K1", "secret-abc");
+        assert_eq!(interpolate_env_vars("${SPECTYN_TEST_KEY_K1}"), "secret-abc");
         assert_eq!(
-            interpolate_env_vars("prefix-${PHANTOM_TEST_KEY_K1}-suffix"),
+            interpolate_env_vars("prefix-${SPECTYN_TEST_KEY_K1}-suffix"),
             "prefix-secret-abc-suffix"
         );
-        std::env::remove_var("PHANTOM_TEST_KEY_K1");
+        std::env::remove_var("SPECTYN_TEST_KEY_K1");
     }
 
     #[test]
     fn interpolate_env_unset_var_becomes_empty() {
-        std::env::remove_var("PHANTOM_TEST_NEVER_SET_K2");
-        assert_eq!(interpolate_env_vars("${PHANTOM_TEST_NEVER_SET_K2}"), "");
+        std::env::remove_var("SPECTYN_TEST_NEVER_SET_K2");
+        assert_eq!(interpolate_env_vars("${SPECTYN_TEST_NEVER_SET_K2}"), "");
         assert_eq!(
-            interpolate_env_vars("a-${PHANTOM_TEST_NEVER_SET_K2}-b"),
+            interpolate_env_vars("a-${SPECTYN_TEST_NEVER_SET_K2}-b"),
             "a--b"
         );
     }
@@ -1003,11 +1003,11 @@ mod tests {
     #[test]
     fn interpolate_env_no_braces_passes_through() {
         // `$FOO` (no braces) and plain `$` are left alone — only `${...}` is resolved.
-        std::env::set_var("PHANTOM_TEST_K3", "value");
-        assert_eq!(interpolate_env_vars("$PHANTOM_TEST_K3"), "$PHANTOM_TEST_K3");
+        std::env::set_var("SPECTYN_TEST_K3", "value");
+        assert_eq!(interpolate_env_vars("$SPECTYN_TEST_K3"), "$SPECTYN_TEST_K3");
         assert_eq!(interpolate_env_vars("plain string"), "plain string");
         assert_eq!(interpolate_env_vars("$"), "$");
-        std::env::remove_var("PHANTOM_TEST_K3");
+        std::env::remove_var("SPECTYN_TEST_K3");
     }
 
     #[test]
@@ -1021,16 +1021,16 @@ mod tests {
 
     #[test]
     fn interpolate_env_provider_entry_resolves_api_key() {
-        std::env::set_var("PHANTOM_TEST_GROQ_K4", "gsk_real");
+        std::env::set_var("SPECTYN_TEST_GROQ_K4", "gsk_real");
         let toml_str = r#"
             [providers.groq]
             type = "groq"
-            api_key = "${PHANTOM_TEST_GROQ_K4}"
+            api_key = "${SPECTYN_TEST_GROQ_K4}"
         "#;
         let mut cfg: AgentsConfig = toml::from_str(toml_str).unwrap();
         cfg.resolve_env_vars();
         assert_eq!(cfg.providers["groq"].api_key.as_deref(), Some("gsk_real"));
-        std::env::remove_var("PHANTOM_TEST_GROQ_K4");
+        std::env::remove_var("SPECTYN_TEST_GROQ_K4");
     }
 
     // ── Load robustness ───────────────────────────────────────────────────
@@ -1271,7 +1271,7 @@ allow = ["Bash(git status)"]
     fn should_warn_in_emits_once_per_path() {
         let mut seen = std::collections::HashSet::new();
         let a = std::path::Path::new("/tmp/agents.toml");
-        let b = std::path::Path::new("/tmp/PHANTOM.toml");
+        let b = std::path::Path::new("/tmp/SPECTYN.toml");
 
         // First sighting of `a` warns; repeats stay silent.
         assert!(should_warn_in(&mut seen, a), "first sighting must warn");
@@ -1294,7 +1294,7 @@ allow = ["Bash(git status)"]
         // been observed, every subsequent observation returns false — which is
         // the property that stops the warning from spamming.
         let path = std::path::Path::new(
-            "/tmp/phantom-mesh-warn-once-test-UNIQUE-d8f1/agents.toml",
+            "/tmp/spectyn-mesh-warn-once-test-UNIQUE-d8f1/agents.toml",
         );
         // Force it into the seen-set, then confirm it never warns again.
         let _ = warn_once_for_path(path);
@@ -1329,13 +1329,13 @@ allow = ["Bash(git status)"]
 /// 70b ≥ 8192, Cerebras ≥ 8192), so we can lift the cap without breaking
 /// any of them.
 ///
-/// Override with the `PHANTOM_MAX_TOKENS` env var when a particular model
+/// Override with the `SPECTYN_MAX_TOKENS` env var when a particular model
 /// supports more (Claude Opus extended thinking goes to 64k, gpt-4o to 16k).
 /// Invalid values fall back to the default rather than erroring — the cap
 /// is non-critical and we never want a typo in env to break a chat run.
 pub fn default_max_tokens() -> u32 {
     const FLOOR: u32 = 8192;
-    std::env::var("PHANTOM_MAX_TOKENS")
+    std::env::var("SPECTYN_MAX_TOKENS")
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|&n| n >= 256) // sanity floor — anything tinier is almost certainly a typo

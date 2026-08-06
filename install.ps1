@@ -1,10 +1,10 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Build-from-source installer for the `phantom` CLI (Phantom Mesh) on Windows.
+    Build-from-source installer for the `spectyn` CLI (Spectyn Mesh) on Windows.
 
 .DESCRIPTION
-    Builds the optimized `phantom` binary from source with cargo and installs it
+    Builds the optimized `spectyn` binary from source with cargo and installs it
     to a per-user bin directory (no admin required). Idempotent: re-running
     overwrites the installed binary cleanly.
 
@@ -14,20 +14,20 @@
     wired up yet — use this script from a checkout instead.
 
 .PARAMETER Prefix
-    Install root. The binary lands in "<Prefix>\bin\phantom.exe".
-    Default: "$env:LOCALAPPDATA\phantom-mesh".
+    Install root. The binary lands in "<Prefix>\bin\spectyn.exe".
+    Default: "$env:LOCALAPPDATA\spectyn-mesh".
 
 .EXAMPLE
     pwsh -File install.ps1
-    # builds + installs to $env:LOCALAPPDATA\phantom-mesh\bin
+    # builds + installs to $env:LOCALAPPDATA\spectyn-mesh\bin
 
 .EXAMPLE
-    pwsh -File install.ps1 -Prefix C:\tmp\phantom-test
-    # builds + installs to C:\tmp\phantom-test\bin (handy for testing)
+    pwsh -File install.ps1 -Prefix C:\tmp\spectyn-test
+    # builds + installs to C:\tmp\spectyn-test\bin (handy for testing)
 #>
 [CmdletBinding()]
 param(
-    [string]$Prefix = (Join-Path $env:LOCALAPPDATA 'phantom-mesh')
+    [string]$Prefix = (Join-Path $env:LOCALAPPDATA 'spectyn-mesh')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,7 +41,7 @@ $CrateDir = Join-Path $RepoRoot 'core'
 $Manifest = Join-Path $CrateDir 'Cargo.toml'
 
 if (-not (Test-Path $Manifest)) {
-    Write-Error "Cannot find core\Cargo.toml next to install.ps1 (looked in '$CrateDir'). Run this from a phantom-mesh checkout."
+    Write-Error "Cannot find core\Cargo.toml next to install.ps1 (looked in '$CrateDir'). Run this from a spectyn-mesh checkout."
     exit 1
 }
 
@@ -66,20 +66,20 @@ Then restart your shell (so cargo is on PATH) and re-run this script.
 Write-Ok "found cargo: $($cargo.Source)"
 
 # 2. Build the optimized binary from source ----------------------------------
-Write-Step 'Building phantom (cargo build --release --bin phantom) — this is slow on a cold build, please wait...'
+Write-Step 'Building spectyn (cargo build --release --bin spectyn) — this is slow on a cold build, please wait...'
 
-# Best-effort: stamp the real commit into the binary so `phantom --version`
+# Best-effort: stamp the real commit into the binary so `spectyn --version`
 # reports provenance instead of "nogit". Never fatal if git is unavailable.
 $gitHash = $null
 try {
     $gitHash = (& git -C $RepoRoot rev-parse --short HEAD 2>$null)
     if ($LASTEXITCODE -ne 0) { $gitHash = $null }
 } catch { $gitHash = $null }
-if ($gitHash) { $env:PHANTOM_GIT_HASH = $gitHash.Trim() }
+if ($gitHash) { $env:SPECTYN_GIT_HASH = $gitHash.Trim() }
 
 Push-Location $CrateDir
 try {
-    & cargo build --release --bin phantom
+    & cargo build --release --bin spectyn
     if ($LASTEXITCODE -ne 0) {
         throw "cargo build failed with exit code $LASTEXITCODE"
     }
@@ -87,7 +87,7 @@ try {
     Pop-Location
 }
 
-$SrcBin = Join-Path $CrateDir 'target\release\phantom.exe'
+$SrcBin = Join-Path $CrateDir 'target\release\spectyn.exe'
 if (-not (Test-Path $SrcBin)) {
     Write-Error "Build reported success but '$SrcBin' is missing. Aborting."
     exit 1
@@ -98,19 +98,19 @@ Write-Ok "built: $SrcBin"
 $BinDir = Join-Path $Prefix 'bin'
 Write-Step "Installing to $BinDir ..."
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
-$DestBin = Join-Path $BinDir 'phantom.exe'
+$DestBin = Join-Path $BinDir 'spectyn.exe'
 Copy-Item -Path $SrcBin -Destination $DestBin -Force
 Write-Ok "installed: $DestBin"
 
 # 4. Create the data dir if absent -------------------------------------------
-$DataDir = Join-Path $env:USERPROFILE '.phantom-mesh'
+$DataDir = Join-Path $env:USERPROFILE '.spectyn-mesh'
 Write-Step "Ensuring data dir $DataDir ..."
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 Write-Ok "data dir ready: $DataDir"
 
 # 5. Next steps --------------------------------------------------------------
 Write-Host ''
-Write-Host 'phantom installed.' -ForegroundColor Green
+Write-Host 'spectyn installed.' -ForegroundColor Green
 Write-Host ''
 Write-Host 'Add the bin dir to your PATH for this user (persists across sessions):'
 Write-Host "    [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$BinDir`", 'User')" -ForegroundColor Yellow
@@ -119,6 +119,6 @@ Write-Host 'Or for the current session only:'
 Write-Host "    `$env:Path += ';$BinDir'" -ForegroundColor Yellow
 Write-Host ''
 Write-Host 'Then verify and start the daemon:'
-Write-Host '    phantom --version' -ForegroundColor Yellow
-Write-Host '    phantom --help' -ForegroundColor Yellow
-Write-Host '    phantom serve' -ForegroundColor Yellow
+Write-Host '    spectyn --version' -ForegroundColor Yellow
+Write-Host '    spectyn --help' -ForegroundColor Yellow
+Write-Host '    spectyn serve' -ForegroundColor Yellow

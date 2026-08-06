@@ -3,7 +3,7 @@
 //! Prereqs (one-time, done outside this file):
 //!   - `pip install mlx-lm` (or `huggingface_hub`) → makes `hf` /
 //!     `huggingface-cli` + `mlx_lm.server` available on PATH
-//!   - `phantom mlx pull` → downloads default model (~4 GB) into HF cache
+//!   - `spectyn mlx pull` → downloads default model (~4 GB) into HF cache
 //!
 //! Why integration not unit: `providers::mlx` is not its own module in
 //! core (MLX routes through resolver.rs `mlx-local` agent type, not a
@@ -15,8 +15,8 @@
 use std::process::Command;
 use std::time::Duration;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 async fn serve_reachable() -> bool {
@@ -35,14 +35,14 @@ async fn serve_reachable() -> bool {
 
 #[test]
 fn pull_validates_model_id() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .args(["mlx", "pull", ""])
         .output()
-        .expect("phantom mlx pull must spawn");
+        .expect("spectyn mlx pull must spawn");
     assert!(
         !output.status.success(),
-        "phantom mlx pull '' returned exit 0, but empty model id should fail.\n\
+        "spectyn mlx pull '' returned exit 0, but empty model id should fail.\n\
          stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -51,14 +51,14 @@ fn pull_validates_model_id() {
 
 #[test]
 fn mlx_pull_smoke() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .args(["mlx", "pull"])
         .output()
-        .expect("phantom mlx pull must spawn");
+        .expect("spectyn mlx pull must spawn");
     assert!(
         output.status.success(),
-        "phantom mlx pull (default model) exited {:?} — is the model \
+        "spectyn mlx pull (default model) exited {:?} — is the model \
          downloaded and `hf` on PATH?\nstdout: {}\nstderr: {}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
@@ -71,7 +71,7 @@ async fn serve_starts_on_localhost_8080() {
     if !serve_reachable().await {
         eprintln!(
             "SKIPPED: serve_starts_on_localhost_8080 — MLX serve not on :8080 \
-             (start with `phantom mlx serve` first)"
+             (start with `spectyn mlx serve` first)"
         );
         return;
     }
@@ -108,7 +108,7 @@ async fn round_trip_local_model() {
     if !serve_reachable().await {
         eprintln!(
             "SKIPPED: round_trip_local_model — MLX serve not on :8080 \
-             (start with `phantom mlx serve` first)"
+             (start with `spectyn mlx serve` first)"
         );
         return;
     }
@@ -151,7 +151,7 @@ async fn round_trip_local_model() {
 
 #[test]
 fn stop_cleans_up_subprocess() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let pre = Command::new("pgrep")
         .args(["-f", "mlx_lm.server"])
         .output()
@@ -161,10 +161,10 @@ fn stop_cleans_up_subprocess() {
     let output = Command::new(bin)
         .args(["mlx", "stop"])
         .output()
-        .expect("phantom mlx stop must spawn");
+        .expect("spectyn mlx stop must spawn");
     assert!(
         output.status.success(),
-        "phantom mlx stop exited {:?}.\nstderr: {}",
+        "spectyn mlx stop exited {:?}.\nstderr: {}",
         output.status,
         String::from_utf8_lossy(&output.stderr)
     );
@@ -184,7 +184,7 @@ fn stop_cleans_up_subprocess() {
         .unwrap_or(false);
     assert!(
         !post,
-        "phantom mlx stop returned 0 but `pgrep -f mlx_lm.server` still finds \
+        "spectyn mlx stop returned 0 but `pgrep -f mlx_lm.server` still finds \
          a live process — stop logic failed to clean up"
     );
 }

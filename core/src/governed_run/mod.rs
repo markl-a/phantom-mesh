@@ -823,7 +823,7 @@ mod budget_tests {
 
     #[test]
     fn cli_flag_derived_policy_aborts_on_wall_clock_through_drive_loop() {
-        // SEAM: a GovernPolicy built FROM the `phantom govern --max-wall-secs` CLI
+        // SEAM: a GovernPolicy built FROM the `spectyn govern --max-wall-secs` CLI
         // flag (via GovernConfig::apply_flags) — NOT a struct literal — fed through
         // the drive loop, must ABORT on wall-clock overrun. The flag->policy path
         // (govern_flag_tests in run.rs) and the policy->abort path (the other

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Android emulator sideload smoke test for the phantom-mesh Tauri APK
+# Android emulator sideload smoke test for the spectyn-mesh Tauri APK
 # (task-2026052620). Boots an AVD, installs the APK, launches it, and asserts:
 #   1. the process survives launch (no native crash),
 #   2. MeshNodeService comes up as a foreground service (SPEC-33 §6 + the
 #      MainActivity→service wiring + inject.sh manifest registration),
-#   3. the phantom:// deep-link reaches the app (SPEC-33 G6 intent-filter).
+#   3. the spectyn:// deep-link reaches the app (SPEC-33 G6 intent-filter).
 #
 # IMPORTANT — ABI: stock Android emulators are x86_64. An aarch64-only APK
 # *installs* (the system image lists arm64-v8a) but CRASHES on launch inside
@@ -27,7 +27,7 @@ ABI="x86_64"
 APK=""
 WINDOW=0
 KEEP=0
-PKG="ai.phantommesh.app"
+PKG="ai.spectynmesh.app"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --avd) AVD="$2"; shift 2 ;;
@@ -101,27 +101,27 @@ ok "process alive after launch"
   || fail "MeshNodeService is not a running foreground service"
 ok "MeshNodeService foreground service up"
 
-# ── 6. assert: phantom:// deep-link is HANDLED by our app (not just dispatched) ─
+# ── 6. assert: spectyn:// deep-link is HANDLED by our app (not just dispatched) ─
 # B2 FIX: the old assertion grepped logcat for 'demo-mode|deep-link', which ALSO
 # matches Android's own ActivityManager `am start` line ("Starting: Intent {
-# act=… dat=phantom://demo-mode }"). That made the assert pass even when the app
+# act=… dat=spectyn://demo-mode }"). That made the assert pass even when the app
 # never ran its handler — a false-green. Pin to the app-specific handler log line
-# the Rust deep-link callback emits (target: "phantom-app", "deep-link demo-mode
+# the Rust deep-link callback emits (target: "spectyn-app", "deep-link demo-mode
 # accepted" — see app/src-tauri/src/lib.rs on_open_url). That line is emitted
 # ONLY after our code accepts the URL, so it proves real handling, not dispatch.
 "$ADB" logcat -c || fail "logcat -c failed before deep-link probe"
-"$ADB" shell am start -a android.intent.action.VIEW -d "phantom://demo-mode" >/dev/null 2>&1 \
-  || fail "am start (VIEW phantom://demo-mode) failed to dispatch"
+"$ADB" shell am start -a android.intent.action.VIEW -d "spectyn://demo-mode" >/dev/null 2>&1 \
+  || fail "am start (VIEW spectyn://demo-mode) failed to dispatch"
 sleep 4
 # Match the handler's exact phrasing; anchor on "accepted" so the rejection log
 # ("deep-link rejected: …") can never satisfy this assert.
 if "$ADB" logcat -d 2>/dev/null | grep -qiE 'deep-link demo-mode accepted'; then
-  ok "phantom:// deep-link handled (app emitted 'deep-link demo-mode accepted')"
+  ok "spectyn:// deep-link handled (app emitted 'deep-link demo-mode accepted')"
 else
-  "$ADB" logcat -d 2>/dev/null | grep -iE 'phantom-app|deep-link' | tail -10 >&2 || true
-  fail "phantom:// deep-link reached the OS but the app handler never accepted it (no 'deep-link demo-mode accepted' in logcat)"
+  "$ADB" logcat -d 2>/dev/null | grep -iE 'spectyn-app|deep-link' | tail -10 >&2 || true
+  fail "spectyn:// deep-link reached the OS but the app handler never accepted it (no 'deep-link demo-mode accepted' in logcat)"
 fi
 
 [[ "$KEEP" == "0" ]] && "$ADB" emu kill >/dev/null 2>&1 || true
 echo ""
-echo "✅ SMOKE PASS — install + launch + MeshNodeService FG + phantom:// deep-link"
+echo "✅ SMOKE PASS — install + launch + MeshNodeService FG + spectyn:// deep-link"

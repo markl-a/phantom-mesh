@@ -6,7 +6,7 @@
 //   - habit_streak(slug)       → HabitStreak
 //
 // The core capture_habit_wire is Stage-3 wired (persists to
-// ~/.phantom-mesh/habits.sqlite — real chip_palette + habit_checkins tables),
+// ~/.spectyn-mesh/habits.sqlite — real chip_palette + habit_checkins tables),
 // so these return real data in the Tauri app. describeHabitError still maps the
 // typed wire errors (chip_not_found, etc.) for the UI. Mirrors captureFocus.ts.
 
@@ -96,7 +96,7 @@ export async function createHabit(def: HabitDefinition): Promise<void> {
 /** Check in on a habit, creating it (daily, no tags) first if it doesn't exist
  *  yet. record_checkin errors ChipNotFound on an uncreated slug, so the app
  *  must register the palette chip before its first checkin (matching how
- *  `phantom habit create` then `checkin` works). Returns the recomputed streak. */
+ *  `spectyn habit create` then `checkin` works). Returns the recomputed streak. */
 export async function ensureCheckin(
   slug: string,
   label: string,

@@ -1,6 +1,6 @@
 // Tauri command surface for SPEC-20 food capture.
 //
-// Wraps `phantom_mesh::capture_food_wire` so the React food-log surface can
+// Wraps `spectyn_mesh::capture_food_wire` so the React food-log surface can
 // drive photo/text → macro-estimate analysis through Tauri's invoke channel.
 // Mirrors commands/capture_focus_wire.rs + capture_habit_wire.rs.
 //
@@ -12,7 +12,7 @@
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
-use phantom_mesh::capture_food_wire::{
+use spectyn_mesh::capture_food_wire::{
     self, FoodAnalysisResult, FoodCaptureError, FoodCaptureRequest,
 };
 

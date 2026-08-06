@@ -1,7 +1,7 @@
 //! Unit tests for the JSON-Lines tracer.
 //!
 //! All tests use `TempDir` so we never touch the user's real
-//! `~/.phantom-mesh/traces/`.
+//! `~/.spectyn-mesh/traces/`.
 
 use super::*;
 use serde_json::Value;

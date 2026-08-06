@@ -1,5 +1,5 @@
 #!/bin/bash
-# phantom-mesh — one-line installer for macOS.
+# spectyn-mesh — one-line installer for macOS.
 #
 # Use:
 #   curl -fsSL http://<coordinator-tailscale-ip>:7878/scripts/install-mac.sh \
@@ -10,13 +10,13 @@
 #   curl -fsSL http://<coord>:7878/scripts/install-mac.sh | bash
 #
 # Pulls:
-#   - phantom binary           → ~/.cargo/bin/phantom (+ TCC-safe copy)
-#   - cluster bootstrap        → ~/.phantom-mesh/agents.toml (cluster_secret +
+#   - spectyn binary           → ~/.cargo/bin/spectyn (+ TCC-safe copy)
+#   - cluster bootstrap        → ~/.spectyn-mesh/agents.toml (cluster_secret +
 #                                peer list, NO API keys)
-#   - launchd registration     → phantom serve auto-starts on login
+#   - launchd registration     → spectyn serve auto-starts on login
 #
 # Does NOT touch your provider API keys — set those interactively after via
-#   phantom
+#   spectyn
 #   /keys add groq
 #   /keys add gemini
 
@@ -38,7 +38,7 @@ COORD="${COORD%/}"
 # the helper from the same coordinator we're already trusting for the binary.
 # Fail-closed if it can't be loaded; --skip-verify still requires the helper
 # (it just changes the helper's behaviour).
-VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX)"
+VERIFY_HELPER="$(mktemp -t spectyn-verify.XXXXXX)"
 trap 'rm -f "$VERIFY_HELPER"' EXIT
 if [ -f "$(dirname "$0")/_verify-download.sh" ]; then
   cp "$(dirname "$0")/_verify-download.sh" "$VERIFY_HELPER"
@@ -52,7 +52,7 @@ fi
 
 # ── Banner ──────────────────────────────────────────────────────────────
 echo
-echo "  ◆ phantom-mesh installer — macOS"
+echo "  ◆ spectyn-mesh installer — macOS"
 echo "    coordinator: $COORD"
 echo
 
@@ -87,24 +87,24 @@ echo "    ✓ coordinator reachable"
 # ── Make install dirs ───────────────────────────────────────────────────
 mkdir -p \
   "$HOME/.cargo/bin" \
-  "$HOME/.phantom-mesh" \
-  "$HOME/Library/Application Support/phantom-mesh/bin"
+  "$HOME/.spectyn-mesh" \
+  "$HOME/Library/Application Support/spectyn-mesh/bin"
 
 # ── Download binary ─────────────────────────────────────────────────────
-echo "  [2/6] Downloading phantom ($ARCH)..."
-BIN_URL="$COORD/dist/phantom-$ARCH"
-# Enforce HTTPS unless the operator opts out via PHANTOM_ALLOW_INSECURE=1.
+echo "  [2/6] Downloading spectyn ($ARCH)..."
+BIN_URL="$COORD/dist/spectyn-$ARCH"
+# Enforce HTTPS unless the operator opts out via SPECTYN_ALLOW_INSECURE=1.
 # require_https writes the rationale to stderr if it refuses.
 require_https "$BIN_URL" || exit 1
 
-TMP_BIN="$(mktemp -t phantom.XXXXXX)"
+TMP_BIN="$(mktemp -t spectyn.XXXXXX)"
 # Extend the EXIT trap (already set above for VERIFY_HELPER) to also clean
 # up TMP_BIN. We rebuild the trap rather than overwrite to keep both cleanups.
 trap 'rm -f "$VERIFY_HELPER" "$TMP_BIN"' EXIT
 if ! curl -fsSL --max-time 60 "$BIN_URL" -o "$TMP_BIN"; then
   echo "    ✗ download failed — coordinator may not have a Mac binary in dist/"
-  echo "      run on coordinator:  cd phantom-mesh && cargo build --release --bin phantom"
-  echo "      then:                cp core/target/release/phantom dist/phantom-$ARCH"
+  echo "      run on coordinator:  cd spectyn-mesh && cargo build --release --bin spectyn"
+  echo "      then:                cp core/target/release/spectyn dist/spectyn-$ARCH"
   exit 1
 fi
 
@@ -113,11 +113,11 @@ fi
 verify_sha256 "$TMP_BIN" "$BIN_URL"
 
 chmod +x "$TMP_BIN"
-mv "$TMP_BIN" "$HOME/.cargo/bin/phantom"
+mv "$TMP_BIN" "$HOME/.cargo/bin/spectyn"
 # Restore the original trap (drops TMP_BIN cleanup since it has been moved).
 trap 'rm -f "$VERIFY_HELPER"' EXIT
-# TCC-safe copy (mirrors the launchd path used by `phantom service install`)
-cp "$HOME/.cargo/bin/phantom" "$HOME/Library/Application Support/phantom-mesh/bin/phantom"
+# TCC-safe copy (mirrors the launchd path used by `spectyn service install`)
+cp "$HOME/.cargo/bin/spectyn" "$HOME/Library/Application Support/spectyn-mesh/bin/spectyn"
 
 # Ad-hoc re-sign both copies. A `cp`/`mv` over a Mach-O strips the kernel-
 # valid signature; amfid then SIGKILLs the next launch silently (exit 137,
@@ -127,11 +127,11 @@ cp "$HOME/.cargo/bin/phantom" "$HOME/Library/Application Support/phantom-mesh/bi
 # machine. Silent-tolerant: codesign should be present on every Mac, but
 # if it isn't we still surface the failure on first daemon start.
 for bin in \
-  "$HOME/.cargo/bin/phantom" \
-  "$HOME/Library/Application Support/phantom-mesh/bin/phantom"; do
+  "$HOME/.cargo/bin/spectyn" \
+  "$HOME/Library/Application Support/spectyn-mesh/bin/spectyn"; do
   codesign --force --sign - "$bin" 2>/dev/null || true
 done
-echo "    ✓ installed to ~/.cargo/bin/phantom (ad-hoc signed)"
+echo "    ✓ installed to ~/.cargo/bin/spectyn (ad-hoc signed)"
 
 # ── Fetch cluster bootstrap ─────────────────────────────────────────────
 echo "  [3/6] Fetching cluster bootstrap..."
@@ -146,7 +146,7 @@ fi
 NODE_NAME="$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
 NODE_NAME="$(echo "$NODE_NAME" | tr -c 'A-Za-z0-9_-' '_' | head -c 40)"
 
-CFG_TARGET="$HOME/.phantom-mesh/agents.toml"
+CFG_TARGET="$HOME/.spectyn-mesh/agents.toml"
 if [ -e "$CFG_TARGET" ]; then
   BACKUP="$CFG_TARGET.backup-$(date +%Y%m%d-%H%M%S)"
   echo "    ⚠ Existing agents.toml → $BACKUP"
@@ -174,15 +174,15 @@ echo "    ⚠ API keys are NOT auto-configured — set via /keys add inside REPL
 
 # ── launchd registration ────────────────────────────────────────────────
 echo "  [5/6] Registering launchd auto-start..."
-if "$HOME/.cargo/bin/phantom" service install >/dev/null 2>&1; then
-  echo "    ✓ launchd registered (phantom serve will auto-start on login)"
+if "$HOME/.cargo/bin/spectyn" service install >/dev/null 2>&1; then
+  echo "    ✓ launchd registered (spectyn serve will auto-start on login)"
 else
-  echo "    ⚠ launchd registration failed — you can run \`phantom serve\` manually"
+  echo "    ⚠ launchd registration failed — you can run \`spectyn serve\` manually"
 fi
 
 # ── Verify peer ────────────────────────────────────────────────────────
 echo "  [6/6] Verifying mesh round-trip..."
-if "$HOME/.cargo/bin/phantom" peer list 2>/dev/null | grep -q "online"; then
+if "$HOME/.cargo/bin/spectyn" peer list 2>/dev/null | grep -q "online"; then
   echo "    ✓ at least one peer online — mesh ready"
 else
   echo "    ⚠ no peers responded yet (may take ~30s for heartbeat)"
@@ -203,7 +203,7 @@ echo
 echo "  ✓ Install complete."
 echo
 echo "  ── Next steps on THIS Mac ─────────────────────────────────────"
-echo "    1. \`phantom\`                       — start the REPL/TUI"
+echo "    1. \`spectyn\`                       — start the REPL/TUI"
 echo "    2. \`/keys add groq\`                — paste your Groq API key"
 echo "    3. \`/keys add gemini\`              — paste your Gemini API key"
 echo "    4. \`/keys test groq\`               — verify"
@@ -214,10 +214,10 @@ if [ -n "$MY_URL" ]; then
   echo
   echo "    On the coordinator (the Mac whose URL you used as COORD), run:"
   echo
-  echo "      phantom peer discover                 # Tailscale auto-pickup"
+  echo "      spectyn peer discover                 # Tailscale auto-pickup"
   echo "                                            # — should show $MY_URL"
   echo
-  echo "      OR edit ~/.phantom-mesh/agents.toml on the coordinator and"
+  echo "      OR edit ~/.spectyn-mesh/agents.toml on the coordinator and"
   echo "      add to [cluster].peers:"
   echo
   echo "        peers = ["
@@ -226,6 +226,6 @@ if [ -n "$MY_URL" ]; then
   echo "        ]"
   echo
   echo "      Then on the coordinator:"
-  echo "        launchctl kickstart -k gui/\$UID/ai.phantommesh.serve"
+  echo "        launchctl kickstart -k gui/\$UID/ai.spectynmesh.serve"
   echo
 fi

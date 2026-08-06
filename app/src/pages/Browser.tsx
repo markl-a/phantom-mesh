@@ -122,7 +122,7 @@ export default function Browser() {
           <button
             onClick={refresh}
             disabled={loading}
-            className="flex items-center gap-2 border border-phantom-border text-phantom-muted px-3 py-1.5 rounded text-sm hover:text-phantom-text disabled:opacity-50"
+            className="flex items-center gap-2 border border-spectyn-border text-spectyn-muted px-3 py-1.5 rounded text-sm hover:text-spectyn-text disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             重新整理
@@ -136,7 +136,7 @@ export default function Browser() {
         <div className="flex-[2] min-w-0">
           <ScreenshotView screenshotPath={screenshotPath} loading={loading} />
         </div>
-        <div className="flex-[1] min-w-0 bg-phantom-card border border-phantom-border rounded-lg p-3">
+        <div className="flex-[1] min-w-0 bg-spectyn-card border border-spectyn-border rounded-lg p-3">
           <ActionLog actions={actions} pageText={pageText} />
         </div>
       </div>

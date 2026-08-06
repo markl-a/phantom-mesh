@@ -1,5 +1,5 @@
 //! "Sign in with ChatGPT" subscription OAuth (opt-in) — mint a ChatGPT-subscription
-//! access token from phantom itself instead of only reading the official Codex
+//! access token from spectyn itself instead of only reading the official Codex
 //! CLI's cache.
 //!
 //! ⚠️ RISK / DISCLOSURE (owner-accepted, opt-in only): this drives the ChatGPT
@@ -10,8 +10,8 @@
 //! prints this warning before running it. The legitimate, zero-risk alternative
 //! is a metered `api.openai.com` API key (paste flow) — see onboarding.
 //!
-//! The minted token is stored in a phantom-owned, codex-SHAPED file
-//! (`~/.phantom-mesh/openai_oauth.json`) which is added to
+//! The minted token is stored in a spectyn-owned, codex-SHAPED file
+//! (`~/.spectyn-mesh/openai_oauth.json`) which is added to
 //! `credential_scanner::codex_paths()`, so the existing `codex_oauth::run_codex`
 //! runtime picks it up unchanged. The official `~/.codex/auth.json` is NEVER
 //! touched.
@@ -46,9 +46,9 @@ pub struct OpenAiTokens {
     pub account_id: Option<String>,
 }
 
-/// `<home>/.phantom-mesh/openai_oauth.json` — phantom-owned, codex-shaped.
+/// `<home>/.spectyn-mesh/openai_oauth.json` — spectyn-owned, codex-shaped.
 pub fn storage_path(home: &Path) -> PathBuf {
-    home.join(".phantom-mesh").join("openai_oauth.json")
+    home.join(".spectyn-mesh").join("openai_oauth.json")
 }
 
 /// Build the authorize URL for a fresh PKCE verifier. Returns `(url, verifier,
@@ -111,8 +111,8 @@ pub fn to_codex_shaped_json(t: &OpenAiTokens) -> Value {
             "id_token": t.id_token,
             "account_id": t.account_id,
         },
-        // marker so a reader can tell this is phantom-minted (vs official codex).
-        "minted_by": "phantom",
+        // marker so a reader can tell this is spectyn-minted (vs official codex).
+        "minted_by": "spectyn",
     })
 }
 
@@ -129,7 +129,7 @@ pub fn parse_token_response(body: &Value) -> Option<OpenAiTokens> {
     })
 }
 
-/// Atomically persist tokens to the phantom-owned codex-shaped file (0600).
+/// Atomically persist tokens to the spectyn-owned codex-shaped file (0600).
 pub fn save(home: &Path, t: &OpenAiTokens) -> std::io::Result<()> {
     let path = storage_path(home);
     if let Some(parent) = path.parent() {
@@ -146,7 +146,7 @@ pub fn save(home: &Path, t: &OpenAiTokens) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Load tokens from the phantom-owned file, if present + parseable.
+/// Load tokens from the spectyn-owned file, if present + parseable.
 pub fn load(home: &Path) -> Option<OpenAiTokens> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(storage_path(home)).ok()?).ok()?;
     let tokens = v.get("tokens")?;
@@ -206,7 +206,7 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Op
     Ok(t)
 }
 
-/// Refresh-on-use (#3): if a phantom-minted token exists and its JWT `exp` is
+/// Refresh-on-use (#3): if a spectyn-minted token exists and its JWT `exp` is
 /// within 60s, refresh it and rewrite the file. Best-effort; never panics.
 pub async fn ensure_fresh_if_present(home: &Path, now_secs: u64) {
     let Some(t) = load(home) else { return };

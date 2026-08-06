@@ -2,7 +2,7 @@
 //!
 //! Each session is identified by a `chat_id` and stored as a newline-delimited
 //! JSON ([JSONL](https://jsonlines.org/)) file under
-//! `~/.phantom-mesh/conversations/<chat_id>.jsonl`, one [`ChatMessage`] per line.
+//! `~/.spectyn-mesh/conversations/<chat_id>.jsonl`, one [`ChatMessage`] per line.
 //! An in-memory LRU-style cache fronts the disk so repeated reads avoid I/O,
 //! while every mutation is also flushed to disk so history survives restarts.
 //!
@@ -81,11 +81,11 @@ impl Default for ConversationStore {
 }
 
 impl ConversationStore {
-    /// Create a store rooted at `~/.phantom-mesh/conversations` (falling back to
+    /// Create a store rooted at `~/.spectyn-mesh/conversations` (falling back to
     /// `./conversations` if `$HOME` is unset). Creates the directory if missing.
     pub fn new() -> Self {
-        let base_dir = crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        let base_dir = crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
             .join("conversations");
         std::fs::create_dir_all(&base_dir).ok();
         Self {

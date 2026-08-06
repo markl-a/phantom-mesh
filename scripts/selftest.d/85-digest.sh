@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate `phantom autoevolve digest` subcommand against a synthetic
+# Validate `spectyn autoevolve digest` subcommand against a synthetic
 # autoevolve.log. Asserts:
 #   - runs_total counts entries within the time window
 #   - by_status buckets are sane
@@ -10,20 +10,20 @@ selftest_feature_meta() {
   echo "name=digest"
   echo "priority=P2"
   echo "requires=python3"
-  echo "description=phantom autoevolve digest --json against a synthetic JSONL log"
-  echo "hints=core/src/bin/phantom.rs autoevolve_digest"
+  echo "description=spectyn autoevolve digest --json against a synthetic JSONL log"
+  echo "hints=core/src/bin/spectyn.rs autoevolve_digest"
 }
 
 selftest_requires() {
   t_have python3 || { echo "python3 missing — needed to validate JSON shape" >&2; return 1; }
 }
 
-# Build a temp HOME with a synthetic ~/.phantom-mesh/autoevolve.log.
+# Build a temp HOME with a synthetic ~/.spectyn-mesh/autoevolve.log.
 # Entries timestamped in ms-from-epoch. Mix of statuses across the
 # last 12 hours.
 _digest_setup_home() {
   local td; td=$(mktemp -d)
-  mkdir -p "$td/.phantom-mesh"
+  mkdir -p "$td/.spectyn-mesh"
   local now_ms
   now_ms=$(python3 -c 'import time; print(int(time.time()*1000))')
   # 5 entries: 3 within last 24h, 2 older. Statuses: 2 green, 1 fixed,
@@ -39,7 +39,7 @@ entries = [
     {"started_at_ms": now - 14400_000,  "target":"check","status":"queued-task-failed", "rounds":0,"elapsed_secs":3.0, "commit":None,                 "summary":"task broke build"},
     {"started_at_ms": now - 1000*3600*36,"target":"check","status":"green",             "rounds":0,"elapsed_secs":0.4,"commit":None,                 "summary":"old entry beyond 24h"},
 ]
-with open(os.path.join(td, ".phantom-mesh", "autoevolve.log"), "w") as f:
+with open(os.path.join(td, ".spectyn-mesh", "autoevolve.log"), "w") as f:
     for e in entries:
         f.write(json.dumps(e) + "\n")
 PY
@@ -51,9 +51,9 @@ selftest_run() {
   td=$(_digest_setup_home)
 
   out="$SELFTEST_ARTIFACTS/digest-24h.json"
-  HOME="$td" "$PHANTOM" autoevolve digest --since-hours 24 --json > "$out" 2>&1
+  HOME="$td" "$SPECTYN" autoevolve digest --since-hours 24 --json > "$out" 2>&1
   T_ARTIFACT="$out"
-  T_REPRO="HOME=$td $PHANTOM autoevolve digest --since-hours 24 --json"
+  T_REPRO="HOME=$td $SPECTYN autoevolve digest --since-hours 24 --json"
 
   # 1. JSON parses + has expected top-level keys.
   if python3 -c '
@@ -108,7 +108,7 @@ print("OK")
 
   # 5. Wider window (--since-hours 72) catches the older entry too
   out2="$SELFTEST_ARTIFACTS/digest-72h.json"
-  HOME="$td" "$PHANTOM" autoevolve digest --since-hours 72 --json > "$out2" 2>&1
+  HOME="$td" "$SPECTYN" autoevolve digest --since-hours 72 --json > "$out2" 2>&1
   local runs_72
   runs_72=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("runs_total"))' "$out2" 2>/dev/null)
   T_ARTIFACT="$out2"

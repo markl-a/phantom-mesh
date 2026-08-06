@@ -1,6 +1,6 @@
 > ⚠️ pre-pivot — 方向已被現行 4-pillar Life/Work(superpowers/BIG-GOAL.md)取代;戰術細節或許仍可用。
 
-# phantom ↔ 其他 AI 工具 — 上下文分享與跨工具呼叫
+# spectyn ↔ 其他 AI 工具 — 上下文分享與跨工具呼叫
 
 **Status（狀態）**：design / analysis（設計／分析，尚未實作）。
 **Target（目標版本）**：v0.2（在 5/15 OSS（開源軟體）發佈之後）。
@@ -8,12 +8,12 @@
 
 使用者想要兩件不同的事：
 
-1. **Context sharing（上下文分享）** — phantom 可以把它目前的狀態（近期
+1. **Context sharing（上下文分享）** — spectyn 可以把它目前的狀態（近期
    對話、改動過的檔案、已做的決策、TODO（待辦）清單、repo（程式碼倉庫）
    上下文）交接給其他 AI 工具（Claude Code、Codex、Gemini CLI、Antigravity、Aider…），
-   讓下一個工具從 phantom 中斷的地方繼續。
+   讓下一個工具從 spectyn 中斷的地方繼續。
 
-2. **Cross-tool invocation（跨工具呼叫）** — 在 phantom 內部，把另一個 AI
+2. **Cross-tool invocation（跨工具呼叫）** — 在 spectyn 內部，把另一個 AI
    CLI（命令列介面）當成可呼叫的工具。像是 `delegate(tool="gemini", prompt="…")`
    — 與今天的 `subagent` 工具形狀相同，但這裡的「agent（代理）」是一個
    *不同的產品*，而非一台不同的 *機器*。
@@ -30,18 +30,18 @@
 | 把 `codex` CLI 當成工具呼叫 | ✅ 約半天 | 相同形狀 |
 | 把 `claude` CLI（Claude Code）當成工具呼叫 | ✅ 約半天 | 相同形狀；透過 `ANTHROPIC_API_KEY` 做 auth（認證） |
 | 把 Antigravity 當成「幫我做這件事」的 agent 呼叫 | ❌ 目前不行 | 現行 Antigravity 版本（1.107.0）沒有 headless（無介面）/ prompt-API |
-| 雙向上下文（把其他工具的狀態讀進 phantom） | ⚠️ 逐工具處理 | Claude Code 的 session JSONL 算好讀；Codex 類似；Antigravity / Cline / Continue 在 IDE 側，較難 |
+| 雙向上下文（把其他工具的狀態讀進 spectyn） | ⚠️ 逐工具處理 | Claude Code 的 session JSONL 算好讀；Codex 類似；Antigravity / Cline / Continue 在 IDE 側，較難 |
 
 **沒有硬性技術障礙**，只是水管接線（plumbing）加上每個工具的 adapter（轉接器）工作。
 
 ## 設計
 
-### 功能 A — `/share` slash 指令 + `phantom share` 子指令
+### 功能 A — `/share` slash 指令 + `spectyn share` 子指令
 
 ```
-/share claude                  # 寫到 ~/.phantom-mesh/share/claude-<sid>.md
-/share codex                   # 寫到 ~/.phantom-mesh/share/codex-<sid>.md
-/share gemini                  # 寫到 ~/.phantom-mesh/share/gemini-<sid>.md
+/share claude                  # 寫到 ~/.spectyn-mesh/share/claude-<sid>.md
+/share codex                   # 寫到 ~/.spectyn-mesh/share/codex-<sid>.md
+/share gemini                  # 寫到 ~/.spectyn-mesh/share/gemini-<sid>.md
 /share antigravity             # 寫到 project 內的 .antigravity/context.md
 /share AGENTS.md --append      # 把 "## Recent context" 區塊附加到 project 的 AGENTS.md
 /share --copy                  # 放到剪貼簿（使用 `pbcopy` / `xclip` / `clip`）
@@ -71,7 +71,7 @@ pub fn render(history: &[ChatMessage], format: ShareFormat) -> String { … }
 註冊在 `subagent` 旁邊的一個新工具：
 
 ```toml
-# ~/.phantom-mesh/agents.toml — 頂層 [tools.delegate] 區塊
+# ~/.spectyn-mesh/agents.toml — 頂層 [tools.delegate] 區塊
 [tools.delegate]
 default_context = true               # 自動納入當前 session 最後 6 個回合
 default_timeout_secs = 120
@@ -98,7 +98,7 @@ mode      = "open_project"          # 不是 prompt；只是打開 project
 share_to  = ".antigravity/context.md"  # 上下文被寫到哪裡
 ```
 
-工具 schema（Claude Code / phantom REPL（互動式命令列）所看到的）：
+工具 schema（Claude Code / spectyn REPL（互動式命令列）所看到的）：
 
 ```json
 {
@@ -162,17 +162,17 @@ pub async fn delegate(args: &Value, cfg: &ToolsConfig) -> String {
 }
 ```
 
-### 功能 C — 把其他工具的狀態讀進 phantom
+### 功能 C — 把其他工具的狀態讀進 spectyn
 
-這是反向操作：phantom 從 Claude Code 中斷的地方接續。
+這是反向操作：spectyn 從 Claude Code 中斷的地方接續。
 
 ```
-phantom --import claude-code        # 讀取 ~/.claude/sessions/<latest>.jsonl
-phantom --import codex              # 讀取 codex transcript
-phantom --import-file <path>        # 明確指定
+spectyn --import claude-code        # 讀取 ~/.claude/sessions/<latest>.jsonl
+spectyn --import codex              # 讀取 codex transcript
+spectyn --import-file <path>        # 明確指定
 ```
 
-把每種格式轉換成 phantom 的 `ChatMessage` 形狀，附加到一個新的 session，
+把每種格式轉換成 spectyn 的 `ChatMessage` 形狀，附加到一個新的 session，
 當作接續執行。
 
 優先度低於 A+B，但只要 share 轉換器存在，加上去很簡單（只要把它們反向跑）。
@@ -182,9 +182,9 @@ phantom --import-file <path>        # 明確指定
 - `/copy all` 與 `/export` 已經能產出中性的 markdown（不綁定任何工具的格式）。
   使用者可以貼進任何聊天，該工具就能讀。所以「分享給另一個工具」的
   **手動流程**已經只差一個 slash 指令 + ⌘V。
-- `AGENTS.md` 已經會自動載入。如果 phantom 在下次執行時寫入 AGENTS.md
+- `AGENTS.md` 已經會自動載入。如果 spectyn 在下次執行時寫入 AGENTS.md
   （或任何其他尊重 AGENTS.md 的工具），狀態就會往後延續。
-- phantom 的 MCP server 讓 Claude Code / Codex 等工具能呼叫 phantom。
+- spectyn 的 MCP server 讓 Claude Code / Codex 等工具能呼叫 spectyn。
   所以功能 B 的反向操作已經做好了。
 
 ## 棘手之處
@@ -198,12 +198,12 @@ phantom --import-file <path>        # 明確指定
 - `aider` — env vars（環境變數）或 `~/.aider/config`
 - `antigravity` — 它自己的登入
 
-phantom 必須「不」覆蓋這些設定，也不能在工具之間外洩它們。每個 delegate
+spectyn 必須「不」覆蓋這些設定，也不能在工具之間外洩它們。每個 delegate
 target（委派目標）會繼承父行程的 env（這沒問題 — 使用者的 shell 已經設好了）。
 
 ### 跨工具的成本記帳
 
-今天 phantom 的 CostTracker 只追蹤 phantom 自己發出的 API 呼叫。
+今天 spectyn 的 CostTracker 只追蹤 spectyn 自己發出的 API 呼叫。
 當我們委派給 `gemini` 時，gemini 的成本對我們是不可見的。v0.2 可以接受；
 v0.3 或許會加上 `delegate_cost_usd` 欄位，從目標的最終回應裡解析出來
 （大多數 CLI 會印出 "tokens used: N"）。
@@ -240,17 +240,17 @@ antigravity [paths...]                # 開啟檔案/資料夾
 
 **Day 1** — `core/src/share.rs` 含 `ShareFormat` + 5 個轉換器。
             `/export --format` 旗標（目前 `/export` 預設為 Generic）。
-            `/share <format>` slash 指令，寫到 `~/.phantom-mesh/share/`。
+            `/share <format>` slash 指令，寫到 `~/.spectyn-mesh/share/`。
 **Day 2** — `core/src/tools/delegate.rs` + agents.toml schema。
             接好 3 個 backend（後端）：gemini、codex、claude。
 **Day 3** — Auth-passthrough（認證透傳）驗證 + 每個 target 的 stderr 處理
             （擷取但不污染 delegate 回應的 stdout）。
             Antigravity 的 `open_project` 模式。
-**Day 4** — `phantom --import <tool>` 反向操作。
+**Day 4** — `spectyn --import <tool>` 反向操作。
 **Day 5** — 文件 + 4 個 demo（示範）腳本：
-            - 「3 個工具做 Code review」（phantom → 委派給 gemini → 委派給 codex → 綜合）
-            - 「在 Antigravity 繼續這個」（phantom /share antigravity → 切換到 GUI（圖形介面））
-            - 「在 phantom 接續 Claude Code session」（`phantom --import claude-code`）
+            - 「3 個工具做 Code review」（spectyn → 委派給 gemini → 委派給 codex → 綜合）
+            - 「在 Antigravity 繼續這個」（spectyn /share antigravity → 切換到 GUI（圖形介面））
+            - 「在 spectyn 接續 Claude Code session」（`spectyn --import claude-code`）
             - 成本：每個工具各增加了多少。
 
 **Total（總計）**：發佈後 4-5 天的專注工作。沒有任何一項是高風險。
@@ -259,7 +259,7 @@ antigravity [paths...]                # 開啟檔案/資料夾
 
 - **CLI 旗標穩定性**：如果 `gemini` 2.0 改了旗標名稱，我們就調整
   toml target。不需改程式碼。
-- **Auth 意外**：被委派的工具認證失敗 → phantom 擷取 stderr，
+- **Auth 意外**：被委派的工具認證失敗 → spectyn 擷取 stderr，
   呈現給使用者並提示設定 `ANTHROPIC_API_KEY` 等等。
 - **路徑敏感性**：工具透過 PATH 解析 `cmd`；如果使用者有多個版本，
   以預設的 `which` 順序為準。和在 shell 裡跑 `which gemini` 相同。
@@ -267,12 +267,12 @@ antigravity [paths...]                # 開啟檔案/資料夾
 ## 這項功能帶來什麼（使用者層面）
 
 ```
-# Phantom REPL
+# Spectyn REPL
 > 我寫好的 PR diff 在 ~/work/repo, 請 gemini 看看，再給 claude review,
 > 兩家結果合在一起寫 review 留言
 ```
 
-Phantom 內部會呼叫：
+Spectyn 內部會呼叫：
 1. `delegate(tool=gemini, prompt="review the diff at ...", with_context=true)`
 2. `delegate(tool=claude, prompt="review the same diff", with_context=true)`
 3. （master agent，主代理）綜合這兩個回應
@@ -282,7 +282,7 @@ Phantom 內部會呼叫：
 ```
 > 我這個 session 切過去 antigravity 繼續寫
 > /share antigravity
-> # phantom 寫 .antigravity/context.md 並 spawn antigravity 開 project
+> # spectyn 寫 .antigravity/context.md 並 spawn antigravity 開 project
 ```
 
 使用者切換工具，不會遺失狀態。
@@ -296,8 +296,8 @@ Phantom 內部會呼叫：
    往上堆。
 2. 分享的「手動」變通做法（`/export` + 貼上）已經夠用。
 3. 跨工具 delegate 是一個 **growth（成長型）** 功能，不是核心。發佈後
-   以「現在 phantom 能編排你其餘的 AI 技術棧」來推銷，比把它當成
-   「phantom 是什麼？」的一部分來出貨，要容易得多。
+   以「現在 spectyn 能編排你其餘的 AI 技術棧」來推銷，比把它當成
+   「spectyn 是什麼？」的一部分來出貨，要容易得多。
 
 但 v0.2 的建置與 broker（中介伺服器）/ billing（計費）/ Apple Sign In 無關，
 所以它可以與 SaaS（軟體即服務）路線平行進行。

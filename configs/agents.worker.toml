@@ -1,4 +1,4 @@
-# Phantom Mesh — Worker Node Config
+# Spectyn Mesh — Worker Node Config
 # ====================================
 # For: node-b (Windows), node-d (Windows), or other Linux/Windows worker machines
 # Role: Local compute worker — runs local Ollama models for fast, private inference
@@ -8,15 +8,15 @@
 # The Telegram bot runs on the cloud node, not here.
 #
 # Copy to:
-#   Windows: %USERPROFILE%\.phantom-mesh\agents.toml
-#   Linux:   ~/.phantom-mesh/agents.toml   (or ~/.config/phantom-mesh/config.toml)
-# (The binary searches: ./agents.toml → ./PHANTOM.toml → ~/.phantom-mesh/agents.toml
-#  → ~/.config/phantom-mesh/config.toml — see core/src/config.rs::find_and_load.)
+#   Windows: %USERPROFILE%\.spectyn-mesh\agents.toml
+#   Linux:   ~/.spectyn-mesh/agents.toml   (or ~/.config/spectyn-mesh/config.toml)
+# (The binary searches: ./agents.toml → ./SPECTYN.toml → ~/.spectyn-mesh/agents.toml
+#  → ~/.config/spectyn-mesh/config.toml — see core/src/config.rs::find_and_load.)
 #
 # Then change node_name to identify this machine (e.g. "node-b", "node-c", "linux-01").
 #
 # Required env vars:
-#   PHANTOM_CLUSTER_SECRET — shared secret matching all other nodes
+#   SPECTYN_CLUSTER_SECRET — shared secret matching all other nodes
 # Optional env vars:
 #   ANTHROPIC_API_KEY      — fallback when Ollama is unavailable or underpowered
 # ─────────────────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """You are an AI assistant running as a worker node in the Phantom Mesh cluster. You specialise in local compute tasks: file operations, shell commands, and code analysis.
+instructions = """You are an AI assistant running as a worker node in the Spectyn Mesh cluster. You specialise in local compute tasks: file operations, shell commands, and code analysis.
 
 Key behaviors:
 - Execute shell commands and file operations as instructed by the coordinator

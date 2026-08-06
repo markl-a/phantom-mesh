@@ -1,4 +1,4 @@
-# phantom-mesh v0.1.0-alpha
+# spectyn-mesh v0.1.0-alpha
 
 ## 未發行（Unreleased）
 
@@ -8,16 +8,16 @@
 `agents.toml` 中的 `[cluster].cluster_secret` 為空或缺漏時，會接受未經
 驗證（unauthenticated，未通過身分驗證）的請求。它們現在會以
 `403 Forbidden` 拒絕。設定 `cluster_secret` 來完成遷移，或設定
-`PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1` 以在「一個版本內」恢復舊有
+`SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1` 以在「一個版本內」恢復舊有
 （legacy，沿用既往）行為 — 這個環境變數（env-var）覆寫項目將在下一個
 次要版本（minor）中移除。
 
 儀表板（dashboard）上的 CORS（跨來源資源共用）也從「任何來源」
 （`CorsLayer::permissive()`）收緊為同源（same-origin）。在遷移期間
-設定 `PHANTOM_CORS_ALLOW_ANY=1` 以恢復舊有的寬鬆行為；同樣是一個版本
+設定 `SPECTYN_CORS_ALLOW_ANY=1` 以恢復舊有的寬鬆行為；同樣是一個版本
 後即停用（sunset，落日退場）。
 
-這兩個覆寫項目都會在每次 `phantom serve` 啟動時記錄一行
+這兩個覆寫項目都會在每次 `spectyn serve` 啟動時記錄一行
 `SECURITY WARNING:`，讓維運人員（operator）一眼就能看出他們的節點
 （node）是否仍走在舊有路徑上。
 
@@ -40,7 +40,7 @@ CRITICAL（嚴重）或 HIGH（高）的十一個端點，現在會拒絕未經�
   （T13-N1 後續）
 
 **單一版本遷移逃生口（escape hatch）：** 設定
-`PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1`（與 T7 相同的環境變數），常駐服務
+`SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1`（與 T7 相同的環境變數），常駐服務
 會退回（fall back）到舊有的未驗證行為，並在啟動時發出明顯的警告。這個
 覆寫項目將在 v0.6.0 中被移除。
 
@@ -55,7 +55,7 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 `web_fetch`、`http_get`、`http_post` 現在會拒絕回送位址（loopback）／
 私有 IPv4（10/8、172.16-31/12、192.168/16、169.254/16）與私有 IPv6
 （`::1`、`fc00::/7`、`fe80::/10`）的 URL。設定
-`PHANTOM_FETCH_ALLOW_LOCAL=1` 以允許它們（這個環境變數已隨
+`SPECTYN_FETCH_ALLOW_LOCAL=1` 以允許它們（這個環境變數已隨
 `tools/fetch.rs` 一起出貨，未有變動）。
 
 ### 破壞性變更 — `rename_file` 的 `dst` 現在受工作區（workspace）綁定（T7b T13-N7）
@@ -63,7 +63,7 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 `tools/fs::rename_file` 先前將 `src` 綁定於工作區（T7），但 `dst` 是一個
 無界限（unbounded）的 `PathBuf::from`。這個工具可能將工作區檔案移動到
 磁碟上的任何位置。`dst` 現在會經過與 `src` 相同的 `safe_path` 輔助函式
-路由；跨工作區的移動需要 `PHANTOM_EXTRA_ALLOWED_ROOTS` 包含目的地根目錄。
+路由；跨工作區的移動需要 `SPECTYN_EXTRA_ALLOWED_ROOTS` 包含目的地根目錄。
 
 那 4 個 MEDIUM（中）等級的發現（T13-N8 `bash_run_background` 黑名單
 繞過、T13-N9 缺少 `RequestBodyLimitLayer`、T13-N10 git 的 `-` 前綴參數
@@ -80,7 +80,7 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 
 ## 它是什麼？
 
-`phantom` 是一個單一的 Rust 二進位檔，提供你：
+`spectyn` 是一個單一的 Rust 二進位檔，提供你：
 
 - 在終端機中的**對話式 REPL**（Claude Code／Codex 風格）
 - 一個 **MCP 伺服器** — 可直接套用（drop-in）的子代理，供 Claude Code、
@@ -88,7 +88,7 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 - 一個 **WebSocket JSON-RPC 常駐服務（daemon）** — Codex 相容的用戶端介面
 - 一個位於 `http://localhost:7878` 的**內嵌網頁儀表板** — 節點狀態、
   終端機、設定 — 可從網路上任何裝置存取
-- 一個**網狀網路（mesh）** — 多個 `phantom` 節點彼此發現並委派
+- 一個**網狀網路（mesh）** — 多個 `spectyn` 節點彼此發現並委派
   （delegate）工作
 
 ## 它有何不同？
@@ -103,7 +103,7 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 - **P2P 計算網狀網路** — 透過 HTTP+HMAC、非同步工作佇列（job queue）、
   最少負載（least-loaded）路由，將任務分散到各節點
 - **本地優先（local-first）** — 無遙測（telemetry）；所有資料都在
-  `~/.phantom-mesh/` 內
+  `~/.spectyn-mesh/` 內
 - **既是子代理也是獨立程式** — 透過 MCP 內嵌進 Claude Code，或將它當作
   你自己的主要代理來運行
 
@@ -111,14 +111,14 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 
 ```bash
 # 1. Download a binary for your platform from the Releases page, then:
-./phantom              # terminal walks you through provider setup
+./spectyn              # terminal walks you through provider setup
                        # → drops into REPL with welcome banner
 
 # Or open the web onboarding:
-./phantom onboarding   # spawns serve, opens browser to settings page
+./spectyn onboarding   # spawns serve, opens browser to settings page
 
 # Subagent for Claude Code: add to ~/.claude.json
-#   "mcpServers": { "phantom": { "command": "phantom", "args": ["mcp"] } }
+#   "mcpServers": { "spectyn": { "command": "spectyn", "args": ["mcp"] } }
 ```
 
 完整指南：[docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) ·
@@ -126,22 +126,22 @@ HMAC-SHA256；GET 與 WS 升級的正規（canonical）主體為空位元組字�
 
 ## 這個版本包含什麼
 
-- `phantom` — 具備串流、多行輸入、斜線指令、行內工具呼叫的 REPL
-- `phantom mcp` — MCP stdio 伺服器（40 個工具）
-- `phantom serve` — WebSocket ＋ 內嵌網頁儀表板（`http://host:7878`）
-- `phantom onboarding` — 以瀏覽器為基礎的設定精靈（wizard）
-- `phantom evolve --distributed` — 跨網狀網路的平行代理群（agent swarm）
-- `phantom coordinator` — 透過 mDNS 的零設定（zero-config）對等節點發現
-- `phantom swarm` / `phantom peer` — 叢集（cluster）委派工具
+- `spectyn` — 具備串流、多行輸入、斜線指令、行內工具呼叫的 REPL
+- `spectyn mcp` — MCP stdio 伺服器（40 個工具）
+- `spectyn serve` — WebSocket ＋ 內嵌網頁儀表板（`http://host:7878`）
+- `spectyn onboarding` — 以瀏覽器為基礎的設定精靈（wizard）
+- `spectyn evolve --distributed` — 跨網狀網路的平行代理群（agent swarm）
+- `spectyn coordinator` — 透過 mDNS 的零設定（zero-config）對等節點發現
+- `spectyn swarm` / `spectyn peer` — 叢集（cluster）委派工具
 
 ## 平台
 
 v0.1.0-alpha 的預建（pre-built）二進位檔：
 
-- **macOS arm64**（`phantom-aarch64-apple-darwin`）
-- **Windows x86_64**（`phantom-x86_64-pc-windows.exe`）
-- **Linux arm64**（`phantom-aarch64-unknown-linux`）
-- **Android arm64**（`phantom-aarch64-linux-android`）
+- **macOS arm64**（`spectyn-aarch64-apple-darwin`）
+- **Windows x86_64**（`spectyn-x86_64-pc-windows.exe`）
+- **Linux arm64**（`spectyn-aarch64-unknown-linux`）
+- **Android arm64**（`spectyn-aarch64-linux-android`）
 - **iOS** — Tauri IPA（以免費 Apple 開發者憑證側載）
 
 其他平台（Linux x86_64、Android armv7、Windows arm64）— 請以

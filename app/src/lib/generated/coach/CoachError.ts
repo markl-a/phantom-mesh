@@ -3,7 +3,7 @@
 /**
  * Wire-facing error variants for the coach engine subsystem. Mirrors the
  * SPEC-23 §11.1 error catalog one-to-one. Sent back to the UI via Tauri
- * command failure path; CLI maps via `phantom_error::Error::user_message`.
+ * command failure path; CLI maps via `spectyn_error::Error::user_message`.
  *
  * 中文: SPEC-23 §11.1 error catalog 的 wire-facing 鏡像。每個 variant 對
  * 應一個 user-facing recovery hint（見 §11.1 表）。`#[serde(tag = "code")]`

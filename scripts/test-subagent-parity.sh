@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-subagent-parity.sh — verifies phantom's `subagent` and
+# test-subagent-parity.sh — verifies spectyn's `subagent` and
 # `parallel_tasks` tools produce output interchangeable with Claude
 # Code's `Agent` tool when `format: "raw"` is requested.
 #
@@ -17,26 +17,26 @@
 #   5. description field accepted (not blocking)
 #   6. parallel_tasks format=json → JSON array, one entry per task
 #
-# Skip with PHANTOM_PARITY_SKIP_LLM=1 (only runs the input-shape tests
+# Skip with SPECTYN_PARITY_SKIP_LLM=1 (only runs the input-shape tests
 # that don't need LLM dispatch — useful for CI without API keys).
 
 set -u
-PHANTOM="${PHANTOM:-$(command -v phantom)}"
-[ -z "$PHANTOM" ] && { echo "✗ phantom not on PATH"; exit 2; }
-SKIP_LLM="${PHANTOM_PARITY_SKIP_LLM:-0}"
+SPECTYN="${SPECTYN:-$(command -v spectyn)}"
+[ -z "$SPECTYN" ] && { echo "✗ spectyn not on PATH"; exit 2; }
+SKIP_LLM="${SPECTYN_PARITY_SKIP_LLM:-0}"
 
 PASS=0
 FAIL=0
 
-# Drive phantom mcp with a JSON-RPC sequence; return the response text.
+# Drive spectyn mcp with a JSON-RPC sequence; return the response text.
 _drive() {
-    printf '%s\n' "$1" | timeout 60 "$PHANTOM" mcp 2>/dev/null
+    printf '%s\n' "$1" | timeout 60 "$SPECTYN" mcp 2>/dev/null
 }
 
 _init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"parity","version":"1"}}}'
 
 # Extract the `text` field from the most recent tools/call response.
-# phantom MCP returns tool results as `{"content":[{"text":"…","type":"text"}], "isError":...}`.
+# spectyn MCP returns tool results as `{"content":[{"text":"…","type":"text"}], "isError":...}`.
 _extract_text() {
     python3 -c '
 import json, sys, re
@@ -73,8 +73,8 @@ _check() {
     fi
 }
 
-echo "━━ phantom subagent parity tests ━━"
-echo "  binary: $PHANTOM · skip_llm: $SKIP_LLM"
+echo "━━ spectyn subagent parity tests ━━"
+echo "  binary: $SPECTYN · skip_llm: $SKIP_LLM"
 echo ""
 
 # ── Tier 1: schema-only checks (don't need LLM dispatch) ────────────────────
@@ -109,11 +109,11 @@ else
     _check "neg: missing agent → clean error" no "$out"
 fi
 
-# ── Tier 2: actual LLM dispatch (skip with PHANTOM_PARITY_SKIP_LLM=1) ───────
+# ── Tier 2: actual LLM dispatch (skip with SPECTYN_PARITY_SKIP_LLM=1) ───────
 
 if [ "$SKIP_LLM" = "1" ]; then
     echo ""
-    echo "  (PHANTOM_PARITY_SKIP_LLM=1 — skipping LLM-dispatch tests)"
+    echo "  (SPECTYN_PARITY_SKIP_LLM=1 — skipping LLM-dispatch tests)"
     echo "━━ result: $PASS pass, $FAIL fail ━━"
     [ "$FAIL" -eq 0 ]
     exit $?

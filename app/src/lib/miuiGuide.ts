@@ -1,7 +1,7 @@
 // MIUI (小米系統) compatibility guide bridge — SPEC-33 §6(E) / SPEC-34 §9 + G6.
 //
 // MIUI / Redmi devices kill background apps far more aggressively than stock
-// Android, so phantom's foreground MeshNodeService gets reaped overnight unless
+// Android, so spectyn's foreground MeshNodeService gets reaped overnight unless
 // the user adds it to the auto-start whitelist AND the battery-optimization
 // deny-list. We CANNOT set these programmatically (no public MIUI API) — the
 // guide only deep-links the user to the right system screens and, as the

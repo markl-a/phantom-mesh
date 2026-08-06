@@ -9,10 +9,10 @@
 #
 # Usage:
 #   scripts/rc.sh <label> -- <command...>
-#   scripts/rc.sh check -- cargo check --bin phantom
-#   scripts/rc.sh login -- phantom login google
+#   scripts/rc.sh check -- cargo check --bin spectyn
+#   scripts/rc.sh login -- spectyn login google
 #
-# Output: tees to /tmp/phantom-rc-<label>-<timestamp>.log and prints:
+# Output: tees to /tmp/spectyn-rc-<label>-<timestamp>.log and prints:
 #   === RC_SENTINEL label=<label> exit=<code> log=<path> ===
 # Exits with the wrapped command's exit code.
 
@@ -28,7 +28,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 ts="$(date +%Y%m%d-%H%M%S)"
-log="/tmp/phantom-rc-${label}-${ts}.log"
+log="/tmp/spectyn-rc-${label}-${ts}.log"
 
 # Run, stream to terminal AND log. PIPESTATUS[0] = the command's real RC.
 "$@" 2>&1 | tee "$log"

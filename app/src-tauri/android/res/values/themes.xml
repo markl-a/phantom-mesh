@@ -1,37 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SPEC-33 §10.1 — Material 3 base theme for the phantom-mesh Android shell.
+<!-- SPEC-33 §10.1 — Material 3 base theme for the spectyn-mesh Android shell.
      Parent: Theme.Material3.DayNight.NoActionBar (com.google.android.material
-     1.12.0, present in the generated build.gradle.kts). phantom (SPEC-02) color
+     1.12.0, present in the generated build.gradle.kts). spectyn (SPEC-02) color
      tokens override the M3 color roles. Dynamic Color (Android 12+ wallpaper
-     extraction) is intentionally NOT enabled to keep phantom's brand consistent.
+     extraction) is intentionally NOT enabled to keep spectyn's brand consistent.
      The WebView renders the visible UI, so the theme mainly drives the cold-start
      window, status / navigation bars and native system dialogs.
      Injected into gen/android by inject.sh (overrides the M2 scaffold default). -->
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.phantom_mesh_app" parent="Theme.Material3.DayNight.NoActionBar">
+    <style name="Theme.spectyn_mesh_app" parent="Theme.Material3.DayNight.NoActionBar">
         <!-- Brand / accent -->
-        <item name="colorPrimary">@color/phantom_primary</item>
-        <item name="colorOnPrimary">@color/phantom_bg</item>
-        <item name="colorPrimaryContainer">@color/phantom_card</item>
-        <item name="colorOnPrimaryContainer">@color/phantom_primary</item>
-        <item name="colorSecondary">@color/phantom_secondary</item>
-        <item name="colorOnSecondary">@color/phantom_bg</item>
+        <item name="colorPrimary">@color/spectyn_primary</item>
+        <item name="colorOnPrimary">@color/spectyn_bg</item>
+        <item name="colorPrimaryContainer">@color/spectyn_card</item>
+        <item name="colorOnPrimaryContainer">@color/spectyn_primary</item>
+        <item name="colorSecondary">@color/spectyn_secondary</item>
+        <item name="colorOnSecondary">@color/spectyn_bg</item>
 
         <!-- Surfaces -->
-        <item name="android:colorBackground">@color/phantom_bg</item>
-        <item name="colorOnBackground">@color/phantom_text</item>
-        <item name="colorSurface">@color/phantom_card</item>
-        <item name="colorOnSurface">@color/phantom_text</item>
-        <item name="colorSurfaceVariant">@color/phantom_border</item>
-        <item name="colorOnSurfaceVariant">@color/phantom_muted</item>
-        <item name="colorOutline">@color/phantom_border</item>
-        <item name="colorError">@color/phantom_danger</item>
-        <item name="colorOnError">@color/phantom_text</item>
+        <item name="android:colorBackground">@color/spectyn_bg</item>
+        <item name="colorOnBackground">@color/spectyn_text</item>
+        <item name="colorSurface">@color/spectyn_card</item>
+        <item name="colorOnSurface">@color/spectyn_text</item>
+        <item name="colorSurfaceVariant">@color/spectyn_border</item>
+        <item name="colorOnSurfaceVariant">@color/spectyn_muted</item>
+        <item name="colorOutline">@color/spectyn_border</item>
+        <item name="colorError">@color/spectyn_danger</item>
+        <item name="colorOnError">@color/spectyn_text</item>
 
         <!-- System bars: dark chrome, no white flash on cold start -->
-        <item name="android:windowBackground">@color/phantom_bg</item>
-        <item name="android:statusBarColor">@color/phantom_bg</item>
-        <item name="android:navigationBarColor">@color/phantom_bg</item>
+        <item name="android:windowBackground">@color/spectyn_bg</item>
+        <item name="android:statusBarColor">@color/spectyn_bg</item>
+        <item name="android:navigationBarColor">@color/spectyn_bg</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>

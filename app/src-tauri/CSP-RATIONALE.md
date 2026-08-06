@@ -19,8 +19,8 @@ CSP（內容安全政策，Content Security Policy）的 `connect-src` 指令從
 |---|---|
 | `'self'` | 同源（same-origin）`/api/*` + Tauri IPC（行程間通訊）。 |
 | `ipc:` + `http://ipc.localhost` | Tauri 2 IPC 橋接。 |
-| `http://localhost:*` + `http://127.0.0.1:*` | 在動態埠（dynamic port）上的行程內（in-process）`phantom` daemon（常駐服務）。 |
-| `http://*:7878` | Tailscale／區域網路（LAN）叢集對等節點（cluster peers），使用預設的 `phantom serve` 埠——供 `clusterDispatch` + 行動裝置上線（onboarding）使用。 |
+| `http://localhost:*` + `http://127.0.0.1:*` | 在動態埠（dynamic port）上的行程內（in-process）`spectyn` daemon（常駐服務）。 |
+| `http://*:7878` | Tailscale／區域網路（LAN）叢集對等節點（cluster peers），使用預設的 `spectyn serve` 埠——供 `clusterDispatch` + 行動裝置上線（onboarding）使用。 |
 | `https://api.telegram.org` | `StepNetwork` 中的 Telegram bot-token 驗證。 |
 | `https://phantommesh.io` + `https://*.phantommesh.io` | Broker（中介伺服器）——縱深防禦（defense in depth）；正式環境的 broker 呼叫已經改走 Rust 命令。 |
 | `https://*.ts.net` | Tailscale MagicDNS 主機名稱。 |
@@ -50,17 +50,17 @@ CSP（內容安全政策，Content Security Policy）的 `connect-src` 指令從
 - `enable: false`——執行期不會解析任何 `asset://` URL。`ScreenshotView.tsx`
   中那唯一一處 `convertFileSrc()` 呼叫點今天是死碼（dead code）
   （`browser_screenshot` 回傳 `Err`），所以這不會破壞任何東西。
-- `scope.allow`：只有 `$HOME/.phantom-mesh/screenshots/**`。這是
+- `scope.allow`：只有 `$HOME/.spectyn-mesh/screenshots/**`。這是
   進行中的瀏覽器工具將要寫入的路徑（依據原始的
   `2026-04-10-phase1b-browser-viewer.md` 計畫）。預先把它列入允許清單，意味著
   v0.6.x 的開啟動作只是單行變更（`enable: true`），而路徑
   暴露面（surface）已經最小化。
 - `scope.deny`（優先於 allow）：硬性封鎖（hard-block）那些 COULD（有可能）
-  在未來 allow 樣式被放寬時跑到 `~/.phantom-mesh/` 底下的敏感應用程式內
+  在未來 allow 樣式被放寬時跑到 `~/.spectyn-mesh/` 底下的敏感應用程式內
   檔案——`auth.json`（broker token）、`env`（供應商金鑰）、
   `agents.toml`（供應商 URL），外加該目錄樹底下任何 `**/.env` 或 `**/auth.json`。
-- `requireLiteralLeadingDot: false`——`~/.phantom-mesh/` 本身以一個
-  點開頭；若無此設定，`$HOME/.phantom-mesh/...` 這個 glob 在 Unix 上不會匹配。
+- `requireLiteralLeadingDot: false`——`~/.spectyn-mesh/` 本身以一個
+  點開頭；若無此設定，`$HOME/.spectyn-mesh/...` 這個 glob 在 Unix 上不會匹配。
   Windows 會忽略此欄位。
 
 ### 哪些東西「不」需要 asset://
@@ -75,7 +75,7 @@ CSP（內容安全政策，Content Security Policy）的 `connect-src` 指令從
 ### 重新啟用檢查清單（供 v0.6.x 瀏覽器截圖工作使用）
 
 1. 落地真正的 `browser_screenshot` 命令（寫入
-   `~/.phantom-mesh/screenshots/<ts>.png`）。
+   `~/.spectyn-mesh/screenshots/<ts>.png`）。
 2. 把 `enable` 翻成 `true`。
 3. 確認 `ScreenshotView` 能正常算繪（render），且 devtools 主控台沒有
    `Failed to load resource`。

@@ -147,10 +147,10 @@ jobs:
 
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "Signing with production keystore."
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/phantom-mesh.keystore
-            APK_NAME="phantom-mesh-$REF_SAFE.apk"
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/spectyn-mesh.keystore
+            APK_NAME="spectyn-mesh-$REF_SAFE.apk"
             $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner sign \
-              --ks /tmp/phantom-mesh.keystore \
+              --ks /tmp/spectyn-mesh.keystore \
               --ks-key-alias "${{ secrets.ANDROID_KEY_ALIAS }}" \
               --ks-pass pass:env:ANDROID_STORE_PASSWORD \
               --key-pass pass:env:ANDROID_KEY_PASSWORD \
@@ -162,9 +162,9 @@ jobs:
               -keystore /tmp/debug.keystore \
               -storepass android -keypass android \
               -alias androiddebugkey \
-              -dname "CN=Phantom Mesh Debug, OU=CI, O=Phantom Mesh, C=TW" \
+              -dname "CN=Spectyn Mesh Debug, OU=CI, O=Spectyn Mesh, C=TW" \
               -validity 10000 -keyalg RSA -keysize 2048
-            APK_NAME="phantom-mesh-$REF_SAFE-debug.apk"
+            APK_NAME="spectyn-mesh-$REF_SAFE-debug.apk"
             $ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner sign \
               --ks /tmp/debug.keystore \
               --ks-key-alias androiddebugkey \
@@ -286,7 +286,7 @@ jobs:
         run: |
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           echo "${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}" | base64 -d \
-            > ~/Library/MobileDevice/Provisioning\ Profiles/phantom-mesh.mobileprovision
+            > ~/Library/MobileDevice/Provisioning\ Profiles/spectyn-mesh.mobileprovision
 
       - name: Build IPA
         working-directory: app
@@ -311,6 +311,6 @@ jobs:
         run: |
           xcrun altool --upload-app \
             --type ios \
-            --file "app/src-tauri/gen/apple/build/arm64/Phantom Mesh.ipa" \
+            --file "app/src-tauri/gen/apple/build/arm64/Spectyn Mesh.ipa" \
             --apiKey "$APPLE_API_KEY_ID" \
             --apiIssuer "$APPLE_API_ISSUER"

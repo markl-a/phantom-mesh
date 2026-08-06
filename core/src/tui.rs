@@ -1,4 +1,4 @@
-//! Full-screen ratatui TUI for `phantom tui`.
+//! Full-screen ratatui TUI for `spectyn tui`.
 //!
 //! Layout:
 //!   ┌─────────────── top status bar (1 line) ──────────────┐
@@ -61,7 +61,7 @@ const TUI_HISTORY_MAX: usize = 100;
 /// realistic prompts including pasted stack traces but bounds the worst case.
 const TUI_HISTORY_ENTRY_MAX_BYTES: usize = 4096;
 
-/// Hard cap on the on-disk TUI history file. If `~/.phantom-mesh/tui-history`
+/// Hard cap on the on-disk TUI history file. If `~/.spectyn-mesh/tui-history`
 /// somehow grows past this (e.g. a bug bypassed `maybe_compact_tui_history`,
 /// the user manually concatenated logs into it, or a malicious actor wrote
 /// a multi-GB file to the user's home dir), reading it into memory at TUI
@@ -76,9 +76,9 @@ const TUI_HISTORY_ENTRY_MAX_BYTES: usize = 4096;
 /// between compactions while still bounding the worst case.
 const MAX_TUI_HISTORY_BYTES: u64 = 5 * 1024 * 1024;
 
-/// Path to ~/.phantom-mesh/tui-history (one prompt per line, oldest → newest).
+/// Path to ~/.spectyn-mesh/tui-history (one prompt per line, oldest → newest).
 fn tui_history_path() -> Option<std::path::PathBuf> {
-    crate::cli_config::phantom_data_dir().ok().map(|d| d.join("tui-history"))
+    crate::cli_config::spectyn_data_dir().ok().map(|d| d.join("tui-history"))
 }
 
 /// Read persisted history into the in-memory ring at TUI startup. Best-
@@ -108,7 +108,7 @@ fn load_tui_history_from(path: &std::path::Path) -> Vec<String> {
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_TUI_HISTORY_BYTES {
             tracing::warn!(
-                target: "phantom_mesh::tui",
+                target: "spectyn_mesh::tui",
                 path = %path.display(),
                 size_bytes = meta.len(),
                 limit_bytes = MAX_TUI_HISTORY_BYTES,
@@ -155,7 +155,7 @@ fn restrict_tui_history_perms(path: &std::path::Path) {
 #[cfg(not(unix))]
 fn restrict_tui_history_perms(_path: &std::path::Path) {}
 
-/// Append a single prompt to ~/.phantom-mesh/tui-history. Encodes newlines
+/// Append a single prompt to ~/.spectyn-mesh/tui-history. Encodes newlines
 /// to " ⏎ " so each prompt stays one line. Atomic-ish (open append, write,
 /// close) — no .tmp+rename because a partial line is recoverable on next read.
 /// Entries exceeding `TUI_HISTORY_ENTRY_MAX_BYTES` after encoding are skipped
@@ -221,7 +221,7 @@ fn maybe_compact_tui_history_at(path: &std::path::Path) {
     if let Ok(meta) = std::fs::metadata(path) {
         if meta.len() > MAX_TUI_HISTORY_BYTES {
             tracing::warn!(
-                target: "phantom_mesh::tui",
+                target: "spectyn_mesh::tui",
                 path = %path.display(),
                 size_bytes = meta.len(),
                 limit_bytes = MAX_TUI_HISTORY_BYTES,
@@ -230,7 +230,7 @@ fn maybe_compact_tui_history_at(path: &std::path::Path) {
             let _ = std::fs::write(path, "");
             // V12 HIGH (TUI-2): `fs::write` on a pre-existing file usually
             // preserves perms on Unix, but if the file was created out-of-
-            // band (e.g. by an older phantom build before the 0o600 fix
+            // band (e.g. by an older spectyn build before the 0o600 fix
             // landed) it may still be 0o644. Re-tighten after every write
             // so compaction is also a passive migration path.
             restrict_tui_history_perms(path);
@@ -503,7 +503,7 @@ impl AppState {
     }
 }
 
-/// Public entry point invoked by `phantom tui`.
+/// Public entry point invoked by `spectyn tui`.
 pub async fn run_tui(
     runtime: AgentRuntime,
     conversations: ConversationStore,
@@ -513,15 +513,15 @@ pub async fn run_tui(
     extra_context: String,
 ) -> Result<()> {
     // Stdin must be a TTY for raw mode; bail with a helpful message otherwise
-    // (e.g. when launched under `echo "" | phantom tui`). Return an error (not
+    // (e.g. when launched under `echo "" | spectyn tui`). Return an error (not
     // Ok) so the process exits non-zero — a refusal-to-run must not look like
-    // success to a script/CI that invoked bare `phantom` in a non-interactive
+    // success to a script/CI that invoked bare `spectyn` in a non-interactive
     // context.
     use std::io::IsTerminal;
     if !io::stdin().is_terminal() {
         anyhow::bail!(
-            "phantom tui: stdin is not a terminal — TUI requires an interactive shell. \
-             Use `phantom repl` for line mode, or `phantom exec` for a headless one-shot."
+            "spectyn tui: stdin is not a terminal — TUI requires an interactive shell. \
+             Use `spectyn repl` for line mode, or `spectyn exec` for a headless one-shot."
         );
     }
 
@@ -559,12 +559,12 @@ pub async fn run_tui(
 
     // Mouse capture defaults ON so the wheel scrolls the transcript out of
     // the box (the standard terminal expectation). Users who need to drag-
-    // select text for copy run `/mouse off` (or set `PHANTOM_MOUSE=0`) to
+    // select text for copy run `/mouse off` (or set `SPECTYN_MOUSE=0`) to
     // hand drag events back to the terminal. Reversed from the previous
     // opt-in default after user feedback that "wheel = scroll output" is
     // the obvious binding and dragging-to-copy is the rarer case worth a
     // single command.
-    let initial_mouse = std::env::var("PHANTOM_MOUSE")
+    let initial_mouse = std::env::var("SPECTYN_MOUSE")
         .map(|v| !(v == "0" || v.eq_ignore_ascii_case("off") || v.eq_ignore_ascii_case("false")))
         .unwrap_or(true);
     let app = Arc::new(Mutex::new(AppState {
@@ -626,12 +626,12 @@ pub async fn run_tui(
         let mut s = app.lock().unwrap();
         s.transcript.push(TranscriptItem::System(crate::i18n::tr_owned(
             format!(
-                "phantom tui — agent: {} · session: {} · type a message and press Enter (Tab cycles agents, Esc cancels, Ctrl-C twice to exit)",
+                "spectyn tui — agent: {} · session: {} · type a message and press Enter (Tab cycles agents, Esc cancels, Ctrl-C twice to exit)",
                 AGENTS[agent_idx],
                 &chat_id[..chat_id.len().min(12)]
             ),
             format!(
-                "phantom tui — 代理人：{} · session：{} · 輸入訊息後按 Enter（Tab 切換代理人，Esc 取消，Ctrl-C 按兩次離開）",
+                "spectyn tui — 代理人：{} · session：{} · 輸入訊息後按 Enter（Tab 切換代理人，Esc 取消，Ctrl-C 按兩次離開）",
                 AGENTS[agent_idx],
                 &chat_id[..chat_id.len().min(12)]
             ),
@@ -680,7 +680,7 @@ pub async fn run_tui(
         let _ = h.stop.try_send(());
         // Give the delete request ~200ms to flush; not strictly needed
         // (60s stale window will clean it up anyway) but makes
-        // `phantom sessions` from another machine feel snappier.
+        // `spectyn sessions` from another machine feel snappier.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
@@ -694,10 +694,10 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     // Mouse capture defaults ON — wheel-to-scroll is the obvious binding
     // every terminal user expects. The trade is that the terminal can't
     // see drag events, so native click-and-drag text selection is blocked
-    // until the user runs `/mouse off` (or sets PHANTOM_MOUSE=0). For
+    // until the user runs `/mouse off` (or sets SPECTYN_MOUSE=0). For
     // copying without toggling, /copy <all|turn|last> still works in any
     // mode and is the recommended way to get clean text into the clipboard.
-    let want_mouse = std::env::var("PHANTOM_MOUSE")
+    let want_mouse = std::env::var("SPECTYN_MOUSE")
         .map(|v| !(v == "0" || v.eq_ignore_ascii_case("off") || v.eq_ignore_ascii_case("false")))
         .unwrap_or(true);
     if want_mouse {
@@ -713,7 +713,7 @@ fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
     //
     // Supported by: kitty, wezterm, iTerm2 (with the right setting),
     // foot, alacritty (recent). NOT supported by Apple Terminal.app —
-    // we ignore the error so phantom still starts there.
+    // we ignore the error so spectyn still starts there.
     let _ = execute!(
         io::stdout(),
         PushKeyboardEnhancementFlags(
@@ -1333,7 +1333,7 @@ async fn run_loop(
                                 }
                             };
                             if let Some(sel) = sel_snapshot {
-                                // Always log the up event so phantom debug shows
+                                // Always log the up event so spectyn debug shows
                                 // mouse activity for remote debugging.
                                 let (a, b) = sel.normalized();
                                 crate::diag::record(
@@ -1468,7 +1468,7 @@ const SLASH_COMMANDS_TUI: &[&str] = &[
     "/theme",
     "/tasks",
     "/plan",
-    // Config management — /keys writes to ~/.phantom-mesh/env (set/list/remove/test),
+    // Config management — /keys writes to ~/.spectyn-mesh/env (set/list/remove/test),
     // /provider lists providers + /provider priority edits failover order in agents.toml.
     "/keys",
     "/provider",
@@ -1635,7 +1635,7 @@ fn handle_key(app: &Arc<Mutex<AppState>>, k: KeyEvent) -> KeyAction {
         // Selection priority: if there's a meaningful highlighted region,
         // Ctrl+C copies it instead of touching the agent state. Matches
         // Windows Terminal / iTerm convention so users with Windows-
-        // keyboard muscle memory don't lose their phantom session every
+        // keyboard muscle memory don't lose their spectyn session every
         // time they want to copy a model response.
         //
         // Otherwise: aider-style double-tap.
@@ -1977,7 +1977,7 @@ fn handle_key(app: &Arc<Mutex<AppState>>, k: KeyEvent) -> KeyAction {
                 // and nothing happened until they hit Esc first.
                 if !prompt.is_empty() {
                     // Push to in-memory ring (dedup last) + persist to disk
-                    // so Up/Down recall survives phantom restart.
+                    // so Up/Down recall survives spectyn restart.
                     if s.history.last().map(|h| h != &prompt).unwrap_or(true) {
                         s.history.push(prompt.clone());
                         if s.history.len() > TUI_HISTORY_MAX {
@@ -2440,7 +2440,7 @@ fn extract_selection_text(buf: &ratatui::buffer::Buffer, sel: Selection) -> Stri
 /// `/copy` slash uses. Returns the command name on success so the caller
 /// can echo "copied via clip" / "copied via pbcopy".
 ///
-/// Why an external command instead of a clipboard crate: phantom already
+/// Why an external command instead of a clipboard crate: spectyn already
 /// uses this approach for `/copy <all|turn|last>`, and adding `arboard`
 /// or similar pulls in X11/Wayland deps on Linux that complicate cross-
 /// compile to platforms where clipboard isn't core. The user will already
@@ -2468,7 +2468,7 @@ fn copy_to_os_clipboard(text: &str) -> Result<&'static str, String> {
     Ok(cmd)
 }
 
-/// Wall-clock-derived "LLM is working" glyph — pulsing phantom diamond.
+/// Wall-clock-derived "LLM is working" glyph — pulsing spectyn diamond.
 /// Was a Braille rotor; that's what every other CLI agent uses
 /// (Codex/Claude Code/Aider all share the spinner crate's default), so
 /// switched to the brand glyph fading in/out: ◇ → ◈ → ◆ → ◈ → ...
@@ -2488,7 +2488,7 @@ fn render_status(f: &mut Frame, area: Rect, s: &AppState) {
     f.render_widget(Clear, area);
 
     let version = env!("CARGO_PKG_VERSION");
-    // Spinner sits to the LEFT of "phantom v0.1.0" while busy. We always
+    // Spinner sits to the LEFT of "spectyn v0.1.0" while busy. We always
     // emit one glyph (the spinner OR a space) so the version text never
     // shifts position between idle and busy states — flicker is what makes
     // a status bar feel cheap.
@@ -2506,7 +2506,7 @@ fn render_status(f: &mut Frame, area: Rect, s: &AppState) {
     let line = Line::from(vec![
         Span::styled(format!(" {} ", busy_glyph), busy_style),
         Span::styled(
-            format!("phantom v{}", version),
+            format!("spectyn v{}", version),
             Style::default()
                 .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD),
@@ -2553,7 +2553,7 @@ fn render_transcript(f: &mut Frame, area: Rect, s: &AppState) {
                 lines.push(Line::from(""));
             }
             TranscriptItem::Thinking(t) | TranscriptItem::ThinkingPartial(t) => {
-                if std::env::var("PHANTOM_THINKING")
+                if std::env::var("SPECTYN_THINKING")
                     .map(|v| v != "0")
                     .unwrap_or(true)
                 {
@@ -2697,8 +2697,8 @@ fn render_transcript(f: &mut Frame, area: Rect, s: &AppState) {
 }
 
 /// Right-rail target picker. Lists local agents (configurable in
-/// agents.toml [agent.*]) and remote peers (synced via `phantom config
-/// pull` → ~/.phantom-mesh/peers.json). Highlights the current focus
+/// agents.toml [agent.*]) and remote peers (synced via `spectyn config
+/// pull` → ~/.spectyn-mesh/peers.json). Highlights the current focus
 /// (Shift+Down/Up cycles); the active agent gets `*`. The visible focus
 /// is purely a hint — committing happens via Tab (cycles local agents)
 /// or `@<name>` prefix in the input.
@@ -2779,8 +2779,8 @@ fn render_sidebar(f: &mut Frame, area: Rect, s: &AppState) {
             Span::raw(" "),
             Span::styled(
                 crate::i18n::tr(
-                    "(none — phantom config pull)",
-                    "（無 — 執行 phantom config pull）",
+                    "(none — spectyn config pull)",
+                    "（無 — 執行 spectyn config pull）",
                 ),
                 Style::default()
                     .fg(Color::DarkGray)
@@ -3223,7 +3223,7 @@ fn truncate_to_width(s: &str, max_cells: usize) -> String {
     out
 }
 
-/// Convenience builder used by `phantom tui` in the binary. Mirrors the same
+/// Convenience builder used by `spectyn tui` in the binary. Mirrors the same
 /// initialization the REPL does, but produces no output to stderr (because the
 /// alternate screen is about to take over).
 pub async fn launch_default() -> Result<()> {
@@ -3248,11 +3248,11 @@ pub async fn launch_default() -> Result<()> {
     let chat_id = cwd_chat_id(&cwd);
     let extra_context = WorkspaceContext::capture().to_system_context();
 
-    // Pinned-agent override from [workspace].pinned_agent — bin/phantom.rs
-    // sets PHANTOM_DEFAULT_AGENT before calling us when bare `phantom`
+    // Pinned-agent override from [workspace].pinned_agent — bin/spectyn.rs
+    // sets SPECTYN_DEFAULT_AGENT before calling us when bare `spectyn`
     // is run + workspace pin is configured. Falls back to "master" so
-    // explicit `phantom tui` calls behave as before.
-    let initial_agent = std::env::var("PHANTOM_DEFAULT_AGENT")
+    // explicit `spectyn tui` calls behave as before.
+    let initial_agent = std::env::var("SPECTYN_DEFAULT_AGENT")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "master".to_string());
@@ -3269,11 +3269,11 @@ pub async fn launch_default() -> Result<()> {
 }
 
 fn find_config_simple() -> Option<String> {
-    // Local agents.toml first, then ~/.phantom-mesh/agents.toml
+    // Local agents.toml first, then ~/.spectyn-mesh/agents.toml
     if let Ok(c) = std::fs::read_to_string("agents.toml") {
         return Some(c);
     }
-    if let Ok(data) = crate::cli_config::phantom_data_dir() {
+    if let Ok(data) = crate::cli_config::spectyn_data_dir() {
         let p = data.join("agents.toml");
         if let Ok(c) = std::fs::read_to_string(&p) {
             return Some(c);
@@ -3362,7 +3362,7 @@ async fn handle_tui_slash(
                  \x20   /branch                       list git branches (* = current)\n\
                  \x20\n\
                  \x20 context & auth\n\
-                 \x20   /init                         generate PHANTOM.md in cwd\n\
+                 \x20   /init                         generate SPECTYN.md in cwd\n\
                  \x20   /whoami                       show broker login state\n\
                  \x20\n\
                  \x20 environment\n\
@@ -3373,7 +3373,7 @@ async fn handle_tui_slash(
                  \x20\n\
                  \x20 REPL-only (interactive prompts)\n\
                  \x20   /login /logout /add /undo /keys add /model pick\n\
-                 \x20   For these, run `phantom --repl` instead."
+                 \x20   For these, run `spectyn --repl` instead."
                     .to_string(),
             );
         }
@@ -3400,12 +3400,12 @@ async fn handle_tui_slash(
         }
 
         "/plan" => {
-            let cur = std::env::var("PHANTOM_PLAN_MODE").unwrap_or_default();
+            let cur = std::env::var("SPECTYN_PLAN_MODE").unwrap_or_default();
             if cur == "1" {
-                std::env::remove_var("PHANTOM_PLAN_MODE");
+                std::env::remove_var("SPECTYN_PLAN_MODE");
                 push("  ✓ plan mode OFF — agents execute tools immediately.".to_string());
             } else {
-                std::env::set_var("PHANTOM_PLAN_MODE", "1");
+                std::env::set_var("SPECTYN_PLAN_MODE", "1");
                 push("  ✓ plan mode ON — agents will preview their plan, then wait for 'go' before any tool call.".to_string());
             }
         }
@@ -3531,8 +3531,8 @@ async fn handle_tui_slash(
                 }
                 None => {
                     // pick most-recent by mtime
-                    let home = crate::cli_config::phantom_data_dir()
-                        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+                    let home = crate::cli_config::spectyn_data_dir()
+                        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
                         .join("conversations");
                     ids.into_iter()
                         .filter_map(|id| {
@@ -3589,7 +3589,7 @@ async fn handle_tui_slash(
                 return;
             }
 
-            let path = crate::cli_config::phantom_data_dir().ok().map(|d| d.join("todos.json"));
+            let path = crate::cli_config::spectyn_data_dir().ok().map(|d| d.join("todos.json"));
             let raw = path
                 .as_ref()
                 .and_then(|p| std::fs::read_to_string(p).ok())
@@ -3686,7 +3686,7 @@ async fn handle_tui_slash(
 
         // ── /focus — toggle the Focus session pane (P2 / Life Track) ──────
         // Read-only live status of the on-disk focus session; start/stop via
-        // the `phantom focus` CLI. Snapshot at toggle/reload (not a live tick).
+        // the `spectyn focus` CLI. Snapshot at toggle/reload (not a live tick).
         "/focus" => {
             let action = arg.unwrap_or("toggle").trim();
             match action {
@@ -3702,8 +3702,8 @@ async fn handle_tui_slash(
                     };
                     push(if now_on {
                         crate::i18n::tr(
-                            "  ◆ focus pane on (active session timer · `phantom focus start` to begin)",
-                            "  ◆ 專注面板已開啟（進行中時段計時 · 用 `phantom focus start` 開始）",
+                            "  ◆ focus pane on (active session timer · `spectyn focus start` to begin)",
+                            "  ◆ 專注面板已開啟（進行中時段計時 · 用 `spectyn focus start` 開始）",
                         ).to_string()
                     } else {
                         crate::i18n::tr("  ◆ focus pane off", "  ◆ 專注面板已關閉").to_string()
@@ -3724,8 +3724,8 @@ async fn handle_tui_slash(
                 }
                 "help" | "?" => {
                     push(crate::i18n::tr(
-                        "  /focus [toggle|reload|off]  — live focus-session status (start/stop via `phantom focus`)",
-                        "  /focus [toggle|reload|off]  — 即時專注時段狀態（用 `phantom focus` 開始／停止）",
+                        "  /focus [toggle|reload|off]  — live focus-session status (start/stop via `spectyn focus`)",
+                        "  /focus [toggle|reload|off]  — 即時專注時段狀態（用 `spectyn focus` 開始／停止）",
                     ).into());
                 }
                 other => push_err(crate::i18n::tr_owned(
@@ -3736,7 +3736,7 @@ async fn handle_tui_slash(
         }
 
         // ── /evolve — toggle the Evolve Runs pane (P3 Evolve Mesh) ────────
-        // Read-only: recent autoevolve runs from ~/.phantom-mesh/autoevolve.log.
+        // Read-only: recent autoevolve runs from ~/.spectyn-mesh/autoevolve.log.
         "/evolve" => {
             let action = arg.unwrap_or("toggle").trim();
             match action {
@@ -3791,8 +3791,8 @@ async fn handle_tui_slash(
         }
 
         // ── /habits — toggle the Habits pane (P2 / Life Track) ────────────
-        // Read-only: recurring-habit streaks from ~/.phantom-mesh/habits.sqlite.
-        // Create / check in via the `phantom habit` CLI.
+        // Read-only: recurring-habit streaks from ~/.spectyn-mesh/habits.sqlite.
+        // Create / check in via the `spectyn habit` CLI.
         "/habits" => {
             // First token is the action; the remainder (if any) carries
             // `checkin`'s `<slug> [note]`.
@@ -3836,7 +3836,7 @@ async fn handle_tui_slash(
                 }
                 // Actionable capture (P2 / Life Track): log a check-in against an
                 // existing habit, then re-paint the pane with the fresh streak.
-                // Mirrors `phantom habit checkin` (same shared habits.sqlite).
+                // Mirrors `spectyn habit checkin` (same shared habits.sqlite).
                 "checkin" | "log" => match rest {
                     None => push_err(crate::i18n::tr(
                         "  usage: /habits checkin <slug> [note]",
@@ -3874,8 +3874,8 @@ async fn handle_tui_slash(
                             }
                             Err(crate::capture_habit_wire::HabitCaptureError::ChipNotFound { slug }) => {
                                 push_err(crate::i18n::tr_owned(
-                                    format!("  no such habit: {slug} — create it with `phantom habit create {slug}`"),
-                                    format!("  找不到習慣：{slug} — 用 `phantom habit create {slug}` 建立"),
+                                    format!("  no such habit: {slug} — create it with `spectyn habit create {slug}`"),
+                                    format!("  找不到習慣：{slug} — 用 `spectyn habit create {slug}` 建立"),
                                 ));
                             }
                             Err(e) => push_err(crate::i18n::tr_owned(
@@ -3891,8 +3891,8 @@ async fn handle_tui_slash(
                 }
                 "help" | "?" => {
                     push(crate::i18n::tr(
-                        "  /habits [toggle|reload|checkin <slug> [note]|off]  — habit streaks; checkin logs one (same as `phantom habit checkin`)",
-                        "  /habits [toggle|reload|checkin <slug> [備註]|off]  — 習慣連續打卡；checkin 記錄一次（等同 `phantom habit checkin`）",
+                        "  /habits [toggle|reload|checkin <slug> [note]|off]  — habit streaks; checkin logs one (same as `spectyn habit checkin`)",
+                        "  /habits [toggle|reload|checkin <slug> [備註]|off]  — 習慣連續打卡；checkin 記錄一次（等同 `spectyn habit checkin`）",
                     ).into());
                 }
                 other => push_err(crate::i18n::tr_owned(
@@ -3903,18 +3903,18 @@ async fn handle_tui_slash(
         }
 
         // ── /note — capture a free-text Life Node event (P2 / Life Track) ──
-        // Direct synchronous write to ~/.phantom-mesh/events (no daemon, no
+        // Direct synchronous write to ~/.spectyn-mesh/events (no daemon, no
         // LLM); age-encrypts at rest when identity.key is present, else
         // plaintext (the confirmation says which). Surfaces in /review today.
         "/note" => match arg {
             None => push_err(crate::i18n::tr("  usage: /note <text>", "  用法：/note <文字>").into()),
-            Some(text) => match crate::cli_config::phantom_data_dir() {
+            Some(text) => match crate::cli_config::spectyn_data_dir() {
                 Err(_) => push_err(crate::i18n::tr(
                     "  could not resolve home dir",
                     "  無法解析家目錄",
                 ).into()),
-                Ok(phantom) => {
-                    match crate::life_node::note_capture::capture_note(&phantom, text, &["note".to_string()]) {
+                Ok(spectyn) => {
+                    match crate::life_node::note_capture::capture_note(&spectyn, text, &["note".to_string()]) {
                         Ok(out) => {
                             let short: String = out.event_id.chars().take(8).collect();
                             let enc = if out.encrypted {
@@ -3945,12 +3945,12 @@ async fn handle_tui_slash(
                 "  usage: /recall <text> [--kind food|focus|habit|text] [--since YYYY-MM-DD]",
                 "  用法：/recall <文字> [--kind food|focus|habit|text] [--since YYYY-MM-DD]",
             ).into()),
-            Some(raw) => match crate::cli_config::phantom_data_dir() {
+            Some(raw) => match crate::cli_config::spectyn_data_dir() {
                 Err(_) => push_err(crate::i18n::tr(
                     "  could not resolve home dir",
                     "  無法解析家目錄",
                 ).into()),
-                Ok(phantom) => {
+                Ok(spectyn) => {
                     // Parse `--kind`/`--since` flags out of the arg; the rest is
                     // the free-text query (may be empty when only filters given).
                     let mut kind: Option<String> = None;
@@ -3979,7 +3979,7 @@ async fn handle_tui_slash(
                         }
                     };
                     let key = crate::life_node::key_derivation::load_event_key(
-                        &phantom.join("identity.key"),
+                        &spectyn.join("identity.key"),
                     )
                     .ok();
                     let filter = crate::life_node::recall::RecallFilter {
@@ -3988,7 +3988,7 @@ async fn handle_tui_slash(
                         since: since.as_deref(),
                         mode: crate::life_node::recall::RecallMode::default(),
                     };
-                    match crate::life_node::recall::search_events(&phantom.join("events"), key, &filter, 15) {
+                    match crate::life_node::recall::search_events(&spectyn.join("events"), key, &filter, 15) {
                         Ok(hits) if hits.is_empty() => push(crate::i18n::tr_owned(
                             format!("  ◆ no events match {label}"),
                             format!("  ◆ 沒有符合 {label} 的事件"),
@@ -4024,17 +4024,17 @@ async fn handle_tui_slash(
         },
 
         // ── /event <id> — show one Life Node event in full (P2 / Life Track) ─
-        // TUI twin of `phantom event show`: resolve an id (from /recall) → full
+        // TUI twin of `spectyn event show`: resolve an id (from /recall) → full
         // detail in the transcript. Read-only; decrypts when identity.key present.
         "/event" => match arg {
             None => push_err(crate::i18n::tr(
                 "  usage: /event <id>   (id from /recall)",
                 "  用法：/event <id>（id 來自 /recall）",
             ).into()),
-            Some(id_arg) => match crate::cli_config::phantom_data_dir() {
+            Some(id_arg) => match crate::cli_config::spectyn_data_dir() {
                 Err(_) => push_err(crate::i18n::tr("  could not resolve home dir", "  無法解析家目錄").into()),
-                Ok(phantom) => {
-                    let events_dir = phantom.join("events");
+                Ok(spectyn) => {
+                    let events_dir = spectyn.join("events");
                     match crate::life_node::data_cli::resolve_event_id(&events_dir, id_arg) {
                         Err(e) => push_err(crate::i18n::tr_owned(
                             format!("  /event: {e}"),
@@ -4043,7 +4043,7 @@ async fn handle_tui_slash(
                         Ok(id) => {
                             let store = crate::life_node::storage::EventStore::with_identity_file(
                                 &events_dir,
-                                &phantom.join("identity.key"),
+                                &spectyn.join("identity.key"),
                             );
                             match store.read_meta(&id) {
                                 Err(e) => push_err(crate::i18n::tr_owned(
@@ -4197,12 +4197,12 @@ async fn handle_tui_slash(
 
         "/perm" => match arg {
             Some(m @ ("ask" | "allow" | "deny")) => {
-                std::env::set_var("PHANTOM_PERM", m);
+                std::env::set_var("SPECTYN_PERM", m);
                 push(format!("  ◆ permission mode: {}", m));
             }
             Some(other) => push_err(format!("  unknown: {}. usage: /perm ask|allow|deny", other)),
             None => {
-                let cur = std::env::var("PHANTOM_PERM").unwrap_or_else(|_| "allow".into());
+                let cur = std::env::var("SPECTYN_PERM").unwrap_or_else(|_| "allow".into());
                 push(format!(
                     "  ◆ permission mode: {}  (usage: /perm ask|allow|deny)",
                     cur
@@ -4212,28 +4212,28 @@ async fn handle_tui_slash(
 
         "/density" => match arg {
             Some("compact") => {
-                std::env::set_var("PHANTOM_DENSITY", "compact");
+                std::env::set_var("SPECTYN_DENSITY", "compact");
                 push("  ◆ density: compact (1-line tool results)".into());
             }
             Some("full") | Some("normal") => {
-                std::env::remove_var("PHANTOM_DENSITY");
+                std::env::remove_var("SPECTYN_DENSITY");
                 push("  ◆ density: full (multi-line)".into());
             }
             Some(other) => push_err(format!("  unknown: {}", other)),
             None => {
-                let cur = std::env::var("PHANTOM_DENSITY").unwrap_or_else(|_| "full".into());
+                let cur = std::env::var("SPECTYN_DENSITY").unwrap_or_else(|_| "full".into());
                 push(format!("  ◆ density: {}", cur));
             }
         },
 
         "/theme" => match arg {
             Some(n @ ("dark" | "light" | "claude" | "codex" | "gemini" | "mono")) => {
-                std::env::set_var("PHANTOM_THEME", n);
+                std::env::set_var("SPECTYN_THEME", n);
                 push(format!("  ◆ theme: {} (restart TUI for full effect)", n));
             }
             Some(other) => push_err(format!("  unknown theme: {}", other)),
             None => {
-                let cur = std::env::var("PHANTOM_THEME").unwrap_or_else(|_| "dark".into());
+                let cur = std::env::var("SPECTYN_THEME").unwrap_or_else(|_| "dark".into());
                 push(format!("  ◆ theme: {}", cur));
             }
         },
@@ -4249,7 +4249,7 @@ async fn handle_tui_slash(
         //   but the change won't be visible until you /resume.
         // ── /cluster — show / ping mesh peers from inside TUI ─────────
         // Without this, the user has to drop to a separate PowerShell
-        // tab + run `phantom cluster status` to verify peers are alive.
+        // tab + run `spectyn cluster status` to verify peers are alive.
         // Same call surface as the CLI subcommand:
         //   /cluster                  → status (default)
         //   /cluster status           → status (explicit)
@@ -4271,8 +4271,8 @@ async fn handle_tui_slash(
                     }
                 }
                 // Live TUIs across the user's mesh — answers "who else is
-                // running phantom right now?" without leaving the TUI.
-                // Same data as the CLI `phantom sessions` command.
+                // running spectyn right now?" without leaving the TUI.
+                // Same data as the CLI `spectyn sessions` command.
                 "who" | "sessions" | "online" => {
                     push("  ◆ fetching live sessions …".into());
                     match crate::cli_config::sessions_lines().await {
@@ -4300,7 +4300,7 @@ async fn handle_tui_slash(
                           /cluster who          → live TUIs on other machines (alias: sessions/online)\n  \
                           /cluster leave        → remove [cluster] block from agents.toml\n  \
                           \n  \
-                          (To join: run `phantom cluster join <name>` from PowerShell —\n  \
+                          (To join: run `spectyn cluster join <name>` from PowerShell —\n  \
                           requires CLUSTER_SECRET in env which is why it's not in TUI)".into());
                 }
                 other => push_err(format!(
@@ -4344,7 +4344,7 @@ async fn handle_tui_slash(
                 s.sidebar_peers.clone()
             };
             if peers.is_empty() {
-                push_err("  /fanout: no peers in sidebar — run `phantom config pull` first".into());
+                push_err("  /fanout: no peers in sidebar — run `spectyn config pull` first".into());
                 return;
             }
             push(format!(
@@ -4470,7 +4470,7 @@ async fn handle_tui_slash(
         // ── /model ─────────────────────────────────────────────────────
         // Mirrors REPL semantics. Picker (/model pick) needs a blocking
         // readline which is awkward in TUI's single-input panel — point
-        // those users at `phantom --repl` instead.
+        // those users at `spectyn --repl` instead.
         "/model" => {
             let cfg = runtime.config();
             let arg_str = arg.unwrap_or("");
@@ -4503,7 +4503,7 @@ async fn handle_tui_slash(
                 text.push_str("             /model fast | smart | cheap\n");
                 text.push_str("             /model fetch <provider>    (live model list)\n");
                 text.push_str(
-                    "             /model pick  <provider>    (REPL only — phantom --repl)",
+                    "             /model pick  <provider>    (REPL only — spectyn --repl)",
                 );
                 push(text);
             } else if action == "fetch" {
@@ -4627,13 +4627,13 @@ async fn handle_tui_slash(
                     }
                     Some((pname, mname)) => {
                         let value = format!("{}:{}", pname, mname);
-                        std::env::set_var("PHANTOM_RUNTIME_OVERRIDE", &value);
-                        std::env::set_var("PHANTOM_PROVIDER_OVERRIDE", pname);
+                        std::env::set_var("SPECTYN_RUNTIME_OVERRIDE", &value);
+                        std::env::set_var("SPECTYN_PROVIDER_OVERRIDE", pname);
                         let _ = crate::cli_config::write_runtime_override(Some(&value));
                         let mut s = app.lock().unwrap();
                         s.model_override = Some(mname.to_string());
                         push(format!(
-                            "  ✓ {} preset → {}/{} (saved to ~/.phantom-mesh/runtime-override)",
+                            "  ✓ {} preset → {}/{} (saved to ~/.spectyn-mesh/runtime-override)",
                             action, pname, mname
                         ));
                     }
@@ -4643,13 +4643,13 @@ async fn handle_tui_slash(
                     push_err(format!("  unknown provider '{}'", pname));
                 } else {
                     // Set the override TWO ways so all dispatch paths see it:
-                    //   1. PHANTOM_RUNTIME_OVERRIDE env (this process only)
-                    //   2. ~/.phantom-mesh/runtime-override file (shared with
-                    //      the separately-spawned `phantom serve` daemon and
-                    //      any other phantom process the user runs)
+                    //   1. SPECTYN_RUNTIME_OVERRIDE env (this process only)
+                    //   2. ~/.spectyn-mesh/runtime-override file (shared with
+                    //      the separately-spawned `spectyn serve` daemon and
+                    //      any other spectyn process the user runs)
                     let value = format!("{}:{}", pname, mname);
-                    std::env::set_var("PHANTOM_RUNTIME_OVERRIDE", &value);
-                    std::env::set_var("PHANTOM_PROVIDER_OVERRIDE", pname);
+                    std::env::set_var("SPECTYN_RUNTIME_OVERRIDE", &value);
+                    std::env::set_var("SPECTYN_PROVIDER_OVERRIDE", pname);
                     let _ = crate::cli_config::write_runtime_override(Some(&value));
                     let mut s = app.lock().unwrap();
                     s.model_override = Some(mname.to_string());
@@ -4657,10 +4657,10 @@ async fn handle_tui_slash(
                         "  ✓ switched to {}/{} for this session",
                         pname, mname
                     ));
-                    push("    (effective on next message; persists in ~/.phantom-mesh/runtime-override so `phantom serve` sees it too)".into());
+                    push("    (effective on next message; persists in ~/.spectyn-mesh/runtime-override so `spectyn serve` sees it too)".into());
                 }
             } else if action == "pick" {
-                push_err("  /model pick is REPL-only (interactive readline) — start `phantom --repl` for it.".into());
+                push_err("  /model pick is REPL-only (interactive readline) — start `spectyn --repl` for it.".into());
             } else {
                 let mut s = app.lock().unwrap();
                 s.model_override = Some(arg_str.to_string());
@@ -4916,7 +4916,7 @@ async fn handle_tui_slash(
                         }
                         text.push_str("\n  /keys test <provider>    probe the key\n");
                         text.push_str("  /keys remove <provider>  drop api_key from agents.toml\n");
-                        text.push_str("  /keys add — REPL only (interactive paste). `phantom --repl` then /keys add <name>");
+                        text.push_str("  /keys add — REPL only (interactive paste). `spectyn --repl` then /keys add <name>");
                         push(text);
                     }
                 }
@@ -4927,7 +4927,7 @@ async fn handle_tui_slash(
                         let path = crate::keys::agents_toml_path();
                         match crate::keys::remove_api_key(&path, target) {
                             Ok(()) => push(format!(
-                                "  ✓ dropped api_key for {} (restart phantom to apply)",
+                                "  ✓ dropped api_key for {} (restart spectyn to apply)",
                                 target
                             )),
                             Err(e) => push_err(format!("  ✗ {}", e)),
@@ -4983,10 +4983,10 @@ async fn handle_tui_slash(
                     }
                 }
                 "add" => {
-                    push_err("  /keys add is REPL only (interactive paste). Run `phantom --repl` then /keys add <provider>.".into());
+                    push_err("  /keys add is REPL only (interactive paste). Run `spectyn --repl` then /keys add <provider>.".into());
                 }
                 "set" => {
-                    // Persist to ~/.phantom-mesh/env (the auto-loaded env file).
+                    // Persist to ~/.spectyn-mesh/env (the auto-loaded env file).
                     // Different from /keys remove which scrubs inline api_key from
                     // agents.toml — /keys set updates the env-var-based path so
                     // the existing api_key_env = "..." resolution sees it.
@@ -5317,8 +5317,8 @@ async fn handle_tui_slash(
                 }
                 "help" | "?" => {
                     push(crate::i18n::tr(
-                        "  /goals [toggle|reload|off]  — view EVOLVE-GOALS.md (mark done via `phantom evolve goals mark-done <#>`)",
-                        "  /goals [toggle|reload|off]  — 檢視 EVOLVE-GOALS.md（用 `phantom evolve goals mark-done <#>` 標記完成）",
+                        "  /goals [toggle|reload|off]  — view EVOLVE-GOALS.md (mark done via `spectyn evolve goals mark-done <#>`)",
+                        "  /goals [toggle|reload|off]  — 檢視 EVOLVE-GOALS.md（用 `spectyn evolve goals mark-done <#>` 標記完成）",
                     ).into());
                 }
                 other => push_err(crate::i18n::tr_owned(
@@ -5572,8 +5572,8 @@ async fn handle_tui_slash(
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_secs())
                             .unwrap_or(0);
-                        let dir = crate::cli_config::phantom_data_dir()
-                            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+                        let dir = crate::cli_config::spectyn_data_dir()
+                            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
                             .join("exports");
                         std::fs::create_dir_all(&dir).ok();
                         let safe_id: String = chat_id
@@ -5646,8 +5646,8 @@ async fn handle_tui_slash(
         // ── /init ─────────────────────────────────────────────────────
         "/init" => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let content = crate::scaffold::generate_phantom_md_async(&cwd).await;
-            let out_path = cwd.join("PHANTOM.md");
+            let content = crate::scaffold::generate_spectyn_md_async(&cwd).await;
+            let out_path = cwd.join("SPECTYN.md");
             match std::fs::write(&out_path, &content) {
                 Ok(()) => push(format!("  ✓ created {}", out_path.display())),
                 Err(e) => push_err(format!("  ✗ write failed: {}", e)),
@@ -5656,7 +5656,7 @@ async fn handle_tui_slash(
 
         // ── interactive-only commands — point at REPL ────────────────
         "/login" | "/logout" | "/add" | "/undo" => push_err(format!(
-            "  {} is REPL only (interactive prompt). Run `phantom --repl`.",
+            "  {} is REPL only (interactive prompt). Run `spectyn --repl`.",
             cmd
         )),
 
@@ -5718,11 +5718,11 @@ pub fn render_cluster_pane(f: &mut Frame, area: Rect, rows: &[ClusterRow], selec
     let any_pinged = rows.iter().any(|r| r.pinged);
     let online = rows.iter().filter(|r| r.online).count();
     let title = if rows.is_empty() {
-        " phantom · cluster — 0 peers ".to_string()
+        " spectyn · cluster — 0 peers ".to_string()
     } else if any_pinged {
-        format!(" phantom · cluster — {} peers · {} online ", rows.len(), online)
+        format!(" spectyn · cluster — {} peers · {} online ", rows.len(), online)
     } else {
-        format!(" phantom · cluster — {} peers · configured (press r to ping) ", rows.len())
+        format!(" spectyn · cluster — {} peers · configured (press r to ping) ", rows.len())
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -5743,8 +5743,8 @@ pub fn render_cluster_pane(f: &mut Frame, area: Rect, rows: &[ClusterRow], selec
         lines.push(Line::from(crate::i18n::tr("  No peers configured.", "  尚未設定任何 peer。")));
         lines.push(Line::from(Span::styled(
             crate::i18n::tr(
-                "  Add one with `phantom cluster` or edit [cluster] in agents.toml,",
-                "  用 `phantom cluster` 新增，或編輯 agents.toml 的 [cluster]，",
+                "  Add one with `spectyn cluster` or edit [cluster] in agents.toml,",
+                "  用 `spectyn cluster` 新增，或編輯 agents.toml 的 [cluster]，",
             ),
             Style::default().fg(Color::DarkGray),
         )));
@@ -5952,8 +5952,8 @@ fn fmt_mmss(secs: u32) -> String {
 pub fn render_focus_pane(f: &mut Frame, area: Rect, view: Option<&FocusView>) {
     f.render_widget(Clear, area);
     let title = match view {
-        Some(v) => format!(" phantom · focus — {} min timer ", v.planned_min),
-        None => " phantom · focus ".to_string(),
+        Some(v) => format!(" spectyn · focus — {} min timer ", v.planned_min),
+        None => " spectyn · focus ".to_string(),
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -5974,8 +5974,8 @@ pub fn render_focus_pane(f: &mut Frame, area: Rect, view: Option<&FocusView>) {
             lines.push(Line::from(crate::i18n::tr("  No active focus session.", "  目前沒有進行中的 focus 時段。")));
             lines.push(Line::from(Span::styled(
                 crate::i18n::tr(
-                    "  Start one with `phantom focus start --minutes 25`.",
-                    "  用 `phantom focus start --minutes 25` 開始一個。",
+                    "  Start one with `spectyn focus start --minutes 25`.",
+                    "  用 `spectyn focus start --minutes 25` 開始一個。",
                 ),
                 Style::default().fg(Color::DarkGray),
             )));
@@ -6010,7 +6010,7 @@ pub fn render_focus_pane(f: &mut Frame, area: Rect, view: Option<&FocusView>) {
 }
 
 /// `/focus` `i`: log an interruption on the active session + refresh the pane.
-/// Mirrors `phantom focus interrupt`, with a default note (no in-pane prompt).
+/// Mirrors `spectyn focus interrupt`, with a default note (no in-pane prompt).
 fn log_focus_interruption(s: &mut AppState) {
     let Ok(home) = crate::cli_config::resolve_home_dir() else {
         return;
@@ -6030,7 +6030,7 @@ fn log_focus_interruption(s: &mut AppState) {
 }
 
 /// `/focus` `s`: stop the active session (writes a Life Node event) + clear the
-/// pane to the empty state. Mirrors `phantom focus stop`.
+/// pane to the empty state. Mirrors `spectyn focus stop`.
 fn stop_focus_session(s: &mut AppState) {
     let Ok(home) = crate::cli_config::resolve_home_dir() else {
         return;
@@ -6052,7 +6052,7 @@ fn stop_focus_session(s: &mut AppState) {
 }
 
 /// Build the focus pane view from the on-disk active session (read-only,
-/// mirrors `phantom focus status`). `None` → no active session (empty state).
+/// mirrors `spectyn focus status`). `None` → no active session (empty state).
 /// The countdown is a snapshot at toggle/reload time (not a live tick).
 fn focus_view_from_state() -> Option<FocusView> {
     let home = crate::cli_config::resolve_home_dir().ok()?;
@@ -6104,9 +6104,9 @@ pub fn render_goals_pane(f: &mut Frame, area: Rect, rows: &[GoalRow], selected: 
     let pending = rows.iter().filter(|r| !r.done).count();
     let done = rows.len() - pending;
     let title = if rows.is_empty() {
-        " phantom · evolve goals — 0 goals ".to_string()
+        " spectyn · evolve goals — 0 goals ".to_string()
     } else {
-        format!(" phantom · evolve goals — {pending} pending · {done} done ")
+        format!(" spectyn · evolve goals — {pending} pending · {done} done ")
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -6126,8 +6126,8 @@ pub fn render_goals_pane(f: &mut Frame, area: Rect, rows: &[GoalRow], selected: 
         lines.push(Line::from(crate::i18n::tr("  No goals yet.", "  尚無目標。")));
         lines.push(Line::from(Span::styled(
             crate::i18n::tr(
-                "  Add one with `phantom evolve goals add \"ship X\"`, then press r to reload.",
-                "  用 `phantom evolve goals add \"ship X\"` 新增，然後按 r 重新載入。",
+                "  Add one with `spectyn evolve goals add \"ship X\"`, then press r to reload.",
+                "  用 `spectyn evolve goals add \"ship X\"` 新增，然後按 r 重新載入。",
             ),
             Style::default().fg(Color::DarkGray),
         )));
@@ -6174,12 +6174,12 @@ pub fn render_goals_pane(f: &mut Frame, area: Rect, rows: &[GoalRow], selected: 
     f.render_widget(p, inner);
 }
 
-/// Build goal rows from `EVOLVE-GOALS.md` (or `$PHANTOM_EVOLVE_GOALS`), matching
-/// the `phantom evolve goals list` view: checkbox lines in file order (Pending
+/// Build goal rows from `EVOLVE-GOALS.md` (or `$SPECTYN_EVOLVE_GOALS`), matching
+/// the `spectyn evolve goals list` view: checkbox lines in file order (Pending
 /// section then Done), label `L{idx+1}` (1-based, like the CLI). Read-only.
 fn goal_rows_from_file() -> Vec<GoalRow> {
-    // D26: shared resolver ($PHANTOM_EVOLVE_GOALS > existing ./EVOLVE-GOALS.md >
-    // ~/.phantom-mesh) so the TUI and CLI always read the same file.
+    // D26: shared resolver ($SPECTYN_EVOLVE_GOALS > existing ./EVOLVE-GOALS.md >
+    // ~/.spectyn-mesh) so the TUI and CLI always read the same file.
     let path = crate::evolve_goals::resolve_goals_path(None);
     match crate::evolve_goals::GoalsFile::load(&path) {
         Ok(g) => g
@@ -6200,7 +6200,7 @@ fn goal_rows_from_file() -> Vec<GoalRow> {
 /// Mark the currently-selected goals-pane row done (space in `/goals`): parse
 /// its `L{idx+1}` label → 0-based file idx, run `GoalsFile::mark_done` + `save`,
 /// then reload the rows. No-op (with a transcript note) on a done row or a parse
-/// failure. Mirrors `phantom evolve goals mark-done`, but from inside the pane.
+/// failure. Mirrors `spectyn evolve goals mark-done`, but from inside the pane.
 fn mark_selected_goal_done(s: &mut AppState) {
     let Some(row) = s.goals_rows.get(s.goals_selected) else {
         return;
@@ -6260,7 +6260,7 @@ pub struct IdentityView {
     pub fingerprint: String,
     pub created_at: String,
     pub keystore: String,
-    /// Whether `~/.phantom-mesh/identity.key` exists. When false, Life Node
+    /// Whether `~/.spectyn-mesh/identity.key` exists. When false, Life Node
     /// events are written PLAINTEXT (no key to derive the age key from) — the
     /// pane surfaces this so the P4 scope table isn't read as a false promise.
     pub key_present: bool,
@@ -6270,8 +6270,8 @@ pub struct IdentityView {
 /// sync with BIG-GOAL.md §"P4 enforcement scope". `(encrypted, label, note)`.
 /// Honesty rail: every plaintext path is listed; never imply more than shipped.
 const P4_SCOPE: &[(bool, &str, &str)] = &[
-    (true, "Life Node events", "~/.phantom-mesh/events/   age v1"),
-    (true, "identity key", "~/.phantom-mesh/identity.key"),
+    (true, "Life Node events", "~/.spectyn-mesh/events/   age v1"),
+    (true, "identity key", "~/.spectyn-mesh/identity.key"),
     (false, "agents.toml", "plaintext → v0.7.0+"),
     (false, "conversations/", "plaintext → v0.7.0+"),
     (false, "memory.db", "plaintext → v0.7.0+"),
@@ -6287,7 +6287,7 @@ pub fn render_identity_pane(f: &mut Frame, area: Rect, view: &IdentityView) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            " phantom · identity & vault — 加密為先 (P4) ",
+            " spectyn · identity & vault — 加密為先 (P4) ",
             Style::default()
                 .fg(Color::Rgb(214, 178, 112))
                 .add_modifier(Modifier::BOLD),
@@ -6310,8 +6310,8 @@ pub fn render_identity_pane(f: &mut Frame, area: Rect, view: &IdentityView) {
         None => {
             lines.push(Line::from(Span::styled(
                 crate::i18n::tr(
-                    "    not logged in — run `phantom login`",
-                    "    尚未登入 — 執行 `phantom login`",
+                    "    not logged in — run `spectyn login`",
+                    "    尚未登入 — 執行 `spectyn login`",
                 ),
                 dim,
             )));
@@ -6369,9 +6369,9 @@ fn identity_view_from_state() -> IdentityView {
         .and_then(|h| hex::decode(h.trim()).ok())
         .map(|bytes| crate::identity_wire::fingerprint_short(&bytes))
         .unwrap_or_else(|| "—".into());
-    // "created" = mtime of the per-device root key `~/.phantom-mesh/identity.key`
+    // "created" = mtime of the per-device root key `~/.spectyn-mesh/identity.key`
     // (matches IdentityPublic.created_at semantics) — NOT keys/ed25519.priv.
-    let created_at = crate::cli_config::phantom_data_dir()
+    let created_at = crate::cli_config::spectyn_data_dir()
         .ok()
         .map(|d| d.join("identity.key"))
         .and_then(|p| std::fs::metadata(p).ok())
@@ -6396,7 +6396,7 @@ fn identity_view_from_state() -> IdentityView {
     // Use load_event_key (not just .exists()) so a present-but-corrupt/empty
     // key — which would still leave events plaintext — correctly shows the
     // warning. This is the exact gate Life Node capture uses to pick its store.
-    let key_present = crate::cli_config::phantom_data_dir()
+    let key_present = crate::cli_config::spectyn_data_dir()
         .ok()
         .map(|d| {
             crate::life_node::key_derivation::load_event_key(
@@ -6525,12 +6525,12 @@ pub fn render_daily_review_pane(f: &mut Frame, area: Rect, view: &ReviewView) {
     f.render_widget(Clear, area);
     let title = match view.state {
         ReviewState::Locked => format!(
-            " phantom · daily review — {} · {} ",
+            " spectyn · daily review — {} · {} ",
             view.date,
             crate::i18n::tr("encrypted", "已加密")
         ),
         _ => format!(
-            " phantom · daily review — {} · {} ",
+            " spectyn · daily review — {} · {} ",
             view.date,
             crate::i18n::tr_owned(
                 format!("{} events", view.event_count),
@@ -6565,8 +6565,8 @@ pub fn render_daily_review_pane(f: &mut Frame, area: Rect, view: &ReviewView) {
             )));
             lines.push(Line::from(Span::styled(
                 crate::i18n::tr(
-                    "  Identity key not loaded — run `phantom onboarding`, then press r.",
-                    "  尚未載入身分金鑰 — 執行 `phantom init`，然後按 r。",
+                    "  Identity key not loaded — run `spectyn onboarding`, then press r.",
+                    "  尚未載入身分金鑰 — 執行 `spectyn init`，然後按 r。",
                 ),
                 dim,
             )));
@@ -6579,8 +6579,8 @@ pub fn render_daily_review_pane(f: &mut Frame, area: Rect, view: &ReviewView) {
             )));
             lines.push(Line::from(Span::styled(
                 crate::i18n::tr(
-                    "  Capture one with `phantom` (Life Node), then press r.",
-                    "  用 `phantom`（生活節點）擷取一筆，然後按 r。",
+                    "  Capture one with `spectyn` (Life Node), then press r.",
+                    "  用 `spectyn`（生活節點）擷取一筆，然後按 r。",
                 ),
                 dim,
             )));
@@ -6667,8 +6667,8 @@ fn shift_date(date: &str, days: i64) -> String {
 /// - empty + an event is genuinely age-encrypted but we have no key → Locked
 /// - else → Empty.
 fn review_view_from_state(date: &str) -> ReviewView {
-    let data = crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"));
+    let data = crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"));
     review_view_for(&data, date)
 }
 
@@ -6692,11 +6692,11 @@ fn events_dir_has_encrypted(events_dir: &std::path::Path) -> bool {
     false
 }
 
-/// Core of `review_view_from_state`, parameterized on the phantom dir for tests.
-fn review_view_for(phantom_dir: &std::path::Path, date: &str) -> ReviewView {
-    let events_dir = phantom_dir.join("events");
+/// Core of `review_view_from_state`, parameterized on the spectyn dir for tests.
+fn review_view_for(spectyn_dir: &std::path::Path, date: &str) -> ReviewView {
+    let events_dir = spectyn_dir.join("events");
     let event_key =
-        crate::life_node::key_derivation::load_event_key(&phantom_dir.join("identity.key")).ok();
+        crate::life_node::key_derivation::load_event_key(&spectyn_dir.join("identity.key")).ok();
     let has_key = event_key.is_some();
 
     // Always try to load: EventStore reads PLAINTEXT events even with no key,
@@ -6824,7 +6824,7 @@ pub fn render_cost_pane(f: &mut Frame, area: Rect, view: &CostView) {
     let fc = crate::cost::CostTracker::format_cost;
     // Title shows SESSION spend only — `requests` is a LIFETIME total, so it
     // must not ride next to "session" in the title (would misread as session).
-    let title = format!(" phantom · cost — session {} ", fc(view.session_usd));
+    let title = format!(" spectyn · cost — session {} ", fc(view.session_usd));
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -6933,11 +6933,11 @@ pub fn render_cost_pane(f: &mut Frame, area: Rect, view: &CostView) {
 // ── Evolve Runs pane (/evolve, P3 Evolve Mesh) — prototype render ─────────
 //
 // Design: docs/superpowers/design/tui-evolve-runs.md. Read-only pane: recent
-// `autoevolve` runs parsed from ~/.phantom-mesh/autoevolve.log (JSONL). Lib-local
+// `autoevolve` runs parsed from ~/.spectyn-mesh/autoevolve.log (JSONL). Lib-local
 // mirror of bin's AutoEvolveLogEntry (which is binary-private). Pure render;
 // `/evolve` toggle wiring is the follow-on (7th pane → joins the Esc-close set).
 
-/// One autoevolve run, parsed from a JSONL line of `~/.phantom-mesh/autoevolve.log`.
+/// One autoevolve run, parsed from a JSONL line of `~/.spectyn-mesh/autoevolve.log`.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct EvolveRun {
     pub started_at_ms: i64,
@@ -6966,10 +6966,10 @@ pub fn parse_evolve_log(text: &str) -> Vec<EvolveRun> {
     runs
 }
 
-/// Read + parse `~/.phantom-mesh/autoevolve.log` into runs (newest-first).
+/// Read + parse `~/.spectyn-mesh/autoevolve.log` into runs (newest-first).
 /// Empty vec if the log is missing/unreadable (→ the pane's empty state).
 fn evolve_runs_from_log() -> Vec<EvolveRun> {
-    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+    let Ok(data) = crate::cli_config::spectyn_data_dir() else {
         return Vec::new();
     };
     match std::fs::read_to_string(data.join("autoevolve.log")) {
@@ -7006,10 +7006,10 @@ pub fn render_evolve_pane(f: &mut Frame, area: Rect, runs: &[EvolveRun]) {
     let fx = runs.iter().filter(|r| r.status == "fixed").count();
     let fl = runs.iter().filter(|r| r.status == "failed").count();
     let title = if runs.is_empty() {
-        " phantom · evolve — 0 runs ".to_string()
+        " spectyn · evolve — 0 runs ".to_string()
     } else {
         format!(
-            " phantom · evolve — {} runs · {} green · {} fixed · {} failed ",
+            " spectyn · evolve — {} runs · {} green · {} fixed · {} failed ",
             runs.len(),
             g,
             fx,
@@ -7039,8 +7039,8 @@ pub fn render_evolve_pane(f: &mut Frame, area: Rect, runs: &[EvolveRun]) {
         )));
         lines.push(Line::from(Span::styled(
             crate::i18n::tr(
-                "  Try `phantom autoevolve --once`, then press r.",
-                "  試試 `phantom autoevolve --once`，然後按 r。",
+                "  Try `spectyn autoevolve --once`, then press r.",
+                "  試試 `spectyn autoevolve --once`，然後按 r。",
             ),
             dim,
         )));
@@ -7088,8 +7088,8 @@ pub fn render_evolve_pane(f: &mut Frame, area: Rect, runs: &[EvolveRun]) {
 // ── Habits pane (/habits, P2 Life Track) — read-only render ──────────────
 //
 // Design: docs/superpowers/design/tui-habits.md. Read-only pane mirroring
-// `phantom habit list`: recurring-habit streaks from the shared
-// ~/.phantom-mesh/habits.sqlite via capture_habit_wire::list_habits()
+// `spectyn habit list`: recurring-habit streaks from the shared
+// ~/.spectyn-mesh/habits.sqlite via capture_habit_wire::list_habits()
 // (SPEC-22). Pure render over the view-model; `/habits` toggle wiring lives
 // in the slash handler. Display key is the slug (the wire summary carries no
 // label — same as the CLI).
@@ -7158,8 +7158,8 @@ pub fn render_habits_pane(f: &mut Frame, area: Rect, rows: &[HabitRow]) {
     f.render_widget(Clear, area);
     let active = rows.iter().filter(|r| r.current_streak > 0).count();
     let title = crate::i18n::tr_owned(
-        format!(" phantom · habits — {} tracked · {} active ", rows.len(), active),
-        format!(" phantom · 習慣 — 追蹤 {} 個 · {} 個進行中 ", rows.len(), active),
+        format!(" spectyn · habits — {} tracked · {} active ", rows.len(), active),
+        format!(" spectyn · 習慣 — 追蹤 {} 個 · {} 個進行中 ", rows.len(), active),
     );
     let block = Block::default()
         .borders(Borders::ALL)
@@ -7184,8 +7184,8 @@ pub fn render_habits_pane(f: &mut Frame, area: Rect, rows: &[HabitRow]) {
         )));
         lines.push(Line::from(Span::styled(
             crate::i18n::tr(
-                "  Add one with `phantom habit create <slug>`, then press r.",
-                "  用 `phantom habit create <slug>` 新增一個，然後按 r。",
+                "  Add one with `spectyn habit create <slug>`, then press r.",
+                "  用 `spectyn habit create <slug>` 新增一個，然後按 r。",
             ),
             dim,
         )));
@@ -7223,8 +7223,8 @@ pub fn render_habits_pane(f: &mut Frame, area: Rect, rows: &[HabitRow]) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         crate::i18n::tr(
-            "  /habits reload · esc: back to chat · log via `phantom habit checkin`",
-            "  /habits reload 重新整理 · esc：回聊天 · 用 `phantom habit checkin` 打卡",
+            "  /habits reload · esc: back to chat · log via `spectyn habit checkin`",
+            "  /habits reload 重新整理 · esc：回聊天 · 用 `spectyn habit checkin` 打卡",
         ),
         dim,
     )));
@@ -7357,7 +7357,7 @@ mod tui_render_tests {
     #[test]
     fn cluster_pane_renders_peer_table() {
         let txt = render_cluster(&sample_rows(), 0, 80, 12);
-        assert!(txt.contains("phantom · cluster"), "title missing:\n{txt}");
+        assert!(txt.contains("spectyn · cluster"), "title missing:\n{txt}");
         assert!(txt.contains("3 peers · 2 online"), "count line wrong:\n{txt}");
         assert!(txt.contains("NODE") && txt.contains("STATUS") && txt.contains("CAPS"));
         assert!(txt.contains("this-node") && txt.contains("peer-bravo") && txt.contains("peer-delta"));
@@ -7378,7 +7378,7 @@ mod tui_render_tests {
             compact.contains("Nopeersconfigured") || compact.contains("尚未設定任何peer"),
             "empty hint:\n{txt}"
         );
-        assert!(txt.contains("phantom cluster"), "empty hint cmd:\n{txt}");
+        assert!(txt.contains("spectyn cluster"), "empty hint cmd:\n{txt}");
     }
 
     fn render_goals(rows: &[super::GoalRow], sel: usize, w: u16, h: u16) -> String {
@@ -7392,7 +7392,7 @@ mod tui_render_tests {
     fn goals_pane_renders_pending_and_done() {
         let rows = vec![
             super::GoalRow { label: "L13".into(), text: "CI release matrix".into(), done: false },
-            super::GoalRow { label: "L14".into(), text: "phantom doctor --mesh".into(), done: false },
+            super::GoalRow { label: "L14".into(), text: "spectyn doctor --mesh".into(), done: false },
             super::GoalRow { label: "L05".into(), text: "cross-host dispatch e2e".into(), done: true },
         ];
         let txt = render_goals(&rows, 0, 70, 10);
@@ -7495,7 +7495,7 @@ mod tui_render_tests {
     #[test]
     fn goal_rows_from_file_parses_evolve_goals() {
         // env_lock (NOT sandbox::test_lock) — this test mutates the process-global
-        // PHANTOM_EVOLVE_GOALS env var, which must serialize against every other
+        // SPECTYN_EVOLVE_GOALS env var, which must serialize against every other
         // env-mutating test (e.g. handle_key_goals_pane_space_marks_selected_done).
         // The two locks were distinct mutexes, so the old sandbox lock let this
         // race the space test and flake under the parallel runner.
@@ -7507,9 +7507,9 @@ mod tui_render_tests {
             "## Pending\n- [ ] ship A\n- [ ] ship B\n\n## Done\n- [x] shipped C\n",
         )
         .unwrap();
-        std::env::set_var("PHANTOM_EVOLVE_GOALS", &path);
+        std::env::set_var("SPECTYN_EVOLVE_GOALS", &path);
         let rows = super::goal_rows_from_file();
-        std::env::remove_var("PHANTOM_EVOLVE_GOALS");
+        std::env::remove_var("SPECTYN_EVOLVE_GOALS");
         assert_eq!(rows.len(), 3, "expected 3 checkbox rows, got {}", rows.len());
         assert!(!rows[0].done && rows[0].text == "ship A");
         assert!(!rows[1].done && rows[1].text == "ship B");
@@ -7518,12 +7518,12 @@ mod tui_render_tests {
 
     #[test]
     fn goal_rows_from_file_missing_is_empty() {
-        // env_lock (NOT sandbox::test_lock): mutates PHANTOM_EVOLVE_GOALS — must
+        // env_lock (NOT sandbox::test_lock): mutates SPECTYN_EVOLVE_GOALS — must
         // share the one env mutex with all other env-mutating tests.
         let _g = crate::env_lock::acquire();
-        std::env::set_var("PHANTOM_EVOLVE_GOALS", "/nonexistent/EVOLVE-GOALS.md");
+        std::env::set_var("SPECTYN_EVOLVE_GOALS", "/nonexistent/EVOLVE-GOALS.md");
         let rows = super::goal_rows_from_file();
-        std::env::remove_var("PHANTOM_EVOLVE_GOALS");
+        std::env::remove_var("SPECTYN_EVOLVE_GOALS");
         // GoalsFile::load returns an empty doc for a missing file → no rows.
         assert!(rows.is_empty(), "missing file should yield no rows, got {}", rows.len());
     }
@@ -7541,7 +7541,7 @@ mod tui_render_tests {
             compact.contains("Nogoalsyet") || compact.contains("尚無目標"),
             "empty hint:\n{txt}"
         );
-        assert!(txt.contains("phantom evolve goals add"), "empty cmd hint");
+        assert!(txt.contains("spectyn evolve goals add"), "empty cmd hint");
     }
 
     #[test]
@@ -7965,7 +7965,7 @@ mod tui_render_tests {
 
     #[test]
     fn parse_evolve_log_reverses_and_skips_bad_lines() {
-        // Mirrors the real ~/.phantom-mesh/autoevolve.log JSONL (oldest first in
+        // Mirrors the real ~/.spectyn-mesh/autoevolve.log JSONL (oldest first in
         // file). A blank line + an unparseable line are skipped; output is
         // newest-first.
         let log = "{\"started_at_ms\":1000,\"target\":\"check\",\"status\":\"green\",\"rounds\":0,\"elapsed_secs\":27.5,\"commit\":null,\"summary\":\"no-op\"}\n\
@@ -8209,7 +8209,7 @@ mod tui_render_tests {
             recording: false,
         };
         let txt = render_focus(Some(&v), 70, 10);
-        assert!(txt.contains("phantom · focus") && txt.contains("25 min timer"), "title:\n{txt}");
+        assert!(txt.contains("spectyn · focus") && txt.contains("25 min timer"), "title:\n{txt}");
         assert!(txt.contains("18:42") && txt.contains("left"), "timer:\n{txt}");
         assert!(txt.contains("refactor mesh ping path"), "task missing");
         assert!(txt.contains("interruptions: 2") && txt.contains("14:07"), "meta:\n{txt}");
@@ -8230,7 +8230,7 @@ mod tui_render_tests {
             compact.contains("Noactivefocussession") || compact.contains("目前沒有進行中的focus時段"),
             "no-session hint:\n{none}"
         );
-        assert!(none.contains("phantom focus start"), "no-session cmd hint");
+        assert!(none.contains("spectyn focus start"), "no-session cmd hint");
     }
 
     #[test]
@@ -8498,9 +8498,9 @@ mod tui_render_tests {
     #[tokio::test]
     async fn mouse_capture_toggle_round_trip() {
         // Use a private ConversationStore + temp dir so this test never
-        // touches the user's real ~/.phantom-mesh. Same pattern as
+        // touches the user's real ~/.spectyn-mesh. Same pattern as
         // `clear_slash_sets_pending_interrupt_flag` further down.
-        let dir = std::env::temp_dir().join(format!("phantom_v11_mouse_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn_v11_mouse_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let conversations = crate::session::ConversationStore::new_with_dir(dir.clone());
         let runtime = crate::agent::AgentRuntime::new(crate::config::AgentsConfig::default());
@@ -8767,7 +8767,7 @@ mod tui_render_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("EVOLVE-GOALS.md");
         std::fs::write(&path, "## Pending\n- [ ] ship A\n- [ ] ship B\n\n## Done\n").unwrap();
-        std::env::set_var("PHANTOM_EVOLVE_GOALS", &path);
+        std::env::set_var("SPECTYN_EVOLVE_GOALS", &path);
 
         let mut state = fresh_state();
         state.goals_view = true;
@@ -8778,7 +8778,7 @@ mod tui_render_tests {
 
         // The file now has "ship A" checked; the reloaded rows reflect it.
         let on_disk = std::fs::read_to_string(&path).unwrap();
-        std::env::remove_var("PHANTOM_EVOLVE_GOALS");
+        std::env::remove_var("SPECTYN_EVOLVE_GOALS");
         assert!(on_disk.contains("[x]") && on_disk.contains("ship A"), "ship A marked done on disk:\n{on_disk}");
         let s = app.lock().unwrap();
         assert!(
@@ -8935,10 +8935,10 @@ mod tui_render_tests {
     // ignores $HOME/USERPROFILE entirely — so the keypress would write to the
     // real profile, not the tempdir, and the assertion reads back Some(0).
     // There is no env-based way to redirect home here; the proper fix is the
-    // PHANTOM_HOME-aware unified home resolver (tracked follow-up). Until then,
-    // skip on Windows rather than pollute the real ~/.phantom-mesh.
+    // SPECTYN_HOME-aware unified home resolver (tracked follow-up). Until then,
+    // skip on Windows rather than pollute the real ~/.spectyn-mesh.
     #[test]
-    #[cfg_attr(windows, ignore = "dirs::home_dir() ignores $HOME on Windows; needs PHANTOM_HOME resolver")]
+    #[cfg_attr(windows, ignore = "dirs::home_dir() ignores $HOME on Windows; needs SPECTYN_HOME resolver")]
     fn handle_key_focus_pane_i_logs_interruption_s_stops() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let _g = crate::env_lock::acquire();
@@ -9130,8 +9130,8 @@ mod tui_render_tests {
 
     #[test]
     fn spinner_animates_while_running_and_clears_when_idle() {
-        // Acceptance for EVOLVE-GOALS.md "TUI: spinner left of phantom v0.1.0".
-        // The status bar's busy cell must be a phantom diamond glyph while
+        // Acceptance for EVOLVE-GOALS.md "TUI: spinner left of spectyn v0.1.0".
+        // The status bar's busy cell must be a spectyn diamond glyph while
         // running and a plain space when idle. (Was a Braille rotor; switched
         // to ◇/◈/◆ to differentiate from Codex/Claude Code which all use the
         // same default Braille spinner.)
@@ -9155,10 +9155,10 @@ mod tui_render_tests {
         let buf_run = render(&state, 80, 5);
         assert!(
             row0_has_spinner(&buf_run),
-            "running status bar must contain a phantom diamond glyph",
+            "running status bar must contain a spectyn diamond glyph",
         );
 
-        // Bonus: ensure the spinner is to the LEFT of the "phantom v" text,
+        // Bonus: ensure the spinner is to the LEFT of the "spectyn v" text,
         // not anywhere else on the row.
         let mut spinner_col: Option<u16> = None;
         for x in 0..buf_run.area().width {
@@ -9169,24 +9169,24 @@ mod tui_render_tests {
             }
         }
         let spinner_col = spinner_col.unwrap();
-        // Find first column where 'p' from "phantom" lands.
-        let mut phantom_col: Option<u16> = None;
+        // Find first column where 'p' from "spectyn" lands.
+        let mut spectyn_col: Option<u16> = None;
         for x in 0..buf_run.area().width {
             let s = buf_run.cell((x, 0)).map(|c| c.symbol()).unwrap_or("");
             if s == "p" {
                 let s2 = buf_run.cell((x + 1, 0)).map(|c| c.symbol()).unwrap_or("");
                 if s2 == "h" {
-                    phantom_col = Some(x);
+                    spectyn_col = Some(x);
                     break;
                 }
             }
         }
-        let phantom_col = phantom_col.expect("'phantom' should appear in status row");
+        let spectyn_col = spectyn_col.expect("'spectyn' should appear in status row");
         assert!(
-            spinner_col < phantom_col,
-            "spinner (col {}) must appear LEFT of 'phantom' (col {})",
+            spinner_col < spectyn_col,
+            "spinner (col {}) must appear LEFT of 'spectyn' (col {})",
             spinner_col,
-            phantom_col,
+            spectyn_col,
         );
     }
 
@@ -9199,7 +9199,7 @@ mod tui_render_tests {
         let mut state = fresh_state();
         state.transcript.push(TranscriptItem::Warning(
             "Response truncated: provider hit max_tokens cap (8192). \
-             Set PHANTOM_MAX_TOKENS=16384 and re-run."
+             Set SPECTYN_MAX_TOKENS=16384 and re-run."
                 .into(),
         ));
 
@@ -9217,7 +9217,7 @@ mod tui_render_tests {
             text,
         );
         assert!(
-            text.contains("PHANTOM_MAX_TOKENS"),
+            text.contains("SPECTYN_MAX_TOKENS"),
             "env var hint should be visible to the user; got:\n{}",
             text,
         );
@@ -9940,7 +9940,7 @@ mod tui_render_tests {
         // the size guard must not regress the happy path.
         use std::io::Write as _;
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_t49_history_small.txt");
+        let path = dir.join("spectyn_t49_history_small.txt");
         {
             let mut f = std::fs::File::create(&path).unwrap();
             writeln!(f, "first prompt").unwrap();
@@ -9968,7 +9968,7 @@ mod tui_render_tests {
         // The loader must skip the load entirely (returning an empty Vec)
         // rather than panicking from an unbounded fs::read.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_t49_history_huge.txt");
+        let path = dir.join("spectyn_t49_history_huge.txt");
         {
             let f = std::fs::File::create(&path).unwrap();
             // 1 byte over the limit — exercises the strict ">" guard.
@@ -9999,7 +9999,7 @@ mod tui_render_tests {
     fn tui_history_file_is_chmod_0600_on_create() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_d3_tui2_history_perms.txt");
+        let path = dir.join("spectyn_d3_tui2_history_perms.txt");
         let _ = std::fs::remove_file(&path); // start clean
 
         append_tui_history_to(&path, "secret-prompt-marker");
@@ -10016,7 +10016,7 @@ mod tui_render_tests {
     }
 
     /// Migration check: a pre-existing 0o644 history file (left over from
-    /// an older phantom build before this fix) gets retightened the next
+    /// an older spectyn build before this fix) gets retightened the next
     /// time we append to it. Catches a regression where the chmod only
     /// fires on the very first create.
     #[cfg(unix)]
@@ -10024,7 +10024,7 @@ mod tui_render_tests {
     fn tui_history_chmod_retightens_existing_loose_file() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_d3_tui2_history_migrate.txt");
+        let path = dir.join("spectyn_d3_tui2_history_migrate.txt");
         let _ = std::fs::remove_file(&path);
 
         // Seed a loose (0o644) file as if an old build had created it.
@@ -10058,7 +10058,7 @@ mod tui_render_tests {
         use std::io::Write as _;
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_d3_tui2_history_compact.txt");
+        let path = dir.join("spectyn_d3_tui2_history_compact.txt");
         let _ = std::fs::remove_file(&path);
 
         // Produce >TUI_HISTORY_MAX*2 lines so compaction actually fires.
@@ -10167,10 +10167,10 @@ mod tui_render_tests {
 
     /// Direct assertion that the `/clear` slash handler sets
     /// pending_interrupt. Uses a private ConversationStore in a temp dir
-    /// so the test doesn't touch the user's real ~/.phantom-mesh.
+    /// so the test doesn't touch the user's real ~/.spectyn-mesh.
     #[tokio::test]
     async fn clear_slash_sets_pending_interrupt_flag() {
-        let dir = std::env::temp_dir().join(format!("phantom_tui1_clear_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn_tui1_clear_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let conversations = crate::session::ConversationStore::new_with_dir(dir.clone());
         let runtime = crate::agent::AgentRuntime::new(crate::config::AgentsConfig::default());
@@ -10194,7 +10194,7 @@ mod tui_render_tests {
     /// the previous session would bleed into the newly-resumed one.
     #[tokio::test]
     async fn resume_slash_sets_pending_interrupt_flag() {
-        let dir = std::env::temp_dir().join(format!("phantom_tui1_resume_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn_tui1_resume_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // Seed a session file so /resume has a target to switch to.
         let target_id = "tui1-target-session";
@@ -10424,10 +10424,10 @@ mod tui_render_tests {
 
     #[test]
     fn status_bar_shows_version_and_brand() {
-        // The status bar always prints "phantom v{CARGO_PKG_VERSION}".
+        // The status bar always prints "spectyn v{CARGO_PKG_VERSION}".
         let state = fresh_state();
         let text = buffer_text(&render(&state, 100, 24));
-        let expected = format!("phantom v{}", env!("CARGO_PKG_VERSION"));
+        let expected = format!("spectyn v{}", env!("CARGO_PKG_VERSION"));
         assert!(
             text.contains(&expected),
             "status bar should show '{}'; got:\n{}",

@@ -3,12 +3,12 @@
 //! The *voice* half of a Remote Control (BIG-GOAL §P3): a `Channel` is the
 //! wire-protocol transport, a `Persona` is the identity the cluster wears
 //! when it talks back through that transport. The same Telegram remote
-//! can host `phantom-helper` for the operator's personal chat and
+//! can host `spectyn-helper` for the operator's personal chat and
 //! `support-bot` for a separate group; both still command the same
 //! underlying cluster.
 //!
 //! A *persona* is the user-visible identity a bot wears on a given channel:
-//! its name, intro message, conversational style, and the set of phantom
+//! its name, intro message, conversational style, and the set of spectyn
 //! tools it is permitted to invoke. This module is the parser + lookup layer;
 //! the dispatcher (and individual `Channel` impls) consume the resulting
 //! [`Persona`] value to render greetings and gate tool execution.
@@ -17,9 +17,9 @@
 //!
 //! ```toml
 //! [persona]
-//! name = "phantom-helper"
-//! description = "General-purpose phantom assistant"
-//! intro_message = "Hi! I'm phantom-helper. Ask me anything."
+//! name = "spectyn-helper"
+//! description = "General-purpose spectyn assistant"
+//! intro_message = "Hi! I'm spectyn-helper. Ask me anything."
 //!
 //! [persona.style]
 //! tone = "professional"
@@ -30,7 +30,7 @@
 //! denied = ["bash_bg"]
 //!
 //! [persona.channels.telegram]
-//! intro_message = "Hi! I'm phantom-helper bot. Type /help."
+//! intro_message = "Hi! I'm spectyn-helper bot. Type /help."
 //! ```
 //!
 //! `[persona.channels.<name>]` blocks override the top-level fields they
@@ -47,7 +47,7 @@
 //!   non-empty". This matches skill tool catalog semantics so the V3
 //!   migration is mechanical.
 //! - All public types are `Serialize + Deserialize` so the same struct can be
-//!   round-tripped to disk for `phantom personas show` (planned) without a
+//!   round-tripped to disk for `spectyn personas show` (planned) without a
 //!   second schema definition.
 //!
 //! # Feature gating
@@ -180,7 +180,7 @@ impl Persona {
     }
 
     /// Serialize the persona back to TOML (round-trip support for
-    /// `phantom personas show` and tests).
+    /// `spectyn personas show` and tests).
     pub fn to_toml_string(&self) -> Result<String, toml::ser::Error> {
         let wrapper = PersonaFile {
             persona: self.clone(),
@@ -221,7 +221,7 @@ impl Persona {
     }
 
     /// Build the system-prompt prefix string the dispatched agent should
-    /// receive *in addition* to phantom's built-in system prompt.
+    /// receive *in addition* to spectyn's built-in system prompt.
     ///
     /// The prefix is empty when neither tone nor verbosity is set, so it can
     /// be unconditionally prepended without growing the prompt for the
@@ -297,9 +297,9 @@ mod tests {
 
     const FULL: &str = r#"
         [persona]
-        name = "phantom-helper"
-        description = "General-purpose phantom assistant"
-        intro_message = "Hi! I'm phantom-helper."
+        name = "spectyn-helper"
+        description = "General-purpose spectyn assistant"
+        intro_message = "Hi! I'm spectyn-helper."
 
         [persona.style]
         tone = "professional"
@@ -310,7 +310,7 @@ mod tests {
         denied = ["bash_bg"]
 
         [persona.channels.telegram]
-        intro_message = "Hi! I'm phantom-helper bot. Type /help."
+        intro_message = "Hi! I'm spectyn-helper bot. Type /help."
 
         [persona.channels.slack]
         intro_message = ""
@@ -340,7 +340,7 @@ mod tests {
         let p = Persona::parse_str(FULL).unwrap();
         assert_eq!(
             p.channel_intro("telegram"),
-            Some("Hi! I'm phantom-helper bot. Type /help.")
+            Some("Hi! I'm spectyn-helper bot. Type /help.")
         );
     }
 
@@ -349,13 +349,13 @@ mod tests {
         // Slack override has an empty string — should NOT be returned;
         // we should fall back to the top-level intro.
         let p = Persona::parse_str(FULL).unwrap();
-        assert_eq!(p.channel_intro("slack"), Some("Hi! I'm phantom-helper."));
+        assert_eq!(p.channel_intro("slack"), Some("Hi! I'm spectyn-helper."));
     }
 
     #[test]
     fn channel_intro_returns_top_level_for_unknown_channel() {
         let p = Persona::parse_str(FULL).unwrap();
-        assert_eq!(p.channel_intro("whatsapp"), Some("Hi! I'm phantom-helper."));
+        assert_eq!(p.channel_intro("whatsapp"), Some("Hi! I'm spectyn-helper."));
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
         let p = Persona::parse_str(FULL).unwrap();
         let prefix = p.system_prompt_prefix();
         assert!(
-            prefix.starts_with("Persona: phantom-helper\n"),
+            prefix.starts_with("Persona: spectyn-helper\n"),
             "got: {prefix:?}"
         );
         assert!(prefix.contains("Tone: professional\n"));
@@ -537,7 +537,7 @@ name = "  ""#;
         let path = dir.path().join("p.toml");
         std::fs::write(&path, FULL).unwrap();
         let p = Persona::load_from(&path).expect("load_from succeeds");
-        assert_eq!(p.name, "phantom-helper");
+        assert_eq!(p.name, "spectyn-helper");
     }
 
     #[test]

@@ -99,7 +99,7 @@ jobs:
       - name: Cargo test (lib only)
         working-directory: core
         # --test-threads=1: many unit tests mutate process-global env vars
-        # (PHANTOM_AUTO_APPROVE, PHANTOM_MESH_AGENTS_TOML, provider keys, …)
+        # (SPECTYN_AUTO_APPROVE, SPECTYN_MESH_AGENTS_TOML, provider keys, …)
         # across ~15 modules. Running them in parallel races on that shared
         # state (flaky ~1/8). Serial is deterministic and only ~6s slower for
         # the full suite. Proper fix (serial_test / nextest process isolation)

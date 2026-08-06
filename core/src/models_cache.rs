@@ -7,7 +7,7 @@
 //! and serves every subsequent ask instantly with the [FREE]/[paid]
 //! markers already computed.
 //!
-//! Layout — one JSON file at `~/.phantom-mesh/models-cache.json`:
+//! Layout — one JSON file at `~/.spectyn-mesh/models-cache.json`:
 //!
 //! ```json
 //! {
@@ -59,20 +59,20 @@ pub struct ModelsCache {
     pub providers: HashMap<String, CachedProvider>,
 }
 
-/// `~/.phantom-mesh/models-cache.json`.
+/// `~/.spectyn-mesh/models-cache.json`.
 ///
-/// Tests can redirect this to a sandboxed dir by setting `PHANTOM_MESH_DIR`
-/// (the parent dir that would normally be `~/.phantom-mesh`). This sidesteps
+/// Tests can redirect this to a sandboxed dir by setting `SPECTYN_MESH_DIR`
+/// (the parent dir that would normally be `~/.spectyn-mesh`). This sidesteps
 /// the fact that on Windows `dirs::home_dir()` queries Win32 directly and
 /// ignores a test-mutated `HOME`/`USERPROFILE`, which would otherwise cause
 /// tests to read/write the developer's real cache file.
 pub fn cache_path() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("PHANTOM_MESH_DIR") {
+    if let Ok(dir) = std::env::var("SPECTYN_MESH_DIR") {
         if !dir.is_empty() {
             return Some(PathBuf::from(dir).join("models-cache.json"));
         }
     }
-    crate::cli_config::phantom_data_dir()
+    crate::cli_config::spectyn_data_dir()
         .ok()
         .map(|d| d.join("models-cache.json"))
 }
@@ -177,7 +177,7 @@ pub async fn refresh_provider(
 }
 
 /// Convenience: report which entries in the cache are stale beyond `max_age_ms`.
-/// For a future `phantom models status` UX. Sorted by name for deterministic output.
+/// For a future `spectyn models status` UX. Sorted by name for deterministic output.
 pub fn stale_entries(max_age_ms: u64) -> Vec<(String, u64)> {
     stale_entries_on(&SystemClock, max_age_ms)
 }
@@ -242,11 +242,11 @@ mod tests {
         // Sandboxed cache dir — avoids touching the developer's real cache
         // and works uniformly on Unix + Windows (where HOME overrides are
         // ignored by dirs::home_dir()).
-        let dir = std::env::temp_dir().join(format!("phantom-test-mc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn-test-mc-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        let prev = std::env::var("PHANTOM_MESH_DIR").ok();
-        std::env::set_var("PHANTOM_MESH_DIR", &dir);
+        let prev = std::env::var("SPECTYN_MESH_DIR").ok();
+        std::env::set_var("SPECTYN_MESH_DIR", &dir);
 
         put(
             "opencode",
@@ -273,9 +273,9 @@ mod tests {
         assert!(get_fresh("does-not-exist", DEFAULT_TTL_MS).is_none());
 
         if let Some(v) = prev {
-            std::env::set_var("PHANTOM_MESH_DIR", v);
+            std::env::set_var("SPECTYN_MESH_DIR", v);
         } else {
-            std::env::remove_var("PHANTOM_MESH_DIR");
+            std::env::remove_var("SPECTYN_MESH_DIR");
         }
         let _ = fs::remove_dir_all(&dir);
     }
@@ -283,25 +283,25 @@ mod tests {
     #[test]
     fn malformed_cache_returns_default_not_panic() {
         let _guard = crate::env_lock::acquire();
-        let dir = std::env::temp_dir().join(format!("phantom-test-mc-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn-test-mc-bad-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("models-cache.json"), "this is not json{{{").unwrap();
-        let prev = std::env::var("PHANTOM_MESH_DIR").ok();
-        std::env::set_var("PHANTOM_MESH_DIR", &dir);
+        let prev = std::env::var("SPECTYN_MESH_DIR").ok();
+        std::env::set_var("SPECTYN_MESH_DIR", &dir);
         let cache = read_cache();
         assert!(cache.providers.is_empty(), "malformed json → empty default");
         if let Some(v) = prev {
-            std::env::set_var("PHANTOM_MESH_DIR", v);
+            std::env::set_var("SPECTYN_MESH_DIR", v);
         } else {
-            std::env::remove_var("PHANTOM_MESH_DIR");
+            std::env::remove_var("SPECTYN_MESH_DIR");
         }
         let _ = fs::remove_dir_all(&dir);
     }
 
     // ── Additive tests (T16) ──────────────────────────────────────────────
     // In-memory fixtures only; no network. Filesystem-backed cases reuse the
-    // existing env_lock + sandboxed PHANTOM_MESH_DIR pattern.
+    // existing env_lock + sandboxed SPECTYN_MESH_DIR pattern.
 
     /// RAII helper: point cache_path() at a fresh temp dir and restore on drop.
     /// Keeps each test's writes isolated and cleans up even on assert panic.
@@ -313,14 +313,14 @@ mod tests {
     impl CacheSandbox {
         fn new(tag: &str) -> Self {
             let dir = std::env::temp_dir().join(format!(
-                "phantom-test-mc-{}-{}",
+                "spectyn-test-mc-{}-{}",
                 tag,
                 std::process::id()
             ));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
-            let prev = std::env::var("PHANTOM_MESH_DIR").ok();
-            std::env::set_var("PHANTOM_MESH_DIR", &dir);
+            let prev = std::env::var("SPECTYN_MESH_DIR").ok();
+            std::env::set_var("SPECTYN_MESH_DIR", &dir);
             CacheSandbox { dir, prev }
         }
     }
@@ -328,8 +328,8 @@ mod tests {
     impl Drop for CacheSandbox {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var("PHANTOM_MESH_DIR", v),
-                None => std::env::remove_var("PHANTOM_MESH_DIR"),
+                Some(v) => std::env::set_var("SPECTYN_MESH_DIR", v),
+                None => std::env::remove_var("SPECTYN_MESH_DIR"),
             }
             let _ = fs::remove_dir_all(&self.dir);
         }

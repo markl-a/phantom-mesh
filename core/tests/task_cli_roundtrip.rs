@@ -1,8 +1,8 @@
-//! Real-path integration test for the `phantom task` CLI (S0 lane F2).
+//! Real-path integration test for the `spectyn task` CLI (S0 lane F2).
 //!
-//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_phantom")`) against a
+//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_spectyn")`) against a
 //! temp `$HOME` so it exercises the same durable TaskStore/TaskQueue
-//! (`<home>/.phantom-mesh/phantom.db`) a real user hits — no mocks, no in-proc
+//! (`<home>/.spectyn-mesh/spectyn.db`) a real user hits — no mocks, no in-proc
 //! shortcuts. Asserts the submit → show → cancel round-trip:
 //!
 //!   * `submit` mints a UUID task_id on stdout (Pending),
@@ -14,8 +14,8 @@
 //!
 //! ## Isolation / platform gate
 //!
-//! `HOME` + `USERPROFILE` + `PHANTOM_HOME` all point at a unique temp dir so the
-//! child never touches the developer's real `~/.phantom-mesh`. Gated to `unix`:
+//! `HOME` + `USERPROFILE` + `SPECTYN_HOME` all point at a unique temp dir so the
+//! child never touches the developer's real `~/.spectyn-mesh`. Gated to `unix`:
 //! the `task` store path is resolved via `resolve_home_dir()` (HOME →
 //! USERPROFILE → dirs::home_dir()), which on Windows still lets a bare
 //! `dirs::home_dir()` fallback win in some child contexts; the platform-agnostic
@@ -26,13 +26,13 @@
 
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn unique_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-task-cli-{}-{}",
+        "spectyn-task-cli-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -41,25 +41,25 @@ fn unique_home() -> std::path::PathBuf {
     ))
 }
 
-/// Run `phantom <args...>` under the temp `$HOME`, returning the captured output.
+/// Run `spectyn <args...>` under the temp `$HOME`, returning the captured output.
 fn run(home: &std::path::Path, args: &[&str]) -> std::process::Output {
     let home_s = home.to_string_lossy().to_string();
-    Command::new(phantom_bin())
+    Command::new(spectyn_bin())
         .args(args)
         .env("HOME", &home_s)
         .env("USERPROFILE", &home_s)
-        .env("PHANTOM_HOME", &home_s)
+        .env("SPECTYN_HOME", &home_s)
         // Don't let dev-machine routing/config env perturb the surface.
-        .env_remove("PHANTOM_LOCAL_FIRST")
-        .env_remove("PHANTOM_RUNTIME_OVERRIDE")
+        .env_remove("SPECTYN_LOCAL_FIRST")
+        .env_remove("SPECTYN_RUNTIME_OVERRIDE")
         .output()
-        .expect("phantom must spawn")
+        .expect("spectyn must spawn")
 }
 
 #[test]
 fn task_submit_show_cancel_round_trip() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     // ── submit: mints a Pending task, prints the id on stdout ────────────────
     let submit = run(
@@ -148,7 +148,7 @@ fn task_submit_show_cancel_round_trip() {
 #[test]
 fn task_show_invalid_and_missing_id_fail_cleanly() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     // Malformed id → nonzero exit, clear error, no panic.
     let bad = run(&home, &["task", "show", "not-a-uuid"]);
@@ -188,7 +188,7 @@ fn task_show_invalid_and_missing_id_fail_cleanly() {
 #[test]
 fn task_replay_and_export_render_the_event_timeline() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     // submit → mints a Pending task (records a `created` lifecycle event).
     let submit = run(
@@ -297,7 +297,7 @@ fn task_replay_and_export_render_the_event_timeline() {
 #[test]
 fn task_id_resolves_with_flag_before_id() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     let submit = run(&home, &["task", "submit", "regression check", "--agent", "coder"]);
     assert!(submit.status.success());
@@ -328,7 +328,7 @@ fn task_id_resolves_with_flag_before_id() {
 #[test]
 fn task_approval_cli_arg_handling() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     let submit = run(&home, &["task", "submit", "needs approval", "--agent", "coder"]);
     assert!(submit.status.success());
@@ -359,7 +359,7 @@ fn task_approval_cli_arg_handling() {
 #[test]
 fn task_submit_json_emits_pending_record() {
     let home = unique_home();
-    std::fs::create_dir_all(home.join(".phantom-mesh")).expect("seed temp home");
+    std::fs::create_dir_all(home.join(".spectyn-mesh")).expect("seed temp home");
 
     let submit = run(&home, &["task", "submit", "--json", "do the thing"]);
     assert!(

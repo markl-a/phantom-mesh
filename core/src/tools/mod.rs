@@ -142,7 +142,7 @@ pub fn all_tool_names() -> Vec<&'static str> {
         "cluster_status",
         "cluster_sessions",
         "cluster_peers",
-        // self-introspection — read phantom's own diagnostic state
+        // self-introspection — read spectyn's own diagnostic state
         "diag_read",
     ];
 
@@ -193,11 +193,11 @@ pub fn all_tool_names() -> Vec<&'static str> {
 /// (REPL, TUI, `exec`), subagents, and `serve` HTTP/RPC/MCP — all flow through
 /// `execute`, so checking here is the central enforcement chokepoint. (A few
 /// specialised paths run tools without `execute` — e.g. skill bash steps
-/// and the subprocess-spawning `phantom_swarm`/`phantom_evolve` pseudo-tools;
+/// and the subprocess-spawning `spectyn_swarm`/`spectyn_evolve` pseudo-tools;
 /// those are tracked as follow-ups, not covered here yet.) `Ok(())` allows;
 /// `Err(reason)` denies with a message surfaced to the model. Built from the
 /// HOME permission profile + project-trust policy (see `tool_gate::install`).
-/// When no gate is installed (default / `PHANTOM_TRUST_ALL`), every call is
+/// When no gate is installed (default / `SPECTYN_TRUST_ALL`), every call is
 /// allowed — preserving legacy behaviour.
 pub type ToolGate = dyn Fn(&str, &Value) -> Result<(), String> + Send + Sync;
 
@@ -236,7 +236,7 @@ fn gate_check(name: &str, args: &Value) -> Result<(), String> {
 }
 
 /// Public gate check for the few tool-like surfaces that DON'T go through
-/// [`execute`] (e.g. the MCP `phantom_swarm`/`phantom_evolve` pseudo-tools that
+/// [`execute`] (e.g. the MCP `spectyn_swarm`/`spectyn_evolve` pseudo-tools that
 /// spawn subprocesses). Same policy as `execute`'s internal check. `Ok(())`
 /// allows; `Err(reason)` denies.
 pub fn gate_allows(name: &str, args: &Value) -> Result<(), String> {
@@ -605,12 +605,12 @@ pub fn schema(name: &str) -> Option<Value> {
             "type": "function",
             "function": {
                 "name": "image_generate",
-                "description": "Generate an image from a text prompt via an OpenAI-compatible /images/generations endpoint. Returns the local PNG file path(s). Configure with PHANTOM_IMAGE_GEN_API_KEY (or OPENAI_API_KEY) and optionally PHANTOM_IMAGE_GEN_BASE_URL + PHANTOM_IMAGE_GEN_MODEL.",
+                "description": "Generate an image from a text prompt via an OpenAI-compatible /images/generations endpoint. Returns the local PNG file path(s). Configure with SPECTYN_IMAGE_GEN_API_KEY (or OPENAI_API_KEY) and optionally SPECTYN_IMAGE_GEN_BASE_URL + SPECTYN_IMAGE_GEN_MODEL.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "prompt": {"type": "string", "description": "Text description of the image to generate (max 3800 chars)."},
-                        "model":  {"type": "string", "description": "Provider model id. Default: dall-e-3 (or PHANTOM_IMAGE_GEN_MODEL)."},
+                        "model":  {"type": "string", "description": "Provider model id. Default: dall-e-3 (or SPECTYN_IMAGE_GEN_MODEL)."},
                         "size":   {"type": "string", "description": "Image size, e.g. '1024x1024'. Provider-specific."},
                         "n":      {"type": "integer", "description": "Number of images to generate (1-4, default 1).", "minimum": 1, "maximum": 4},
                         "style":  {"type": "string", "description": "Provider-specific style modifier (e.g. 'vivid' or 'natural' for DALL-E 3)."}
@@ -625,7 +625,7 @@ pub fn schema(name: &str) -> Option<Value> {
             "type": "function",
             "function": {
                 "name": "video_generate",
-                "description": "Generate a video from a text prompt (or text+starting frame for image-to-video) via an async-job provider. Supported via PHANTOM_VIDEO_GEN_PROVIDER: replicate (default, LTX-Video etc.), openai-sora, luma, fal. Returns the local mp4 file path. Polls until done; default timeout 600s (PHANTOM_VIDEO_GEN_TIMEOUT_SECS). Configure auth via PHANTOM_VIDEO_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / OPENAI_API_KEY / LUMA_API_KEY / FAL_KEY).",
+                "description": "Generate a video from a text prompt (or text+starting frame for image-to-video) via an async-job provider. Supported via SPECTYN_VIDEO_GEN_PROVIDER: replicate (default, LTX-Video etc.), openai-sora, luma, fal. Returns the local mp4 file path. Polls until done; default timeout 600s (SPECTYN_VIDEO_GEN_TIMEOUT_SECS). Configure auth via SPECTYN_VIDEO_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / OPENAI_API_KEY / LUMA_API_KEY / FAL_KEY).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -645,7 +645,7 @@ pub fn schema(name: &str) -> Option<Value> {
             "type": "function",
             "function": {
                 "name": "music_generate",
-                "description": "Generate music from a text prompt (genre / mood / instruments) via Replicate (default, instrumental MusicGen), Fal.ai (instrumental MusicGen), or ElevenLabs Music (with vocals + optional lyrics). Returns the local audio file path. Select via PHANTOM_MUSIC_GEN_PROVIDER ∈ {replicate, fal, elevenlabs}. Auth: PHANTOM_MUSIC_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / FAL_KEY / ELEVENLABS_API_KEY).",
+                "description": "Generate music from a text prompt (genre / mood / instruments) via Replicate (default, instrumental MusicGen), Fal.ai (instrumental MusicGen), or ElevenLabs Music (with vocals + optional lyrics). Returns the local audio file path. Select via SPECTYN_MUSIC_GEN_PROVIDER ∈ {replicate, fal, elevenlabs}. Auth: SPECTYN_MUSIC_GEN_API_KEY or per-provider fallback (REPLICATE_API_TOKEN / FAL_KEY / ELEVENLABS_API_KEY).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -669,7 +669,7 @@ pub fn schema(name: &str) -> Option<Value> {
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string", "description": "Override output path. Default: ~/.phantom-mesh/captures/<unix-ts>.png"}
+                        "path": {"type": "string", "description": "Override output path. Default: ~/.spectyn-mesh/captures/<unix-ts>.png"}
                     }
                 }
             }
@@ -1182,13 +1182,13 @@ pub fn schema(name: &str) -> Option<Value> {
             "type": "function",
             "function": {
                 "name": "dev_verify",
-                "description": "Run a build/test command and return a STRUCTURED verdict {passed, exit_code, summary, failed, warnings, log_path, +passed_count/failed_count/ignored_count for tests, +error_count on compile failure}. 'passed' is the process's real exit_code==0 — a tool-returned fact, not a claim. Use this as the shared 'is it green?' gate; never assert tests passed without it. Supports shell mode (pipes/&&), background mode (non-blocking, poll by job_id), and remote cluster peers. Every run is appended to ~/.phantom-mesh/verify-log.jsonl.",
+                "description": "Run a build/test command and return a STRUCTURED verdict {passed, exit_code, summary, failed, warnings, log_path, +passed_count/failed_count/ignored_count for tests, +error_count on compile failure}. 'passed' is the process's real exit_code==0 — a tool-returned fact, not a claim. Use this as the shared 'is it green?' gate; never assert tests passed without it. Supports shell mode (pipes/&&), background mode (non-blocking, poll by job_id), and remote cluster peers. Every run is appended to ~/.spectyn-mesh/verify-log.jsonl.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Command to run, e.g. 'cargo test life_node' or 'cargo check --bin phantom'. Required unless polling with 'job'."
+                            "description": "Command to run, e.g. 'cargo test life_node' or 'cargo check --bin spectyn'. Required unless polling with 'job'."
                         },
                         "path": {
                             "type": "string",
@@ -1224,7 +1224,7 @@ pub fn schema(name: &str) -> Option<Value> {
                         },
                         "env": {
                             "type": "object",
-                            "description": "Optional env vars for the command, e.g. {\"PHANTOM_MESH_GOOGLE_CLIENT_ID\": \"...\"}. Lets you verify env-gated flows without a shell 'export ... &&' prefix.",
+                            "description": "Optional env vars for the command, e.g. {\"SPECTYN_MESH_GOOGLE_CLIENT_ID\": \"...\"}. Lets you verify env-gated flows without a shell 'export ... &&' prefix.",
                             "additionalProperties": { "type": "string" }
                         },
                         "remote": {
@@ -1715,7 +1715,7 @@ pub fn schema(name: &str) -> Option<Value> {
                         },
                         "description": {
                             "type": "string",
-                            "description": "Short label for the task (3-5 words). Compatibility shim with Claude Code's Agent tool — accepted but currently unused by phantom (logged for /tasks UI in future)."
+                            "description": "Short label for the task (3-5 words). Compatibility shim with Claude Code's Agent tool — accepted but currently unused by spectyn (logged for /tasks UI in future)."
                         },
                         "prompt": {
                             "type": "string",
@@ -1740,11 +1740,11 @@ pub fn schema(name: &str) -> Option<Value> {
                         },
                         "node": {
                             "type": "string",
-                            "description": "Optional mesh peer URL or substring (e.g. 'peer-beta', '192.0.2.11', or full 'http://192.0.2.11:7879'). When set, the subagent runs on that remote peer's phantom serve and only the result string is returned. Useful to offload heavy work to a specific cluster machine."
+                            "description": "Optional mesh peer URL or substring (e.g. 'peer-beta', '192.0.2.11', or full 'http://192.0.2.11:7879'). When set, the subagent runs on that remote peer's spectyn serve and only the result string is returned. Useful to offload heavy work to a specific cluster machine."
                         },
                         "auto_snapshot": {
                             "type": "boolean",
-                            "description": "macOS-only safety net: take an APFS local snapshot via `tmutil` BEFORE the subagent runs. The snapshot id is prepended to the result so a misbehaving subagent can be rolled back with `phantom snapshot rollback <id>`. ~1s overhead, no sudo required, no-op on non-mac. Default: false."
+                            "description": "macOS-only safety net: take an APFS local snapshot via `tmutil` BEFORE the subagent runs. The snapshot id is prepended to the result so a misbehaving subagent can be rolled back with `spectyn snapshot rollback <id>`. ~1s overhead, no sudo required, no-op on non-mac. Default: false."
                         }
                     },
                     "anyOf": [
@@ -1820,7 +1820,7 @@ pub fn schema(name: &str) -> Option<Value> {
             "type": "function",
             "function": {
                 "name": "cluster_sessions",
-                "description": "List live phantom TUI sessions across the user's mesh (any session that \
+                "description": "List live spectyn TUI sessions across the user's mesh (any session that \
                     heartbeated to the broker within the last 60s). Shows machine, agent, cwd, alive \
                     duration, last-seen-ago. Useful when the user asks 'where am I working right now' \
                     or you want to avoid dispatching to a machine someone else is actively using.",
@@ -1832,7 +1832,7 @@ pub fn schema(name: &str) -> Option<Value> {
             "function": {
                 "name": "cluster_peers",
                 "description": "Return the static peer registry — names, URLs, capability tags, and \
-                    which one is THIS machine — as JSON. No network call (reads ~/.phantom-mesh/peers.json). \
+                    which one is THIS machine — as JSON. No network call (reads ~/.spectyn-mesh/peers.json). \
                     Use this to enumerate dispatch targets BY NAME so you can pass them as `node:` to \
                     task / parallel_tasks. Capabilities (e.g. ['rust','gpu']) are user-tagged hints \
                     about what the peer is good at.",
@@ -1840,12 +1840,12 @@ pub fn schema(name: &str) -> Option<Value> {
             }
         })),
 
-        // ── Self-introspection — read phantom's own diagnostic state ──────
+        // ── Self-introspection — read spectyn's own diagnostic state ──────
         "diag_read" => Some(serde_json::json!({
             "type": "function",
             "function": {
                 "name": "diag_read",
-                "description": "Read phantom's own diagnostic state — recent events, crash logs, or a one-paragraph summary. Use this when the user asks 'what just went wrong', when investigating an evolve/autoevolve failure, or when self-debugging. The agent should always call this FIRST when a panic/crash is mentioned, before guessing root causes.\n\nKinds:\n  summary      — counts + last crash path + top event kinds (start here)\n  events       — last N events from the in-memory ring (default 30)\n  crashes      — list of recent crash log files (default 5)\n  last_crash   — full content of the newest crash log (capped at 8000 chars)",
+                "description": "Read spectyn's own diagnostic state — recent events, crash logs, or a one-paragraph summary. Use this when the user asks 'what just went wrong', when investigating an evolve/autoevolve failure, or when self-debugging. The agent should always call this FIRST when a panic/crash is mentioned, before guessing root causes.\n\nKinds:\n  summary      — counts + last crash path + top event kinds (start here)\n  events       — last N events from the in-memory ring (default 30)\n  crashes      — list of recent crash log files (default 5)\n  last_crash   — full content of the newest crash log (capped at 8000 chars)",
                 "parameters": {
                     "type": "object",
                     "properties": {

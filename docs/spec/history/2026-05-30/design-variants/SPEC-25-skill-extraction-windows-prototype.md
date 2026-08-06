@@ -23,7 +23,7 @@ skill 庫互動有兩條前作沒有的核心路徑：
 ## 互動狀態機
 
 ```
-每日 judge 完成 + 有新 skill --> WinRT toast(§10.2) --(點/「看看」)--> deep-link phantom-mesh://skills --> SKILLS_TAB(新 skill 在 Recall 段頂)
+每日 judge 完成 + 有新 skill --> WinRT toast(§10.2) --(點/「看看」)--> deep-link spectyn-mesh://skills --> SKILLS_TAB(新 skill 在 Recall 段頂)
 SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> {更新 + 留在 DETAIL}
 任務流程中 --(recall 命中)--> APPLY_BANNER --(好/不點)--> 採用注入 prompt
                                           --(這次不要)--> skip + measure 負回饋
@@ -52,7 +52,7 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 | 「Delete」(trash) | → CONFIRM「永久刪除此技能（歷史紀錄保留）？」→ 確認才刪（≈ CLI `skill delete`） | `Enter` → `Enter` 確認 |
 | 「Promote to Core」(arrow-up-circle) | 升 tier 到 Core（永遠注入 prompt） | `Enter` |
 | 「跨機分享」(share-2) | push 到 cluster skill bank（`/rpc/skill/sync`）→ 顯「已分享到 N 台」 | `Enter` |
-| WinRT toast「看看」(§10.2) | deep-link `phantom-mesh://skills` → Skills tab（app 沒開則 cold-launch：splash → 等 serve ready → 跳） | — |
+| WinRT toast「看看」(§10.2) | deep-link `spectyn-mesh://skills` → Skills tab（app 沒開則 cold-launch：splash → 等 serve ready → 跳） | — |
 | 「從對話抽取」(sparkle) | 手動觸發 judge（不等每日排程）→ spinner →新 skill 進列表 | `Enter` |
 | **apply banner「好」** | 採用、注入 prompt（預設、不點也採用 — 不阻塞流程） | 不點即採用 |
 | **apply banner「這次不要」** | 本次 skip 注入 + measure 記負回饋（influence next judge weights） | `Esc` = 這次不要 |
@@ -67,10 +67,10 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 | 刪除「Rust 錯誤先看 cargo check」？               |
 |   會刪除此技能、不再自動套用。                    |
 |   （你過去的對話 / event 歷史不受影響，保留）     |   ← 釐清「刪 skill ≠ 刪歷史」
-|                          [ 取消 ]  [ 刪除 ]      |   刪除 = phantom-danger（唯一破壞性確認）
+|                          [ 取消 ]  [ 刪除 ]      |   刪除 = spectyn-danger（唯一破壞性確認）
 +--------------------------------------------------+
 ```
-- 唯一用 phantom-danger 的地方（破壞性動作）；說明「歷史保留」降低焦慮（reversible 來源仍在）
+- 唯一用 spectyn-danger 的地方（破壞性動作）；說明「歷史保留」降低焦慮（reversible 來源仍在）
 
 ## 失敗路徑（per SPEC-04 + SPEC-25 §11 P3.skillbank.*）
 
@@ -117,7 +117,7 @@ SKILLS_TAB(list) --(點 row)--> DETAIL --(Edit/Decline/Delete/Promote/share)--> 
 ```
 > 註：`skill_decline` 為 Tauri command 佔位；實際 wire 見 SPEC-17 + SPEC-25 §6（recall/apply/measure）。banner 用 `role="status"` + `aria-live="polite"` 讓 Narrator 朗讀但不搶焦點。
 
-## Walkthrough 腳本（usability test：「phantom 自動套用上次做法」）
+## Walkthrough 腳本（usability test：「spectyn 自動套用上次做法」）
 
 1. 連續幾天解 Rust 編譯錯都先跑 cargo check → 預期：某天 Skills tab 出現「Rust 錯誤先看 cargo check」technique（provenance 顯重複次數）
 2. 再遇 Rust 錯 → 預期：apply banner 跳出「套用了你上次的做法」，覺得被理解

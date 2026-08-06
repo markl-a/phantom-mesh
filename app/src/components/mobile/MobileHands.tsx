@@ -85,7 +85,7 @@ export default function MobileHands() {
 
   if (loading) {
     return (
-      <div data-testid="mobile-hands-loading" className="text-sm text-phantom-muted py-4">
+      <div data-testid="mobile-hands-loading" className="text-sm text-spectyn-muted py-4">
         載入工作流中…
       </div>
     );
@@ -95,7 +95,7 @@ export default function MobileHands() {
     return (
       <div
         data-testid="mobile-hands-error"
-        className="rounded border border-phantom-danger/30 bg-phantom-danger/10 px-3 py-2 text-xs text-phantom-danger"
+        className="rounded border border-spectyn-danger/30 bg-spectyn-danger/10 px-3 py-2 text-xs text-spectyn-danger"
       >
         {error}
       </div>
@@ -108,7 +108,7 @@ export default function MobileHands() {
     return (
       <pre
         data-testid="mobile-hands-raw"
-        className="bg-phantom-card border border-phantom-border rounded p-3 text-[11px] text-phantom-text overflow-auto whitespace-pre-wrap break-words"
+        className="bg-spectyn-card border border-spectyn-border rounded p-3 text-[11px] text-spectyn-text overflow-auto whitespace-pre-wrap break-words"
       >
         {JSON.stringify(raw, null, 2)}
       </pre>
@@ -117,7 +117,7 @@ export default function MobileHands() {
 
   if (rows.length === 0) {
     return (
-      <div data-testid="mobile-hands-empty" className="text-sm text-phantom-muted py-4">
+      <div data-testid="mobile-hands-empty" className="text-sm text-spectyn-muted py-4">
         沒有已註冊的工作流。
       </div>
     );
@@ -129,19 +129,19 @@ export default function MobileHands() {
         <li
           key={h.name}
           data-testid={`hand-${h.name}`}
-          className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5"
+          className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5"
         >
           <div className="flex items-center gap-2">
-            <Workflow size={15} className="flex-shrink-0 text-phantom-primary" />
-            <span className="flex-1 min-w-0 text-sm text-phantom-text truncate">{h.name}</span>
+            <Workflow size={15} className="flex-shrink-0 text-spectyn-primary" />
+            <span className="flex-1 min-w-0 text-sm text-spectyn-text truncate">{h.name}</span>
             {h.enabled === false && (
-              <span className="text-[10px] uppercase tracking-wide text-phantom-muted flex-shrink-0">
+              <span className="text-[10px] uppercase tracking-wide text-spectyn-muted flex-shrink-0">
                 disabled
               </span>
             )}
           </div>
           {h.description && (
-            <p className="mt-1 text-[11px] text-phantom-muted line-clamp-2">{h.description}</p>
+            <p className="mt-1 text-[11px] text-spectyn-muted line-clamp-2">{h.description}</p>
           )}
         </li>
       ))}

@@ -1,7 +1,7 @@
 // SPEC-34 G6 / J5 — MIUI (小米系統) compatibility guide dialog.
 //
-// Shown when a MIUI/Redmi device's background-kill would reap phantom's
-// foreground service overnight. Per SPEC-33 §6(E) phantom can only *guide* —
+// Shown when a MIUI/Redmi device's background-kill would reap spectyn's
+// foreground service overnight. Per SPEC-33 §6(E) spectyn can only *guide* —
 // it can't toggle the MIUI auto-start whitelist or battery deny-list itself.
 // So the manual steps are the substance; the two deep-link buttons are a
 // best-effort convenience that fall back to the steps when the native intent
@@ -96,37 +96,37 @@ export default function MiuiGuideDialog({
       }}
     >
       <div
-        className="w-full max-w-md bg-phantom-bg border border-phantom-border rounded-2xl p-4 space-y-3 max-h-[85vh] overflow-y-auto"
+        className="w-full max-w-md bg-spectyn-bg border border-spectyn-border rounded-2xl p-4 space-y-3 max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-2">
           <h2
             id="miui-guide-title"
-            className="text-base font-semibold text-phantom-text"
+            className="text-base font-semibold text-spectyn-text"
           >
             偵測到 MIUI（小米系統）
           </h2>
           <button
             onClick={onClose}
-            className="text-phantom-muted hover:text-phantom-text p-1 -m-1"
+            className="text-spectyn-muted hover:text-spectyn-text p-1 -m-1"
             aria-label="關閉"
           >
             <X size={18} />
           </button>
         </div>
 
-        <p id="miui-guide-desc" className="text-sm text-phantom-muted leading-relaxed">
-          小米 / Redmi 預設會把背景 app 殺得比一般 Android 兇,phantom
+        <p id="miui-guide-desc" className="text-sm text-spectyn-muted leading-relaxed">
+          小米 / Redmi 預設會把背景 app 殺得比一般 Android 兇,spectyn
           的背景服務(focus session、mesh 連線)可能過夜後就被關掉。建議把
-          phantom 加入「自啟動」白名單 + 「電池優化」例外。
+          spectyn 加入「自啟動」白名單 + 「電池優化」例外。
         </p>
 
         {isMiui !== null && (
           <div
             className={`text-xs rounded-lg px-3 py-2 ${
               isMiui
-                ? "bg-phantom-primary/10 text-phantom-primary"
-                : "bg-phantom-card text-phantom-muted"
+                ? "bg-spectyn-primary/10 text-spectyn-primary"
+                : "bg-spectyn-card text-spectyn-muted"
             }`}
             data-testid="miui-detect-banner"
           >
@@ -137,44 +137,44 @@ export default function MiuiGuideDialog({
         )}
 
         {/* Autostart */}
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-3 space-y-2">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-3 space-y-2">
           <button
             onClick={() => void handleAutostart()}
             disabled={busy}
-            className="w-full flex items-center gap-2 text-sm text-phantom-text font-medium disabled:opacity-50"
+            className="w-full flex items-center gap-2 text-sm text-spectyn-text font-medium disabled:opacity-50"
           >
-            <Power size={16} className="text-phantom-primary" />
+            <Power size={16} className="text-spectyn-primary" />
             自啟設定
-            <ExternalLink size={13} className="text-phantom-muted ml-auto" />
+            <ExternalLink size={13} className="text-spectyn-muted ml-auto" />
           </button>
-          <ol className="text-[11px] text-phantom-muted leading-relaxed list-decimal pl-4">
+          <ol className="text-[11px] text-spectyn-muted leading-relaxed list-decimal pl-4">
             <li>開「安全中心」→「應用管理」→「自啟動」</li>
-            <li>找到 Phantom Mesh,打開開關</li>
+            <li>找到 Spectyn Mesh,打開開關</li>
           </ol>
           {autostartFell && (
-            <p className="text-[11px] text-phantom-warning" role="alert">
+            <p className="text-[11px] text-spectyn-warning" role="alert">
               無法直接跳轉 — 請依上面步驟手動開啟。
             </p>
           )}
         </div>
 
         {/* Battery optimization */}
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-3 space-y-2">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-3 space-y-2">
           <button
             onClick={() => void handleBattery()}
             disabled={busy}
-            className="w-full flex items-center gap-2 text-sm text-phantom-text font-medium disabled:opacity-50"
+            className="w-full flex items-center gap-2 text-sm text-spectyn-text font-medium disabled:opacity-50"
           >
-            <Battery size={16} className="text-phantom-primary" />
+            <Battery size={16} className="text-spectyn-primary" />
             電池設定
-            <ExternalLink size={13} className="text-phantom-muted ml-auto" />
+            <ExternalLink size={13} className="text-spectyn-muted ml-auto" />
           </button>
-          <ol className="text-[11px] text-phantom-muted leading-relaxed list-decimal pl-4">
+          <ol className="text-[11px] text-spectyn-muted leading-relaxed list-decimal pl-4">
             <li>開「設定」→「電池與效能」→「應用智慧省電」</li>
-            <li>把 Phantom Mesh 設為「無限制」</li>
+            <li>把 Spectyn Mesh 設為「無限制」</li>
           </ol>
           {batteryFell && (
-            <p className="text-[11px] text-phantom-warning" role="alert">
+            <p className="text-[11px] text-spectyn-warning" role="alert">
               無法直接跳轉 — 請依上面步驟手動設定。
             </p>
           )}
@@ -183,14 +183,14 @@ export default function MiuiGuideDialog({
         <div className="flex items-center justify-between gap-2 pt-1">
           <button
             onClick={() => void handleDontShowAgain()}
-            className="text-xs text-phantom-muted hover:text-phantom-text underline"
+            className="text-xs text-spectyn-muted hover:text-spectyn-text underline"
             data-testid="miui-dont-show-again"
           >
             不再提示
           </button>
           <button
             onClick={onClose}
-            className="bg-phantom-primary text-phantom-bg text-sm font-medium px-4 py-2 rounded-lg active:opacity-80"
+            className="bg-spectyn-primary text-spectyn-bg text-sm font-medium px-4 py-2 rounded-lg active:opacity-80"
           >
             完成
           </button>

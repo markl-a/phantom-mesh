@@ -34,7 +34,7 @@ COORD="${COORD:-http://127.0.0.1:7878}"
 MAX_WAIT_S="${MAX_WAIT_S:-60}"
 AGENT="${AGENT:-master}"
 
-SECRET=$(awk -F'"' '/^[[:space:]]*cluster_secret[[:space:]]*=/{print $2; exit}' "$HOME/.phantom-mesh/agents.toml")
+SECRET=$(awk -F'"' '/^[[:space:]]*cluster_secret[[:space:]]*=/{print $2; exit}' "$HOME/.spectyn-mesh/agents.toml")
 if [[ -z "$SECRET" ]]; then echo "ERROR: no cluster_secret" >&2; exit 2; fi
 
 echo "=== mobile-style swarm ==="

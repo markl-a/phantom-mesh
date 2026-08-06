@@ -59,7 +59,7 @@ FSM 共用 hero iOS 9-state（Idle / Requesting / Recording / Chunking / Interru
 
 - Learnability：Focus tab 為 canonical surface — 永遠在 main window；3 個 duration radio + goal tag input + start button 跟 hero iOS Idle 版式對得起來
 - Efficiency：GTK CSD 真窗單擊開始；無 mic perm prompt
-- Memorability：上次 duration 預選（store `last_duration_min` in `~/.config/phantom-mesh/state.json` per SPEC-44 storage spec）
+- Memorability：上次 duration 預選（store `last_duration_min` in `~/.config/spectyn-mesh/state.json` per SPEC-44 storage spec）
 - Errors：start 按下若 mic 抓不到 → 走 B' device-error，**不靜默失敗**
 - Satisfaction：trust badge `focus.trust_badge` 一字不差跨平台
 
@@ -92,7 +92,7 @@ per Linux mockup §A — 視覺 spec 在 mockup，此處只列互動行為。
 ### Animations / Timings
 
 - Radio 切換：CSS `transition: background-color 150ms ease-out`（比 iOS pill 切換 200ms 略快 — GTK 視覺慣例偏快速）
-- Start button hover：`transition: background-color 80ms ease-out`（per Linux mockup §A `phantom-primary @ 90%`）
+- Start button hover：`transition: background-color 80ms ease-out`（per Linux mockup §A `spectyn-primary @ 90%`）
 - Start button press：`transition: background-color 40ms ease-in`（press 比 hover 快、release 比 press 慢，給「按下去」反饋）
 - Custom input shake：keyframes 0/33/66/100% × 80ms = 240ms total，translate -10px / +10px / -10px / 0
 - Start → Recording 切換：webkit2gtk content swap ~80ms ease-out（避免 jank 加 reduced-motion `prefers-reduced-motion` query 直接 0ms 切）
@@ -184,7 +184,7 @@ per Linux wireframe §B + Linux mockup §B — PulseAudio / PipeWire 不 prompt�
 
 | Target | 動作 |
 |---|---|
-| `⏸ 暫停` button | label 取 `focus.btn.pause`。(1) cpal / PipeWire stream pause；(2) waveform 凍結（CSS class `paused` 加 `phantom-muted` 色）；(3) 計時 1Hz 閃爍（CSS `animation: blink 1s infinite`）；(4) button label 切 `▶ 繼續`（取 `focus.btn.resume`）；(5) tray icon 切 paused 變體（Lucide `mic-off` phantom-muted） |
+| `⏸ 暫停` button | label 取 `focus.btn.pause`。(1) cpal / PipeWire stream pause；(2) waveform 凍結（CSS class `paused` 加 `spectyn-muted` 色）；(3) 計時 1Hz 閃爍（CSS `animation: blink 1s infinite`）；(4) button label 切 `▶ 繼續`（取 `focus.btn.resume`）；(5) tray icon 切 paused 變體（Lucide `mic-off` spectyn-muted） |
 | `▶ 繼續` button | 反向：stream resume；waveform 重跑；計時繼續；button label 切回 `⏸ 暫停`；tray icon 切回 recording 變體 |
 | `⏹ 停止` button | label 取 `focus.btn.stop_finalize`（desktop 用長版，per hero invariant + Linux mockup §C-tray）。立即 transition 到 Finalizing screen（**不加 confirm dialog** — per hero iOS C 同邏輯）；webkit2gtk cross-fade 250ms；AudioRecorder.close；flush 殘留 chunk → 觸發 Chunking → Finalizing 鏈 |
 | chunk count `已落地 chunk: {n}` | 顯示用變量；99 → 100 切 `99+`（取 `focus.limit.chunk_overflow`）；tap 無動作（純資訊）；v0.7+ 可 tap 跳 history |
@@ -192,7 +192,7 @@ per Linux wireframe §B + Linux mockup §B — PulseAudio / PipeWire 不 prompt�
 
 ### Background / Tray 行為
 
-- **進背景（user 切到其他 app）**：main window 失焦 — Recording 繼續（systemd `--user` phantom.service 在 background 跑，不是 Android FGS 概念，per Linux wireframe §C）
+- **進背景（user 切到其他 app）**：main window 失焦 — Recording 繼續（systemd `--user` spectyn.service 在 background 跑，不是 Android FGS 概念，per Linux wireframe §C）
 - **Tray icon 同步**：app 進背景時 tray icon 切 `NeedsAttention` 狀態（SNI status，GNOME extension `appindicatorsupport` 支援、KDE / Xfce 預設可見）；GNOME 無 tray 情境靠 main window title 加 `[Recording]` prefix 救濟（per Linux mockup §C-tray + Linux wireframe §6 大資料狀態）
 - **systemd-logind suspend signal**：`PrepareForSleep` D-Bus signal → 進 Interrupted sub-state；libnotify critical（per Linux wireframe §C'）
 - **mic 被搶**（PipeWire `node-removed` 或 PA `source-output-removed`）：同上，進 Interrupted + libnotify critical
@@ -211,7 +211,7 @@ per Linux wireframe §B + Linux mockup §B — PulseAudio / PipeWire 不 prompt�
 - **mic 被搶**：PipeWire `node-removed` event → 觸發 Interrupted sub-state；fire libnotify critical（per Linux mockup §C'）；waveform **不凍結**（per hero invariants desktop variant）；計時 **不停**；user 可從 main window Stop 或 libnotify action button 「開啟並停止」
 - **libnotify daemon 不在**（`LINUX-SCREEN-LIBNOTIFY-NO-SERVICE` — headless server / minimal distro）：D-Bus call fail → fallback main window inline banner（紅色 banner 顯示「焦點時段中斷 — 5:23/25:00 · mic 被佔用」）；tray icon 仍切 attention 變體
 - **儲存空間滿**：chunk encrypt 失敗 → toast `focus.err.disk_full` + 切 Finalizing（保留已落地 chunk）
-- **Wayland portal 拒絕 raise window**（libnotify action → 試圖 raise main window）：portal call fail → fallback `wmctrl -a phantom-mesh`（X11 only）/ sway IPC `[app_id="phantom-mesh"] focus`（Sway only）/ KWin DBus（KDE only）— prototype 接受「使用者可能要自己切窗」降級
+- **Wayland portal 拒絕 raise window**（libnotify action → 試圖 raise main window）：portal call fail → fallback `wmctrl -a spectyn-mesh`（X11 only）/ sway IPC `[app_id="spectyn-mesh"] focus`（Sway only）/ KWin DBus（KDE only）— prototype 接受「使用者可能要自己切窗」降級
 
 ### Walkthrough script（usability test：「開始錄音 30 秒、暫停、繼續、停止」）
 
@@ -235,12 +235,12 @@ per Linux wireframe §B + Linux mockup §B — PulseAudio / PipeWire 不 prompt�
 | Tray icon **right click** | open dropdown menu（per Linux mockup §C-tray）— 跨 SNI / AppIndicator 一致 |
 | Menu item `⏹ 停止並收工` | 等同 main window 內 Stop button；觸發 D-Bus `Activate` 後 panel 處理 menu close；100-300ms 後 Finalizing screen 出現於 main window |
 | Menu item `⏸ 暫停` | 等同 main window 內 Pause；同樣 100-300ms timing |
-| Menu item `Open Phantom Mesh` | raise main window + 切 Focus tab；行為同 left click on KDE |
+| Menu item `Open Spectyn Mesh` | raise main window + 切 Focus tab；行為同 left click on KDE |
 
 ### Failure paths
 
 - **GNOME 無 `appindicatorsupport` extension**：tray 不存在 → menu 不存在；user 須從 main window 控制；onboarding（per SPEC-45 §6.4 step 4）已提示安裝
-- **Sway / i3wm**：tray 行為依 swaybar / i3bar 配置，v0.6.0 接受「可能 tray 不可見」；CLI fallback `phantom-mesh-app --focus-stop`（v0.7+）
+- **Sway / i3wm**：tray 行為依 swaybar / i3bar 配置，v0.6.0 接受「可能 tray 不可見」；CLI fallback `spectyn-mesh-app --focus-stop`（v0.7+）
 
 ---
 
@@ -257,9 +257,9 @@ per Linux mockup §C' libnotify hint 規格 — prototype 鎖互動：
 
 | Tap target | 動作 |
 |---|---|
-| **Action button「開啟並停止」** | D-Bus `ActionInvoked` signal → phantom 收到 → (1) raise main window（DE-aware：KWin / sway IPC / wmctrl）；(2) trigger Stop flow；(3) main window 切 Finalizing screen；總 timing ~ 100-500ms |
+| **Action button「開啟並停止」** | D-Bus `ActionInvoked` signal → spectyn 收到 → (1) raise main window（DE-aware：KWin / sway IPC / wmctrl）；(2) trigger Stop flow；(3) main window 切 Finalizing screen；總 timing ~ 100-500ms |
 | **Notification body click** | D-Bus `default` action invoked → 同上 raise main window；KDE / GNOME Shell 多支援；dunst / mako 視 user 設定 |
-| **Notification dismiss**（user 揮掉 / X） | `NotificationClosed` signal → phantom 收到；session **保持 Interrupted state**（30s 寬限繼續跑）；若寬限過 → 強制 finalize（per wireframe FSM） |
+| **Notification dismiss**（user 揮掉 / X） | `NotificationClosed` signal → spectyn 收到；session **保持 Interrupted state**（30s 寬限繼續跑）；若寬限過 → 強制 finalize（per wireframe FSM） |
 
 ### Compositor 支援度落差 — prototype 鎖二級救濟
 
@@ -273,7 +273,7 @@ per Linux mockup §C' libnotify hint 規格 — prototype 鎖互動：
 
 ### Timing
 
-- libnotify D-Bus call：phantom 觸發 → D-Bus round-trip ~ 5-50ms（local D-Bus，快）→ 通知出現於 panel ~ 50-300ms（compositor 處理）
+- libnotify D-Bus call：spectyn 觸發 → D-Bus round-trip ~ 5-50ms（local D-Bus，快）→ 通知出現於 panel ~ 50-300ms（compositor 處理）
 - main window banner：immediate（webkit2gtk render ≤ 16ms）
 - Interrupt 30s 寬限：per wireframe FSM；prototype 不重述秒數
 
@@ -333,7 +333,7 @@ per hero iOS E section — 沿用全部 tap target（`取消並先看逐字稿` 
 
 per hero iOS E section — 沿用。Linux delta：
 
-- **whisper.cpp binary missing / corrupted**：fallback prompt user 重灌 phantom-mesh package（v0.6.0 顯示 toast `focus.err.asr_binary_missing` v0.7+ key，v0.6.0 fallback 用 `focus.err.no_takeaway`）
+- **whisper.cpp binary missing / corrupted**：fallback prompt user 重灌 spectyn-mesh package（v0.6.0 顯示 toast `focus.err.asr_binary_missing` v0.7+ key，v0.6.0 fallback 用 `focus.err.no_takeaway`）
 - **磁碟 IO 失敗**（chunk write fail）：同 hero iOS — toast + 切 Finalizing 保留已落地 chunk
 
 ---
@@ -361,7 +361,7 @@ per hero iOS E section — 沿用。Linux delta：
 | `看完整逐字稿` button | label 取 `focus.done.view_full`；切 main window 內 transcript view（不是 separate window） |
 | `新 session` button | label 取 `focus.done.new_session`；reset Focus tab Idle state |
 | takeaway card truncated state → 「看完整摘要」CTA | 等同點 `[看完整逐字稿]` 主按鈕（per hero F Limit invariant），**不在原地展開** |
-| **libnotify Done action「開啟」** | D-Bus `ActionInvoked` → phantom deep link `phantom://focus/done/<session_id>` → raise main window + 切 Focus tab + scroll 到該 session |
+| **libnotify Done action「開啟」** | D-Bus `ActionInvoked` → spectyn deep link `spectyn://focus/done/<session_id>` → raise main window + 切 Focus tab + scroll 到該 session |
 | **libnotify Done body click** | 同上 `default` action 觸發 |
 | `空白變體 - 重錄這次` button | reset 並回 Focus tab Idle，保留 duration / goal tag |
 | `空白變體 - 完成` button | 同 `新 session` |
@@ -427,26 +427,26 @@ per Linux wireframe §跨 OS 對映 `Wayland portal 多半拒絕` — prototype 
 
 | 來源 | X11 raise | Wayland raise |
 |---|---|---|
-| Tray click → raise main window | `wmctrl -a phantom-mesh` or D-Bus | KWin DBus (KDE) / sway IPC / GNOME Shell extension only — 可能失敗 |
+| Tray click → raise main window | `wmctrl -a spectyn-mesh` or D-Bus | KWin DBus (KDE) / sway IPC / GNOME Shell extension only — 可能失敗 |
 | libnotify action → raise main window | 同上 | 同上 — fallback：通知本身在前景時 user 自然會看到 |
-| deep link `phantom://focus/done/...` → raise | 同上 | 同上 |
+| deep link `spectyn://focus/done/...` → raise | 同上 | 同上 |
 
-**降級策略**：raise call 失敗時 — phantom 不報錯（避免錯誤 cascade），仰賴 user 自己切窗（task bar / Activities / Super 鍵 / wofi 等）
+**降級策略**：raise call 失敗時 — spectyn 不報錯（避免錯誤 cascade），仰賴 user 自己切窗（task bar / Activities / Super 鍵 / wofi 等）
 
 ### Sway / i3 tiling 下 main window 行為
 
-- main window 預設被 tile（與其他 windows 平分螢幕） — phantom **不抗拒**
-- user 想 float main window：自行寫 sway rule `for_window [app_id="phantom-mesh"] floating enable`（per SPEC-45 §3.2 NG3 — user 自接）
+- main window 預設被 tile（與其他 windows 平分螢幕） — spectyn **不抗拒**
+- user 想 float main window：自行寫 sway rule `for_window [app_id="spectyn-mesh"] floating enable`（per SPEC-45 §3.2 NG3 — user 自接）
 - focus session 期間 main window 被 tile → Recording 仍正常跑（不依賴 window size）；waveform 自動 scale（CSS responsive layout）
-- chip 浮動小視窗（v0.7+ feature）— 不在 focus flow 內，per Linux wireframe §invariants `phantom-mesh-chip` WM_CLASS 不適用 focus
+- chip 浮動小視窗（v0.7+ feature）— 不在 focus flow 內，per Linux wireframe §invariants `spectyn-mesh-chip` WM_CLASS 不適用 focus
 
 ### Global shortcut `⌘⇧F` — 不承諾（per SPEC-45 §3.2 NG3）
 
 - v0.6.0 **不註冊 global shortcut** — Wayland 多半拒絕、X11 XGrabKey 可但跟其他 app 衝突風險
 - 教學文件指引 user 自接：
-  - **KDE**：System Settings → Shortcuts → Custom Shortcuts → 新增 `phantom-mesh-app --focus` 對應 `Meta+Shift+F`
+  - **KDE**：System Settings → Shortcuts → Custom Shortcuts → 新增 `spectyn-mesh-app --focus` 對應 `Meta+Shift+F`
   - **GNOME**：Settings → Keyboard → View and Customize Shortcuts → Custom shortcut
-  - **Sway**：在 `~/.config/sway/config` 加 `bindsym $mod+Shift+f exec phantom-mesh-app --focus`
+  - **Sway**：在 `~/.config/sway/config` 加 `bindsym $mod+Shift+f exec spectyn-mesh-app --focus`
   - **i3**：類似 sway
   - **Xfce**：Settings Manager → Keyboard → Application Shortcuts
 - v0.7+ 評估用 D-Bus org.freedesktop.portal.GlobalShortcuts portal（XDG portal spec） — 但目前實作支援度低
@@ -455,7 +455,7 @@ per Linux wireframe §跨 OS 對映 `Wayland portal 多半拒絕` — prototype 
 
 per Linux wireframe §invariants + Linux mockup §design token — 5s 內切：
 
-- phantom 監聽 `org.freedesktop.appearance.color-scheme` D-Bus signal（XDG portal） + `gsettings monitor org.gnome.desktop.interface color-scheme`（GNOME） + KDE `kdeglobals` file watch
+- spectyn 監聽 `org.freedesktop.appearance.color-scheme` D-Bus signal（XDG portal） + `gsettings monitor org.gnome.desktop.interface color-scheme`（GNOME） + KDE `kdeglobals` file watch
 - 偵測到變化 → webkit2gtk 注入 CSS class（body 加 `.theme-light` / `.theme-dark`） → CSS variable 切換 → render 1 frame ~ 16ms
 - **webkit2gtk < 2.40 fallback light**（不爆畫面）
 
@@ -526,7 +526,7 @@ per Linux mockup §通用狀態 — 視覺 spec 全在 mockup。Prototype 鎖互
 
 ## 開放問題（prototype 層面，剩餘）
 
-1. **systemd `--user` service interrupt 行為**：user 手動 `systemctl --user stop phantom-mesh` 期間 Recording 是否該 graceful finalize？目前傾向「graceful finalize（flush chunks）後 service exit」— 但若 user 期待立即停則需 SIGTERM handler。v0.7+ 鎖。
+1. **systemd `--user` service interrupt 行為**：user 手動 `systemctl --user stop spectyn-mesh` 期間 Recording 是否該 graceful finalize？目前傾向「graceful finalize（flush chunks）後 service exit」— 但若 user 期待立即停則需 SIGTERM handler。v0.7+ 鎖。
 2. **Wayland XDG portal `org.freedesktop.portal.GlobalShortcuts` 評估**：v0.7+ 是否接？目前實作支援度低（GNOME 46+ / KDE 6+）— 接的話需 fallback chain。傾向 v0.7+ 試 portal 路徑、不行就教 user 自接。
 3. **whisper.cpp 進度回報 → tray attention 切換 timing**：ASR 跑到 50% 時 tray 是否該切回 idle 還是維持 attention？目前傾向「整個 Finalizing 都 attention，Done 後切回 idle」— 但 Finalizing 可能 > 60s 太久 attention 讓 user 焦慮。
 4. **webkit2gtk version detection fallback**：< 2.40 強制 light mode — 是否在 main window 角落加 hint「您的 webkit2gtk 版本較舊，部分視覺效果降級」？傾向不加（避免噪音）。
@@ -541,10 +541,10 @@ per Linux mockup §通用狀態 — 視覺 spec 全在 mockup。Prototype 鎖互
 
 | # | Task | 測項 | 6-state 覆蓋 |
 |---|---|---|---|
-| 1 | **首次使用 + Empty state**：「請開啟 phantom-mesh，看一下 history 分頁無資料的樣子，再回 Focus 分頁開始 25 分鐘錄音」 | first-time flow + 無 mic perm prompt（vs mobile）+ history empty | **Empty**（history）+ Ideal（done） |
+| 1 | **首次使用 + Empty state**：「請開啟 spectyn-mesh，看一下 history 分頁無資料的樣子，再回 Focus 分頁開始 25 分鐘錄音」 | first-time flow + 無 mic perm prompt（vs mobile）+ history empty | **Empty**（history）+ Ideal（done） |
 | 2 | **Tray 控制**：「錄音中請從系統 tray 圖示停止錄音」 | SNI tray 可見性 + right-click menu + Stop ≤ 2 操作 | Ideal（Recording → Done） |
 | 3 | **GNOME 無 tray 救濟**（GNOME 機器）：「錄音中請只用 main window 停止」 | main window canonical 認知 + title prefix 可見性 | Ideal |
-| 4 | **Interrupted（mic 被搶）**：「錄音中請打開另一個錄音 app（如 Audacity）搶 mic，觀察 phantom 反應」 | libnotify critical + main window banner + 30s 寬限 + action button | **Error**（中斷態） |
+| 4 | **Interrupted（mic 被搶）**：「錄音中請打開另一個錄音 app（如 Audacity）搶 mic，觀察 spectyn 反應」 | libnotify critical + main window banner + 30s 寬限 + action button | **Error**（中斷態） |
 | 5 | **B' Device-error**（USB mic 拔掉模擬）：「錄音前拔掉 USB mic，請點 start」 | B' 螢幕 + DE-aware 打開音訊設定 | **Error**（device-error） |
 | 6 | **Done flow + libnotify**：「錄完看 takeaway，然後最小化 main window — 看 tray icon 變化跟 libnotify 通知」 | done card + libnotify low + tray idle 切回 | Ideal |
 | 7 | **Maximum + Partial**：「請設 180 分鐘自訂 timer 立即停止；假設第 3 個 chunk ASR 失敗（測試環境注入），請從 Finalizing / Done 卡讀懂發生什麼」 | duration clamp + chunk 99+ + partial inline + truncated 視覺 | **Limit + Partial + Error** |

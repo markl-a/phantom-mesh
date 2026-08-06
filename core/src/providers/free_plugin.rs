@@ -14,7 +14,7 @@
 //! 1. **Auto-detect** a key already in the environment → zero further input.
 //!    The detection env-var names match exactly what the live chat path reads
 //!    (`agent.rs` → `provider.api_key_env`, and the wire layer's
-//!    `PHANTOM_MESH_<UPPER>_API_KEY` override).
+//!    `SPECTYN_MESH_<UPPER>_API_KEY` override).
 //! 2. **Otherwise guide** a 1-tap "get a free key" step, defaulting to the
 //!    recommended provider (Groq — the proven free workhorse on this project's
 //!    headless dev fleet: fast, no credit card).
@@ -36,7 +36,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FreeProvider {
     /// agents.toml block name + stable slug (e.g. `"groq"`). Doubles as the
-    /// `PHANTOM_MESH_<UPPER>_API_KEY` stem for the wire-layer env override.
+    /// `SPECTYN_MESH_<UPPER>_API_KEY` stem for the wire-layer env override.
     pub slug: &'static str,
     /// Human label for the picker (e.g. `"Groq"`).
     pub display: &'static str,
@@ -126,12 +126,12 @@ pub fn free_provider_by_slug(slug: &str) -> Option<&'static FreeProvider> {
 
 /// The env-var names, in resolution order, that hold this provider's key. Mirrors
 /// the live key-resolution path exactly: the wire layer checks
-/// `PHANTOM_MESH_<UPPER>_API_KEY` first (test/CLI override), then the canonical
+/// `SPECTYN_MESH_<UPPER>_API_KEY` first (test/CLI override), then the canonical
 /// `<...>_API_KEY` (`agent.rs` sources this via the block's `api_key_env`).
 pub fn env_var_candidates(p: &FreeProvider) -> [String; 2] {
     let upper = p.slug.to_ascii_uppercase();
     [
-        format!("PHANTOM_MESH_{}_API_KEY", upper),
+        format!("SPECTYN_MESH_{}_API_KEY", upper),
         p.api_key_env.to_string(),
     ]
 }
@@ -233,11 +233,11 @@ mod tests {
     #[test]
     fn env_var_candidates_match_runtime_resolution() {
         // Must match what `agent.rs` (api_key_env) + the wire layer
-        // (PHANTOM_MESH_<UPPER>_API_KEY) actually read, or detection lies.
+        // (SPECTYN_MESH_<UPPER>_API_KEY) actually read, or detection lies.
         let groq = free_provider_by_slug("groq").unwrap();
         assert_eq!(
             env_var_candidates(groq),
-            ["PHANTOM_MESH_GROQ_API_KEY".to_string(), "GROQ_API_KEY".to_string()]
+            ["SPECTYN_MESH_GROQ_API_KEY".to_string(), "GROQ_API_KEY".to_string()]
         );
     }
 
@@ -251,8 +251,8 @@ mod tests {
         let both = first_with_key_present(|n| n == "GROQ_API_KEY" || n == "OPENROUTER_API_KEY");
         assert_eq!(both.map(|p| p.slug), Some("groq"));
 
-        // The PHANTOM_MESH_ override name is also honoured.
-        let via_override = first_with_key_present(|n| n == "PHANTOM_MESH_CEREBRAS_API_KEY");
+        // The SPECTYN_MESH_ override name is also honoured.
+        let via_override = first_with_key_present(|n| n == "SPECTYN_MESH_CEREBRAS_API_KEY");
         assert_eq!(via_override.map(|p| p.slug), Some("cerebras"));
 
         // Nothing present → no provider.

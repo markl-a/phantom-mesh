@@ -1,5 +1,5 @@
-// phantom web frontend — single-page app for /
-// served by `phantom serve` from embedded core/web/ files.
+// spectyn web frontend — single-page app for /
+// served by `spectyn serve` from embedded core/web/ files.
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -147,8 +147,8 @@ new ResizeObserver(() => { try { fit.fit(); } catch(_) {} }).observe(termHost);
 
 // Welcome banner inside the xterm
 term.writeln('');
-term.writeln(`  ${ANSI.purple}phantom${ANSI.reset} ${ANSI.gray}— web terminal${ANSI.reset}`);
-term.writeln(`  ${ANSI.gray}type a prompt below and press Enter, or run \`phantom\` in your shell${ANSI.reset}`);
+term.writeln(`  ${ANSI.purple}spectyn${ANSI.reset} ${ANSI.gray}— web terminal${ANSI.reset}`);
+term.writeln(`  ${ANSI.gray}type a prompt below and press Enter, or run \`spectyn\` in your shell${ANSI.reset}`);
 term.writeln('');
 
 function setBusy(busy) {
@@ -285,7 +285,7 @@ $('settings-form').addEventListener('submit', async (e) => {
     });
     if (res.ok) {
       status.className = 'form-status ok';
-      status.textContent = '✓ saved — restart phantom to apply';
+      status.textContent = '✓ saved — restart spectyn to apply';
       setTimeout(refreshStatus, 500);
     } else {
       const txt = await res.text();
@@ -337,7 +337,7 @@ async function refreshTodos() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const todos = await res.json();
     if (!Array.isArray(todos) || todos.length === 0) {
-      host.innerHTML = '<div class="info-empty muted">no todos yet — add items to ~/.phantom-mesh/todos.json</div>';
+      host.innerHTML = '<div class="info-empty muted">no todos yet — add items to ~/.spectyn-mesh/todos.json</div>';
       return;
     }
     host.innerHTML = todos.map(t => {

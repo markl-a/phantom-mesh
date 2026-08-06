@@ -78,7 +78,7 @@ export default function HabitChipQuickCapture() {
 
   return (
     <section>
-      <h2 className="text-xs font-semibold text-phantom-muted uppercase tracking-wide px-1 mb-2">
+      <h2 className="text-xs font-semibold text-spectyn-muted uppercase tracking-wide px-1 mb-2">
         快速習慣
       </h2>
       <div className="grid grid-cols-3 gap-2">
@@ -95,10 +95,10 @@ export default function HabitChipQuickCapture() {
               aria-label={`記錄習慣 ${chip.label}`}
               className={`flex flex-col items-center justify-center gap-1 rounded-lg border px-2 py-3 text-center transition-colors ${
                 done
-                  ? "border-phantom-success bg-phantom-success/10"
+                  ? "border-spectyn-success bg-spectyn-success/10"
                   : error
-                  ? "border-phantom-danger bg-phantom-danger/10"
-                  : "border-phantom-border bg-phantom-card hover:border-phantom-primary"
+                  ? "border-spectyn-danger bg-spectyn-danger/10"
+                  : "border-spectyn-border bg-spectyn-card hover:border-spectyn-primary"
               } ${pending ? "opacity-60" : ""}`}
             >
               <span className="text-xl leading-none" aria-hidden="true">
@@ -107,10 +107,10 @@ export default function HabitChipQuickCapture() {
               <span
                 className={`text-[11px] leading-tight ${
                   done
-                    ? "text-phantom-success"
+                    ? "text-spectyn-success"
                     : error
-                    ? "text-phantom-danger"
-                    : "text-phantom-text"
+                    ? "text-spectyn-danger"
+                    : "text-spectyn-text"
                 }`}
               >
                 {done
@@ -141,9 +141,9 @@ export default function HabitChipQuickCapture() {
           onChange={(e) => setFreeText(e.target.value)}
           placeholder="自由打字：例 戒菸 87 天"
           aria-label="自由記錄習慣"
-          className="flex-1 bg-phantom-bg border border-phantom-border rounded px-3 py-2 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+          className="flex-1 bg-spectyn-bg border border-spectyn-border rounded px-3 py-2 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
         />
-        <button type="submit" className="px-4 rounded bg-phantom-primary text-phantom-bg text-sm">
+        <button type="submit" className="px-4 rounded bg-spectyn-primary text-spectyn-bg text-sm">
           送出
         </button>
       </form>

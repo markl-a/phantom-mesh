@@ -1,4 +1,4 @@
-# Phantom Mesh 文件索引
+# Spectyn Mesh 文件索引
 
 [English version](INDEX.md)
 
@@ -51,7 +51,7 @@
 | E006 | [`30 秒 Life hello`](superpowers/specs/_current/E006-30-second-hello-world.md) | 未開始 |
 | E007 | [`v0.6.0 釋出準備`](superpowers/specs/_current/E007-v060-release-prep.md) | 已接受 |
 
-另在 `_current/`（行為 spec，非 epic）：[`linux-cli-spec.md`](superpowers/specs/_current/linux-cli-spec.md) —— code-grounded 的 Linux `phantom` CLI 行為參考（2026-06-19 由 `docs/cli/` 移入）。
+另在 `_current/`（行為 spec，非 epic）：[`linux-cli-spec.md`](superpowers/specs/_current/linux-cli-spec.md) —— code-grounded 的 Linux `spectyn` CLI 行為參考（2026-06-19 由 `docs/cli/` 移入）。
 
 2026-05-19 的 pivot spec 是 [`superpowers/specs/2026-05-19-life-node-pivot.md`](superpowers/specs/2026-05-19-life-node-pivot.md)。
 
@@ -68,7 +68,7 @@ Feature 規格(F001+)在 [`superpowers/features/`](superpowers/features/);每檔
 | [`mesh/FLEET-SSH.md`](mesh/FLEET-SSH.md) / [`mesh/MESH-FLEET-ONBOARDING.md`](mesh/MESH-FLEET-ONBOARDING.md) / [`mesh/TAILSCALE-SETUP.md`](mesh/TAILSCALE-SETUP.md) | 艦隊 / mesh 網路 |
 | [`deploy/DEPLOYMENT.md`](deploy/DEPLOYMENT.md) / [`deploy/DEPLOY-AUTOUPDATE.md`](deploy/DEPLOY-AUTOUPDATE.md) / [`deploy/DEPLOY-MAC-STAGING.md`](deploy/DEPLOY-MAC-STAGING.md) | 部署（`DEPLOY-AUTOUPDATE` = 簽章 + release CI + OTA） |
 | [`deploy/PUBLISHING-BINARIES.md`](deploy/PUBLISHING-BINARIES.md) / [`mobile/SMOKE-ANDROID.md`](mobile/SMOKE-ANDROID.md) / [`SELFTEST.md`](SELFTEST.md) / [`DIAGNOSTICS.md`](DIAGNOSTICS.md) | 釋出 / 冒煙 / 診斷 |
-| [`../scripts/phantom-test/README.md`](../scripts/phantom-test/README.md) | 黑箱 CLI / HTTP-RPC / round-trip 測試框架 |
+| [`../scripts/spectyn-test/README.md`](../scripts/spectyn-test/README.md) | 黑箱 CLI / HTTP-RPC / round-trip 測試框架 |
 | [`../tests-e2e/README.md`](../tests-e2e/README.md) | 人工協助 Tier-1 E2E 情境 |
 
 ## 主題子目錄（Topical Subdirectories）
@@ -83,7 +83,7 @@ Feature 規格(F001+)在 [`superpowers/features/`](superpowers/features/);每檔
 | [`experimental/`](experimental/) | 技能庫(curator/memory/extra-providers/tools)+ 遠端控制實驗筆記 |
 | [`mesh/`](mesh/) | 叢集協作/擴展、艦隊上線、FLEET-SSH、Tailscale、多裝置協調、多代理分析/QA、行動 vs 桌面 |
 | [`mobile/`](mobile/) | iOS 測試流程、行動 web 模式、e2e(mac-real / native-webdriver)、Android 冒煙 |
-| [`design/`](design/) | 子系統/設計文件(cross-tool、phantommesh-io、platform-impl、anti-hallucination、commercial、swarm-architecture、dispatch-followups) |
+| [`design/`](design/) | 子系統/設計文件(cross-tool、spectynmesh-io、platform-impl、anti-hallucination、commercial、swarm-architecture、dispatch-followups) |
 | [`commercial/`](commercial/) | 開源計畫、貢獻者漏斗、作品集規格凍結(戰略 SSOT 文件留在根目錄) |
 | [`dev/`](dev/) | 開發加速框架 + mesh、開發流程、自主開發迴圈、Claude Code 設定、自主治理、anthropic streaming |
 | [`dev-notes/`](dev-notes/) | 現行開發筆記(2026-06-11):error-handling、Windows login-LLM 驗證、backlog/inbox/status |
@@ -114,7 +114,7 @@ Feature 規格(F001+)在 [`superpowers/features/`](superpowers/features/);每檔
 | [`adr/`](adr/) | 架構決策紀錄(ADR-001+) |
 | [`superpowers/design/`](superpowers/design/) | TUI / CLI 畫面設計 |
 | [`superpowers/ARCH-EXECUTION-ENTITIES.md`](superpowers/ARCH-EXECUTION-ENTITIES.md) | 執行實體架構(A/B/C stacks) |
-| [`providers/AUTH-DESIGN.md`](providers/AUTH-DESIGN.md) / [`design/SWARM-ARCHITECTURE.md`](design/SWARM-ARCHITECTURE.md) / [`design/PHANTOMMESH-IO-DESIGN.md`](design/PHANTOMMESH-IO-DESIGN.md) | 子系統設計 |
+| [`providers/AUTH-DESIGN.md`](providers/AUTH-DESIGN.md) / [`design/SWARM-ARCHITECTURE.md`](design/SWARM-ARCHITECTURE.md) / [`design/SPECTYNMESH-IO-DESIGN.md`](design/SPECTYNMESH-IO-DESIGN.md) | 子系統設計 |
 
 ## 商業與戰略（Commercial & Strategy）
 
@@ -139,5 +139,5 @@ Feature 規格(F001+)在 [`superpowers/features/`](superpowers/features/);每檔
 | 文件樹怎麼治理?什麼放哪? | [`superpowers/GOVERNANCE.md`](superpowers/GOVERNANCE.md) |
 | 我們在建什麼產品? | [`superpowers/BIG-GOAL.md`](superpowers/BIG-GOAL.md) |
 | 哪份 spec 管我的實作? | [`superpowers/specs/v060-deep-spec/SPEC-00-INDEX.md`](superpowers/specs/v060-deep-spec/SPEC-00-INDEX.md) |
-| 怎麼跑黑箱驗證? | [`../scripts/phantom-test/README.md`](../scripts/phantom-test/README.md) |
+| 怎麼跑黑箱驗證? | [`../scripts/spectyn-test/README.md`](../scripts/spectyn-test/README.md) |
 | 最新戰術狀態? | [`../SESSION_RESUME.md`](../SESSION_RESUME.md) |

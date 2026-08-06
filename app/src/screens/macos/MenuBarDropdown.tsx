@@ -24,8 +24,8 @@ import type { MenuBarDropdownProps, MenuBarItemSpec } from "./types";
 const DEFAULT_ITEMS: MenuBarItemSpec[] = [
   {
     item_id: "header_summary",
-    label_zh: "Phantom Mesh",
-    label_en: "Phantom Mesh",
+    label_zh: "Spectyn Mesh",
+    label_en: "Spectyn Mesh",
     icon: null,
     shortcut: null,
     action: { type: "open_about" },
@@ -112,8 +112,8 @@ const DEFAULT_ITEMS: MenuBarItemSpec[] = [
   },
   {
     item_id: "quit",
-    label_zh: "⏻ 結束 Phantom Mesh",
-    label_en: "Quit Phantom Mesh",
+    label_zh: "⏻ 結束 Spectyn Mesh",
+    label_en: "Quit Spectyn Mesh",
     icon: "power",
     shortcut: null,
     action: { type: "quit" },
@@ -123,7 +123,7 @@ const DEFAULT_ITEMS: MenuBarItemSpec[] = [
   },
 ];
 
-const iconClass = "h-4 w-4 shrink-0 text-phantom-primary";
+const iconClass = "h-4 w-4 shrink-0 text-spectyn-primary";
 
 function ItemIcon({ icon }: { icon: string | null }) {
   switch (icon) {
@@ -202,13 +202,13 @@ export default function MenuBarDropdown({
 
   const headerDotClass = state.daemonRunning
     ? peerAliveCount > 0
-      ? "bg-phantom-success"
-      : "bg-phantom-muted"
-    : "bg-phantom-warning";
+      ? "bg-spectyn-success"
+      : "bg-spectyn-muted"
+    : "bg-spectyn-warning";
 
   const renderLabel = (item: MenuBarItemSpec) => {
     if (item.group === "header") {
-      return `Phantom Mesh — ${
+      return `Spectyn Mesh — ${
         state.daemonRunning ? `${peerAliveCount} peer alive` : "daemon stopped"
       }`;
     }
@@ -222,8 +222,8 @@ export default function MenuBarDropdown({
     <div
       data-testid="menu-bar-dropdown"
       role="menu"
-      aria-label="Phantom Mesh"
-      className="w-80 overflow-hidden rounded-lg border border-phantom-border bg-phantom-card text-phantom-text shadow-xl"
+      aria-label="Spectyn Mesh"
+      className="w-80 overflow-hidden rounded-lg border border-spectyn-border bg-spectyn-card text-spectyn-text shadow-xl"
     >
       {visibleItems.map((item, index) => {
         const enabled = isEnabled(item, state);
@@ -231,8 +231,8 @@ export default function MenuBarDropdown({
         const separated = index > 0 && visibleItems[index - 1]?.group !== item.group;
         const rowClass = [
           "flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm",
-          separated ? "border-t border-phantom-border" : "",
-          informational ? "cursor-default" : "hover:bg-phantom-primary/10",
+          separated ? "border-t border-spectyn-border" : "",
+          informational ? "cursor-default" : "hover:bg-spectyn-primary/10",
           !enabled && !informational ? "cursor-not-allowed opacity-50" : "",
         ].join(" ");
 
@@ -250,14 +250,14 @@ export default function MenuBarDropdown({
             <span className="min-w-0 flex-1 truncate">
               <span className="block truncate font-medium">{renderLabel(item)}</span>
               {item.item_id === "quit" && (
-                <span className="block truncate text-xs text-phantom-muted">
+                <span className="block truncate text-xs text-spectyn-muted">
                   不影響背景程式
                 </span>
               )}
             </span>
 
             {item.shortcut && (
-              <span className="shrink-0 text-xs text-phantom-muted">{item.shortcut}</span>
+              <span className="shrink-0 text-xs text-spectyn-muted">{item.shortcut}</span>
             )}
           </>
         );

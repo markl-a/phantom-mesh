@@ -28,7 +28,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 const goalFixture = {
   id: 'goal-001',
-  title: 'Launch Phantom Mesh v1',
+  title: 'Launch Spectyn Mesh v1',
   status: 'active',
   created_at: '2026-04-07T00:00:00Z',
 };

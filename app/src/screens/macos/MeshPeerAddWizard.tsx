@@ -119,41 +119,41 @@ export default function MeshPeerAddWizard() {
       <header className="flex items-center gap-3">
         <button
           onClick={close}
-          className="text-phantom-muted hover:text-phantom-text p-1.5"
+          className="text-spectyn-muted hover:text-spectyn-text p-1.5"
           title="返回叢集"
           aria-label="返回叢集"
         >
           <ArrowLeft size={18} />
         </button>
         <div className="flex-1">
-          <h1 className="text-lg font-bold text-phantom-text">{title}</h1>
-          <p className="text-xs text-phantom-muted">Add a peer to your cluster</p>
+          <h1 className="text-lg font-bold text-spectyn-text">{title}</h1>
+          <p className="text-xs text-spectyn-muted">Add a peer to your cluster</p>
         </div>
       </header>
 
       {state === "scanning" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center" data-testid="wizard-scanning">
-          <Loader2 size={26} className="text-phantom-primary mx-auto mb-3 animate-spin" />
-          <p className="text-sm text-phantom-text">正在掃描附近裝置（mDNS）…</p>
-          <p className="text-xs text-phantom-muted mt-1">在另一台裝置上開啟 Phantom Mesh，讓它出現在同網段。</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center" data-testid="wizard-scanning">
+          <Loader2 size={26} className="text-spectyn-primary mx-auto mb-3 animate-spin" />
+          <p className="text-sm text-spectyn-text">正在掃描附近裝置（mDNS）…</p>
+          <p className="text-xs text-spectyn-muted mt-1">在另一台裝置上開啟 Spectyn Mesh，讓它出現在同網段。</p>
         </div>
       )}
 
       {state === "list" && (
         <div className="space-y-3" data-testid="wizard-list">
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-            <h3 className="text-sm font-medium text-phantom-text mb-3">掃到的裝置（{peers.length}）</h3>
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+            <h3 className="text-sm font-medium text-spectyn-text mb-3">掃到的裝置（{peers.length}）</h3>
             <div className="space-y-2">
               {peers.map((p) => (
                 <div
                   key={p.peer_id}
-                  className="flex items-center gap-3 px-3 py-2 rounded bg-phantom-bg border border-phantom-border"
+                  className="flex items-center gap-3 px-3 py-2 rounded bg-spectyn-bg border border-spectyn-border"
                 >
-                  <Smartphone size={16} className="text-phantom-primary flex-shrink-0" />
-                  <span className="text-sm text-phantom-text flex-1 truncate">{p.display_name}</span>
+                  <Smartphone size={16} className="text-spectyn-primary flex-shrink-0" />
+                  <span className="text-sm text-spectyn-text flex-1 truncate">{p.display_name}</span>
                   <button
                     onClick={() => invite(p.display_name)}
-                    className="text-xs px-3 py-1 rounded-lg bg-phantom-primary/15 border border-phantom-primary/40 text-phantom-primary hover:bg-phantom-primary/25"
+                    className="text-xs px-3 py-1 rounded-lg bg-spectyn-primary/15 border border-spectyn-primary/40 text-spectyn-primary hover:bg-spectyn-primary/25"
                   >
                     邀請加入
                   </button>
@@ -162,15 +162,15 @@ export default function MeshPeerAddWizard() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-[11px] text-phantom-muted">
-            <span className="flex-1 h-px bg-phantom-border" />
+          <div className="flex items-center gap-3 text-[11px] text-spectyn-muted">
+            <span className="flex-1 h-px bg-spectyn-border" />
             或
-            <span className="flex-1 h-px bg-phantom-border" />
+            <span className="flex-1 h-px bg-spectyn-border" />
           </div>
 
           <button
             onClick={() => setState("qr")}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-phantom-card border border-phantom-border text-sm text-phantom-text hover:border-phantom-primary/40 transition"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-spectyn-card border border-spectyn-border text-sm text-spectyn-text hover:border-spectyn-primary/40 transition"
           >
             <QrCode size={15} /> 不在同網段？改用 QR
           </button>
@@ -178,17 +178,17 @@ export default function MeshPeerAddWizard() {
       )}
 
       {state === "qr" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center" data-testid="wizard-qr">
-          <div className="w-40 h-40 mx-auto rounded-lg bg-phantom-bg border border-phantom-border flex items-center justify-center mb-3">
-            <QrCode size={88} className="text-phantom-text" aria-label="加入 QR 碼" />
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center" data-testid="wizard-qr">
+          <div className="w-40 h-40 mx-auto rounded-lg bg-spectyn-bg border border-spectyn-border flex items-center justify-center mb-3">
+            <QrCode size={88} className="text-spectyn-text" aria-label="加入 QR 碼" />
           </div>
-          <p className="text-sm text-phantom-text">在另一台裝置上掃描這個 QR 碼來加入。</p>
-          <p className="text-xs text-phantom-muted mt-1">
-            有效時間 <span className="text-phantom-primary font-mono">{mmss(qrLeft)}</span>
+          <p className="text-sm text-spectyn-text">在另一台裝置上掃描這個 QR 碼來加入。</p>
+          <p className="text-xs text-spectyn-muted mt-1">
+            有效時間 <span className="text-spectyn-primary font-mono">{mmss(qrLeft)}</span>
           </p>
           <button
             onClick={startScan}
-            className="mt-4 text-xs text-phantom-primary hover:underline"
+            className="mt-4 text-xs text-spectyn-primary hover:underline"
           >
             ↩ 回到掃描附近裝置
           </button>
@@ -196,13 +196,13 @@ export default function MeshPeerAddWizard() {
       )}
 
       {state === "qr_expired" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center" data-testid="wizard-qr-expired">
-          <WifiOff size={24} className="text-phantom-warning mx-auto mb-2" />
-          <p className="text-sm text-phantom-text">QR 碼已過期。</p>
-          <p className="text-xs text-phantom-muted mt-1">為了安全，加入碼只有 5 分鐘有效。</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center" data-testid="wizard-qr-expired">
+          <WifiOff size={24} className="text-spectyn-warning mx-auto mb-2" />
+          <p className="text-sm text-spectyn-text">QR 碼已過期。</p>
+          <p className="text-xs text-spectyn-muted mt-1">為了安全，加入碼只有 5 分鐘有效。</p>
           <button
             onClick={() => setState("qr")}
-            className="mt-4 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-phantom-primary/15 border border-phantom-primary/40 text-phantom-primary hover:bg-phantom-primary/25"
+            className="mt-4 inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-spectyn-primary/15 border border-spectyn-primary/40 text-spectyn-primary hover:bg-spectyn-primary/25"
           >
             <RefreshCw size={13} /> 重新產生 QR
           </button>
@@ -210,21 +210,21 @@ export default function MeshPeerAddWizard() {
       )}
 
       {state === "invited_waiting" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center" data-testid="wizard-waiting">
-          <Loader2 size={24} className="text-phantom-primary mx-auto mb-2 animate-spin" />
-          <p className="text-sm text-phantom-text">已邀請 {invitedName ?? "裝置"}，等待對方確認…</p>
-          <p className="text-xs text-phantom-muted mt-1">請在另一台裝置上接受加入請求。</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center" data-testid="wizard-waiting">
+          <Loader2 size={24} className="text-spectyn-primary mx-auto mb-2 animate-spin" />
+          <p className="text-sm text-spectyn-text">已邀請 {invitedName ?? "裝置"}，等待對方確認…</p>
+          <p className="text-xs text-spectyn-muted mt-1">請在另一台裝置上接受加入請求。</p>
         </div>
       )}
 
       {state === "joined" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center" data-testid="wizard-joined">
-          <CheckCircle2 size={26} className="text-phantom-success mx-auto mb-2" />
-          <p className="text-sm text-phantom-text">{invitedName ?? "新裝置"} 已加入叢集。</p>
-          <p className="text-xs text-phantom-muted mt-1">事件會在裝置間自動同步（端對端加密）。</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center" data-testid="wizard-joined">
+          <CheckCircle2 size={26} className="text-spectyn-success mx-auto mb-2" />
+          <p className="text-sm text-spectyn-text">{invitedName ?? "新裝置"} 已加入叢集。</p>
+          <p className="text-xs text-spectyn-muted mt-1">事件會在裝置間自動同步（端對端加密）。</p>
           <button
             onClick={close}
-            className="mt-4 text-xs px-4 py-1.5 rounded-lg bg-phantom-primary/15 border border-phantom-primary/40 text-phantom-primary hover:bg-phantom-primary/25"
+            className="mt-4 text-xs px-4 py-1.5 rounded-lg bg-spectyn-primary/15 border border-spectyn-primary/40 text-spectyn-primary hover:bg-spectyn-primary/25"
           >
             完成
           </button>
@@ -233,7 +233,7 @@ export default function MeshPeerAddWizard() {
 
       {(state === "scanning" || state === "list" || state === "qr") && (
         <div className="flex justify-end">
-          <button onClick={close} className="text-xs px-4 py-1.5 rounded-lg bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text">
+          <button onClick={close} className="text-xs px-4 py-1.5 rounded-lg bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text">
             取消
           </button>
         </div>

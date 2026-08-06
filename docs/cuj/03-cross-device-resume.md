@@ -1,6 +1,6 @@
 # CUJ-03: cross-device resume (mobile log → desktop coach reads it)
 
-> **Outcome**: user 在 iPhone widget log 一筆 chip、≤ 5 秒後 mac terminal `phantom habit streak --chip <id>` 看得到、隔日 mac coach review 用到此筆。
+> **Outcome**: user 在 iPhone widget log 一筆 chip、≤ 5 秒後 mac terminal `spectyn habit streak --chip <id>` 看得到、隔日 mac coach review 用到此筆。
 >
 > **Lifecycle phase**: daily use (multi-device) — P1 mesh 命脈。**BIG-GOAL 句「跑在你所有裝置上」的兌現點**。
 >
@@ -27,7 +27,7 @@
 3. SPEC-15 client `seal_vault_value(event_bytes)` → broker 推 sealed blob
 4. mac 端 SPEC-15 client 在 background poll (or push notification 觸發) pull
 5. mac 收 sealed blob → `unseal_vault_value` 用本地 identity.key → 寫入本地 events.sqlite
-6. user 在 mac terminal: `phantom habit streak --chip water` → 看到剛 log 的那筆 (current_streak=N+1)
+6. user 在 mac terminal: `spectyn habit streak --chip water` → 看到剛 log 的那筆 (current_streak=N+1)
 7. (隔日 07:00) mac coach.agent 跑 daily review 時讀到本筆 → review markdown 內提到「昨日水 5 杯、其中 3 杯來自 iPhone」
 8. 完成 ── 跨裝置一致性達成、broker 全程沒看過 plaintext
 

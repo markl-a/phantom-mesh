@@ -147,7 +147,7 @@
 
 # Ship readiness（由舊 `docs/oss-ship/mac.md` 收斂）
 
-> Ship 目標：terminal 上 `curl install.sh | sh` 安裝、user 在 terminal 跑 `phantom` 各 command。
+> Ship 目標：terminal 上 `curl install.sh | sh` 安裝、user 在 terminal 跑 `spectyn` 各 command。
 > **Binary 物理檔、不開源 source**。本段保留 oss-ship 表獨有的 BIG-GOAL 對映、SPEC 反查、build→R2 管線與 5-gate ship checklist；
 > 逐條 CUJ 狀態以上方覆蓋率地圖為準（單一真相）。
 
@@ -156,7 +156,7 @@
 | BIG-GOAL 層 | Mac 角色 |
 |---|---|
 | Pillar P1 跨裝置 mesh | mac 是 mesh 對等節點 (mDNS 自動發現 + RPC) |
-| Pillar P2 多模態 | mac CLI 是 capture command 入口 (`phantom food` / `focus` / `habit`) |
+| Pillar P2 多模態 | mac CLI 是 capture command 入口 (`spectyn food` / `focus` / `habit`) |
 | Pillar P3 進化網 | mac 跑 coach + 技能庫 (skill extraction 主要在桌機) |
 | Pillar P4 加密為先 | mac 是 identity.key 持有者 + events sqlite host (v0.6.0 範圍) |
 | Track | Life + Work 共用 (mac 是 Work Track 主機型) |
@@ -171,10 +171,10 @@
 | SPEC-14 LLM providers | capture + fallback chain |
 | SPEC-15 broker vault | cross-device sync |
 | SPEC-16 event storage | events.sqlite (first-run + capture) |
-| SPEC-20 capture-food | `phantom food` |
-| SPEC-21 capture-focus | `phantom focus` |
-| SPEC-22 capture-habit | `phantom habit` + streak |
-| SPEC-23 coach-engine | `phantom coach review` |
+| SPEC-20 capture-food | `spectyn food` |
+| SPEC-21 capture-focus | `spectyn focus` |
+| SPEC-22 capture-habit | `spectyn habit` + streak |
+| SPEC-23 coach-engine | `spectyn coach review` |
 | SPEC-24 coach-delivery | coach markdown 輸出 + telegram |
 | SPEC-25 skill-extraction | (P3 技能庫、background) |
 | SPEC-26 cluster-dispatch | cluster join |
@@ -188,41 +188,41 @@
 **A. 本機 build + 上傳 (繞 CI)**
 ```bash
 cd core
-cargo build --release --bin phantom --target aarch64-apple-darwin
-cargo build --release --bin phantom --target x86_64-apple-darwin
+cargo build --release --bin spectyn --target aarch64-apple-darwin
+cargo build --release --bin spectyn --target x86_64-apple-darwin
 
 # SHA256 sidecar
 cd target
-shasum -a 256 aarch64-apple-darwin/release/phantom > phantom-aarch64-apple-darwin.sha256
-shasum -a 256 x86_64-apple-darwin/release/phantom > phantom-x86_64-apple-darwin.sha256
+shasum -a 256 aarch64-apple-darwin/release/spectyn > spectyn-aarch64-apple-darwin.sha256
+shasum -a 256 x86_64-apple-darwin/release/spectyn > spectyn-x86_64-apple-darwin.sha256
 
 # Rename + upload to R2 (user 操作 wrangler)
-cp aarch64-apple-darwin/release/phantom /tmp/phantom-aarch64-apple-darwin
-cp x86_64-apple-darwin/release/phantom /tmp/phantom-x86_64-apple-darwin
-wrangler r2 object put phantom-binaries/phantom-aarch64-apple-darwin --file /tmp/phantom-aarch64-apple-darwin
-wrangler r2 object put phantom-binaries/phantom-x86_64-apple-darwin --file /tmp/phantom-x86_64-apple-darwin
-wrangler r2 object put phantom-binaries/phantom-aarch64-apple-darwin.sha256 --file ...
-wrangler r2 object put phantom-binaries/phantom-x86_64-apple-darwin.sha256 --file ...
+cp aarch64-apple-darwin/release/spectyn /tmp/spectyn-aarch64-apple-darwin
+cp x86_64-apple-darwin/release/spectyn /tmp/spectyn-x86_64-apple-darwin
+wrangler r2 object put spectyn-binaries/spectyn-aarch64-apple-darwin --file /tmp/spectyn-aarch64-apple-darwin
+wrangler r2 object put spectyn-binaries/spectyn-x86_64-apple-darwin --file /tmp/spectyn-x86_64-apple-darwin
+wrangler r2 object put spectyn-binaries/spectyn-aarch64-apple-darwin.sha256 --file ...
+wrangler r2 object put spectyn-binaries/spectyn-x86_64-apple-darwin.sha256 --file ...
 ```
 
 **B. 確認 install.sh 認 mac 命名規約**
 ```bash
-PHANTOM_INSTALL_DRY_RUN=1 sh scripts/install.sh
-# 預期印: would download https://phantommesh.io/dist/phantom-aarch64-apple-darwin
+SPECTYN_INSTALL_DRY_RUN=1 sh scripts/install.sh
+# 預期印: would download https://phantommesh.io/dist/spectyn-aarch64-apple-darwin
 ```
 如果命名不對、改 install.sh map 表。
 
-**C. 補 publish-phantom-binary.yml mac target (永續方案)** — 加 `aarch64-apple-darwin` / `x86_64-apple-darwin`；需 macos-latest runner、燒 10× cost，先繞、之後再修。
+**C. 補 publish-spectyn-binary.yml mac target (永續方案)** — 加 `aarch64-apple-darwin` / `x86_64-apple-darwin`；需 macos-latest runner、燒 10× cost，先繞、之後再修。
 
 ## SR-3. 完整 ship checklist (5 道閘)
 
 > 對應測試 ID 見上方覆蓋率地圖 §8 ship gate 對映 / `mac.md §8`。
 
-- **Gate 1 — Mac binary 本機 build**：`cargo build --release --bin phantom --target {aarch64,x86_64}-apple-darwin` 兩個 `--version` match `phantom v?0\.6\.0(-rc\.[0-9]+)?`、`--help` ≥ 10 subcommand。
-- **Gate 2 — 上傳 R2 + install.sh**：兩 binary + 兩 .sha256 上 R2、清乾淨 `~/.phantom-mesh/`（先備份）後跑 `curl phantommesh.io/install | sh`、`~/.phantom-mesh/bin/phantom` 存在可執行、PATH 自動加入。
-- **Gate 3 — CUJ-01 first habit**：`phantom habit water --qty 250` 不報錯、`phantom habit streak --chip water` ≥ 1、`events/<uuid>/` 目錄 ≥ 1（或 EventStore 讀回斷言）。
-- **Gate 4 — CUJ-02 一個 capture**：`phantom food --image <test.jpg>` 走 LLM、`phantom coach review` 產 markdown。
-- **Gate 5 — CUJ-03 mac+mac**：mac1 `phantom login` → token、log 一筆 habit、mac2 同帳號 `phantom habit streak` 看得到 ≤ 30s。
+- **Gate 1 — Mac binary 本機 build**：`cargo build --release --bin spectyn --target {aarch64,x86_64}-apple-darwin` 兩個 `--version` match `spectyn v?0\.6\.0(-rc\.[0-9]+)?`、`--help` ≥ 10 subcommand。
+- **Gate 2 — 上傳 R2 + install.sh**：兩 binary + 兩 .sha256 上 R2、清乾淨 `~/.spectyn-mesh/`（先備份）後跑 `curl phantommesh.io/install | sh`、`~/.spectyn-mesh/bin/spectyn` 存在可執行、PATH 自動加入。
+- **Gate 3 — CUJ-01 first habit**：`spectyn habit water --qty 250` 不報錯、`spectyn habit streak --chip water` ≥ 1、`events/<uuid>/` 目錄 ≥ 1（或 EventStore 讀回斷言）。
+- **Gate 4 — CUJ-02 一個 capture**：`spectyn food --image <test.jpg>` 走 LLM、`spectyn coach review` 產 markdown。
+- **Gate 5 — CUJ-03 mac+mac**：mac1 `spectyn login` → token、log 一筆 habit、mac2 同帳號 `spectyn habit streak` 看得到 ≤ 30s。
 
 **5 道 gate 過 = ship ok**；Gate 5 fail 但 1–4 過 = 退化版 single-mac ship 也可接受。
 

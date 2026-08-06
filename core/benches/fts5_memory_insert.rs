@@ -25,7 +25,7 @@ fn main() {
 #[cfg(feature = "experimental-memory")]
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 #[cfg(feature = "experimental-memory")]
-use phantom_mesh::skillbank::{SkillMemory, NewMemory};
+use spectyn_mesh::skillbank::{SkillMemory, NewMemory};
 #[cfg(feature = "experimental-memory")]
 use tempfile::TempDir;
 #[cfg(feature = "experimental-memory")]

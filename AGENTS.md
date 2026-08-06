@@ -1,4 +1,4 @@
-# Phantom Mesh — Agent 指南
+# Spectyn Mesh — Agent 指南
 
 > **本檔是跨工具 SSOT（single source of truth，唯一真實來源）**，供任何在本 repo 工作的 AI 編碼工具
 > （Claude Code、Codex、Antigravity、Gemini CLI……）使用。本檔即以繁體中文撰寫，為正本。
@@ -18,7 +18,7 @@
    下一個具體步驟。
 3. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 高層架構（pivot 前；當它與 BIG-GOAL 及
    深層 spec 樹分歧時，以後者為準）。
-4. [`PHANTOM.md`](PHANTOM.md) — 快速架構草圖。
+4. [`SPECTYN.md`](SPECTYN.md) — 快速架構草圖。
 5. [`docs/_archive/MASTER-SPEC.md`](docs/_archive/MASTER-SPEC.md) — 綜整後的快照（從屬於 BIG-GOAL；
    帶有已知的過時計數——見其橫幅）。
 6. `AGENTS.md`（本檔）— 跨工具規則。
@@ -97,9 +97,9 @@ git worktree add .worktrees/<topic> -b feat/<topic> <base-branch>
 ```
 
 命名：worktree 為 `.worktrees/<topic>`，分支為 `feat/<topic>`。在 Windows 上，Defender 可能在
-Cargo 期間鎖定檔案——設定 `$env:CARGO_TARGET_DIR='D:/tmp/phantom-windows-target'`。
+Cargo 期間鎖定檔案——設定 `$env:CARGO_TARGET_DIR='D:/tmp/spectyn-windows-target'`。
 
-**Hot files**（先完成 + merge 一個 session，第二個才能碰這些）：`core/src/bin/phantom.rs`、
+**Hot files**（先完成 + merge 一個 session，第二個才能碰這些）：`core/src/bin/spectyn.rs`、
 `core/src/platform/mod.rs`、`core/Cargo.toml`、`app/src-tauri/Cargo.toml`、
 `app/src-tauri/tauri.conf.json`、`app/src-tauri/capabilities/*.json`、`Cargo.lock`、
 `app/package.json`、`.github/workflows/*.yml`。
@@ -128,19 +128,19 @@ worktree 執行 `git worktree remove --force`。
 
 ## 9. AI 工具自動接線（打開資料夾 → tools 即已連接）
 
-打開此資料夾會讓 AI 工具取得 phantom 工具帶，**除了一次性的 trust 提示外無需任何手動設定**：
+打開此資料夾會讓 AI 工具取得 spectyn 工具帶，**除了一次性的 trust 提示外無需任何手動設定**：
 
-- **Claude Code** — [`.mcp.json`](.mcp.json)（已 commit，`command: phantom` 從 `PATH` 解析）
-  在你核可一次 workspace trust 後即自動載入 phantom MCP（50+ tools）；project skills 來自
+- **Claude Code** — [`.mcp.json`](.mcp.json)（已 commit，`command: spectyn` 從 `PATH` 解析）
+  在你核可一次 workspace trust 後即自動載入 spectyn MCP（50+ tools）；project skills 來自
   [`.claude/skills/`](.claude/skills/)；[`.claude/settings.json`](.claude/settings.json)
   註冊一個**唯讀**的 `SessionStart` hook，用於*印出* dev-node / review-gate 提示——它
   從不自動執行任何東西。
 - **Codex** — 每台機器註冊同一個 MCP 一次：
-  `codex mcp remove phantom 2>/dev/null; codex mcp add phantom -- phantom mcp`
-  （`PATH` 上的純 `phantom`，與 `.mcp.json` 相符）。用 `codex mcp get phantom` 驗證——`command`
-  必須是 `phantom`，**而非**指向某個 build dir 的絕對路徑（過時的絕對路徑會在 binary 移動時
+  `codex mcp remove spectyn 2>/dev/null; codex mcp add spectyn -- spectyn mcp`
+  （`PATH` 上的純 `spectyn`，與 `.mcp.json` 相符）。用 `codex mcp get spectyn` 驗證——`command`
+  必須是 `spectyn`，**而非**指向某個 build dir 的絕對路徑（過時的絕對路徑會在 binary 移動時
   悄悄破壞 server）。
-- 需要 `phantom` 在 `PATH` 上（`~/.local/bin/phantom`）。這些檔案**接線 MCP/skills**；本
+- 需要 `spectyn` 在 `PATH` 上（`~/.local/bin/spectyn`）。這些檔案**接線 MCP/skills**；本
   文件承載的是*規則*。兩者都不會自動加入任何 dev channel——加入 loop 是一個手動的動作。
 
 ## 10. Acceleration dev-loop 框架與 governance
@@ -170,14 +170,14 @@ channel、跨機器的 atomic lease）受 **§0.1 把關**——不要預先建�
 §0）。無人值守 ≠ 無定義——方向是 owner 的，結果是 owner 的，落在三個點上：
 (1) **before** — owner 撰寫/編輯 `[spec]` envelope（改 spec = 改方向）；
 `spec-gate` 會擋下任何沒有 spec 的 task。(2) **during** — drift 會被*浮現*為 needs-human
-提案（`~/.phantom-mesh/deviation-proposals.jsonl`、`status.sh`），絕不臆測。(3) **after** —
+提案（`~/.spectyn-mesh/deviation-proposals.jsonl`、`status.sh`），絕不臆測。(3) **after** —
 沒有任何東西會抵達 `main`；工作以 **branches-only** 落地供 owner 審查（`commute-report-*.md`、
 那個 integration 分支）並 merge。§0.1 gate 是從「branches-only 由你審查」到
 「取得信任後 auto-merge 進 core」的節流閥。
 
 ## Recent context
 
-<!-- phantom and `/share AGENTS.md --append` write rolling status here; keep entries short + dated. -->
-- 2026-06-09 — Root `AGENTS.md` created (was referenced by ~15 files but missing). Codex phantom MCP
-  re-pointed at bare `phantom`. Added `scripts/dev-loop/pollution-wall-check.sh` (the moat-pollution
+<!-- spectyn and `/share AGENTS.md --append` write rolling status here; keep entries short + dated. -->
+- 2026-06-09 — Root `AGENTS.md` created (was referenced by ~15 files but missing). Codex spectyn MCP
+  re-pointed at bare `spectyn`. Added `scripts/dev-loop/pollution-wall-check.sh` (the moat-pollution
   precondition). See `SESSION_RESUME.md` for the live next step.

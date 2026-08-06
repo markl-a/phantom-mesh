@@ -13,18 +13,18 @@
 //! `system`, so proving the helper renders the block proves the injected system
 //! prompt carries it.
 
-use phantom_mesh::skill_wire::{owned_memory_system_block, store_skill, Skill};
+use spectyn_mesh::skill_wire::{owned_memory_system_block, store_skill, Skill};
 
 #[test]
 fn run_inner_recall_block_surfaces_stored_skill() {
-    // Only test in this binary ⇒ the process-global PHANTOM_DB_PATH mutation
+    // Only test in this binary ⇒ the process-global SPECTYN_DB_PATH mutation
     // races nothing (the in-crate env_lock is #[cfg(test)]-only, unreachable
     // from an integration crate).
     let db = tempfile::NamedTempFile::new().expect("temp DB file");
-    let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-    let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-    std::env::set_var("PHANTOM_DB_PATH", db.path());
-    std::env::remove_var("PHANTOM_OWNED_MEMORY"); // default ON
+    let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+    let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+    std::env::set_var("SPECTYN_DB_PATH", db.path());
+    std::env::remove_var("SPECTYN_OWNED_MEMORY"); // default ON
 
     let deploy = Skill {
         id: "sk-inject-deploy".into(),
@@ -51,12 +51,12 @@ fn run_inner_recall_block_surfaces_stored_skill() {
 
     // Restore env BEFORE asserting so a panicking assert can't leak the override.
     match saved_db {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
     match saved_om {
-        Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-        None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+        Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+        None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
     }
 
     let (has_wrapper, has_skill) = outcome.expect("recall block render round-trip");

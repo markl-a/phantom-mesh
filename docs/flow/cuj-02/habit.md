@@ -20,7 +20,7 @@
 2. 從以下三個入口擇一：
    ├─ iOS/Android: home 解鎖 → habit widget → 點「水」chip → 預設 250 → tap ✓
    ├─ Desktop:      按 Cmd+Shift+H (mac) / Ctrl+Shift+H (win/linux) → 跳 chip popover → 點「水」
-   └─ CLI:          phantom habit water --qty 250
+   └─ CLI:          spectyn habit water --qty 250
 3. 系統把 metadata（含 qty=250, unit=ml）走 age 加密 → 寫入 sqlite events 表
 4. summary（純文字「水」）寫進 events_fts 為了搜尋
 5. 回傳當下 streak（如「水 streak=5」）到使用者
@@ -38,7 +38,7 @@
 
 ```
 1. user 想加一個自訂 chip「冥想」
-2. 從入口：CLI `phantom habit palette add --id meditation --zh 冥想 --en Meditation --unit min --qty 5`
+2. 從入口：CLI `spectyn habit palette add --id meditation --zh 冥想 --en Meditation --unit min --qty 5`
    OR Desktop: menu bar → Settings → Habits → "+ Add chip"
 3. 系統驗證：palette 目前 < 12 個 ?
    ├─ 是 → 加入、回傳新 chip
@@ -57,8 +57,8 @@
 
 ```
 1. user 想看「我咖啡連續幾天」
-2. 入口：CLI `phantom habit streak --chip coffee`
-   OR Desktop: menu bar → 點 phantom icon → 看 streak panel
+2. 入口：CLI `spectyn habit streak --chip coffee`
+   OR Desktop: menu bar → 點 spectyn icon → 看 streak panel
 3. 系統執行 §8.3 演算法：
    - 查最近 30 天 habit kind events、filter chip_id=coffee
    - 按 user-local-timezone 切日、每日有 >= 1 筆 = 連續
@@ -76,7 +76,7 @@
 
 ```
 1. user 想 log「今天讀完 SICP ch3」── 沒有對應 chip
-2. 入口：CLI `phantom habit "讀完 SICP ch3"`
+2. 入口：CLI `spectyn habit "讀完 SICP ch3"`
    OR widget「+其他」打字
 3. 系統判斷：input 不在 chip_palette → chip_id = "freetext"
 4. metadata = { chip_id: "freetext", free_text: "讀完 SICP ch3" }

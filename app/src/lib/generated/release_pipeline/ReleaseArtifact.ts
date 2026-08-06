@@ -7,7 +7,7 @@ import type { ArtifactOs } from "./ArtifactOs";
  */
 export type ReleaseArtifact = { os: ArtifactOs, arch: ArtifactArch, 
 /**
- * Bare file name (no path), e.g. `"phantom-mesh-0.6.0-rc1-darwin-aarch64.dmg"`.
+ * Bare file name (no path), e.g. `"spectyn-mesh-0.6.0-rc1-darwin-aarch64.dmg"`.
  */
 fileName: string, 
 /**

@@ -1,5 +1,5 @@
 /**
- * Phantom Mesh Desktop — End-to-End Integration Tests
+ * Spectyn Mesh Desktop — End-to-End Integration Tests
  *
  * 設計理念：今天抓到的每一個 bug 都是「兩個系統之間的接口不一致」。
  * 傳統單元測試只測各自的邏輯，抓不到這些。
@@ -31,13 +31,13 @@ const FRONTEND_SRC = path.join(PROJECT_ROOT, 'src');
 
 const TEST_PORT = 17878; // Use non-standard port to avoid conflict
 const TEST_AUTH_KEY = 'test-e2e-key-12345';
-const TEST_CONFIG_DIR = path.join(os.tmpdir(), 'phantom-mesh-e2e-test');
+const TEST_CONFIG_DIR = path.join(os.tmpdir(), 'spectyn-mesh-e2e-test');
 const TEST_CONFIG_PATH = path.join(TEST_CONFIG_DIR, 'agents.toml');
 
 const DAEMON_BINARY = findDaemonBinary();
 
 function findDaemonBinary(): string {
-  const exe = process.platform === 'win32' ? 'phantom-mesh.exe' : 'phantom-mesh';
+  const exe = process.platform === 'win32' ? 'spectyn-mesh.exe' : 'spectyn-mesh';
   const candidates = [
     path.join(CORE_ROOT, 'target2', 'release', exe),
     path.join(CORE_ROOT, 'target2', 'debug', exe),
@@ -212,12 +212,12 @@ describe('Layer 2: Config Round-Trip', () => {
     expect(sections.length).toBe(uniqueSections.size);
   });
 
-  it('config written to app_config_dir, not ~/.phantom-mesh/', () => {
+  it('config written to app_config_dir, not ~/.spectyn-mesh/', () => {
     const onboardingSrc = readRustSource('commands/onboarding.rs');
     // write_config should use app.path().app_config_dir()
     expect(onboardingSrc).toMatch(/app_config_dir/);
-    // Should NOT write to ~/.phantom-mesh/ directly
-    expect(onboardingSrc).not.toMatch(/\.phantom-mesh\/agents\.toml/);
+    // Should NOT write to ~/.spectyn-mesh/ directly
+    expect(onboardingSrc).not.toMatch(/\.spectyn-mesh\/agents\.toml/);
   });
 
   it('auth key in [core] matches auth key in [auth]', () => {
@@ -400,12 +400,12 @@ describe('Layer 4: Startup Sequence', () => {
       ...section.matchAll(/PathBuf::from\("([^"]+)"\)/g),
       ...section.matchAll(/\.join\("([^"]+)"\)/g),
     ];
-    const phantomMeshPaths = pathMatches
+    const spectynMeshPaths = pathMatches
       .map(m => m[1])
       .filter(p => p.includes('core'));
-    expect(phantomMeshPaths.length).toBeGreaterThan(0);
+    expect(spectynMeshPaths.length).toBeGreaterThan(0);
 
-    for (const relPath of phantomMeshPaths) {
+    for (const relPath of spectynMeshPaths) {
       // Should be sibling directory ../core, not grandparent ../../
       expect(relPath).toMatch(/\.\.\/core/);
       expect(relPath).not.toMatch(/\.\.\/\.\.\/core/);

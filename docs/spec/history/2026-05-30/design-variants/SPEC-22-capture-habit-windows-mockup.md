@@ -27,20 +27,20 @@ wireframe 鎖了版型；本檔鎖影響實作的視覺終值：
 
 | Token | Hex | habit 用途 |
 |---|---|---|
-| `phantom-bg` | `#0f0f1a` | tray dropdown / Habit tab 背景 |
-| `phantom-card` | `#1a1a2e` | chip 按鈕 bg、heatmap 空格 |
-| `phantom-primary` | `#8ab4f8` | chip hover border、qty stepper +/- 鈕 |
-| `phantom-success` | `#81c995` | log 後 chip confirm 閃光、heatmap 高密度格 |
-| `phantom-muted` | `#6b6b80` | streak 0 天數字、heatmap 空格邊、free-text placeholder |
+| `spectyn-bg` | `#0f0f1a` | tray dropdown / Habit tab 背景 |
+| `spectyn-card` | `#1a1a2e` | chip 按鈕 bg、heatmap 空格 |
+| `spectyn-primary` | `#8ab4f8` | chip hover border、qty stepper +/- 鈕 |
+| `spectyn-success` | `#81c995` | log 後 chip confirm 閃光、heatmap 高密度格 |
+| `spectyn-muted` | `#6b6b80` | streak 0 天數字、heatmap 空格邊、free-text placeholder |
 
 ### heatmap 4 段色階（本檔拍板）
 
 | 當天筆數 | 色 | 說明 |
 |---|---|---|
-| 0 | `phantom-card #1a1a2e`（空格，僅描邊 phantom-muted） | 沒打卡 |
-| 1 | `phantom-success @ 35% opacity` | 有打卡 |
-| 2 | `phantom-success @ 65%` | 打 2 筆 |
-| >= 3 | `phantom-success @ 100% #81c995` | 高密度 |
+| 0 | `spectyn-card #1a1a2e`（空格，僅描邊 spectyn-muted） | 沒打卡 |
+| 1 | `spectyn-success @ 35% opacity` | 有打卡 |
+| 2 | `spectyn-success @ 65%` | 打 2 筆 |
+| >= 3 | `spectyn-success @ 100% #81c995` | 高密度 |
 
 → 全綠色階（非紅→綠 diverging）— habit 是「做了就好」，**不存在「壞」的一天**（對齊 P4 shame-free 操作原則）。斷 streak 不染紅。
 
@@ -48,20 +48,20 @@ wireframe 鎖了版型；本檔鎖影響實作的視覺終值：
 
 | streak | 數字色 | 附飾 |
 |---|---|---|
-| 0 天 | `phantom-muted`（灰） | 無（不畫紅 / 不畫破碎 icon — 斷了不羞辱） |
-| 1–6 天 | `phantom-primary`（藍） | — |
-| >= 7 天 | `phantom-success`（綠）+ Lucide `flame` 16px | 「火苗」獎勵連續 |
+| 0 天 | `spectyn-muted`（灰） | 無（不畫紅 / 不畫破碎 icon — 斷了不羞辱） |
+| 1–6 天 | `spectyn-primary`（藍） | — |
+| >= 7 天 | `spectyn-success`（綠）+ Lucide `flame` 16px | 「火苗」獎勵連續 |
 
 ## Lucide icon 對映（per SPEC-20/21 mockup 同源）
 
 | 角色 | Lucide icon | 用途 |
 |---|---|---|
-| 拖拉把手 | `grip-vertical` | palette 編輯重排，16px phantom-muted |
+| 拖拉把手 | `grip-vertical` | palette 編輯重排，16px spectyn-muted |
 | 刪除 chip | `x` | palette 編輯，14px |
-| 新增 chip | `plus` | 16px phantom-primary |
-| streak 火苗 | `flame` | >=7 天獎勵，16px phantom-success |
+| 新增 chip | `plus` | 16px spectyn-primary |
+| streak 火苗 | `flame` | >=7 天獎勵，16px spectyn-success |
 | qty 減 / 加 | `minus` / `plus` | qty stepper，14px |
-| 打卡 confirm | `check` | log 後 chip 上閃一下，16px phantom-success |
+| 打卡 confirm | `check` | log 後 chip 上閃一下，16px spectyn-success |
 
 chip 本身**不配 icon**（純文字 label + 數字鍵角標）— 避免 12 個 emoji 在 CP950 locale render 不一致；user 自訂 chip 也不強迫選 icon。
 
@@ -69,7 +69,7 @@ chip 本身**不配 icon**（純文字 label + 數字鍵角標）— 避免 12 �
 
 | key | 繁中 | English |
 |---|---|---|
-| `habit.tray.header` | Phantom Mesh · Habit | Phantom Mesh · Habit |
+| `habit.tray.header` | Spectyn Mesh · Habit | Spectyn Mesh · Habit |
 | `habit.feedback.logged` | 已記 {chip} {qty}{unit} | Logged {chip} {qty}{unit} |
 | `habit.input.free_text` | 打字記錄（例：跑步 30 分） | Type to log (e.g. run 30 min) |
 | `habit.streak.label` | streak {n} 天 | {n}-day streak |
@@ -83,19 +83,19 @@ chip 本身**不配 icon**（純文字 label + 數字鍵角標）— 避免 12 �
 
 ```
 +-------------------------------------------+
-| Phantom Mesh . Habit                      |   header phantom-muted 12px 不可點
+| Spectyn Mesh . Habit                      |   header spectyn-muted 12px 不可點
 +-------------------------------------------+
-|  [1 水]  [2 咖啡] [3 運動] [4 冥想]       |   chip：phantom-card bg, radius 6, 數字角標 phantom-muted
-|  [5 讀書][6 走路] [7 戒菸] [8 戒酒]       |   hover → border phantom-primary
-|  [9深呼吸][伸展] [寫日記] [早睡]          |   click → 閃 phantom-success check 200ms
+|  [1 水]  [2 咖啡] [3 運動] [4 冥想]       |   chip：spectyn-card bg, radius 6, 數字角標 spectyn-muted
+|  [5 讀書][6 走路] [7 戒菸] [8 戒酒]       |   hover → border spectyn-primary
+|  [9深呼吸][伸展] [寫日記] [早睡]          |   click → 閃 spectyn-success check 200ms
 +-------------------------------------------+
-|  打字記錄: [____________________]  Enter  |   placeholder phantom-muted 13px
+|  打字記錄: [____________________]  Enter  |   placeholder spectyn-muted 13px
 +-------------------------------------------+
 |  Open Habit tab...           Ctrl+Shift+H |
 +-------------------------------------------+
 ```
-- click chip → 寫 event → chip 上疊 `check` icon phantom-success 閃 200ms（取 `habit.feedback.logged`）→ dropdown **不關**（連點）
-- 需數量 chip（水）→ click 後 inline 展開：`[- 250 +] ml  [OK]`（qty stepper，phantom-primary +/- 鈕）
+- click chip → 寫 event → chip 上疊 `check` icon spectyn-success 閃 200ms（取 `habit.feedback.logged`）→ dropdown **不關**（連點）
+- 需數量 chip（水）→ click 後 inline 展開：`[- 250 +] ml  [OK]`（qty stepper，spectyn-primary +/- 鈕）
 - 數字鍵 `1`–`9` = 快選前 9 chip（角標數字提示）
 
 **Narrator AutomationName**：
@@ -126,8 +126,8 @@ qty stepper（chip 需數量時 inline）：
 ```
 [ (minus) ]  250  [ (plus) ]  ml   [OK]
 ```
-- `minus`/`plus` 鈕 phantom-primary、長按連續 +/-（step = chip 定義，預設 50）
-- 數字框可直接打字；`ml` 單位 phantom-muted 不可改（chip 定義時鎖）
+- `minus`/`plus` 鈕 spectyn-primary、長按連續 +/-（step = chip 定義，預設 50）
+- 數字框可直接打字；`ml` 單位 spectyn-muted 不可改（chip 定義時鎖）
 
 palette 編輯列：`(grip-vertical) {label}  (x)` — 拖拉重排、x soft-delete（保留歷史 event）
 

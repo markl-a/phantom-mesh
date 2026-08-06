@@ -5,8 +5,8 @@
 //! (both already accept a `node:` parameter for cross-machine dispatch).
 //!
 //! Pure reads — no auth, no side effects. Each wraps an existing pure
-//! function in cli_config so the CLI surface (`phantom cluster status`,
-//! `phantom sessions`) and the agent surface stay in sync.
+//! function in cli_config so the CLI surface (`spectyn cluster status`,
+//! `spectyn sessions`) and the agent surface stay in sync.
 //!
 //! - `cluster_status`   → peer alive/dead + RTT (same as the slash `/cluster`)
 //! - `cluster_sessions` → live TUIs across the user's mesh (same as `/cluster who`)
@@ -35,12 +35,12 @@ pub async fn sessions(_args: &Value) -> String {
 
 /// `cluster_peers` — return the static peer registry (names + URLs +
 /// capability tags) so the agent can enumerate dispatch targets without a
-/// network round-trip. Reads ~/.phantom-mesh/peers.json directly.
+/// network round-trip. Reads ~/.spectyn-mesh/peers.json directly.
 pub async fn peers(_args: &Value) -> String {
     let peers = match crate::cli_config::read_peers_json() {
         Some(p) => p,
         None => {
-            return "[cluster_peers] no peers.json found — run `phantom config pull` to sync"
+            return "[cluster_peers] no peers.json found — run `spectyn config pull` to sync"
                 .to_string()
         }
     };

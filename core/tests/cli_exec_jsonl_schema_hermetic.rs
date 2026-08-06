@@ -1,8 +1,8 @@
-//! Hermetic (Unix-gated) contract test for `phantom exec --json`.
+//! Hermetic (Unix-gated) contract test for `spectyn exec --json`.
 //!
 //! ## The gap this closes
 //!
-//! `phantom exec --json` emits one `AgentEvent` JSON per line on stdout — the
+//! `spectyn exec --json` emits one `AgentEvent` JSON per line on stdout — the
 //! machine-consumable stream that **cluster RPC dispatch and CI log parsers
 //! rely on**. Any drift in that schema (the serde `tag = "type"` discriminator
 //! or a renamed variant) silently breaks every downstream consumer.
@@ -18,8 +18,8 @@
 //!
 //! It points an OpenAI-compatible provider's base URL at a local **wiremock**
 //! server that returns a canned SSE completion, then execs the real built
-//! binary (`env!("CARGO_BIN_EXE_phantom")`) with
-//! `phantom exec --json --config <tmp>/agents.toml "<prompt>"`. No network, no
+//! binary (`env!("CARGO_BIN_EXE_spectyn")`) with
+//! `spectyn exec --json --config <tmp>/agents.toml "<prompt>"`. No network, no
 //! real API key — the `[providers.mock].url` in the temp `agents.toml` is the
 //! documented test seam (`ProviderEntry::url`, alias `base_url`) that the
 //! streaming path (`AgentRuntime::call_with_streaming` →
@@ -29,7 +29,7 @@
 //!
 //! ## What it asserts
 //!
-//!   1. `phantom exec --json` exits 0.
+//!   1. `spectyn exec --json` exits 0.
 //!   2. Every non-empty stdout line parses as JSON (the `--json` contract).
 //!   3. At least one line deserialises into the real [`AgentEvent`] shape — the
 //!      serde-tagged enum (`{"type":"token", ...}` / `{"type":"done", ...}`) —
@@ -41,16 +41,16 @@
 //!
 //! Runs under a temp data root. `HOME` + `USERPROFILE` (so `ConversationStore`
 //! and home-based config resolution land in the temp dir on every OS) and
-//! `PHANTOM_HOME` are all pointed at it, and `--config` pins the mocked
+//! `SPECTYN_HOME` are all pointed at it, and `--config` pins the mocked
 //! provider explicitly — so the test never reads or writes the developer's real
-//! `~/.phantom-mesh`. Network env that could perturb routing
-//! (`PHANTOM_LOCAL_FIRST`, `PHANTOM_RUNTIME_OVERRIDE`) is cleared for the child.
+//! `~/.spectyn-mesh`. Network env that could perturb routing
+//! (`SPECTYN_LOCAL_FIRST`, `SPECTYN_RUNTIME_OVERRIDE`) is cleared for the child.
 
 // PLATFORM GATE: the exec child's diag::init() / auto_load_env() resolve the data
-// root via bare dirs::home_dir(), which IGNORES HOME/USERPROFILE/PHANTOM_HOME on
+// root via bare dirs::home_dir(), which IGNORES HOME/USERPROFILE/SPECTYN_HOME on
 // Windows — so on a Windows runner the child would best-effort write events.jsonl
-// into the developer's REAL ~/.phantom-mesh. Gate to Unix (where the HOME redirect
-// is honoured and the isolation above actually holds) until a PHANTOM_HOME-aware
+// into the developer's REAL ~/.spectyn-mesh. Gate to Unix (where the HOME redirect
+// is honoured and the isolation above actually holds) until a SPECTYN_HOME-aware
 // resolver lands; Linux CI already covers this platform-agnostic schema contract.
 #![cfg(unix)]
 
@@ -59,11 +59,11 @@ use std::process::Command;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
-/// A deserialise-only mirror of `phantom_mesh::agent::AgentEvent`'s wire shape.
+/// A deserialise-only mirror of `spectyn_mesh::agent::AgentEvent`'s wire shape.
 ///
 /// The real enum is `Serialize`-only and `pub(crate)`-adjacent for some
 /// variants, so we can't deserialise into it directly from an integration
@@ -106,7 +106,7 @@ impl WireAgentEvent {
 
 fn unique_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-exec-jsonl-{}-{}",
+        "spectyn-exec-jsonl-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -175,8 +175,8 @@ fn exec_json_stream_hermetic() {
     // short-circuits gemini to a non-streaming native path that would bypass
     // the SSE parser this test is asserting on.
     let home = unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create temp .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create temp .spectyn-mesh");
     let agents_toml = format!(
         r#"
 [agent.master]
@@ -197,7 +197,7 @@ default_model = "mock-model"
     // ── 3. exec the real binary in --json mode against the mock provider ─────
     // Run the blocking child on the runtime's blocking pool so the reactor
     // thread serving wiremock stays free while the child streams from it.
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home_s = home.to_string_lossy().to_string();
     let config_s = config_path.to_string_lossy().to_string();
     let output = rt.block_on(async move {
@@ -211,18 +211,18 @@ default_model = "mock-model"
                     "Reply with the literal word PONG and nothing else.",
                 ])
                 // Redirect every home-resolution seam at the temp dir so the
-                // child never touches the real ~/.phantom-mesh. ConversationStore
+                // child never touches the real ~/.spectyn-mesh. ConversationStore
                 // reads HOME → USERPROFILE → dirs::home_dir(); cover the first two
                 // (the third is platform fallback only).
                 .env("HOME", &home_s)
                 .env("USERPROFILE", &home_s)
-                .env("PHANTOM_HOME", &home_s)
+                .env("SPECTYN_HOME", &home_s)
                 // Neutralise routing-perturbing env that could reorder/override
                 // the provider chain out from under the mock.
-                .env_remove("PHANTOM_LOCAL_FIRST")
-                .env_remove("PHANTOM_RUNTIME_OVERRIDE")
+                .env_remove("SPECTYN_LOCAL_FIRST")
+                .env_remove("SPECTYN_RUNTIME_OVERRIDE")
                 .output()
-                .expect("phantom exec --json must spawn")
+                .expect("spectyn exec --json must spawn")
         })
         .await
         .expect("join exec spawn_blocking")
@@ -237,7 +237,7 @@ default_model = "mock-model"
     // ── 4a. exit code contract ───────────────────────────────────────────────
     assert!(
         output.status.success(),
-        "phantom exec --json exited {:?} (expected 0).\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn exec --json exited {:?} (expected 0).\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         stdout,
         stderr,
@@ -247,7 +247,7 @@ default_model = "mock-model"
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
     assert!(
         !lines.is_empty(),
-        "phantom exec --json produced no stdout lines — stream never started?\n\
+        "spectyn exec --json produced no stdout lines — stream never started?\n\
          stderr:\n{}",
         stderr,
     );

@@ -33,7 +33,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${HERE}/spec-lib.sh"   # shared, section-anchored [spec] parser (no drift with spec-gate)
-STATE_DIR="${PHANTOM_STATE_DIR:-${HOME}/.phantom-mesh}"
+STATE_DIR="${SPECTYN_STATE_DIR:-${HOME}/.spectyn-mesh}"
 LEDGER="${STATE_DIR}/dev-loop-log.jsonl"             # audit trail (NOT partner-signals)
 PROPOSALS="${STATE_DIR}/deviation-proposals.jsonl"   # needs-human escalations
 NOTIFY_LOG="${STATE_DIR}/notifications.log"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build and package phantom for Android (Termux / ARM64).
-# Output: dist/phantom-android-arm64.tar.gz
+# Build and package spectyn for Android (Termux / ARM64).
+# Output: dist/spectyn-android-arm64.tar.gz
 #
 # Usage:
-#   cd phantom-mesh
+#   cd spectyn-mesh
 #   ./scripts/package-android.sh
 #
 # Requirements:
@@ -82,10 +82,10 @@ TARGET="aarch64-linux-android"
 TARGET_BASE="${CARGO_TARGET_DIR:-$CORE/target}"
 RELEASE="$TARGET_BASE/$TARGET/release"
 
-echo "◆ Building phantom (release) for $TARGET …"
+echo "◆ Building spectyn (release) for $TARGET …"
 echo "◆ Target dir: $TARGET_BASE"
 cd "$CORE"
-cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+cargo ndk -t arm64-v8a -P 21 build --release --bin spectyn
 
 # ── Strip ─────────────────────────────────────────────────────────────────────
 STRIP_BIN="llvm-strip"
@@ -94,31 +94,31 @@ STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$NDK_HOST/bin/$STRIP_BIN"
 
 if [[ -x "$STRIP" ]]; then
   echo "◆ Stripping debug symbols …"
-  "$STRIP" "$RELEASE/phantom" -o "$RELEASE/phantom-stripped"
-  BINARY="$RELEASE/phantom-stripped"
+  "$STRIP" "$RELEASE/spectyn" -o "$RELEASE/spectyn-stripped"
+  BINARY="$RELEASE/spectyn-stripped"
 else
   echo "⚠  llvm-strip not found at $STRIP — shipping unstripped binary"
-  BINARY="$RELEASE/phantom"
+  BINARY="$RELEASE/spectyn"
 fi
 
 echo "◆ Binary: $(du -sh "$BINARY" | cut -f1)  →  $BINARY"
 
 # ── Assemble dist/ ────────────────────────────────────────────────────────────
 DIST="$REPO_ROOT/dist"
-STAGING="$DIST/phantom-android-arm64"
+STAGING="$DIST/spectyn-android-arm64"
 mkdir -p "$STAGING"
 
-cp "$BINARY"                          "$STAGING/phantom"
+cp "$BINARY"                          "$STAGING/spectyn"
 cp "$REPO_ROOT/agents.toml.example"   "$STAGING/agents.toml.example"
 
 cat > "$STAGING/install.sh" << 'INSTALL'
 #!/usr/bin/env sh
-# phantom install script for Termux (Android ARM64)
+# spectyn install script for Termux (Android ARM64)
 # Run inside Termux: sh install.sh
 set -e
 
 DEST="$HOME/.local/bin"
-CONFIG_DIR="$HOME/.phantom-mesh"
+CONFIG_DIR="$HOME/.spectyn-mesh"
 
 # Termux uses $PREFIX/bin instead of ~/.local/bin
 if [ -n "$PREFIX" ] && [ -d "$PREFIX/bin" ]; then
@@ -127,9 +127,9 @@ fi
 
 mkdir -p "$DEST" "$CONFIG_DIR"
 
-echo "Installing phantom → $DEST/phantom"
-cp phantom "$DEST/phantom"
-chmod +x "$DEST/phantom"
+echo "Installing spectyn → $DEST/spectyn"
+cp spectyn "$DEST/spectyn"
+chmod +x "$DEST/spectyn"
 
 if [ ! -f "$CONFIG_DIR/agents.toml" ]; then
   cp agents.toml.example "$CONFIG_DIR/agents.toml"
@@ -139,18 +139,18 @@ if [ ! -f "$CONFIG_DIR/agents.toml" ]; then
 fi
 
 echo ""
-echo "✓ phantom installed. Run: phantom"
+echo "✓ spectyn installed. Run: spectyn"
 echo ""
 echo "To start the serve daemon:"
-echo "  phantom serve"
+echo "  spectyn serve"
 echo ""
 echo "To use as an MCP server:"
-echo "  phantom mcp"
+echo "  spectyn mcp"
 INSTALL
 chmod +x "$STAGING/install.sh"
 
 cat > "$STAGING/README.txt" << 'README'
-phantom-mesh — Android / Termux
+spectyn-mesh — Android / Termux
 ================================
 
 Requirements
@@ -162,20 +162,20 @@ Quick Start
 -----------
   1. Copy this folder to your phone (adb push, WiFi, or GitHub Releases)
   2. Open Termux
-  3. cd /path/to/phantom-android-arm64
+  3. cd /path/to/spectyn-android-arm64
   4. sh install.sh
   5. Set your API key:
        export ANTHROPIC_API_KEY=sk-ant-...
-     or edit ~/.phantom-mesh/agents.toml
-  6. phantom                   # interactive REPL
-     phantom "list src files"  # one-shot
-     phantom serve             # WebSocket daemon (ws://phone-ip:7878/ws)
-     phantom mcp               # MCP stdio server
-     phantom evolve            # self-iteration loop
+     or edit ~/.spectyn-mesh/agents.toml
+  6. spectyn                   # interactive REPL
+     spectyn "list src files"  # one-shot
+     spectyn serve             # WebSocket daemon (ws://phone-ip:7878/ws)
+     spectyn mcp               # MCP stdio server
+     spectyn evolve            # self-iteration loop
 
 Connect from Mac/PC
 -------------------
-  Start daemon on phone:  phantom serve
+  Start daemon on phone:  spectyn serve
   Connect via curl:       curl http://PHONE_IP:7878/healthz
 
   With Tailscale:
@@ -184,14 +184,14 @@ Connect from Mac/PC
 MCP integration
 ---------------
   Add to your Claude Code / Cursor / Goose config:
-  { "mcpServers": { "phantom-android": {
-      "command": "ssh", "args": ["phone", "phantom mcp"] } } }
+  { "mcpServers": { "spectyn-android": {
+      "command": "ssh", "args": ["phone", "spectyn mcp"] } } }
 README
 
 # ── Compress ──────────────────────────────────────────────────────────────────
-TARBALL="$DIST/phantom-android-arm64.tar.gz"
+TARBALL="$DIST/spectyn-android-arm64.tar.gz"
 cd "$DIST"
-tar czf "$TARBALL" phantom-android-arm64/
+tar czf "$TARBALL" spectyn-android-arm64/
 rm -rf "$STAGING"
 
 SIZE=$(du -sh "$TARBALL" | cut -f1)
@@ -202,5 +202,5 @@ echo ""
 echo "Install on phone:"
 echo "  adb push $TARBALL /sdcard/"
 echo "  # then in Termux:"
-echo "  cd /sdcard && tar xzf phantom-android-arm64.tar.gz"
-echo "  cd phantom-android-arm64 && sh install.sh"
+echo "  cd /sdcard && tar xzf spectyn-android-arm64.tar.gz"
+echo "  cd spectyn-android-arm64 && sh install.sh"

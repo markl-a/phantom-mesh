@@ -1,10 +1,10 @@
-//! Per-device event encryption key, derived from `~/.phantom-mesh/identity.key`
+//! Per-device event encryption key, derived from `~/.spectyn-mesh/identity.key`
 //! via HKDF-SHA256.
 //!
-//! `identity.key` is the existing 64-byte file phantom uses for per-device
+//! `identity.key` is the existing 64-byte file spectyn uses for per-device
 //! identity. We treat its bytes as IKM (input keying material) and derive a
 //! 32-byte event encryption key with HKDF-extract-then-expand, label
-//! `"phantom-mesh.event-encryption-v1"`.
+//! `"spectyn-mesh.event-encryption-v1"`.
 //!
 //! The derived key is wrapped in `EventKey`, a struct that zeroes its bytes
 //! on drop so a Drop-time panic can't accidentally leave the key on the stack.
@@ -14,7 +14,7 @@ use sha2::Sha256;
 use std::path::Path;
 use zeroize::Zeroize;
 
-const HKDF_LABEL: &[u8] = b"phantom-mesh.event-encryption-v1";
+const HKDF_LABEL: &[u8] = b"spectyn-mesh.event-encryption-v1";
 const EVENT_KEY_LEN: usize = 32;
 
 /// 32-byte event encryption key. Zeroed on drop.

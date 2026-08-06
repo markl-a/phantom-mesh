@@ -1,0 +1,145 @@
+name: Deploy phantommesh.io
+
+# Single source of truth for CF Worker deploys. Without this workflow,
+# whoever last ran `wrangler deploy` from any local machine wins the
+# race — happened on 2026-05-03 when a Mac session pushed an older
+# checkout and rolled back the cluster-peers endpoints + dashboard UI.
+#
+# Now: every change to spectynmesh-io/** that lands on a deploy branch
+# triggers an authoritative deploy from CI. Mac + Windows + any future
+# machine are all observers, not deploy sources.
+
+on:
+  push:
+    branches:
+      - phase1-r1-foundations
+      - main
+    paths:
+      - 'spectynmesh-io/**'
+      - '.github/workflows/deploy-spectynmesh-io.yml'
+  workflow_dispatch:   # manual re-deploy from Actions tab
+
+concurrency:
+  # Serialize deploys per-branch so two near-simultaneous pushes don't
+  # both deploy with one of them ending up overwritten by the other on
+  # the CF side.
+  group: deploy-spectynmesh-io-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Skipping `cache: npm` because root .gitignore excludes
+          # package-lock.json (monorepo convention here). Reinstalling
+          # deps every run takes ~30s — acceptable trade for not having
+          # to fight gitignore + maintain a lock file.
+
+      - name: Install deps
+        working-directory: spectynmesh-io
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        working-directory: spectynmesh-io
+        run: npx tsc --noEmit
+
+      - name: Validate install.ps1 / install.sh regex literals
+        working-directory: spectynmesh-io
+        # Renders the PS / sh scripts from dist.ts and runs `new RegExp()`
+        # on every -match 'X' literal. Catches the TS template-literal
+        # backslash-eaten bug class that has hit twice in production
+        # (\[providers.opencode\] and \\s*\\[ both shipped broken before
+        # this gate existed). Cheap (~3s); fails the deploy before any
+        # user sees a broken installer.
+        run: npm run check:install
+
+      # ── Dashboard SPA (E003 / F200) ────────────────────────────────────
+      # Build the React SPA *before* `wrangler deploy` so the worker
+      # ships with a known-good bundle in R2 under the `app/` prefix.
+      # The build emits to `spectynmesh-io/dashboard/dist/app/` which
+      # then gets uploaded one file at a time via `wrangler r2 object
+      # put`. Cheap on a clean install (~45s); the type/test gates are
+      # the real cost. If this step fails the worker deploy is skipped.
+      - name: Install dashboard deps
+        working-directory: spectynmesh-io/dashboard
+        # NOTE: do NOT pass --omit=optional here. esbuild ships its
+        # platform binary (@esbuild/<platform>) as an *optional* dependency;
+        # omitting it makes esbuild's install.js validate against a stray
+        # esbuild on PATH and fail with "Expected <x> but got <y>", which
+        # silently bricked every broker deploy from 2026-05-17 onward.
+        run: npm install --no-audit --no-fund
+
+      - name: Dashboard type check
+        working-directory: spectynmesh-io/dashboard
+        run: npm run typecheck
+
+      - name: Dashboard unit tests
+        working-directory: spectynmesh-io/dashboard
+        run: npm test
+
+      - name: Dashboard build
+        working-directory: spectynmesh-io/dashboard
+        run: npm run build
+
+      - name: CSP sanity check on built bundle
+        working-directory: spectynmesh-io/dashboard
+        # F200 acceptance: grep the built bundle for forbidden tokens.
+        # If any of these appear the CSP would have to weaken — fail
+        # the deploy instead. ` ! ` flips the grep exit code so the
+        # step fails when a match is found.
+        run: |
+          set -e
+          ! grep -RE "unsafe-eval|cdnjs\.|googleapis\.com|jsdelivr" dist/app/
+
+      - name: Upload SPA assets to R2 (app/ prefix)
+        # Uses the existing `BINARIES` bucket with an `app/` prefix to
+        # avoid adding a new wrangler binding. F200 §Risk register row 1
+        # documents this choice + the fallback (separate bucket) if the
+        # prefix path ever conflicts with spectyn binary distribution.
+        working-directory: spectynmesh-io
+        env:
+          CLOUDFLARE_API_TOKEN:  ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          cd dashboard/dist/app
+          find . -type f | while read -r f; do
+            key="app/${f#./}"
+            echo "uploading $key"
+            npx -y wrangler@3 r2 object put "spectyn-binaries/$key" \
+              --file "$f" --remote
+          done
+
+      - name: Deploy to Cloudflare Workers (production)
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: spectynmesh-io
+          # No --env flag → deploys to the default env (worker name
+          # "spectynmesh-io", route "phantommesh.io/*"). Staging env
+          # exists in wrangler.toml for Mac local experiments and is
+          # NEVER touched by this workflow — staging is manual-only.
+          command: deploy
+
+      - name: Post-deploy smoke test
+        run: |
+          # Quick verification that the new deploy actually serves and
+          # the broker version marker is fresh. Doesn't gate the build
+          # (deploy already succeeded above) — just gives an observable
+          # checkmark in the workflow logs.
+          sleep 3
+          curl -sS --max-time 10 https://phantommesh.io/api/health
+          echo
+          curl -sS --max-time 10 https://phantommesh.io/api/me/cluster-peers || true

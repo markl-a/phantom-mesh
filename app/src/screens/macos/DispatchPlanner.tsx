@@ -48,14 +48,14 @@ export default function DispatchPlanner() {
   return (
     <div className="max-w-2xl space-y-5" data-testid="dispatch-planner">
       <header>
-        <h1 className="text-lg font-bold text-phantom-text">派工規劃</h1>
-        <p className="text-xs text-phantom-muted">
+        <h1 className="text-lg font-bold text-spectyn-text">派工規劃</h1>
+        <p className="text-xs text-spectyn-muted">
           選擇任務所需能力，預覽叢集會把它派給哪個 peer（SPEC-26 capability matching）
         </p>
       </header>
 
-      <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 space-y-3">
-        <p className="text-xs text-phantom-muted">所需能力（required caps）：</p>
+      <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 space-y-3">
+        <p className="text-xs text-spectyn-muted">所需能力（required caps）：</p>
         <div className="flex flex-wrap gap-2">
           {CAP_OPTIONS.map((slug) => (
             <button
@@ -64,8 +64,8 @@ export default function DispatchPlanner() {
               onClick={() => toggle(slug)}
               className={`px-2.5 py-1 rounded-full text-xs border transition ${
                 selected.has(slug)
-                  ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                  : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"
+                  ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                  : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"
               }`}
             >
               {slug}
@@ -75,36 +75,36 @@ export default function DispatchPlanner() {
         <button
           onClick={() => void run()}
           disabled={planning || peers.length === 0}
-          className="flex items-center gap-2 bg-phantom-primary text-phantom-bg px-4 py-2 rounded-lg text-sm font-medium hover:brightness-110 disabled:opacity-40 transition"
+          className="flex items-center gap-2 bg-spectyn-primary text-spectyn-bg px-4 py-2 rounded-lg text-sm font-medium hover:brightness-110 disabled:opacity-40 transition"
         >
           {planning ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
           規劃派工
         </button>
         {peers.length === 0 && (
-          <p className="text-[11px] text-phantom-muted">尚無連線的 peer — 連上叢集後才能規劃。</p>
+          <p className="text-[11px] text-spectyn-muted">尚無連線的 peer — 連上叢集後才能規劃。</p>
         )}
       </div>
 
       {error && (
-        <div className="bg-phantom-warning/10 border border-phantom-warning/40 rounded-lg p-3 text-sm text-phantom-warning">
+        <div className="bg-spectyn-warning/10 border border-spectyn-warning/40 rounded-lg p-3 text-sm text-spectyn-warning">
           {error}
         </div>
       )}
 
       {plan?.selectedPeerId && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 space-y-3">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-phantom-muted">選定 peer</span>
-            <ArrowRight size={14} className="text-phantom-muted" />
-            <span className="text-sm font-semibold text-phantom-primary">{nameOf(plan.selectedPeerId)}</span>
+            <span className="text-xs text-spectyn-muted">選定 peer</span>
+            <ArrowRight size={14} className="text-spectyn-muted" />
+            <span className="text-sm font-semibold text-spectyn-primary">{nameOf(plan.selectedPeerId)}</span>
           </div>
           {(plan.fallbackPeerIds ?? []).length > 0 && (
-            <p className="text-xs text-phantom-muted">
+            <p className="text-xs text-spectyn-muted">
               後備：{(plan.fallbackPeerIds ?? []).map(nameOf).join("、")}
             </p>
           )}
           {plan.scoringReason && (
-            <p className="text-xs text-phantom-text bg-phantom-bg border border-phantom-border rounded p-2">
+            <p className="text-xs text-spectyn-text bg-spectyn-bg border border-spectyn-border rounded p-2">
               {plan.scoringReason}
             </p>
           )}

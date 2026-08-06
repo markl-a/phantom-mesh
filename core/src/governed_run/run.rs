@@ -1,5 +1,5 @@
-//! Task 7 wiring: run an L0 AI-CLI session under L1 governance for `phantom
-//! govern`. Resolves the phantom home, opens the task EventStore, builds the real
+//! Task 7 wiring: run an L0 AI-CLI session under L1 governance for `spectyn
+//! govern`. Resolves the spectyn home, opens the task EventStore, builds the real
 //! recorder + escalator, starts the L0 session, and drives it under the governor
 //! on a blocking thread. The recorder/escalator bridge sync -> async via
 //! `Handle::block_on`, which needs a NON-async-worker thread on a multi-thread
@@ -54,7 +54,7 @@ pub struct GovernConfig {
     /// How long to await a blocking decision before the policy fallback applies.
     pub deadline: Duration,
     pub policy: GovernPolicy,
-    /// Override the phantom home (None = `resolve_home_dir()`). For tests.
+    /// Override the spectyn home (None = `resolve_home_dir()`). For tests.
     pub home: Option<PathBuf>,
     /// apex-④ dispatch↔govern correlation. When `Some`, this DISPATCH row's
     /// `job_uuid` (from `serve.rs` `rpc_task_assign`) is used AS the govern
@@ -62,7 +62,7 @@ pub struct GovernConfig {
     /// the escalator, and the dispatch task row all share one correlation key. An
     /// approval raised mid-run then stamps its `approval_id` onto the dispatch row
     /// live (see `PhoneEscalator`). `None` (default) = a fresh id is minted as
-    /// before — ungoverned runs and standalone `phantom govern` are byte-identical.
+    /// before — ungoverned runs and standalone `spectyn govern` are byte-identical.
     pub dispatch_task_id: Option<Uuid>,
 }
 
@@ -84,7 +84,7 @@ impl GovernConfig {
         }
     }
 
-    /// Apply optional `phantom govern` brake flags onto the policy (apex ④).
+    /// Apply optional `spectyn govern` brake flags onto the policy (apex ④).
     /// ADDITIVE: an absent flag leaves its `GovernPolicy` field at the exact
     /// default, so a call with an empty iterator is byte-identical to today's
     /// behavior. Recognized flags:
@@ -252,14 +252,14 @@ pub async fn run_govern_folded(cfg: GovernConfig) -> anyhow::Result<(GovernedFol
         Some(h) => h,
         None => cli_config::resolve_home_dir()?,
     };
-    let dir = cli_config::phantom_dir_under(&home);
+    let dir = cli_config::spectyn_dir_under(&home);
     std::fs::create_dir_all(&dir)?;
-    let store = TaskStore::open_at(dir.join("phantom.db"))?;
+    let store = TaskStore::open_at(dir.join("spectyn.db"))?;
     let events = EventStore::from_conn(store.conn());
     // apex-④ dispatch↔govern correlation: when this run is governing a DISPATCHED
     // task, use that dispatch row's `job_uuid` AS the govern task_id (one
     // correlation key for flight-recorder + escalator + the dispatch row). Absent
-    // (standalone `phantom govern`, ungoverned) → a fresh id, behavior unchanged.
+    // (standalone `spectyn govern`, ungoverned) → a fresh id, behavior unchanged.
     let task_id = cfg.dispatch_task_id.unwrap_or_else(Uuid::new_v4);
 
     // Escalation surface. Always register the local OS desktop notification.
@@ -293,11 +293,11 @@ pub async fn run_govern_folded(cfg: GovernConfig) -> anyhow::Result<(GovernedFol
         dir.join("governed_runs"),
         dir.join("identity.key"),
     )?;
-    // The hook subprocess (claude's PreToolUse gate) receives this as PHANTOM_HOME.
-    // It MUST be the DATA dir (`dir` = phantom_dir_under(home)), NOT the OS home:
-    // phantom_dir_under() returns PHANTOM_HOME verbatim when set, so passing the OS
+    // The hook subprocess (claude's PreToolUse gate) receives this as SPECTYN_HOME.
+    // It MUST be the DATA dir (`dir` = spectyn_dir_under(home)), NOT the OS home:
+    // spectyn_dir_under() returns SPECTYN_HOME verbatim when set, so passing the OS
     // home would make the hook write its pending card to `<os-home>/pending` while
-    // `phantom serve` (which reads list_pending via the real data dir) looks in
+    // `spectyn serve` (which reads list_pending via the real data dir) looks in
     // `<data-dir>/pending` — a mismatch that hid every approval card from the phone.
     // Passing `dir` makes the hook's data root identical to the parent's + serve's.
     let home_env = dir.display().to_string();
@@ -316,7 +316,7 @@ pub async fn run_govern_folded(cfg: GovernConfig) -> anyhow::Result<(GovernedFol
     // apex-④ dispatch↔govern correlation: only when this run is governing a
     // DISPATCHED task (task_id IS the dispatch job_uuid) do we hand the escalator
     // the dispatch row's store so it can stamp the approval_id + AwaitingApproval
-    // onto that row at escalation time. Standalone `phantom govern` (no dispatch
+    // onto that row at escalation time. Standalone `spectyn govern` (no dispatch
     // id) attaches no store → the escalator behaves byte-identically to before.
     if cfg.dispatch_task_id.is_some() {
         escalator = escalator.with_dispatch_store(store.clone());
@@ -324,26 +324,26 @@ pub async fn run_govern_folded(cfg: GovernConfig) -> anyhow::Result<(GovernedFol
 
     let spec = if cfg.cli == CliKind::Claude {
         // apex-④ TRUE pre-action gate for claude: spawn it headless with a
-        // PreToolUse hook (matcher `*`) that calls back into THIS phantom exe
-        // (`phantom pretooluse-gate`) BEFORE every tool and blocks on the reply. The
+        // PreToolUse hook (matcher `*`) that calls back into THIS spectyn exe
+        // (`spectyn pretooluse-gate`) BEFORE every tool and blocks on the reply. The
         // hook is the SOLE pre-action awaiter; env binds it to this run's identity
-        // (PHANTOM_GOVERN_TASK_ID) so the operator's reply correlates and the parent
+        // (SPECTYN_GOVERN_TASK_ID) so the operator's reply correlates and the parent
         // loop only OBSERVES claude (no double-await — see decision.rs).
         // SAFETY (fail-closed): claude FAIL-OPENS if its PreToolUse hook command
         // cannot be spawned — a missing/unspawnable hook makes the tool run UNGATED
-        // (verified live, claude 2.1.170). So the hook MUST resolve to a real phantom
-        // exe. Default = THIS running phantom (`current_exe`, which by definition
-        // exists). `PHANTOM_GOVERN_HOOK_CMD` overrides it (cargo-test/operator — must
-        // point at a real phantom). If neither yields a usable command, REFUSE to run
+        // (verified live, claude 2.1.170). So the hook MUST resolve to a real spectyn
+        // exe. Default = THIS running spectyn (`current_exe`, which by definition
+        // exists). `SPECTYN_GOVERN_HOOK_CMD` overrides it (cargo-test/operator — must
+        // point at a real spectyn). If neither yields a usable command, REFUSE to run
         // claude rather than spawn it ungated.
-        let hook_cmd = match std::env::var("PHANTOM_GOVERN_HOOK_CMD") {
+        let hook_cmd = match std::env::var("SPECTYN_GOVERN_HOOK_CMD") {
             Ok(cmd) if !cmd.trim().is_empty() => cmd,
             _ => {
                 let exe = std::env::current_exe().map_err(|e| {
                     anyhow::anyhow!(
-                        "cannot resolve the phantom exe for claude's governance hook ({e}); \
-                         refusing to run claude UNGATED — set PHANTOM_GOVERN_HOOK_CMD to a \
-                         real `\"<phantom>\" pretooluse-gate`"
+                        "cannot resolve the spectyn exe for claude's governance hook ({e}); \
+                         refusing to run claude UNGATED — set SPECTYN_GOVERN_HOOK_CMD to a \
+                         real `\"<spectyn>\" pretooluse-gate`"
                     )
                 })?;
                 format!("\"{}\" pretooluse-gate", exe.display())
@@ -377,9 +377,9 @@ pub async fn run_govern_folded(cfg: GovernConfig) -> anyhow::Result<(GovernedFol
             settings,
         ];
         spec.env = vec![
-            ("PHANTOM_HOME".to_string(), home_env),
-            ("PHANTOM_GOVERN_TASK_ID".to_string(), task_id.to_string()),
-            ("PHANTOM_GOVERN_CLI".to_string(), "1".to_string()),
+            ("SPECTYN_HOME".to_string(), home_env),
+            ("SPECTYN_GOVERN_TASK_ID".to_string(), task_id.to_string()),
+            ("SPECTYN_GOVERN_CLI".to_string(), "1".to_string()),
         ];
         spec
     } else {
@@ -429,7 +429,7 @@ fn split_command(cmd: &str) -> (String, Vec<String>) {
 }
 
 /// Pre-flight the claude governance hook (fail-closed for BOTH the default and the
-/// `PHANTOM_GOVERN_HOOK_CMD` override): spawn it once with a LOW-RISK PreToolUse
+/// `SPECTYN_GOVERN_HOOK_CMD` override): spawn it once with a LOW-RISK PreToolUse
 /// input — which the hook auto-allows WITHOUT escalation (silent + fast) — and
 /// confirm it returns a valid `permissionDecision`. If the command can't be spawned
 /// or doesn't produce a valid hook decision, claude would run tools UNGATED (claude
@@ -442,8 +442,8 @@ async fn preflight_hook(hook_cmd: &str, home_env: &str, task_id: Uuid) -> anyhow
     }
     let mut child = tokio::process::Command::new(&program)
         .args(&args)
-        .env("PHANTOM_HOME", home_env)
-        .env("PHANTOM_GOVERN_TASK_ID", task_id.to_string())
+        .env("SPECTYN_HOME", home_env)
+        .env("SPECTYN_GOVERN_TASK_ID", task_id.to_string())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -535,22 +535,22 @@ mod tests {
     #[test]
     fn split_command_handles_quoted_path_and_bare_form() {
         // Default form: a quoted exe path (may contain spaces) + the subcommand arg.
-        let (p, a) = split_command("\"C:/Program Files/phantom.exe\" pretooluse-gate");
-        assert_eq!(p, "C:/Program Files/phantom.exe");
+        let (p, a) = split_command("\"C:/Program Files/spectyn.exe\" pretooluse-gate");
+        assert_eq!(p, "C:/Program Files/spectyn.exe");
         assert_eq!(a, vec!["pretooluse-gate".to_string()]);
         // Bare form: program + args by whitespace.
-        let (p, a) = split_command("phantom pretooluse-gate");
-        assert_eq!(p, "phantom");
+        let (p, a) = split_command("spectyn pretooluse-gate");
+        assert_eq!(p, "spectyn");
         assert_eq!(a, vec!["pretooluse-gate".to_string()]);
         // Just a program, no args.
-        let (p, a) = split_command("  phantom  ");
-        assert_eq!(p, "phantom");
+        let (p, a) = split_command("  spectyn  ");
+        assert_eq!(p, "spectyn");
         assert!(a.is_empty());
     }
 
     fn tg_cfg(allowed: Vec<i64>, notify: Option<i64>) -> TelegramConfig {
         TelegramConfig {
-            bot_token_env: "PHANTOM_TEST_TG_TOKEN".to_string(),
+            bot_token_env: "SPECTYN_TEST_TG_TOKEN".to_string(),
             allowed_users: allowed,
             agent: "master".to_string(),
             notification_chat_id: notify,
@@ -563,7 +563,7 @@ mod tests {
         // (here via the first allowed_users entry) -> a telegram channel is built.
         let cfg = tg_cfg(vec![424242], None);
         let ch = resolve_telegram_channel(Some(&cfg), |n| {
-            (n == "PHANTOM_TEST_TG_TOKEN").then(|| "secret-bot-token".to_string())
+            (n == "SPECTYN_TEST_TG_TOKEN").then(|| "secret-bot-token".to_string())
         });
         let ch = ch.expect("telegram channel must be registered when token is configured");
         assert_eq!(ch.name(), "telegram");

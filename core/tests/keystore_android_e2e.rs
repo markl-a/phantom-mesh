@@ -1,20 +1,20 @@
 //! Android identity keystore E2E checks.
 //!
 //! These tests are meaningful only inside the Android app process, where
-//! `identity_wire` can reach the Kotlin `ai.phantommesh.app.IdentityKeystore`
+//! `identity_wire` can reach the Kotlin `ai.spectynmesh.app.IdentityKeystore`
 //! wrapper over JNI. The wrapper contract is:
 //! write(account, base64) -> EncryptedSharedPreferences.putString(account, base64)
 //! read(account) -> stored base64 string or null
 //! delete(account) -> remove(account), idempotent
 
 #[cfg(target_os = "android")]
-use phantom_mesh::identity_wire::{
+use spectyn_mesh::identity_wire::{
     derive_subkey, fingerprint_short, read_from_keystore, write_to_keystore, KeyDerivationError,
     KeyPurpose, KeystoreBackend,
 };
 
 #[cfg(not(target_os = "android"))]
-use phantom_mesh::identity_wire::KeystoreBackend;
+use spectyn_mesh::identity_wire::KeystoreBackend;
 
 #[cfg(not(target_os = "android"))]
 #[test]
@@ -36,10 +36,10 @@ fn fingerprint_for_seed(seed: &[u8; 32]) -> String {
 #[cfg(target_os = "android")]
 #[test]
 fn android_encrypted_shared_preferences_round_trips_master_seed() {
-    use phantom_mesh::identity_wire::delete_from_keystore;
+    use spectyn_mesh::identity_wire::delete_from_keystore;
 
     let account = format!(
-        "phantom-test-android-{}-{}",
+        "spectyn-test-android-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     );
@@ -76,7 +76,7 @@ fn android_encrypted_shared_preferences_round_trips_master_seed() {
 #[test]
 #[ignore]
 fn android_plaintext_identity_migrates_and_event_key_stays_stable() {
-    use phantom_mesh::identity_wire::{delete_from_keystore, logout_clear_keystore};
+    use spectyn_mesh::identity_wire::{delete_from_keystore, logout_clear_keystore};
 
     eprintln!(
         "[isolation] this test temporarily replaces account=\"identity-master\"; \

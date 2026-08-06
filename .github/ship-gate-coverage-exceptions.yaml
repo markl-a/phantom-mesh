@@ -8,7 +8,7 @@
 # Default policy
 # --------------
 # Every leaf-spec Rust module must hit ≥ 80% line coverage (see
-# PHANTOM_V2_COVERAGE_THRESHOLD in ship-gate-coverage.yml). This file lists
+# SPECTYN_V2_COVERAGE_THRESHOLD in ship-gate-coverage.yml). This file lists
 # the *narrow* set of modules that are allowed to drop below the threshold,
 # with a documented reason and an `expires_at` date.
 #

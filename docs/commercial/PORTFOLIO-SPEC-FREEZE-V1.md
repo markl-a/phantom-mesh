@@ -5,7 +5,7 @@
 一旦 5/8 的彩排（dress rehearsal）確認每個 repo（程式碼倉庫）的
 demo（示範）路徑能即時運行，即升級為 FROZEN（凍結）。
 
-本文件記錄與 phantom-mesh 一同隨 5/9 面試作品集 + 5/15 OSS 開源發佈出貨的
+本文件記錄與 spectyn-mesh 一同隨 5/9 面試作品集 + 5/15 OSS 開源發佈出貨的
 **5 個衛星 repo（satellite repos，圍繞主專案的附屬倉庫）** 的凍結合約（freeze contract）。
 每一節都刻意保持簡短（10–20 行）：
 深入內容存放於各 repo 自己的 README + INTERVIEW-TALK-TRACK.md。
@@ -21,7 +21,7 @@ demo（示範）路徑能即時運行，即升級為 FROZEN（凍結）。
    commit（提交）
 3. **5/1 → 5/15 期間凍結** — 沒有例外 PR（pull request，合併請求）就絕對
    不得變更的路徑／檔案
-4. **phantom-mesh 依賴關係** — 它是否呼叫／執行／嵌入 phantom-mesh，
+4. **spectyn-mesh 依賴關係** — 它是否呼叫／執行／嵌入 spectyn-mesh，
    或只是並列的姊妹 demo（sibling demo）
 
 外加一行 **狀態（5/1）**（附驗證命令），以及若有任何未解決事項時的
@@ -29,10 +29,10 @@ demo（示範）路徑能即時運行，即升級為 FROZEN（凍結）。
 
 ---
 
-## Repo 1：phantom-secops 🔒（Trend Micro 主攻方向）
+## Repo 1：spectyn-secops 🔒（Trend Micro 主攻方向）
 
 - **5/9 demo 角色**：demo 流程的第 3 幕（Act 3，3 分鐘）。從
-  Mac TerminalShell（終端機外殼）shell out（外殼呼叫）：`cd ~/.../phantom-secops && make demo-mock`。
+  Mac TerminalShell（終端機外殼）shell out（外殼呼叫）：`cd ~/.../spectyn-secops && make demo-mock`。
   1 秒內 → `reports/runs/<ts>/` 產生 8 個產出物（artefacts）（incident-report.md +
   pentest-report.md + 6 個結構化 JSON）。打開 `incident-report.md`，
   展示 red-4（紅隊 4 agent）+ blue-4（藍隊 4 agent）流水線輸出，順帶提及 ETHICS.md。
@@ -45,9 +45,9 @@ demo（示範）路徑能即時運行，即升級為 FROZEN（凍結）。
   - `ETHICS.md`（面試的安全網）
   - `docs/INTERVIEW-TALK-TRACK.md`
   - `make demo-mock` / `make test` / `make lint` 目標（targets）
-- **phantom-mesh 依賴關係**：**無（NONE）**（姊妹 demo，不是消費者）。
-  兩個專案共用 AI-agent 流水線模式；phantom-mesh 是
-  執行時環境（runtime），phantom-secops 是應用程式。它們在 demo 中並排運行，
+- **spectyn-mesh 依賴關係**：**無（NONE）**（姊妹 demo，不是消費者）。
+  兩個專案共用 AI-agent 流水線模式；spectyn-mesh 是
+  執行時環境（runtime），spectyn-secops 是應用程式。它們在 demo 中並排運行，
   而非疊成一個技術棧（stack）。
 - **狀態（5/1）**：✅ commit `51220f8`，`make demo-mock` 綠燈，
   7/7 測試通過，`make lint` 乾淨。
@@ -59,7 +59,7 @@ demo（示範）路徑能即時運行，即升級為 FROZEN（凍結）。
 
 **倉庫結構（Repository layout）**：
 ```
-phantom-secops/
+spectyn-secops/
 ├─ Makefile                    # 6 targets: demo / demo-mock / lab-up / lab-down / test / lint
 ├─ docker-compose.yml          # OWASP Juice Shop + DVWA + Metasploitable + Kali (live mode only)
 ├─ ETHICS.md                   # 80-line legal/scope doc — interview safety net
@@ -67,7 +67,7 @@ phantom-secops/
 ├─ README.md                   # public face
 ├─ requirements-dev.txt        # pytest, ruff, mypy
 │
-├─ agents/                     # 8 phantom-mesh TOML agent configs (NOT Python)
+├─ agents/                     # 8 spectyn-mesh TOML agent configs (NOT Python)
 │  ├─ red/
 │  │  ├─ recon.toml            # nmap_runner + http_probe + dns_enum + file_write
 │  │  ├─ vuln-scan.toml        # nuclei_runner + nmap_runner + file_write
@@ -127,7 +127,7 @@ phantom-secops/
 
 **實機模式邊界（Live mode boundary）**（不在 5/9 demo 內）：
 - `make demo`（無 --mock）需先執行 `make lab-up` → `docker compose up` 啟動 4 個容器
-- `--use-llm` 旗標會呼叫位於 `localhost:7878` 的 phantom-mesh `phantom serve` 來進行 LLM 驅動的報告撰寫
+- `--use-llm` 旗標會呼叫位於 `localhost:7878` 的 spectyn-mesh `spectyn serve` 來進行 LLM 驅動的報告撰寫
 - 5/9 demo 我們**一律**執行 `make demo-mock`。實機模式只是面試問答時的素材。
 
 **刻意粗糙／未建置（Intentionally crude / not built）**：
@@ -143,10 +143,10 @@ phantom-secops/
 
 ---
 
-## Repo 2：phantom-mobile 📱（Google Pixel 登月計畫）
+## Repo 2：spectyn-mobile 📱（Google Pixel 登月計畫）
 
 - **5/9 demo 角色**：demo 流程的第 4 幕（Act 4，1 分鐘）。從
-  Mac shell out：`cd ~/.../phantom-mobile && make demo-mock`。1 秒內 → 60 格
+  Mac shell out：`cd ~/.../spectyn-mobile && make demo-mock`。1 秒內 → 60 格
   矩陣（12 情境 × 5 裝置）。結果：48 通過 / 8 警告 / 4 失敗
   = 80%。展示一個具體的失敗敘事（例如「Pixel Fold 上的
   RTL email 對齊問題」）。
@@ -159,7 +159,7 @@ phantom-secops/
   - `docs/{ARCHITECTURE.md, SIMULATION-ENGINE.md, INTERVIEW-TALK-TRACK.md}`
   - `make demo-mock`（mock 驅動；`make demo` 用於實機 ADB，屬選用
     且不在 5/9 demo 內）
-- **phantom-mesh 依賴關係**：**無（NONE）**（姊妹 demo，與 #1 相同）。
+- **spectyn-mesh 依賴關係**：**無（NONE）**（姊妹 demo，與 #1 相同）。
   在 v0.2 可以接上，跨 mesh 分派裝置測試格
   （例如 ROG Phone 跑 `lifecycle.py`、Mipad 跑 `accessibility.py`），
   但**不**在 5/9 範圍內。
@@ -175,13 +175,13 @@ phantom-secops/
 
 **倉庫結構（Repository layout）**：
 ```
-phantom-mobile/
+spectyn-mobile/
 ├─ Makefile                   # 6 targets: demo / demo-mock / emulator-up/down/status / test / lint
 ├─ LICENSE                    # MIT
 ├─ README.md                  # public face
 ├─ requirements-dev.txt       # pytest, pyyaml
 │
-├─ agents/                    # 4 phantom-mesh TOML agent configs
+├─ agents/                    # 4 spectyn-mesh TOML agent configs
 │  ├─ generator.toml          # user-story → 8-15 scenario variants (locale/a11y/network/lifecycle/permission/low-resource)
 │  ├─ explorer.toml           # walk one (scenario × device) cell, capture screenshots + step transcript
 │  ├─ verifier.toml           # judge cell pass/warn/fail with reasoning
@@ -269,16 +269,16 @@ reports/runs/<YYYY-MM-DD-HHMM>/  # 3 artefacts per run
 - **5/9 demo 角色**：僅作品集提及 — 釘選於
   `github.com/markl-a` 頁面的 repo；不在實機 demo 中打開。
   點進去的面試官會看到中文 AI 工程師學習路徑，
-  其中第 9 章（「面試準備與職業發展」）將 phantom-mesh 整合為
+  其中第 9 章（「面試準備與職業發展」）將 spectyn-mesh 整合為
   案例研究（case study）。
 - **5/15 OSS 開源發佈狀態**：已公開，17⭐，無需變更。
 - **5/1 → 5/15 期間凍結**：**整個 repo**。不要編輯任何檔案。
   platform/macos session 上的 pre-commit hook（提交前掛鉤）會阻擋對
-  `phantom-mesh` 以外 repo 的意外寫入（已透過位於
+  `spectyn-mesh` 以外 repo 的意外寫入（已透過位於
   不同工作目錄 + 不同 git remote 而強制執行）。
-- **phantom-mesh 依賴關係**：**無（NONE）**（這是關於學習的
-  文件，不被 phantom-mesh 消費）。
-- **狀態（5/1）**：✅ commit `3d26b3b`（phantom hook 章節於
+- **spectyn-mesh 依賴關係**：**無（NONE）**（這是關於學習的
+  文件，不被 spectyn-mesh 消費）。
+- **狀態（5/1）**：✅ commit `3d26b3b`（spectyn hook 章節於
   2026-04-29 落地）。17⭐ 基準。README 的「持續學習」角度在面試上
   表現良好。
 - **風險**：零。這是唯讀素材。
@@ -309,7 +309,7 @@ reports/runs/<YYYY-MM-DD-HHMM>/  # 3 artefacts per run
 4.相關的更新Blog/                 2024-2025 trend posts, case studies
 5.AI研究前沿_2024-2025/           50+ papers with code, frontier algorithms
 6.DeepLearning.ai短課程/          official course transcripts and impl
-9.面試準備與職業發展/              ⭐ phantom-mesh 開發案例 (見下)
+9.面試準備與職業發展/              ⭐ spectyn-mesh 開發案例 (見下)
 
 docs/, benchmarks/, exercises/    supporting + benchmarks + practice
 ```
@@ -317,7 +317,7 @@ docs/, benchmarks/, exercises/    supporting + benchmarks + practice
 **第 9 章 — 面試案例研究整合**（commit `3d26b3b` 讓
 該章節落地；出自 agent 的稽核）：
 
-該章節明確引用 phantom-mesh 開發情境，作為
+該章節明確引用 spectyn-mesh 開發情境，作為
 真實世界的深度講稿：
 
 - **多 agent 協調（Multi-agent coordination）** — 供應商故障轉移（provider fallback）、成本追蹤
@@ -325,18 +325,18 @@ docs/, benchmarks/, exercises/    supporting + benchmarks + practice
 - **跨平台建置鏈（Cross-platform build chain）** — Mac/Linux/Windows/Android/iOS CI-CD
 
 這些是針對面試「深度技術問題」環節的預備答覆。
-每一項都對應到面試官可驗證的實際 phantom-mesh git commit。
+每一項都對應到面試官可驗證的實際 spectyn-mesh git commit。
 
-**Phantom-mesh hook 章節**（已驗證，README 開頭）：
+**Spectyn-mesh hook 章節**（已驗證，README 開頭）：
 ```markdown
-## 🔗 phantom-mesh 生態系（知識庫 + 面試訓練）
+## 🔗 spectyn-mesh 生態系（知識庫 + 面試訓練）
 
-本知識庫同時是 [phantom-mesh](https://github.com/markl-a/phantom-mesh) 生態系的
-**學習路徑與面試準備教材**。phantom-mesh 是自託管多 agent AI runtime，跨
+本知識庫同時是 [spectyn-mesh](https://github.com/markl-a/spectyn-mesh) 生態系的
+**學習路徑與面試準備教材**。spectyn-mesh 是自託管多 agent AI runtime，跨
 Mac / Linux / Windows / Android / iOS 五平台。
 ```
 
-連結目標已驗證：`github.com/markl-a/phantom-mesh`（badge + inline 連結皆存在）
+連結目標已驗證：`github.com/markl-a/spectyn-mesh`（badge + inline 連結皆存在）
 
 **面試深入探討的推薦章節**（當面試官問
 「給我看其中一個的細節」時）：
@@ -345,7 +345,7 @@ Mac / Linux / Windows / Android / iOS 五平台。
 2. **Ch.2 `GaLore_Demo`** — 記憶體高效訓練 vs LoRA/QLoRA 取捨
 3. **Ch.3-§3 `RAG_&_Vector_DB`** — 生產級 RAG 模式、embedding 選型、reranking
 4. **Ch.3-§4 `Agent_&_Workflows`** — 多 agent 協調、錯誤復原、成本最佳化
-5. **Ch.9 面試準備與職業發展** — 已驗證的 phantom-mesh 情境（後設迴圈，meta-loop）
+5. **Ch.9 面試準備與職業發展** — 已驗證的 spectyn-mesh 情境（後設迴圈，meta-loop）
 6. **Ch.5 AI研究前沿** — 前沿論文（GaLore、SAM2、多模態 RAG）
 
 ---
@@ -355,12 +355,12 @@ Mac / Linux / Windows / Android / iOS 五平台。
 - **5/9 demo 角色**：僅作品集提及。若面試官點進去，
   README 標題是「RPA + AIOps + MLOps 整併」；橫幅
   醒目標示它吸收了獨立 AIOps repo 的角色。
-- **5/15 OSS 開源發佈狀態**：已公開；釘選；除 phantom hook 章節
+- **5/15 OSS 開源發佈狀態**：已公開；釘選；除 spectyn hook 章節
   外無需變更。
 - **5/1 → 5/15 期間凍結**：**整個 repo**（與 Repo 3 相同姿態）。
   會很想再加更多潤飾；忍住 — 深度問題用「現有內容是這些」
   回答，會比「讓我給你看我昨天加了什麼」更好。
-- **phantom-mesh 依賴關係**：phantom-mesh README 在
+- **spectyn-mesh 依賴關係**：spectyn-mesh README 在
   生態系表格中引用此 repo（6 個衛星之一）。雙向連結，無
   程式碼耦合。
 - **狀態（5/1）**：✅ commit `70bab0a`。
@@ -400,15 +400,15 @@ docs/                      API docs, architecture guides, best practices
 deployment/                Docker, Kubernetes, CI-CD configs
 ```
 
-**Phantom-mesh hook 章節**（已驗證，commit `70bab0a`）：
+**Spectyn-mesh hook 章節**（已驗證，commit `70bab0a`）：
 
 ```markdown
-## 🔗 phantom-mesh ecosystem
+## 🔗 spectyn-mesh ecosystem
 
 This repository is the **applied automation + AIOps + MLOps layer** of the
-[phantom-mesh](https://github.com/markl-a/phantom-mesh) ecosystem ...
+[spectyn-mesh](https://github.com/markl-a/spectyn-mesh) ecosystem ...
 
-In other words: phantom-mesh is the **engine**; this repo is the **toolbox**
+In other words: spectyn-mesh is the **engine**; this repo is the **toolbox**
 that engine reaches into when an automation task needs to do real work.
 ```
 
@@ -447,7 +447,7 @@ that engine reaches into when an automation task needs to do real work.
 > （27 模組核心、17 個工具類別）是刻意且真實的；部分測試
 > 是為 MVP（最小可行產品）搭的鷹架 — 在任何生產使用前我會
 > 手動重寫那些基於 print 的測試。如果你想看有可驗證歷史的
-> 手寫程式碼，請看 phantom-secops（Repo 1）或 My-AI-Learning-Notes（Repo 3）。」
+> 手寫程式碼，請看 spectyn-secops（Repo 1）或 My-AI-Learning-Notes（Repo 3）。」
 
 這是**誠實且預先準備好的** — 面試官問「你是一天內寫完
 這個的嗎？」答覆就是「鷹架是的，架構不是，這是驗證方式」。
@@ -460,17 +460,17 @@ that engine reaches into when an automation task needs to do real work.
   「資料科學分析層」訴求 + 分群（clustering）/ RFM / CLV 元件。
 - **5/15 OSS 開源發佈狀態**：已公開；釘選；無變更。
 - **5/1 → 5/15 期間凍結**：**整個 repo**，僅有一個小小
-  例外 — 若 README 的 `examples/phantom-telemetry/ (in progress)`
+  例外 — 若 README 的 `examples/spectyn-telemetry/ (in progress)`
   說明文字**具誤導性**（面試官可能問「給我看那個進行中的
   部分」），那**一行** README 可透過 `[fix-docs]` commit 緩和為「規劃於 v0.2」。
-- **phantom-mesh 依賴關係**：規劃中（PLANNED）— `examples/phantom-telemetry/`
-  意在消費 phantom-mesh agent 日誌以進行分群分析。
+- **spectyn-mesh 依賴關係**：規劃中（PLANNED）— `examples/spectyn-telemetry/`
+  意在消費 spectyn-mesh agent 日誌以進行分群分析。
   **不在 5/9 範圍。不在 5/15 OSS 開源發佈範圍。** 屬 v0.2 工作項目。
-- **狀態（5/1）**：✅ commit `eb1c60e`（phantom hook 章節）。
+- **狀態（5/1）**：✅ commit `eb1c60e`（spectyn hook 章節）。
 - **風險**：🟡 README「in progress」那行是個陷阱。要嘛在 5/8
   前緩和（5 分鐘 PR），要嘛備妥答覆：「遙測（telemetry）
   消費是 v0.2 計畫；v0.1.0 出貨的是分群原語，
-  而非 phantom 整合。」
+  而非 spectyn 整合。」
 
 ### 5.x 倉庫結構 — 發現的規模（5/1 新增）
 
@@ -516,23 +516,23 @@ docs/                        5 markdown guides (cleaning, segmentation, RFM, mar
 config/, data/, models/, outputs/, scripts/, tests/
 ```
 
-**Phantom-mesh hook 章節**（已驗證，commit `eb1c60e`，README 開頭）：
+**Spectyn-mesh hook 章節**（已驗證，commit `eb1c60e`，README 開頭）：
 
 ```markdown
-## 🔗 phantom-mesh ecosystem
+## 🔗 spectyn-mesh ecosystem
 
 This repository is the **data-science & analytics layer** of the
-[phantom-mesh](https://github.com/markl-a/phantom-mesh) ecosystem ...
+[spectyn-mesh](https://github.com/markl-a/spectyn-mesh) ecosystem ...
 
 **Two roles in the ecosystem:**
 
 1. **Stand-alone**: end-to-end customer analytics framework as documented
    below — clustering algorithms (K-Means, DBSCAN, GMM, Hierarchical), CLV
    prediction, RFM segmentation, AI-assisted interpretation.
-2. **Phantom telemetry analysis**: the same algorithms applied to
-   phantom-mesh's own agent execution logs — clustering 10K+ executions
+2. **Spectyn telemetry analysis**: the same algorithms applied to
+   spectyn-mesh's own agent execution logs — clustering 10K+ executions
    to surface prompt-failure patterns, provider-specific performance,
-   and cost outliers. See `examples/phantom-telemetry/` (in progress).
+   and cost outliers. See `examples/spectyn-telemetry/` (in progress).
 ```
 
 連結目標已驗證。
@@ -541,15 +541,15 @@ This repository is the **data-science & analytics layer** of the
 
 | 檔案 | 行 | 文字 |
 |---|---|---|
-| `README.md` | **26** | `See examples/phantom-telemetry/ (in progress).` |
+| `README.md` | **26** | `See examples/spectyn-telemetry/ (in progress).` |
 
-僅提及一次。`examples/phantom-telemetry/` 目錄目前
+僅提及一次。`examples/spectyn-telemetry/` 目錄目前
 尚不存在於磁碟上（僅佔位）。
 
 **5/8 前的兩條修正路徑**（擇一）：
 
-**A) 建立目錄存根（stub）** — 建立 `examples/phantom-telemetry/README.md`
-（約 50 行）附具體路線圖：phantom-mesh 日誌分群、成本
+**A) 建立目錄存根（stub）** — 建立 `examples/spectyn-telemetry/README.md`
+（約 50 行）附具體路線圖：spectyn-mesh 日誌分群、成本
 離群偵測、提示失敗模式挖掘。耗時 30 分鐘。
 *優點*：把「進行中」的含糊揮手變成具體的 v0.2 計畫
 *缺點*：又多一個要維護的檔案；過度承諾的風險
@@ -560,8 +560,8 @@ This repository is the **data-science & analytics layer** of the
 
 **建議：A**（以清楚的 v0.2 範圍建立存根），因為 2000 個
 Kaggle 解法的故事已證明「此人能大量出貨」— 一個
-50 行、預先回答「你會如何分析 phantom 日誌？」的
-phantom-telemetry README 是面試精華。
+50 行、預先回答「你會如何分析 spectyn 日誌？」的
+spectyn-telemetry README 是面試精華。
 
 **#5 的面試講稿**（深度問題 —「你有 2000 個
 Kaggle 解法，帶我走過其中一個」）：
@@ -583,10 +583,10 @@ Kaggle 解法，帶我走過其中一個」）：
 
 | # | 風險 | 影響 | 緩解截止日 |
 |---|---|---|---|
-| 1 | git 歷史中的真實 API 金鑰 | phantom-secops (#3abf406, #0d5c714) | **5/8** — 公開翻轉前執行 `git filter-repo` + `git push --force`；在供應商端撤銷金鑰 |
+| 1 | git 歷史中的真實 API 金鑰 | spectyn-secops (#3abf406, #0d5c714) | **5/8** — 公開翻轉前執行 `git filter-repo` + `git push --force`；在供應商端撤銷金鑰 |
 | 2 | 一日傾倒對照核實 | Automation_with_AI (#4) | 5/9 — 寫好誠實答覆；引導至可驗證的 repo |
 | 3 | README 中的「進行中」承諾 | Data-Analysis-with-Chatbots (#5) | 5/8 — 緩和為「planned for v0.2」 |
-| 4 | phantom-mesh 生態系表格漂移 | 全部 5 個 repo | 5/9 早晨起飛前檢查：`curl github.com/markl-a/phantom-mesh/blob/master/README.md` 並 grep 全部 5 個 repo 名稱 |
+| 4 | spectyn-mesh 生態系表格漂移 | 全部 5 個 repo | 5/9 早晨起飛前檢查：`curl github.com/markl-a/spectyn-mesh/blob/master/README.md` 並 grep 全部 5 個 repo 名稱 |
 
 ---
 
@@ -616,15 +616,15 @@ Kaggle 解法，帶我走過其中一個」）：
 ## 驗證命令（依需求執行）
 
 ```bash
-# Repo 1: phantom-secops
-cd ~/path/to/phantom-secops
+# Repo 1: spectyn-secops
+cd ~/path/to/spectyn-secops
 git log --oneline -1                    # → 51220f8 expected
 make demo-mock | tail -3                # → reports/runs/<ts>/ written
 make test                                # → 7/7 passing
 make lint                                # → clean
 
-# Repo 2: phantom-mobile
-cd ~/path/to/phantom-mobile
+# Repo 2: spectyn-mobile
+cd ~/path/to/spectyn-mobile
 git log --oneline -1                    # → eeb2db2 expected
 make demo-mock | tail -3                # → 48p/8w/4f
 make test                                # → 14/14 passing
@@ -634,9 +634,9 @@ gh repo view markl-a/My-AI-Learning-Notes --json visibility,stargazerCount
 gh repo view markl-a/Automation_with_AI --json visibility,stargazerCount
 gh repo view markl-a/Data-Analysis-with-Chatbots --json visibility,stargazerCount
 
-# Cross-cutting: phantom-mesh README still lists all 5 in Ecosystem
-grep -E "phantom-secops|phantom-mobile|My-AI-Learning-Notes|Automation_with_AI|Data-Analysis-with-Chatbots" \
-   ~/path/to/phantom-mesh/README.md
+# Cross-cutting: spectyn-mesh README still lists all 5 in Ecosystem
+grep -E "spectyn-secops|spectyn-mobile|My-AI-Learning-Notes|Automation_with_AI|Data-Analysis-with-Chatbots" \
+   ~/path/to/spectyn-mesh/README.md
 ```
 
 ---

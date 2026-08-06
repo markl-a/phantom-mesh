@@ -16,7 +16,7 @@
 //! The sentinel form is intentionally regex-friendly:
 //!
 //! ```text
-//! <phantom-image mime="image/png" data="<base64>"/>
+//! <spectyn-image mime="image/png" data="<base64>"/>
 //! ```
 //!
 //! Anything outside the sentinels remains plain text.
@@ -86,7 +86,7 @@ pub fn encode_image_sentinel(path: &str) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!(
-        r#"<phantom-image mime="{}" data="{}"/>"#,
+        r#"<spectyn-image mime="{}" data="{}"/>"#,
         mime, b64
     ))
 }
@@ -96,7 +96,7 @@ pub fn encode_image_sentinel(path: &str) -> std::io::Result<String> {
 ///
 /// The output is suitable to drop directly into `{"role":"user","content": ...}`.
 pub fn prompt_to_content_value(prompt: &str) -> Value {
-    let needle = "<phantom-image ";
+    let needle = "<spectyn-image ";
     if !prompt.contains(needle) {
         return Value::String(prompt.to_string());
     }
@@ -224,7 +224,7 @@ fn push_text(parts: &mut Vec<Value>, text: &str) {
     parts.push(json!({"type": "text", "text": text}));
 }
 
-/// Parse `<phantom-image mime="..." data="..."/>` into `(mime, data)`.
+/// Parse `<spectyn-image mime="..." data="..."/>` into `(mime, data)`.
 fn parse_sentinel(s: &str) -> Option<(String, String)> {
     let mime = extract_attr(s, "mime")?;
     let data = extract_attr(s, "data")?;
@@ -261,7 +261,7 @@ mod tests {
         // Write a tiny "image" file (content is not real PNG, but the
         // detection is purely extension-based).
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_test_image.png");
+        let path = dir.join("spectyn_test_image.png");
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(&[0xde, 0xad, 0xbe, 0xef]).unwrap();
 
@@ -306,8 +306,8 @@ mod tests {
 
     #[test]
     fn multiple_images_in_prompt() {
-        let s1 = r#"<phantom-image mime="image/png" data="AAAA"/>"#;
-        let s2 = r#"<phantom-image mime="image/jpeg" data="BBBB"/>"#;
+        let s1 = r#"<spectyn-image mime="image/png" data="AAAA"/>"#;
+        let s2 = r#"<spectyn-image mime="image/jpeg" data="BBBB"/>"#;
         let prompt = format!("look at {} and {}", s1, s2);
         let v = prompt_to_content_value(&prompt);
         let arr = v.as_array().expect("array");
@@ -322,7 +322,7 @@ mod tests {
         // A small (4-byte) "image" stays well under MAX_IMAGE_BYTES, so
         // encoding succeeds — the limit must not regress normal usage.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_t49_small.png");
+        let path = dir.join("spectyn_t49_small.png");
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(&[0xde, 0xad, 0xbe, 0xef]).unwrap();
 
@@ -349,7 +349,7 @@ mod tests {
         // must reject this in the metadata stage, *before* `fs::read` would
         // pull the (logical) gigabytes into RAM.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom_t49_huge.png");
+        let path = dir.join("spectyn_t49_huge.png");
         {
             let f = std::fs::File::create(&path).unwrap();
             // 1 byte over the limit — explicitly tests the strict ">" guard.
@@ -437,7 +437,7 @@ mod tests {
     fn image_only_prompt_gets_synthetic_text_part() {
         // When the prompt is purely an image, an empty text part is prepended
         // so providers that require ≥1 text part stay happy.
-        let s = r#"<phantom-image mime="image/png" data="AAAA"/>"#;
+        let s = r#"<spectyn-image mime="image/png" data="AAAA"/>"#;
         let v = prompt_to_content_value(s);
         let arr = v.as_array().expect("image path returns array");
         assert_eq!(arr[0]["type"], "text", "first part should be text");
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn malformed_sentinel_without_close_kept_as_text() {
         // No "/>" terminator ⇒ remainder emitted verbatim as text, never dropped.
-        let prompt = r#"hi <phantom-image mime="image/png" data="AAAA""#;
+        let prompt = r#"hi <spectyn-image mime="image/png" data="AAAA""#;
         let v = prompt_to_content_value(prompt);
         let arr = v.as_array().expect("array because needle present");
         assert!(arr.iter().all(|p| p["type"] == "text"));
@@ -456,13 +456,13 @@ mod tests {
             .iter()
             .filter_map(|p| p["text"].as_str())
             .collect();
-        assert!(joined.contains("phantom-image"));
+        assert!(joined.contains("spectyn-image"));
     }
 
     #[test]
     fn data_url_mime_round_trips_through_content() {
         // The mime in the sentinel must survive into the emitted data: URL.
-        let s = r#"<phantom-image mime="image/webp" data="ZZZZ"/>"#;
+        let s = r#"<spectyn-image mime="image/webp" data="ZZZZ"/>"#;
         let v = prompt_to_content_value(s);
         let arr = v.as_array().unwrap();
         let img = arr.iter().find(|p| p["type"] == "image_url").unwrap();

@@ -28,7 +28,7 @@
 //! ## Token handling
 //!
 //! The bot token is NEVER logged or printed. Acquired from the env var
-//! that `phantom keys set telegram_bot <token>` writes
+//! that `spectyn keys set telegram_bot <token>` writes
 //! (`TELEGRAM_BOT_API_KEY`); the constructor takes the raw string and
 //! does not retain it anywhere except inside `teloxide::Bot`'s internal
 //! HTTP client.
@@ -43,7 +43,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 /// Dispatch a user-typed text message to whatever the host wants
-/// (echo / phantom AgentRuntime / pure function for tests). The
+/// (echo / spectyn AgentRuntime / pure function for tests). The
 /// response string is sent verbatim back to the same chat.
 ///
 /// Returning `Err` causes the bot to send a generic "internal error"
@@ -61,7 +61,7 @@ pub trait RemoteTelegramDispatcher: Send + Sync {
 
     /// Chat-aware dispatch. Defaults to ignoring `chat_id` and calling
     /// `dispatch`. Implementations that maintain per-chat conversation
-    /// state (e.g. `PhantomAgentDispatcher`) override this method.
+    /// state (e.g. `SpectynAgentDispatcher`) override this method.
     ///
     /// Telegram chat_ids are i64; both user chats (positive) and group
     /// chats (negative) round-trip cleanly. We do NOT use `u64` here.
@@ -77,7 +77,7 @@ pub struct EchoDispatcher;
 #[async_trait]
 impl RemoteTelegramDispatcher for EchoDispatcher {
     async fn dispatch(&self, user_text: String) -> Result<String, String> {
-        Ok(format!("phantom-mesh echo: {}", user_text))
+        Ok(format!("spectyn-mesh echo: {}", user_text))
     }
 }
 
@@ -128,7 +128,7 @@ impl RemoteTelegramBot {
     }
 
     /// Handle one incoming text message. `chat_id` is threaded through
-    /// to the dispatcher so chat-aware impls (e.g. `PhantomAgentDispatcher`)
+    /// to the dispatcher so chat-aware impls (e.g. `SpectynAgentDispatcher`)
     /// can scope conversation history per chat. `user_id` is used only
     /// for the allowlist check — it is intentionally NOT passed to the
     /// dispatcher (chat_id is the conversation-scope key, user_id is the
@@ -149,7 +149,7 @@ impl RemoteTelegramBot {
                 // at trace+ is the structured channel; the user gets a
                 // generic reply so internal details never leak.
                 tracing::error!(error = %e, "remote-tg: dispatcher returned error");
-                Some("phantom-mesh: internal error handling your message.".to_string())
+                Some("spectyn-mesh: internal error handling your message.".to_string())
             }
         }
     }
@@ -296,7 +296,7 @@ mod tests {
     async fn echo_dispatcher_round_trip() {
         let d = EchoDispatcher;
         let r = d.dispatch("hello world".into()).await.unwrap();
-        assert_eq!(r, "phantom-mesh echo: hello world");
+        assert_eq!(r, "spectyn-mesh echo: hello world");
     }
 
     #[tokio::test]
@@ -309,7 +309,7 @@ mod tests {
             Arc::new(EchoDispatcher),
         );
         let r = bot.handle_text(42, 999_001, "ping".into()).await;
-        assert_eq!(r, Some("phantom-mesh echo: ping".into()));
+        assert_eq!(r, Some("spectyn-mesh echo: ping".into()));
     }
 
     #[tokio::test]
@@ -402,13 +402,13 @@ mod tests {
     async fn dispatch_with_chat_default_delegates_to_dispatch() {
         let d = EchoDispatcher;
         let r = d.dispatch_with_chat(123, "hello".into()).await.unwrap();
-        assert_eq!(r, "phantom-mesh echo: hello");
+        assert_eq!(r, "spectyn-mesh echo: hello");
     }
 }
 
 // ── B2/T83 — CLI launcher glue ─────────────────────────────────────────────
 
-/// Helpers used by `phantom serve --remote-telegram` to read the bot token
+/// Helpers used by `spectyn serve --remote-telegram` to read the bot token
 /// from the operator's environment and build an [`RemoteTelegramConfig`].
 ///
 /// Kept in its own submodule so the env-var-name validation + allowlist
@@ -417,7 +417,7 @@ mod tests {
 pub mod cli {
     use super::RemoteTelegramConfig;
 
-    /// The default env-var name written by `phantom keys set telegram_bot`.
+    /// The default env-var name written by `spectyn keys set telegram_bot`.
     pub const DEFAULT_BOT_TOKEN_ENV: &str = "TELEGRAM_BOT_API_KEY";
 
     /// The (optional) env-var holding a comma-separated allowlist of
@@ -432,10 +432,10 @@ pub mod cli {
         /// contained non-ASCII / non-shell-safe chars). We reject these
         /// rather than passing them to `std::env::var` because a stray
         /// `--bot-token-env "TOKEN=secret"` would otherwise look like a
-        /// successful lookup of a phantom variable.
+        /// successful lookup of a spectyn variable.
         InvalidEnvName(String),
         /// The env var named by `--bot-token-env` was not set at process
-        /// start. Operators should `phantom keys set telegram_bot <token>`
+        /// start. Operators should `spectyn keys set telegram_bot <token>`
         /// and source the env file (or export the var) before launching.
         EnvMissing(String),
         /// The env var was set but its value was empty / whitespace-only.
@@ -454,12 +454,12 @@ pub mod cli {
                 ),
                 CliError::EnvMissing(n) => write!(
                     f,
-                    "env var {} is not set — run `phantom keys set telegram_bot <token>` first",
+                    "env var {} is not set — run `spectyn keys set telegram_bot <token>` first",
                     n
                 ),
                 CliError::EnvEmpty(n) => write!(
                     f,
-                    "env var {} is set but empty — re-run `phantom keys set telegram_bot <token>`",
+                    "env var {} is set but empty — re-run `spectyn keys set telegram_bot <token>`",
                     n
                 ),
             }
@@ -535,8 +535,8 @@ pub mod cli {
         use super::*;
 
         #[test]
-        fn default_env_name_matches_phantom_keys_convention() {
-            // Sanity: if `phantom keys set telegram_bot` ever changes the
+        fn default_env_name_matches_spectyn_keys_convention() {
+            // Sanity: if `spectyn keys set telegram_bot` ever changes the
             // var it writes, this constant must change too. Locking the
             // value here forces that PR to update both call sites.
             assert_eq!(DEFAULT_BOT_TOKEN_ENV, "TELEGRAM_BOT_API_KEY");
@@ -620,7 +620,7 @@ pub mod cli {
             // what to set; assert that explicitly to lock the contract.
             let msg = err.to_string();
             assert!(msg.contains("TELEGRAM_BOT_API_KEY"));
-            assert!(msg.contains("phantom keys set"));
+            assert!(msg.contains("spectyn keys set"));
         }
 
         #[test]

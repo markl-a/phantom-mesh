@@ -25,11 +25,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use phantom_mesh::agent::AgentRuntime;
-use phantom_mesh::config::{AgentEntry, AgentsConfig, ProviderEntry};
-use phantom_mesh::providers::traits::{ChatMessage, ProviderError};
-use phantom_mesh::providers::LlmProvider;
-use phantom_mesh::streaming::ResolveProvider;
+use spectyn_mesh::agent::AgentRuntime;
+use spectyn_mesh::config::{AgentEntry, AgentsConfig, ProviderEntry};
+use spectyn_mesh::providers::traits::{ChatMessage, ProviderError};
+use spectyn_mesh::providers::LlmProvider;
+use spectyn_mesh::streaming::ResolveProvider;
 
 const PRIMARY: &str = "gemini_primary";
 const FALLBACK: &str = "gemini_fallback";
@@ -193,7 +193,7 @@ async fn gemini_empty_candidates_fails_over_non_streaming() {
 #[tokio::test]
 async fn gemini_empty_candidates_fails_over_streaming() {
     let runtime = AgentRuntime::new(cfg_two_gemini()).with_resolver(make_resolver());
-    let cost = phantom_mesh::cost::CostTracker::new();
+    let cost = spectyn_mesh::cost::CostTracker::new();
 
     let result = runtime
         .run_with_callbacks("master", "hello", &[], None, &cost, |_ev| {})

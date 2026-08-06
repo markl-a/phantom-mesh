@@ -61,7 +61,7 @@ export interface ClusterPeersState {
   reset: () => void;
 }
 
-const SELECTED_KEY = 'phantom_mesh_f101_selected_peer';
+const SELECTED_KEY = 'spectyn_mesh_f101_selected_peer';
 
 /** Normalize a wire status value to the PascalCase PeerStatus union. The
  *  backend derives status at runtime and emits lowercase (online / unhealthy

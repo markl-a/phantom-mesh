@@ -13,12 +13,12 @@
 //!
 //! Before this test the feature had ZERO coverage. This file proves the
 //! contract end-to-end through the PUBLIC entry point `index_fts5`, which is
-//! what `phantom habit ...` and the coach indexer call: it opens
-//! `~/.phantom-mesh/events.sqlite` (triggering the integrity gate) and then
+//! what `spectyn habit ...` and the coach indexer call: it opens
+//! `~/.spectyn-mesh/events.sqlite` (triggering the integrity gate) and then
 //! writes an FTS5 row.
 //!
 //! Hermetic: `$HOME` is pointed at a unique temp dir, so `expand_tilde`
-//! ("~/.phantom-mesh/events.sqlite") resolves under our sandbox and we never
+//! ("~/.spectyn-mesh/events.sqlite") resolves under our sandbox and we never
 //! touch the developer's real db. The process-global HOME + EventKey mutation
 //! is serialised behind `ENV_LOCK` so it cannot race other integration tests
 //! sharing this binary.
@@ -31,7 +31,7 @@
 //!     `search_fts5` against the new index returns Ok, proving the FTS5
 //!     schema was rebuilt on the clean db)
 
-use phantom_mesh::event_storage_wire::{index_fts5, search_fts5};
+use spectyn_mesh::event_storage_wire::{index_fts5, search_fts5};
 use std::sync::Mutex;
 
 // Serialise tests that mutate the process-global HOME + EventKey so they
@@ -47,7 +47,7 @@ fn nanos() -> u128 {
 
 fn unique_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-cuj04-dbrec-{}-{}",
+        "spectyn-cuj04-dbrec-{}-{}",
         std::process::id(),
         nanos()
     ))
@@ -74,8 +74,8 @@ fn cuj04_garbage_sqlite_is_rotated_aside_and_a_fresh_db_is_created() {
 
     // ── Setup: isolated $HOME with a deliberately CORRUPT events.sqlite. ──
     let home = unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
 
     let db_path = pm.join("events.sqlite");
     // Not a valid sqlite header at all — `Connection::open` may succeed (it is
@@ -88,7 +88,7 @@ fn cuj04_garbage_sqlite_is_rotated_aside_and_a_fresh_db_is_created() {
     // EventKey isn't strictly required by index_fts5 (it only opens sqlite +
     // inserts a plaintext summary), but install one so the harness matches the
     // other cuj04 tests and any future key-touching code path stays happy.
-    let _ = phantom_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32]);
+    let _ = spectyn_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32]);
 
     // Sanity: precondition — no .corrupt-* siblings exist yet.
     assert!(
@@ -97,7 +97,7 @@ fn cuj04_garbage_sqlite_is_rotated_aside_and_a_fresh_db_is_created() {
     );
 
     // ── Act: drive the PUBLIC open path. This must NOT panic. ──
-    // index_fts5 -> sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")
+    // index_fts5 -> sqlite_open_pseudo("~/.spectyn-mesh/events.sqlite")
     //   -> Connection::open + PRAGMA integrity_check
     //   -> rotate_corrupt_sqlite(...) on corruption -> fresh db + FTS5 table.
     let receipt = index_fts5("recovery-probe-uuid", "smoke summary after corruption")
@@ -150,15 +150,15 @@ fn cuj04_truncated_zero_byte_sqlite_also_recovers() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
     let home = unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
 
     // A 0-byte file: a classic "died mid-fsync / OS-killed VACUUM" artifact.
     let db_path = pm.join("events.sqlite");
     std::fs::write(&db_path, b"").expect("plant empty events.sqlite");
 
     std::env::set_var("HOME", &home);
-    let _ = phantom_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32]);
+    let _ = spectyn_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32]);
 
     // A 0-byte file is, per sqlite, a valid EMPTY database (integrity_check ->
     // "ok"), so this case may legitimately NOT rotate. The non-negotiable
@@ -186,8 +186,8 @@ fn cuj04_first_run_creates_events_sqlite_when_absent() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
     let home = unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
 
     let db_path = pm.join("events.sqlite");
     // Precondition: the db genuinely does not exist on first run.
@@ -197,7 +197,7 @@ fn cuj04_first_run_creates_events_sqlite_when_absent() {
     );
 
     std::env::set_var("HOME", &home);
-    let _ = phantom_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32]);
+    let _ = spectyn_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32]);
 
     // First capture: must create the db (not error on a missing file).
     let receipt = index_fts5("first-run-uuid", "first capture on a clean install")

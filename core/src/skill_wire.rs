@@ -165,7 +165,7 @@ pub struct RecallResult {
     pub recall_strategy: RecallStrategy,
 }
 
-// ─── §9.7 SkillSummary — `phantom skill status` overview ─────────────────────
+// ─── §9.7 SkillSummary — `spectyn skill status` overview ─────────────────────
 
 // NOTE: 3 `SkillSummary` types co-exist (different aggregations, module path
 // disambiguates). See docs/superpowers/skill-summary-naming.md.
@@ -173,7 +173,7 @@ pub struct RecallResult {
 //   • `rpc_wire::SkillSummary`  — sync delta (5 fields) for mesh peer sync.
 //   • `skillbank::dto::SkillSummary` — full record (9 fields) for HTTP list.
 
-/// `phantom skill status` 與 UI 概覽用的摘要。`count_total` 全部
+/// `spectyn skill status` 與 UI 概覽用的摘要。`count_total` 全部
 /// （core + recall + archival）；`count_active` non-archival（core +
 /// recall）；`last_extracted_at` 上次 scheduler 跑完 extract 的 UTC ms
 /// （`0` = 從未跑）；`top_3_by_score` 依 `quality_score` 排序的前 3 個
@@ -304,7 +304,7 @@ pub enum SkillError {
 /// just route + log.
 pub fn run_skill_step(step: SkillStep) -> Result<(), SkillError> {
     // Step 1 — emit telemetry span for SPEC-32 observability
-    tracing::info!(target: "phantom::skillbank", step = ?step, "run_skill_step dispatch");
+    tracing::info!(target: "spectyn::skillbank", step = ?step, "run_skill_step dispatch");
 
     // Step 2 — match step variant → dispatch to corresponding skill fn
     match step {
@@ -732,7 +732,7 @@ pub fn capture_correction(query: &str, denied_tool: &str, reason: &str) {
 /// Option A (slice-1 loop closer): drain the process-local hand-off queue and
 /// persist every queued candidate via [`store_skill_with_embedding`], returning
 /// the number stored. This is the Store seam the phase-2 daily scheduler and the
-/// `phantom skill` CLI will reuse; for slice 1 it lets the
+/// `spectyn skill` CLI will reuse; for slice 1 it lets the
 /// capture→drain→recall loop close visibly in one process. Recovers a poisoned
 /// queue lock (a panic mid-enqueue must not wedge the Store path).
 pub fn drain_corrections_to_store() -> Result<usize, SkillError> {
@@ -758,7 +758,7 @@ pub fn drain_corrections_to_store() -> Result<usize, SkillError> {
 }
 
 /// apex ② daily learn tick — the unattended "turn the loop once" entrypoint the
-/// phase-2 scheduler (and `phantom skill learn`) fire. Two legs:
+/// phase-2 scheduler (and `spectyn skill learn`) fire. Two legs:
 ///   1. [`drain_corrections_to_store`] persists every captured
 ///      capture-after-correction candidate (the honest in-loop human signal).
 ///   2. a DEFENSIVE [`run_skill_step`]`(Store)` drains any scheduler hand-off
@@ -1101,14 +1101,14 @@ fn redact_pii(snippet: &str) -> String {
 
 /// Owned-memory master switch (apex ② "compounding memory"). **Default ON** —
 /// the recall-before-run + capture-after-correction loop is live on a plain
-/// `cargo build` with no feature flags. The env var `PHANTOM_OWNED_MEMORY` is a
+/// `cargo build` with no feature flags. The env var `SPECTYN_OWNED_MEMORY` is a
 /// kill-switch: only the explicit off tokens `0` / `false` / `off` / `no`
 /// (case-insensitive, trimmed) disable it; any other value — including `1`,
 /// `true`, `yes`, or the empty string — leaves it ON. Mirrors the parse pattern
 /// of `memory_seal::memory_e2ee_enabled` but INVERTS the default
 /// (memory_seal defaults OFF; owned memory defaults ON).
 pub fn owned_memory_enabled() -> bool {
-    match std::env::var("PHANTOM_OWNED_MEMORY") {
+    match std::env::var("SPECTYN_OWNED_MEMORY") {
         Ok(v) => !matches!(
             v.trim().to_ascii_lowercase().as_str(),
             "0" | "false" | "off" | "no"
@@ -1118,8 +1118,8 @@ pub fn owned_memory_enabled() -> bool {
 }
 
 /// Resolve the on-disk path of the SPEC-16 sqlite database. Reads
-/// `PHANTOM_DB_PATH` from the environment so tests can redirect to a
-/// scratch file; falls back to `~/.phantom-mesh/phantom.db` which is the
+/// `SPECTYN_DB_PATH` from the environment so tests can redirect to a
+/// scratch file; falls back to `~/.spectyn-mesh/spectyn.db` which is the
 /// canonical home for the production deployment (matches the BIG-GOAL P4
 /// "data lives in your home directory" invariant).
 ///
@@ -1127,28 +1127,28 @@ pub fn owned_memory_enabled() -> bool {
 /// as `tasks::store::TaskStore::open_default` and `cli_config`'s path
 /// helpers — NOT a raw `$HOME` read. On Windows `$HOME` is normally
 /// unset, so the old env-var read silently fell through to a CWD-relative
-/// `phantom.db`, splitting the skill DB from the canonical one the rest
+/// `spectyn.db`, splitting the skill DB from the canonical one the rest
 /// of the codebase opens.
 ///
 /// Pure helper — does not open the connection; just produces the path
 /// string. Stage 4 wiring will fold this into a shared `DbHandle` once
 /// the connection pool lands.
 fn resolve_db_path() -> String {
-    if let Ok(p) = std::env::var("PHANTOM_DB_PATH") {
+    if let Ok(p) = std::env::var("SPECTYN_DB_PATH") {
         if !p.trim().is_empty() {
             return p;
         }
     }
-    if let Ok(data) = crate::cli_config::phantom_data_dir() {
+    if let Ok(data) = crate::cli_config::spectyn_data_dir() {
         return data
-            .join("phantom.db")
+            .join("spectyn.db")
             .to_string_lossy()
             .into_owned();
     }
     // Last-ditch fallback — in-process pwd; only hit when the platform
     // cannot resolve a home directory at all, which on production means
     // the deployment is broken.
-    "phantom.db".to_string()
+    "spectyn.db".to_string()
 }
 
 /// FTS5 BM25 keyword search over the SPEC-25 `skills` row table via its
@@ -1373,12 +1373,12 @@ fn embedding_search(query: &str, policy: &RecallPolicy) -> Result<Vec<(Skill, f3
     // Step 1 — embed the query via an embedder, in priority order:
     //   (a) the thread-local test hook (`set_test_embedder`), if installed; else
     //   (b) the PRODUCTION `ApiEmbedder` — but ONLY when the operator has
-    //       explicitly configured one (`PHANTOM_EMBED_PROVIDER` + a key).
+    //       explicitly configured one (`SPECTYN_EMBED_PROVIDER` + a key).
     // When NEITHER is present — the default, shipping state — this returns
     // `Err(())` and the caller degrades to FTS5-only (the §13 fallback, exactly
     // as in M3). The test hook is consulted FIRST: when a test installs one,
     // `embed` succeeds and short-circuits before `from_env` is ever called, so
-    // unit tests stay hermetic. (Tests never set `PHANTOM_EMBED_PROVIDER`, so
+    // unit tests stay hermetic. (Tests never set `SPECTYN_EMBED_PROVIDER`, so
     // even if an installed hook's `embed` returned `Err`, the `or_else` arm's
     // `from_env()` would still be `None` — no accidental network call.)
     let query_vec = EMBEDDER_HOOK
@@ -1642,7 +1642,7 @@ fn skill_load(skill_id: &str) -> Result<Skill, SkillError> {
 }
 
 /// One enumerated row for `skill_list` — the inspectable subset of a [`Skill`]
-/// the `phantom skill list` CLI surfaces (id + plaintext name + learned quality
+/// the `spectyn skill list` CLI surfaces (id + plaintext name + learned quality
 /// + last-applied recency). Deliberately NOT the full [`Skill`] (no steps /
 /// examples) so listing stays a cheap projection and never drags a redacted
 /// example snippet onto the wire.
@@ -1657,7 +1657,7 @@ pub struct SkillListRow {
 /// Enumerate every stored skill as a [`SkillListRow`], highest learned quality
 /// first (ties broken by `id` for a stable order). Real `rusqlite` SELECT
 /// against the SPEC-25 `skills` table; the `name` column is routed through
-/// [`open_sealed`] so a sealed-at-rest store (`PHANTOM_ENCRYPT_MEMORY` ON) lists
+/// [`open_sealed`] so a sealed-at-rest store (`SPECTYN_ENCRYPT_MEMORY` ON) lists
 /// plaintext names — fail-CLOSED, exactly like [`skill_load`]: a row whose name
 /// won't decrypt is DROPPED, never surfaced as ciphertext. When the `skills`
 /// table is absent (fresh install before the 0008 migration lands) the `prepare`
@@ -1712,7 +1712,7 @@ pub fn skill_list() -> Result<Vec<SkillListRow>, SkillError> {
 }
 
 /// Aggregate quality counters for the `skills` store — the inspectable summary
-/// behind `phantom skill stats`. `high`/`medium`/`low` partition by learned
+/// behind `spectyn skill stats`. `high`/`medium`/`low` partition by learned
 /// [`Skill::quality_score`] (≥0.70 high, [0.30,0.70) medium, <0.30 low) so an
 /// operator can see at a glance how much of the bank is trustworthy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1994,7 +1994,7 @@ pub trait EmbeddingProvider {
 //
 // **Default-OFF invariant (the load-bearing M4 guarantee).** The shipping lib
 // build installs NO embedder: [`resolve_production_embedder`] returns `None`
-// unless BOTH (a) `PHANTOM_EMBED_PROVIDER` is set to a non-blank value AND
+// unless BOTH (a) `SPECTYN_EMBED_PROVIDER` is set to a non-blank value AND
 // (b) an API key resolves from the conventional env var. With neither set,
 // `embedding_search` still returns `Err(())` and `recall_skills` degrades to
 // FTS5-only — behavior is byte-for-byte unchanged from M3. The config + key
@@ -2048,20 +2048,20 @@ impl ApiEmbedder {
     /// embedding leg is not configured (the default, shipping state).
     ///
     /// Switches (ALL must be satisfied to return `Some`):
-    /// 1. `PHANTOM_EMBED_PROVIDER` — non-blank provider slug (e.g. `openai`).
+    /// 1. `SPECTYN_EMBED_PROVIDER` — non-blank provider slug (e.g. `openai`).
     ///    Absent / blank ⇒ `None` ⇒ recall stays FTS5-only. This is the master
     ///    on/off switch.
     /// 2. An API key resolves for that slug (see [`resolve_embed_key`]). No key
     ///    ⇒ `None` ⇒ recall stays FTS5-only.
     ///
     /// Optional overrides (only consulted once the provider is configured):
-    /// - `PHANTOM_EMBED_MODEL`   — defaults to `text-embedding-3-small`.
-    /// - `PHANTOM_EMBED_BASE_URL`— full endpoint URL; defaults to the OpenAI
+    /// - `SPECTYN_EMBED_MODEL`   — defaults to `text-embedding-3-small`.
+    /// - `SPECTYN_EMBED_BASE_URL`— full endpoint URL; defaults to the OpenAI
     ///   `/v1/embeddings` route. Set this to point at a compatible proxy or a
     ///   self-hosted gateway.
     pub fn from_env() -> Option<Self> {
         // (1) master switch — a non-blank provider slug is REQUIRED.
-        let provider = std::env::var("PHANTOM_EMBED_PROVIDER")
+        let provider = std::env::var("SPECTYN_EMBED_PROVIDER")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())?;
@@ -2069,13 +2069,13 @@ impl ApiEmbedder {
         // (2) key — no key ⇒ stay offline (FTS5-only).
         let api_key = resolve_embed_key(&provider)?;
 
-        let endpoint = std::env::var("PHANTOM_EMBED_BASE_URL")
+        let endpoint = std::env::var("SPECTYN_EMBED_BASE_URL")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| DEFAULT_EMBED_ENDPOINT.to_string());
 
-        let model = std::env::var("PHANTOM_EMBED_MODEL")
+        let model = std::env::var("SPECTYN_EMBED_MODEL")
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
@@ -2186,9 +2186,9 @@ impl EmbeddingProvider for ApiEmbedder {
 
 /// Resolve an API key for the embedding `provider` slug, or `None` when no key
 /// is present (which keeps the embedding leg OFF). Tries, in order:
-/// 1. `PHANTOM_EMBED_API_KEY` — the embedding-specific override (lets the
+/// 1. `SPECTYN_EMBED_API_KEY` — the embedding-specific override (lets the
 ///    embedder use a different key than the chat provider);
-/// 2. `PHANTOM_MESH_<PROVIDER>_API_KEY` — the test/CLI-friendly namespaced var
+/// 2. `SPECTYN_MESH_<PROVIDER>_API_KEY` — the test/CLI-friendly namespaced var
 ///    (same convention as `providers_wire::resolve_api_key`);
 /// 3. `<PROVIDER>_API_KEY` — the conventional dotfile var (e.g.
 ///    `OPENAI_API_KEY`).
@@ -2197,8 +2197,8 @@ impl EmbeddingProvider for ApiEmbedder {
 fn resolve_embed_key(provider: &str) -> Option<String> {
     let upper = provider.to_ascii_uppercase().replace('-', "_");
     let candidates = [
-        "PHANTOM_EMBED_API_KEY".to_string(),
-        format!("PHANTOM_MESH_{upper}_API_KEY"),
+        "SPECTYN_EMBED_API_KEY".to_string(),
+        format!("SPECTYN_MESH_{upper}_API_KEY"),
         format!("{upper}_API_KEY"),
     ];
     for k in &candidates {
@@ -2349,7 +2349,7 @@ pub fn store_skill_with_embedding(
     let examples_json = serde_json::to_string(&skill.examples).unwrap_or_else(|_| "[]".into());
     let blob: Option<Vec<u8>> = embedding.map(embedding_to_blob);
 
-    // P0-8 sealing: when PHANTOM_ENCRYPT_MEMORY is ON, seal the searchable
+    // P0-8 sealing: when SPECTYN_ENCRYPT_MEMORY is ON, seal the searchable
     // columns at rest and feed the FTS index the de-PII'd token form (NOT the
     // ciphertext, NOT the raw sentence). Fail CLOSED — seal() Err(NoKey) ⇒
     // StoreFailed, never a silent plaintext write. When OFF, every value is the
@@ -2561,9 +2561,9 @@ mod tests {
     #[test]
     fn record_measure_adjusts_quality_and_stamps_time() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let base = Skill {
             id: "measure-rt".into(),
@@ -2602,8 +2602,8 @@ mod tests {
 
         // restore env BEFORE asserting so a failed assert can't leak state.
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         assert!(
@@ -2627,23 +2627,23 @@ mod tests {
     #[test]
     fn owned_memory_enabled_defaults_on_and_respects_killswitch() {
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_OWNED_MEMORY");
+        let saved = std::env::var_os("SPECTYN_OWNED_MEMORY");
 
-        std::env::remove_var("PHANTOM_OWNED_MEMORY");
+        std::env::remove_var("SPECTYN_OWNED_MEMORY");
         assert!(owned_memory_enabled(), "unset ⇒ default ON");
 
         for off in ["0", "false", "off", "no", "FALSE", "Off", " false ", "NO"] {
-            std::env::set_var("PHANTOM_OWNED_MEMORY", off);
+            std::env::set_var("SPECTYN_OWNED_MEMORY", off);
             assert!(!owned_memory_enabled(), "{off:?} ⇒ OFF");
         }
         for on in ["1", "true", "yes", "", "anything"] {
-            std::env::set_var("PHANTOM_OWNED_MEMORY", on);
+            std::env::set_var("SPECTYN_OWNED_MEMORY", on);
             assert!(owned_memory_enabled(), "{on:?} ⇒ ON");
         }
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
     }
 
@@ -2653,11 +2653,11 @@ mod tests {
     #[test]
     fn owned_memory_system_block_recalls_relevant_and_respects_killswitch() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-        std::env::remove_var("PHANTOM_OWNED_MEMORY"); // default ON
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+        std::env::remove_var("SPECTYN_OWNED_MEMORY"); // default ON
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         let relevant = Skill {
@@ -2687,19 +2687,19 @@ mod tests {
 
         let block = owned_memory_system_block("deploy staging now");
         // kill-switch OFF path
-        std::env::set_var("PHANTOM_OWNED_MEMORY", "0");
+        std::env::set_var("SPECTYN_OWNED_MEMORY", "0");
         let killed = owned_memory_system_block("deploy staging now");
-        std::env::remove_var("PHANTOM_OWNED_MEMORY");
+        std::env::remove_var("SPECTYN_OWNED_MEMORY");
         // unrelated query shares no token
         let unrelated = owned_memory_system_block("compile the kernel");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert!(
@@ -2726,11 +2726,11 @@ mod tests {
     #[test]
     fn owned_memory_system_block_filters_low_quality_skill() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-        std::env::remove_var("PHANTOM_OWNED_MEMORY");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+        std::env::remove_var("SPECTYN_OWNED_MEMORY");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         let low_quality = Skill {
@@ -2749,12 +2749,12 @@ mod tests {
         let block = owned_memory_system_block("deploy staging now");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert!(
@@ -2768,10 +2768,10 @@ mod tests {
     #[test]
     fn capture_correction_enqueues_candidate_and_respects_killswitch() {
         let _g = crate::env_lock::acquire();
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
 
         // ON (default): one candidate enqueued.
-        std::env::remove_var("PHANTOM_OWNED_MEMORY");
+        std::env::remove_var("SPECTYN_OWNED_MEMORY");
         clear_handoff_queue();
         capture_correction("force push to the main branch", "shell", "protected branch");
         let len_on = handoff_queue()
@@ -2786,7 +2786,7 @@ mod tests {
             .unwrap_or(false);
 
         // OFF: no candidate enqueued.
-        std::env::set_var("PHANTOM_OWNED_MEMORY", "0");
+        std::env::set_var("SPECTYN_OWNED_MEMORY", "0");
         clear_handoff_queue();
         capture_correction("force push to the main branch", "shell", "protected branch");
         let len_off = handoff_queue()
@@ -2796,8 +2796,8 @@ mod tests {
 
         clear_handoff_queue();
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert_eq!(len_on, 1, "ON ⇒ exactly one candidate enqueued");
@@ -2813,9 +2813,9 @@ mod tests {
     #[test]
     fn skill_list_enumerates_all_stored_rows_sorted_by_quality_desc() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         let a = Skill {
@@ -2846,8 +2846,8 @@ mod tests {
         let rows = skill_list().expect("skill_list");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         assert_eq!(rows.len(), 2, "both stored skills enumerated: {rows:?}");
@@ -2860,9 +2860,9 @@ mod tests {
     #[test]
     fn skill_stats_buckets_by_quality_band() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         for (id, q) in [("sk-hi", 0.85f32), ("sk-md", 0.55), ("sk-lo", 0.20)] {
@@ -2883,8 +2883,8 @@ mod tests {
         let stats = skill_stats().expect("skill_stats");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         assert_eq!(stats.total, 3, "total: {stats:?}");
@@ -2897,23 +2897,23 @@ mod tests {
     #[test]
     fn skill_learn_tick_stores_one_captured_correction() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-        std::env::set_var("PHANTOM_OWNED_MEMORY", "1");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+        std::env::set_var("SPECTYN_OWNED_MEMORY", "1");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         capture_correction("deploy prod cluster now", "bash", "use staging not prod");
         let stored = skill_learn_tick().expect("skill_learn_tick");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert_eq!(stored, 1, "one captured correction must be stored");
@@ -2924,22 +2924,22 @@ mod tests {
     #[test]
     fn skill_learn_tick_empty_queue_is_ok_zero() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-        std::env::set_var("PHANTOM_OWNED_MEMORY", "1");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+        std::env::set_var("SPECTYN_OWNED_MEMORY", "1");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         let stored = skill_learn_tick().expect("skill_learn_tick on empty queue is Ok");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert_eq!(stored, 0, "empty queue ⇒ Ok(0), the empty-queue error swallowed");
@@ -2955,23 +2955,23 @@ mod tests {
     #[test]
     fn skill_learn_tick_degrades_to_drain_only_without_provider() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-        std::env::set_var("PHANTOM_OWNED_MEMORY", "1");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+        std::env::set_var("SPECTYN_OWNED_MEMORY", "1");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         clear_handoff_queue();
 
         capture_correction("deploy prod cluster now", "bash", "use staging not prod");
         let stored = skill_learn_tick().expect("skill_learn_tick must not error when judge fails");
 
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_om {
-            Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
         }
 
         assert_eq!(
@@ -3203,7 +3203,7 @@ mod tests {
     fn judge_candidates_surfaces_provider_error_as_judge_failed() {
         // Stage 3 promotion: `providers_complete` now really delegates to
         // `providers_wire::complete`. In a test environment without
-        // `~/.phantom-mesh/agents.toml`, the provider resolver returns an
+        // `~/.spectyn-mesh/agents.toml`, the provider resolver returns an
         // `Err(ProviderError::...)` which `judge_candidates` maps to
         // `SkillError::JudgeFailed{detail}`. The wire-up is permanent;
         // when providers_wire lands its real HTTP path the inner step
@@ -3293,7 +3293,7 @@ mod tests {
     /// Task E: live end-to-end happy path — needs a real provider configured.
     /// Documents the intended judge→extract→store flow over a repetitive event
     /// window. Compiles in CI; only RUN with `--ignored` + agents.toml + key.
-    #[ignore = "live provider — run with --ignored + agents.toml + PHANTOM_MESH_<P>_API_KEY"]
+    #[ignore = "live provider — run with --ignored + agents.toml + SPECTYN_MESH_<P>_API_KEY"]
     #[test]
     fn run_skill_learning_live_e2e() {
         let _g = crate::env_lock::acquire();
@@ -3318,10 +3318,10 @@ mod tests {
         // with `RecallStrategy::Fts5Only` (the graceful-degrade path).
         // Use a non-existent path so the open fails cleanly.
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         std::env::set_var(
-            "PHANTOM_DB_PATH",
-            "/tmp/__phantom_nonexistent_test_db_skill_wire.sqlite",
+            "SPECTYN_DB_PATH",
+            "/tmp/__spectyn_nonexistent_test_db_skill_wire.sqlite",
         );
         let r = recall_skills("anything", RecallPolicy::default())
             .expect("recall must degrade, not panic");
@@ -3329,8 +3329,8 @@ mod tests {
         assert!(r.scores.is_empty());
         assert_eq!(r.recall_strategy, RecallStrategy::Fts5Only);
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
     }
 
@@ -3358,12 +3358,12 @@ mod tests {
         // Guards against a regression where the new Rust FTS feed / seal branch
         // could introduce an .unwrap() panic on the empty path.
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_flag = std::env::var_os("PHANTOM_ENCRYPT_MEMORY");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_flag = std::env::var_os("SPECTYN_ENCRYPT_MEMORY");
         // Ensure the seal flag is OFF for the floor (the byte-identical ship path).
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let degenerate = Skill {
             id: String::new(),
@@ -3381,12 +3381,12 @@ mod tests {
         let result = std::panic::catch_unwind(|| store_skill(&degenerate));
 
         match saved_flag {
-            Some(v) => std::env::set_var("PHANTOM_ENCRYPT_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_ENCRYPT_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_ENCRYPT_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_ENCRYPT_MEMORY"),
         }
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let stored = result.expect("store_skill must not panic on a degenerate skill");
@@ -3406,9 +3406,9 @@ mod tests {
         // but exercises the queue → drain → store wiring end-to-end.
         let _g = crate::env_lock::acquire();
         clear_handoff_queue();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let skill = Skill {
             id: "sk-handoff-1".into(),
@@ -3435,8 +3435,8 @@ mod tests {
 
         // Restore env + clear queue BEFORE asserting so a failure can't leak.
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         clear_handoff_queue();
 
@@ -3462,9 +3462,9 @@ mod tests {
         // queue returns the typed `StoreFailed` (the panic-floor contract).
         let _g = crate::env_lock::acquire();
         clear_handoff_queue();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let mk = |id: &str, name: &str, trigger: &str| Skill {
             id: id.into(),
@@ -3508,8 +3508,8 @@ mod tests {
 
         // Restore env + clear queue BEFORE asserting so a failure can't leak.
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         clear_handoff_queue();
 
@@ -3543,9 +3543,9 @@ mod tests {
         // tokenize into overlapping tokens and the "old name gone" assertion
         // would be untrustworthy).
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let skill = Skill {
             id: "sk-dupe".into(),
@@ -3602,8 +3602,8 @@ mod tests {
         let result = run();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let (count, version, quality, name, fts_new, fts_old) =
@@ -3628,9 +3628,9 @@ mod tests {
         // triggers must be gone (proving the Rust feed — not a leftover trigger —
         // is what keeps the index in sync).
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let skill = Skill {
             id: "sk-rustfeed-1".into(),
@@ -3665,8 +3665,8 @@ mod tests {
         let result = run();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let (found, trigger_count) = result.expect("store + recall + trigger probe");
@@ -3680,20 +3680,20 @@ mod tests {
     #[ignore = "integration / env-dependent (writes a temp sqlite) — run via --ignored"]
     #[test]
     fn store_skill_seals_name_and_trigger_on_disk_when_flag_on() {
-        // P0-2 Task 5: with PHANTOM_ENCRYPT_MEMORY ON and an EventKey installed,
+        // P0-2 Task 5: with SPECTYN_ENCRYPT_MEMORY ON and an EventKey installed,
         // store_skill must seal name/trigger at rest (raw column probes as sealed
         // and does NOT contain the plaintext token), while the de-PII'd token
         // form keeps the skill keyword-recallable through the token-form FTS
         // index, and skill_load round-trips the plaintext name back via open().
         // Mirrors memory.rs::insert_seals_text_and_source_on_disk_when_flag_on.
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_flag = std::env::var_os("PHANTOM_ENCRYPT_MEMORY");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_flag = std::env::var_os("SPECTYN_ENCRYPT_MEMORY");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         crate::encryption_wire::install_event_key_from_seed(&[0x42u8; 32])
             .expect("install event key");
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
 
         let skill = Skill {
             id: "sk-sealed-1".into(),
@@ -3734,15 +3734,15 @@ mod tests {
         let result = run();
 
         // Restore env + key BEFORE asserting so a failure can't leak.
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         crate::encryption_wire::clear_event_key_cache();
         match saved_flag {
-            Some(v) => std::env::set_var("PHANTOM_ENCRYPT_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_ENCRYPT_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_ENCRYPT_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_ENCRYPT_MEMORY"),
         }
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let (probed_sealed, leaks_plaintext, recalled, loaded_name) =
@@ -3764,12 +3764,12 @@ mod tests {
         // (In #[cfg(test)], lookup_or_derive never reads the real identity.key,
         // so an empty cache yields NoKey — mirrors memory_seal's fail-closed test.)
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-        let saved_flag = std::env::var_os("PHANTOM_ENCRYPT_MEMORY");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+        let saved_flag = std::env::var_os("SPECTYN_ENCRYPT_MEMORY");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
         crate::encryption_wire::clear_event_key_cache();
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
 
         let skill = Skill {
             id: "sk-noKey-1".into(),
@@ -3798,15 +3798,15 @@ mod tests {
         })();
 
         // Restore env + key BEFORE asserting.
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         crate::encryption_wire::clear_event_key_cache();
         match saved_flag {
-            Some(v) => std::env::set_var("PHANTOM_ENCRYPT_MEMORY", v),
-            None => std::env::remove_var("PHANTOM_ENCRYPT_MEMORY"),
+            Some(v) => std::env::set_var("SPECTYN_ENCRYPT_MEMORY", v),
+            None => std::env::remove_var("SPECTYN_ENCRYPT_MEMORY"),
         }
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         assert!(
@@ -3823,9 +3823,9 @@ mod tests {
         // finds it (embedding leg is skipped at recall_k=0, so the degrade path
         // is exercised end-to-end).
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let skill = Skill {
             id: "sk-roundtrip-1".into(),
@@ -3844,8 +3844,8 @@ mod tests {
 
         // Restore env BEFORE asserting so a failure can't leak the override.
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         assert!(found, "stored skill must be FTS5-recallable");
     }
@@ -3853,33 +3853,33 @@ mod tests {
     /// Regression for the Windows path divergence: `resolve_db_path` must
     /// follow the codebase-wide `dirs::home_dir()` convention (same as
     /// `tasks::store::TaskStore::open_default` and diagnostic's
-    /// `phantom_home()`), not a raw `$HOME` read. On Windows `$HOME` is
+    /// `spectyn_home()`), not a raw `$HOME` read. On Windows `$HOME` is
     /// normally unset, so the old code fell through to a CWD-relative
-    /// `phantom.db`, splitting the skill DB from the canonical
-    /// `~/.phantom-mesh/phantom.db`. Resolution order under test:
-    /// 1. non-blank `PHANTOM_DB_PATH` wins;
-    /// 2. blank `PHANTOM_DB_PATH` is ignored;
+    /// `spectyn.db`, splitting the skill DB from the canonical
+    /// `~/.spectyn-mesh/spectyn.db`. Resolution order under test:
+    /// 1. non-blank `SPECTYN_DB_PATH` wins;
+    /// 2. blank `SPECTYN_DB_PATH` is ignored;
     /// 3. otherwise the canonical `dirs::home_dir()`-anchored path — even
     ///    when `$HOME` is absent from the environment.
     #[test]
     fn resolve_db_path_resolution_order() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var("PHANTOM_DB_PATH").ok();
+        let saved_db = std::env::var("SPECTYN_DB_PATH").ok();
         let saved_home = std::env::var("HOME").ok();
 
         // 1. Explicit override wins over everything.
-        std::env::set_var("PHANTOM_DB_PATH", "/tmp/explicit-override.sqlite");
+        std::env::set_var("SPECTYN_DB_PATH", "/tmp/explicit-override.sqlite");
         assert_eq!(resolve_db_path(), "/tmp/explicit-override.sqlite");
 
         // 2 + 3. Blank override is ignored, and even with $HOME removed the
         // path must stay anchored at the user's home directory —
         // `dirs::home_dir()` resolves the profile dir without consulting
         // $HOME on Windows (and falls back to the passwd entry on Unix).
-        std::env::set_var("PHANTOM_DB_PATH", "   ");
+        std::env::set_var("SPECTYN_DB_PATH", "   ");
         std::env::remove_var("HOME");
         let expected = dirs::home_dir().map(|h| {
-            h.join(".phantom-mesh")
-                .join("phantom.db")
+            h.join(".spectyn-mesh")
+                .join("spectyn.db")
                 .to_string_lossy()
                 .into_owned()
         });
@@ -3891,9 +3891,9 @@ mod tests {
                     "blank override must fall through to the canonical home path"
                 );
             }
-            None => assert_eq!(resolve_db_path(), "phantom.db"),
+            None => assert_eq!(resolve_db_path(), "spectyn.db"),
         }
-        std::env::remove_var("PHANTOM_DB_PATH");
+        std::env::remove_var("SPECTYN_DB_PATH");
         match &expected {
             Some(want) => {
                 let got = resolve_db_path();
@@ -3902,17 +3902,17 @@ mod tests {
                     "must match the dirs::home_dir() convention used by the rest of the codebase"
                 );
                 assert_ne!(
-                    got, "phantom.db",
+                    got, "spectyn.db",
                     "CWD-relative fallback must be unreachable when a home dir exists"
                 );
             }
-            None => assert_eq!(resolve_db_path(), "phantom.db"),
+            None => assert_eq!(resolve_db_path(), "spectyn.db"),
         }
 
         // Restore the prior environment for sibling tests.
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         match saved_home {
             Some(v) => std::env::set_var("HOME", v),
@@ -4211,9 +4211,9 @@ mod tests {
     fn store_handoff_with_embedding_persists_vector_and_semantic_recalls() {
         let _g = crate::env_lock::acquire();
         clear_handoff_queue();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let embedder = FixtureEmbedder::new();
         let skill = Skill {
@@ -4257,8 +4257,8 @@ mod tests {
         })();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         clear_handoff_queue();
 
@@ -4273,9 +4273,9 @@ mod tests {
         // temp DB, no network, no live model, NOT #[ignore].
         let _g = crate::env_lock::acquire();
         clear_handoff_queue();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let embedder = FixtureEmbedder::new();
 
@@ -4329,8 +4329,8 @@ mod tests {
         })();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         clear_handoff_queue();
 
@@ -4370,9 +4370,9 @@ mod tests {
     fn semantic_recall_hit_rate_over_fixture_corpus_meets_threshold() {
         let _g = crate::env_lock::acquire();
         clear_handoff_queue();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let embedder = FixtureEmbedder::new();
 
@@ -4417,8 +4417,8 @@ mod tests {
         })();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         clear_handoff_queue();
 
@@ -4438,9 +4438,9 @@ mod tests {
         // the `embedding` BLOB column back and confirm the f32 vector survives
         // the little-endian round-trip byte-for-byte.
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let embedder = FixtureEmbedder::new();
         let skill = Skill {
@@ -4481,8 +4481,8 @@ mod tests {
 
         // Restore env BEFORE asserting so a failure can't leak the override.
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let read_back = result.expect("store + read-back embedding");
@@ -4535,9 +4535,9 @@ mod tests {
         // `skill_floor_stubs_return_typed_errors_not_panic` de-panic test in
         // this same module proves that path is untouched.
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let embedder = FixtureEmbedder::new();
         // Three distinct skills. Skill A's embedding text matches the query
@@ -4548,7 +4548,7 @@ mod tests {
         let query = "deploy staging";
 
         // Run the whole DB-touching body inside a closure so we can restore the
-        // PHANTOM_DB_PATH override + clear the embedder hook BEFORE asserting,
+        // SPECTYN_DB_PATH override + clear the embedder hook BEFORE asserting,
         // even on a panic-free early failure path.
         let outcome = (|| -> (String, RecallStrategy, usize) {
             let a = store_skill_with_fixture_embedding(
@@ -4597,8 +4597,8 @@ mod tests {
         // leak the override into sibling tests or leave an embedder installed.
         set_test_embedder_cleanup();
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
 
         let (top_id, strategy, a_in_recall) = outcome;
@@ -4646,10 +4646,10 @@ mod tests {
         // semantic leg has nothing to rank → Err(()) → recall still degrades
         // to FTS5-only. Point at a guaranteed-absent DB so no row is loaded.
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         std::env::set_var(
-            "PHANTOM_DB_PATH",
-            "/tmp/__phantom_nonexistent_m3_no_rows.sqlite",
+            "SPECTYN_DB_PATH",
+            "/tmp/__spectyn_nonexistent_m3_no_rows.sqlite",
         );
         set_test_embedder(Box::new(FixtureEmbedder::new()));
 
@@ -4657,8 +4657,8 @@ mod tests {
 
         clear_test_embedder();
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         assert!(
             r.is_err(),
@@ -4672,9 +4672,9 @@ mod tests {
         // The None path must preserve current behavior: the `embedding`
         // column stays NULL and the existing store_skill caller is unchanged.
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_DB_PATH");
+        let saved = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let skill = Skill {
             id: "sk-noembed-1".into(),
@@ -4705,8 +4705,8 @@ mod tests {
         let result = run();
 
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
         assert!(result.expect("query"), "store_skill must leave embedding NULL");
     }
@@ -4800,10 +4800,10 @@ mod tests {
     fn api_embedder_from_env_is_none_when_unconfigured() {
         let _g = crate::env_lock::acquire();
         let keys = [
-            "PHANTOM_EMBED_PROVIDER",
-            "PHANTOM_EMBED_API_KEY",
-            "PHANTOM_EMBED_MODEL",
-            "PHANTOM_EMBED_BASE_URL",
+            "SPECTYN_EMBED_PROVIDER",
+            "SPECTYN_EMBED_API_KEY",
+            "SPECTYN_EMBED_MODEL",
+            "SPECTYN_EMBED_BASE_URL",
         ];
         let saved: Vec<_> = keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
         for k in &keys {
@@ -4821,7 +4821,7 @@ mod tests {
         }
         assert!(
             got.is_none(),
-            "from_env must be None when PHANTOM_EMBED_PROVIDER is unset (default-OFF)"
+            "from_env must be None when SPECTYN_EMBED_PROVIDER is unset (default-OFF)"
         );
     }
 
@@ -4831,16 +4831,16 @@ mod tests {
     fn api_embedder_from_env_none_without_provider_even_with_key() {
         let _g = crate::env_lock::acquire();
         // NOTE: the "no key" sub-case below also has to clear the conventional
-        // fallback vars `resolve_embed_key` consults (`PHANTOM_MESH_OPENAI_API_KEY`
+        // fallback vars `resolve_embed_key` consults (`SPECTYN_MESH_OPENAI_API_KEY`
         // and `OPENAI_API_KEY`) — otherwise on a developer machine that happens
         // to export `OPENAI_API_KEY` the key would resolve and the assertion
         // would flip. Save + clear them all under the env_lock, restore after.
         let keys = [
-            "PHANTOM_EMBED_PROVIDER",
-            "PHANTOM_EMBED_API_KEY",
-            "PHANTOM_EMBED_MODEL",
-            "PHANTOM_EMBED_BASE_URL",
-            "PHANTOM_MESH_OPENAI_API_KEY",
+            "SPECTYN_EMBED_PROVIDER",
+            "SPECTYN_EMBED_API_KEY",
+            "SPECTYN_EMBED_MODEL",
+            "SPECTYN_EMBED_BASE_URL",
+            "SPECTYN_MESH_OPENAI_API_KEY",
             "OPENAI_API_KEY",
         ];
         let saved: Vec<_> = keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
@@ -4848,13 +4848,13 @@ mod tests {
             std::env::remove_var(k);
         }
         // Key present, but provider blank → still OFF.
-        std::env::set_var("PHANTOM_EMBED_API_KEY", "sk-present");
-        std::env::set_var("PHANTOM_EMBED_PROVIDER", "   ");
+        std::env::set_var("SPECTYN_EMBED_API_KEY", "sk-present");
+        std::env::set_var("SPECTYN_EMBED_PROVIDER", "   ");
         let blank = ApiEmbedder::from_env();
 
         // Provider set but NO key anywhere → still OFF.
-        std::env::remove_var("PHANTOM_EMBED_API_KEY");
-        std::env::set_var("PHANTOM_EMBED_PROVIDER", "openai");
+        std::env::remove_var("SPECTYN_EMBED_API_KEY");
+        std::env::set_var("SPECTYN_EMBED_PROVIDER", "openai");
         let no_key = ApiEmbedder::from_env();
 
         for (k, v) in saved {
@@ -4874,18 +4874,18 @@ mod tests {
     fn api_embedder_from_env_some_when_configured() {
         let _g = crate::env_lock::acquire();
         let keys = [
-            "PHANTOM_EMBED_PROVIDER",
-            "PHANTOM_EMBED_API_KEY",
-            "PHANTOM_EMBED_MODEL",
-            "PHANTOM_EMBED_BASE_URL",
+            "SPECTYN_EMBED_PROVIDER",
+            "SPECTYN_EMBED_API_KEY",
+            "SPECTYN_EMBED_MODEL",
+            "SPECTYN_EMBED_BASE_URL",
         ];
         let saved: Vec<_> = keys.iter().map(|k| (*k, std::env::var_os(k))).collect();
         for k in &keys {
             std::env::remove_var(k);
         }
-        std::env::set_var("PHANTOM_EMBED_PROVIDER", "openai");
-        std::env::set_var("PHANTOM_EMBED_API_KEY", "sk-test-only");
-        std::env::set_var("PHANTOM_EMBED_MODEL", "text-embedding-3-large");
+        std::env::set_var("SPECTYN_EMBED_PROVIDER", "openai");
+        std::env::set_var("SPECTYN_EMBED_API_KEY", "sk-test-only");
+        std::env::set_var("SPECTYN_EMBED_MODEL", "text-embedding-3-large");
 
         let got = ApiEmbedder::from_env();
 
@@ -4903,27 +4903,27 @@ mod tests {
         assert_eq!(body["input"], "hi");
     }
 
-    /// GATED LIVE test: only runs when `PHANTOM_EMBED_LIVE_KEY` is set (a real
+    /// GATED LIVE test: only runs when `SPECTYN_EMBED_LIVE_KEY` is set (a real
     /// OpenAI-compatible key). Stays `#[ignore]`d so the suite is hermetic by
     /// default; run with `--ignored` AND the env var present to make one real
     /// embedding call and confirm a non-empty vector comes back.
-    #[ignore = "live network — set PHANTOM_EMBED_LIVE_KEY and run via --ignored"]
+    #[ignore = "live network — set SPECTYN_EMBED_LIVE_KEY and run via --ignored"]
     #[test]
     fn api_embedder_live_embeds_when_key_present() {
-        let key = match std::env::var("PHANTOM_EMBED_LIVE_KEY") {
+        let key = match std::env::var("SPECTYN_EMBED_LIVE_KEY") {
             Ok(k) if !k.trim().is_empty() => k,
             _ => {
-                eprintln!("PHANTOM_EMBED_LIVE_KEY not set — skipping live embed call");
+                eprintln!("SPECTYN_EMBED_LIVE_KEY not set — skipping live embed call");
                 return;
             }
         };
-        let endpoint = std::env::var("PHANTOM_EMBED_BASE_URL")
+        let endpoint = std::env::var("SPECTYN_EMBED_BASE_URL")
             .unwrap_or_else(|_| DEFAULT_EMBED_ENDPOINT.to_string());
-        let model = std::env::var("PHANTOM_EMBED_MODEL")
+        let model = std::env::var("SPECTYN_EMBED_MODEL")
             .unwrap_or_else(|_| DEFAULT_EMBED_MODEL.to_string());
         let e = ApiEmbedder::new(endpoint, model, key);
         let v = e
-            .embed("phantom mesh owned memory semantic recall")
+            .embed("spectyn mesh owned memory semantic recall")
             .expect("live embedding call must succeed with a valid key");
         assert!(!v.is_empty(), "live embedding vector must be non-empty");
         // text-embedding-3-small is 1536-dim; a compatible model is also large.

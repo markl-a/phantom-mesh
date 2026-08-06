@@ -338,7 +338,7 @@ pub enum DispatchStatus {
 pub enum DispatchError {
     /// No peer in the cluster satisfies the required_caps set (or all
     /// candidates scored below the 0.1 threshold). Maps to `NoCandidate`
-    /// terminal status. UI: "找不到符合能力的 peer，請開另一台 phantom serve"。
+    /// terminal status. UI: "找不到符合能力的 peer，請開另一台 spectyn serve"。
     NoMatchingPeer,
     /// All matching peers are currently saturated (in_flight ≥ 4). User
     /// should retry after current dispatches drain. Stage 2 may auto-retry
@@ -1061,7 +1061,7 @@ pub fn plan_dispatch(
 /// polls status, walks the fallback chain on failure. The age-encryption
 /// of `task.payload` (SPEC-13) is **not** in this path — that's the
 /// cross-peer privacy envelope which lives one layer up in the agent
-/// runtime. `cluster_secret` is read from `PHANTOM_CLUSTER_SECRET` env
+/// runtime. `cluster_secret` is read from `SPECTYN_CLUSTER_SECRET` env
 /// var; absent → `DispatchAuthFailed` (cluster not bootstrapped).
 ///
 /// Algorithm:
@@ -1163,13 +1163,13 @@ pub async fn execute_plan(plan: &DispatchPlan) -> Result<DispatchOutcome, Dispat
 // ─── Stage 3 RPC primitives — real reqwest + HMAC envelope ──────────────
 
 /// Resolve the base URL for a peer's HTTP RPC surface. Stage 3 reads
-/// `PHANTOM_PEER_<PEERID>_URL` (with `-` replaced by `_`) from the
+/// `SPECTYN_PEER_<PEERID>_URL` (with `-` replaced by `_`) from the
 /// process env so tests can redirect to a local mock; falls back to a
-/// conventional `http://<peer_id>:7878` (the canonical phantom serve
+/// conventional `http://<peer_id>:7878` (the canonical spectyn serve
 /// port). Pure helper — no I/O.
 fn peer_base_url(peer_id: &str) -> String {
     let env_key = format!(
-        "PHANTOM_PEER_{}_URL",
+        "SPECTYN_PEER_{}_URL",
         peer_id.to_uppercase().replace('-', "_")
     );
     if let Ok(u) = std::env::var(&env_key) {
@@ -1181,12 +1181,12 @@ fn peer_base_url(peer_id: &str) -> String {
 }
 
 /// Read the cluster secret from the environment. SPEC-12 stores it on
-/// disk under `~/.phantom-mesh/cluster_secret`; that loader lives in a
+/// disk under `~/.spectyn-mesh/cluster_secret`; that loader lives in a
 /// sibling module so we accept the pre-loaded value via env here as the
 /// Stage 3 boundary. Absent / empty → `DispatchAuthFailed` so the caller
 /// returns the canonical error without a network round-trip.
 fn load_cluster_secret() -> Result<Vec<u8>, DispatchError> {
-    match std::env::var("PHANTOM_CLUSTER_SECRET") {
+    match std::env::var("SPECTYN_CLUSTER_SECRET") {
         Ok(s) if !s.trim().is_empty() => Ok(s.into_bytes()),
         _ => Err(DispatchError::DispatchAuthFailed),
     }
@@ -1260,9 +1260,9 @@ async fn rpc_poll_status(task_id: &str) -> Result<DispatchStatus, DispatchError>
     // updates). Real cross-peer broker handoff is Stage 4.
     let path = format!("/rpc/task/status/{task_id}");
     // The master polls its OWN local serve API for the task-status mirror. Base
-    // defaults to the canonical local serve addr; PHANTOM_POLL_URL overrides it
+    // defaults to the canonical local serve addr; SPECTYN_POLL_URL overrides it
     // (test seam → wiremock; also lets a non-default local serve port work).
-    let poll_base = std::env::var("PHANTOM_POLL_URL")
+    let poll_base = std::env::var("SPECTYN_POLL_URL")
         .ok()
         .filter(|u| !u.trim().is_empty())
         .unwrap_or_else(|| "http://127.0.0.1:7878".to_string());
@@ -1333,7 +1333,7 @@ fn capability_ids_to_tags(parsed: &serde_json::Value) -> Vec<CapabilityTag> {
 }
 
 /// Fetch the latest capability report for one peer via the canonical
-/// `GET /node/capabilities` endpoint (the route phantom serve actually
+/// `GET /node/capabilities` endpoint (the route spectyn serve actually
 /// registers — see serve.rs `node_capabilities`; SPEC-10 §9.13's
 /// `/rpc/capabilities/refresh` is the PUSH side, not a GET-pull path).
 /// Stage 3: real reqwest GET + HMAC-signed envelope + JSON parse + local

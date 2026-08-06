@@ -2,7 +2,7 @@
 //
 // The bridge (lib/miuiGuide) is mocked so we drive the deep-link
 // success/fallback paths and assert the dialog's guidance + dismiss behaviour
-// without a Tauri runtime. The manual steps are the substance (phantom can
+// without a Tauri runtime. The manual steps are the substance (spectyn can
 // only guide, not toggle MIUI settings), so they must always render.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

@@ -144,7 +144,7 @@ fn now_ms() -> i64 {
 }
 
 /// Wire a runtime + cost tracker into the global slot. Call once at startup
-/// (in bin/phantom.rs after the AppState is built). Idempotent — second
+/// (in bin/spectyn.rs after the AppState is built). Idempotent — second
 /// call is a no-op (OnceLock semantics).
 pub fn init_global(runtime: AgentRuntime, cost: CostTracker) {
     let _ = RUNTIME.set(runtime);
@@ -152,13 +152,13 @@ pub fn init_global(runtime: AgentRuntime, cost: CostTracker) {
 }
 
 /// Output formatting modes for [`spawn`] and [`parallel`]. Lets the caller
-/// choose between phantom-native human-readable wrap, parity-with-Claude-Code
+/// choose between spectyn-native human-readable wrap, parity-with-Claude-Code
 /// raw text, or a structured JSON envelope for programmatic consumption.
 ///
 /// See `_planning-audit/07-SUBAGENT-PARITY-PLAN.md` for the rationale —
-/// without `Raw`, callers parsing the tool result must strip phantom's
+/// without `Raw`, callers parsing the tool result must strip spectyn's
 /// `[subagent: name · ... rounds]` prefix, which Claude Code's Agent tool
-/// does NOT emit. `Raw` mode makes phantom subagent a drop-in alternative.
+/// does NOT emit. `Raw` mode makes spectyn subagent a drop-in alternative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputFormat {
     /// Default. Human-readable header line then the agent output:
@@ -186,15 +186,15 @@ impl OutputFormat {
 
 /// Tool entry point. Dispatched from `core/src/tools/mod.rs::execute`.
 ///
-/// Accepts either `{"agent": "...", "prompt": "..."}` (phantom native) or
+/// Accepts either `{"agent": "...", "prompt": "..."}` (spectyn native) or
 /// `{"subagent_type": "...", "prompt": "...", "description": "..."}`
 /// (Claude Code's Agent tool shape). Description is logged for parity
 /// but doesn't affect behavior — it's a label for the parent's UI which
-/// phantom doesn't surface yet.
+/// spectyn doesn't surface yet.
 pub async fn spawn(args: &Value) -> String {
-    // Accept both `agent` (phantom native) and `subagent_type` (Claude
+    // Accept both `agent` (spectyn native) and `subagent_type` (Claude
     // Code Agent tool name). Whichever is present wins; if both, `agent`
-    // takes precedence (phantom's namespace is the source of truth here).
+    // takes precedence (spectyn's namespace is the source of truth here).
     let agent = match args
         .get("agent")
         .and_then(|v| v.as_str())
@@ -208,7 +208,7 @@ pub async fn spawn(args: &Value) -> String {
         _ => return "[task error] missing required field: prompt".to_string(),
     };
     // `description` is a Claude-Code-Agent compatibility field — kept for
-    // schema parity but not behaviorally significant in phantom v1.
+    // schema parity but not behaviorally significant in spectyn v1.
     // Future use: surface as the task log's display label for /tasks UI.
     let _description: Option<&str> = args.get("description").and_then(|v| v.as_str());
     let max_rounds: Option<usize> = args
@@ -227,7 +227,7 @@ pub async fn spawn(args: &Value) -> String {
     // Optional macOS APFS safety net: take a `tmutil localsnapshot` before
     // the subagent starts touching anything. Cheap (~1s, no sudo). The
     // snapshot id is prepended to the result so the caller can pass it
-    // straight to `phantom snapshot rollback <id>` if the run goes badly.
+    // straight to `spectyn snapshot rollback <id>` if the run goes badly.
     // No-op on non-Mac builds; ignore creation failures (best effort).
     let snapshot_prefix: String = {
         #[cfg(target_os = "macos")]
@@ -523,7 +523,7 @@ async fn run_one(
     };
 
     // Apply per-call max_rounds via a tokio task-local scope (audit
-    // C-3 fix). Replaces the old `std::env::set_var("PHANTOM_MAX_ROUNDS")`
+    // C-3 fix). Replaces the old `std::env::set_var("SPECTYN_MAX_ROUNDS")`
     // dance, which mutated process-global state from concurrent async
     // tasks — it raced (last-writer-wins) AND triggered the
     // `setenv()` thread-safety hazard on Linux. The task-local lives
@@ -849,7 +849,7 @@ mod tests {
 
     // ── Audit C-3 (2026-05-15 tools-audit): max_rounds task-local ──────
     //
-    // The previous implementation used `std::env::set_var("PHANTOM_MAX_ROUNDS",
+    // The previous implementation used `std::env::set_var("SPECTYN_MAX_ROUNDS",
     // …)` which is process-global and not thread-safe in async contexts.
     // These tests verify the new task-local mechanism: each concurrent
     // subagent invocation gets its own scoped value, no shared mutation.
@@ -920,7 +920,7 @@ mod tests {
     #[test]
     fn max_rounds_override_no_setvar_in_subagent_path() {
         // Regression guard (audit C-3): if anyone reintroduces
-        // set_var on PHANTOM_MAX_ROUNDS inside subagent.rs, this
+        // set_var on SPECTYN_MAX_ROUNDS inside subagent.rs, this
         // grep trips. Catches the bug at compile-test time before
         // any concurrency hazard surfaces in production.
         //
@@ -936,7 +936,7 @@ mod tests {
         // does NOT itself match the textual grep — it would trip its
         // own check otherwise. (The literal `set` + `_var` substring is
         // exactly what we're banning, so we assemble it from parts.)
-        let banned = format!("std::env::{}_var(\"PHANTOM_MAX_ROUNDS\"", "set");
+        let banned = format!("std::env::{}_var(\"SPECTYN_MAX_ROUNDS\"", "set");
         let bad: Vec<(usize, String)> = src
             .lines()
             .enumerate()
@@ -958,7 +958,7 @@ mod tests {
             .collect();
         assert!(
             bad.is_empty(),
-            "subagent.rs must not mutate PHANTOM_MAX_ROUNDS via process-global env — use \
+            "subagent.rs must not mutate SPECTYN_MAX_ROUNDS via process-global env — use \
              MAX_ROUNDS_OVERRIDE.scope() instead. Offending lines: {:?}",
             bad,
         );

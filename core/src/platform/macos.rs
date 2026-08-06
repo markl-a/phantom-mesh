@@ -77,15 +77,15 @@ impl PlatformAdapter for Platform {
     }
 
     fn dist_binary_name(&self) -> &'static str {
-        "phantom-macos-arm64"
+        "spectyn-macos-arm64"
     }
 
     fn config_dir(&self) -> std::path::PathBuf {
         if let Some(home) = dirs::home_dir() {
-            return home.join("Library/Application Support/ai.phantommesh.app");
+            return home.join("Library/Application Support/ai.spectynmesh.app");
         }
-        crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
     }
 }
 

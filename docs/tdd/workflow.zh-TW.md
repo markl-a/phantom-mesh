@@ -37,7 +37,7 @@ tdd-next
    記錄到 `docs/tdd/notes.md`，然後繼續目前 P0。
 5. **跨平台測試要維持 cfg branch 對等。** 如果新增
    `#[cfg(target_os = "windows")]` 測試，也要補 Linux、Mac、Android
-   版本，除非功能本來就是平台專用，例如 Mac-only 的 `phantom snapshot`。
+   版本，除非功能本來就是平台專用，例如 Mac-only 的 `spectyn snapshot`。
 
 ## 常用 scripts
 
@@ -56,7 +56,7 @@ tdd-next
 |---|---|---|
 | 測試清單 | `docs/tdd/INDEX.md` | `tdd-mark-done.sh` 自動修改；初次同步由人處理 |
 | 結果 log | `docs/tdd/results.log` | `tdd-mark-done.sh` 以 append-only 方式寫入 |
-| 規劃來源 | `docs/planning/sprint-2026-05-18/31-phantom-mesh-tdd-comprehensive-plan-2026-05-18.md` | 人類 |
+| 規劃來源 | `docs/planning/sprint-2026-05-18/31-spectyn-mesh-tdd-comprehensive-plan-2026-05-18.md` | 人類 |
 | 範圍外備註 | `docs/tdd/notes.md` | 人類 |
 | 執行產物 | `target-tdd/`（gitignored） | Cargo |
 

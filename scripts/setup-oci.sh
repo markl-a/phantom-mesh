@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Phantom Mesh — Oracle Cloud (and generic Linux) coordinator setup.
+# Spectyn Mesh — Oracle Cloud (and generic Linux) coordinator setup.
 #
 # Run this ON THE LINUX VM after `scripts/build-linux.sh` has produced
-# `dist/phantom-<triple>`. Idempotent — safe to re-run.
+# `dist/spectyn-<triple>`. Idempotent — safe to re-run.
 #
 # What it does, in order:
 #   1. Pre-flight: OS family + arch + binary present
@@ -10,10 +10,10 @@
 #   3. Install package deps via dnf (RHEL family) or apt (Debian family)
 #   4. Install Tailscale + non-interactive `tailscale up` via TAILSCALE_AUTH_KEY
 #   5. Open firewall for tailscale0 only (not public)
-#   6. Install `phantom` binary to ~/.local/bin/phantom
-#   7. Render templates/phantom-mesh.service.tmpl → ~/.config/systemd/user/
+#   6. Install `spectyn` binary to ~/.local/bin/spectyn
+#   7. Render templates/spectyn-mesh.service.tmpl → ~/.config/systemd/user/
 #   8. `loginctl enable-linger` so the user service persists across logout
-#   9. Bootstrap ~/.phantom-mesh/{agents.toml,local.toml} from cloud template
+#   9. Bootstrap ~/.spectyn-mesh/{agents.toml,local.toml} from cloud template
 #  10. Print next-step checklist (fill keys, systemctl --user start)
 #
 # Usage:
@@ -25,7 +25,7 @@
 #                        (required unless --skip-tailscale)
 #   NODE_NAME            hostname this node advertises (default: $(hostname -s))
 #   SKIP_TAILSCALE=1     skip Tailscale steps (already configured)
-#   PHANTOM_BIN          override binary path (default: dist/phantom-<host-triple>)
+#   SPECTYN_BIN          override binary path (default: dist/spectyn-<host-triple>)
 
 set -euo pipefail
 
@@ -71,13 +71,13 @@ case "$(uname -m)" in
   *)              echo "✗ unsupported arch: $(uname -m)"; exit 1 ;;
 esac
 
-PHANTOM_BIN="${PHANTOM_BIN:-$REPO_ROOT/dist/phantom-$HOST_TRIPLE}"
+SPECTYN_BIN="${SPECTYN_BIN:-$REPO_ROOT/dist/spectyn-$HOST_TRIPLE}"
 NODE_NAME="${NODE_NAME:-$(hostname -s | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')}"
 NODE_NAME="${NODE_NAME:-oci-coordinator}"
 
-if [ ! -x "$PHANTOM_BIN" ]; then
-  echo "✗ phantom binary not found at $PHANTOM_BIN"
-  echo "  Run scripts/build-linux.sh first, or set PHANTOM_BIN=/path/to/phantom"
+if [ ! -x "$SPECTYN_BIN" ]; then
+  echo "✗ spectyn binary not found at $SPECTYN_BIN"
+  echo "  Run scripts/build-linux.sh first, or set SPECTYN_BIN=/path/to/spectyn"
   exit 1
 fi
 
@@ -85,13 +85,13 @@ fi
 RAM_KB=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
 RAM_MB=$(( RAM_KB / 1024 ))
 
-echo "  ◆ phantom-mesh — OCI / Linux coordinator setup"
+echo "  ◆ spectyn-mesh — OCI / Linux coordinator setup"
 echo "    distro    : ${PRETTY_NAME:-$ID}"
 echo "    family    : $OS_FAMILY ($PKG_INSTALL)"
 echo "    arch      : $HOST_TRIPLE"
 echo "    user      : $HOST_USER"
 echo "    node_name : $NODE_NAME"
-echo "    binary    : $PHANTOM_BIN"
+echo "    binary    : $SPECTYN_BIN"
 echo "    ram       : ${RAM_MB} MB"
 echo
 
@@ -173,36 +173,36 @@ case "$OS_FAMILY" in
 esac
 echo "    ✓ port 7878 reachable only via tailscale0"
 
-# ── 5. install phantom binary ───────────────────────────────────────────
+# ── 5. install spectyn binary ───────────────────────────────────────────
 mkdir -p "$HOST_HOME/.local/bin"
-install -m 755 "$PHANTOM_BIN" "$HOST_HOME/.local/bin/phantom"
-echo "  [5/9] phantom → $HOST_HOME/.local/bin/phantom"
+install -m 755 "$SPECTYN_BIN" "$HOST_HOME/.local/bin/spectyn"
+echo "  [5/9] spectyn → $HOST_HOME/.local/bin/spectyn"
 
 # SELinux context for the binary on RHEL family
 if [ "$OS_FAMILY" = "rhel" ] && command -v restorecon >/dev/null 2>&1; then
-  sudo semanage fcontext -a -t bin_t "$HOST_HOME/.local/bin/phantom" 2>/dev/null || true
-  sudo restorecon "$HOST_HOME/.local/bin/phantom" 2>/dev/null || true
+  sudo semanage fcontext -a -t bin_t "$HOST_HOME/.local/bin/spectyn" 2>/dev/null || true
+  sudo restorecon "$HOST_HOME/.local/bin/spectyn" 2>/dev/null || true
 fi
 
 # ── 6. systemd USER unit (rendered from template) ───────────────────────
 echo "  [6/9] systemd user unit"
 mkdir -p "$HOST_HOME/.config/systemd/user"
-TMPL="$REPO_ROOT/templates/phantom-mesh.service.tmpl"
+TMPL="$REPO_ROOT/templates/spectyn-mesh.service.tmpl"
 if [ ! -f "$TMPL" ]; then
   echo "  ✗ template missing: $TMPL"
   exit 1
 fi
-LOG_FILE="$HOST_HOME/.local/state/phantom-mesh.log"
+LOG_FILE="$HOST_HOME/.local/state/spectyn-mesh.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 sed \
-  -e "s|__PHANTOM_BIN__|$HOST_HOME/.local/bin/phantom|g" \
+  -e "s|__SPECTYN_BIN__|$HOST_HOME/.local/bin/spectyn|g" \
   -e "s|__WORK_DIR__|$HOST_HOME|g" \
   -e "s|__LOG__|$LOG_FILE|g" \
   -e "s|__HOME__|$HOST_HOME|g" \
-  -e "s|__EXTRA_ENV__|EnvironmentFile=-$HOST_HOME/.phantom-mesh/env|g" \
-  "$TMPL" > "$HOST_HOME/.config/systemd/user/phantom-mesh.service"
+  -e "s|__EXTRA_ENV__|EnvironmentFile=-$HOST_HOME/.spectyn-mesh/env|g" \
+  "$TMPL" > "$HOST_HOME/.config/systemd/user/spectyn-mesh.service"
 systemctl --user daemon-reload
-echo "    ✓ ~/.config/systemd/user/phantom-mesh.service"
+echo "    ✓ ~/.config/systemd/user/spectyn-mesh.service"
 
 # ── 7. linger (so user service runs without active login) ───────────────
 if ! loginctl show-user "$HOST_USER" 2>/dev/null | grep -q '^Linger=yes'; then
@@ -213,24 +213,24 @@ else
 fi
 
 # ── 8. config bootstrap ─────────────────────────────────────────────────
-mkdir -p "$HOST_HOME/.phantom-mesh"
-chmod 700 "$HOST_HOME/.phantom-mesh"
+mkdir -p "$HOST_HOME/.spectyn-mesh"
+chmod 700 "$HOST_HOME/.spectyn-mesh"
 
 # agents.toml: use configs/agents.cloud.toml as base.
 # (When agents.base.toml lands per MULTI-DEVICE-COORDINATION.md Rule 4,
 #  switch this line. See EVOLVE-GOALS.md.)
-if [ ! -f "$HOST_HOME/.phantom-mesh/agents.toml" ]; then
-  cp "$REPO_ROOT/configs/agents.cloud.toml" "$HOST_HOME/.phantom-mesh/agents.toml"
+if [ ! -f "$HOST_HOME/.spectyn-mesh/agents.toml" ]; then
+  cp "$REPO_ROOT/configs/agents.cloud.toml" "$HOST_HOME/.spectyn-mesh/agents.toml"
   sed -i "s/node_name = \"gcp-cloud\"/node_name = \"$NODE_NAME\"/" \
-    "$HOST_HOME/.phantom-mesh/agents.toml"
+    "$HOST_HOME/.spectyn-mesh/agents.toml"
   echo "  [8/9] agents.toml ← configs/agents.cloud.toml (node=$NODE_NAME)"
 else
   echo "  [8/9] agents.toml already present — leaving alone"
 fi
 
 # local.toml skeleton (cluster_secret + overrides; user fills it)
-if [ ! -f "$HOST_HOME/.phantom-mesh/local.toml" ]; then
-  cat > "$HOST_HOME/.phantom-mesh/local.toml" <<EOF
+if [ ! -f "$HOST_HOME/.spectyn-mesh/local.toml" ]; then
+  cat > "$HOST_HOME/.spectyn-mesh/local.toml" <<EOF
 # Per-machine overrides — never commit this file.
 # See docs/MULTI-DEVICE-COORDINATION.md Rule 4.
 
@@ -238,20 +238,20 @@ if [ ! -f "$HOST_HOME/.phantom-mesh/local.toml" ]; then
 node_name      = "$NODE_NAME"
 cluster_secret = ""   # paste shared HMAC secret from 1Password (same on every node)
 EOF
-  chmod 600 "$HOST_HOME/.phantom-mesh/local.toml"
+  chmod 600 "$HOST_HOME/.spectyn-mesh/local.toml"
   echo "        local.toml ← skeleton (fill cluster_secret before starting)"
 fi
 
 # env file for API keys (referenced by the systemd unit)
-if [ ! -f "$HOST_HOME/.phantom-mesh/env" ]; then
-  cat > "$HOST_HOME/.phantom-mesh/env" <<'EOF'
-# API keys read by phantom-mesh.service. Keep chmod 600. Never commit.
+if [ ! -f "$HOST_HOME/.spectyn-mesh/env" ]; then
+  cat > "$HOST_HOME/.spectyn-mesh/env" <<'EOF'
+# API keys read by spectyn-mesh.service. Keep chmod 600. Never commit.
 # ANTHROPIC_API_KEY=sk-ant-...
 # OPENROUTER_API_KEY=sk-or-...
 # TELEGRAM_BOT_TOKEN=...
-# PHANTOM_CLUSTER_SECRET=...
+# SPECTYN_CLUSTER_SECRET=...
 EOF
-  chmod 600 "$HOST_HOME/.phantom-mesh/env"
+  chmod 600 "$HOST_HOME/.spectyn-mesh/env"
 fi
 
 # ── 9. summary ──────────────────────────────────────────────────────────
@@ -259,10 +259,10 @@ echo
 echo "  ✓ setup-oci.sh complete."
 echo
 echo "  Next steps (operator):"
-echo "    1. Edit  ~/.phantom-mesh/local.toml  — paste cluster_secret"
-echo "    2. Edit  ~/.phantom-mesh/env         — fill API keys"
-echo "    3. Start: systemctl --user start phantom-mesh"
-echo "    4. Watch: journalctl --user -fu phantom-mesh"
+echo "    1. Edit  ~/.spectyn-mesh/local.toml  — paste cluster_secret"
+echo "    2. Edit  ~/.spectyn-mesh/env         — fill API keys"
+echo "    3. Start: systemctl --user start spectyn-mesh"
+echo "    4. Watch: journalctl --user -fu spectyn-mesh"
 echo "    5. Verify: curl -s http://localhost:7878/rpc/ping | head"
 echo "    6. From another tailnet device:"
 echo "         curl -s http://$NODE_NAME:7878/rpc/ping"

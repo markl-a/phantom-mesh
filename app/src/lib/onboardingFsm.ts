@@ -28,8 +28,8 @@ import type { OnboardingState } from "./generated/tauri/OnboardingState";
 import type { OnboardingStateSnapshot } from "./generated/onboarding/OnboardingStateSnapshot";
 import type { OnboardingContext } from "./generated/onboarding/OnboardingContext";
 
-const SNAPSHOT_KEY = "phantom_mesh_onboarding_snapshot";
-const CONTEXT_KEY = "phantom_mesh_onboarding_context";
+const SNAPSHOT_KEY = "spectyn_mesh_onboarding_snapshot";
+const CONTEXT_KEY = "spectyn_mesh_onboarding_context";
 
 /** Wire layer panic prefix — see commands/onboarding_wire.rs `NOT_YET_WIRED`. */
 const NOT_YET_WIRED_PREFIX = "onboarding.not_yet_wired";

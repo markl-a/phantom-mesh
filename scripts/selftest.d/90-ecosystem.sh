@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the satellite mock demos (phantom-secops, phantom-mobile) when they're
+# Run the satellite mock demos (spectyn-secops, spectyn-mobile) when they're
 # cloned alongside this repo. Each demo prints its own pass-rate, so we just
 # scrape the headline metric.
 #
@@ -9,13 +9,13 @@ selftest_feature_meta() {
   echo "name=ecosystem"
   echo "priority=P2"
   echo "requires=ecosystem"
-  echo "description=phantom-secops + phantom-mobile demo-mock satellites pass"
-  echo "hints=Makefile ../phantom-secops/Makefile ../phantom-mobile/Makefile"
+  echo "description=spectyn-secops + spectyn-mobile demo-mock satellites pass"
+  echo "hints=Makefile ../spectyn-secops/Makefile ../spectyn-mobile/Makefile"
 }
 
 # Search for satellites in the locations the user actually clones into.
 _eco_find_satellite() {
-  local name="$1" repo="${name#phantom-}"
+  local name="$1" repo="${name#spectyn-}"
   local candidates=(
     "$(pwd)/../$name"
     "$HOME/path/to/$name"
@@ -28,11 +28,11 @@ _eco_find_satellite() {
 }
 
 selftest_requires() {
-  if _eco_find_satellite phantom-secops >/dev/null \
-     || _eco_find_satellite phantom-mobile >/dev/null; then
+  if _eco_find_satellite spectyn-secops >/dev/null \
+     || _eco_find_satellite spectyn-mobile >/dev/null; then
     return 0
   fi
-  echo "neither phantom-secops nor phantom-mobile cloned as a sibling — nothing to run" >&2
+  echo "neither spectyn-secops nor spectyn-mobile cloned as a sibling — nothing to run" >&2
   return 1
 }
 
@@ -42,7 +42,7 @@ selftest_run() {
   local extra_path="$HOME/.cargo/bin:$HOME/miniconda/bin:/opt/homebrew/bin:/usr/local/bin"
   local PATH_FOR_MAKE="$extra_path:$PATH"
 
-  for sat in phantom-secops phantom-mobile; do
+  for sat in spectyn-secops spectyn-mobile; do
     local dir; dir="$(_eco_find_satellite "$sat" 2>/dev/null)" || {
       t_skip "$sat demo-mock" "satellite not cloned"
       continue

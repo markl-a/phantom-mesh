@@ -42,9 +42,9 @@ import App from '../../src/App';
 
 beforeEach(() => {
   // This jsdom env ships only a partial localStorage shim, so install a
-  // Map-backed one. Seed `phantom_mesh_v2_onboarded` so MobileApp skips the
+  // Map-backed one. Seed `spectyn_mesh_v2_onboarded` so MobileApp skips the
   // first-launch picker and renders the tab shell.
-  const store = new Map<string, string>([['phantom_mesh_v2_onboarded', 'true']]);
+  const store = new Map<string, string>([['spectyn_mesh_v2_onboarded', 'true']]);
   vi.stubGlobal('localStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => { store.set(k, String(v)); },

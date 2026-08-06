@@ -94,8 +94,8 @@ flowchart TD
 
 - `core/tests/wire_round_trip.rs` — 對每個擷取 wire 進行序列化／反序列化往返
   （round-trip）＋ 產生的 TS 檔案存在性檢查（case 9–11 涵蓋 food / focus / habit）。
-- `core/tests/life_node_capture_e2e.rs` — 端對端擷取冒煙測試（smoke）（`phantom event
-  capture` → `phantom serve` → 真實 LLM → 分析）；無 API key 時會優雅略過。
+- `core/tests/life_node_capture_e2e.rs` — 端對端擷取冒煙測試（smoke）（`spectyn event
+  capture` → `spectyn serve` → 真實 LLM → 分析）；無 API key 時會優雅略過。
 
 執行方式：
 

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- CSP duplicated at the Worker layer (src/index.ts) for any /app/*
+         response. Repeating it here as a <meta> would be redundant and
+         would tighten dev-server behavior in non-useful ways. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
+    <title>spectyn mesh — dashboard</title>
+  </head>
+  <body class="bg-spectyn-bg text-spectyn-text">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

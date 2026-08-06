@@ -71,12 +71,12 @@ impl PlatformAdapter for Platform {
     }
 
     fn dist_binary_name(&self) -> &'static str {
-        "phantom-linux-arm64"
+        "spectyn-linux-arm64"
     }
 
     fn config_dir(&self) -> std::path::PathBuf {
-        crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
     }
 }
 
@@ -84,7 +84,7 @@ impl PlatformAdapter for Platform {
 // `core/src/process_sandbox/linux.rs`; callers route through
 // `crate::process_sandbox::linux::install_pre_exec`.
 
-/// Canonical systemd-journald sockets phantom-mesh routes through when
+/// Canonical systemd-journald sockets spectyn-mesh routes through when
 /// the host runs systemd. We pin them as a constant rather than hard-coding
 /// in callers so the journalctl integration in `serve.rs` / `service::linux`
 /// has a single source of truth.

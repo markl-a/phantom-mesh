@@ -4,7 +4,7 @@ Mac → iPhone secure one-shot identity transfer.
 
 Spins up an HTTP server bound to Mac's Tailscale IP (NOT 0.0.0.0 — only
 authenticated tailnet peers can reach it), serves ONE landing page at a
-random-nonce URL, then self-shuts. Page links to phantom://oauth/callback?
+random-nonce URL, then self-shuts. Page links to spectyn://oauth/callback?
 p=<base64> with the Mac's saved broker_token + email so the iPhone app's
 broker_login_finish + auto-sync runs and pulls 9 vault keys + cluster
 peers into the iPhone sandbox.
@@ -18,10 +18,10 @@ Threat model:
 Usage:
     python3 scripts/transfer-to-mobile.py
     → prints URL to type into iPhone Safari address bar
-    → tap "點我匯入" → Safari "Open in Phantom Mesh?" → Open
+    → tap "點我匯入" → Safari "Open in Spectyn Mesh?" → Open
     → done
 
-Auth source: ~/.phantom-mesh/auth.json (must have broker_token).
+Auth source: ~/.spectyn-mesh/auth.json (must have broker_token).
 """
 
 import base64
@@ -37,7 +37,7 @@ from pathlib import Path
 # ── Config ──────────────────────────────────────────────────────────────
 PORT = 8889
 TTL_SECS = 300
-AUTH_PATH = Path.home() / ".phantom-mesh" / "auth.json"
+AUTH_PATH = Path.home() / ".spectyn-mesh" / "auth.json"
 
 
 def tailscale_ip() -> str:
@@ -65,7 +65,7 @@ def load_payload() -> str:
     if not AUTH_PATH.exists():
         raise SystemExit(
             f"[transfer] {AUTH_PATH} not found — log in on Mac first via "
-            "`phantom login`."
+            "`spectyn login`."
         )
     state = json.loads(AUTH_PATH.read_text())
     if not state.get("broker_token"):
@@ -95,7 +95,7 @@ def html_page(deep_url: str) -> str:
     return f"""<!doctype html><html lang="zh-Hant"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Phantom Mesh 一鍵匯入</title>
+<title>Spectyn Mesh 一鍵匯入</title>
 <style>
 *{{box-sizing:border-box}}
 body{{font-family:-apple-system,system-ui,sans-serif;background:#0c0c10;color:#e8e2d4;
@@ -107,11 +107,11 @@ p{{color:#8a8578;font-size:14px;line-height:1.5}}
      margin-top:24px}}
 .foot{{color:#4d4a42;font-size:11px;margin-top:48px;line-height:1.5}}
 </style></head><body>
-<h2>◆ Phantom Mesh</h2>
+<h2>◆ Spectyn Mesh</h2>
 <p>把 Mac 的 broker_token + LLM keys + cluster peers 一次寫進這台 iPhone 的沙盒</p>
 <a class="btn" href="{deep_url}">點我匯入 →</a>
 <p class="foot">
-Safari 會跳「在 Phantom Mesh 中開啟？」對話框 — 按 Open。<br>
+Safari 會跳「在 Spectyn Mesh 中開啟？」對話框 — 按 Open。<br>
 這個 URL 一次性，匯入後 server 自動關閉。
 </p></body></html>"""
 
@@ -133,7 +133,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         # Schedule shutdown — give the response time to flush + the
-        # phantom:// click to fire before tearing down.
+        # spectyn:// click to fire before tearing down.
         threading.Timer(2.0, lambda: SHUTDOWN_FLAG.set()).start()
 
     def log_message(self, format, *args):  # noqa: A002 — match base class signature
@@ -143,7 +143,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     bind_ip = tailscale_ip()
     payload = load_payload()
-    deep_url = f"phantom://oauth/callback?p={payload}"
+    deep_url = f"spectyn://oauth/callback?p={payload}"
     transfer_url = f"http://{bind_ip}:{PORT}{PATH_PREFIX}"
     Handler.deep_url = deep_url
 
@@ -152,7 +152,7 @@ def main():
     bar = "═" * 60
     print()
     print(bar)
-    print("  Phantom Mesh — Mac → iPhone identity transfer")
+    print("  Spectyn Mesh — Mac → iPhone identity transfer")
     print(bar)
     print()
     print(f"  打開 iPhone Safari 並輸入：")

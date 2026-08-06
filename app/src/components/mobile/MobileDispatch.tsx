@@ -109,15 +109,15 @@ function phaseColor(phase: DispatchPhase): string {
     case 'done':
       return 'text-green-400';
     case 'failed':
-      return 'text-phantom-danger';
+      return 'text-spectyn-danger';
     case 'cancelled':
-      return 'text-phantom-muted';
+      return 'text-spectyn-muted';
     case 'running':
     case 'queued':
     case 'submitting':
-      return 'text-phantom-primary';
+      return 'text-spectyn-primary';
     default:
-      return 'text-phantom-muted';
+      return 'text-spectyn-muted';
   }
 }
 
@@ -241,8 +241,8 @@ export default function MobileDispatch() {
       className="flex flex-col h-full overflow-y-auto"
       data-testid="mobile-dispatch-root"
     >
-      <div className="px-4 py-3 border-b border-phantom-border flex items-center justify-between">
-        <div className="text-sm text-phantom-text">Dispatch</div>
+      <div className="px-4 py-3 border-b border-spectyn-border flex items-center justify-between">
+        <div className="text-sm text-spectyn-text">Dispatch</div>
         {currentState && (
           <div
             className={`text-xs font-medium ${phaseColor(currentPhase)}`}
@@ -258,7 +258,7 @@ export default function MobileDispatch() {
         <div>
           <label
             htmlFor="dispatch-prompt"
-            className="block text-xs text-phantom-muted mb-1"
+            className="block text-xs text-spectyn-muted mb-1"
           >
             What should I do?
           </label>
@@ -269,17 +269,17 @@ export default function MobileDispatch() {
             onChange={(e) => setPrompt(e.target.value.slice(0, MAX_PROMPT))}
             disabled={inFlight}
             rows={3}
-            className="w-full bg-phantom-card border border-phantom-border rounded-lg p-2 text-sm text-phantom-text resize-y min-h-[64px]"
+            className="w-full bg-spectyn-card border border-spectyn-border rounded-lg p-2 text-sm text-spectyn-text resize-y min-h-[64px]"
             placeholder="Summarize this URL, run an experiment, fetch a stat…"
           />
-          <div className="text-[10px] text-phantom-muted mt-0.5 text-right">
+          <div className="text-[10px] text-spectyn-muted mt-0.5 text-right">
             {prompt.length} / {MAX_PROMPT}
           </div>
         </div>
 
         {/* Caps chips */}
         <div>
-          <div className="text-xs text-phantom-muted mb-1">
+          <div className="text-xs text-spectyn-muted mb-1">
             Require capabilities (optional, max {MAX_CAPS_SELECTABLE})
           </div>
           <div className="flex flex-wrap gap-1.5" data-testid="caps-chips">
@@ -297,8 +297,8 @@ export default function MobileDispatch() {
                   data-testid={`cap-chip-${cap}`}
                   className={`text-xs px-2 py-1 rounded-full border transition-colors ${
                     active
-                      ? 'bg-phantom-primary/15 border-phantom-primary text-phantom-primary'
-                      : 'bg-phantom-card border-phantom-border text-phantom-muted hover:text-phantom-text'
+                      ? 'bg-spectyn-primary/15 border-spectyn-primary text-spectyn-primary'
+                      : 'bg-spectyn-card border-spectyn-border text-spectyn-muted hover:text-spectyn-text'
                   } ${disabledByCap ? 'opacity-50' : ''}`}
                 >
                   {cap}
@@ -313,7 +313,7 @@ export default function MobileDispatch() {
           <div>
             <label
               htmlFor="dispatch-provider"
-              className="block text-xs text-phantom-muted mb-1"
+              className="block text-xs text-spectyn-muted mb-1"
             >
               Provider override (optional)
             </label>
@@ -323,7 +323,7 @@ export default function MobileDispatch() {
               value={provider}
               onChange={(e) => setProvider(e.target.value)}
               disabled={inFlight}
-              className="w-full bg-phantom-card border border-phantom-border rounded-lg p-2 text-sm text-phantom-text"
+              className="w-full bg-spectyn-card border border-spectyn-border rounded-lg p-2 text-sm text-spectyn-text"
             >
               <option value="">(broker picks)</option>
               {providers.map((p) => (
@@ -345,7 +345,7 @@ export default function MobileDispatch() {
                 void cancel();
               }}
               data-testid="dispatch-cancel"
-              className="flex-1 flex items-center justify-center gap-2 bg-phantom-card border border-phantom-border text-phantom-text rounded-lg py-2 text-sm hover:bg-phantom-bg"
+              className="flex-1 flex items-center justify-center gap-2 bg-spectyn-card border border-spectyn-border text-spectyn-text rounded-lg py-2 text-sm hover:bg-spectyn-bg"
             >
               <X size={16} /> Cancel
             </button>
@@ -357,7 +357,7 @@ export default function MobileDispatch() {
               }}
               disabled={submitDisabled}
               data-testid="dispatch-submit"
-              className="flex-1 flex items-center justify-center gap-2 bg-phantom-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex-1 flex items-center justify-center gap-2 bg-spectyn-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {currentPhase === 'submitting' ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -377,13 +377,13 @@ export default function MobileDispatch() {
               data-testid="dispatch-error"
               role="alert"
             >
-              <div className="text-xs text-phantom-danger">{friendly.title}</div>
+              <div className="text-xs text-spectyn-danger">{friendly.title}</div>
               {friendly.hint && (
-                <div className="text-[11px] text-phantom-muted">
+                <div className="text-[11px] text-spectyn-muted">
                   {friendly.hint}
                 </div>
               )}
-              <div className="text-[10px] text-phantom-muted/60 font-mono">
+              <div className="text-[10px] text-spectyn-muted/60 font-mono">
                 {friendly.raw}
               </div>
             </div>
@@ -395,14 +395,14 @@ export default function MobileDispatch() {
           <div className="space-y-2" data-testid="dispatch-stream-region">
             <pre
               data-testid="dispatch-tokens"
-              className="bg-phantom-card border border-phantom-border rounded-lg p-2 text-xs text-phantom-text whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto"
+              className="bg-spectyn-card border border-spectyn-border rounded-lg p-2 text-xs text-spectyn-text whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto"
             >
               {tokenJoined || '​'}
             </pre>
 
             {currentState.phase === 'done' && currentState.result && (
               <div
-                className="bg-phantom-card border border-green-500/40 rounded-lg p-2 text-sm text-phantom-text"
+                className="bg-spectyn-card border border-green-500/40 rounded-lg p-2 text-sm text-spectyn-text"
                 data-testid="dispatch-result"
               >
                 <div className="text-[10px] text-green-400 uppercase tracking-wider mb-1">
@@ -414,11 +414,11 @@ export default function MobileDispatch() {
 
             {currentState.phase === 'failed' && (
               <div
-                className="bg-phantom-card border border-phantom-danger/40 rounded-lg p-2 text-sm text-phantom-text"
+                className="bg-spectyn-card border border-spectyn-danger/40 rounded-lg p-2 text-sm text-spectyn-text"
                 data-testid="dispatch-failure"
                 role="alert"
               >
-                <div className="text-[10px] text-phantom-danger uppercase tracking-wider mb-1">
+                <div className="text-[10px] text-spectyn-danger uppercase tracking-wider mb-1">
                   {currentState.errorCode || 'error'}
                 </div>
                 {currentState.errorMessage || 'Dispatch failed'}

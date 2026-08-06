@@ -11,7 +11,7 @@
 | Last updated | `2026-05-25` |
 | Author | `markl + Claude Opus 4.7 (1M context)` |
 | Reviewer(s) | （待填） |
-| Implementation owner | `app/src-tauri/src/windows_tray.rs`（既由 SPEC-42 §6.2 列為新增）+ `app/src-tauri/src/windows_toast.rs`（同上）+ `app/src/routes/settings/*.tsx`（新增 Windows settings tab） + `app/src/routes/onboarding/windows-wizard.tsx`（新增）+ `app/src/routes/coach/review-reader.tsx`（沿用 + Windows polish）+ `app/src/components/win/*`（新增一組 Windows-flavored 元件） + `core/src/wizard.rs`（SPEC-28 既有 FSM 共用） + `scripts/install-phantom-windows.ps1`（既有；wizard CLI 段引用） + `scripts/windows-defender-exclude.ps1`（既有；SmartScreen fallback 連結 target） |
+| Implementation owner | `app/src-tauri/src/windows_tray.rs`（既由 SPEC-42 §6.2 列為新增）+ `app/src-tauri/src/windows_toast.rs`（同上）+ `app/src/routes/settings/*.tsx`（新增 Windows settings tab） + `app/src/routes/onboarding/windows-wizard.tsx`（新增）+ `app/src/routes/coach/review-reader.tsx`（沿用 + Windows polish）+ `app/src/components/win/*`（新增一組 Windows-flavored 元件） + `core/src/wizard.rs`（SPEC-28 既有 FSM 共用） + `scripts/install-spectyn-windows.ps1`（既有；wizard CLI 段引用） + `scripts/windows-defender-exclude.ps1`（既有；SmartScreen fallback 連結 target） |
 | Target release | `v0.6.0` |
 | Pillar(s) served | `P1`（跨裝置 mesh — Windows UI 面是 P1.cross-os 在桌面 OS 的著陸點）+ `P2`（多模態 — chip quick log + focus start 是 desktop entry）+ `P4`（加密為先 — vault setup screen 顯式呈現 Credential Manager 邊界） |
 | Track（軌道） | `both`（screen 既服務 Life Track 桌面端 daily flow、也服務 Work Track cluster worker monitoring） |
@@ -25,13 +25,13 @@
 
 ## §1 TL;DR
 
-**問題**：Windows 桌面 UI 是 phantom-mesh 五個目標 OS 中**最容易失溫的 surface（介面表面）**：macOS 已有 menu bar（選單列）+ Notification Center（通知中心）+ Cmd+Shift+H 等熟成 UX（使用者體驗）流程（per SPEC-41 macOS 鄰居樣板），但 Windows 段在 v0.5.x 只有 main window（主視窗）+ 一個 placeholder tray（系統匣）icon、settings（設定）是 macOS layout 直接套上、toast（吐司通知）走 in-app banner（彈幅）退化版、MSI（Microsoft 安裝器）wizard（精靈）跑出來像 1998 年 NSIS 風、SmartScreen（智慧防護）紅警示沒對應的引導頁、global hotkey（全域熱鍵）`Win+Shift+H` / `Win+Shift+F` 撞 Windows reserved key（保留鍵）時沒 fallback（後備）路徑。三件踩坑案例（2026-05-12 node-a / 2026-05-15 node-b / 2026-05-18 node-a，per SPEC-42 §2.1）說明：Windows UI surface 不收齊、operator（操作者）每次 onboard（上手）新機都要手把手帶人走「為什麼這個視窗在這、為什麼 toast 沒響、為什麼 SmartScreen 嚇人」。
+**問題**：Windows 桌面 UI 是 spectyn-mesh 五個目標 OS 中**最容易失溫的 surface（介面表面）**：macOS 已有 menu bar（選單列）+ Notification Center（通知中心）+ Cmd+Shift+H 等熟成 UX（使用者體驗）流程（per SPEC-41 macOS 鄰居樣板），但 Windows 段在 v0.5.x 只有 main window（主視窗）+ 一個 placeholder tray（系統匣）icon、settings（設定）是 macOS layout 直接套上、toast（吐司通知）走 in-app banner（彈幅）退化版、MSI（Microsoft 安裝器）wizard（精靈）跑出來像 1998 年 NSIS 風、SmartScreen（智慧防護）紅警示沒對應的引導頁、global hotkey（全域熱鍵）`Win+Shift+H` / `Win+Shift+F` 撞 Windows reserved key（保留鍵）時沒 fallback（後備）路徑。三件踩坑案例（2026-05-12 node-a / 2026-05-15 node-b / 2026-05-18 node-a，per SPEC-42 §2.1）說明：Windows UI surface 不收齊、operator（操作者）每次 onboard（上手）新機都要手把手帶人走「為什麼這個視窗在這、為什麼 toast 沒響、為什麼 SmartScreen 嚇人」。
 
 **方案**：本 spec 把 Windows 桌面 UI 鎖成「12 個 screens（畫面）+ 6 個 flow sequences（流程序列）」契約。Screens 分四組：(1) **常駐 surface** — system tray dropdown（系統匣下拉）+ tray icon state matrix（圖示狀態矩陣）+ toast notification template（通知模板）；(2) **設定** — Settings window 含 General / Cluster / Providers / Vault / Background Service / About 六個 tab，全 keyboard-navigable（鍵盤可達）；(3) **Daily flow** — chip palette popover（標籤調色盤彈窗）（`Win+Shift+H`）+ focus start panel（焦點啟動面板）（`Win+Shift+F`）+ coach review reader（教練回顧閱讀器）（toast click 或 tray menu）+ cluster status grid（叢集狀態網格）；(4) **Bootstrap** — MSI installer wizard（4 階段）+ SmartScreen 解法引導頁 + onboarding wizard Windows render（覆 SPEC-28 4-step FSM）+ vault setup card（首次把明文 identity 搬進 Credential Manager 的 UI）。Flows 六個 sequence：tray dropdown 開啟、toast emit + click、MSI install end-to-end、SmartScreen 解法、global hotkey 衝突偵測 + fallback、settings tab keyboard navigation。每 screen 含 ASCII wireframe（線框）+ states matrix（狀態矩陣）+ a11y notes + perf budget（效能預算）。
 
 **代價**：(a) **不做 WinUI 3 native（原生）視窗**，維持 Tauri webview + 拷貝 WinUI Fluent design token（per SPEC-02），犧牲 native dialog 微互動但保證跨平台 UI 一致；(b) **不做 Windows 11 Mica 材質（半透明背景效果）**，理由是 Tauri 2 對 Mica 的支援 v0.5.x 尚未穩定（已踩過 node-a 機 black flash 問題），留 v0.7.0+；(c) **chip popover 用 `Win+Shift+H` 而非 SPEC-22 預設 `Ctrl+Shift+H`** — 因 Windows reserved key 政策 + 與 macOS `Cmd+Shift+H`（hide window）的「不對稱但語意對等」決定，spec 註明對等性 + 衝突 fallback 矩陣；(d) **MSI wizard 不做 license agreement（授權同意）頁** — Apache-2.0 license 連結放 About tab，wizard 4 階段壓在 30 秒內跑完是硬預算。
 
-**English abstract**: SPEC-43 freezes Phantom Mesh's **Windows desktop UI surface** — twelve screens plus six end-to-end flow sequences that together close the macOS UX parity gap in v0.6.0. Screens split into four groups: (1) ambient surface (system tray dropdown with four-state icon matrix, toast notification XML template, AUMID-anchored deep-link); (2) settings (six-tab window — General / Cluster / Providers / Vault / Background Service / About — all keyboard-reachable per WCAG 2.2 AA); (3) daily flow (chip palette popover on `Win+Shift+H`, focus start panel on `Win+Shift+F`, coach review reader from toast click, cluster status grid); (4) bootstrap (4-stage MSI installer wizard, SmartScreen mitigation landing page, SPEC-28 4-step onboarding wizard's Windows render, vault setup card for v0.5.x → v0.6.0 plain-identity migration). Six Mermaid sequence diagrams cover tray-dropdown render (< 150 ms), background-emitted toast (< 500 ms render), MSI install (≤ 30 s wall-clock), SmartScreen "More info → Run anyway" workaround, global hotkey conflict detection + fallback, and settings keyboard-only navigation. Tauri webview hosts every surface (no WinUI 3 native windows in v0.6.0); Mica acrylic deferred to v0.7.0+; MSI wizard skips a license screen to hit the 30 s budget — Apache-2.0 link lives in the About tab instead. Companion to SPEC-42 (foundations); neighbor to SPEC-41 (macOS screens) and SPEC-45 (Linux screens).
+**English abstract**: SPEC-43 freezes Spectyn Mesh's **Windows desktop UI surface** — twelve screens plus six end-to-end flow sequences that together close the macOS UX parity gap in v0.6.0. Screens split into four groups: (1) ambient surface (system tray dropdown with four-state icon matrix, toast notification XML template, AUMID-anchored deep-link); (2) settings (six-tab window — General / Cluster / Providers / Vault / Background Service / About — all keyboard-reachable per WCAG 2.2 AA); (3) daily flow (chip palette popover on `Win+Shift+H`, focus start panel on `Win+Shift+F`, coach review reader from toast click, cluster status grid); (4) bootstrap (4-stage MSI installer wizard, SmartScreen mitigation landing page, SPEC-28 4-step onboarding wizard's Windows render, vault setup card for v0.5.x → v0.6.0 plain-identity migration). Six Mermaid sequence diagrams cover tray-dropdown render (< 150 ms), background-emitted toast (< 500 ms render), MSI install (≤ 30 s wall-clock), SmartScreen "More info → Run anyway" workaround, global hotkey conflict detection + fallback, and settings keyboard-only navigation. Tauri webview hosts every surface (no WinUI 3 native windows in v0.6.0); Mica acrylic deferred to v0.7.0+; MSI wizard skips a license screen to hit the 30 s budget — Apache-2.0 link lives in the About tab instead. Companion to SPEC-42 (foundations); neighbor to SPEC-41 (macOS screens) and SPEC-45 (Linux screens).
 
 > **📚 全檔縮寫 + 英文名詞對照表**（給第一次接觸這個 repo（程式碼倉庫）的研究生 / 大學生讀者；本表 28 條，分 A UI 元件 / B 互動 / C 安裝 / D 平台對齊 / E 觀測 五群。同檔內第二次出現後允許只用英文。）
 >
@@ -54,7 +54,7 @@
 > |---|---|---|
 > | `global hotkey` | 全域熱鍵 | 不管焦點在哪都可觸發的鍵盤快捷鍵 |
 > | `accelerator` | 加速鍵字串 | hotkey 字串表達（如 `Win+Shift+H`） |
-> | `deep-link` | 深連結 | `phantom-mesh://...` URL 直跳特定畫面 |
+> | `deep-link` | 深連結 | `spectyn-mesh://...` URL 直跳特定畫面 |
 > | `AUMID` | App User Model ID | Windows toast 必需的 app 識別字串 |
 > | `focus order` | 鍵盤焦點順序 | Tab 鍵按下去元件被選到的順序 |
 > | `Narrator` | 朗讀程式 | Windows 內建螢幕閱讀器 |
@@ -98,7 +98,7 @@
 
 SPEC-42 鎖了 Windows platform foundations（平台基礎五件套：WebView2 / Credential Manager / Scheduled Task / System Tray / Toast），但**只列了元件契約，沒列 user 看到的畫面長什麼樣 + flow 怎麼走**。三件 production（正式）規模踩坑案例（per SPEC-42 §2.1）說明 UI 層缺契約的代價：
 
-1. **2026-05-12** — node-a 機 `phantom serve` 被 ssh 斷線 kill 後，user 沒任何 surface 知道 cluster 掉線（tray icon 不變色、無 toast 通知）。
+1. **2026-05-12** — node-a 機 `spectyn serve` 被 ssh 斷線 kill 後，user 沒任何 surface 知道 cluster 掉線（tray icon 不變色、無 toast 通知）。
 2. **2026-05-15** — node-b 機 fresh install 跑完 MSI 沒看到任何 success（成功）UI、user 以為 install 沒成功又重跑一次。
 3. **2026-05-18** — node-a 機 v0.5.x 升級到 v0.6.0、identity（身份）從 plain（明文）搬進 Credential Manager 整段沒任何 UI 告知 user「你的 identity 已上鎖到 OS-level encryption」。
 
@@ -113,7 +113,7 @@ SPEC-42 鎖了 Windows platform foundations（平台基礎五件套：WebView2 /
 ### 2.3 既有解的歷史
 
 - **v0.5.0**：Tauri 殼出 Windows MSI、但 UI 是 macOS layout 直接套；tray icon 是 placeholder（無 dropdown）；toast 走 in-app banner（彈幅）退化版（per `app/src-tauri/src/notifications.rs` line 88-117）。
-- **v0.5.5（2026-05-22）**：`scripts/install-phantom-windows.ps1` 加 PowerShell 提示（`Write-Host` 黃綠字）但仍無 GUI wizard；onboarding wizard 跑 mobile-shape 4 step（per SPEC-28），Windows-specific UX 細節（如 vault setup 顯式 step）沒區隔。
+- **v0.5.5（2026-05-22）**：`scripts/install-spectyn-windows.ps1` 加 PowerShell 提示（`Write-Host` 黃綠字）但仍無 GUI wizard；onboarding wizard 跑 mobile-shape 4 step（per SPEC-28），Windows-specific UX 細節（如 vault setup 顯式 step）沒區隔。
 - **本 spec（v0.6.0）**：把 12 screens + 6 flow sequences 鎖死成 implementable（可實作）契約，下游 implementer 平行落地 Tauri command + React route + 設計師畫真實 mock（mockup）都有 anchor。
 
 ### 2.4 相關 spec
@@ -135,13 +135,13 @@ SPEC-42 鎖了 Windows platform foundations（平台基礎五件套：WebView2 /
 
 ### 3.1 Goals
 
-- `[G1]` **Tray dropdown render < 150 ms p95** — user 右鍵 system tray phantom icon 到 dropdown menu 首畫面像素確定，p50 < 80 ms、p95 < 150 ms（含 6 個 menu item + 動態 header「N peers online」更新）。`(verifies via: T-windows-screens-G1-tray-dropdown-latency)`
-- `[G2]` **背景 emit toast → Action Center render < 500 ms p95** — phantom serve（背景行程、user 已關主視窗）呼 `toast_show` Tauri command 到 toast 出現在 Action Center / 右下角，p50 < 250 ms、p95 < 500 ms。`(verifies via: T-windows-screens-G2-toast-background-render)`
+- `[G1]` **Tray dropdown render < 150 ms p95** — user 右鍵 system tray spectyn icon 到 dropdown menu 首畫面像素確定，p50 < 80 ms、p95 < 150 ms（含 6 個 menu item + 動態 header「N peers online」更新）。`(verifies via: T-windows-screens-G1-tray-dropdown-latency)`
+- `[G2]` **背景 emit toast → Action Center render < 500 ms p95** — spectyn serve（背景行程、user 已關主視窗）呼 `toast_show` Tauri command 到 toast 出現在 Action Center / 右下角，p50 < 250 ms、p95 < 500 ms。`(verifies via: T-windows-screens-G2-toast-background-render)`
 - `[G3]` **MSI wizard 跑完 < 30 s wall-clock p95** — user 雙擊 MSI 到「Finish」按鈕可按下，4 階段全程 wall-clock（含 WebView2 bootstrap + Custom Action）p50 < 20 s、p95 < 30 s（broadband + WebView2 預裝場景 < 10 s）。`(verifies via: T-windows-screens-G3-msi-wizard-wallclock)`
 - `[G4]` **Global hotkey 衝突偵測 + fallback 100% 命中** — `Win+Shift+H` / `Win+Shift+F` 註冊失敗（`ERROR_HOTKEY_ALREADY_REGISTERED`）時自動 fallback 至 `Ctrl+Alt+H` / `Ctrl+Alt+F`；再失敗則 Settings → Hotkeys tab 顯示警示 + 提供自訂入口。100% 測項涵蓋所有單一 fail / 雙 fail / 三 fail scenario（情境）。`(verifies via: T-windows-screens-G4-hotkey-fallback-matrix)`
 - `[G5]` **Settings tab 全 keyboard accessible** — 六個 tab（General / Cluster / Providers / Vault / Background Service / About）整套用 Tab / Shift+Tab / Arrow / Enter / Escape 鍵盤導覽完整可達；Narrator 每元件有可讀 label；focus visible（焦點可見）符合 WCAG 2.2 AA 3:1 對比。`(verifies via: T-windows-screens-G5-settings-keyboard-a11y)`
-- `[G6]` **Vault setup card 一次性成功率 ≥ 95%** — v0.5.x → v0.6.0 升級 user 首次開 v0.6.0 app 時，vault setup card 自動偵測明文 `~/.phantom-mesh/identity.key`、提示遷入 Credential Manager；user 點「遷入並加密」按鈕後 95% 一次完成（剩 5% fail 路徑覆 disk full / CredWrite denied，皆有 UI 復原指引）。`(verifies via: T-windows-screens-G6-vault-setup-success-rate)`
-- `[G7]` **SmartScreen mitigation landing page 30 秒可讀完** — `https://phantom-mesh.io/win-smartscreen` 包含 GIF（彈警示 → 點 More info → Run anyway 三步）+ 簽章驗證指令（`signtool verify`）+ FAQ 三條；user 平均閱讀時間 < 30 秒（透過 stranger test 量測）。`(verifies via: T-windows-screens-G7-smartscreen-landing-readtime)`
+- `[G6]` **Vault setup card 一次性成功率 ≥ 95%** — v0.5.x → v0.6.0 升級 user 首次開 v0.6.0 app 時，vault setup card 自動偵測明文 `~/.spectyn-mesh/identity.key`、提示遷入 Credential Manager；user 點「遷入並加密」按鈕後 95% 一次完成（剩 5% fail 路徑覆 disk full / CredWrite denied，皆有 UI 復原指引）。`(verifies via: T-windows-screens-G6-vault-setup-success-rate)`
+- `[G7]` **SmartScreen mitigation landing page 30 秒可讀完** — `https://spectyn-mesh.io/win-smartscreen` 包含 GIF（彈警示 → 點 More info → Run anyway 三步）+ 簽章驗證指令（`signtool verify`）+ FAQ 三條；user 平均閱讀時間 < 30 秒（透過 stranger test 量測）。`(verifies via: T-windows-screens-G7-smartscreen-landing-readtime)`
 
 ### 3.2 Non-Goals
 
@@ -164,13 +164,13 @@ SPEC-42 鎖了 Windows platform foundations（平台基礎五件套：WebView2 /
 
 > 句型：**When** [situation / trigger（觸發情境）], **I want to** [motivation（動機）], **so I can** [desired outcome（期望結果）].
 
-- `[JS1]` **When** 我在 Windows 11 工作機右下角看到 phantom tray icon 變紅（cluster peer 掉線），**I want to** 右鍵點 tray icon 就看到「N peers online」+「Cluster Status」立即可點，**so I can** 不用開主視窗也知道掉誰、要不要修。 (→ G1)
+- `[JS1]` **When** 我在 Windows 11 工作機右下角看到 spectyn tray icon 變紅（cluster peer 掉線），**I want to** 右鍵點 tray icon 就看到「N peers online」+「Cluster Status」立即可點，**so I can** 不用開主視窗也知道掉誰、要不要修。 (→ G1)
 - `[JS2]` **When** Coach（教練 agent）算完日終回顧但我關了主視窗 + 切到別的 app，**I want to** Windows 右下角即時彈 toast、點下去直接跳到 review reader，**so I can** 不錯過今天的回顧也不被中斷工作流。 (→ G2)
 - `[JS3]` **When** 我在新公司配的 Windows 11 OEM 機（從未裝過 WebView2）想雙擊 MSI 上手，**I want to** wizard 30 秒內跑完不需要我懂任何技術細節，**so I can** 直接看到 tray icon + onboarding wizard 接力。 (→ G3)
 - `[JS4]` **When** 我按 `Win+Shift+H` 想快記「水 500ml」但這組 hotkey 被別的 app 搶走，**I want to** 系統自動退到 `Ctrl+Alt+H` 並在 Settings 用紅字告訴我發生啥、給我自訂入口，**so I can** 不靜默失敗、不浪費 30 秒找原因。 (→ G4)
 - `[JS5]` **When** 我要去 Settings 開 cluster 設定但今天滑鼠壞了只能用鍵盤，**I want to** Tab / Arrow / Enter 一路通到底、Narrator 全程讀得清楚，**so I can** 不被擋。 (→ G5)
 - `[JS6]` **When** 我從 v0.5.x 升級到 v0.6.0、第一次開 app 看到 vault setup card 提示「你的 identity 還是明文、現在要不要鎖進 Credential Manager」，**I want to** 一個按鈕完成 + 看到確認「已加密、明文檔已刪」，**so I can** 安心知道 OS-level 加密已啟用。 (→ G6)
-- `[JS7]` **When** 我朋友第一次裝 phantom-mesh 被 SmartScreen 紅警示嚇到，**I want to** 我給他一個 landing page URL，他 30 秒內看完 GIF + 知道怎麼按下去，**so I can** 不要每次親自帶人走 More info → Run anyway。 (→ G7)
+- `[JS7]` **When** 我朋友第一次裝 spectyn-mesh 被 SmartScreen 紅警示嚇到，**I want to** 我給他一個 landing page URL，他 30 秒內看完 GIF + 知道怎麼按下去，**so I can** 不要每次親自帶人走 More info → Run anyway。 (→ G7)
 
 ---
 
@@ -193,7 +193,7 @@ flowchart LR
     User(["使用者（user）"])
 
     subgraph WinDesktop["Windows 11 桌面"]
-        TauriApp["Tauri 主視窗<br/>（phantom-mesh.exe）"]
+        TauriApp["Tauri 主視窗<br/>（spectyn-mesh.exe）"]
         TrayIcon["System Tray<br/>（NotifyIcon、icon state matrix）"]
         TrayDropdown["Tray dropdown menu<br/>（6 items + header）"]
         ToastUI["Toast<br/>（WinRT ToastNotificationManager）"]
@@ -208,7 +208,7 @@ flowchart LR
 
     subgraph WinBootstrap["啟動相關"]
         MSIWizard["MSI installer wizard<br/>（4 stage WiX UI）"]
-        SmartLanding[["SmartScreen landing page<br/>（phantom-mesh.io/win-smartscreen）"]]
+        SmartLanding[["SmartScreen landing page<br/>（spectyn-mesh.io/win-smartscreen）"]]
     end
 
     subgraph WinFoundations["SPEC-42 platform foundations"]
@@ -218,7 +218,7 @@ flowchart LR
     end
 
     subgraph Backend["背景"]
-        PhantomServe["phantom serve"]
+        SpectynServe["spectyn serve"]
         CoachEngine["coach.agent<br/>（SPEC-23）"]
     end
 
@@ -239,8 +239,8 @@ flowchart LR
     OnboardingWiz --> VaultCard
     VaultCard --> CredMan
 
-    CoachEngine -- "emit" --> PhantomServe
-    PhantomServe -- "toast_show" --> ToastUI
+    CoachEngine -- "emit" --> SpectynServe
+    SpectynServe -- "toast_show" --> ToastUI
     User -- "點 toast" --> CoachReader
 
     SettingsWin --> CredMan
@@ -281,7 +281,7 @@ sequenceDiagram
     participant ClusterCache as cluster peer cache
     participant Tauri as Tauri webview
 
-    User->>Shell: 右鍵點 phantom tray icon
+    User->>Shell: 右鍵點 spectyn tray icon
     Shell->>Tray: WM_RBUTTONUP message
     Tray->>TrayMod: on_right_click()
     TrayMod->>ClusterCache: get_peer_count() (cached 5s)
@@ -295,27 +295,27 @@ sequenceDiagram
     Tauri-->>User: 主視窗 focus + route to /cluster
 ```
 
-**Flow 2 — Background phantom serve emit toast → Action Center**
+**Flow 2 — Background spectyn serve emit toast → Action Center**
 
 ```mermaid
 sequenceDiagram
     actor User as 使用者
     participant Coach as coach.agent
-    participant Serve as phantom serve
+    participant Serve as spectyn serve
     participant ToastMod as windows_toast.rs
     participant WinRT as ToastNotificationManager
     participant AC as Action Center
     participant Tauri as Tauri 主視窗 (cold)
 
     Coach->>Serve: review_ready event (daily summary)
-    Serve->>ToastMod: toast_show({title, body, deep_link:"phantom-mesh://coach/review/2026-05-25"})
+    Serve->>ToastMod: toast_show({title, body, deep_link:"spectyn-mesh://coach/review/2026-05-25"})
     ToastMod->>ToastMod: build XML template (per SPEC-42 §8.5)
     ToastMod->>WinRT: ToastNotifier.Show(toast)
-    Note over WinRT: AUMID = com.phantom-mesh.app
+    Note over WinRT: AUMID = com.spectyn-mesh.app
     WinRT-->>AC: 顯示 toast（≤ 500ms p95 from toast_show call）
     AC-->>User: 右下角彈出
     User->>AC: 點 toast
-    AC->>Tauri: cold-launch phantom-mesh.exe with /protocol arg
+    AC->>Tauri: cold-launch spectyn-mesh.exe with /protocol arg
     Tauri->>Tauri: parse deep-link，route to /coach/review/2026-05-25
     Tauri-->>User: coach review reader 開啟
     alt deep-link parse fail
@@ -336,9 +336,9 @@ sequenceDiagram
     participant FilesCA as Files copy
     participant TaskCA as Schtasks register CA
 
-    User->>MSI: 雙擊 phantom-mesh-x86_64.msi
+    User->>MSI: 雙擊 spectyn-mesh-x86_64.msi
     MSI->>Wiz: Stage 1 (Welcome dialog)
-    Wiz-->>User: 顯示「Phantom Mesh v0.6.0」+ Next
+    Wiz-->>User: 顯示「Spectyn Mesh v0.6.0」+ Next
     User->>Wiz: 點 Next
     Wiz->>WV2Check: Stage 2 (WebView2 detect)
     WV2Check->>WV2Check: read HKLM/.../EBWebView/pv
@@ -352,8 +352,8 @@ sequenceDiagram
         WV2Check-->>Wiz: show「✓ installed (took 28s)」
     end
     Wiz->>FilesCA: Stage 3 (Install files + register protocol)
-    FilesCA->>FilesCA: 解壓到 %LOCALAPPDATA%/PhantomMesh
-    FilesCA->>FilesCA: HKCR register phantom-mesh:// scheme
+    FilesCA->>FilesCA: 解壓到 %LOCALAPPDATA%/SpectynMesh
+    FilesCA->>FilesCA: HKCR register spectyn-mesh:// scheme
     FilesCA-->>Wiz: progress 100%
     Wiz->>TaskCA: Stage 4 pre-finish (Schtasks register)
     TaskCA->>TaskCA: schtasks /Create ONLOGON HIGHEST
@@ -361,7 +361,7 @@ sequenceDiagram
         TaskCA->>TaskCA: fallback Register-ScheduledTask PS
     end
     TaskCA-->>Wiz: ok
-    Wiz-->>User: Finish dialog (with「Launch Phantom Mesh now」checkbox)
+    Wiz-->>User: Finish dialog (with「Launch Spectyn Mesh now」checkbox)
     User->>Wiz: 點 Finish
     Wiz->>MSI: exit
     Note over MSI: wall-clock ≤ 30s p95（無 WebView2 預裝場景）
@@ -375,14 +375,14 @@ sequenceDiagram
     participant Browser as 瀏覽器
     participant SSrv as SmartScreen Service
     participant MSI as MSI 雙擊
-    participant Land as phantom-mesh.io/win-smartscreen
+    participant Land as spectyn-mesh.io/win-smartscreen
 
-    User->>Browser: 下載 phantom-mesh-x86_64.msi
+    User->>Browser: 下載 spectyn-mesh-x86_64.msi
     User->>MSI: 雙擊
     MSI->>SSrv: 檢查 reputation
     alt reputation 不足（EV cert 累積中）
         SSrv-->>User: 紅警示「Windows protected your PC」
-        User->>Browser: 開瀏覽器查 phantom mesh
+        User->>Browser: 開瀏覽器查 spectyn mesh
         Browser->>Land: GET /win-smartscreen
         Land-->>User: 顯示 GIF（彈警示 → More info → Run anyway）+ signtool 驗證指令
         User->>MSI: 回去點「More info」→「Run anyway」
@@ -467,7 +467,7 @@ sequenceDiagram
 |---|---|---|---|---|---|---|
 | `screen_id` | `String` | yes | — | screen 唯一 id（kebab-case） | `"settings-cluster-tab"` | no |
 | `route` | `String` | yes | — | Tauri webview route | `"/settings/cluster"` | no |
-| `entry_points` | `Vec<String>` | yes | — | 從哪些地方可進入此 screen | `["tray:cluster-status","settings:tab-cluster","deep-link:phantom-mesh://settings/cluster"]` | no |
+| `entry_points` | `Vec<String>` | yes | — | 從哪些地方可進入此 screen | `["tray:cluster-status","settings:tab-cluster","deep-link:spectyn-mesh://settings/cluster"]` | no |
 | `keyboard_first` | `bool` | yes | `true` | 是否支援純鍵盤導覽 | `true` | no |
 | `min_os_version` | `String` | yes | `"10.0.19041"` | 最低 Win 版號 | `"10.0.19041"` | no |
 | `render_budget_ms_p50` | `u32` | yes | — | render 預算 p50（毫秒） | `100` | no |
@@ -542,12 +542,12 @@ pub struct TraydropdownItemSpec {
 
 | 欄位 | 型別 | 必填 | 預設 | 描述 | 範例 | 是否加密 |
 |---|---|---|---|---|---|---|
-| `aumid` | `String` | yes | `"com.phantom-mesh.app"` | App User Model ID | `"com.phantom-mesh.app"` | no |
+| `aumid` | `String` | yes | `"com.spectyn-mesh.app"` | App User Model ID | `"com.spectyn-mesh.app"` | no |
 | `template_kind` | `Enum{ToastGeneric,ToastImageAndText}` | yes | `ToastGeneric` | template type | `ToastGeneric` | no |
 | `title` | `String` | yes | — | 標題 | `"Coach 日終回顧"` | no |
 | `body_lines` | `Vec<String>` | yes | — | 內文行（最多 3 行 per WinRT 限制） | `["今天 12 個 capture","3 個 skill"]` | no |
 | `image_path` | `Option<PathBuf>` | no | `None` | 縮圖路徑（local file://） | `Some("C:/.../icon-coach.png")` | no |
-| `deep_link` | `String` | yes | — | launch URI（toast launch attr） | `"phantom-mesh://coach/review/2026-05-25"` | no |
+| `deep_link` | `String` | yes | — | launch URI（toast launch attr） | `"spectyn-mesh://coach/review/2026-05-25"` | no |
 | `actions` | `Vec<ToastAction>` | no | `[]` | 可選 inline 按鈕 | `[{label:"開啟",arg:"open-review",activation:"protocol"}]` | no |
 | `duration` | `Enum{Short,Long}` | yes | `Short` | 顯示時長 | `Short` | no |
 | `scenario` | `Enum{Default,Reminder,Alarm,IncomingCall}` | yes | `Default` | 重要度 | `Default` | no |
@@ -602,24 +602,24 @@ Round-trip check：三個 struct 走 `core/contracts/toast-template.json` schema
 
 - **`WindowsScreenSpec` 集合**：static 表，`core/src/ui/screens_registry.rs` 編譯期生成；不存磁碟。
 - **`TraydropdownItemSpec` 集合**：同上、static 表。
-- **`ToastTemplate` 實例**：runtime 由 phantom serve / coach.agent 組裝；不持久化（emit 後丟）；歷史以 toast id 寫進 `~/.phantom-mesh/notifications.sqlite`（meta only、無 body 內容）。
-- **使用者自訂 hotkey override**：`~/.phantom-mesh/hotkeys.json`（per-user override of default accelerator）。
-- **vault setup state**：`~/.phantom-mesh/onboarding.json` 加 `vault_migration_status: "pending|done|skipped|failed"` 欄位（共用 SPEC-28 既有結構）。
+- **`ToastTemplate` 實例**：runtime 由 spectyn serve / coach.agent 組裝；不持久化（emit 後丟）；歷史以 toast id 寫進 `~/.spectyn-mesh/notifications.sqlite`（meta only、無 body 內容）。
+- **使用者自訂 hotkey override**：`~/.spectyn-mesh/hotkeys.json`（per-user override of default accelerator）。
+- **vault setup state**：`~/.spectyn-mesh/onboarding.json` 加 `vault_migration_status: "pending|done|skipped|failed"` 欄位（共用 SPEC-28 既有結構）。
 
 ### 7.3 Retention
 
 - **notifications.sqlite**：rotate 90 天（user 可在 Settings → General 改 7/30/90/keep-all）。
-- **hotkeys.json**：跟著 user profile 永久存；`phantom data delete --hotkeys` 清。
+- **hotkeys.json**：跟著 user profile 永久存；`spectyn data delete --hotkeys` 清。
 - **vault setup state**：跟 onboarding.json 同生命週期。
 
 ### 7.4 Migration
 
 - **v0.5.x → v0.6.0**：
-  1. 升級首次開 app 偵測 `~/.phantom-mesh/identity.key`（明文存在），自動跳 vault setup card（不 silent migrate；要 user 明確點按）。
+  1. 升級首次開 app 偵測 `~/.spectyn-mesh/identity.key`（明文存在），自動跳 vault setup card（不 silent migrate；要 user 明確點按）。
   2. user 點「遷入並加密」→ 走 SPEC-42 §7.4 流程（CredWriteW → 驗 round-trip → secure_delete 明文檔）。
   3. user 點「稍後」→ 寫 `vault_migration_status: "pending"`，下次開 app 再提醒；連續 skip 3 次後 Settings → Vault tab 持續顯示警示。
 - **screens registry**：static 編譯、no schema migration。
-- **toast aumid**：v0.5.x 沒設 aumid → v0.6.0 MSI 安裝時透過 shortcut metadata 註冊（per SPEC-42 §8.5）；若 v0.5.x in-place upgrade 而未跑 MSI（rare：手動覆蓋 binary），首次 `phantom serve` 啟動 detect aumid missing 並 self-register。
+- **toast aumid**：v0.5.x 沒設 aumid → v0.6.0 MSI 安裝時透過 shortcut metadata 註冊（per SPEC-42 §8.5）；若 v0.5.x in-place upgrade 而未跑 MSI（rare：手動覆蓋 binary），首次 `spectyn serve` 啟動 detect aumid missing 並 self-register。
 
 ---
 
@@ -633,17 +633,17 @@ Round-trip check：三個 struct 走 `core/contracts/toast-template.json` schema
 
 | State | 觸發條件 | Icon 檔 | Header 文字 (zh-TW) | Header 文字 (en) |
 |---|---|---|---|---|
-| `idle` | cluster connected + 0 active task | `phantom-tray-idle.ico` | 「待機」 | "Idle" |
-| `working` | cluster connected + N > 0 active task | `phantom-tray-working.ico`（綠點） | 「處理 N 件」 | "Working on N" |
-| `error` | 任一 peer 掉線 / provider 斷線 | `phantom-tray-error.ico`（紅點） | 「N 個錯誤」 | "N error(s)" |
-| `offline` | mDNS 找不到任何 peer | `phantom-tray-offline.ico`（灰） | 「離線」 | "Offline" |
+| `idle` | cluster connected + 0 active task | `spectyn-tray-idle.ico` | 「待機」 | "Idle" |
+| `working` | cluster connected + N > 0 active task | `spectyn-tray-working.ico`（綠點） | 「處理 N 件」 | "Working on N" |
+| `error` | 任一 peer 掉線 / provider 斷線 | `spectyn-tray-error.ico`（紅點） | 「N 個錯誤」 | "N error(s)" |
+| `offline` | mDNS 找不到任何 peer | `spectyn-tray-offline.ico`（灰） | 「離線」 | "Offline" |
 
-State 切換由 phantom serve 透過 Tauri event `tray.state.update` 推送，前端 debounce 1 秒（避免閃爍）。
+State 切換由 spectyn serve 透過 Tauri event `tray.state.update` 推送，前端 debounce 1 秒（避免閃爍）。
 
 ### 8.2 Tray dropdown menu items（鎖定順序）
 
-1. Header（不可點、灰字、動態）：「Phantom Mesh · N peers · 狀態」
-2. `Open Phantom Mesh` (Ctrl+O) → 喚起主視窗
+1. Header（不可點、灰字、動態）：「Spectyn Mesh · N peers · 狀態」
+2. `Open Spectyn Mesh` (Ctrl+O) → 喚起主視窗
 3. `Cluster Status...` → 跳 `/cluster`
 4. `---` separator
 5. `Quick Log` (Win+Shift+H) → 開 chip popover
@@ -652,9 +652,9 @@ State 切換由 phantom serve 透過 Tauri event `tray.state.update` 推送，�
 8. `Pause Capture` / `Resume Capture`（依狀態切換）
 9. `---` separator
 10. `Settings...` → 開 settings window，預設 General tab
-11. `Quit` (Ctrl+Q) → 結束殼 + 詢問是否同停 phantom serve
+11. `Quit` (Ctrl+Q) → 結束殼 + 詢問是否同停 spectyn serve
 
-dev mode 在 header 後追加 badge「DEV — phantom-mesh-dev:」（per SPEC-42 §7.2）。
+dev mode 在 header 後追加 badge「DEV — spectyn-mesh-dev:」（per SPEC-42 §7.2）。
 
 ### 8.3 Settings 6-tab 結構
 
@@ -672,7 +672,7 @@ dev mode 在 header 後追加 badge「DEV — phantom-mesh-dev:」（per SPEC-42
 ### 8.4 Toast XML 完整範例（per SPEC-42 §8.5 加上 SPEC-43 動態欄位）
 
 ```xml
-<toast launch="phantom-mesh://coach/review/2026-05-25" duration="short" scenario="default">
+<toast launch="spectyn-mesh://coach/review/2026-05-25" duration="short" scenario="default">
   <visual>
     <binding template="ToastGeneric">
       <text hint-maxLines="1">{{ title }}</text>
@@ -705,19 +705,19 @@ dev mode 在 header 後追加 badge「DEV — phantom-mesh-dev:」（per SPEC-42
 
 | Stage | Dialog id | 主文 (zh-TW) | 主文 (en) | 按鈕 |
 |---|---|---|---|---|
-| 1 Welcome | `WelcomeDlg` | 「歡迎使用 Phantom Mesh v0.6.0」 | "Welcome to Phantom Mesh v0.6.0" | Next / Cancel |
+| 1 Welcome | `WelcomeDlg` | 「歡迎使用 Spectyn Mesh v0.6.0」 | "Welcome to Spectyn Mesh v0.6.0" | Next / Cancel |
 | 2 WebView2 check | `WebView2Dlg` | 「正在檢查 Microsoft Edge WebView2 執行環境...」（含 progress bar） | "Checking Microsoft Edge WebView2 runtime..." | Next（auto-advance）/ Cancel |
 | 3 Install | `InstallDlg` | 「正在安裝...（複製檔案、註冊背景工作）」 | "Installing... (copying files, registering background task)" | （無按鈕，progress bar） |
-| 4 Finish | `FinishDlg` | 「安裝完成！」+ checkbox「立即啟動 Phantom Mesh」 | "Installation complete!" + checkbox "Launch Phantom Mesh now" | Finish |
+| 4 Finish | `FinishDlg` | 「安裝完成！」+ checkbox「立即啟動 Spectyn Mesh」 | "Installation complete!" + checkbox "Launch Spectyn Mesh now" | Finish |
 
-無 License agreement dialog（NG3）；無 Customize install location dialog（v0.6.0 強制 `%LOCALAPPDATA%\PhantomMesh`）。
+無 License agreement dialog（NG3）；無 Customize install location dialog（v0.6.0 強制 `%LOCALAPPDATA%\SpectynMesh`）。
 
 ### 8.7 Vault setup card 行為
 
 - **偵測時機**：app cold launch 後 200ms（Tauri `app.ready` event）。
-- **偵測邏輯**：`vault_setup_status()` Tauri command → 後端 `fs::exists("~/.phantom-mesh/identity.key")` && `CredReadW("phantom-mesh:identity")` 回 `None`。
+- **偵測邏輯**：`vault_setup_status()` Tauri command → 後端 `fs::exists("~/.spectyn-mesh/identity.key")` && `CredReadW("spectyn-mesh:identity")` 回 `None`。
 - **UI**：頂部 banner（非 modal、不擋操作）「你的 identity 還是明文。一鍵搬進 Credential Manager 加密。」+「遷入並加密」+「稍後」按鈕。
-- **成功路徑**：banner 變綠 5 秒「✓ 已加密。原明文檔已安全刪除。」自動消失；Settings → Vault tab 顯示 `phantom-mesh:identity` entry metadata。
+- **成功路徑**：banner 變綠 5 秒「✓ 已加密。原明文檔已安全刪除。」自動消失；Settings → Vault tab 顯示 `spectyn-mesh:identity` entry metadata。
 - **失敗路徑**：banner 變紅「遷入失敗：<dev detail>」+ 「重試」+「查看記錄」+「跳過（不建議）」按鈕；click「查看記錄」開 Settings → Vault tab 的 log viewer。
 
 ---
@@ -755,7 +755,7 @@ dev mode 在 header 後追加 badge「DEV — phantom-mesh-dev:」（per SPEC-42
 | Code | When | User copy (zh-TW) | User copy (en) | Dev detail | Recovery action | Retryable? |
 |---|---|---|---|---|---|---|
 | `R.windows.tray_menu_render_slow` | tray dropdown render > 250ms p95（hard limit 觸發） | （無 user-facing；只 log + metric） | n/a | render_ms + cluster_count | 自動降階 menu 動態 header 改 static | yes |
-| `R.windows.toast_emit_fail` | `ToastNotifier.Show` 拋例外 | 通知無法顯示（系統可能停用 phantom 通知）。請至設定 → 通知 開啟 Phantom Mesh。 | Toast notification failed to display (system may have disabled phantom notifications). Open Settings → Notifications to enable Phantom Mesh. | HRESULT | guide user to Settings | manual |
+| `R.windows.toast_emit_fail` | `ToastNotifier.Show` 拋例外 | 通知無法顯示（系統可能停用 spectyn 通知）。請至設定 → 通知 開啟 Spectyn Mesh。 | Toast notification failed to display (system may have disabled spectyn notifications). Open Settings → Notifications to enable Spectyn Mesh. | HRESULT | guide user to Settings | manual |
 | `R.windows.hotkey_all_fail` | primary + fallback 都失敗 | 兩組快捷鍵都被其他程式佔用，請至 Settings → 快捷鍵 自選。 | Both default and fallback hotkeys are taken by other apps. Open Settings → Hotkeys to customize. | both errors logged | open hotkey customize | manual |
 | `R.windows.vault_setup_credman_denied` | `CredWriteW` 在 vault setup card 流程中回非 0 HRESULT | 無法寫入 Windows 憑證管理員。<dev detail>。 | Cannot write to Credential Manager: <dev detail>. | HRESULT | retry button | yes (if transient) |
 | `R.windows.vault_setup_roundtrip_mismatch` | CredWrite ok 但 CredRead 回的 bytes ≠ 原明文 bytes | 加密驗證失敗：寫入後讀回的內容不一致。明文檔已保留。 | Encryption verification failed: bytes read back don't match. Plain file preserved. | byte diff len | retry; if persists, contact dev | yes (rare) |
@@ -774,7 +774,7 @@ dev mode 在 header 後追加 badge「DEV — phantom-mesh-dev:」（per SPEC-42
 |---|---|---|---|---|
 | S1 | System tray icon（常駐） | n/a（OS surface） | 自動（app launch） | 即時（OS 管） |
 | S2 | Tray dropdown menu | n/a（OS popup） | 右鍵 tray icon | 150 ms |
-| S3 | Toast notification | n/a（Action Center） | phantom serve 或 coach emit | 500 ms |
+| S3 | Toast notification | n/a（Action Center） | spectyn serve 或 coach emit | 500 ms |
 | S4 | Settings · General tab | `/settings/general` | tray menu / Ctrl+, / deep-link | 200 ms |
 | S5 | Settings · Cluster tab | `/settings/cluster` | tray menu / tab switch | 250 ms |
 | S6 | Settings · Providers tab | `/settings/providers` | tab switch | 250 ms |
@@ -794,9 +794,9 @@ Plus 三個 bootstrap surfaces（**不算 daily screen** 但 spec 內鎖定）�
 
 ```
 ┌──────────────────────────────────────────────┐
-│ Phantom Mesh · 3 peers · working 2 tasks    │   ← header（灰、不可點、動態）
+│ Spectyn Mesh · 3 peers · working 2 tasks    │   ← header（灰、不可點、動態）
 ├──────────────────────────────────────────────┤
-│ Open Phantom Mesh                  Ctrl+O   │
+│ Open Spectyn Mesh                  Ctrl+O   │
 │ Cluster Status...                            │
 ├──────────────────────────────────────────────┤
 │ Quick Log                       Win+Shift+H  │   ← 或 fallback "Ctrl+Alt+H"
@@ -815,7 +815,7 @@ Dev mode：header 加「[DEV]」前綴 + tray icon overlay 一個小 D 字母 ba
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ Phantom Mesh · Settings                                              [_][□][X]│
+│ Spectyn Mesh · Settings                                              [_][□][X]│
 ├─────────────┬───────────────────────────────────────────────────────────────┤
 │ [tablist]   │ [tabpanel role=tabpanel aria-labelledby="tab-cluster"]        │
 │ General     │                                                                │
@@ -838,7 +838,7 @@ Keyboard：Tab 進左 tablist；↑↓ 切 tab；Enter 進右 tabpanel；Tab 在
 
 ```
 ┌─────────────────────────────────────────────┐
-│  ◯  Phantom Mesh                            │
+│  ◯  Spectyn Mesh                            │
 │      Coach 日終回顧                         │
 │      今天累積 12 個 capture                 │
 │      3 個 skill 已抽出。點擊查看。           │
@@ -847,7 +847,7 @@ Keyboard：Tab 進左 tablist；↑↓ 切 tab；Enter 進右 tabpanel；Tab 在
 └─────────────────────────────────────────────┘
 ```
 
-A11y：`AutomationName="Phantom Mesh coach review notification"`；按鈕 `AutomationId="action-open-review"` / `"action-snooze"`；Narrator 預設讀題 + 內文 + 按鈕順序。
+A11y：`AutomationName="Spectyn Mesh coach review notification"`；按鈕 `AutomationId="action-open-review"` / `"action-snooze"`；Narrator 預設讀題 + 內文 + 按鈕順序。
 
 ### 10.5 Chip palette popover — wireframe
 
@@ -890,14 +890,14 @@ Trigger：`Win+Shift+H`（or fallback）；window position：右下角貼 tray�
 
 成功後 5 秒淡出：「✓ 已加密。原明文檔已安全刪除。」失敗則紅 banner + dev detail + retry。
 
-### 10.8 SmartScreen landing page（外部 https://phantom-mesh.io/win-smartscreen）
+### 10.8 SmartScreen landing page（外部 https://spectyn-mesh.io/win-smartscreen）
 
 結構：
 
 1. H1：「Windows SmartScreen 紅警示？這是正常的」
 2. H2：「為什麼會出現」 — 兩段：reputation building + EV cert 機制
 3. H2：「如何繼續安裝」 — 3 frame GIF（彈警示 → 點 More info → 點 Run anyway）
-4. H2：「想自己驗證簽章」 — `signtool verify /pa /v phantom-mesh.msi` 範例輸出
+4. H2：「想自己驗證簽章」 — `signtool verify /pa /v spectyn-mesh.msi` 範例輸出
 5. H2：「FAQ」 — 3 條（Q1: 是 malware 嗎？Q2: 為什麼不買 EV cert？Q3: 我用 Defender 為什麼還警示？）
 6. Footer：CTA 回 download page
 
@@ -919,11 +919,11 @@ Trigger：`Win+Shift+H`（or fallback）；window position：右下角貼 tray�
 - **Secret 處理**：Settings → Vault tab 只顯示 metadata（target / persist / has_secret）— 永遠不渲染 raw bytes；Providers tab 顯示「API key 已設定 ✓」而非 key 值。
 - **PII**：所有 wireframe / sample / log 一律 redacted（hostname / IP / 真實 cluster_secret hash 不寫死）；user-facing copy 不含 user-input echo back。
 - **STRIDE**：
-  - **S(poofing) 偽冒**：toast deep-link `phantom-mesh://` 可能被 malicious 網頁觸發 → Tauri 殼接 deep-link 後驗 host 白名單（只接 `coach/` `cluster/` `settings/` 三個 path prefix）。
+  - **S(poofing) 偽冒**：toast deep-link `spectyn-mesh://` 可能被 malicious 網頁觸發 → Tauri 殼接 deep-link 後驗 host 白名單（只接 `coach/` `cluster/` `settings/` 三個 path prefix）。
   - **T(ampering) 竄改**：landing page HTML 可被中間人篡改 → 走 HTTPS + HSTS（per SPEC-29 deployment）。
   - **R(epudiation) 否認**：vault setup migrate 走 audit log（per SPEC-42 §12.1）。
   - **I(nfo disclosure) 資訊外洩**：cluster status grid 顯示 peer name 但 hash 化（per SPEC-08）。
-  - **D(oS) 阻斷服務**：tray menu rebuild debounce 1s 防 phantom serve 暴衝。
+  - **D(oS) 阻斷服務**：tray menu rebuild debounce 1s 防 spectyn serve 暴衝。
   - **E(oP) 提權**：vault setup migrate 不請求 admin；schtasks 路徑 fallback 維持 user-level。
 
 ### 12.2 Accessibility
@@ -949,12 +949,12 @@ Trigger：`Win+Shift+H`（or fallback）；window position：右下角貼 tray�
 ### 12.4 Observability
 
 - **Metrics**：
-  - `phantom_windows_tray_dropdown_render_ms` histogram（per G1）
-  - `phantom_windows_toast_emit_to_render_ms` histogram（per G2）
-  - `phantom_windows_msi_install_wallclock_s` histogram（per G3）
-  - `phantom_windows_hotkey_register_total{action,outcome="primary|fallback|fail"}` counter（per G4）
-  - `phantom_windows_settings_tab_switch_total{from,to}` counter
-  - `phantom_windows_vault_setup_total{outcome="success|skip|fail"}` counter（per G6）
+  - `spectyn_windows_tray_dropdown_render_ms` histogram（per G1）
+  - `spectyn_windows_toast_emit_to_render_ms` histogram（per G2）
+  - `spectyn_windows_msi_install_wallclock_s` histogram（per G3）
+  - `spectyn_windows_hotkey_register_total{action,outcome="primary|fallback|fail"}` counter（per G4）
+  - `spectyn_windows_settings_tab_switch_total{from,to}` counter
+  - `spectyn_windows_vault_setup_total{outcome="success|skip|fail"}` counter（per G6）
 - **Logs**：所有 tab switch / vault setup / hotkey register 走 `tracing`，level=`info`；error 路徑 level=`warn` 含 dev_detail。
 - **Traces**：vault setup migrate 走 OTEL span（含 `read_plain` `cred_write` `roundtrip_verify` `secure_delete` 4 個 child span）。
 
@@ -962,7 +962,7 @@ Trigger：`Win+Shift+H`（or fallback）；window position：右下角貼 tray�
 
 - 全部 screen 都是 local-only（無網路 dependency）— offline 場景 zero degradation 除 cluster status grid（offline peer 顯示 grey + last-seen 時間）。
 - Toast emit 全本機 WinRT API、無網路需求。
-- SmartScreen landing page 是唯一需要網路的 surface — phantom 自身不依賴其可達性。
+- SmartScreen landing page 是唯一需要網路的 surface — spectyn 自身不依賴其可達性。
 
 ---
 
@@ -993,8 +993,8 @@ Trigger：`Win+Shift+H`（or fallback）；window position：右下角貼 tray�
 |---|---|---|---|---|---|---|
 | 常駐 surface | n/a（mobile foreground） | n/a | NSStatusItem menu bar | **NotifyIcon system tray dropdown** | StatusNotifierItem / GtkStatusIcon | Windows + macOS 兩平台對齊 6 個 menu item |
 | 通知 render | UNUserNotification | NotificationManager | NSUserNotification | **WinRT ToastNotificationManager + AUMID** | libnotify / D-Bus | Windows 唯一需 AUMID 預註冊 |
-| 通知 deep-link | Universal Link | App Link | URL scheme | **`phantom-mesh://` URL scheme（HKCR register）** | xdg-open URL scheme | Windows 走 registry，Linux 走 .desktop |
-| 通知背景 emit | BGTaskScheduler 限制 | Foreground Service notif | NSUserNotification（user app） | **phantom serve 直接 emit via WinRT，AUMID-anchored** | systemd-user emit via D-Bus | Windows + Linux 後台最自由 |
+| 通知 deep-link | Universal Link | App Link | URL scheme | **`spectyn-mesh://` URL scheme（HKCR register）** | xdg-open URL scheme | Windows 走 registry，Linux 走 .desktop |
+| 通知背景 emit | BGTaskScheduler 限制 | Foreground Service notif | NSUserNotification（user app） | **spectyn serve 直接 emit via WinRT，AUMID-anchored** | systemd-user emit via D-Bus | Windows + Linux 後台最自由 |
 | Chip popover hotkey | n/a | n/a | `Cmd+Shift+H`（per SPEC-22） | **`Win+Shift+H`**（避 Ctrl+Shift+H 撞 Chrome） | `Ctrl+Shift+H` | macOS 與 Linux 同字串、Win 換 modifier |
 | Focus start hotkey | n/a | n/a | `Cmd+Shift+F`（per SPEC-21） | **`Win+Shift+F`**（避撞 Outlook） | `Ctrl+Shift+F` | 同上 |
 | Settings 視窗風格 | iOS settings list | Android Material list | macOS sheet 風格 | **Windows Fluent design token 模擬（非原生 WinUI 3）** | GNOME Settings 模擬 | Windows 走 Tauri webview + token；NG1 |
@@ -1012,18 +1012,18 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 
 | Permission / OS Trigger | iOS Info.plist | Android `<uses-permission>` | macOS entitlement | **Windows trigger** | When asked | Fallback if denied |
 |---|---|---|---|---|---|---|
-| Toast 顯示權限 | n/a | n/a | n/a | Settings → Notifications → Phantom Mesh enabled | 預設開 | 退化到 in-app banner |
+| Toast 顯示權限 | n/a | n/a | n/a | Settings → Notifications → Spectyn Mesh enabled | 預設開 | 退化到 in-app banner |
 | Focus assist / Quiet hours 期間 toast 仍 emit | n/a | n/a | n/a | scenario="reminder"（per ToastTemplate）穿透 quiet hours | 重要通知（coach daily review）使用；其他用 default | 普通通知被靜音 |
 | Global hotkey 註冊 | n/a | n/a | n/a | RegisterHotKey API（無 dialog） | 自動 | fallback chain（§8.5） |
-| Deep-link `phantom-mesh://` 處理 | n/a | n/a | n/a | HKCR 註冊（MSI 安裝時） | install 時 | user 手動觸發 .reg 修復 |
-| Action Center 通知歷史保留 | n/a | n/a | n/a | OS-level history（不需 phantom 額外 API） | 自動 | n/a |
+| Deep-link `spectyn-mesh://` 處理 | n/a | n/a | n/a | HKCR 註冊（MSI 安裝時） | install 時 | user 手動觸發 .reg 修復 |
+| Action Center 通知歷史保留 | n/a | n/a | n/a | OS-level history（不需 spectyn 額外 API） | 自動 | n/a |
 
 ---
 
 ## §16 Rollout & Migration
 
 - **Feature flag**：`features.windows_vault_setup_card = true | false`（預設 `true`）；除錯時可關卡片自動彈出。
-- **Kill switch**：`phantom data delete --windows-ui-state`（清 hotkeys.json + onboarding vault_migration_status + tray icon state cache）。
+- **Kill switch**：`spectyn data delete --windows-ui-state`（清 hotkeys.json + onboarding vault_migration_status + tray icon state cache）。
 - **預設值**：
   - 新 user：tray 預設顯示、toast 預設開、Settings 主題跟 system theme、hotkey 走 primary。
   - 既有 v0.5.x user：升級首次開 app 時 vault setup card 自動偵測；onboarding 若還沒完成（vault_migration_status != "done"）每次開 app 都彈一次。
@@ -1045,7 +1045,7 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 3. Tauri 2 已能透過 design token + CSS 模擬 Fluent design 80% — UX 差異對 power user 可接受。
 4. Mica 在 Tauri 2 + WebView2 走 host effect 也可拿到（v0.7.0+ 評估），不是 WinUI 3 唯一路徑。
 
-**何時回來考慮**：Tauri 2 對 Fluent design 模擬效果嚴重退化（極不可能 < 2030）— 留作緊急 fallback；或 phantom-mesh 想做純 Windows OEM 預載版本。
+**何時回來考慮**：Tauri 2 對 Fluent design 模擬效果嚴重退化（極不可能 < 2030）— 留作緊急 fallback；或 spectyn-mesh 想做純 Windows OEM 預載版本。
 
 ### Alt-B：toast 走 in-app banner 退化版（不用 WinRT）
 
@@ -1054,7 +1054,7 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 **為何沒選**：
 1. user 關主視窗時 toast 不顯（違反 G2「background emit」）。
 2. 不會進 Action Center 歷史 — user 漏看一則就沒了。
-3. 鎖屏 / focus assist 期間 phantom 完全 invisible。
+3. 鎖屏 / focus assist 期間 spectyn 完全 invisible。
 4. 與 macOS NSUserNotification 行為不對等 — 跨平台 UX 不一致。
 
 **何時回來考慮**：Microsoft 廢棄 ToastNotificationManager（極不可能） + AUMID 機制（同樣不可能）— 留作緊急 fallback。
@@ -1077,7 +1077,7 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 
 **為何沒選**：
 1. MSI 從 ~ 25 MB 暴漲到 ~ 125 MB — download 5 倍時間 + bandwidth cost。
-2. WebView2 漏洞修補只能等 phantom 出新版（vs Evergreen 自動 Edge 升級）— 違反 P4「加密為先 + 安全優先」。
+2. WebView2 漏洞修補只能等 spectyn 出新版（vs Evergreen 自動 Edge 升級）— 違反 P4「加密為先 + 安全優先」。
 3. user 沒網路無法用 LLM provider，install bootstrap 那 30 秒網路成本 trivial 相比之下。
 4. 多版本維護成本（Evergreen + Fixed 兩條）= 2x test matrix。
 
@@ -1095,17 +1095,17 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 | Win+Shift+H / Win+Shift+F 仍被某 enterprise app 搶（雙 fail 路徑） | Low | Medium | §8.5 fallback chain + Settings → Hotkeys user capture mode（G4 覆蓋） | markl |
 | Toast 在 focus assist mode 被完全靜音、user 漏看 coach review | Medium | Low | 重要通知用 scenario="reminder" 穿透；普通通知接受被靜音 | markl |
 | MSI Custom Action 對 Defender 看起來像 malware → 30s install 變 90s（reputation 不足時） | Medium | High | 申請 VirusTotal whitelisting + Microsoft Security Intelligence submit；landing page 引導 | markl |
-| Vault setup card 在 BitLocker recovery 後 CredWrite 失敗 → user 無 recovery 路徑 | Low | Medium | error toast + retry button + 引導 `phantom data delete --vault` 重來 | markl |
+| Vault setup card 在 BitLocker recovery 後 CredWrite 失敗 → user 無 recovery 路徑 | Low | Medium | error toast + retry button + 引導 `spectyn data delete --vault` 重來 | markl |
 | Settings keyboard nav 在 RTL locale 行為（v0.6.0 不支援 RTL，但未來 Arabic / Hebrew 加入時） | Low | Low | v0.6.0 不處理；v0.7.0 RTL feature 加 a11y 測試 | markl |
 
 ### 18.2 Open Questions
 
 | # | Question | Default assumption | When needed |
 |---|---|---|---|
-| Q1 | Toast 點擊應 cold-launch app 還是直接開 deep-link reader window？ | cold-launch（user 期 immediate response）；timeout 5s fail → 寫 `~/.phantom-mesh/pending_deep_links.json` 下次開 app 補上 | 第一個 emit toast 的 capability（coach review）整合時 |
+| Q1 | Toast 點擊應 cold-launch app 還是直接開 deep-link reader window？ | cold-launch（user 期 immediate response）；timeout 5s fail → 寫 `~/.spectyn-mesh/pending_deep_links.json` 下次開 app 補上 | 第一個 emit toast 的 capability（coach review）整合時 |
 | Q2 | Settings → Vault tab 是否該顯示 secret last-written timestamp？ | yes（diagnostic 友善）；但不顯示 secret_bytes size | Vault tab 實作時 |
 | Q3 | Chip popover 多次連按 Win+Shift+H 應該 toggle close 還是 re-focus？ | toggle close（per macOS NSStatusItem convention） | hotkey 行為實作時 |
-| Q4 | MSI 安裝完是否預設勾選 "Launch Phantom Mesh now" checkbox？ | yes（30 秒 demo 一氣呵成） | wizard wxs 模板 freeze 時 |
+| Q4 | MSI 安裝完是否預設勾選 "Launch Spectyn Mesh now" checkbox？ | yes（30 秒 demo 一氣呵成） | wizard wxs 模板 freeze 時 |
 | Q5 | 是否提供 portable mode（無 install、直接跑 .exe 不註冊 schtasks）？ | no for v0.6.0；v0.7.0+ 評估，會影響 vault setup card 行為 | v0.7.0 roadmap planning |
 
 ---
@@ -1117,7 +1117,7 @@ Windows runtime permission model（per SPEC-42 §15）— 預設不彈權限對�
 | 測項 ID | 描述 | 測試環境 | 期望覆蓋 |
 |---|---|---|---|
 | `T-windows-screens-G1-tray-dropdown-latency` | tray 右鍵 → dropdown 顯示 latency 量測 p50/p95 | real device (node-a/node-b/node-a) + windows-latest CI | 100 次採樣 p50 < 80ms / p95 < 150ms |
-| `T-windows-screens-G2-toast-background-render` | phantom serve emit toast → Action Center render 時間量測 | real device + Win 11 24H2 | p50 < 250ms / p95 < 500ms |
+| `T-windows-screens-G2-toast-background-render` | spectyn serve emit toast → Action Center render 時間量測 | real device + Win 11 24H2 | p50 < 250ms / p95 < 500ms |
 | `T-windows-screens-G3-msi-wizard-wallclock` | fresh Win 11 VM（WebView2 unregistered）→ MSI wall-clock | Hyper-V VM 自動 reset；CI windows-latest + WebView2 uninstall step | p95 < 30s |
 | `T-windows-screens-G4-hotkey-fallback-matrix` | 三種 conflict scenario（primary fail / both fail / triple fail）走 fallback chain | windows-latest CI + 預先 RegisterHotKey 佔用 | 100% scenario pass |
 | `T-windows-screens-G5-settings-keyboard-a11y` | 純鍵盤跑 6 tab + 全 interactive 元件 + Narrator 朗讀 | real device + Windows Narrator on + automated AccessKit probe | 100% element reachable + 100% labeled |

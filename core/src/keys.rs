@@ -1,6 +1,6 @@
 //! Key management primitives.
 //!
-//! Read and edit `~/.phantom-mesh/agents.toml` non-destructively
+//! Read and edit `~/.spectyn-mesh/agents.toml` non-destructively
 //! (preserves comments, ordering, formatting via `toml_edit`).
 //! REPL slash commands `/keys` / `/keys add` / `/keys remove` /
 //! `/keys test` are thin wrappers around these.
@@ -8,10 +8,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Returns the canonical path to agents.toml — `~/.phantom-mesh/agents.toml`.
+/// Returns the canonical path to agents.toml — `~/.spectyn-mesh/agents.toml`.
 pub fn agents_toml_path() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("agents.toml")
 }
 
@@ -93,7 +93,7 @@ pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()>
         fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?
     } else {
         // Fresh file — start with an empty `[providers]` table.
-        String::from("# phantom agents.toml\n\n[providers]\n")
+        String::from("# spectyn agents.toml\n\n[providers]\n")
     };
 
     let mut doc: toml_edit::DocumentMut = content
@@ -126,7 +126,7 @@ pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()>
         .get_mut(provider)
         .and_then(|v| v.as_table_mut())
         .ok_or_else(|| anyhow::anyhow!("[providers.{}] is not a table", provider))?;
-    // apex P4: seal the key at rest when PHANTOM_ENCRYPT_AGENTS is on. When OFF
+    // apex P4: seal the key at rest when SPECTYN_ENCRYPT_AGENTS is on. When OFF
     // this returns `key` unchanged, so the written bytes are byte-identical to
     // today. Fail closed: if sealing is enabled but no EventKey is available,
     // refuse the write instead of persisting the key in plaintext.
@@ -151,7 +151,7 @@ pub fn set_api_key(path: &Path, provider: &str, key: &str) -> anyhow::Result<()>
 /// formatting (comments, ordering) via `toml_edit`.
 ///
 /// Sealing semantics are identical to `set_api_key`: with
-/// `PHANTOM_ENCRYPT_AGENTS` OFF the written bytes are byte-identical to today
+/// `SPECTYN_ENCRYPT_AGENTS` OFF the written bytes are byte-identical to today
 /// (plaintext); with it ON the value is sealed via `agents_seal`, and a missing
 /// `EventKey` makes the write FAIL CLOSED rather than persisting plaintext.
 pub fn set_table_secret(path: &Path, table: &str, field: &str, value: &str) -> anyhow::Result<()> {
@@ -159,7 +159,7 @@ pub fn set_table_secret(path: &Path, table: &str, field: &str, value: &str) -> a
         fs::read_to_string(path).map_err(|e| anyhow::anyhow!("read {}: {}", path.display(), e))?
     } else {
         // Fresh file — a bare header; the table is inserted below.
-        String::from("# phantom agents.toml\n")
+        String::from("# spectyn agents.toml\n")
     };
 
     let mut doc: toml_edit::DocumentMut = content
@@ -174,7 +174,7 @@ pub fn set_table_secret(path: &Path, table: &str, field: &str, value: &str) -> a
         .and_then(|v| v.as_table_mut())
         .ok_or_else(|| anyhow::anyhow!("[{}] is not a table", table))?;
 
-    // apex P4: seal the secret at rest when PHANTOM_ENCRYPT_AGENTS is on. When
+    // apex P4: seal the secret at rest when SPECTYN_ENCRYPT_AGENTS is on. When
     // OFF this returns `value` unchanged, so the written bytes are byte-identical
     // to today. Fail closed: if sealing is enabled but no EventKey is available,
     // refuse the write instead of persisting the secret in plaintext.
@@ -515,24 +515,24 @@ mod tests {
 
     #[test]
     fn snapshot_marks_env_resolved_and_missing() {
-        std::env::set_var("PHANTOM_TEST_GROQ_K6", "abc");
-        std::env::remove_var("PHANTOM_TEST_GEMINI_K6");
+        std::env::set_var("SPECTYN_TEST_GROQ_K6", "abc");
+        std::env::remove_var("SPECTYN_TEST_GEMINI_K6");
         let cfg = cfg_from(
             r#"
             [providers.groq]
             type = "groq"
-            api_key_env = "PHANTOM_TEST_GROQ_K6"
+            api_key_env = "SPECTYN_TEST_GROQ_K6"
             [providers.gemini]
             type = "gemini"
-            api_key_env = "PHANTOM_TEST_GEMINI_K6"
+            api_key_env = "SPECTYN_TEST_GEMINI_K6"
         "#,
         );
         let mut s = snapshot_states(&cfg);
         s.sort();
         assert_eq!(s.len(), 2);
-        assert!(matches!(&s[0].1, KeyState::EnvMissing { var } if var == "PHANTOM_TEST_GEMINI_K6"));
-        assert!(matches!(&s[1].1, KeyState::EnvResolved { var } if var == "PHANTOM_TEST_GROQ_K6"));
-        std::env::remove_var("PHANTOM_TEST_GROQ_K6");
+        assert!(matches!(&s[0].1, KeyState::EnvMissing { var } if var == "SPECTYN_TEST_GEMINI_K6"));
+        assert!(matches!(&s[1].1, KeyState::EnvResolved { var } if var == "SPECTYN_TEST_GROQ_K6"));
+        std::env::remove_var("SPECTYN_TEST_GROQ_K6");
     }
 
     #[test]
@@ -704,7 +704,7 @@ mod tests {
     fn default_provider_meta_recognises_telegram_bot() {
         // Track [O1] — remote-control Telegram adapter.
         // The keys.rs flow needs an entry so that
-        //   phantom keys add telegram_bot <token>     (TUI /keys add)
+        //   spectyn keys add telegram_bot <token>     (TUI /keys add)
         // creates a sensible [providers.telegram_bot] table without
         // forcing the user to remember the type/url strings.
         let meta = default_provider_meta("telegram_bot");

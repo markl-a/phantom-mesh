@@ -1,6 +1,6 @@
 # GOAL-LIST — Mac + iOS 全場景 / 全功能 / 協同覆蓋 → 全測試通過
 
-> 由 skill `phantom-mac-coverage`(統一開發操作法)驅動。把 BIG-GOAL 往下拆成可驗收、
+> 由 skill `spectyn-mac-coverage`(統一開發操作法)驅動。把 BIG-GOAL 往下拆成可驗收、
 > 可追蹤完成度的 goal,三軸覆蓋,硬 exit-code gate,沒過修到過。
 >
 > **生成依據(真實掃描,非臆測):**
@@ -17,7 +17,7 @@
 - **4 支柱**:P1 跨裝置 Mesh · P2 多模態 · P3 進化網 · P4 加密為先(每條 goal 須服務 ≥1)
 - **2 軌道**:Life Track(v0.6.0 領頭:食/專注/習慣/教練)· Work Track(派工/演化)
 - **3 原則**:無羞辱 · 同意把關擷取 · 可逆
-- **平台真相**:Mac + iOS **共用單一 Rust `core/` crate**;iOS 殼在主 repo `app/`(Tauri mobile + `app/src-tauri/gen/apple` Xcode),**非獨立 repo**。`GitHub/hailmary/phantom-mesh-ios/` 是空殼可忽略。
+- **平台真相**:Mac + iOS **共用單一 Rust `core/` crate**;iOS 殼在主 repo `app/`(Tauri mobile + `app/src-tauri/gen/apple` Xcode),**非獨立 repo**。`GitHub/hailmary/spectyn-mesh-ios/` 是空殼可忽略。
 
 ---
 
@@ -71,13 +71,13 @@
 
 **軌道**:Life 9 DONE+TESTED(daemon/CLI 真;mobile 半全 MISSING)· Work 6(SPEC-26 dispatch 腦最佳測但無 user surface)· shared-core 13(最大 MISSING bucket 也在此:foundation codegen/OTEL/signing/ship-gate)。
 
-**平台(關鍵)**:Mac ~5 真行為測(唯一)· **iOS 0**(`phantom-mesh-ios` 只剩 Vite cache、**無原生 code**;真 iOS 全在主 repo `app/` Tauri;6/7 Swift bridge cmd 未測)· Android shell 在 `app/src-tauri/android/kotlin/`。
+**平台(關鍵)**:Mac ~5 真行為測(唯一)· **iOS 0**(`spectyn-mesh-ios` 只剩 Vite cache、**無原生 code**;真 iOS 全在主 repo `app/` Tauri;6/7 Swift bridge cmd 未測)· Android shell 在 `app/src-tauri/android/kotlin/`。
 
 **對「全功能覆蓋」的硬意涵(改變完善定義):**
 1. **「全功能」≠ 45 SPEC 全做。** Foundation(01-09 ~90% 設計文件:tokens/routes/error-catalog/a11y/OTEL codegen 全 MISSING)/ 平台原生 / server 多是「藍圖」非「待測功能」。真要測的核心 = **Protocol(10-17)+ System(20-29)+ 共用 app/**。
 2. **in-scope 分母先定義。** v0.6.0 ship = Protocol + System-Life。foundation codegen/OTEL/原生平台標 v0.7.0+/設計階段,**排除出「測試通過 100%」分母**,否則不可能達標。
 3. **三個系統性過度宣稱(matrix Tier-1,直接打臉 BIG-GOAL):**
-   - **P4「加密只你能讀」在 4/5 OS 失效** — macOS/iOS Keychain、Win DPAPI、Android KeyStore 全 `unimplemented!()`;`identity.key` 在 Mac/iOS/Linux 是明文;iOS provider key 寫進明文 `~/.phantom-mesh/env`。
+   - **P4「加密只你能讀」在 4/5 OS 失效** — macOS/iOS Keychain、Win DPAPI、Android KeyStore 全 `unimplemented!()`;`identity.key` 在 Mac/iOS/Linux 是明文;iOS provider key 寫進明文 `~/.spectyn-mesh/env`。
    - **P4 broker E2EE 是死碼** — 出貨 broker 伺服器端解密;「zero-knowledge sync」目前是假的。
    - **P2「圖片/音訊輸入」大半不真** — 多模態 wire 送檔名非像素;音訊全 STUB;mobile capture UI 全 MISSING。
 
@@ -116,7 +116,7 @@
 2. 🔴 **假綠 badge**:DB-001 復原(#143 badge 無測)→ G2;P4-003 identity 不外洩(claimed 無測)→ G3
 3. 🔴 **測試名漂移=假綠**:`mac.md` 指 `seal_unseal_roundtrip`/`invalid_slug`/`focus_duration_ms` 等不存在的 fn → cargo 匹配 0 個靜默通過。**審計全部 cmd/test 名**。
 4. 🟠 corrupt-identity 政策不一致(habit/food/coach 不 fail-loud)`encryption_wire.rs:601`
-5. 🟠 export 非原子寫 `bin/phantom.rs:4462`;broker JWT 未 zeroize;`--include-broker` 半抹除
+5. 🟠 export 非原子寫 `bin/spectyn.rs:4462`;broker JWT 未 zeroize;`--include-broker` 半抹除
 
 ---
 
@@ -135,7 +135,7 @@
 
 > **不取代**現有 cargo 測試(L1),而是**外加**兩層真實使用者操作的 E2E。三層全部硬 gate。
 > 本機環境已就緒(2026-05-31 盤點):Appium 3.4.2 · node v22 · Xcode 26.4.1 + simctl ·
-> 6 個 iOS simulator(含 `phantom-iphone15-ios17`)· phantom binary `~/.cargo/bin/phantom` 0.6.0-rc.1。
+> 6 個 iOS simulator(含 `spectyn-iphone15-ios17`)· spectyn binary `~/.cargo/bin/spectyn` 0.6.0-rc.1。
 > maestro 未裝(有 Appium 即可)。
 
 ### 三層測試金字塔
@@ -143,7 +143,7 @@
 | 層 | 介面 | 工具 | 跑什麼 | 硬 gate |
 |---|---|---|---|---|
 | **L1 邏輯** | core crate | `cargo test`(from `core/`)| 單元 + hermetic 整合(現有 + Pool A 新增)| `cargo test --test <name>` RC=0 + 出示 `test result:` |
-| **L2 CLI E2E** | terminal | Appium + 真 `phantom` binary | 整條 CUJ 用真 binary 跑(install→habit→export…),斷言 exit code + stdout + sqlite/檔案落地 | spawn binary exit code + 斷言通過 |
+| **L2 CLI E2E** | terminal | Appium + 真 `spectyn` binary | 整條 CUJ 用真 binary 跑(install→habit→export…),斷言 exit code + stdout + sqlite/檔案落地 | spawn binary exit code + 斷言通過 |
 | **L3 GUI/iOS E2E** | app / iOS simulator | Appium(XCUITest driver)+ simctl boot | 使用者點擊全生命週期(onboarding→capture→review),逐步截圖比對 | Appium session pass + 截圖證據 |
 
 ### Pool 對映
@@ -151,7 +151,7 @@
 - **L3(iOS sim)= Pool B 變 Pool A**:本機有 simulator → iOS GUI E2E **不再需要實機**,可進 hermetic 自動化(這是 ios.md 場景軸的執行載具)。
 
 ### E2E goal(加進佇列)
-- [ ] G-E2E-1 [前置] 建 `e2e/` harness:`scripts/e2e-cli.sh`(terminal driver,spawn 真 binary 跑 CUJ-01→05)+ `e2e/appium/`(iOS XCUITest config,boot `phantom-iphone15-ios17` + install .app + driver)。先跑通 1 條 smoke 證明可行。
+- [ ] G-E2E-1 [前置] 建 `e2e/` harness:`scripts/e2e-cli.sh`(terminal driver,spawn 真 binary 跑 CUJ-01→05)+ `e2e/appium/`(iOS XCUITest config,boot `spectyn-iphone15-ios17` + install .app + driver)。先跑通 1 條 smoke 證明可行。
 - [ ] G-E2E-2 CUJ-01 全流程 L2:install→first habit→streak,真 binary,斷言每步 exit code + sqlite 落地。
 - [ ] G-E2E-3 CUJ-02 全流程 L3:iOS sim 點擊 onboarding→habit chip→daily review,逐步截圖。
 - [x] G-E2E-4 Bug A(TUI render leak)L2/L3:✅ done 2026-05-31。`scripts/e2e/tui-provider-error.sh` 用 tmux 真 PTY 跑真 binary、tmux capture-pane 抓真渲染 frame、斷言無溢位/無 escape leak/邊框完整/error 有出現。60×20 / 100×30 / 200×50 全 PASS → Bug A 未重現（transcript Wrap 守住，疑早版已修）。headless regression guard 另在 commit 29376959。但書：尚未測「上游 error body 帶原始 ANSI escape」這條路徑。
@@ -169,13 +169,13 @@
   export → delete,每步印 `▶ STEP / ✓ PASS / ✗ FAIL` + exit code。對 iOS 版 `full-lifecycle-ios.sh`
   走 simctl boot + Appium 驅動同一條 CUJ。
 - [ ] G-DBG-2 **log 抓取**:
-  - Mac CLI:`PHANTOM_LOG=debug phantom <cmd> 2>&1 | tee /tmp/phantom-e2e-<ts>.log`;daemon log `~/.phantom-mesh/logs/` + `phantom diag`(crash ring / events)。
-  - iOS sim:`xcrun simctl spawn <udid> log stream --predicate 'subsystem CONTAINS "phantommesh"' > /tmp/ios-e2e-<ts>.log &`;app container log 用 `xcrun simctl spawn <udid> log collect` 或拉 `appDataContainer` 的 `phantom-mesh.log`。
+  - Mac CLI:`SPECTYN_LOG=debug spectyn <cmd> 2>&1 | tee /tmp/spectyn-e2e-<ts>.log`;daemon log `~/.spectyn-mesh/logs/` + `spectyn diag`(crash ring / events)。
+  - iOS sim:`xcrun simctl spawn <udid> log stream --predicate 'subsystem CONTAINS "spectynmesh"' > /tmp/ios-e2e-<ts>.log &`;app container log 用 `xcrun simctl spawn <udid> log collect` 或拉 `appDataContainer` 的 `spectyn-mesh.log`。
 - [ ] G-DBG-3 **即時畫面抓取**:
   - iOS sim:`xcrun simctl io <udid> screenshot /tmp/shot-<step>.png`(每 step 一張);錄影 `xcrun simctl io <udid> recordVideo /tmp/run.mp4`。
   - Mac TUI:`screencapture -x /tmp/tui-<step>.png` 或 vt100 文字快照(供 Bug A 回歸)。
   - Appium 內建:每個 step `driver.save_screenshot()`,失敗自動附最後一張。
-- [ ] G-DBG-4 **一鍵除錯包**:`scripts/e2e/collect-debug-bundle.sh` —— 把該次 run 的 log + 截圖 + sqlite dump + agents.toml(遮蔽 key)打包成 `/tmp/phantom-debug-<ts>.tar.gz`,方便貼回來除錯。
+- [ ] G-DBG-4 **一鍵除錯包**:`scripts/e2e/collect-debug-bundle.sh` —— 把該次 run 的 log + 截圖 + sqlite dump + agents.toml(遮蔽 key)打包成 `/tmp/spectyn-debug-<ts>.tar.gz`,方便貼回來除錯。
 
 ### 硬 gate
 L2/L3 E2E 與這些腳本同樣遵守:**無 exit code / 無截圖證據不算通過**。腳本最後印
@@ -190,7 +190,7 @@ L2/L3 E2E 與這些腳本同樣遵守:**無 exit code / 無截圖證據不算通
 | Appium | ✅ | `/opt/homebrew/bin/appium` 3.4.2 |
 | node / npm | ✅ | v22.14.0 / 10.9.2(nvm)|
 | Xcode + simctl | ✅ | Xcode 26.4.1 / `/Applications/Xcode.app/.../simctl` |
-| iOS simulator | ✅ | 6 台含 `phantom-iphone15-ios17` |
-| phantom binary | ✅ | `~/.cargo/bin/phantom` 0.6.0-rc.1 |
+| iOS simulator | ✅ | 6 台含 `spectyn-iphone15-ios17` |
+| spectyn binary | ✅ | `~/.cargo/bin/spectyn` 0.6.0-rc.1 |
 | Appium iOS driver(XCUITest)| ⬜ 待裝 | `appium driver install xcuitest`(G-E2E-1 前置)|
 | maestro | ⬜ 未裝(非必須,有 Appium 即可)| — |

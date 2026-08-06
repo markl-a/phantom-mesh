@@ -200,27 +200,27 @@ export default function ProvidersPanel() {
   };
 
   const tierColors: Record<number, string> = {
-    1: "bg-phantom-success/20 text-phantom-success",
-    2: "bg-phantom-primary/20 text-phantom-primary",
+    1: "bg-spectyn-success/20 text-spectyn-success",
+    2: "bg-spectyn-primary/20 text-spectyn-primary",
     3: "bg-purple-500/20 text-purple-400",
-    4: "bg-phantom-warning/20 text-phantom-warning",
+    4: "bg-spectyn-warning/20 text-spectyn-warning",
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">
-          API 金鑰管理{offline && <span className="text-sm font-normal text-phantom-muted ml-2">(離線模式)</span>}
+          API 金鑰管理{offline && <span className="text-sm font-normal text-spectyn-muted ml-2">(離線模式)</span>}
         </h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => void fetchProviderHealth()}
             disabled={fetchLoading}
-            className="border border-phantom-border text-phantom-muted px-3 py-2 rounded text-sm font-medium hover:text-phantom-text hover:border-phantom-primary/50 disabled:opacity-50"
+            className="border border-spectyn-border text-spectyn-muted px-3 py-2 rounded text-sm font-medium hover:text-spectyn-text hover:border-spectyn-primary/50 disabled:opacity-50"
           >
             {fetchLoading ? "重新整理中..." : "重新整理"}
           </button>
-          <button className="bg-phantom-primary text-phantom-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90">
+          <button className="bg-spectyn-primary text-spectyn-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90">
             新增 Provider
           </button>
         </div>
@@ -228,11 +228,11 @@ export default function ProvidersPanel() {
 
       {/* Error banner */}
       {fetchError && (
-        <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 flex items-center justify-between text-sm">
-          <span title={fetchError ?? undefined}>無法連接本機 daemon — 確認 phantom serve 已啟動（行動裝置可改用「集群派送」或從 Mac 匯入設定）</span>
+        <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-4 flex items-center justify-between text-sm">
+          <span title={fetchError ?? undefined}>無法連接本機 daemon — 確認 spectyn serve 已啟動（行動裝置可改用「集群派送」或從 Mac 匯入設定）</span>
           <button
             onClick={() => void fetchProviderHealth()}
-            className="ml-4 px-3 py-1 rounded text-xs font-medium bg-phantom-danger/30 hover:bg-phantom-danger/50"
+            className="ml-4 px-3 py-1 rounded text-xs font-medium bg-spectyn-danger/30 hover:bg-spectyn-danger/50"
           >
             重試
           </button>
@@ -242,8 +242,8 @@ export default function ProvidersPanel() {
       {/* Loading state */}
       {fetchLoading ? (
         <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 border-phantom-primary border-t-transparent rounded-full animate-spin" />
-          <span className="ml-3 text-phantom-muted text-sm">載入 Provider 資訊...</span>
+          <div className="w-6 h-6 border-2 border-spectyn-primary border-t-transparent rounded-full animate-spin" />
+          <span className="ml-3 text-spectyn-muted text-sm">載入 Provider 資訊...</span>
         </div>
       ) : (
         <>
@@ -252,13 +252,13 @@ export default function ProvidersPanel() {
             {providers.map((provider) => (
               <div
                 key={provider.name}
-                className="bg-phantom-card border border-phantom-border rounded-lg p-4"
+                className="bg-spectyn-card border border-spectyn-border rounded-lg p-4"
               >
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <span
                       className={`w-2.5 h-2.5 rounded-full ${
-                        provider.status === "online" ? "bg-phantom-success" : "bg-phantom-danger"
+                        provider.status === "online" ? "bg-spectyn-success" : "bg-spectyn-danger"
                       }`}
                     />
                     <h3 className="font-semibold text-lg">{provider.name}</h3>
@@ -268,15 +268,15 @@ export default function ProvidersPanel() {
                   </span>
                 </div>
 
-                <p className="text-sm text-phantom-muted mb-3">{provider.description}</p>
+                <p className="text-sm text-spectyn-muted mb-3">{provider.description}</p>
 
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-phantom-muted">
-                    模型數: <span className="text-phantom-text font-medium">{provider.models}</span>
+                  <span className="text-spectyn-muted">
+                    模型數: <span className="text-spectyn-text font-medium">{provider.models}</span>
                   </span>
                   <span
                     className={`text-xs font-medium ${
-                      provider.status === "online" ? "text-phantom-success" : "text-phantom-danger"
+                      provider.status === "online" ? "text-spectyn-success" : "text-spectyn-danger"
                     }`}
                   >
                     {provider.status === "online" ? "在線" : "離線"}
@@ -288,22 +288,22 @@ export default function ProvidersPanel() {
 
           {/* API Key Management */}
           <h2 className="text-lg font-bold mb-4">金鑰管理</h2>
-          <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-phantom-border">
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">Provider</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">Tier</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">API Key</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">操作</th>
+                <tr className="border-b border-spectyn-border">
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">Provider</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">Tier</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">API Key</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {providers.map((provider, i) => (
                   <tr
                     key={provider.name}
-                    className={`border-b border-phantom-border last:border-0 ${
-                      i % 2 === 1 ? "bg-phantom-bg/50" : ""
+                    className={`border-b border-spectyn-border last:border-0 ${
+                      i % 2 === 1 ? "bg-spectyn-bg/50" : ""
                     }`}
                   >
                     <td className="px-4 py-3 font-medium">{provider.name}</td>
@@ -312,7 +312,7 @@ export default function ProvidersPanel() {
                         Tier {provider.tier}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-phantom-muted">
+                    <td className="px-4 py-3 font-mono text-spectyn-muted">
                       {provider.apiKey ? (
                         visibleKeys.has(provider.name) ? (
                           provider.apiKey
@@ -320,7 +320,7 @@ export default function ProvidersPanel() {
                           "••••••••••••••••••••"
                         )
                       ) : (
-                        <span className="text-phantom-muted/50 italic">不需要（本地）</span>
+                        <span className="text-spectyn-muted/50 italic">不需要（本地）</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -328,11 +328,11 @@ export default function ProvidersPanel() {
                         <div className="flex gap-2">
                           <button
                             onClick={() => toggleKeyVisibility(provider.name)}
-                            className="text-xs text-phantom-primary hover:underline"
+                            className="text-xs text-spectyn-primary hover:underline"
                           >
                             {visibleKeys.has(provider.name) ? "隱藏" : "顯示"}
                           </button>
-                          <button className="text-xs text-phantom-muted hover:text-phantom-text">
+                          <button className="text-xs text-spectyn-muted hover:text-spectyn-text">
                             編輯
                           </button>
                         </div>
@@ -345,9 +345,9 @@ export default function ProvidersPanel() {
           </div>
 
           {/* Tier Priority Info */}
-          <div className="mt-6 bg-phantom-card border border-phantom-border rounded-lg p-4">
+          <div className="mt-6 bg-spectyn-card border border-spectyn-border rounded-lg p-4">
             <h3 className="text-sm font-medium mb-2">路由優先順序</h3>
-            <p className="text-xs text-phantom-muted leading-relaxed">
+            <p className="text-xs text-spectyn-muted leading-relaxed">
               請求依 Tier 優先路由：Tier 1（本地） → Tier 2（免費雲端） → Tier 3（訂閱制） → Tier 4（按量計費）。
               僅在上層 Provider 不可用或模型不支援時，才會降級至下一層。
             </p>

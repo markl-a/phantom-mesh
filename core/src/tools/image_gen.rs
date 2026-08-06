@@ -1,6 +1,6 @@
 //! `image_generate` — text → image via OpenAI-shape `/v1/images/generations`.
 //!
-//! Closes the v0.6.0 gap noted in doc 28 §5: phantom can *consume* images
+//! Closes the v0.6.0 gap noted in doc 28 §5: spectyn can *consume* images
 //! (via the multimodal sentinel pipeline in `core/src/multimodal.rs`) but
 //! cannot *produce* them. With this tool an agent can say "generate a
 //! 1024×1024 isometric illustration of a Rust crab" and get a PNG path
@@ -14,14 +14,14 @@
 //! AI's `black-forest-labs/FLUX.1-schnell`, Stability AI's compat
 //! endpoint). Override via env:
 //!
-//! - `PHANTOM_IMAGE_GEN_BASE_URL` (default `https://api.openai.com/v1`)
-//! - `PHANTOM_IMAGE_GEN_API_KEY`  (falls back to `OPENAI_API_KEY`)
-//! - `PHANTOM_IMAGE_GEN_MODEL`    (default `dall-e-3`)
+//! - `SPECTYN_IMAGE_GEN_BASE_URL` (default `https://api.openai.com/v1`)
+//! - `SPECTYN_IMAGE_GEN_API_KEY`  (falls back to `OPENAI_API_KEY`)
+//! - `SPECTYN_IMAGE_GEN_MODEL`    (default `dall-e-3`)
 //!
 //! ## Output
 //!
 //! The decoded PNG bytes are written to
-//! `<home>/.phantom-mesh/generated/<unix-ts>-<n>.png` and the path is
+//! `<home>/.spectyn-mesh/generated/<unix-ts>-<n>.png` and the path is
 //! returned to the caller. The path can be fed straight back to the agent
 //! via the multimodal `@`-attach sentinel — closes the round-trip
 //! (generate → look at it → describe → edit).
@@ -39,9 +39,9 @@ const TIMEOUT_SECS: u64 = 120;
 /// 4000 chars; we cap a little under to leave room for system additions.
 const MAX_PROMPT_CHARS: usize = 3800;
 
-/// Where generated PNGs land. `<home>/.phantom-mesh/generated/`.
+/// Where generated PNGs land. `<home>/.spectyn-mesh/generated/`.
 fn output_dir() -> std::io::Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
     let dir = data.join("generated");
     std::fs::create_dir_all(&dir)?;
@@ -54,7 +54,7 @@ fn output_dir() -> std::io::Result<PathBuf> {
 /// - `prompt` (string)
 ///
 /// Optional args:
-/// - `model`  (string, default from `PHANTOM_IMAGE_GEN_MODEL` or `dall-e-3`)
+/// - `model`  (string, default from `SPECTYN_IMAGE_GEN_MODEL` or `dall-e-3`)
 /// - `size`   (string, default `"1024x1024"` — must be one the provider supports)
 /// - `n`      (integer, default 1, capped to 4)
 /// - `style`  (string — provider-specific, e.g. `"vivid"` / `"natural"` for DALL-E 3)
@@ -71,13 +71,13 @@ pub async fn generate(args: &Value) -> String {
         );
     }
 
-    let base_url = std::env::var("PHANTOM_IMAGE_GEN_BASE_URL")
+    let base_url = std::env::var("SPECTYN_IMAGE_GEN_BASE_URL")
         .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
-    let api_key = std::env::var("PHANTOM_IMAGE_GEN_API_KEY")
+    let api_key = std::env::var("SPECTYN_IMAGE_GEN_API_KEY")
         .or_else(|_| std::env::var("OPENAI_API_KEY"))
         .unwrap_or_default();
     if api_key.is_empty() {
-        return "Error: no API key — set PHANTOM_IMAGE_GEN_API_KEY or OPENAI_API_KEY".into();
+        return "Error: no API key — set SPECTYN_IMAGE_GEN_API_KEY or OPENAI_API_KEY".into();
     }
 
     let model = args
@@ -85,7 +85,7 @@ pub async fn generate(args: &Value) -> String {
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .unwrap_or_else(|| {
-            std::env::var("PHANTOM_IMAGE_GEN_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string())
+            std::env::var("SPECTYN_IMAGE_GEN_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string())
         });
     let size = args
         .get("size")
@@ -222,17 +222,17 @@ mod tests {
     async fn missing_api_key_returns_error() {
         let _g = crate::env_lock::acquire();
         // Make sure the env is clean for this test.
-        let prev_phantom = std::env::var("PHANTOM_IMAGE_GEN_API_KEY").ok();
+        let prev_spectyn = std::env::var("SPECTYN_IMAGE_GEN_API_KEY").ok();
         let prev_openai = std::env::var("OPENAI_API_KEY").ok();
-        std::env::remove_var("PHANTOM_IMAGE_GEN_API_KEY");
+        std::env::remove_var("SPECTYN_IMAGE_GEN_API_KEY");
         std::env::remove_var("OPENAI_API_KEY");
 
         let out = generate(&json!({"prompt": "a red crab"})).await;
         assert!(out.starts_with("Error: no API key"), "got: {out}");
 
         // Restore.
-        if let Some(v) = prev_phantom {
-            std::env::set_var("PHANTOM_IMAGE_GEN_API_KEY", v);
+        if let Some(v) = prev_spectyn {
+            std::env::set_var("SPECTYN_IMAGE_GEN_API_KEY", v);
         }
         if let Some(v) = prev_openai {
             std::env::set_var("OPENAI_API_KEY", v);

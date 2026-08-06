@@ -12,7 +12,7 @@
 #
 # Usage:
 #   commute-loop.sh [--backlog DIR] [--max-tasks N] [--max-minutes M] [--writer codex] [--dry-run]
-#     backlog: dir of *.toml spec files (default ~/.phantom-mesh/backlog). Write them before leaving.
+#     backlog: dir of *.toml spec files (default ~/.spectyn-mesh/backlog). Write them before leaving.
 #     --dry-run: validate the backlog + print the plan, calling NO AIs / cargo.
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ ASK="$ROOT/.claude/skills/local-ai/ask.sh"
 SPEC_GATE="$HERE/spec-gate.sh"
 DEVIATION="$HERE/deviation-handler.sh"
 REVIEW="$ROOT/scripts/local-ai/review.sh"
-STATE_DIR="${PHANTOM_STATE_DIR:-${HOME}/.phantom-mesh}"
+STATE_DIR="${SPECTYN_STATE_DIR:-${HOME}/.spectyn-mesh}"
 . "$HERE/spec-lib.sh"   # shared [spec] parser (single/double quotes, section-anchored)
 
 BACKLOG="${COMMUTE_BACKLOG:-$STATE_DIR/backlog}"
@@ -135,8 +135,8 @@ main() {
     log "--- dry run done; report: $REPORT ---"; return 0
   fi
   # headless-safe git + a clean tree (both break an unattended run otherwise).
-  git config user.email >/dev/null 2>&1 || git config user.email "commute-loop@phantom.local"
-  git config user.name  >/dev/null 2>&1 || git config user.name  "phantom-commute-loop"
+  git config user.email >/dev/null 2>&1 || git config user.email "commute-loop@spectyn.local"
+  git config user.name  >/dev/null 2>&1 || git config user.name  "spectyn-commute-loop"
   git config commit.gpgsign false 2>/dev/null || true
   if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
     log "✗ working tree not clean — commit or stash your local changes first (won't risk mixing them into tasks). Aborting."

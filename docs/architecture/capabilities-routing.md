@@ -1,12 +1,12 @@
 # 能力與路由（Capabilities & Routing）
 
-> **capabilities-routing**（能力與路由）子系統的架構說明：一個 phantom
+> **capabilities-routing**（能力與路由）子系統的架構說明：一個 spectyn
 > 節點（node）如何探知自己能做什麼、向叢集（cluster）廣播這些能力，以及主節點
 > （master）如何為各對等節點（peer）評分，以便把任務路由（dispatch，派工）給最適合的節點。
 
 ## 用途（Purpose）
 
-phantom-mesh 在異質機器（桌機、筆電、行動裝置）上執行同一個二進位檔（binary）。
+spectyn-mesh 在異質機器（桌機、筆電、行動裝置）上執行同一個二進位檔（binary）。
 沒有任兩個節點擁有相同的硬體或存取權限，因此系統避免依平台硬寫死（hardcode）行為。
 取而代之的作法是：
 
@@ -30,7 +30,7 @@ phantom-mesh 在異質機器（桌機、筆電、行動裝置）上執行同一�
 | `core/src/capabilities/detector.rs` | 執行期探測：`detect()` 建立一份 `NodeCapabilities` 快照（shell echo 測試、`cfg!` 平台 GPU／檔案存取、ollama 檢查、麥克風啟發式判斷）。 |
 | `core/src/cluster_dispatch_wire.rs` | 路由引擎：`CapabilityTag`、`DispatchTask`、`PeerScore`/`ScoreBreakdown`、`plan_dispatch`（filter→score→sort，篩選→評分→排序）、`score_peer`（加權總和）、`refresh_capabilities` + HMAC 簽章的 RPC 輔助函式，以及行程內（process-local）的 `PeerRegistry` 快取。 |
 | `core/src/serve.rs` | HTTP 路由 `GET /node/capabilities`（處理函式 `node_capabilities`）回傳與 CLI 相同的 `NodeCapabilityReport` 酬載（payload）。 |
-| `core/src/bin/phantom.rs` | CLI `phantom node-capabilities [--json]` — 印出本機的能力報告。 |
+| `core/src/bin/spectyn.rs` | CLI `spectyn node-capabilities [--json]` — 印出本機的能力報告。 |
 | `app/src-tauri/src/commands/cluster_dispatch_wire.rs` | Tauri 指令 `dispatch_plan` / `dispatch_score_peer`，把引擎暴露給 UI。 |
 | `app/src/lib/clusterDispatchPlan.ts` | 前端輔助層：建立一個 `DispatchTask`、把對等節點摘要投影成 `PeerCapabilities`、呼叫 `dispatch_plan`，並把錯誤對應成 UI 字串。 |
 | `app/src/lib/generated/cluster_dispatch/*.ts` | 由 ts-rs 自動生成的 wire 型別 TypeScript 綁定（binding）— 絕不可手動編輯。 |
@@ -61,7 +61,7 @@ flowchart TD
    並包裝進一份 `NodeCapabilityReport`（`schema_version`、`PlatformInfo`、
    排序過的 `capability_ids`）。
 2. **廣播（Advertise）** — `GET /node/capabilities` 提供該報告；CLI
-   `phantom node-capabilities` 印出完全相同的酬載。
+   `spectyn node-capabilities` 印出完全相同的酬載。
 3. **收集（Collect）** — 主節點呼叫 `refresh_capabilities(peer_id)`，它會發出一個
    HMAC 簽章的 `GET`，把每個 `capability_id`（例如 `gpu_compute:metal`）對應成一個
    `CapabilityTag { slug, value }`，蓋上一個本機的 `last_reported_at`，再把它寫入

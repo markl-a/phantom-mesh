@@ -1,4 +1,4 @@
-# Phantom Mesh - Windows code-signing smoke (dev self-signed)
+# Spectyn Mesh - Windows code-signing smoke (dev self-signed)
 #
 # Subcommands (mutually exclusive, default = sign):
 #   .\scripts\codesign-windows.ps1 -CreateCert          # ensure dev cert exists in CurrentUser\My
@@ -32,11 +32,11 @@ param(
 
     [Parameter(ParameterSetName = 'Sign')]
     [Parameter(ParameterSetName = 'Verify')]
-    [string]$Path = 'D:\tmp\phantom-windows-target\release\phantom.exe',
+    [string]$Path = 'D:\tmp\spectyn-windows-target\release\spectyn.exe',
 
     [Parameter(ParameterSetName = 'Sign')]
     [Parameter(ParameterSetName = 'CreateCert')]
-    [string]$CertSubject = 'CN=Phantom Mesh Dev Code Signing'
+    [string]$CertSubject = 'CN=Spectyn Mesh Dev Code Signing'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,7 +109,7 @@ function Report-Signature {
 # ---------- subcommand: -CreateCert ----------
 
 if ($CreateCert) {
-    Write-Host "=== Phantom Mesh codesign - ensure dev cert ===" -ForegroundColor Cyan
+    Write-Host "=== Spectyn Mesh codesign - ensure dev cert ===" -ForegroundColor Cyan
     $null = Ensure-DevCert -Subject $CertSubject
     exit 0
 }
@@ -117,7 +117,7 @@ if ($CreateCert) {
 # ---------- subcommand: -Verify ----------
 
 if ($Verify) {
-    Write-Host "=== Phantom Mesh codesign - verify only ===" -ForegroundColor Cyan
+    Write-Host "=== Spectyn Mesh codesign - verify only ===" -ForegroundColor Cyan
     $sig = Report-Signature -TargetPath $Path
     if (-not $sig) { exit 2 }
     # NotSigned is the only definitive smoke fail; any other status proves
@@ -133,14 +133,14 @@ if ($Verify) {
 
 # ---------- default subcommand: sign + verify ----------
 
-Write-Host "=== Phantom Mesh codesign - sign + verify ===" -ForegroundColor Cyan
+Write-Host "=== Spectyn Mesh codesign - sign + verify ===" -ForegroundColor Cyan
 
 $cert = Ensure-DevCert -Subject $CertSubject
 
 if (-not (Test-Path $Path)) {
     Write-Host ""
     Write-Host "[!] Target exe not found: $Path" -ForegroundColor Yellow
-    Write-Host "    Hint: run .\scripts\build-windows.ps1 first to produce phantom.exe,"
+    Write-Host "    Hint: run .\scripts\build-windows.ps1 first to produce spectyn.exe,"
     Write-Host "          or pass -Path <other.exe> to sign a different file."
     Write-Host "    For pure pipeline smoke (no real exe), compile a stub via Add-Type"
     Write-Host "    (do NOT copy a System32 binary - those match the OS catalog and"

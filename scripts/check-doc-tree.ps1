@@ -368,7 +368,7 @@ function Check-A1 {
         @{ tag = 'sessions-401';
            forbid = @('sessions', '401', '(I3|broken)');
            allow  = 'by design|broker|Bearer|雲端|無 auth gate|永不回 401|不會回 401|已於.{0,6}修|exists,';
-           truth  = 'phantom sessions queries the cloud broker (Bearer, by design); no token -> helpful message, not a 401; not an I3 local-plane violation' }
+           truth  = 'spectyn sessions queries the cloud broker (Bearer, by design); no token -> helpful message, not a 401; not an I3 local-plane violation' }
     )
     $bad = @(); $scanned = 0
     Get-ChildItem -Path $flowDir -Filter *.md -File | ForEach-Object {

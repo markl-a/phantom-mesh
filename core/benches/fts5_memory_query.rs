@@ -19,7 +19,7 @@ fn main() {
 #[cfg(feature = "experimental-memory")]
 use criterion::{criterion_group, criterion_main, Criterion};
 #[cfg(feature = "experimental-memory")]
-use phantom_mesh::skillbank::{SkillMemory, NewMemory};
+use spectyn_mesh::skillbank::{SkillMemory, NewMemory};
 #[cfg(feature = "experimental-memory")]
 use std::sync::OnceLock;
 #[cfg(feature = "experimental-memory")]
@@ -31,7 +31,7 @@ use tokio::runtime::Runtime;
 const SEED_ROWS: usize = 10_000;
 
 /// Reusable lorem-ipsum-ish corpus. 100 distinct word stems shuffled
-/// per-row so BM25 has something to score. One of the words ("phantom")
+/// per-row so BM25 has something to score. One of the words ("spectyn")
 /// only appears in 10% of rows so we have a realistic search target.
 #[cfg(feature = "experimental-memory")]
 fn corpus_row(i: usize) -> String {
@@ -41,13 +41,13 @@ fn corpus_row(i: usize) -> String {
         "chi", "psi", "omega", "quick", "brown", "fox", "lazy", "dog", "rust", "memory", "safe",
         "fts5", "search", "index", "tokenize", "unicode", "bm25", "rank",
     ];
-    let phantom_marker = if i % 10 == 0 { " phantom" } else { "" };
+    let spectyn_marker = if i % 10 == 0 { " spectyn" } else { "" };
     let mut s = String::with_capacity(160);
     for w in WORDS.iter().take(20 + (i % 8)) {
         s.push_str(w);
         s.push(' ');
     }
-    s.push_str(phantom_marker);
+    s.push_str(spectyn_marker);
     s
 }
 
@@ -89,10 +89,10 @@ fn bench_query(c: &mut Criterion) {
 
     // Sanity check: the query *must* return matches, otherwise we're
     // benchmarking the empty-result path which is not what we claim.
-    let warm = rt.block_on(async { mem.search("phantom", 10).await.expect("warm search") });
+    let warm = rt.block_on(async { mem.search("spectyn", 10).await.expect("warm search") });
     assert!(
         !warm.is_empty(),
-        "10K-row seed should produce matches for 'phantom'; got {} rows",
+        "10K-row seed should produce matches for 'spectyn'; got {} rows",
         warm.len()
     );
 
@@ -100,7 +100,7 @@ fn bench_query(c: &mut Criterion) {
     // Single bench: a one-term BM25 query that hits ~10% of rows.
     g.bench_function("single_term_bm25_10k_rows", |b| {
         b.to_async(&rt)
-            .iter(|| async { mem.search("phantom", 10).await.expect("search") });
+            .iter(|| async { mem.search("spectyn", 10).await.expect("search") });
     });
     g.finish();
 }

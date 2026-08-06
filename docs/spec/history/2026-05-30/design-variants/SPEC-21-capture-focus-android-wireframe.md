@@ -72,7 +72,7 @@ iOS hero wireframe 的 Android 段只 ~35 行，作為「同 iOS X」的快速 r
 ```
 [A. Idle 變體]
 ┌────────────────────────────┐
-│ ⓘ 沒給通知權限也可錄，       │  ← bg phantom-card, body-sm muted, 32dp 高, 可滑掉
+│ ⓘ 沒給通知權限也可錄，       │  ← bg spectyn-card, body-sm muted, 32dp 高, 可滑掉
 │   但通知欄不會顯示控制       │
 ├────────────────────────────┤
 │ ...Idle 原內容...           │
@@ -94,7 +94,7 @@ iOS hero wireframe 的 Android 段只 ~35 行，作為「同 iOS X」的快速 r
 ```
 [D. FG-service notification in shade]
 ┌──────────────────────────────────┐
-│ [app icon mono] Phantom Mesh     │
+│ [app icon mono] Spectyn Mesh     │
 │ Focus · 05:23 / 25:00            │
 │                                  │
 │ [stop] (only action button)      │
@@ -103,7 +103,7 @@ iOS hero wireframe 的 Android 段只 ~35 行，作為「同 iOS X」的快速 r
 
 - **常駐通知欄**（persistent: true, low priority, no sound）
 - **單一 action: stop only**（不擴 pause，per wireframe SPEC-21 hero）
-- 點通知 body → 開回 phantom Focus 螢幕
+- 點通知 body → 開回 spectyn Focus 螢幕
 - 點 stop → 等同 app 內 ⏹ 停止
 
 **B2 skip 情境下**：此通知不顯示（user 仍可開 app 操作）。

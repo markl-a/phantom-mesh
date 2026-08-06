@@ -2,13 +2,13 @@ name: CI Shell Tests
 
 # Runs the three shell-level integration tests that complement
 # `cargo test`:
-#   - scripts/test-mcp-tools.sh        — phantom mcp tools/call e2e (13 checks)
+#   - scripts/test-mcp-tools.sh        — spectyn mcp tools/call e2e (13 checks)
 #   - scripts/test-subagent-parity.sh  — Claude Code Agent parity (4 schema-only,
 #                                         skipping LLM-dispatch tests in CI to avoid
 #                                         hitting paid API keys)
 #   - scripts/codex-parity-test.sh     — codex-parity feature smoke (8+ scenarios)
 #
-# Each script self-finds the phantom binary via $PHANTOM env override
+# Each script self-finds the spectyn binary via $SPECTYN env override
 # (we install via `cargo install --path core` first). Tests that need
 # a real LLM are gated by env var so CI runs without provider keys.
 
@@ -55,30 +55,30 @@ jobs:
         with:
           workspaces: core
 
-      - name: Install phantom from source
+      - name: Install spectyn from source
         run: |
           cd core
           cargo install --path . --locked
-          phantom --version
+          spectyn --version
 
-      - name: scripts/test-mcp-tools.sh — phantom mcp e2e (13 checks)
+      - name: scripts/test-mcp-tools.sh — spectyn mcp e2e (13 checks)
         env:
-          PHANTOM: /home/runner/.cargo/bin/phantom
+          SPECTYN: /home/runner/.cargo/bin/spectyn
         run: |
           chmod +x scripts/test-mcp-tools.sh
           scripts/test-mcp-tools.sh
 
       - name: scripts/test-subagent-parity.sh — schema-only (no LLM)
         env:
-          PHANTOM: /home/runner/.cargo/bin/phantom
-          PHANTOM_PARITY_SKIP_LLM: '1'
+          SPECTYN: /home/runner/.cargo/bin/spectyn
+          SPECTYN_PARITY_SKIP_LLM: '1'
         run: |
           chmod +x scripts/test-subagent-parity.sh
           scripts/test-subagent-parity.sh
 
       - name: scripts/codex-parity-test.sh — codex-parity smoke
         env:
-          PHANTOM: /home/runner/.cargo/bin/phantom
+          SPECTYN: /home/runner/.cargo/bin/spectyn
           # codex-parity tests that need real LLM are auto-skipped when
           # ANTHROPIC_API_KEY is missing — the script fast-paths past
           # those.

@@ -3,7 +3,7 @@
 # scripts/tests/install-detect.bats — unit tests for F500 install.sh
 # OS/arch detection branches.
 #
-# We use PHANTOM_INSTALL_DRY_RUN=1 so the script never writes to disk or
+# We use SPECTYN_INSTALL_DRY_RUN=1 so the script never writes to disk or
 # touches the network — it just emits its detection + the URL it WOULD
 # fetch. That makes these tests hermetic.
 #
@@ -22,9 +22,9 @@ INSTALL_SH="${BATS_TEST_DIRNAME}/../install.sh"
 setup() {
     STUB_DIR="$(mktemp -d)"
     export STUB_DIR
-    export PHANTOM_INSTALL_DRY_RUN=1
+    export SPECTYN_INSTALL_DRY_RUN=1
     # Pin the base URL so output is deterministic across hosts.
-    export PHANTOM_INSTALL_BASE='https://example.test'
+    export SPECTYN_INSTALL_BASE='https://example.test'
 }
 
 teardown() {
@@ -49,21 +49,21 @@ run_install() {
     PATH="$STUB_DIR:$PATH" sh "$INSTALL_SH"
 }
 
-@test "Linux x86_64 → phantom-linux-x86_64" {
+@test "Linux x86_64 → spectyn-linux-x86_64" {
     stub_uname Linux x86_64
     run run_install
     [ "$status" -eq 0 ]
     [[ "$output" == *"detected OS:   linux"* ]]
     [[ "$output" == *"detected arch: x86_64"* ]]
-    [[ "$output" == *"R2 object:     phantom-linux-x86_64"* ]]
-    [[ "$output" == *"https://example.test/dist/phantom-linux-x86_64"* ]]
+    [[ "$output" == *"R2 object:     spectyn-linux-x86_64"* ]]
+    [[ "$output" == *"https://example.test/dist/spectyn-linux-x86_64"* ]]
 }
 
-@test "Linux aarch64 → phantom-aarch64-unknown-linux-gnu" {
+@test "Linux aarch64 → spectyn-aarch64-unknown-linux-gnu" {
     stub_uname Linux aarch64
     run run_install
     [ "$status" -eq 0 ]
-    [[ "$output" == *"R2 object:     phantom-aarch64-unknown-linux-gnu"* ]]
+    [[ "$output" == *"R2 object:     spectyn-aarch64-unknown-linux-gnu"* ]]
 }
 
 @test "Linux amd64 alias also maps to x86_64" {
@@ -80,12 +80,12 @@ run_install() {
     [[ "$output" == *"detected arch: aarch64"* ]]
 }
 
-@test "Darwin arm64 → phantom-aarch64-apple-darwin" {
+@test "Darwin arm64 → spectyn-aarch64-apple-darwin" {
     stub_uname Darwin arm64
     run run_install
     [ "$status" -eq 0 ]
     [[ "$output" == *"detected OS:   darwin"* ]]
-    [[ "$output" == *"R2 object:     phantom-aarch64-apple-darwin"* ]]
+    [[ "$output" == *"R2 object:     spectyn-aarch64-apple-darwin"* ]]
 }
 
 @test "Darwin x86_64 (Intel Mac) is rejected with actionable error" {
@@ -109,17 +109,17 @@ run_install() {
     [[ "$output" == *"Unsupported arch"* ]]
 }
 
-@test "Dry run honors PHANTOM_INSTALL_BASE override" {
+@test "Dry run honors SPECTYN_INSTALL_BASE override" {
     stub_uname Linux x86_64
-    PHANTOM_INSTALL_BASE='https://staging.phantommesh.io' run run_install
+    SPECTYN_INSTALL_BASE='https://staging.phantommesh.io' run run_install
     [ "$status" -eq 0 ]
-    [[ "$output" == *"https://staging.phantommesh.io/dist/phantom-linux-x86_64"* ]]
+    [[ "$output" == *"https://staging.phantommesh.io/dist/spectyn-linux-x86_64"* ]]
 }
 
 @test "Dry run does not write the target binary" {
     stub_uname Linux x86_64
-    rm -f "$HOME/.phantom-mesh/bin/phantom"
+    rm -f "$HOME/.spectyn-mesh/bin/spectyn"
     run run_install
     [ "$status" -eq 0 ]
-    [ ! -e "$HOME/.phantom-mesh/bin/phantom" ]
+    [ ! -e "$HOME/.spectyn-mesh/bin/spectyn" ]
 }

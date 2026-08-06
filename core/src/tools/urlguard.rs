@@ -4,7 +4,7 @@
 //! implementation pre-T7b) so that `web_fetch`, `http_get`, and `http_post`
 //! all enforce the same loopback / private-IP / link-local block.
 //!
-//! Set `PHANTOM_FETCH_ALLOW_LOCAL=1` to permit private/loopback hosts
+//! Set `SPECTYN_FETCH_ALLOW_LOCAL=1` to permit private/loopback hosts
 //! (intended for explicit, audited local-net workflows).
 
 const MAX_URL_LEN: usize = 8192;
@@ -16,7 +16,7 @@ const MAX_URL_LEN: usize = 8192;
 ///   1. Length cap
 ///   2. Scheme must be http:// or https://
 ///   3. Host parse (strip path + userinfo + port)
-///   4. Allowed-local override (`PHANTOM_FETCH_ALLOW_LOCAL=1`) short-circuits remaining checks
+///   4. Allowed-local override (`SPECTYN_FETCH_ALLOW_LOCAL=1`) short-circuits remaining checks
 ///   5. Hostname must not be `localhost` / `ip6-localhost` / `::1`
 ///   6. IPv4 host: reject 127/8, 10/8, 172.16-31/12, 192.168/16, 169.254/16, 0/8
 ///   7. IPv6 host: reject `::1` (loopback) and `fc00::/7` (unique-local)
@@ -55,7 +55,7 @@ pub fn validate_url(url: &str) -> Result<(), String> {
             .to_lowercase()
     };
 
-    let allow_local = std::env::var("PHANTOM_FETCH_ALLOW_LOCAL").as_deref() == Ok("1");
+    let allow_local = std::env::var("SPECTYN_FETCH_ALLOW_LOCAL").as_deref() == Ok("1");
     if allow_local {
         return Ok(());
     }
@@ -141,14 +141,14 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // Serialize all tests that read/write PHANTOM_FETCH_ALLOW_LOCAL.
+    // Serialize all tests that read/write SPECTYN_FETCH_ALLOW_LOCAL.
     // Process-global env state would race under cargo's default parallel runner.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn ok_public() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+        std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
         assert!(validate_url("https://example.com/path?q=1").is_ok());
         assert!(validate_url("http://example.com").is_ok());
     }
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn err_private_ipv4() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+        std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
         assert!(validate_url("http://127.0.0.1/").is_err());
         assert!(validate_url("http://10.0.0.1/").is_err());
         assert!(validate_url("http://172.16.0.1/").is_err());
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn err_private_ipv6() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+        std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
         assert!(validate_url("http://[::1]/").is_err());
         assert!(validate_url("http://[fc00::1]/").is_err());
         assert!(validate_url("http://[fe80::1]/").is_err());
@@ -180,9 +180,9 @@ mod tests {
     #[test]
     fn allow_local_override() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("PHANTOM_FETCH_ALLOW_LOCAL", "1");
+        std::env::set_var("SPECTYN_FETCH_ALLOW_LOCAL", "1");
         let r = validate_url("http://127.0.0.1/");
-        std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+        std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
         assert!(r.is_ok(), "override should permit loopback");
     }
 }

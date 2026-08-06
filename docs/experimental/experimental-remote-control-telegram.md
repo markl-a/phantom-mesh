@@ -51,7 +51,7 @@ pub async fn run_round_trip(bot: Arc<RemoteTelegramBot>) -> Result<(), String>;
    ```toml
    experimental-remote-control-telegram = ["dep:teloxide"]
    ```
-2. 設定 bot token（權杖）：`phantom keys set telegram_bot <token>`。此 CLI 會把
+2. 設定 bot token（權杖）：`spectyn keys set telegram_bot <token>`。此 CLI 會把
    該值寫入環境變數 `TELEGRAM_BOT_API_KEY`。
 3. 建置：
    ```bash
@@ -62,7 +62,7 @@ pub async fn run_round_trip(bot: Arc<RemoteTelegramBot>) -> Result<(), String>;
 
 ```rust,ignore
 use std::sync::Arc;
-use phantom_mesh::remote_control::telegram::{
+use spectyn_mesh::remote_control::telegram::{
     EchoDispatcher, RemoteTelegramBot, RemoteTelegramConfig,
 };
 
@@ -81,14 +81,14 @@ assert!(!s.contains("fake-token"));
 // handle_text routes through the dispatcher; allowlist is enforced.
 let bot = RemoteTelegramBot::new(cfg, Arc::new(EchoDispatcher));
 let r = bot.handle_text(42, "ping".into()).await;
-assert_eq!(r, Some("phantom-mesh echo: ping".into()));
+assert_eq!(r, Some("spectyn-mesh echo: ping".into()));
 ```
 
 ## 執行範例（PR #28 合併之後）
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_remote_control_telegram_example \
     --features experimental-remote-control-telegram
 ```

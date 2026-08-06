@@ -11,8 +11,8 @@
 // abstraction.
 //
 // Activation: on by default. Opt out per-session via
-//   PHANTOM_SANDBOX=0       disable entirely
-//   PHANTOM_SANDBOX=strict  drop $HOME from writable paths
+//   SPECTYN_SANDBOX=0       disable entirely
+//   SPECTYN_SANDBOX=strict  drop $HOME from writable paths
 //
 // Not a substitute for full process isolation — a safety net against
 // accidental `rm -rf /` and writes to system paths. Network is

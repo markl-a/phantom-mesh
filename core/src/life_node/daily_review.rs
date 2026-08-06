@@ -101,7 +101,7 @@ pub async fn propose_tomorrow_action_chain(
     Err(last_err.unwrap_or(TomorrowActionError::Empty))
 }
 
-/// Scan an events directory (typically `~/.phantom-mesh/events/`) and
+/// Scan an events directory (typically `~/.spectyn-mesh/events/`) and
 /// return all (meta, analysis) pairs whose `meta.timestamp` ISO-8601
 /// prefix matches `date_iso` (e.g. `"2026-05-22"`).
 ///
@@ -406,7 +406,7 @@ fn fmt_signed(n: f64) -> String {
 }
 
 /// Path-injectable deviation core: load the goals ledger from `home`
-/// (`<home>/.phantom-mesh/goals.jsonl`) and render the deviation section against
+/// (`<home>/.spectyn-mesh/goals.jsonl`) and render the deviation section against
 /// `events`. Fully hermetic — production passes the real home, the acceptance
 /// test passes a tempdir holding a real `goals.jsonl` + real event dirs. A
 /// missing ledger yields an empty section (no goals defined → nothing to report).
@@ -428,7 +428,7 @@ pub fn deviation_section_for_home(
 /// SSOT for the asserted bytes: `core/tests/fixtures/daily_review/events.json` +
 /// `core/tests/fixtures/daily_review/2026-05-22.golden.md`, pinned by the
 /// `golden_review_is_byte_stable` integration test. Regenerate the golden
-/// artifact intentionally with `PHANTOM_UPDATE_GOLDEN=1` and review the diff.
+/// artifact intentionally with `SPECTYN_UPDATE_GOLDEN=1` and review the diff.
 pub fn golden_review(date_iso: &str, pairs: &[(EventMeta, AnalysisResult)], goals: &[Goal]) -> String {
     let mut md = aggregate(date_iso, pairs);
     let section = deviation_section(goals, pairs);
@@ -440,7 +440,7 @@ pub fn golden_review(date_iso: &str, pairs: &[(EventMeta, AnalysisResult)], goal
 
 // ─── N3 desktop-nudge (closes sense→learn→nudge, capability ③) ────────────────
 //
-// When `phantom coach review --notify` runs, ANY goal that is behind target
+// When `spectyn coach review --notify` runs, ANY goal that is behind target
 // (negative deviation) should reach the user as a REAL desktop banner — not just
 // a line in a saved (often age-encrypted) markdown file no one opens. This is the
 // "nudge" leg of the loop the N2 deviation calc already powers.
@@ -482,7 +482,7 @@ fn nudge_body(d: &GoalDeviation) -> (String, String) {
     (title, body)
 }
 
-/// N3 entry point. For each goal in `<home>/.phantom-mesh/goals.jsonl` that is
+/// N3 entry point. For each goal in `<home>/.spectyn-mesh/goals.jsonl` that is
 /// BEHIND target on `events` (negative deviation), fire a REAL macOS/Linux/Windows
 /// desktop banner through the existing [`crate::notifications::channels::OsChannel`]
 /// (which wraps `notify-rust`) — UNLESS a nudge for that goal's tag is still inside
@@ -510,7 +510,7 @@ pub async fn fire_behind_goal_nudges(
     use crate::notifications::channels::{NotificationChannel, OsChannel};
     use pm_types::{Notification, NotificationPriority};
 
-    let phantom_dir = crate::cli_config::phantom_dir_under(home);
+    let spectyn_dir = crate::cli_config::spectyn_dir_under(home);
     let goals = crate::life_node::goals::list_goals_for_home(home)?;
     let deviations = goal_deviations(&goals, events);
 
@@ -525,7 +525,7 @@ pub async fn fire_behind_goal_nudges(
         }
         let tag = d.goal.tag.clone();
         // Per-tag cooldown gate: skip + don't record if still inside the window.
-        if !nudge_ledger::should_nudge_in(&phantom_dir, &tag, now_secs) {
+        if !nudge_ledger::should_nudge_in(&spectyn_dir, &tag, now_secs) {
             outcome.suppressed.push(tag);
             continue;
         }
@@ -545,7 +545,7 @@ pub async fn fire_behind_goal_nudges(
         // send so a failed delivery doesn't silently cool the goal down.
         match channel.send(&notification).await {
             Ok(()) => {
-                nudge_ledger::record_nudge_in(&phantom_dir, &tag, now_secs)?;
+                nudge_ledger::record_nudge_in(&spectyn_dir, &tag, now_secs)?;
                 outcome.fired.push(tag);
             }
             Err(e) => {
@@ -567,7 +567,7 @@ pub async fn fire_behind_goal_nudges(
 /// PROACTIVE half lives in a DISJOINT place — `partner-signals.jsonl` (coarse
 /// location/behaviour + interactions) compared against the user's real Todoist
 /// goals. Passing this in folds that second loop into the SAME daily trigger
-/// (`phantom coach review`, which the SPEC-23 scheduler already fires), so the
+/// (`spectyn coach review`, which the SPEC-23 scheduler already fires), so the
 /// review is the single source of truth for the daily reflection instead of the
 /// two loops never meeting (`partner::daily_reflection` was dead code).
 ///
@@ -610,7 +610,7 @@ pub struct CoachReviewResult {
     pub status: crate::coach_wire::ReviewStatus,
 }
 
-/// Run a full coach review for `date`, shared by the CLI (`phantom coach
+/// Run a full coach review for `date`, shared by the CLI (`spectyn coach
 /// review`) and the app's `daily_review_generate` command so the aggregate +
 /// LLM "Tomorrow's one action" + save/encrypt logic stays in one place.
 ///
@@ -618,7 +618,7 @@ pub struct CoachReviewResult {
 /// then appends the Gemini-driven "Tomorrow's one action" — degrading
 /// gracefully to a `(skipped: …)` footer when there's no `GEMINI_API_KEY` or
 /// the call fails, so the review is always produced. When `save` is set, writes
-/// to `~/.phantom-mesh/reviews/{date}.md`, age-encrypted with the identity key
+/// to `~/.spectyn-mesh/reviews/{date}.md`, age-encrypted with the identity key
 /// when present (else plaintext, matching the events store).
 ///
 /// Proactive partner reflection (the life-partner MVP §④): when `partner` deps
@@ -626,7 +626,7 @@ pub struct CoachReviewResult {
 /// — the last 24h of `partner-signals.jsonl` (coarse location/behaviour +
 /// interactions) compared against the user's real Todoist goals — as a warm
 /// "Daily alignment" section via [`crate::partner::daily_reflection`]. This
-/// makes `phantom coach review` the SINGLE daily trigger for both halves instead
+/// makes `spectyn coach review` the SINGLE daily trigger for both halves instead
 /// of `partner::daily_reflection` being dead code that nothing fires. Best-effort:
 /// a failed reflection (no provider / network) degrades to a `(skipped: …)`
 /// footer and never sinks the events review.
@@ -636,14 +636,14 @@ pub async fn run_coach_review(
     save: bool,
     partner: Option<PartnerReflectionDeps<'_>>,
 ) -> anyhow::Result<CoachReviewResult> {
-    let events_dir = home.join(".phantom-mesh/events");
-    let identity_path = home.join(".phantom-mesh/identity.key");
+    let events_dir = home.join(".spectyn-mesh/events");
+    let identity_path = home.join(".spectyn-mesh/identity.key");
     let event_key = crate::life_node::key_derivation::load_event_key(&identity_path).ok();
     let pairs = load_events_for_date(&events_dir, date, event_key)?;
     let event_count = pairs.len();
     let mut md = aggregate(date, &pairs);
 
-    // N2 goal deviation: for each quantified goal in `<home>/.phantom-mesh/
+    // N2 goal deviation: for each quantified goal in `<home>/.spectyn-mesh/
     // goals.jsonl`, append the actual-vs-target signed deviation computed from
     // today's real events (see `deviation_section`). Best-effort: an unreadable
     // ledger degrades to no section rather than sinking the review.
@@ -747,7 +747,7 @@ pub async fn run_coach_review(
     let mut saved_to = None;
     let mut saved_encrypted = false;
     if save {
-        let reviews_dir = home.join(".phantom-mesh/reviews");
+        let reviews_dir = home.join(".spectyn-mesh/reviews");
         std::fs::create_dir_all(&reviews_dir)?;
         let p = reviews_dir.join(format!("{}.md", date));
         if identity_path.exists() {
@@ -962,11 +962,11 @@ mod tests {
         use crate::life_node::storage::EventStore;
 
         let home = tempfile::tempdir().unwrap();
-        let phantom = home.path().join(".phantom-mesh");
+        let spectyn = home.path().join(".spectyn-mesh");
 
         // 1. Seed the quantified goal into a REAL goals.jsonl ledger.
         define_goal_in(
-            &phantom,
+            &spectyn,
             &Goal {
                 tag: "focus".to_string(),
                 target: 180.0,
@@ -978,7 +978,7 @@ mod tests {
 
         // 2. Write TWO real focus events (45m each = 90m total) via EventStore,
         //    using the exact summary shape the focus capture path produces.
-        let events_dir = phantom.join("events");
+        let events_dir = spectyn.join("events");
         let store = EventStore::new(&events_dir);
         for i in 0..2 {
             let summary = format!(
@@ -1302,7 +1302,7 @@ mod tests {
     /// section is appended. This is the no-LLM / test path that keeps
     /// `run_coach_review` runnable without a provider. (The `Some(..)` path
     /// drives a live LLM + Todoist and is exercised end-to-end via the CLI
-    /// `phantom coach review`, not in unit tests, to avoid network in CI.)
+    /// `spectyn coach review`, not in unit tests, to avoid network in CI.)
     #[tokio::test]
     async fn coach_review_without_partner_deps_has_no_alignment_section() {
         // Serialize on the env mutex: OLLAMA_DISABLE is process-global, and the

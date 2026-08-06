@@ -6,7 +6,7 @@
 // fixture mirrors the shape produced by `tailscale status --json` on a
 // real tailnet (Self + Peer.* + offline + IPv6 + missing HostName).
 
-use phantom_mesh::mesh::{
+use spectyn_mesh::mesh::{
     parse_tailscale_status_json, peer_dispatch_base_url, MeshError, PeerHealth, PeerInfo,
     TailscaleStatus,
 };
@@ -49,7 +49,7 @@ fn test_peer_info_prefers_tailscale_ip() {
     );
     assert!(
         status.peers.values().all(|ip| !ip.contains(':')),
-        "IPv6 entries must be dropped (phantom dials IPv4 only)",
+        "IPv6 entries must be dropped (spectyn dials IPv4 only)",
     );
     // `Self` must not bleed into the peer list — we only route to others.
     assert!(

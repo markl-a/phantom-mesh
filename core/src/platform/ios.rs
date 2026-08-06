@@ -1,8 +1,8 @@
 // core/src/platform/ios.rs
 //
-// iOS platform adapter. Required because `phantom-mesh-app` (Tauri shell)
-// links `phantom-mesh` core as a lib dep on every target including
-// aarch64-apple-ios{,-sim} (Cargo.toml: `phantom-mesh = { path = "../../core",
+// iOS platform adapter. Required because `spectyn-mesh-app` (Tauri shell)
+// links `spectyn-mesh` core as a lib dep on every target including
+// aarch64-apple-ios{,-sim} (Cargo.toml: `spectyn-mesh = { path = "../../core",
 // features = ["desktop"] }`). PF-1's per-OS dispatch in `current()` had no
 // iOS arm, so `cargo build --target aarch64-apple-ios-sim` triggered the
 // `compile_error!` and broke `scripts/package-ios.sh --sim`.
@@ -69,13 +69,13 @@ impl PlatformAdapter for Platform {
     }
 
     fn dist_binary_name(&self) -> &'static str {
-        "phantom-aarch64-apple-ios"
+        "spectyn-aarch64-apple-ios"
     }
 
     fn config_dir(&self) -> std::path::PathBuf {
         if let Some(home) = dirs::home_dir() {
-            return home.join("Library/Application Support/ai.phantommesh.app");
+            return home.join("Library/Application Support/ai.spectynmesh.app");
         }
-        std::path::PathBuf::from(".phantom-mesh")
+        std::path::PathBuf::from(".spectyn-mesh")
     }
 }

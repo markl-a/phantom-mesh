@@ -2,7 +2,7 @@
 //
 // 對應 [`docs/cuj/02-daily-capture-loop.md`] 的 habit-capture portion (CUJ-02
 // 的 chip tap + freetext fallback + streak query 子集)；走 SPEC-22 lib 公開
-// API → sqlite (~/.phantom-mesh/habits.sqlite) → 回讀，把整條 flow 釘住，
+// API → sqlite (~/.spectyn-mesh/habits.sqlite) → 回讀，把整條 flow 釘住，
 // 避免 capture_habit_wire.rs 變更導致 user-facing 行為飄移。
 //
 // 命名規約: `cuj{NN}_{slug}_{scope}.rs` ── NN 是 CUJ 編號、scope 是該 CUJ
@@ -30,7 +30,7 @@
 //   - plaintext boundary slug 合法性 ── SPEC-22 §3.1 G7 (partial)
 //   - error catalog wire-shape ── SPEC-22 §11
 
-use phantom_mesh::capture_habit_wire::{
+use spectyn_mesh::capture_habit_wire::{
     create_habit, list_habits, HabitCaptureError, HabitDefinition, HabitFrequency,
 };
 use std::sync::Once;
@@ -38,15 +38,15 @@ use tempfile::TempDir;
 
 static INIT_HOME: Once = Once::new();
 
-/// 把 $HOME override 到隔離 tempdir，使 `~/.phantom-mesh/habits.sqlite` 落在
+/// 把 $HOME override 到隔離 tempdir，使 `~/.spectyn-mesh/habits.sqlite` 落在
 /// test-only 路徑、不污染 dev 機的 prod data。`Once` 保證同 process 內只設一次
 /// （Rust 預設 test 平行跑、但本檔線性、單一 test 函式內呼叫）。
 fn ensure_isolated_home() -> TempDir {
     let dir = TempDir::new().expect("tempdir");
     INIT_HOME.call_once(|| {
         std::env::set_var("HOME", dir.path());
-        // 預先建立 ~/.phantom-mesh/ 避免 open_habits_db 在 home 還沒目錄時報錯
-        std::fs::create_dir_all(dir.path().join(".phantom-mesh")).ok();
+        // 預先建立 ~/.spectyn-mesh/ 避免 open_habits_db 在 home 還沒目錄時報錯
+        std::fs::create_dir_all(dir.path().join(".spectyn-mesh")).ok();
     });
     dir
 }
@@ -127,7 +127,7 @@ fn cuj02_habit_palette_crud_and_cron_validation_flow() {
     // `Store { detail: "EventKey not loaded (vault locked)" }`。
     //
     // 兩條補完路：
-    //   (a) 加 helper 在 tempdir 跑 phantom identity-init 產真 identity.key
+    //   (a) 加 helper 在 tempdir 跑 spectyn identity-init 產真 identity.key
     //       (推薦、但要 SPEC-12 公開 API 抽象)
     //   (b) 把 record_checkin 改 dependency-injection、允許 in-memory mode
     // 切到 #[ignore] 的 cuj02_record_checkin_requires_identity 等 (a) 落地後 enable。

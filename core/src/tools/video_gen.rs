@@ -5,13 +5,13 @@
 //! universally uses **create-job + poll-status + download-url**
 //! because frame inference takes 10s–2min. This module bundles a
 //! generic polling loop with provider-specific wire formats so an
-//! agent can say "10-second 16:9 clip of a phantom mesh forming"
+//! agent can say "10-second 16:9 clip of a spectyn mesh forming"
 //! and get an mp4 path back the same way `image_generate` returns
 //! a PNG path.
 //!
 //! ## Supported providers
 //!
-//! Selected via `PHANTOM_VIDEO_GEN_PROVIDER`:
+//! Selected via `SPECTYN_VIDEO_GEN_PROVIDER`:
 //!
 //! | value (default `replicate`) | provider | default model | notes |
 //! |---|---|---|---|
@@ -21,15 +21,15 @@
 //! | `fal` | Fal.ai `/queue/{model}` | `fal-ai/ltx-video` | Sub-minute queue API |
 //!
 //! Env overrides (all optional except API key):
-//! - `PHANTOM_VIDEO_GEN_PROVIDER` — see table
-//! - `PHANTOM_VIDEO_GEN_BASE_URL` — override the provider base URL
-//! - `PHANTOM_VIDEO_GEN_API_KEY`  — fallback per-provider env (REPLICATE_API_TOKEN / OPENAI_API_KEY / LUMA_API_KEY / FAL_KEY)
-//! - `PHANTOM_VIDEO_GEN_MODEL`    — override the model id
-//! - `PHANTOM_VIDEO_GEN_TIMEOUT_SECS` — default 600 (= 10 min)
+//! - `SPECTYN_VIDEO_GEN_PROVIDER` — see table
+//! - `SPECTYN_VIDEO_GEN_BASE_URL` — override the provider base URL
+//! - `SPECTYN_VIDEO_GEN_API_KEY`  — fallback per-provider env (REPLICATE_API_TOKEN / OPENAI_API_KEY / LUMA_API_KEY / FAL_KEY)
+//! - `SPECTYN_VIDEO_GEN_MODEL`    — override the model id
+//! - `SPECTYN_VIDEO_GEN_TIMEOUT_SECS` — default 600 (= 10 min)
 //!
 //! ## Output
 //!
-//! mp4 lands in `~/.phantom-mesh/generated/<unix-ts>.mp4`. Returns
+//! mp4 lands in `~/.spectyn-mesh/generated/<unix-ts>.mp4`. Returns
 //! the path so the agent can `file_read` or `@`-attach for a
 //! follow-up vision turn (frame-by-frame description, e.g.).
 
@@ -57,7 +57,7 @@ enum Provider {
 
 impl Provider {
     fn from_env() -> Self {
-        match std::env::var("PHANTOM_VIDEO_GEN_PROVIDER")
+        match std::env::var("SPECTYN_VIDEO_GEN_PROVIDER")
             .unwrap_or_default()
             .to_lowercase()
             .as_str()
@@ -90,10 +90,10 @@ impl Provider {
     /// Env vars to try IN ORDER for the API key.
     fn api_key_envs(self) -> &'static [&'static str] {
         match self {
-            Self::Replicate => &["PHANTOM_VIDEO_GEN_API_KEY", "REPLICATE_API_TOKEN"],
-            Self::OpenAISora => &["PHANTOM_VIDEO_GEN_API_KEY", "OPENAI_API_KEY"],
-            Self::Luma => &["PHANTOM_VIDEO_GEN_API_KEY", "LUMA_API_KEY"],
-            Self::Fal => &["PHANTOM_VIDEO_GEN_API_KEY", "FAL_KEY"],
+            Self::Replicate => &["SPECTYN_VIDEO_GEN_API_KEY", "REPLICATE_API_TOKEN"],
+            Self::OpenAISora => &["SPECTYN_VIDEO_GEN_API_KEY", "OPENAI_API_KEY"],
+            Self::Luma => &["SPECTYN_VIDEO_GEN_API_KEY", "LUMA_API_KEY"],
+            Self::Fal => &["SPECTYN_VIDEO_GEN_API_KEY", "FAL_KEY"],
         }
     }
 
@@ -137,20 +137,20 @@ pub async fn generate(args: &Value) -> String {
     let api_key = read_api_key(provider);
     if api_key.is_empty() {
         return format!(
-            "Error: no API key for provider '{}' — set PHANTOM_VIDEO_GEN_API_KEY or one of [{}]",
+            "Error: no API key for provider '{}' — set SPECTYN_VIDEO_GEN_API_KEY or one of [{}]",
             provider.name(),
             provider.api_key_envs().join(", "),
         );
     }
 
-    let base_url = std::env::var("PHANTOM_VIDEO_GEN_BASE_URL")
+    let base_url = std::env::var("SPECTYN_VIDEO_GEN_BASE_URL")
         .unwrap_or_else(|_| provider.default_base_url().to_string());
     let model = args
         .get("model")
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .unwrap_or_else(|| {
-            std::env::var("PHANTOM_VIDEO_GEN_MODEL")
+            std::env::var("SPECTYN_VIDEO_GEN_MODEL")
                 .unwrap_or_else(|_| provider.default_model().to_string())
         });
     let duration_secs = args
@@ -178,7 +178,7 @@ pub async fn generate(args: &Value) -> String {
             .into();
     }
 
-    let timeout_secs = std::env::var("PHANTOM_VIDEO_GEN_TIMEOUT_SECS")
+    let timeout_secs = std::env::var("SPECTYN_VIDEO_GEN_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_TIMEOUT_SECS);
@@ -251,7 +251,7 @@ pub async fn generate(args: &Value) -> String {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 fn output_dir() -> std::io::Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
     let dir = data.join("generated");
     std::fs::create_dir_all(&dir)?;
@@ -448,7 +448,7 @@ async fn poll_until_done(
     loop {
         if start.elapsed() > overall_timeout {
             return Err(format!(
-                "timeout after {} s (set PHANTOM_VIDEO_GEN_TIMEOUT_SECS to extend)",
+                "timeout after {} s (set SPECTYN_VIDEO_GEN_TIMEOUT_SECS to extend)",
                 overall_timeout.as_secs()
             ));
         }
@@ -645,11 +645,11 @@ mod tests {
 
     fn clean_env() {
         for v in [
-            "PHANTOM_VIDEO_GEN_PROVIDER",
-            "PHANTOM_VIDEO_GEN_API_KEY",
-            "PHANTOM_VIDEO_GEN_BASE_URL",
-            "PHANTOM_VIDEO_GEN_MODEL",
-            "PHANTOM_VIDEO_GEN_TIMEOUT_SECS",
+            "SPECTYN_VIDEO_GEN_PROVIDER",
+            "SPECTYN_VIDEO_GEN_API_KEY",
+            "SPECTYN_VIDEO_GEN_BASE_URL",
+            "SPECTYN_VIDEO_GEN_MODEL",
+            "SPECTYN_VIDEO_GEN_TIMEOUT_SECS",
             "REPLICATE_API_TOKEN",
             "OPENAI_API_KEY",
             "LUMA_API_KEY",
@@ -670,13 +670,13 @@ mod tests {
     fn provider_from_env_aliases() {
         let _g = crate::sandbox::test_lock();
         clean_env();
-        std::env::set_var("PHANTOM_VIDEO_GEN_PROVIDER", "sora");
+        std::env::set_var("SPECTYN_VIDEO_GEN_PROVIDER", "sora");
         assert_eq!(Provider::from_env(), Provider::OpenAISora);
-        std::env::set_var("PHANTOM_VIDEO_GEN_PROVIDER", "OpenAI-Sora");
+        std::env::set_var("SPECTYN_VIDEO_GEN_PROVIDER", "OpenAI-Sora");
         assert_eq!(Provider::from_env(), Provider::OpenAISora);
-        std::env::set_var("PHANTOM_VIDEO_GEN_PROVIDER", "luma");
+        std::env::set_var("SPECTYN_VIDEO_GEN_PROVIDER", "luma");
         assert_eq!(Provider::from_env(), Provider::Luma);
-        std::env::set_var("PHANTOM_VIDEO_GEN_PROVIDER", "fal.ai");
+        std::env::set_var("SPECTYN_VIDEO_GEN_PROVIDER", "fal.ai");
         assert_eq!(Provider::from_env(), Provider::Fal);
         clean_env();
     }
@@ -702,7 +702,7 @@ mod tests {
     async fn missing_api_key_returns_error() {
         let _g = crate::sandbox::test_lock();
         clean_env();
-        let out = generate(&json!({"prompt": "a phantom mesh"})).await;
+        let out = generate(&json!({"prompt": "a spectyn mesh"})).await;
         assert!(out.starts_with("Error: no API key"), "got: {out}");
         assert!(
             out.contains("REPLICATE_API_TOKEN"),
@@ -714,7 +714,7 @@ mod tests {
     async fn luma_i2v_rejected() {
         let _g = crate::sandbox::test_lock();
         clean_env();
-        std::env::set_var("PHANTOM_VIDEO_GEN_PROVIDER", "luma");
+        std::env::set_var("SPECTYN_VIDEO_GEN_PROVIDER", "luma");
         std::env::set_var("LUMA_API_KEY", "stub-key");
         // Use an https URL so we skip the local-file read.
         let out = generate(&json!({

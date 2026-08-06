@@ -78,7 +78,7 @@ export default function App() {
   const [userInfo, setUserInfo] = useState<{ display_name: string; email: string; avatar_url?: string | null } | null>(null);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("phantom_mesh_identity");
+      const raw = localStorage.getItem("spectyn_mesh_identity");
       if (raw) setUserInfo(JSON.parse(raw));
     } catch { /* ignore */ }
   }, [onboarded]);
@@ -110,7 +110,7 @@ export default function App() {
   // First launch (every platform): the GUI D1–D5 login-first onboarding
   // (OnboardingHello) drives the shared SPEC-28 FSM through the real per-edge
   // side-effects (broker OAuth login + ed25519 identity mint, detached
-  // `phantom serve` + mDNS advertise, provider detection + ranking). English
+  // `spectyn serve` + mDNS advertise, provider detection + ranking). English
   // only; no demo/join/key-paste/skip. Same component on desktop AND mobile —
   // it is responsive (safe-area insets + haptics) — so neither short-circuits
   // past it. Peer-join + vault sync stay Stage 2 (handled later in Settings).
@@ -163,8 +163,8 @@ export default function App() {
       className={({ isActive }) =>
         `flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
           isActive
-            ? "bg-phantom-primary/15 text-phantom-primary"
-            : "text-phantom-text hover:bg-phantom-card"
+            ? "bg-spectyn-primary/15 text-spectyn-primary"
+            : "text-spectyn-text hover:bg-spectyn-card"
         }`
       }
     >
@@ -177,13 +177,13 @@ export default function App() {
   const handleNavClick = () => setSidebarOpen(false);
 
   return (
-    <div className="flex h-screen bg-phantom-bg">
+    <div className="flex h-screen bg-spectyn-bg">
       {/* Mobile header bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-phantom-bg border-b border-phantom-border px-3 py-2 flex items-center gap-2">
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-phantom-text p-1">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-spectyn-bg border-b border-spectyn-border px-3 py-2 flex items-center gap-2">
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-spectyn-text p-1">
           {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
-        <h1 className="text-sm font-bold text-phantom-primary">Phantom Mesh</h1>
+        <h1 className="text-sm font-bold text-spectyn-primary">Spectyn Mesh</h1>
       </div>
 
       {/* Sidebar overlay on mobile */}
@@ -192,7 +192,7 @@ export default function App() {
       )}
 
       <aside className={`
-        w-48 flex-shrink-0 border-r border-phantom-border flex flex-col bg-phantom-bg
+        w-48 flex-shrink-0 border-r border-spectyn-border flex flex-col bg-spectyn-bg
         fixed md:relative inset-y-0 left-0 z-40
         transform transition-transform duration-200
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -200,13 +200,13 @@ export default function App() {
         pt-12 md:pt-0
       `}>
         <div className="px-3 py-3 hidden md:block">
-          <h1 className="text-base font-bold text-phantom-primary">Phantom Mesh</h1>
+          <h1 className="text-base font-bold text-spectyn-primary">Spectyn Mesh</h1>
         </div>
         <nav className="px-2 flex-1 overflow-y-auto space-y-1" onClick={handleNavClick}>
           {PRIMARY_NAV.map(renderNavLink)}
 
           <div className="pt-4 pb-2 px-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-phantom-muted">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-spectyn-muted">
               Labs
             </p>
           </div>
@@ -214,24 +214,24 @@ export default function App() {
         </nav>
 
         {/* User profile + logout */}
-        <div className="px-2 py-3 border-t border-phantom-border">
+        <div className="px-2 py-3 border-t border-spectyn-border">
           {userInfo ? (
             <div className="flex items-center gap-2 px-2">
               {userInfo.avatar_url ? (
                 <img src={userInfo.avatar_url} alt="" className="w-6 h-6 rounded-full flex-shrink-0" />
               ) : (
-                <div className="w-6 h-6 rounded-full bg-phantom-primary/20 flex items-center justify-center text-xs text-phantom-primary flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-spectyn-primary/20 flex items-center justify-center text-xs text-spectyn-primary flex-shrink-0">
                   {userInfo.display_name?.[0]?.toUpperCase() || '?'}
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-phantom-text truncate">{userInfo.display_name}</p>
-                <p className="text-[10px] text-phantom-muted truncate">{userInfo.email}</p>
+                <p className="text-xs text-spectyn-text truncate">{userInfo.display_name}</p>
+                <p className="text-[10px] text-spectyn-muted truncate">{userInfo.email}</p>
               </div>
               <button
                 onClick={handleLogout}
                 title="登出"
-                className="text-phantom-muted hover:text-phantom-danger p-1 flex-shrink-0 transition"
+                className="text-spectyn-muted hover:text-spectyn-danger p-1 flex-shrink-0 transition"
               >
                 <LogOut size={14} />
               </button>
@@ -239,7 +239,7 @@ export default function App() {
           ) : (
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 px-2 py-1 text-xs text-phantom-muted hover:text-phantom-text transition w-full"
+              className="flex items-center gap-2 px-2 py-1 text-xs text-spectyn-muted hover:text-spectyn-text transition w-full"
             >
               <LogOut size={14} />
               登出 / 重新設定
@@ -294,19 +294,19 @@ export default function App() {
 //
 // Onboarding state machine (lives in localStorage so a refresh / cold-start
 // resumes wherever the user left off):
-//   key `phantom_mesh_v2_onboarded` ∈ {undefined,"true"}
-//   key `phantom_mesh_v2_onboarded_mode` ∈ {"demo","join","broker"}
+//   key `spectyn_mesh_v2_onboarded` ∈ {undefined,"true"}
+//   key `spectyn_mesh_v2_onboarded_mode` ∈ {"demo","join","broker"}
 // ───────────────────────────────────────────────────────────────────────────
 function MobileApp({ onLogout }: { onLogout?: () => void }) {
   const [onboardedV2, setOnboardedV2] = useState(
-    () => localStorage.getItem("phantom_mesh_v2_onboarded") === "true"
+    () => localStorage.getItem("spectyn_mesh_v2_onboarded") === "true"
   );
   const [stage, setStage] = useState<FirstLaunchStage>({ kind: "pick" });
 
   const markDone = (mode: "demo" | "join" | "broker") => {
     try {
-      localStorage.setItem("phantom_mesh_v2_onboarded", "true");
-      localStorage.setItem("phantom_mesh_v2_onboarded_mode", mode);
+      localStorage.setItem("spectyn_mesh_v2_onboarded", "true");
+      localStorage.setItem("spectyn_mesh_v2_onboarded_mode", mode);
     } catch (_e) { /* localStorage might be restricted */ }
     setOnboardedV2(true);
   };

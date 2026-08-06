@@ -12,7 +12,7 @@
 //!   - proactive substrate: sensor/behaviour signals appended to a ledger that
 //!     the daily alignment reflection reads. [`record_signal`],
 //!     [`gather_reflection_context`], [`daily_reflection`]. The reflection is
-//!     fired once a day from `phantom coach review`
+//!     fired once a day from `spectyn coach review`
 //!     (`life_node::daily_review::run_coach_review`) — the single trigger the
 //!     SPEC-23 scheduler runs — so it is no longer a disconnected loop.
 //!
@@ -74,11 +74,11 @@ impl MessageOrigin {
     /// human default — we never *upgrade* an unknown value to Human silently here.
     pub fn from_wire(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
-            // `phantom_self`/`dev-loop`/`dev_loop` are the dev/autonomous-loop
+            // `spectyn_self`/`dev-loop`/`dev_loop` are the dev/autonomous-loop
             // self-traffic markers (ACCEL-FRAMEWORK §④): they MUST resolve to
             // Machine so loop-generated signals never reach the human-usage moat.
             "machine" | "bot" | "system" | "classifier" | "loop" | "smoke" | "test"
-            | "phantom_self" | "phantom-self" | "dev-loop" | "dev_loop" => {
+            | "spectyn_self" | "spectyn-self" | "dev-loop" | "dev_loop" => {
                 Some(MessageOrigin::Machine)
             }
             "human" | "user" | "person" => Some(MessageOrigin::Human),
@@ -102,7 +102,7 @@ pub fn looks_like_machine_prompt(text: &str) -> bool {
         "意圖分類器",            // "intent classifier" — the classifier system prompt
         "只回一行 JSON",         // "reply with one line of JSON"
         "分類這句",              // "classify this sentence"
-        "你是 phantom 的意圖",   // classifier prompt opener
+        "你是 spectyn 的意圖",   // classifier prompt opener
         "\"intent\":\"chat",     // the literal JSON shape the prompt dictates
         "只回:{\"intent\"",      // short classifier prompt form
     ];
@@ -174,20 +174,20 @@ pub fn detect_intent(text: &str) -> Intent {
     Intent::Ask
 }
 
-/// The `.phantom-mesh` base dir for note capture / recall. Resolved from
+/// The `.spectyn-mesh` base dir for note capture / recall. Resolved from
 /// `$HOME` (via `dirs::home_dir`) so a temp `$HOME` isolates it in tests, and so
-/// the note lands in the SAME `~/.phantom-mesh/events` store the TUI `/recall`
+/// the note lands in the SAME `~/.spectyn-mesh/events` store the TUI `/recall`
 /// and `/review` read. Mirrors the convention in [`signals_path`] and
 /// `note_capture`.
-fn phantom_base_dir() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+fn spectyn_base_dir() -> PathBuf {
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
 }
 
 /// Handle a record-intent message synchronously: persist `body` as a recallable
 /// note under `<base>/events` (the file event store `recall::search_events`
 /// reads) and return a confirming reply. No LLM call. `base` is the
-/// `.phantom-mesh` dir (overridable for tests via `$HOME`).
+/// `.spectyn-mesh` dir (overridable for tests via `$HOME`).
 fn handle_record(base: &Path, body: &str) -> anyhow::Result<PartnerReply> {
     capture_note(base, body, &["partner".into()])?;
     // Short echo so the user sees what was recorded (truncate very long notes so
@@ -206,17 +206,17 @@ fn handle_record(base: &Path, body: &str) -> anyhow::Result<PartnerReply> {
 }
 
 /// Path of the JSONL signal/interaction ledger — the **human-usage** ledger that
-/// proves "我真天天在用". Override with `PHANTOM_PARTNER_SIGNALS` (used in tests +
+/// proves "我真天天在用". Override with `SPECTYN_PARTNER_SIGNALS` (used in tests +
 /// for relocating the brain's home). Only [`MessageOrigin::Human`] interactions
 /// land here; [`gather_reflection_context`] / [`recent_memory_context`] read it.
 pub fn signals_path() -> PathBuf {
-    if let Ok(p) = std::env::var("PHANTOM_PARTNER_SIGNALS") {
+    if let Ok(p) = std::env::var("SPECTYN_PARTNER_SIGNALS") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
     }
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("partner-signals.jsonl")
 }
 
@@ -224,7 +224,7 @@ pub fn signals_path() -> PathBuf {
 /// interactions are appended here instead of the human-usage ledger, so they are
 /// still observable (debuggable) but can NEVER inflate the dogfood-usage count or
 /// be fed back as "memory". Derived from [`signals_path`] (so the test override
-/// `PHANTOM_PARTNER_SIGNALS` relocates both together) by inserting a `.machine`
+/// `SPECTYN_PARTNER_SIGNALS` relocates both together) by inserting a `.machine`
 /// stem: `partner-signals.jsonl` → `partner-signals.machine.jsonl`.
 pub fn machine_signals_path() -> PathBuf {
     let human = signals_path();
@@ -240,10 +240,10 @@ pub fn machine_signals_path() -> PathBuf {
 }
 
 /// Path of the **dev/autonomous-loop self-traffic** log. Any signal whose origin
-/// is a dev-loop / `phantom_self` / machine source is appended here instead of the
+/// is a dev-loop / `spectyn_self` / machine source is appended here instead of the
 /// human-usage ledger, so loop output is still observable (debuggable) but can
 /// NEVER contaminate the "我真天天在用" moat (ACCEL-FRAMEWORK §④, owner option B).
-/// Derived from [`signals_path`] (so the `PHANTOM_PARTNER_SIGNALS` test override
+/// Derived from [`signals_path`] (so the `SPECTYN_PARTNER_SIGNALS` test override
 /// relocates all ledgers together) by replacing the file name with
 /// `dev-loop-log.jsonl`: `…/partner-signals.jsonl` → `…/dev-loop-log.jsonl`.
 pub fn dev_loop_log_path() -> PathBuf {
@@ -304,7 +304,7 @@ pub fn record_dev_loop(kind: &str, payload: &Value) -> std::io::Result<PathBuf> 
 /// Pollution hard wall for the `/partner/signal` ingress: route a signal by its
 /// resolved [`MessageOrigin`]. A genuine [`MessageOrigin::Human`] signal lands in
 /// the human-usage ledger ([`record_signal`]); a [`MessageOrigin::Machine`]
-/// signal (dev-loop / `phantom_self` / classifier / smoke / etc.) is diverted to
+/// signal (dev-loop / `spectyn_self` / classifier / smoke / etc.) is diverted to
 /// the dev-loop log ([`record_dev_loop`]) and therefore **never** reaches
 /// `partner-signals.jsonl`. Returns the path actually written so the caller can
 /// report where the signal landed. This is the write-guard that keeps autonomous
@@ -383,7 +383,7 @@ pub async fn handle_message(
 ) -> anyhow::Result<PartnerReply> {
     match detect_intent(text) {
         Intent::Record { body } => {
-            let reply = handle_record(&phantom_base_dir(), &body)?;
+            let reply = handle_record(&spectyn_base_dir(), &body)?;
             let _ = record_interaction(
                 origin,
                 &json!({ "user": text, "reply": reply.reply, "intent": "record", "turns": 0 }),
@@ -552,7 +552,7 @@ impl ReflectionContext {
 ///
 /// `now_unix` is a PARAMETER on purpose — the window is `(now_unix - 86400,
 /// now_unix]` so the result is deterministic from the ledger + that timestamp,
-/// never the wall clock. Honors the `PHANTOM_PARTNER_SIGNALS` override via
+/// never the wall clock. Honors the `SPECTYN_PARTNER_SIGNALS` override via
 /// [`signals_path`]. A missing/unreadable ledger yields an empty (zeroed)
 /// context rather than an error — a partner with no history still reflects.
 pub fn gather_reflection_context(now_unix: u64) -> ReflectionContext {
@@ -858,7 +858,7 @@ pub async fn fetch_goal_model(config: Option<&crate::config::ToolsConfig>) -> Op
 
 /// Produce the once-a-day gentle alignment reflection (the proactive half).
 ///
-/// Single trigger: this is fired from `phantom coach review` via
+/// Single trigger: this is fired from `spectyn coach review` via
 /// [`crate::life_node::daily_review::run_coach_review`] (which the SPEC-23
 /// scheduler runs daily). The events review and this goal-alignment reflection
 /// share that one entry point so the two loops never drift apart.
@@ -926,7 +926,7 @@ pub async fn daily_reflection(
 mod tests {
     use super::*;
 
-    /// `PHANTOM_PARTNER_SIGNALS` is process-global, but `cargo test` runs tests
+    /// `SPECTYN_PARTNER_SIGNALS` is process-global, but `cargo test` runs tests
     /// in parallel — one test's `remove_var` can clobber another's `set_var`
     /// mid-flight (e.g. between two `record_location_behavior` writes), making
     /// `signals_path()` resolve to the wrong ledger. Serialize every test that
@@ -935,7 +935,7 @@ mod tests {
     /// Backed by the crate-wide [`crate::env_lock`] mutex (not a module-private
     /// one) so env-touching tests in OTHER modules — notably the
     /// `/partner/message` origin-routing tests in `serve.rs`, which set the SAME
-    /// `PHANTOM_PARTNER_SIGNALS` to relocate the ledger — are serialized against
+    /// `SPECTYN_PARTNER_SIGNALS` to relocate the ledger — are serialized against
     /// these too; a per-module mutex would let those two groups race on the var.
     /// `lock()` returns an `Ok`-only `Result` so the historic `.unwrap()` /
     /// `.unwrap_or_else(...)` call sites keep compiling unchanged.
@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn append_then_read_back() {
         let dir =
-            std::env::temp_dir().join(format!("phantom-partner-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spectyn-partner-test-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
 
@@ -983,7 +983,7 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-reflect-test-{}", std::process::id()));
+            .join(format!("spectyn-reflect-test-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1009,9 +1009,9 @@ mod tests {
 
         // Point the brain at our seeded ledger for the duration of this test.
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = gather_reflection_context(NOW);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         assert_eq!(ctx.now_unix, NOW);
         assert_eq!(ctx.interactions, 2, "two interactions are within the 24h window");
@@ -1054,7 +1054,7 @@ mod tests {
         const NOW: u64 = 1_700_000_000;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-reflect-noinflate-{}", std::process::id()));
+            .join(format!("spectyn-reflect-noinflate-{}", std::process::id()));
         let path = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1080,9 +1080,9 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = gather_reflection_context(NOW);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // Five reflections present in the ledger, yet none counted.
         assert_eq!(ctx.interactions, 1, "the single real interaction is counted");
@@ -1116,7 +1116,7 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-reflect-recall-{}", std::process::id()));
+            .join(format!("spectyn-reflect-recall-{}", std::process::id()));
         let path = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1135,12 +1135,12 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         // facet ⓿ tally: the reflection must NOT be counted.
         let tally = gather_reflection_context(NOW);
         // facet ① cross-day recall: the SAME reflection must still be injected.
         let recall = cross_day_summary_context(NOW, 3);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         assert_eq!(tally.total, 0, "reflection excluded from the usage tally");
         assert!(tally.other_kinds.is_empty(), "no tally leak");
@@ -1173,13 +1173,13 @@ mod tests {
             .as_secs();
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-locbehav-test-{}", std::process::id()));
+            .join(format!("spectyn-locbehav-test-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
 
         // Two coarse signals; the second (recorded later → newest ledger line)
         // is the one that should surface as "most recent". The `now_unix` arg
@@ -1191,7 +1191,7 @@ mod tests {
         // Window against a now slightly ahead so both wall-clock-stamped records
         // are inside (now, now+...] -> they were stamped at-or-before this.
         let ctx = gather_reflection_context(now + 5);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // (a) Counted as sensor signals.
         assert_eq!(ctx.sensor_signals, 2, "both coarse signals counted");
@@ -1220,7 +1220,7 @@ mod tests {
         const NOW: u64 = 1_700_000_000;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-locbehav-seed-{}", std::process::id()));
+            .join(format!("spectyn-locbehav-seed-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1245,9 +1245,9 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = gather_reflection_context(NOW);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // 3 in-window sensors (future one excluded).
         assert_eq!(ctx.sensor_signals, 3);
@@ -1273,7 +1273,7 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-recent-mem-{}", std::process::id()));
+            .join(format!("spectyn-recent-mem-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1299,9 +1299,9 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = recent_memory_context(NOW, 5);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         let ctx = ctx.expect("two in-window interactions → Some(context)");
         assert!(ctx.starts_with("Recent context"), "ctx: {ctx}");
@@ -1325,7 +1325,7 @@ mod tests {
         const NOW: u64 = 1_700_000_000;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-recent-mem-cap-{}", std::process::id()));
+            .join(format!("spectyn-recent-mem-cap-{}", std::process::id()));
         let path = dir.join("sig.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1345,10 +1345,10 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = recent_memory_context(NOW, 2).expect("Some");
         let none = recent_memory_context(NOW, 0);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // Exactly 2 bullet lines.
         assert_eq!(ctx.matches("\n- ").count(), 2, "capped at max_items=2; ctx: {ctx}");
@@ -1364,18 +1364,18 @@ mod tests {
     #[test]
     fn recent_memory_context_empty_ledger_is_none() {
         let path = std::env::temp_dir().join(format!(
-            "phantom-recent-mem-missing-{}.jsonl",
+            "spectyn-recent-mem-missing-{}.jsonl",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let missing = recent_memory_context(1_700_000_000, 5);
         // An empty (existing but contentless) ledger is also None.
         std::fs::write(&path, "").unwrap();
         let empty = recent_memory_context(1_700_000_000, 5);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         assert!(missing.is_none(), "no ledger → None");
         assert!(empty.is_none(), "empty ledger → None");
@@ -1418,7 +1418,7 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-crossday-{}", std::process::id()));
+            .join(format!("spectyn-crossday-{}", std::process::id()));
         let path = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1449,10 +1449,10 @@ mod tests {
         std::fs::write(&path, format!("{body}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = cross_day_summary_context(NOW, 3);
         let none_zero = cross_day_summary_context(NOW, 0);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         let ctx = ctx.expect("two in-window reflections → Some(context)");
         assert!(ctx.starts_with("Earlier days"), "ctx: {ctx}");
@@ -1486,7 +1486,7 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-crossday-72h-{}", std::process::id()));
+            .join(format!("spectyn-crossday-72h-{}", std::process::id()));
         let path = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1497,10 +1497,10 @@ mod tests {
         std::fs::write(&path, format!("{old_reflection}\n")).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let recent = recent_memory_context(NOW, 10);
         let cross = cross_day_summary_context(NOW, 10);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // The 72h recent window must NOT reach a 144h-old record — and it's a
         // reflection (not an interaction) so recent_memory_context skips it too.
@@ -1531,13 +1531,13 @@ mod tests {
         const DAY: u64 = 24 * 60 * 60;
 
         let dir = std::env::temp_dir()
-            .join(format!("phantom-crossday-moat-{}", std::process::id()));
+            .join(format!("spectyn-crossday-moat-{}", std::process::id()));
         let human = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         // The segregated machine log derives from the same override.
         let machine = machine_signals_path();
         assert_eq!(machine, dir.join("partner-signals.machine.jsonl"));
@@ -1553,7 +1553,7 @@ mod tests {
         std::fs::write(&machine, format!("{machine_rec}\n")).unwrap();
 
         let ctx = cross_day_summary_context(NOW, 3);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         let ctx = ctx.expect("the human reflection is injected");
         assert!(ctx.contains("partner MVP"), "human reflection present; ctx: {ctx}");
@@ -1568,15 +1568,15 @@ mod tests {
     #[test]
     fn gather_reflection_empty_ledger_is_quiet_day() {
         let path = std::env::temp_dir().join(format!(
-            "phantom-reflect-missing-{}.jsonl",
+            "spectyn-reflect-missing-{}.jsonl",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let ctx = gather_reflection_context(1_700_000_000);
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         assert_eq!(ctx.total, 0);
         assert_eq!(ctx.summary(), "a quiet day — no interactions or signals logged");
@@ -1585,12 +1585,12 @@ mod tests {
     #[test]
     fn env_override_wins() {
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", "/tmp/phantom-partner-custom.jsonl");
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", "/tmp/spectyn-partner-custom.jsonl");
         assert_eq!(
             signals_path(),
-            PathBuf::from("/tmp/phantom-partner-custom.jsonl")
+            PathBuf::from("/tmp/spectyn-partner-custom.jsonl")
         );
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
     }
 
     // ── Dogfood-moat write-guard: bot traffic must not pollute human usage ──────
@@ -1599,29 +1599,29 @@ mod tests {
     fn machine_path_is_segregated_from_human_path() {
         let _env = ENV_LOCK.lock().unwrap();
         std::env::set_var(
-            "PHANTOM_PARTNER_SIGNALS",
-            "/tmp/phantom-moat/partner-signals.jsonl",
+            "SPECTYN_PARTNER_SIGNALS",
+            "/tmp/spectyn-moat/partner-signals.jsonl",
         );
         assert_eq!(
             signals_path(),
-            PathBuf::from("/tmp/phantom-moat/partner-signals.jsonl")
+            PathBuf::from("/tmp/spectyn-moat/partner-signals.jsonl")
         );
         // The machine log derives from the same override, with a `.machine` stem,
         // so the test override relocates both together and they never collide.
         assert_eq!(
             machine_signals_path(),
-            PathBuf::from("/tmp/phantom-moat/partner-signals.machine.jsonl")
+            PathBuf::from("/tmp/spectyn-moat/partner-signals.machine.jsonl")
         );
         assert_ne!(signals_path(), machine_signals_path());
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
     }
 
     #[test]
     fn machine_path_default_has_machine_stem() {
         // With no override, the machine log sits beside the human ledger under
-        // ~/.phantom-mesh with a `.machine` stem (never the human file itself).
+        // ~/.spectyn-mesh with a `.machine` stem (never the human file itself).
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
         let h = signals_path();
         let m = machine_signals_path();
         assert!(h.ends_with("partner-signals.jsonl"), "human: {h:?}");
@@ -1632,7 +1632,7 @@ mod tests {
     #[test]
     fn looks_like_machine_prompt_catches_classifier() {
         // The real polluter: the app's intent-classifier prompt (clusterDispatch).
-        let classifier_full = "你是 phantom 的意圖分類器,只回一行 JSON,不要任何其他文字。\n\
+        let classifier_full = "你是 spectyn 的意圖分類器,只回一行 JSON,不要任何其他文字。\n\
              使用者輸入:讓所有機器回答python";
         let classifier_short = "分類這句,只回:{\"intent\":\"chat\",\"machine\":\"\",\"task\":\"\"}\n\
              使用者說:你好";
@@ -1668,13 +1668,13 @@ mod tests {
             MessageOrigin::Machine
         );
         assert_eq!(
-            resolve_origin(Some(MessageOrigin::Human), "你是 phantom 的意圖分類器"),
+            resolve_origin(Some(MessageOrigin::Human), "你是 spectyn 的意圖分類器"),
             MessageOrigin::Human,
             "an explicit Human marker is not downgraded by the content heuristic"
         );
         // No marker → content heuristic catches the legacy untagged classifier.
         assert_eq!(
-            resolve_origin(None, "你是 phantom 的意圖分類器,只回一行 JSON"),
+            resolve_origin(None, "你是 spectyn 的意圖分類器,只回一行 JSON"),
             MessageOrigin::Machine
         );
         // No marker + ordinary text → Human (the common, safe default).
@@ -1700,19 +1700,19 @@ mod tests {
         // interaction lands ONLY in the segregated machine log — proving a
         // bot-origin call no longer touches the dogfood moat.
         let dir = std::env::temp_dir()
-            .join(format!("phantom-moat-route-{}", std::process::id()));
+            .join(format!("spectyn-moat-route-{}", std::process::id()));
         let human = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         let machine = machine_signals_path();
 
         record_interaction(MessageOrigin::Human, &json!({ "user": "real human msg" }))
             .unwrap();
         record_interaction(MessageOrigin::Machine, &json!({ "user": "classifier prompt" }))
             .unwrap();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         let human_content = std::fs::read_to_string(&human).unwrap();
         let machine_content = std::fs::read_to_string(&machine).unwrap();
@@ -1737,21 +1737,21 @@ mod tests {
     }
 
     /// Pollution hard wall (ACCEL-FRAMEWORK §④, owner option B): a dev-loop /
-    /// `phantom_self` / machine signal MUST be diverted to `dev-loop-log.jsonl`
+    /// `spectyn_self` / machine signal MUST be diverted to `dev-loop-log.jsonl`
     /// and must leave `partner-signals.jsonl` (the human-usage moat) untouched.
     #[test]
     fn dev_loop_never_writes_partner_signals() {
         let dir = std::env::temp_dir()
-            .join(format!("phantom-devloop-wall-{}", std::process::id()));
+            .join(format!("spectyn-devloop-wall-{}", std::process::id()));
         let human = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         let dev_loop = dev_loop_log_path();
 
         // Every dev-loop self-traffic marker resolves to Machine and is diverted.
-        for marker in ["phantom_self", "dev-loop", "dev_loop", "machine", "loop", "smoke"] {
+        for marker in ["spectyn_self", "dev-loop", "dev_loop", "machine", "loop", "smoke"] {
             let origin = resolve_origin(MessageOrigin::from_wire(marker), "");
             assert_eq!(
                 origin,
@@ -1761,7 +1761,7 @@ mod tests {
             record_signal_with_origin(origin, "sensor", &json!({ "src": marker }))
                 .unwrap();
         }
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // The human-usage moat ledger must NOT exist / must have zero lines: not a
         // single dev-loop record leaked in.
@@ -1779,7 +1779,7 @@ mod tests {
         let dev_loop_lines =
             dev_loop_content.lines().filter(|l| !l.trim().is_empty()).count();
         assert_eq!(dev_loop_lines, 6, "dev-loop log: {dev_loop_content}");
-        assert!(dev_loop_content.contains("phantom_self"), "{dev_loop_content}");
+        assert!(dev_loop_content.contains("spectyn_self"), "{dev_loop_content}");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1789,12 +1789,12 @@ mod tests {
     #[test]
     fn human_signal_still_lands_in_partner_signals() {
         let dir = std::env::temp_dir()
-            .join(format!("phantom-human-signal-{}", std::process::id()));
+            .join(format!("spectyn-human-signal-{}", std::process::id()));
         let human = dir.join("partner-signals.jsonl");
         let _ = std::fs::remove_dir_all(&dir);
 
         let _env = ENV_LOCK.lock().unwrap();
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         let dev_loop = dev_loop_log_path();
 
         // Explicit human marker AND the no-marker default (a coarse sensor check-in
@@ -1808,7 +1808,7 @@ mod tests {
         assert_eq!(defaulted, MessageOrigin::Human, "no-marker check-in defaults Human");
         record_signal_with_origin(defaulted, "sensor", &json!({ "activity": "gym" }))
             .unwrap();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         let human_content = std::fs::read_to_string(&human)
             .expect("human signal must land in partner-signals.jsonl");
@@ -1896,7 +1896,7 @@ mod tests {
         std::env::set_var("HOME", tmp.path());
         crate::encryption_wire::clear_event_key_cache();
 
-        let base = phantom_base_dir();
+        let base = spectyn_base_dir();
         std::fs::create_dir_all(&base).unwrap();
 
         // Drive the real record handler (same path handle_message takes).
@@ -1939,8 +1939,8 @@ mod tests {
         crate::encryption_wire::clear_event_key_cache();
         let idem = tmp.path().join("idem.jsonl");
         let sigs = tmp.path().join("signals.jsonl");
-        std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", &idem);
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &sigs);
+        std::env::set_var("SPECTYN_IDEMPOTENCY_STORE", &idem);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &sigs);
 
         let rt = AgentRuntime::default();
         let text = "記: 買牛奶 idempotency-e2e";
@@ -1959,12 +1959,12 @@ mod tests {
         assert_eq!(second.turns, 0, "deduped reply takes no turn");
 
         // The note was captured exactly once despite two ingress calls.
-        let events = phantom_base_dir().join("events");
+        let events = spectyn_base_dir().join("events");
         let hits = search_events(&events, None, &RecallFilter::text("idempotency-e2e"), 15).unwrap();
         assert_eq!(hits.len(), 1, "note captured once, not twice: {hits:?}");
 
-        std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE");
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_IDEMPOTENCY_STORE");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
         crate::encryption_wire::clear_event_key_cache();
         match prev_home {
             Some(v) => std::env::set_var("HOME", v),

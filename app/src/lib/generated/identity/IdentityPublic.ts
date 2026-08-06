@@ -17,6 +17,6 @@ publicKey: string,
  */
 fingerprint: string, 
 /**
- * ISO-8601 of master creation (from `~/.phantom-mesh/identity.key` mtime).
+ * ISO-8601 of master creation (from `~/.spectyn-mesh/identity.key` mtime).
  */
 createdAt: string, };

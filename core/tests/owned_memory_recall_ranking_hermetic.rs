@@ -1,5 +1,5 @@
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::skill_wire::{recall_skills, store_skill, Skill};
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::skill_wire::{recall_skills, store_skill, Skill};
 
 /// apex #2 (OWNED MEMORY) recall is relevance-RANKING, not just presence: a skill
 /// whose name+trigger match the query densely outranks one that merely mentions
@@ -10,8 +10,8 @@ use phantom_mesh::skill_wire::{recall_skills, store_skill, Skill};
 #[test]
 fn recall_ranks_more_relevant_skill_above_less_relevant() {
     let db = tempfile::NamedTempFile::new().expect("temp DB file");
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
-    std::env::set_var("PHANTOM_DB_PATH", db.path());
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
+    std::env::set_var("SPECTYN_DB_PATH", db.path());
 
     let less = Skill {
         id: "sk-rank-less".into(),
@@ -56,8 +56,8 @@ fn recall_ranks_more_relevant_skill_above_less_relevant() {
     })();
 
     match saved {
-        Some(value) => std::env::set_var("PHANTOM_DB_PATH", value),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(value) => std::env::set_var("SPECTYN_DB_PATH", value),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let outcome = outcome.expect("recall ranking through public skill_wire API");

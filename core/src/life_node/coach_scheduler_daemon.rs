@@ -3,14 +3,14 @@
 //! ## Why this exists (the launchd dead-trigger)
 //!
 //! [`coach_scheduler`](super::coach_scheduler) generates + installs an OS
-//! scheduler unit (launchd / systemd / schtasks) that fires `phantom coach
+//! scheduler unit (launchd / systemd / schtasks) that fires `spectyn coach
 //! review` daily. On macOS that launchd path is fragile: a launchd-spawned
-//! `phantom` (parent pid 1) is run through the code-signing monitor and a
+//! `spectyn` (parent pid 1) is run through the code-signing monitor and a
 //! freshly built / linker-signed binary is SIGKILLed under a launch-constraint
 //! / provenance check (`dyld` `open_with_subsystem` hang → no output) before any
 //! review is written. The job *looks* installed but every fire dies silently.
 //!
-//! The insight (user, 2026-06-05): `phantom serve` is ALREADY a long-lived
+//! The insight (user, 2026-06-05): `spectyn serve` is ALREADY a long-lived
 //! daemon that runs fine. Embedding the daily trigger as a tokio timer INSIDE
 //! that process means **no new process is spawned** → no dyld provenance /
 //! launch-constraint check → no SIGKILL. It is also the natural home for the
@@ -49,9 +49,9 @@
 //!
 //! ## Opt-out
 //!
-//! `PHANTOM_COACH_DISABLE=1` skips spawning the loop entirely (used by tests and
-//! single-run / manual-trigger setups). The caller (`phantom serve`) checks this
-//! and simply does not spawn — see `core/src/bin/phantom.rs`.
+//! `SPECTYN_COACH_DISABLE=1` skips spawning the loop entirely (used by tests and
+//! single-run / manual-trigger setups). The caller (`spectyn serve`) checks this
+//! and simply does not spawn — see `core/src/bin/spectyn.rs`.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -69,7 +69,7 @@ const COACH_KIND: &str = "daily-coach";
 const COACH_TTL_SECS: u64 = 24 * 60 * 60;
 
 /// Env var that opts a serve process out of the embedded daily loop entirely.
-pub const DISABLE_ENV: &str = "PHANTOM_COACH_DISABLE";
+pub const DISABLE_ENV: &str = "SPECTYN_COACH_DISABLE";
 
 /// Date-scoped idempotency key for a given local calendar date (`YYYY-MM-DD`).
 /// Public so a test (and the caller) can assert the exact "once per day" scope.
@@ -77,7 +77,7 @@ pub fn dedup_key(date: &str) -> String {
     format!("{COACH_KIND}:{date}")
 }
 
-/// `true` when `PHANTOM_COACH_DISABLE` is set to a truthy value (`1`/`true`/`yes`,
+/// `true` when `SPECTYN_COACH_DISABLE` is set to a truthy value (`1`/`true`/`yes`,
 /// case-insensitive). Anything else (unset, empty, `0`) means the loop runs.
 pub fn is_disabled() -> bool {
     match std::env::var(DISABLE_ENV) {
@@ -189,7 +189,7 @@ fn at_time_on<Tz: TimeZone>(
 /// Spawn the forever-loop daily coach scheduler as a tokio task on the serve
 /// runtime. Returns the [`JoinHandle`] (serve drops it; the task lives as long
 /// as the process). `home` is the brain root (`~`); `runtime`/`agent` drive the
-/// proactive partner reflection half (same deps the `phantom coach review` CLI
+/// proactive partner reflection half (same deps the `spectyn coach review` CLI
 /// builds); `schedule` is the daily trigger time (default 21:00).
 ///
 /// On each iteration:
@@ -348,7 +348,7 @@ async fn run_once_for_date_with_clock(
                     task_id: None,
                     workspace_id: agent.to_string(),
                     priority: crate::notifications::NotificationPriority::P0,
-                    title: format!("phantom · daily review ({date})"),
+                    title: format!("spectyn · daily review ({date})"),
                     body: coach_notification_body(&r.markdown, r.event_count),
                     actions: vec![],
                     timestamp: (now_unix as i64).saturating_mul(1000),
@@ -372,7 +372,7 @@ mod tests {
     use super::*;
     use chrono::{Local, TimeZone};
 
-    /// `PHANTOM_IDEMPOTENCY_STORE` / `PHANTOM_COACH_DISABLE` are process-global,
+    /// `SPECTYN_IDEMPOTENCY_STORE` / `SPECTYN_COACH_DISABLE` are process-global,
     /// but `cargo test` runs tests in parallel — one test's `remove_var` can
     /// clobber another's `set_var` mid-flight. Serialize the env-mutating tests
     /// behind one lock (same pattern as `partner::tests::ENV_LOCK`).
@@ -484,7 +484,7 @@ mod tests {
         let ledger = dir.path().join("idempotency.jsonl");
         // Scope the env override to this test; restore on drop is implicit since
         // each test process is isolated, but be explicit to avoid cross-talk.
-        std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", &ledger);
+        std::env::set_var("SPECTYN_IDEMPOTENCY_STORE", &ledger);
 
         let key = dedup_key("2026-06-06");
         let first = crate::idempotency::check_and_record(&key, COACH_KIND, COACH_TTL_SECS);
@@ -504,7 +504,7 @@ mod tests {
         );
         assert!(tomorrow.is_first(), "next calendar day fires again: {tomorrow:?}");
 
-        std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE");
+        std::env::remove_var("SPECTYN_IDEMPOTENCY_STORE");
     }
 
     #[test]
@@ -589,7 +589,7 @@ mod tests {
             std::env::remove_var(k);
         }
         std::env::set_var("OLLAMA_DISABLE", "1");
-        std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", home.join("idem.jsonl"));
+        std::env::set_var("SPECTYN_IDEMPOTENCY_STORE", home.join("idem.jsonl"));
 
         // A channel that records every notification it is handed.
         struct RecCh(Arc<AsyncMutex<Vec<crate::notifications::Notification>>>);
@@ -627,12 +627,12 @@ mod tests {
             assert_eq!(got[0].priority, crate::notifications::NotificationPriority::P0);
         }
         assert!(
-            home.join(".phantom-mesh/reviews/2026-06-06.md").exists(),
+            home.join(".spectyn-mesh/reviews/2026-06-06.md").exists(),
             "the review file was also saved alongside the notification"
         );
 
         std::env::remove_var("OLLAMA_DISABLE");
-        std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE");
+        std::env::remove_var("SPECTYN_IDEMPOTENCY_STORE");
         for (k, v) in saved {
             if let Some(v) = v {
                 std::env::set_var(k, v);

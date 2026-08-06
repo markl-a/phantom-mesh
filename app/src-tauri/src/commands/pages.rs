@@ -16,7 +16,7 @@ fn pages_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/tmp"));
 
-    base.join(".phantom-mesh").join("pages")
+    base.join(".spectyn-mesh").join("pages")
 }
 
 fn page_db_path() -> PathBuf {
@@ -43,29 +43,29 @@ fn ensure_db() -> Result<Connection, String> {
 // ── Bridge JS ─────────────────────────────────────────────────────────────────
 
 const BRIDGE_JS: &str = r#"<script>
-window.phantom = {
+window.spectyn = {
   _call: function(method, args) {
     return new Promise(function(resolve, reject) {
       var id = Math.random().toString(36).slice(2);
       var handler = function(e) {
-        if (e.data && e.data.phantomId === id) {
+        if (e.data && e.data.spectynId === id) {
           window.removeEventListener('message', handler);
           if (e.data.error) reject(new Error(e.data.error));
           else resolve(e.data.result);
         }
       };
       window.addEventListener('message', handler);
-      window.parent.postMessage({ phantom: true, id: id, method: method, args: args }, '*');
+      window.parent.postMessage({ spectyn: true, id: id, method: method, args: args }, '*');
     });
   },
   db: {
-    get: function(key) { return window.phantom._call('page_db_get', { key: key }); },
-    set: function(key, value) { return window.phantom._call('page_db_set', { key: key, value: JSON.stringify(value) }); },
-    query: function(sql) { return window.phantom._call('page_db_query', { sql: sql }); },
+    get: function(key) { return window.spectyn._call('page_db_get', { key: key }); },
+    set: function(key, value) { return window.spectyn._call('page_db_set', { key: key, value: JSON.stringify(value) }); },
+    query: function(sql) { return window.spectyn._call('page_db_query', { sql: sql }); },
   },
-  agent: { run: function(prompt) { return window.phantom._call('send_message', { prompt: prompt }); } },
-  notify: function(title, body) { return window.phantom._call('send_notification', { title: title, body: body }); },
-  cluster: { nodes: function() { return window.phantom._call('get_cluster_status'); } },
+  agent: { run: function(prompt) { return window.spectyn._call('send_message', { prompt: prompt }); } },
+  notify: function(title, body) { return window.spectyn._call('send_notification', { title: title, body: body }); },
+  cluster: { nodes: function() { return window.spectyn._call('get_cluster_status'); } },
 };
 </script>"#;
 

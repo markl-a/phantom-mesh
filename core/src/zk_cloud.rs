@@ -9,7 +9,7 @@
 //! new key management).
 //!
 //! Storage mirrors `inbox.rs` / `pending_approvals.rs`: one file per blob under
-//! `~/.phantom-mesh/zk-cloud/blobs/<device_id>/<blob_id>.age`, written
+//! `~/.spectyn-mesh/zk-cloud/blobs/<device_id>/<blob_id>.age`, written
 //! atomically (tmp + rename) so a reader never observes a half-written blob.
 //! Retrieval FAILS CLOSED: a missing/unknown key returns `Err` — never
 //! plaintext, never a different blob.
@@ -22,9 +22,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// `~/.phantom-mesh/zk-cloud` under the given home — the relay's data root.
+/// `~/.spectyn-mesh/zk-cloud` under the given home — the relay's data root.
 pub fn store_dir(home: &Path) -> PathBuf {
-    crate::cli_config::phantom_dir_under(home).join("zk-cloud")
+    crate::cli_config::spectyn_dir_under(home).join("zk-cloud")
 }
 
 /// `<store>/blobs` — one subdir per device, one `.age` file per blob.
@@ -222,12 +222,12 @@ mod tests {
         (sealed, key)
     }
 
-    /// Test isolation: `store_dir` routes through `phantom_dir_under`, which
-    /// honors a process-global `PHANTOM_HOME` override (correct in production).
-    /// Other tests (e.g. the serve-layer roundtrip) set `PHANTOM_HOME`, so
+    /// Test isolation: `store_dir` routes through `spectyn_dir_under`, which
+    /// honors a process-global `SPECTYN_HOME` override (correct in production).
+    /// Other tests (e.g. the serve-layer roundtrip) set `SPECTYN_HOME`, so
     /// without serialization a parallel run would redirect these tempdir-scoped
     /// tests onto a shared dir. Acquire the crate-wide env lock AND clear
-    /// `PHANTOM_HOME` for the test body, restoring the prior value on drop.
+    /// `SPECTYN_HOME` for the test body, restoring the prior value on drop.
     struct HomeIsolation {
         _lock: std::sync::MutexGuard<'static, ()>,
         prev: Option<std::ffi::OsString>,
@@ -235,16 +235,16 @@ mod tests {
     impl HomeIsolation {
         fn new() -> Self {
             let lock = crate::env_lock::acquire();
-            let prev = std::env::var_os("PHANTOM_HOME");
-            std::env::remove_var("PHANTOM_HOME");
+            let prev = std::env::var_os("SPECTYN_HOME");
+            std::env::remove_var("SPECTYN_HOME");
             Self { _lock: lock, prev }
         }
     }
     impl Drop for HomeIsolation {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var("PHANTOM_HOME", v),
-                None => std::env::remove_var("PHANTOM_HOME"),
+                Some(v) => std::env::set_var("SPECTYN_HOME", v),
+                None => std::env::remove_var("SPECTYN_HOME"),
             }
         }
     }

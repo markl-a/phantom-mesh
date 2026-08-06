@@ -25,11 +25,11 @@ delivery 的互動有三條 coach-engine（SPEC-23）沒有的路徑：
 
 ```
 [user 點 WinRT Toast / 「開啟回顧」]
-  --> OS 解析 phantom-mesh:// protocol --> 喚起 phantom app
+  --> OS 解析 spectyn-mesh:// protocol --> 喚起 spectyn app
       --> app 已在跑：直接 navigate Coach tab + load review(id)（< 300ms）
       --> app 沒跑：
-            1. launch phantom-mesh-app.exe（顯 splash，不白屏）
-            2. 等 phantom serve ready（healthz 200）
+            1. launch spectyn-mesh-app.exe（顯 splash，不白屏）
+            2. 等 spectyn serve ready（healthz 200）
             3. navigate Coach tab + load review(id)
             4. 若 serve 5s 未 ready --> splash 顯「啟動中...」+ 不報錯
 ```

@@ -1,24 +1,24 @@
 //! Nudge cooldown ledger — the "don't re-nag" half of the sense→learn→nudge
 //! loop (capability ③, spec `desktop-nudge`/N3).
 //!
-//! When `phantom coach review --notify` finds a goal behind target, it fires a
+//! When `spectyn coach review --notify` finds a goal behind target, it fires a
 //! real desktop banner (see [`crate::life_node::daily_review`]). Without a
 //! memory of what we already nudged, re-running the review (or the SPEC-23
 //! scheduler firing again) would re-pop the SAME banner and train the user to
 //! ignore us. This ledger records each fired nudge so a per-tag cooldown can
 //! suppress a repeat within the cooldown window.
 //!
-//! Storage is an append-only JSON-lines ledger at `~/.phantom-mesh/nudges.jsonl`,
+//! Storage is an append-only JSON-lines ledger at `~/.spectyn-mesh/nudges.jsonl`,
 //! mirroring the `goals.jsonl` / `partner-signals.jsonl` convention in
 //! [`crate::life_node::goals`] / [`crate::partner`]: no DB to provision, survives
 //! a crash mid-write (the worst case is one truncated trailing line, which the
 //! reader skips), and is trivially greppable.
 //!
 //! The testable core ([`should_nudge_in`] / [`record_nudge_in`]) is BOTH
-//! path-injectable (caller passes the `.phantom-mesh` dir) AND clock-injectable
+//! path-injectable (caller passes the `.spectyn-mesh` dir) AND clock-injectable
 //! (caller passes `now_secs`) so the hermetic test is fully deterministic — the
 //! core never reads the wall clock or the real home dir. The thin home-dir
-//! wrappers ([`should_nudge`] / [`record_nudge`]) resolve `~/.phantom-mesh` and
+//! wrappers ([`should_nudge`] / [`record_nudge`]) resolve `~/.spectyn-mesh` and
 //! the real `SystemTime::now()` for production.
 
 use std::fs::OpenOptions;
@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 /// seconds of "now".
 pub const NUDGE_COOLDOWN_SECS: u64 = 1800;
 
-/// Ledger file name under the `.phantom-mesh` home dir.
+/// Ledger file name under the `.spectyn-mesh` home dir.
 const NUDGES_FILE: &str = "nudges.jsonl";
 
 /// One recorded nudge: which goal `tag` we nudged about, and WHEN (unix seconds).
@@ -42,12 +42,12 @@ pub struct NudgeRecord {
     pub ts_secs: u64,
 }
 
-/// Path of the nudges JSONL ledger: `~/.phantom-mesh/nudges.jsonl`. Resolved
+/// Path of the nudges JSONL ledger: `~/.spectyn-mesh/nudges.jsonl`. Resolved
 /// from `$HOME` (via `dirs::home_dir`) so a temp `$HOME` would isolate it; the
 /// hermetic test drives the path-injectable cores directly and never touches the
 /// real home dir. Mirrors `goals::goals_jsonl_path`.
 pub fn nudges_jsonl_path() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
+    crate::cli_config::spectyn_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(NUDGES_FILE)
 }
@@ -116,10 +116,10 @@ pub fn record_nudge_in(dir: &Path, tag: &str, now_secs: u64) -> std::io::Result<
     Ok(())
 }
 
-/// Thin home-dir wrapper over [`should_nudge_in`], resolving `~/.phantom-mesh`
+/// Thin home-dir wrapper over [`should_nudge_in`], resolving `~/.spectyn-mesh`
 /// and the real wall clock. Used by production callers (the coach review notify
 /// path). On a system with no resolvable home dir the cores still work against
-/// `./.phantom-mesh`.
+/// `./.spectyn-mesh`.
 pub fn should_nudge(tag: &str, now_secs: u64) -> bool {
     let dir = nudges_jsonl_path()
         .parent()
@@ -149,7 +149,7 @@ mod tests {
     #[test]
     fn cooldown_suppresses_within_window_and_lifts_after() {
         let home = tempfile::tempdir().unwrap();
-        let dir = home.path().join(".phantom-mesh");
+        let dir = home.path().join(".spectyn-mesh");
 
         // Fresh ledger: nothing recorded yet → free to nudge.
         assert!(
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn cooldown_is_per_tag() {
         let home = tempfile::tempdir().unwrap();
-        let dir = home.path().join(".phantom-mesh");
+        let dir = home.path().join(".spectyn-mesh");
         record_nudge_in(&dir, "focus", 1000).expect("record focus nudge");
         assert!(
             !should_nudge_in(&dir, "focus", 1000 + 600),

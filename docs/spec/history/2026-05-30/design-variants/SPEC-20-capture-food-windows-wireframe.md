@@ -43,7 +43,7 @@ SPEC-20 §1 的 hero 流程是「手機相機 → `PHPickerViewController`（iOS
 | Main window `[Life / Food tab]` sidebar | ✅ | ✅ | canonical surface — 最可靠入口 |
 | **System tray right-click → "Quick Log Meal..."** | ✅ | ✅ | tray dropdown capability 項（per SPEC-43 §8.2，與 SPEC-21 "Start Focus..." 同層） |
 | `Ctrl+V` 貼上圖片（main window 有焦點時） | ✅ | ✅ | 剪貼簿截圖 / 複製圖直接成 capture 來源 |
-| Deep-link `phantom-mesh://food/capture` | ✅ | ✅ | 跨機 dispatch / 外部觸發 |
+| Deep-link `spectyn-mesh://food/capture` | ✅ | ✅ | 跨機 dispatch / 外部觸發 |
 | `Win+Shift+M` global hotkey（使用者 opt-in） | ❌ | ✅ | 預設 OFF（避撞 enterprise app，同 SPEC-21 §8.5 決策）；Settings → Hotkeys 手動開 |
 | 拖放圖片到主視窗 | ✅ | ✅ | drag-drop 任一處主視窗 → 進 capture 來源 = 該檔 |
 
@@ -157,17 +157,17 @@ SPEC-20 §1 的 hero 流程是「手機相機 → `PHPickerViewController`（iOS
 
 ```
 ┌────────────────────────────────────────────────┐
-│ Phantom Mesh · Life                            │  ← header（灰、不可點；per SPEC-43 §8.2 item 1）
+│ Spectyn Mesh · Life                            │  ← header（灰、不可點；per SPEC-43 §8.2 item 1）
 ├────────────────────────────────────────────────┤
 │ [camera] Quick Log Meal...          Ctrl+Shift+M│  ← capability 項（global hotkey 影子，v0.7+ 才註冊）
 │ [focus]  Start Focus...                         │  ← SPEC-21 sibling（並列）
 ├────────────────────────────────────────────────┤
-│ Open Phantom Mesh                   Ctrl+O      │
+│ Open Spectyn Mesh                   Ctrl+O      │
 │ Settings...                                     │
 └────────────────────────────────────────────────┘
 ```
 
-- analyzing 期間 tray icon 切 `phantom-tray-working.ico`（綠點，per SPEC-43 §8.1 working semantics）；done 後 debounce 1 秒回 idle
+- analyzing 期間 tray icon 切 `spectyn-tray-working.ico`（綠點，per SPEC-43 §8.1 working semantics）；done 後 debounce 1 秒回 idle
 - 與 SPEC-21 focus 共用同一 tray dropdown — capture capabilities 並列，互不灰化（食物 capture 是瞬時、非 long-running session，不像 focus 錄音會 rebuild menu）
 
 ## 待補（下一 pipeline stage）

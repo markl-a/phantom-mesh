@@ -124,7 +124,7 @@ mod tests {
         let outcome = land(
             &git,
             std::path::Path::new("/r"),
-            &task("phantom-quant"),
+            &task("spectyn-quant"),
             Tier::Satellite,
         )
         .unwrap();
@@ -141,7 +141,7 @@ mod tests {
         let outcome = land(
             &git,
             std::path::Path::new("/r"),
-            &task("phantom-mesh"),
+            &task("spectyn-mesh"),
             Tier::Main,
         )
         .unwrap();

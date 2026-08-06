@@ -34,10 +34,10 @@ coach 不是 user 主動點的功能，是**背景定時跑、隔天給回顧**�
 
 | 進入點 | v0.6.0 | 說明 |
 |---|---|---|
-| **Task Scheduler `PhantomMeshCoachReview` 每日 21:00** | ✅ | 自動觸發 `run_daily_review(yesterday)`；user 不需手動 |
+| **Task Scheduler `SpectynMeshCoachReview` 每日 21:00** | ✅ | 自動觸發 `run_daily_review(yesterday)`；user 不需手動 |
 | Main window `[Life / Coach tab]` | ✅ | 看今日回顧 + 歷史回顧列表 |
 | ActionCenter toast「今天的回顧好了」 | ✅（SPEC-24 派送） | 21:00 跑完 → 點 toast 跳 Coach tab |
-| CLI `phantom coach review --date today` | ✅ | 手動觸發 / 重看 |
+| CLI `spectyn coach review --date today` | ✅ | 手動觸發 / 重看 |
 | Settings → Coach → 回顧時間 | ✅ | 改 21:00 預設（重設 Task Scheduler trigger 時間） |
 
 **v0.6.0**：Task Scheduler 自動跑 + Coach tab 呈現 + Settings 改時間。toast 派送見 SPEC-24。
@@ -105,10 +105,10 @@ coach 不是 user 主動點的功能，是**背景定時跑、隔天給回顧**�
 
 ## Task Scheduler 設定（Windows scheduler 抽象）
 
-- task name `PhantomMeshCoachReview`、daily trigger 21:00 local、action = `phantom coach review --date yesterday --emit`
+- task name `SpectynMeshCoachReview`、daily trigger 21:00 local、action = `spectyn coach review --date yesterday --emit`
 - 改時間：Settings → Coach → 回顧時間 → 重 register task（`schtasks /change`）
 - 桌面準時性高（不像行動端延遲）；user 關機過 21:00 → 開機後 Task Scheduler `StartWhenAvailable` 補跑
-- **不需 admin**（user-scope task，同 SPEC-43 PhantomServe 模式）
+- **不需 admin**（user-scope task，同 SPEC-43 SpectynServe 模式）
 
 ## 失敗 / 邊界（per SPEC-04 + SPEC-23 §11.1 X.coach.*）
 

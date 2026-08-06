@@ -18,7 +18,7 @@
 use serde_json::json;
 use std::sync::{Mutex, OnceLock};
 
-/// Shared lock — these tests mutate `PHANTOM_EXTRA_ALLOWED_ROOTS` and
+/// Shared lock — these tests mutate `SPECTYN_EXTRA_ALLOWED_ROOTS` and
 /// must serialise with anything else that reads or writes that env var
 /// (see `test_security_t7.rs::env_guard`). Env vars are process-global.
 fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -28,7 +28,7 @@ fn env_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|p| p.into_inner())
 }
 
-/// A path that is guaranteed outside CWD and ~/.phantom-mesh on every
+/// A path that is guaranteed outside CWD and ~/.spectyn-mesh on every
 /// supported dev OS. We never write to it; we only check that tools
 /// refuse to *read* / *touch* it.
 fn outside_path() -> &'static str {
@@ -41,12 +41,12 @@ fn outside_path() -> &'static str {
 
 // ── H-6 diff_view::diff_files ───────────────────────────────────────────────
 
-use phantom_mesh::tools::diff_view as ph_diff;
+use spectyn_mesh::tools::diff_view as ph_diff;
 
 #[tokio::test]
 async fn diff_files_rejects_absolute_path_a_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 
     // path_a points at a sensitive system file. With the fix in place
     // safe_path() must refuse before any I/O happens.
@@ -66,7 +66,7 @@ async fn diff_files_rejects_absolute_path_a_outside_workspace() {
 #[tokio::test]
 async fn diff_files_rejects_absolute_path_b_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 
     let r = ph_diff::diff_files(&json!({
         "path_a": "Cargo.toml",
@@ -90,9 +90,9 @@ async fn diff_files_accepts_paths_inside_workspace() {
     std::fs::write(&a, "hello\n").unwrap();
     std::fs::write(&b, "world\n").unwrap();
 
-    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
+    let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").ok();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         dir.path().to_string_lossy().to_string(),
     );
 
@@ -103,9 +103,9 @@ async fn diff_files_accepts_paths_inside_workspace() {
     .await;
 
     if let Some(v) = prev {
-        std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v);
+        std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", v);
     } else {
-        std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+        std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     }
 
     // A real diff contains hunk headers; a workspace-rejection contains "outside".
@@ -117,12 +117,12 @@ async fn diff_files_accepts_paths_inside_workspace() {
 
 // ── H-7 ls::list / ls::stat ─────────────────────────────────────────────────
 
-use phantom_mesh::tools::ls as ph_ls;
+use spectyn_mesh::tools::ls as ph_ls;
 
 #[tokio::test]
 async fn ls_list_rejects_absolute_path_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 
     // /etc and C:\Windows\System32 always exist; pre-fix this would dump
     // the directory contents, post-fix it must be a workspace rejection.
@@ -143,7 +143,7 @@ async fn ls_list_rejects_absolute_path_outside_workspace() {
 #[tokio::test]
 async fn ls_stat_rejects_absolute_path_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 
     let r = ph_ls::stat(&json!({ "path": outside_path() })).await;
 
@@ -160,18 +160,18 @@ async fn ls_list_accepts_directory_inside_workspace() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hello.txt"), "x").unwrap();
 
-    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
+    let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").ok();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         dir.path().to_string_lossy().to_string(),
     );
 
     let r = ph_ls::list(&json!({ "path": dir.path().to_str().unwrap() })).await;
 
     if let Some(v) = prev {
-        std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v);
+        std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", v);
     } else {
-        std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+        std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     }
 
     assert!(
@@ -182,19 +182,19 @@ async fn ls_list_accepts_directory_inside_workspace() {
 
 // ── H-8 fs::rename_file dst path ────────────────────────────────────────────
 
-use phantom_mesh::tools::fs as ph_fs;
+use spectyn_mesh::tools::fs as ph_fs;
 
 #[tokio::test]
 async fn rename_rejects_dst_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
 
     // Create an in-workspace src so safe_path(src) succeeds, isolating
     // the test to the dst-side gap.
     let dir = tempfile::tempdir().unwrap();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         dir.path().to_string_lossy().to_string(),
     );
     let src = dir.path().join("src.txt");
@@ -208,9 +208,9 @@ async fn rename_rejects_dst_outside_workspace() {
         .unwrap()
         .as_nanos();
     let bad_dst = if cfg!(windows) {
-        format!("C:\\Windows\\Temp\\phantom_pwn_dst_{unique}.txt")
+        format!("C:\\Windows\\Temp\\spectyn_pwn_dst_{unique}.txt")
     } else {
-        format!("/tmp/phantom_pwn_dst_{unique}.txt")
+        format!("/tmp/spectyn_pwn_dst_{unique}.txt")
     };
     // Sanity-check it doesn't exist before the call.
     assert!(
@@ -224,8 +224,8 @@ async fn rename_rejects_dst_outside_workspace() {
     }))
     .await;
 
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let rl = r.to_lowercase();
     assert!(
@@ -245,10 +245,10 @@ async fn rename_accepts_dst_inside_workspace() {
     let _g = env_guard();
     let dir = tempfile::tempdir().unwrap();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         dir.path().to_string_lossy().to_string(),
     );
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
 
     let src = dir.path().join("src.txt");
     let dst = dir.path().join("dst.txt");
@@ -260,8 +260,8 @@ async fn rename_accepts_dst_inside_workspace() {
     }))
     .await;
 
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     assert!(
         r.contains("Renamed"),

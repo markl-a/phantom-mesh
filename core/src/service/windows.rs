@@ -1,10 +1,10 @@
 // core/src/service/windows.rs
 //
-// Windows service install/uninstall/status. Registers `phantom serve` as
+// Windows service install/uninstall/status. Registers `spectyn serve` as
 // a Scheduled Task that runs at user logon, with a Defender firewall
 // rule scoped to the Tailscale CGNAT range (100.64.0.0/10).
 //
-// Extracted verbatim from `core/src/bin/phantom.rs:10795-11153` by PF-2a;
+// Extracted verbatim from `core/src/bin/spectyn.rs:10795-11153` by PF-2a;
 // behavior is preserved. The only structural changes vs the original:
 //   - private `colored()` copy (the bin's helper is in the binary crate,
 //     not reachable from the lib; 5-line duplicate kept here until a
@@ -15,14 +15,14 @@
 
 use std::process::Command;
 
-/// Public so `phantom doctor` (in the bin crate) can report registration
+/// Public so `spectyn doctor` (in the bin crate) can report registration
 /// status of the same task this module installs/manages.
-pub const WINDOWS_TASK_NAME: &str = "PhantomServe";
+pub const WINDOWS_TASK_NAME: &str = "SpectynServe";
 
 /// SYS-D (operator-locked 2026-06-13): the TARGETED schtasks argv that
-/// `phantom service uninstall` runs to stop this task's own running instance.
+/// `spectyn service uninstall` runs to stop this task's own running instance.
 /// It addresses ONLY `WINDOWS_TASK_NAME` — never a blanket
-/// `taskkill /F /IM phantom.exe`, which would kill every phantom process (a
+/// `taskkill /F /IM spectyn.exe`, which would kill every spectyn process (a
 /// user-run serve, another CLI, even a live unattended run). Pure so the
 /// reversibility guardrail is unit-testable without spawning schtasks.
 pub fn uninstall_end_args() -> [&'static str; 3] {
@@ -31,7 +31,7 @@ pub fn uninstall_end_args() -> [&'static str; 3] {
 
 /// SYS-D companion to [`uninstall_end_args`]: the TARGETED schtasks argv that
 /// deletes ONLY this task's own Scheduled Task (`WINDOWS_TASK_NAME`). Reused by
-/// install (to clear a prior registration) and uninstall. Reversible: `phantom
+/// install (to clear a prior registration) and uninstall. Reversible: `spectyn
 /// service install` recreates the task.
 pub fn uninstall_delete_args() -> [&'static str; 4] {
     ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]
@@ -44,7 +44,7 @@ use crate::util::term::colored;
 /// Configured serve port from agents.toml, defaulting to 7878 if no
 /// config is found. The hardcoded :7878 used to mismatch any user with
 /// `[core] port = 7879` in agents.toml — healthz probe would always
-/// report unreachable even though phantom serve was running.
+/// report unreachable even though spectyn serve was running.
 fn configured_port() -> u16 {
     crate::config::AgentsConfig::find_and_load()
         .map(|c| c.core.port)
@@ -58,7 +58,7 @@ fn configured_port() -> u16 {
 /// /Query /V /FO LIST`, whose field labels (e.g. "Last Run Time") are
 /// translated on non-English Windows installs and never matched the
 /// English-only `starts_with(...)` predicates.
-/// Public so `phantom doctor` + `phantom autoevolve schedule status` in
+/// Public so `spectyn doctor` + `spectyn autoevolve schedule status` in
 /// the bin crate can render scheduled-task runtime info uniformly.
 pub fn windows_task_info(task_name: &str) -> (Option<String>, Option<String>, Option<i64>) {
     let escaped = task_name.replace('\'', "''");
@@ -102,7 +102,7 @@ pub fn windows_task_info(task_name: &str) -> (Option<String>, Option<String>, Op
 /// Translate a LastTaskResult HRESULT-style code into a short human label.
 /// Returns ("color-code", "label") so callers can render with the right
 /// ANSI colour. Constants from the Windows Task Scheduler return-code set.
-/// Public so `phantom autoevolve schedule status` in the bin crate can
+/// Public so `spectyn autoevolve schedule status` in the bin crate can
 /// colour-render the LastTaskResult HRESULT consistently.
 pub fn windows_task_result_label(result: i64) -> (u8, String) {
     match result {
@@ -118,15 +118,15 @@ pub fn windows_task_result_label(result: i64) -> (u8, String) {
     }
 }
 
-/// Public entry point: `phantom service <action>` on Windows.
+/// Public entry point: `spectyn service <action>` on Windows.
 pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
     match action {
         "install" => {
             let bin_self = std::env::current_exe()?;
             let bin_canon = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
             // Prefer the release binary so the durable task never points at a
-            // throwaway `target\debug\phantom.exe`. If we're running from a
-            // debug build, swap in the sibling `release\phantom.exe` when it
+            // throwaway `target\debug\spectyn.exe`. If we're running from a
+            // debug build, swap in the sibling `release\spectyn.exe` when it
             // exists; otherwise keep the running exe.
             let bin = {
                 let mut candidate = bin_canon.clone();
@@ -159,7 +159,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             // -User <current user> works in those environments because it
             // creates the task in the current user's hive instead of the
             // system tree. RestartCount/RestartInterval gives us the
-            // "auto-relaunch if phantom serve crashes" behaviour the old
+            // "auto-relaunch if spectyn serve crashes" behaviour the old
             // schtasks XML embedding promised.
             let bin_for_ps = bin_str.replace('\'', "''");
             let task_for_ps = WINDOWS_TASK_NAME.replace('\'', "''");
@@ -189,14 +189,14 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             let verify_port = configured_port();
 
             // Tailscale-scoped Defender firewall rule, mirroring step [3/5]
-            // of install-phantom-windows.ps1. Best-effort — New-NetFirewallRule
+            // of install-spectyn-windows.ps1. Best-effort — New-NetFirewallRule
             // needs admin; on a non-admin shell we report the skip but don't
             // fail the install.
             let fw_script = format!(
                 "$ErrorActionPreference = 'Stop'; \
                  try {{ \
-                    Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue; \
-                    New-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {} -RemoteAddress '100.64.0.0/10' -Profile Any | Out-Null; \
+                    Get-NetFirewallRule -DisplayName 'SpectynMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue; \
+                    New-NetFirewallRule -DisplayName 'SpectynMesh-Inbound' -Direction Inbound -Action Allow -Protocol TCP -LocalPort {} -RemoteAddress '100.64.0.0/10' -Profile Any | Out-Null; \
                     Write-Output 'OK' \
                  }} catch {{ \
                     Write-Output (\"FAIL: \" + $_.Exception.Message) \
@@ -211,7 +211,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 .unwrap_or_default();
             let fw_status = if fw_msg == "OK" {
                 format!(
-                    "PhantomMesh-Inbound TCP {} ← 100.64.0.0/10 (Tailscale)",
+                    "SpectynMesh-Inbound TCP {} ← 100.64.0.0/10 (Tailscale)",
                     verify_port
                 )
             } else if let Some(reason) = fw_msg.strip_prefix("FAIL:") {
@@ -235,36 +235,36 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 verify_port
             );
             // SYS-D: print the undo/inspect commands at the point of install.
-            eprintln!("    Status:    phantom service status");
-            eprintln!("    Uninstall: phantom service uninstall --yes   (dry-run without --yes)");
+            eprintln!("    Status:    spectyn service status");
+            eprintln!("    Uninstall: spectyn service uninstall --yes   (dry-run without --yes)");
             eprintln!();
             eprintln!(
                 "{} {} for a full environment health check.",
                 colored("→", 36),
-                colored("phantom doctor", 33)
+                colored("spectyn doctor", 33)
             );
             Ok(())
         }
         "uninstall" => {
             // W2 / I9 / SYS-D: print the plan, require --yes to apply, and stop ONLY this
-            // task's own running instance. The old code ran `taskkill /F /IM phantom.exe`,
-            // which killed EVERY phantom process — a user-run serve, another CLI, even a live
-            // unattended run. Reversible: `phantom service install` recreates the task.
+            // task's own running instance. The old code ran `taskkill /F /IM spectyn.exe`,
+            // which killed EVERY spectyn process — a user-run serve, another CLI, even a live
+            // unattended run. Reversible: `spectyn service install` recreates the task.
             let yes = std::env::args().any(|a| a == "--yes");
-            eprintln!("{} phantom service uninstall will:", colored("◆", 35));
+            eprintln!("{} spectyn service uninstall will:", colored("◆", 35));
             eprintln!("    - remove Scheduled Task '{}'", WINDOWS_TASK_NAME);
-            eprintln!("    - remove firewall rule 'PhantomMesh-Inbound' (if present)");
-            eprintln!("    - stop ONLY this task's running serve (NOT other phantom processes)");
-            eprintln!("    reversible: re-run `phantom service install` to recreate it");
+            eprintln!("    - remove firewall rule 'SpectynMesh-Inbound' (if present)");
+            eprintln!("    - stop ONLY this task's running serve (NOT other spectyn processes)");
+            eprintln!("    reversible: re-run `spectyn service install` to recreate it");
             if !yes {
                 eprintln!(
                     "{} dry-run -- nothing removed. Re-run with {} to apply.",
                     colored("⚠", 33),
-                    colored("phantom service uninstall --yes", 32)
+                    colored("spectyn service uninstall --yes", 32)
                 );
                 return Ok(());
             }
-            // Stop this task's running instance first (targeted, NOT `taskkill /F /IM phantom.exe`).
+            // Stop this task's running instance first (targeted, NOT `taskkill /F /IM spectyn.exe`).
             let _ = Command::new("schtasks")
                 .args(uninstall_end_args())
                 .output();
@@ -291,7 +291,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 .args([
                     "-NoProfile",
                     "-Command",
-                    "Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
+                    "Get-NetFirewallRule -DisplayName 'SpectynMesh-Inbound' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction SilentlyContinue",
                 ])
                 .output();
             eprintln!("{} Uninstalled.", colored("✓", 32));
@@ -324,7 +324,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
 
             println!(
                 "{} {}",
-                colored("phantom service status", 36),
+                colored("spectyn service status", 36),
                 colored(WINDOWS_TASK_NAME, 90)
             );
             println!(
@@ -365,7 +365,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
                 }
             );
             if registered && healthz_code != "200" {
-                println!("  hint       : Get-EventLog Application -Newest 20 | findstr phantom");
+                println!("  hint       : Get-EventLog Application -Newest 20 | findstr spectyn");
             }
             Ok(())
         }
@@ -436,11 +436,11 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_targets_only_phantom_task_never_blanket_kill() {
+    fn uninstall_targets_only_spectyn_task_never_blanket_kill() {
         // SYS-D (operator-locked 2026-06-13): `service uninstall` is the
         // symmetric reverse of `service install`, and it must stop ONLY its own
         // Scheduled Task — never re-introduce the old blanket
-        // `taskkill /F /IM phantom.exe` that killed every phantom process.
+        // `taskkill /F /IM spectyn.exe` that killed every spectyn process.
         let end = uninstall_end_args();
         let del = uninstall_delete_args();
         // Both commands name THIS task explicitly (scoped, reversible).
@@ -449,8 +449,8 @@ mod tests {
         // Neither command is a blanket process kill.
         for a in end.iter().chain(del.iter()) {
             assert!(!a.eq_ignore_ascii_case("taskkill"), "must not shell out to taskkill: {a}");
-            assert_ne!(*a, "/IM", "must not target by image name (every phantom.exe)");
-            assert!(!a.to_ascii_lowercase().contains("phantom.exe"), "must not name the image: {a}");
+            assert_ne!(*a, "/IM", "must not target by image name (every spectyn.exe)");
+            assert!(!a.to_ascii_lowercase().contains("spectyn.exe"), "must not name the image: {a}");
         }
     }
 }

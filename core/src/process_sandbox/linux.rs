@@ -8,8 +8,8 @@
 // Activation: on by default whenever the kernel reports a supported
 // Landlock ABI (>= v1, kernel 5.13+). Older kernels degrade silently —
 // the ruleset build returns an error which we swallow, leaving the
-// spawn unrestricted. Set `PHANTOM_SANDBOX=0` to opt out per session,
-// `PHANTOM_SANDBOX=strict` to drop `$HOME` from the writable list.
+// spawn unrestricted. Set `SPECTYN_SANDBOX=0` to opt out per session,
+// `SPECTYN_SANDBOX=strict` to drop `$HOME` from the writable list.
 //
 // Implementation: `tokio::process::Command::pre_exec` runs in the
 // forked child after `fork(2)` but before `execve(2)`. The child
@@ -28,7 +28,7 @@ use tokio::process::Command; // tokio's Command provides its own `pre_exec` (no 
 use super::Sandbox;
 
 fn mode() -> &'static str {
-    match std::env::var("PHANTOM_SANDBOX").as_deref() {
+    match std::env::var("SPECTYN_SANDBOX").as_deref() {
         Ok("0") | Ok("off") | Ok("disabled") => "off",
         Ok("strict") => "strict",
         _ => "relaxed",
@@ -48,19 +48,19 @@ fn mode() -> &'static str {
 /// from `crate::platform::linux` (a sibling, not a parent now) can
 /// still reach it.
 pub(crate) fn install_pre_exec(cmd: &mut Command) {
-    // Test-mode short-circuit: when phantom-mesh's own `cargo test`
+    // Test-mode short-circuit: when spectyn-mesh's own `cargo test`
     // runs, `cfg!(test)` is true. Landlock's AccessFs::from_all(V1)
     // rule set restricts execute as well as write — causing tests
     // that spawn `/bin/sh` or `echo` (e.g. `tools::shell::*`,
     // `tools::bash_bg::*`, `mcp_client::dogfood_*`) to be denied by
     // the LSM. Production daemon still applies the sandbox; only
     // `cargo test` of THIS crate skips it. Downstream crates that
-    // depend on phantom-mesh as a lib still apply the sandbox
+    // depend on spectyn-mesh as a lib still apply the sandbox
     // (cfg!(test) only fires when THIS crate is being tested).
     //
-    // Set `PHANTOM_SANDBOX_TEST_REAL=1` to force the sandbox on in
+    // Set `SPECTYN_SANDBOX_TEST_REAL=1` to force the sandbox on in
     // tests — for dedicated Landlock test cases that exercise the LSM.
-    if cfg!(test) && std::env::var("PHANTOM_SANDBOX_TEST_REAL").is_err() {
+    if cfg!(test) && std::env::var("SPECTYN_SANDBOX_TEST_REAL").is_err() {
         return;
     }
     if mode() == "off" {
@@ -84,7 +84,7 @@ pub(crate) fn install_pre_exec(cmd: &mut Command) {
 }
 
 /// Build + apply the ruleset. Returns `Ok(())` even on landlock
-/// failure so the spawn proceeds; phantom-side errors are surfaced
+/// failure so the spawn proceeds; spectyn-side errors are surfaced
 /// via `tracing::warn` from the parent (best-effort).
 fn apply_landlock(cwd: &str, home: &str, strict: bool) -> io::Result<()> {
     use landlock::{
@@ -216,7 +216,7 @@ mod tests {
     // with EACCES because `/bin` isn't in writable_paths. That's a
     // pre-existing production characteristic (call site must pre-stage
     // the binary inside an allowed path, or sandbox is bypassed via
-    // `PHANTOM_SANDBOX=0`); these tests are NOT scoped to fix it.
+    // `SPECTYN_SANDBOX=0`); these tests are NOT scoped to fix it.
     //
     // Instead we exercise the **same ruleset** that `install_pre_exec`
     // builds (`apply_landlock`) inside a `libc::fork()` child — apply

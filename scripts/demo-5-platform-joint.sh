@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # demo-5-platform-joint.sh — fan-out a single prompt to every peer in the
-# phantom-mesh cluster and present a unified "who answered + on what OS" table.
+# spectyn-mesh cluster and present a unified "who answered + on what OS" table.
 #
 # WHY
 #   Demonstrates that one prompt, issued from ANY node that has the
@@ -20,7 +20,7 @@
 #   LINUX_PEER=http://100.x.y.z:7878 ./scripts/demo-5-platform-joint.sh
 #
 # ADDING THE LINUX PEER
-#   Once `phantom serve` is running inside WSL2 Ubuntu, set:
+#   Once `spectyn serve` is running inside WSL2 Ubuntu, set:
 #       LINUX_PEER=http://<wsl-tailscale-ip>:7878
 #   (the WSL host typically exposes its own tailnet IP; if not, port-forward
 #   via the Windows host and use that tailnet IP instead).
@@ -36,9 +36,9 @@
 
 set -u
 
-SECRET_FILE="${PHANTOM_AGENTS_TOML:-$HOME/.phantom-mesh/agents.toml}"
+SECRET_FILE="${SPECTYN_AGENTS_TOML:-$HOME/.spectyn-mesh/agents.toml}"
 if [[ ! -r "$SECRET_FILE" ]]; then
-    echo "ERROR: cannot read $SECRET_FILE (set PHANTOM_AGENTS_TOML to override)" >&2
+    echo "ERROR: cannot read $SECRET_FILE (set SPECTYN_AGENTS_TOML to override)" >&2
     exit 2
 fi
 

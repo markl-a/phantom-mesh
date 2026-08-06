@@ -14,18 +14,18 @@
 //! cannot be reached from an integration crate because the hook is `fn`-private.
 //! This file is the complementary public-API / production-path proof.
 
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::skill_wire::{apply_skill_to_prompt, recall_skills, store_skill, Skill};
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::skill_wire::{apply_skill_to_prompt, recall_skills, store_skill, Skill};
 
 #[test]
 fn owned_memory_loop_store_recall_apply_round_trips() {
     // This is the ONLY test in its own integration test binary, so the
-    // process-global PHANTOM_DB_PATH mutation below races nothing (no sibling
+    // process-global SPECTYN_DB_PATH mutation below races nothing (no sibling
     // thread in this process touches it). The in-crate `env_lock` mutex used by
     // the unit tests is `#[cfg(test)]`-only and intentionally not reachable here.
     let db = tempfile::NamedTempFile::new().expect("temp DB file");
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
-    std::env::set_var("PHANTOM_DB_PATH", db.path());
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
+    std::env::set_var("SPECTYN_DB_PATH", db.path());
 
     // (capture -> extract) The owned skill the operator's activity produced. Its
     // trigger/name both carry the tokens "deploy" + "staging".
@@ -87,11 +87,11 @@ fn owned_memory_loop_store_recall_apply_round_trips() {
         })
     })();
 
-    // Restore the prior PHANTOM_DB_PATH BEFORE asserting, so a panicking assert
+    // Restore the prior SPECTYN_DB_PATH BEFORE asserting, so a panicking assert
     // never leaks our temp path into the process for any later-linked test.
     match saved {
-        Some(value) => std::env::set_var("PHANTOM_DB_PATH", value),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(value) => std::env::set_var("SPECTYN_DB_PATH", value),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let o = outcome.expect("owned-memory loop store->recall->apply round-trip");

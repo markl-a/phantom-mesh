@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /projects dashboard self-test — boots phantom serve on a free port,
+# /projects dashboard self-test — boots spectyn serve on a free port,
 # probes all 4 dashboard endpoints, verifies their shapes, kills the
 # process. Catches regressions in:
 #   - /projects               (HTML page)
@@ -8,12 +8,12 @@
 #   - /api/activity           (autoevolve + subagent feed)
 #
 # Self-contained — uses curl + python3 + a free port. No tmux, no
-# manual setup. Runtime: ~5 s including phantom serve startup.
+# manual setup. Runtime: ~5 s including spectyn serve startup.
 
 selftest_feature_meta() {
   echo "name=projects-dashboard"
   echo "priority=P1"
-  echo "requires=phantom-serve"
+  echo "requires=spectyn-serve"
   echo "description=/projects dashboard endpoints (HTML, JSON, run, activity)"
   echo "hints=core/src/serve.rs core/src/projects.rs core/web/projects.html"
 }
@@ -52,10 +52,10 @@ selftest_run() {
   log="$td/serve.log"
   T_ARTIFACT="$log"
 
-  # Start phantom serve in the background.
-  HOME="$td" "$PHANTOM" serve --port "$port" > "$log" 2>&1 &
+  # Start spectyn serve in the background.
+  HOME="$td" "$SPECTYN" serve --port "$port" > "$log" 2>&1 &
   pid=$!
-  T_REPRO="HOME=$td $PHANTOM serve --port $port (pid would be $pid)"
+  T_REPRO="HOME=$td $SPECTYN serve --port $port (pid would be $pid)"
   trap "kill $pid 2>/dev/null; rm -rf $td" RETURN
 
   # Wait for /healthz to come up (max 5s).
@@ -68,14 +68,14 @@ selftest_run() {
     sleep 0.2
   done
   if [ "$ready" != "1" ]; then
-    t_fail "phantom serve started + /healthz reachable" "no response after 5s — see $log"
+    t_fail "spectyn serve started + /healthz reachable" "no response after 5s — see $log"
     return
   fi
-  t_pass "phantom serve started + /healthz reachable" "port $port"
+  t_pass "spectyn serve started + /healthz reachable" "port $port"
 
   # ── 1. /projects HTML page ──────────────────────────────────────────────
   out=$(curl -s "http://127.0.0.1:$port/projects")
-  if echo "$out" | grep -qE '<title>.*phantom-mesh.*projects</title>'; then
+  if echo "$out" | grep -qE '<title>.*spectyn-mesh.*projects</title>'; then
     t_pass "/projects → HTML page renders" ""
   else
     t_fail "/projects → HTML page renders" "no recognizable title"
@@ -115,11 +115,11 @@ print("OK")
   fi
 
   # ── 3. /api/projects/<id>/run for a known-cheap demo ────────────────────
-  # phantom-mesh's demo command is `phantom autoevolve --once --no-commit --max-rounds 1`
+  # spectyn-mesh's demo command is `spectyn autoevolve --once --no-commit --max-rounds 1`
   # which on a clean repo just emits "cargo check green" in <2s. Cheapest demo
   # we have. We accept either ok=true OR ok=false (cwd missing on CI is fine
   # — what matters is the endpoint responds with valid JSON).
-  out=$(curl -s -X POST "http://127.0.0.1:$port/api/projects/phantom-mesh/run" \
+  out=$(curl -s -X POST "http://127.0.0.1:$port/api/projects/spectyn-mesh/run" \
         --max-time 10 || echo "{}")
   if echo "$out" | python3 -c '
 import json, sys
@@ -152,7 +152,7 @@ print("OK")
   # supervisor emits a single `event: done` with an error payload.
   # That's fine: either `event: line` (real demo) OR `event: done`
   # (error or fast finish) proves the SSE protocol shape is correct.
-  out=$(curl -s -N --max-time 8 "http://127.0.0.1:$port/api/projects/phantom-mesh/run-stream" 2>&1 | head -10)
+  out=$(curl -s -N --max-time 8 "http://127.0.0.1:$port/api/projects/spectyn-mesh/run-stream" 2>&1 | head -10)
   if echo "$out" | grep -qE "^event: (line|done)"; then
     t_pass "/api/projects/<id>/run-stream → SSE events" ""
   else

@@ -1,10 +1,10 @@
-use phantom_mesh::cost::CostTracker;
-use phantom_mesh::scaffold;
+use spectyn_mesh::cost::CostTracker;
+use spectyn_mesh::scaffold;
 /// Phase-3 integration tests.
 ///
 /// Tests that depend on features not yet implemented are marked `#[ignore]`
 /// with a comment describing which feature is needed.
-use phantom_mesh::tools::{fetch, fs as phantom_fs, git};
+use spectyn_mesh::tools::{fetch, fs as spectyn_fs, git};
 use serde_json::json;
 use tempfile::tempdir;
 use tokio::net::TcpListener;
@@ -48,7 +48,7 @@ async fn start_http_mock(body: &'static str, content_type: &'static str) -> Stri
 }
 
 /// Build a fresh `CostTracker` isolated to a temp dir so tests don't touch
-/// `~/.phantom-mesh/costs.json` and don't interfere with each other.
+/// `~/.spectyn-mesh/costs.json` and don't interfere with each other.
 fn fresh_tracker(dir: &tempfile::TempDir) -> CostTracker {
     std::env::set_var("HOME", dir.path());
     CostTracker::new()
@@ -69,7 +69,7 @@ async fn test_file_list_directory() {
         std::fs::write(dir.path().join(name), "content").unwrap();
     }
 
-    let result = phantom_fs::list_dir(&json!({ "path": dir.path().to_str().unwrap() })).await;
+    let result = spectyn_fs::list_dir(&json!({ "path": dir.path().to_str().unwrap() })).await;
 
     assert!(
         result.contains("alpha.txt"),
@@ -95,7 +95,7 @@ async fn test_file_list_sorts_dirs_first() {
     std::fs::write(dir.path().join("bbb_file.txt"), "x").unwrap();
     std::fs::write(dir.path().join("ccc_file.txt"), "y").unwrap();
 
-    let result = phantom_fs::list_dir(&json!({ "path": dir.path().to_str().unwrap() })).await;
+    let result = spectyn_fs::list_dir(&json!({ "path": dir.path().to_str().unwrap() })).await;
 
     // The dir entry and file entries should both be present.
     assert!(
@@ -125,7 +125,7 @@ async fn test_file_list_sorts_dirs_first() {
 // 3-4. File tools — delete_file
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// delete_file without PHANTOM_AUTO_APPROVE should return APPROVAL_REQUIRED.
+/// delete_file without SPECTYN_AUTO_APPROVE should return APPROVAL_REQUIRED.
 ///
 /// NOTE: The current `fs::delete_file` implementation does not have an
 /// APPROVAL_REQUIRED gate — it deletes unconditionally. This test is ignored
@@ -133,13 +133,13 @@ async fn test_file_list_sorts_dirs_first() {
 #[tokio::test]
 async fn test_file_delete_requires_approval() {
     let _g = env_lock().lock().await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let dir = workspace_tempdir();
     let file = dir.path().join("to_delete.txt");
     std::fs::write(&file, "data").unwrap();
 
-    let result = phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
+    let result = spectyn_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
 
     assert!(
         result.contains("APPROVAL_REQUIRED"),
@@ -160,9 +160,9 @@ async fn test_file_delete_with_approval() {
     std::fs::write(&file, "data").unwrap();
     assert!(file.exists(), "pre-condition: file must exist");
 
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
-    let result = phantom_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
+    let result = spectyn_fs::delete_file(&json!({ "path": file.to_str().unwrap() })).await;
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     assert!(
         result.contains("Deleted"),
@@ -175,17 +175,17 @@ async fn test_file_delete_with_approval() {
 // 5-6. File tools — rename_file (not yet implemented)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// rename_file without PHANTOM_AUTO_APPROVE should return APPROVAL_REQUIRED.
+/// rename_file without SPECTYN_AUTO_APPROVE should return APPROVAL_REQUIRED.
 #[tokio::test]
 async fn test_file_rename_requires_approval() {
     let _g = env_lock().lock().await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let dir = workspace_tempdir();
     let src = dir.path().join("old_name.txt");
     std::fs::write(&src, "data").unwrap();
 
-    let result = phantom_fs::rename_file(&json!({
+    let result = spectyn_fs::rename_file(&json!({
         "src": src.to_str().unwrap(),
         "dst": dir.path().join("new_name.txt").to_str().unwrap()
     }))
@@ -197,24 +197,24 @@ async fn test_file_rename_requires_approval() {
     );
 }
 
-/// rename_file with PHANTOM_AUTO_APPROVE=1 renames the file.
+/// rename_file with SPECTYN_AUTO_APPROVE=1 renames the file.
 #[tokio::test]
 async fn test_file_rename_with_approval() {
     let _g = env_lock().lock().await;
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
 
     let dir = workspace_tempdir();
     let src = dir.path().join("before.txt");
     let dst = dir.path().join("after.txt");
     std::fs::write(&src, "data").unwrap();
 
-    let result = phantom_fs::rename_file(&json!({
+    let result = spectyn_fs::rename_file(&json!({
         "src": src.to_str().unwrap(),
         "dst": dst.to_str().unwrap()
     }))
     .await;
 
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     assert!(
         !result.starts_with("Error"),
@@ -232,7 +232,7 @@ async fn test_file_rename_with_approval() {
 /// containing "PID=" and a positive integer.
 #[tokio::test]
 async fn test_shell_bg_returns_pid() {
-    use phantom_mesh::tools::shell;
+    use spectyn_mesh::tools::shell;
 
     let result = shell::run_bg(&json!({ "command": "sleep 5" })).await;
 
@@ -268,7 +268,7 @@ async fn test_shell_bg_returns_pid() {
 /// shell::check_bg on a running background process reports "running".
 #[tokio::test]
 async fn test_shell_check_bg_running() {
-    use phantom_mesh::tools::shell;
+    use spectyn_mesh::tools::shell;
 
     let bg_result = shell::run_bg(&json!({ "command": "sleep 10" })).await;
     assert!(
@@ -312,9 +312,9 @@ async fn test_fetch_url_extracts_text() {
         start_http_mock("<html><body><p>Hello World</p></body></html>", "text/html").await;
     let url = format!("{}/", base_url);
 
-    std::env::set_var("PHANTOM_FETCH_ALLOW_LOCAL", "1");
+    std::env::set_var("SPECTYN_FETCH_ALLOW_LOCAL", "1");
     let result = fetch::fetch_url(&json!({ "url": url })).await;
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
 
     assert!(
         result.contains("Hello World"),
@@ -356,13 +356,13 @@ async fn test_git_add_validates_path() {
     );
 }
 
-/// git_push without PHANTOM_AUTO_APPROVE returns APPROVAL_REQUIRED.
+/// git_push without SPECTYN_AUTO_APPROVE returns APPROVAL_REQUIRED.
 ///
 /// Depends on a future agent adding `git::push` with approval gate.
 #[tokio::test]
 async fn test_git_push_requires_approval() {
     let _g = env_lock().lock().await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let result = git::push(&json!({})).await;
     assert!(
@@ -374,7 +374,7 @@ async fn test_git_push_requires_approval() {
 #[tokio::test]
 async fn test_git_reset_hard_requires_approval() {
     let _g = env_lock().lock().await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let result = git::reset(&json!({ "mode": "hard" })).await;
     assert!(
@@ -384,10 +384,10 @@ async fn test_git_reset_hard_requires_approval() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 15-17. scaffold::generate_phantom_md
+// 15-17. scaffold::generate_spectyn_md
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// generate_phantom_md detects a Rust project from Cargo.toml and includes
+/// generate_spectyn_md detects a Rust project from Cargo.toml and includes
 /// the package name and "Rust" in the output.
 #[test]
 fn test_scaffold_rust_project() {
@@ -398,7 +398,7 @@ fn test_scaffold_rust_project() {
     )
     .unwrap();
 
-    let md = scaffold::generate_phantom_md(dir.path());
+    let md = scaffold::generate_spectyn_md(dir.path());
 
     assert!(
         md.contains("test-proj"),
@@ -410,7 +410,7 @@ fn test_scaffold_rust_project() {
     );
 }
 
-/// generate_phantom_md detects a Node.js project from package.json and
+/// generate_spectyn_md detects a Node.js project from package.json and
 /// includes the package name in the output.
 #[test]
 fn test_scaffold_node_project() {
@@ -421,7 +421,7 @@ fn test_scaffold_node_project() {
     )
     .unwrap();
 
-    let md = scaffold::generate_phantom_md(dir.path());
+    let md = scaffold::generate_spectyn_md(dir.path());
 
     assert!(
         md.contains("my-app"),
@@ -429,12 +429,12 @@ fn test_scaffold_node_project() {
     );
 }
 
-/// generate_phantom_md on an empty directory reports "Unknown" project type.
+/// generate_spectyn_md on an empty directory reports "Unknown" project type.
 #[test]
 fn test_scaffold_unknown_project() {
     let dir = tempdir().unwrap();
 
-    let md = scaffold::generate_phantom_md(dir.path());
+    let md = scaffold::generate_spectyn_md(dir.path());
 
     assert!(
         md.contains("Unknown"),

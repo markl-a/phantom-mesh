@@ -517,9 +517,9 @@ pub enum EventKind {
     Food,
     Focus,
     Habit,
-    /// Cross-node task dispatch recorded by `phantom dispatch`, so ability ④
+    /// Cross-node task dispatch recorded by `spectyn dispatch`, so ability ④
     /// ("do things for you" / cross-machine mesh) is observable via
-    /// `phantom recall --kind dispatch` instead of reading back as plain text.
+    /// `spectyn recall --kind dispatch` instead of reading back as plain text.
     Dispatch,
     Text,
 }

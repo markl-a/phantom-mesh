@@ -1,6 +1,6 @@
-//! Local identity for `phantom login` / `whoami` / `logout`.
+//! Local identity for `spectyn login` / `whoami` / `logout`.
 //!
-//! Stored at `~/.phantom-mesh/auth.json` (mode 0600). Three identity
+//! Stored at `~/.spectyn-mesh/auth.json` (mode 0600). Three identity
 //! sources:
 //!   - email: SHA-256(salt || password) with 100K iterations stored locally
 //!   - google: OAuth 2.0 device-flow loopback, id_token saved
@@ -8,8 +8,8 @@
 //!
 //! The cloud broker is NOT involved (per COMMERCIAL-DESIGN.md §2 hard
 //! rule #2: the OSS binary works without any cloud account). This file
-//! only carries identity; `phantom devices` / mesh discovery against a
-//! broker is added when phantom-cloud-client lands.
+//! only carries identity; `spectyn devices` / mesh discovery against a
+//! broker is added when spectyn-cloud-client lands.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -39,23 +39,23 @@ pub struct AuthState {
     pub access_token: String,
 
     /// JWT issued by the phantommesh.io broker. Used as `Authorization:
-    /// Bearer <broker_token>` for `/api/me/*` calls (e.g. `phantom config
+    /// Bearer <broker_token>` for `/api/me/*` calls (e.g. `spectyn config
     /// pull`). TTL controlled by the broker's BROKER_TOKEN_TTL_SECS
     /// (default 7 days). Empty for non-broker logins (provider=email or
-    /// direct provider=google flows that didn't go through phantommesh).
+    /// direct provider=google flows that didn't go through spectynmesh).
     #[serde(default)]
     pub broker_token: String,
     #[serde(default)]
     pub broker_token_expires_at_ms: i64,
-    /// URL of the broker that issued the token (lets `phantom config pull`
+    /// URL of the broker that issued the token (lets `spectyn config pull`
     /// know where to call back without an extra arg).
     #[serde(default)]
     pub broker_url: String,
 }
 
 pub fn auth_path() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("auth.json")
 }
 
@@ -141,7 +141,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     diff == 0
 }
 
-/// Public-facing summary printed by `phantom whoami` and `phantom doctor`.
+/// Public-facing summary printed by `spectyn whoami` and `spectyn doctor`.
 pub fn human_summary(state: &AuthState) -> String {
     let prov = match state.provider.as_str() {
         "email" => "email",
@@ -201,12 +201,12 @@ mod tests {
         assert_eq!(a.len(), 32); // 16 bytes hex = 32 chars
     }
 
-    // ─── `phantom logout` auth.json state clear (A3) ──────────────────────────
+    // ─── `spectyn logout` auth.json state clear (A3) ──────────────────────────
     //
-    // `auth::delete()` is the state-clearing half of `phantom logout`: it drops
+    // `auth::delete()` is the state-clearing half of `spectyn logout`: it drops
     // the on-disk auth.json (provider/broker tokens, password hash, etc.) and is
     // idempotent when the file is already absent. We deliberately do NOT exercise
-    // it against the real `auth_path()` (`~/.phantom-mesh/auth.json`) — that would
+    // it against the real `auth_path()` (`~/.spectyn-mesh/auth.json`) — that would
     // log the developer out — so we prove the exact mechanism it uses (an
     // existence-guarded `remove_file`) against a THROWAWAY temp file suffixed
     // with pid + uuid. After clearing, loading the same path must fail to parse
@@ -217,7 +217,7 @@ mod tests {
     fn logout_clears_auth_state() {
         // A throwaway stand-in for auth_path(), never the real one.
         let path = std::env::temp_dir().join(format!(
-            "phantom-test-auth-logout-{}-{}.json",
+            "spectyn-test-auth-logout-{}-{}.json",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
@@ -281,10 +281,10 @@ mod tests {
 
     #[test]
     fn login_save_then_logout_delete_returns_to_baseline() {
-        // SYS-D round-trip on the REAL auth_path(): `phantom login` persists
-        // auth.json via auth::save(); `phantom logout` removes it via
+        // SYS-D round-trip on the REAL auth_path(): `spectyn login` persists
+        // auth.json via auth::save(); `spectyn logout` removes it via
         // auth::delete(). Hermetic + safe (never touches the dev's real
-        // auth.json): PHANTOM_HOME redirects auth_path() into a tempdir, under
+        // auth.json): SPECTYN_HOME redirects auth_path() into a tempdir, under
         // env_lock.
         let _env = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
@@ -292,13 +292,13 @@ mod tests {
         impl Drop for HomeGuard {
             fn drop(&mut self) {
                 match &self.0 {
-                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
-                    None => std::env::remove_var("PHANTOM_HOME"),
+                    Some(v) => std::env::set_var("SPECTYN_HOME", v),
+                    None => std::env::remove_var("SPECTYN_HOME"),
                 }
             }
         }
-        let prev = std::env::var_os("PHANTOM_HOME");
-        std::env::set_var("PHANTOM_HOME", tmp.path());
+        let prev = std::env::var_os("SPECTYN_HOME");
+        std::env::set_var("SPECTYN_HOME", tmp.path());
         let _guard = HomeGuard(prev);
 
         // Baseline: not logged in.

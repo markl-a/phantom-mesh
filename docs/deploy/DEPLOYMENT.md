@@ -1,6 +1,6 @@
-# Phantom Mesh — 部署指南
+# Spectyn Mesh — 部署指南
 
-本指南帶你一步步部署 Phantom Mesh，從單一本機節點（local node），一路擴展到完整的 9 台裝置網格（mesh），含一個 24/7 全時運行的雲端節點（cloud node）與透過 Telegram 的行動裝置存取。
+本指南帶你一步步部署 Spectyn Mesh，從單一本機節點（local node），一路擴展到完整的 9 台裝置網格（mesh），含一個 24/7 全時運行的雲端節點（cloud node）與透過 Telegram 的行動裝置存取。
 
 > **相關**：要設定簽章金鑰、`git tag` 觸發的 release CI 與 Tauri 自動更新（OTA），請見 [DEPLOY-AUTOUPDATE.md](DEPLOY-AUTOUPDATE.md)。
 
@@ -44,19 +44,19 @@
 
 ```bash
 # 1. Build the daemon
-cargo build --release -p phantom-mesh-daemon
+cargo build --release -p spectyn-mesh-daemon
 
 # 2. Copy the example config
 #   macOS
-cp agents.toml.example ~/Library/Application\ Support/ai.phantommesh.app/agents.toml
+cp agents.toml.example ~/Library/Application\ Support/ai.spectynmesh.app/agents.toml
 #   Linux
-cp agents.toml.example ~/.config/phantom-mesh/agents.toml
+cp agents.toml.example ~/.config/spectyn-mesh/agents.toml
 
 # 3. Edit the config — set at least one provider API key
-$EDITOR ~/.config/phantom-mesh/agents.toml
+$EDITOR ~/.config/spectyn-mesh/agents.toml
 
 # 4. Start the daemon
-./target/release/phantom-mesh daemon
+./target/release/spectyn-mesh daemon
 
 # 5. Verify it's running
 curl http://localhost:7878/health
@@ -112,14 +112,14 @@ curl http://localhost:7878/health
 
    ```bash
    # macOS
-   mkdir -p ~/Library/Application\ Support/ai.phantommesh.app
+   mkdir -p ~/Library/Application\ Support/ai.spectynmesh.app
    cp configs/agents.coordinator.toml \
-      ~/Library/Application\ Support/ai.phantommesh.app/agents.toml
+      ~/Library/Application\ Support/ai.spectynmesh.app/agents.toml
 
    # Windows (PowerShell)
-   New-Item -ItemType Directory -Force "$env:APPDATA\ai.phantommesh.app"
+   New-Item -ItemType Directory -Force "$env:APPDATA\ai.spectynmesh.app"
    Copy-Item configs\agents.coordinator.toml `
-             "$env:APPDATA\ai.phantommesh.app\agents.toml"
+             "$env:APPDATA\ai.spectynmesh.app\agents.toml"
    ```
 
 3. 編輯設定檔 — 填入你的 Anthropic API 金鑰，以及（選用）Brave 搜尋金鑰。
@@ -127,10 +127,10 @@ curl http://localhost:7878/health
 4. 啟動常駐程式：
    ```bash
    # macOS / Linux
-   ./phantom-mesh daemon
+   ./spectyn-mesh daemon
 
    # Windows
-   .\phantom-mesh.exe daemon
+   .\spectyn-mesh.exe daemon
    ```
 
 **驗收標準：**
@@ -177,13 +177,13 @@ tailscale status        # all devices show "online"
 
 1. 將常駐程式二進位檔複製到每台機器（透過 LAN 共享，或經 Tailscale 用 SCP）：
    ```bash
-   scp phantom-mesh.exe user@node-b-tailscale-ip:C:/phantom-mesh/
+   scp spectyn-mesh.exe user@node-b-tailscale-ip:C:/spectyn-mesh/
    ```
 
 2. 複製工作者設定範本：
    ```bash
    scp configs/agents.worker.toml \
-       user@node-b-tailscale-ip:"%APPDATA%/ai.phantommesh.app/agents.toml"
+       user@node-b-tailscale-ip:"%APPDATA%/ai.spectynmesh.app/agents.toml"
    ```
 
 3. 在每台工作機上編輯 `agents.toml`：
@@ -199,7 +199,7 @@ tailscale status        # all devices show "online"
 
 5. 在每台工作機上啟動常駐程式：
    ```batch
-   .\phantom-mesh.exe daemon
+   .\spectyn-mesh.exe daemon
    ```
 
 **驗收標準：**
@@ -245,15 +245,15 @@ Coordinator election completed
 
 1. 在 Mac 上建置常駐程式：
    ```bash
-   git clone <repo-url> phantom-mesh && cd phantom-mesh
-   cargo build --release -p phantom-mesh-daemon
+   git clone <repo-url> spectyn-mesh && cd spectyn-mesh
+   cargo build --release -p spectyn-mesh-daemon
    ```
 
 2. 複製工作者設定：
    ```bash
-   mkdir -p ~/Library/Application\ Support/ai.phantommesh.app
+   mkdir -p ~/Library/Application\ Support/ai.spectynmesh.app
    cp configs/agents.worker.toml \
-      ~/Library/Application\ Support/ai.phantommesh.app/agents.toml
+      ~/Library/Application\ Support/ai.spectynmesh.app/agents.toml
    ```
 
 3. 編輯 `agents.toml`：
@@ -293,11 +293,11 @@ curl http://<mac-tailscale-ip>:7878/health  # → {"status":"ok"}
 ```bash
 # On your dev machine: cross-compile for aarch64 Linux
 rustup target add aarch64-unknown-linux-gnu
-cargo build --release --target aarch64-unknown-linux-gnu -p phantom-mesh-daemon
+cargo build --release --target aarch64-unknown-linux-gnu -p spectyn-mesh-daemon
 
 # Copy binary to Oracle VM
-scp target/aarch64-unknown-linux-gnu/release/phantom-mesh \
-    ubuntu@<oracle-public-ip>:~/phantom-mesh
+scp target/aarch64-unknown-linux-gnu/release/spectyn-mesh \
+    ubuntu@<oracle-public-ip>:~/spectyn-mesh
 ```
 
 或者，直接在 VM 上建置：
@@ -305,24 +305,24 @@ scp target/aarch64-unknown-linux-gnu/release/phantom-mesh \
 ssh ubuntu@<oracle-public-ip>
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
-git clone <repo-url> phantom-mesh && cd phantom-mesh
-cargo build --release -p phantom-mesh-daemon
+git clone <repo-url> spectyn-mesh && cd spectyn-mesh
+cargo build --release -p spectyn-mesh-daemon
 ```
 
 #### 設定雲端節點
 
 ```bash
 ssh ubuntu@<oracle-public-ip>
-mkdir -p ~/.config/phantom-mesh
-cp configs/agents.cloud.toml ~/.config/phantom-mesh/agents.toml
-nano ~/.config/phantom-mesh/agents.toml
+mkdir -p ~/.config/spectyn-mesh
+cp configs/agents.cloud.toml ~/.config/spectyn-mesh/agents.toml
+nano ~/.config/spectyn-mesh/agents.toml
 # - Set cluster.peers with Tailscale IPs of all other nodes
 # - Set cluster.cluster_secret
 ```
 
 #### 設定環境變數
 
-建立 `/etc/phantom-mesh.env`：
+建立 `/etc/spectyn-mesh.env`：
 ```
 ANTHROPIC_API_KEY=sk-ant-YOUR_KEY
 TELEGRAM_BOT_TOKEN=123456:YOUR_BOT_TOKEN
@@ -331,17 +331,17 @@ TELEGRAM_BOT_TOKEN=123456:YOUR_BOT_TOKEN
 #### 安裝為 systemd 服務
 
 ```bash
-sudo tee /etc/systemd/system/phantom-mesh.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/spectyn-mesh.service > /dev/null <<EOF
 [Unit]
-Description=Phantom Mesh Daemon
+Description=Spectyn Mesh Daemon
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=ubuntu
-EnvironmentFile=/etc/phantom-mesh.env
-ExecStart=/home/ubuntu/phantom-mesh daemon
+EnvironmentFile=/etc/spectyn-mesh.env
+ExecStart=/home/ubuntu/spectyn-mesh daemon
 Restart=always
 RestartSec=5
 
@@ -350,7 +350,7 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now phantom-mesh
+sudo systemctl enable --now spectyn-mesh
 ```
 
 #### 在 Oracle VM 上安裝 Tailscale
@@ -442,7 +442,7 @@ mipad      100.x.x.9   online   Android    Telegram client
 
 4. 在雲端節點上把該權杖設為環境變數：
    ```bash
-   # Add to /etc/phantom-mesh.env
+   # Add to /etc/spectyn-mesh.env
    TELEGRAM_BOT_TOKEN=123456789:ABCdef...
    ```
 
@@ -469,9 +469,9 @@ allowed_users = [123456789]   # your numeric user ID
 
 ```bash
 # Check logs
-journalctl -u phantom-mesh -f   # Linux systemd
+journalctl -u spectyn-mesh -f   # Linux systemd
 # or run interactively:
-./phantom-mesh daemon 2>&1 | tee daemon.log
+./spectyn-mesh daemon 2>&1 | tee daemon.log
 ```
 
 常見原因：

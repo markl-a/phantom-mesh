@@ -146,7 +146,7 @@ pub async fn create_dir(args: &Value) -> String {
 
 /// Rename (or move) a file from `src` to `dst`.
 ///
-/// Requires PHANTOM_AUTO_APPROVE=1 or returns APPROVAL_REQUIRED.
+/// Requires SPECTYN_AUTO_APPROVE=1 or returns APPROVAL_REQUIRED.
 pub async fn rename_file(args: &Value) -> String {
     let src_raw = match args["src"].as_str() {
         Some(p) => p,
@@ -161,10 +161,10 @@ pub async fn rename_file(args: &Value) -> String {
         return "Error: path traversal not allowed".into();
     }
 
-    if std::env::var("PHANTOM_AUTO_APPROVE").as_deref() != Ok("1") {
+    if std::env::var("SPECTYN_AUTO_APPROVE").as_deref() != Ok("1") {
         return format!(
             "APPROVAL_REQUIRED: renaming '{}' to '{}' requires explicit approval. \
-             Set PHANTOM_AUTO_APPROVE=1 to allow.",
+             Set SPECTYN_AUTO_APPROVE=1 to allow.",
             src_raw, dst_raw
         );
     }
@@ -248,10 +248,10 @@ pub async fn delete_file(args: &Value) -> String {
         _ => {}
     }
 
-    if std::env::var("PHANTOM_AUTO_APPROVE").as_deref() != Ok("1") {
+    if std::env::var("SPECTYN_AUTO_APPROVE").as_deref() != Ok("1") {
         return format!(
             "APPROVAL_REQUIRED: deleting '{}' is irreversible. \
-             Set PHANTOM_AUTO_APPROVE=1 to allow.",
+             Set SPECTYN_AUTO_APPROVE=1 to allow.",
             path.display()
         );
     }
@@ -278,15 +278,15 @@ mod sandbox_guard_tests {
         COUNTER.fetch_add(1, Ordering::SeqCst)
     }
 
-    async fn phantom_dir() -> PathBuf {
+    async fn spectyn_dir() -> PathBuf {
         let home = dirs::home_dir().expect("HOME");
-        let dir = home.join(".phantom-mesh").join("test-c5-sandbox-fs");
+        let dir = home.join(".spectyn-mesh").join("test-c5-sandbox-fs");
         tokio::fs::create_dir_all(&dir).await.expect("mkdir");
         dir
     }
 
     async fn seed_file(initial: &str) -> PathBuf {
-        let dir = phantom_dir().await;
+        let dir = spectyn_dir().await;
         let path = dir.join(format!("seed-{}-{}.txt", std::process::id(), next_id()));
         tokio::fs::write(&path, initial).await.expect("seed");
         path
@@ -315,8 +315,8 @@ mod sandbox_guard_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_allows_create_dir_in_phantom_mesh() {
-        let dir = phantom_dir().await;
+    async fn sandbox_allows_create_dir_in_spectyn_mesh() {
+        let dir = spectyn_dir().await;
         let target = dir.join(format!("create-{}-{}", std::process::id(), next_id()));
 
         let _g = crate::sandbox::test_lock();
@@ -328,7 +328,7 @@ mod sandbox_guard_tests {
 
         assert!(
             result.starts_with("Created directory:"),
-            "create_dir in ~/.phantom-mesh/ should succeed under sandbox, got: {}",
+            "create_dir in ~/.spectyn-mesh/ should succeed under sandbox, got: {}",
             result
         );
         let _ = tokio::fs::remove_dir(&target).await;
@@ -336,7 +336,7 @@ mod sandbox_guard_tests {
 
     #[tokio::test]
     async fn sandbox_disabled_back_compat_create_dir() {
-        let dir = phantom_dir().await;
+        let dir = spectyn_dir().await;
         let target = dir.join(format!("compat-{}-{}", std::process::id(), next_id()));
 
         let _g = crate::sandbox::test_lock();
@@ -354,7 +354,7 @@ mod sandbox_guard_tests {
     async fn sandbox_denies_rename_into_protected_prefix() {
         let src = seed_file("payload\n").await;
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(true);
 
         // dst targets an existing file inside the protected `core/` prefix
@@ -368,7 +368,7 @@ mod sandbox_guard_tests {
         .await;
 
         crate::sandbox::enable(false);
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(
             result.contains("sandbox guard"),
@@ -381,14 +381,14 @@ mod sandbox_guard_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_allows_rename_within_phantom_mesh() {
+    async fn sandbox_allows_rename_within_spectyn_mesh() {
         let src = seed_file("payload\n").await;
         let dst =
-            phantom_dir()
+            spectyn_dir()
                 .await
                 .join(format!("renamed-{}-{}.txt", std::process::id(), next_id()));
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(true);
 
         let result = rename_file(&json!({
@@ -398,11 +398,11 @@ mod sandbox_guard_tests {
         .await;
 
         crate::sandbox::enable(false);
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(
             result.starts_with("Renamed:"),
-            "rename within ~/.phantom-mesh/ should succeed under sandbox, got: {}",
+            "rename within ~/.spectyn-mesh/ should succeed under sandbox, got: {}",
             result
         );
         let _ = tokio::fs::remove_file(&dst).await;
@@ -411,13 +411,13 @@ mod sandbox_guard_tests {
     #[tokio::test]
     async fn sandbox_disabled_back_compat_rename() {
         let src = seed_file("payload\n").await;
-        let dst = phantom_dir().await.join(format!(
+        let dst = spectyn_dir().await.join(format!(
             "compat-rename-{}-{}.txt",
             std::process::id(),
             next_id()
         ));
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(false);
 
         let result = rename_file(&json!({
@@ -426,7 +426,7 @@ mod sandbox_guard_tests {
         }))
         .await;
 
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(result.starts_with("Renamed:"), "got: {}", result);
         let _ = tokio::fs::remove_file(&dst).await;
@@ -441,13 +441,13 @@ mod sandbox_guard_tests {
         // sandbox check fires BEFORE metadata(), so the on-disk file is
         // never touched.
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(true);
 
         let result = delete_file(&json!({ "path": "src/sandbox.rs" })).await;
 
         crate::sandbox::enable(false);
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(
             result.contains("sandbox guard"),
@@ -462,20 +462,20 @@ mod sandbox_guard_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_allows_delete_in_phantom_mesh() {
+    async fn sandbox_allows_delete_in_spectyn_mesh() {
         let target = seed_file("to be deleted\n").await;
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(true);
 
         let result = delete_file(&json!({ "path": target.to_string_lossy() })).await;
 
         crate::sandbox::enable(false);
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(
             result.starts_with("Deleted:"),
-            "delete in ~/.phantom-mesh/ should succeed under sandbox, got: {}",
+            "delete in ~/.spectyn-mesh/ should succeed under sandbox, got: {}",
             result
         );
         assert!(!target.exists(), "file should be gone");
@@ -485,12 +485,12 @@ mod sandbox_guard_tests {
     async fn sandbox_disabled_back_compat_delete() {
         let target = seed_file("legacy\n").await;
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         crate::sandbox::enable(false);
 
         let result = delete_file(&json!({ "path": target.to_string_lossy() })).await;
 
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
         assert!(result.starts_with("Deleted:"), "got: {}", result);
     }

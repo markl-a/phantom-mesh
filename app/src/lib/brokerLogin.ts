@@ -4,10 +4,10 @@
 //   1. broker_login_start(broker_url) → returns auth_url that the
 //      front-end opens in Mobile Safari via tauri-plugin-shell.
 //   2. tauri-plugin-deep-link's onOpenUrl fires when iOS routes the
-//      `phantom://oauth/callback?p=<b64>` URL back to the app, and emits
+//      `spectyn://oauth/callback?p=<b64>` URL back to the app, and emits
 //      a `deep-link://oauth-callback` Tauri event.
 //   3. broker_login_finish(payload_b64) decodes the base64 payload,
-//      builds AuthState, and persists via phantom_mesh::auth::save().
+//      builds AuthState, and persists via spectyn_mesh::auth::save().
 //
 // installBrokerLoginBridge() should be called once at app startup so the
 // listener is wired before Safari → app handoff.
@@ -19,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 // (validated allow-list: https://* or http://localhost). The Rust side
 // uses the `open` crate, which respects the user's default browser on
 // desktop. On iOS the Rust command may fail due to sandbox; in that
-// case we fall back to navigating the current webview — phantom://
+// case we fall back to navigating the current webview — spectyn://
 // oauth/callback redirects on the broker side still get routed back
 // via tauri-plugin-deep-link's onOpenUrl handler because iOS
 // recognises the registered URL scheme.
@@ -94,7 +94,7 @@ export interface BrokerSyncResponse {
   peers: ClusterPeer[];
 }
 
-/** Returns the cluster peers cached at ~/.phantom-mesh/peers.json (last
+/** Returns the cluster peers cached at ~/.spectyn-mesh/peers.json (last
  *  vault sync). Used on app boot to decide if the user already has a
  *  coordinator to pick from without re-syncing. */
 export async function listCachedPeers(): Promise<ClusterPeer[]> {
@@ -121,11 +121,11 @@ export async function registerSelfPeer(args: {
   return invoke<number>("broker_register_self_peer", args);
 }
 
-/** Extract the `?p=<b64>` query value from a phantom://oauth/callback URL.
+/** Extract the `?p=<b64>` query value from a spectyn://oauth/callback URL.
  *  Returns null when the URL isn't an OAuth callback or has no `p` param. */
 export function extractPayload(url: string): string | null {
   // URL constructor doesn't always parse custom schemes — work the
-  // string directly. Format: phantom://oauth/callback?p=<base64url>
+  // string directly. Format: spectyn://oauth/callback?p=<base64url>
   const qIdx = url.indexOf("?");
   if (qIdx < 0) return null;
   const query = url.slice(qIdx + 1);

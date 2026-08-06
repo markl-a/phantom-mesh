@@ -3,7 +3,7 @@
 #
 # Usage:
 #   tdd-run.sh <test::path::name>           # cargo test --lib <name>
-#   tdd-run.sh <test::path::name> --bin     # cargo test --bin phantom (rare)
+#   tdd-run.sh <test::path::name> --bin     # cargo test --bin spectyn (rare)
 #
 # Returns the cargo exit code (0 green, non-zero red).
 
@@ -20,7 +20,7 @@ fi
 
 case "$TARGET_KIND" in
   --lib|lib) cargo_args=(test --lib "$TEST_NAME") ;;
-  --bin|bin) cargo_args=(test --bin phantom "$TEST_NAME") ;;
+  --bin|bin) cargo_args=(test --bin spectyn "$TEST_NAME") ;;
   *) cargo_args=(test --lib "$TEST_NAME") ;;
 esac
 

@@ -57,7 +57,7 @@ describe('onboardingFsm — BigInt wire safety', () => {
     safeInvoke.mockResolvedValue('picked_language');
     await advanceOnboarding({});
 
-    const raw = localStorage.getItem('phantom_mesh_onboarding_snapshot');
+    const raw = localStorage.getItem('spectyn_mesh_onboarding_snapshot');
     expect(raw).toBeTruthy();
     const parsed = JSON.parse(raw as string);
     expect(parsed.currentState).toBe('picked_language');

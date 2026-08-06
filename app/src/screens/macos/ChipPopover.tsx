@@ -73,9 +73,9 @@ export default function ChipPopover({ onLogged, onCancel }: Props) {
     <div
       data-testid="chip-popover"
       onKeyDown={onKeyDown}
-      className="w-[340px] max-w-full bg-phantom-card border border-phantom-border rounded-xl shadow-xl overflow-hidden text-phantom-text"
+      className="w-[340px] max-w-full bg-spectyn-card border border-spectyn-border rounded-xl shadow-xl overflow-hidden text-spectyn-text"
     >
-      <header className="px-4 py-2.5 border-b border-phantom-border">
+      <header className="px-4 py-2.5 border-b border-spectyn-border">
         <h2 className="text-sm font-semibold">記一個習慣</h2>
       </header>
 
@@ -89,8 +89,8 @@ export default function ChipPopover({ onLogged, onCancel }: Props) {
               onClick={() => pickChip(c.slug)}
               className={`flex flex-col items-center gap-0.5 py-2 rounded-lg border text-[11px] transition ${
                 selected === c.slug
-                  ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                  : "bg-phantom-bg border-phantom-border hover:border-phantom-primary/30"
+                  ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                  : "bg-spectyn-bg border-spectyn-border hover:border-spectyn-primary/30"
               }`}
             >
               <span className="text-lg leading-none">{c.emoji}</span>
@@ -107,7 +107,7 @@ export default function ChipPopover({ onLogged, onCancel }: Props) {
             value={freeText}
             onChange={(e) => setFreeText(e.target.value)}
             placeholder="自由打字記錄…"
-            className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-1.5 text-sm placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+            className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-1.5 text-sm placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
           />
         ) : (
           <input
@@ -116,29 +116,29 @@ export default function ChipPopover({ onLogged, onCancel }: Props) {
             onChange={(e) => setQty(e.target.value)}
             placeholder={selected ? "數量 / 備註（選填）" : "先選一個 chip"}
             disabled={!selected}
-            className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-1.5 text-sm placeholder-phantom-muted focus:outline-none focus:border-phantom-primary disabled:opacity-50"
+            className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-1.5 text-sm placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary disabled:opacity-50"
           />
         )}
 
         <button
           onClick={() => { setFreeMode((v) => !v); setError(null); setDone(null); }}
-          className="flex items-center gap-1 text-xs text-phantom-muted hover:text-phantom-text transition"
+          className="flex items-center gap-1 text-xs text-spectyn-muted hover:text-spectyn-text transition"
         >
           <Plus size={12} />{freeMode ? "改用 chip" : "自由打字…"}
         </button>
 
-        {error && <p className="text-xs text-phantom-warning" role="alert">{error}</p>}
-        {done && <p className="text-xs text-phantom-success" role="status">{done}</p>}
+        {error && <p className="text-xs text-spectyn-warning" role="alert">{error}</p>}
+        {done && <p className="text-xs text-spectyn-success" role="status">{done}</p>}
       </div>
 
-      <footer className="px-4 py-2.5 border-t border-phantom-border flex items-center justify-between text-sm">
-        <button onClick={() => onCancel?.()} className="text-phantom-muted hover:text-phantom-text transition flex items-center gap-1">
+      <footer className="px-4 py-2.5 border-t border-spectyn-border flex items-center justify-between text-sm">
+        <button onClick={() => onCancel?.()} className="text-spectyn-muted hover:text-spectyn-text transition flex items-center gap-1">
           <X size={13} /> Esc 取消
         </button>
         <button
           onClick={() => void submit()}
           disabled={busy || (freeMode ? !freeText.trim() : !selected)}
-          className="flex items-center gap-1 px-3 py-1 rounded-lg font-medium bg-phantom-primary text-phantom-bg hover:brightness-110 disabled:opacity-40 transition"
+          className="flex items-center gap-1 px-3 py-1 rounded-lg font-medium bg-spectyn-primary text-spectyn-bg hover:brightness-110 disabled:opacity-40 transition"
         >
           <CornerDownLeft size={13} /> {busy ? "送出中…" : "送出"}
         </button>

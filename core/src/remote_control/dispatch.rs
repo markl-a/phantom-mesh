@@ -25,7 +25,7 @@
 //!
 //! * [`PersonaDispatcher::channel_intro`] — welcome / reply prefix.
 //! * [`PersonaDispatcher::system_prompt_prefix`] — tone + verbosity hints
-//!   prepended to phantom's built-in system prompt.
+//!   prepended to spectyn's built-in system prompt.
 //! * [`PersonaDispatcher::filter_tools`] — allow/deny gating applied to the
 //!   tool registry handed to the dispatched agent.
 //!
@@ -85,7 +85,7 @@ mod tests {
 
     const FULL: &str = r#"
         [persona]
-        name = "phantom-helper"
+        name = "spectyn-helper"
         intro_message = "top"
         [persona.style]
         tone = "professional"
@@ -152,7 +152,7 @@ mod tests {
         let p = Persona::parse_str(FULL).unwrap();
         let d = PersonaDispatcher::new(Some(&p));
         let prefix = d.system_prompt_prefix();
-        assert!(prefix.contains("Persona: phantom-helper"));
+        assert!(prefix.contains("Persona: spectyn-helper"));
         assert!(prefix.contains("Tone: professional"));
         assert!(prefix.contains("Verbosity: concise"));
     }

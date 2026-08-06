@@ -1,4 +1,4 @@
-# phantom-mesh v0.6.0-rc1 — 發行說明
+# spectyn-mesh v0.6.0-rc1 — 發行說明
 
 **Tag**: `v0.6.0-rc1`
 **日期**: 2026-05-25
@@ -9,9 +9,9 @@
 
 ## §1 重點摘要（TL;DR）
 
-v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh BIG-GOAL（大目標）全部四支柱（pillar）的發行版。此候選發行版把範圍切在「核心可運作、延後清單誠實列出」這條線上。
+v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 spectyn-mesh BIG-GOAL（大目標）全部四支柱（pillar）的發行版。此候選發行版把範圍切在「核心可運作、延後清單誠實列出」這條線上。
 
-- **P1 Mesh（網狀網路）** — 透過 mDNS（multicast DNS service discovery，多播 DNS 服務探索）做叢集探索、節點（peer，對等節點）註冊、跨作業系統派工（從單一 orchestrator（協調器）即可觸及 macOS / Linux / iOS / Android worker（工作節點））。`phantom cluster status` 與 `phantom cluster peers` 隨此版本一同發行。
+- **P1 Mesh（網狀網路）** — 透過 mDNS（multicast DNS service discovery，多播 DNS 服務探索）做叢集探索、節點（peer，對等節點）註冊、跨作業系統派工（從單一 orchestrator（協調器）即可觸及 macOS / Linux / iOS / Android worker（工作節點））。`spectyn cluster status` 與 `spectyn cluster peers` 隨此版本一同發行。
 - **P2 Multimodal（多模態）** — 為飲食 / 專注 / 習慣事件設計的擷取管線（capture pipeline），可選擇附加影像；Gemini 多模態分析路徑回傳結構化的 `EventMeta`（event metadata，事件中繼資料），採「裝置端協調、裝置外推論」模式。
 - **P3 Evolve（演化）** — 技能庫（skill bank，一個由本地 SQLite 支援、可重用 agent（代理人）技能的函式庫）的 FTS5（full-text search version 5，全文搜尋第 5 版）關鍵字召回後端與讀取 RPC（remote procedure call，遠端程序呼叫）已隨此版本落地，但在 v0.6.0 **預設關閉**：位於 `experimental-memory`（feature flag，功能旗標）之後，且技能寫入端（daily review → 技能庫的 producer，生產者）尚未接線、自動萃取 loop（迴圈）仍在 `experimental-curator` 之後且未完成（見 §6）。embedding（嵌入向量）語意召回延後至 v0.7.0。
 - **P4 Encryption（加密）** — 採 age v1（現代化檔案加密格式）的逐事件加密、ed25519（Edwards-curve digital signature，愛德華曲線數位簽章）身分、用於各用途隔離的 HKDF（hashed key derivation function，雜湊金鑰衍生函數）子金鑰，以及用於託管第三方權杖的 OAuth（open authorization，開放授權）broker vault（中介伺服器保險庫）。
@@ -60,7 +60,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 ### Secret storage（密鑰儲存，P4）
 
-- **macOS Keychain 原生繫結** — 已延後。macOS 退回（fall back）使用 phantom home 目錄下的加密檔案儲存。
+- **macOS Keychain 原生繫結** — 已延後。macOS 退回（fall back）使用 spectyn home 目錄下的加密檔案儲存。
 - **iOS Keychain 原生繫結** — 已延後。iOS 退回使用 app sandbox（應用程式沙箱）內的加密檔案儲存。
 - **Linux Secret Service**（D-Bus） — **已納入**本版。GNOME Keyring / KWallet 接取可運作。
 - **Android Keystore** — 已延後。Android 退回使用加密檔案儲存。
@@ -119,7 +119,7 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 ### Deep-link scheme（深層連結配置）
 
-- `phantom-mesh://...` → `phantom://...`
+- `spectyn-mesh://...` → `spectyn://...`
 - Wave 12 期間落地了 5 項 spec 修補，以翻轉每一個有文件記載的 URI handler。
 - 桌面註冊（macOS `Info.plist`、Linux `xdg-mime`）在升級後需重新安裝一次——見 §5。
 
@@ -135,11 +135,11 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 
 拉取 v0.6.0-rc1 之後：
 
-1. **重啟 `phantom serve`** 讓新的二進位執行檔接手。serve 迴圈會自行偵測 schema 升版，並在 phantom home 目錄下寫入一個標記檔。
-2. 位於 `~/.phantom-mesh/events/`（Linux/macOS）或相應 app-sandbox 路徑（行動裝置）的**既有事件**會透過舊版讀取器加上新的 `From` 橋接**前向讀取**。無須、也不建議批次重寫。
+1. **重啟 `spectyn serve`** 讓新的二進位執行檔接手。serve 迴圈會自行偵測 schema 升版，並在 spectyn home 目錄下寫入一個標記檔。
+2. 位於 `~/.spectyn-mesh/events/`（Linux/macOS）或相應 app-sandbox 路徑（行動裝置）的**既有事件**會透過舊版讀取器加上新的 `From` 橋接**前向讀取**。無須、也不建議批次重寫。
 3. **更新桌面上的 deep-link 註冊**：
    - macOS — 重新安裝 app bundle，讓 `Info.plist` 中新的 `CFBundleURLSchemes` 條目被 Launch Services 接取。
-   - Linux — 重新執行 `xdg-mime default phantom.desktop x-scheme-handler/phantom`。
+   - Linux — 重新執行 `xdg-mime default spectyn.desktop x-scheme-handler/spectyn`。
 4. **行動 app** 持續運作而無須遷移。deep-link scheme 變更對使用者是透明的，因為行動建置一向只發行單一 scheme。
 5. vault 中的 **OAuth 權杖**會在首次存取時透過新的 HKDF 子金鑰路徑惰性重新加密。無須動作。
 
@@ -151,13 +151,13 @@ v0.6.0 是第一個在單一 Mac 維護者環境上端對端交付 phantom-mesh 
 - **8 個 LLM 供應商回傳 `ConfigInvalid`** — 清單見 §3。3 個主要供應商（`groq`、`anthropic`、`gemini`）涵蓋所有 in-tree（樹內）的 demo 與 selftest 路徑。
 - **一台開發用行動裝置離線** — 測試機群中一台 iPhone 13 mini 目前離線（電池沒電）；非發行阻擋項，僅為跨作業系統派工測試面的透明度而提及。
 - **2 個 `service::macos` 測試失敗** — `launchctl` plist 測試在維護者機器上因既有的基礎設施怪癖而失敗（沙箱化的測試執行器無法與 `launchd` 通訊）。執行期路徑可運作；僅測試 fixture 受影響。已追蹤至 v0.6.0 GA。
-- **P3 Evolve 路徑預設為 experimental（實驗性）** — 技能庫的 FTS5 記憶後端與 3 個讀取 RPC 端點位於 `experimental-memory`（feature flag）之後，**預設 build 不啟用**；即使啟用，在未設定記憶庫前端點會 fail-closed（故障即關閉）回 `503`。技能萃取 producer（`phantom skill extract --commit`）尚未提供，evolve→萃取→儲存自動 loop 仍在 `experimental-curator` 之後且未完成。因此**預設安裝的 v0.6.0 不會自動產生或曝露技能庫**——P3 演化在 GA 屬實驗性能力，完整接線追蹤至 v0.7.0（決策：2026-06-02 採「GA 維持 gated + 誠實標注」，不在截止前 13 天半接線上線）。
+- **P3 Evolve 路徑預設為 experimental（實驗性）** — 技能庫的 FTS5 記憶後端與 3 個讀取 RPC 端點位於 `experimental-memory`（feature flag）之後，**預設 build 不啟用**；即使啟用，在未設定記憶庫前端點會 fail-closed（故障即關閉）回 `503`。技能萃取 producer（`spectyn skill extract --commit`）尚未提供，evolve→萃取→儲存自動 loop 仍在 `experimental-curator` 之後且未完成。因此**預設安裝的 v0.6.0 不會自動產生或曝露技能庫**——P3 演化在 GA 屬實驗性能力，完整接線追蹤至 v0.7.0（決策：2026-06-02 採「GA 維持 gated + 誠實標注」，不在截止前 13 天半接線上線）。
 
 ---
 
 ## §7 致謝
 
-phantom-mesh v0.6.0-rc1 是在 `docs/superpowers/BIG-GOAL.md` 所記載的單一維護者 dogfood（自家試吃）模式下開發：一位人類審查者兼指揮、由 AI agent 處理絕大多數程式碼合成，而專案本身在整個開發過程中即作為維護者的每日回顧工具運行。
+spectyn-mesh v0.6.0-rc1 是在 `docs/superpowers/BIG-GOAL.md` 所記載的單一維護者 dogfood（自家試吃）模式下開發：一位人類審查者兼指揮、由 AI agent 處理絕大多數程式碼合成，而專案本身在整個開發過程中即作為維護者的每日回顧工具運行。
 
 - **Spec 目錄審查**（Wave 12） — codex CLI 與 Claude Code subagent 平行進行，由人類在衝突上擔任裁決者。
 - **Phase A / B / C / D / E** 整合掃描 — 透過 Claude Code 的多 agent 平行模式經由 `scripts/ai/dispatch.sh` 協調，各階段依「經驗教訓」的分塊規則上限為 ≤200 行、≤5 分鐘。
@@ -174,18 +174,18 @@ phantom-mesh v0.6.0-rc1 是在 `docs/superpowers/BIG-GOAL.md` 所記載的單一
 git pull origin main
 
 # rebuild the binary
-cd core && cargo build --release --bin phantom
+cd core && cargo build --release --bin spectyn
 
 # verify the install
-core/target/release/phantom selftest
+core/target/release/spectyn selftest
 
 # run the 30-second end-to-end demo
 bash scripts/demo-30sec-life-hello.sh
 ```
 
-預期的 `phantom selftest` 輸出：`scripts/selftest.d/` 下每一項已註冊的檢查都通過，僅有 §6 所述的 2 個已知 `service::macos` 失敗以唯一的紅色行（red lines）浮現。30 秒 demo 會寫入一筆樣本飲食 / 專注 / 習慣事件、加密它、執行多模態分析樁、儲存結果並讀回——全程在一台 Mac MBA 上於 30 秒實際時間內完成。
+預期的 `spectyn selftest` 輸出：`scripts/selftest.d/` 下每一項已註冊的檢查都通過，僅有 §6 所述的 2 個已知 `service::macos` 失敗以唯一的紅色行（red lines）浮現。30 秒 demo 會寫入一筆樣本飲食 / 專注 / 習慣事件、加密它、執行多模態分析樁、儲存結果並讀回——全程在一台 Mac MBA 上於 30 秒實際時間內完成。
 
-若 `phantom selftest` 回報超過這 2 個已知失敗，請視為 bug，並在晉升至 GA 前針對 `v0.6.0-rc1` 提報。
+若 `spectyn selftest` 回報超過這 2 個已知失敗，請視為 bug，並在晉升至 GA 前針對 `v0.6.0-rc1` 提報。
 
 ---
 

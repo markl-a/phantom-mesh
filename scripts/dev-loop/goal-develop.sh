@@ -13,7 +13,7 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 # harvest fetch ALL use this one branch (default main = the landing/integration
 # target). Override with BACKLOG_BASE=<branch> for a dedicated dev base.
 export BACKLOG_BASE="${BACKLOG_BASE:-main}"
-NODES_FILE="${PHANTOM_FLEET_NODES:-$HOME/.phantom-mesh/fleet.nodes}"
+NODES_FILE="${SPECTYN_FLEET_NODES:-$HOME/.spectyn-mesh/fleet.nodes}"
 START_REF="$(git -C "$ROOT" rev-parse HEAD)"
 
 echo "== goal-develop round: plan =="
@@ -36,7 +36,7 @@ else
       # double-quotes expand $BACKLOG_BASE here; inner single-quotes are the
       # remote bash -lc arg (a branch name has no shell-hostile chars).
       ( ssh -o ConnectTimeout=20 "$target" \
-          "bash -lc 'cd ~/Projects/phantom-mesh && BACKLOG_BASE=$BACKLOG_BASE bash scripts/dev-loop/node-dev-loop.sh'" \
+          "bash -lc 'cd ~/Projects/spectyn-mesh && BACKLOG_BASE=$BACKLOG_BASE bash scripts/dev-loop/node-dev-loop.sh'" \
         ) & pids+=("$!")
     fi
   done < "$NODES_FILE"

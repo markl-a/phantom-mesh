@@ -1,15 +1,15 @@
-# FINAL Development Plan — phantom-companion
+# FINAL Development Plan — spectyn-companion
 
 > Finalized from the codex draft (`PLAN-companion.md`) + agy second-opinion
 > (`REVIEW-companion.md`), reconciled against the actual code (`aggregator.py`,
 > `reporter.py`, `README.md`). Status: **alpha · Tier 1 (gathering baseline)**.
 
 ## What it is / current state
-`phantom-companion` is the local-only **keystone** of phantom-mesh — the only project that
+`spectyn-companion` is the local-only **keystone** of spectyn-mesh — the only project that
 consumes the other six satellites' outputs (events, ai-feed digests, flow jobseek logs,
 training runs, secure-connector health/anomaly, enterprise) and renders a **structurally
 shame-free daily/weekly insight report**. Maturity is alpha / Tier 1: CLI, aggregator (the
-decrypting `phantom recall --json` read path + raw-events fallback + satellite log/heartbeat
+decrypting `spectyn recall --json` read path + raw-events fallback + satellite log/heartbeat
 scan), five insight modules (`llm_usage`, `attention_switches`, `learning_roi`,
 `jobseek_followup`, `health_productivity_correlation`), a reporter whose `shame_free_check()`
 hard-gates every emitted byte, and a standalone `anomaly_detector` all exist — but the data
@@ -24,12 +24,12 @@ plane real and trustworthy, not to bolt on push delivery that leaks private data
 
 - **P1 — Mock/stub data harness FIRST.** A deterministic fixture generator for multi-day
   health + commit/output + event streams so the window and correlation work is validatable
-  *offline today*, without waiting 30+ days for `phantom-secure-connector` (Garmin/iOS) data.
+  *offline today*, without waiting 30+ days for `spectyn-secure-connector` (Garmin/iOS) data.
   Bake a shared `MIN_SAMPLES` (≈14) guardrail constant here for everything else to consult. (agy)
 - **P1 — `AggregateWindow` + normalized schemas + SQLite cache.** Replace the dict-comprehension
   `aggregate_range()` with a typed cross-day window; normalize recall output, raw-events
   fallback, ai-feed/flow logs, and heartbeat state once. Cache decrypted per-day recall results
-  in a local SQLite index keyed `(day, source)` so reports don't re-spawn `phantom recall` every
+  in a local SQLite index keyed `(day, source)` so reports don't re-spawn `spectyn recall` every
   run — the real bottleneck is the subprocess, not JSON parsing (agy's perf point, re-scoped).
 - **P1 — Wire real health + output into `analyze_health_vs_output`.** Extend `DailyAggregate`
   with `health_data` and `commits`/output; delete the `={}` / `=[]` hard-codes at reporter.py:58;
@@ -69,7 +69,7 @@ plane real and trustworthy, not to bolt on push delivery that leaks private data
 - Define typed records (normalized event, satellite daily log, health sample, output sample) and
   an `AggregateWindow`; refactor `aggregate_range()` to build it once with stable day ordering.
 - Add a SQLite cache keyed `(day, source)`: on miss call `_events_via_recall`, on hit skip the
-  subprocess; keep the raw `events/` scan only as the test/no-phantom fallback.
+  subprocess; keep the raw `events/` scan only as the test/no-spectyn fallback.
 - Keep `DailyAggregate`'s dict shape via adapters so the five insight modules migrate
   incrementally (no big-bang break of `reporter._run_insights()`).
 - Tests: missing satellite dirs, encrypted-recall fallback, malformed JSON, 7-day ordering,
@@ -91,7 +91,7 @@ plane real and trustworthy, not to bolt on push delivery that leaks private data
   agy's valid privacy / encryption-first objection (confirmed by the README's local-only pillar);
   the draft would have shipped raw health/jobseek/LLM-prompt data over SMTP/Telegram bots.
 - **Folded agy's perf point into P1 #2 but corrected it**: the bottleneck is the per-day
-  `phantom recall` subprocess (on-disk events are age-encrypted ciphertext), so the win is a
+  `spectyn recall` subprocess (on-disk events are age-encrypted ciphertext), so the win is a
   decrypted-result SQLite cache — not "stop parsing raw JSON on disk" as agy framed it.
 - **Added explicit `MIN_SAMPLES` density guardrails** to the correlation + anomaly items, per
   agy's statistical-insufficiency / alert-fatigue concern — this directly protects the shame-free

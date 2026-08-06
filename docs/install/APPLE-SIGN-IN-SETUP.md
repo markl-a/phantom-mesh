@@ -6,19 +6,19 @@ the `/auth/apple/*` routes only activate once all four bindings below are
 present. This runbook is the part only an account owner can do — the
 Apple Developer portal steps plus the Cloudflare deploy.
 
-Until these are set, `phantom login apple` still works end-to-end against
+Until these are set, `spectyn login apple` still works end-to-end against
 any broker that *is* configured (it routes through `/auth/cli/start?provider=apple`).
 
 ## What the code already does
 
 | Piece | Where |
 |---|---|
-| `GET /auth/apple/start` → Apple authorize (`response_mode=form_post`, scope `name email`) | `phantommesh-io/src/routes/oauth.ts` |
+| `GET /auth/apple/start` → Apple authorize (`response_mode=form_post`, scope `name email`) | `spectynmesh-io/src/routes/oauth.ts` |
 | `POST /auth/apple/callback` → token exchange + loopback/cookie finish | same |
-| ES256 client-secret JWT minted from the `.p8` | `phantommesh-io/src/lib/oauth.ts::appleClientSecret` |
+| ES256 client-secret JWT minted from the `.p8` | `spectynmesh-io/src/lib/oauth.ts::appleClientSecret` |
 | SameSite=None nonce re-issue (so the cross-site `form_post` keeps the B2 binding) | `appleStart` |
 | Button + health advertisement, gated on config | `routes/pages.ts`, `routes/health.ts` |
-| `phantom login apple` → broker with `provider=apple` hint | `core/src/bin/phantom.rs` |
+| `spectyn login apple` → broker with `provider=apple` hint | `core/src/bin/spectyn.rs` |
 
 ## Step 1 — Apple Developer portal
 
@@ -26,7 +26,7 @@ any broker that *is* configured (it routes through `/auth/cli/start?provider=app
    Certificates, IDs & Profiles → Identifiers:
    - Create (or reuse) an **App ID** with **Sign in with Apple** capability enabled.
    - Create a **Services ID** (this becomes `APPLE_CLIENT_ID`, e.g.
-     `io.phantommesh.signin`). Enable **Sign in with Apple** on it and click
+     `io.spectynmesh.signin`). Enable **Sign in with Apple** on it and click
      **Configure**:
      - **Primary App ID**: the App ID above.
      - **Domains**: `phantommesh.io`
@@ -40,10 +40,10 @@ any broker that *is* configured (it routes through `/auth/cli/start?provider=app
 
 ## Step 2 — Cloudflare worker config
 
-In `phantommesh-io/wrangler.toml` `[vars]` (already stubbed empty):
+In `spectynmesh-io/wrangler.toml` `[vars]` (already stubbed empty):
 
 ```toml
-APPLE_CLIENT_ID = "io.phantommesh.signin"   # your Services ID
+APPLE_CLIENT_ID = "io.spectynmesh.signin"   # your Services ID
 APPLE_TEAM_ID   = "ABCDE12345"              # 10-char Team ID
 APPLE_KEY_ID    = "KEY1234567"              # 10-char Key ID
 ```
@@ -52,7 +52,7 @@ Then the secret (the `.p8` PEM contents — keep the `-----BEGIN/END-----`
 lines):
 
 ```sh
-cd phantommesh-io
+cd spectynmesh-io
 wrangler secret put APPLE_PRIVATE_KEY        # paste the AuthKey_*.p8 body
 #   prod:    wrangler secret put APPLE_PRIVATE_KEY
 #   staging: wrangler secret put APPLE_PRIVATE_KEY --env staging
@@ -63,7 +63,7 @@ wrangler secret put APPLE_PRIVATE_KEY        # paste the AuthKey_*.p8 body
 ## Step 3 — deploy + verify
 
 ```sh
-cd phantommesh-io
+cd spectynmesh-io
 npm run test:security          # 18 tests incl. the apple suite — should pass
 wrangler deploy                # prod (CI-gated; or --env staging for a dry run)
 
@@ -75,7 +75,7 @@ curl -s https://phantommesh.io/api/health | jq .providers
 Then end-to-end from a machine:
 
 ```sh
-phantom login apple            # opens browser → Apple → back to the CLI
+spectyn login apple            # opens browser → Apple → back to the CLI
 ```
 
 ## Notes / gotchas
@@ -89,5 +89,5 @@ phantom login apple            # opens browser → Apple → back to the CLI
   callback captures it then; if a user revokes and re-consents, name returns.
 - **Return URL drift**: if you change `APP_URL` or the worker route, update
   the Services ID Return URL to match or Apple returns `invalid_redirect_uri`.
-- The CLI `phantom login google` keeps its loopback path; only `apple` is
+- The CLI `spectyn login google` keeps its loopback path; only `apple` is
   broker-routed (Apple rejects `http://127.0.0.1` redirects).

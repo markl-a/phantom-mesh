@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>phantom-mesh · projects</title>
+<title>spectyn-mesh · projects</title>
 <style>
 :root {
   --bg: #0d1117;
@@ -276,7 +276,7 @@ footer a:hover { color: var(--accent); }
 </head>
 <body>
 <header>
-  <h1>phantom-mesh · projects</h1>
+  <h1>spectyn-mesh · projects</h1>
   <div class="sub">6 pinned repos, accessible from any device on this Tailscale tailnet</div>
   <div id="cluster-bar" class="cluster-bar">
     <span class="label">cluster:</span>
@@ -291,7 +291,7 @@ footer a:hover { color: var(--accent); }
   <div id="grid" class="grid"></div>
 </main>
 <footer>
-  Hub-and-spoke via <code>phantom serve</code>. Every demo runs on the host machine; this page is just the control surface.
+  Hub-and-spoke via <code>spectyn serve</code>. Every demo runs on the host machine; this page is just the control surface.
   &nbsp;·&nbsp; <a href="/">main dashboard</a>
   &nbsp;·&nbsp; <a href="/m">mobile chat</a>
 </footer>
@@ -476,7 +476,7 @@ async function loadActivity() {
     const data = await res.json();
     const items = data.items || [];
     if (items.length === 0) {
-      rows.innerHTML = '<div class="empty">no recent activity — push something or run `phantom autoevolve --once`</div>';
+      rows.innerHTML = '<div class="empty">no recent activity — push something or run `spectyn autoevolve --once`</div>';
       return;
     }
     rows.innerHTML = items.map(renderActivityRow).join("");

@@ -6,12 +6,12 @@
 #   Proves "any platform can submit a prompt, all platforms operate jointly":
 #     1. Discover every peer in the mesh (GET /rpc/peers on local coordinator)
 #     2. Fan-out an HMAC-auth'd /rpc/ping to every peer (parallel curl)
-#     3. Collect each peer's OS / hostname / phantom-version / uptime
-#     4. Run local synthesis via `phantom` agent (Groq fallback if Gemini down)
+#     3. Collect each peer's OS / hostname / spectyn-version / uptime
+#     4. Run local synthesis via `spectyn` agent (Groq fallback if Gemini down)
 #     5. Print a unified report
 #
 # WHY
-#   The `phantom swarm` command also fan-outs but requires every peer to have
+#   The `spectyn swarm` command also fan-outs but requires every peer to have
 #   working LLM keys + correct model config. /rpc/ping is LLM-free and works
 #   uniformly across mac / linux / 3× windows / mobile-app-talking-to-coord.
 #   This demo is the minimum honest proof of "joint operation across cluster".
@@ -28,7 +28,7 @@
 set -u
 
 ORIGIN_URL="${ORIGIN_URL:-http://127.0.0.1:7878}"
-SECRET_FILE="${PHANTOM_AGENTS_TOML:-$HOME/.phantom-mesh/agents.toml}"
+SECRET_FILE="${SPECTYN_AGENTS_TOML:-$HOME/.spectyn-mesh/agents.toml}"
 
 if [[ ! -r "$SECRET_FILE" ]]; then
   echo "ERROR: cannot read $SECRET_FILE" >&2; exit 2
@@ -38,7 +38,7 @@ if [[ -z "$SECRET" ]]; then
   echo "ERROR: no cluster_secret in $SECRET_FILE" >&2; exit 2
 fi
 
-echo "=== phantom-mesh joint-operation demo ==="
+echo "=== spectyn-mesh joint-operation demo ==="
 echo "origin coordinator: $ORIGIN_URL"
 echo
 
@@ -95,7 +95,7 @@ import sys, json
 try:
     d = json.load(sys.stdin)
     name = d.get("name", "?")
-    ver  = d.get("phantom_version", "?")
+    ver  = d.get("spectyn_version", "?")
     up   = d.get("uptime_secs", 0)
     caps = ",".join(d.get("capabilities", [])) or "-"
     agents = ",".join(d.get("agents", [])) or "-"
@@ -144,11 +144,11 @@ if [[ "${SKIP_SYNTH:-0}" == "1" ]]; then
   echo "RESULT: FAIL (<3 online)"; exit 1
 fi
 
-if command -v phantom >/dev/null 2>&1; then
+if command -v spectyn >/dev/null 2>&1; then
   echo
-  echo "── synthesizing via local phantom agent ──"
-  prompt="You are a phantom-mesh cluster coordinator. Below is the live fleet status from /rpc/ping across all peers in the same Tailnet. Write a 3-sentence executive summary in Traditional Chinese: how many nodes are online, what platforms they cover, and whether the cluster is healthy for joint operations."$'\n\n'"$report_lines"
-  phantom agent ask "$prompt" 2>/dev/null | head -20 || \
+  echo "── synthesizing via local spectyn agent ──"
+  prompt="You are a spectyn-mesh cluster coordinator. Below is the live fleet status from /rpc/ping across all peers in the same Tailnet. Write a 3-sentence executive summary in Traditional Chinese: how many nodes are online, what platforms they cover, and whether the cluster is healthy for joint operations."$'\n\n'"$report_lines"
+  spectyn agent ask "$prompt" 2>/dev/null | head -20 || \
     echo "(synthesis failed — likely LLM quota; fleet table above is the proof of joint-op routing)"
 fi
 

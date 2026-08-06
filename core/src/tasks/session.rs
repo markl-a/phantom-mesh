@@ -21,7 +21,7 @@ const SYNTHETIC_RESULT_NOTE: &str =
     "(execution interrupted — synthetic result injected by Session Repair)";
 
 /// Resolves the on-disk path for a workspace + task pair, rooted at
-/// `~/.phantom-mesh/sessions/` (or `PHANTOM_SESSIONS_DIR` when set, for tests).
+/// `~/.spectyn-mesh/sessions/` (or `SPECTYN_SESSIONS_DIR` when set, for tests).
 pub fn session_path(workspace_id: &str, task_id: Uuid) -> PathBuf {
     sessions_root()
         .join(workspace_id)
@@ -35,11 +35,11 @@ pub fn session_path_at(root: &Path, workspace_id: &str, task_id: Uuid) -> PathBu
 }
 
 fn sessions_root() -> PathBuf {
-    if let Ok(p) = std::env::var("PHANTOM_SESSIONS_DIR") {
+    if let Ok(p) = std::env::var("SPECTYN_SESSIONS_DIR") {
         return PathBuf::from(p);
     }
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("sessions")
 }
 

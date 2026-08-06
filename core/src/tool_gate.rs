@@ -1,13 +1,13 @@
 //! The process-wide tool gate — the single permission/trust enforcement
 //! chokepoint installed into [`crate::tools::execute`]. Lives in the LIB (not a
-//! binary) so EVERY entrypoint installs the same gate: both the `phantom` and
-//! `phantom-mesh` binaries, before any agent / HTTP / daemon surface runs.
+//! binary) so EVERY entrypoint installs the same gate: both the `spectyn` and
+//! `spectyn-mesh` binaries, before any agent / HTTP / daemon surface runs.
 //!
 //! Policy is loaded HOME-ONLY ([`crate::config::AgentsConfig::load_home_only`])
 //! so a malicious `cwd/agents.toml` can't weaken it. `interactive=false`
 //! (daemons, `exec`, `serve`, cluster) is fail-closed — a profile/trust `Ask`
 //! becomes `Deny`, since no one is at a terminal. `interactive=true` (the REPL)
-//! prompts y/n/a/A. Escape hatch: `PHANTOM_TRUST_ALL=1` (or a home
+//! prompts y/n/a/A. Escape hatch: `SPECTYN_TRUST_ALL=1` (or a home
 //! `profile = "developer-full"`).
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,7 +62,7 @@ fn prompt_tool_approval(name: &str, args: &serde_json::Value) -> Result<(), Stri
     if !std::io::stdin().is_terminal() {
         return Err(format!(
             "'{name}' needs approval but stdin is not a terminal (fail-closed). \
-             Use a permissive profile, `phantom project trust add`, or PHANTOM_TRUST_ALL=1."
+             Use a permissive profile, `spectyn project trust add`, or SPECTYN_TRUST_ALL=1."
         ));
     }
     let summary = serde_json::to_string(args).unwrap_or_default();
@@ -117,11 +117,11 @@ fn prompt_tool_approval(name: &str, args: &serde_json::Value) -> Result<(), Stri
 /// replaceable: the REPL calls `install(true)` to upgrade the `install(false)`
 /// an early `main` already set.
 pub fn install(interactive: bool) {
-    let perm_deny = std::env::var("PHANTOM_PERM").as_deref() == Ok("deny");
+    let perm_deny = std::env::var("SPECTYN_PERM").as_deref() == Ok("deny");
 
     // Explicit opt-out for trusted automation (your own cluster workers / CI) —
-    // but PHANTOM_PERM=deny (most-restrictive) still wins over it.
-    if std::env::var("PHANTOM_TRUST_ALL").as_deref() == Ok("1") && !perm_deny {
+    // but SPECTYN_PERM=deny (most-restrictive) still wins over it.
+    if std::env::var("SPECTYN_TRUST_ALL").as_deref() == Ok("1") && !perm_deny {
         return;
     }
 
@@ -133,12 +133,12 @@ pub fn install(interactive: bool) {
         None if crate::config::AgentsConfig::home_config_present() => {
             eprintln!(
                 "  {} HOME security config is malformed — FAIL-CLOSED: denying all \
-                 tools until it parses. Fix it (`phantom doctor`), or set \
-                 PHANTOM_TRUST_ALL=1 to bypass. (`phantom permissions`/`trust` still work.)",
+                 tools until it parses. Fix it (`spectyn doctor`), or set \
+                 SPECTYN_TRUST_ALL=1 to bypass. (`spectyn permissions`/`trust` still work.)",
                 colored("✗", 31)
             );
             let gate = std::sync::Arc::new(|_: &str, _: &serde_json::Value| {
-                Err("denied — HOME security config (~/.phantom-mesh/agents.toml) is \
+                Err("denied — HOME security config (~/.spectyn-mesh/agents.toml) is \
                      malformed; fail-closed until fixed".to_string())
             });
             crate::tools::set_tool_gate(gate);
@@ -154,15 +154,15 @@ pub fn install(interactive: bool) {
         .and_then(TrustPolicy::from_slug)
         .unwrap_or_default();
 
-    // ALWAYS install (the only fast-path opt-out is PHANTOM_TRUST_ALL, handled
+    // ALWAYS install (the only fast-path opt-out is SPECTYN_TRUST_ALL, handled
     // above). Installing even for an empty/allow-all policy is what makes runtime
-    // toggles (`/plan`, `/perm deny`, PHANTOM_PERM) take effect on EVERY surface
+    // toggles (`/plan`, `/perm deny`, SPECTYN_PERM) take effect on EVERY surface
     // — incl. the default-config TUI, where a missing gate previously made those
     // controls silently inert (a fail-open). An empty-engine + trust-off gate is
     // a cheap pass-through, so the per-call cost is negligible.
     let home = crate::cli_config::resolve_home_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     // Load the store once; compute the VERDICT per call from the live cwd (a bare
-    // `phantom` can change cwd via the workspace pin AFTER install).
+    // `spectyn` can change cwd via the workspace pin AFTER install).
     let store = std::sync::Arc::new(TrustStore::load(&TrustStore::path(&home)));
 
     if interactive {
@@ -177,7 +177,7 @@ pub fn install(interactive: bool) {
         if policy != TrustPolicy::Off && !store.verdict(&cwd).is_trusted() {
             eprintln!(
                 "  {} project trust: untrusted dir — enforcement={} ({}). \
-                 `phantom project trust add` to trust it.",
+                 `spectyn project trust add` to trust it.",
                 colored("⚠", 33),
                 policy.slug(),
                 policy.summary(),
@@ -189,15 +189,15 @@ pub fn install(interactive: bool) {
     let gate = std::sync::Arc::new(
         move |name: &str, args: &serde_json::Value| -> Result<(), String> {
             // ExecutionContract deny-until-approved gate (T7). OPT-IN via
-            // PHANTOM_CONTRACT_GATE=1; a no-op pass-through when off, so this
+            // SPECTYN_CONTRACT_GATE=1; a no-op pass-through when off, so this
             // line does NOT change behavior unless the operator engages it.
             crate::contract_gate::check(name, args)?;
-            // PHANTOM_PERM=deny: hard global deny, before any Allow.
-            if std::env::var("PHANTOM_PERM").as_deref() == Ok("deny") {
-                return Err("PHANTOM_PERM=deny — tool execution denied".into());
+            // SPECTYN_PERM=deny: hard global deny, before any Allow.
+            if std::env::var("SPECTYN_PERM").as_deref() == Ok("deny") {
+                return Err("SPECTYN_PERM=deny — tool execution denied".into());
             }
             // Plan mode: deny all tools until the user approves the turn.
-            if std::env::var("PHANTOM_PLAN_MODE").as_deref() == Ok("1")
+            if std::env::var("SPECTYN_PLAN_MODE").as_deref() == Ok("1")
                 && !GATE_PLAN_APPROVED.load(Ordering::Relaxed)
             {
                 return Err("Plan mode is active — output the plan as text and stop; \
@@ -208,12 +208,12 @@ pub fn install(interactive: bool) {
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             let verdict = store.verdict(&cwd);
             let base = apply_trust(engine.evaluate(name, args), verdict, policy, name);
-            // PHANTOM_PERM=ask|diff forces a prompt even on an engine Allow, on
+            // SPECTYN_PERM=ask|diff forces a prompt even on an engine Allow, on
             // ALL surfaces — interactive prompts; non-interactive then fail-closes
             // (Ask→Deny below). (The diff *preview* was dropped in consolidation,
             // but diff/ask must never silently allow.)
             let decision = if matches!(base, Decision::Allow)
-                && matches!(std::env::var("PHANTOM_PERM").as_deref(), Ok("ask") | Ok("diff"))
+                && matches!(std::env::var("SPECTYN_PERM").as_deref(), Ok("ask") | Ok("diff"))
             {
                 Decision::Ask
             } else {
@@ -226,9 +226,9 @@ pub fn install(interactive: bool) {
                     if !interactive {
                         return Err(format!(
                             "'{name}' needs approval, but this is a non-interactive session \
-                             (fail-closed). Use an interactive `phantom repl`, a more \
-                             permissive profile, `phantom project trust add` this directory, or \
-                             PHANTOM_TRUST_ALL=1 for trusted automation."
+                             (fail-closed). Use an interactive `spectyn repl`, a more \
+                             permissive profile, `spectyn project trust add` this directory, or \
+                             SPECTYN_TRUST_ALL=1 for trusted automation."
                         ));
                     }
                     if let Ok(al) = allowlist().lock() {

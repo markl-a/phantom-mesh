@@ -1,6 +1,6 @@
 // Tauri command surface for the Daily Review reader (SPEC-41 macOS screen #3,
 // BIG-GOAL P2 / Life Track). Wraps the real, read-only, offline backend
-// `phantom_mesh::daily_review_wire::load_daily_review` so the React screen can
+// `spectyn_mesh::daily_review_wire::load_daily_review` so the React screen can
 // show today's (or any date's) Life Node summary.
 //
 // `date` defaults to the local-today ISO date when omitted/empty. The home dir
@@ -10,7 +10,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::daily_review_wire::{load_daily_review, DailyReviewView};
+use spectyn_mesh::daily_review_wire::{load_daily_review, DailyReviewView};
 
 const NOT_YET_WIRED: &str =
     "daily_review.unavailable: could not read the Life Node events directory";
@@ -30,7 +30,7 @@ pub async fn daily_review_load(date: Option<String>) -> Result<DailyReviewView, 
 
 /// Generate a full coach review for `date` — the aggregate PLUS the Gemini
 /// "Tomorrow's one action" pass (graceful no-key footer), persisted to
-/// ~/.phantom-mesh/reviews/{date}.md when `save`. App counterpart of `phantom
+/// ~/.spectyn-mesh/reviews/{date}.md when `save`. App counterpart of `spectyn
 /// coach review [--save]`; shares `daily_review::run_coach_review` with the CLI.
 ///
 /// When the day's events are locked (age-encrypted + no identity key) we can't
@@ -54,9 +54,9 @@ pub async fn daily_review_generate(
 
     // 4th arg = partner reflection deps. The Tauri command has no AgentRuntime
     // in scope (the proactive "Daily alignment" section is driven from the CLI
-    // `phantom coach review`, which builds AppState), so pass `None` here — the
+    // `spectyn coach review`, which builds AppState), so pass `None` here — the
     // app keeps emitting the deterministic events aggregate + tomorrow-action.
-    let review = phantom_mesh::life_node::daily_review::run_coach_review(
+    let review = spectyn_mesh::life_node::daily_review::run_coach_review(
         &home,
         &date_iso,
         save.unwrap_or(false),
@@ -64,7 +64,7 @@ pub async fn daily_review_generate(
     )
     .await
     .map_err(|e| format!("daily_review.generate_failed: {e}"))?;
-    let flagged = phantom_mesh::life_node::coach_prompts::lint::check(&review.markdown).is_err();
+    let flagged = spectyn_mesh::life_node::coach_prompts::lint::check(&review.markdown).is_err();
     Ok(DailyReviewView {
         date: date_iso,
         markdown: review.markdown,

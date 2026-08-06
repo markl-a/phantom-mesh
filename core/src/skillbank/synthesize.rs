@@ -16,7 +16,7 @@
 //!      loop. On success, `store_skill` writes the serialized SKILL.md into
 //!      the FTS5-backed `SkillMemory` (kind = "skill").
 //!
-//! CLI wiring (`phantom skill new "<goal>"`) and provider/api_key resolution
+//! CLI wiring (`spectyn skill new "<goal>"`) and provider/api_key resolution
 //! are intentionally deferred to a later slice; this module takes the
 //! provider + key as parameters so the caller owns that resolution.
 //!
@@ -586,7 +586,7 @@ mod tests {
 
     #[test]
     fn verify_skill_live_run_passes_for_zero_exit() {
-        let doc = doc_with_bash("echo phantom-synth-ok");
+        let doc = doc_with_bash("echo spectyn-synth-ok");
         let goal = goal_with(&["echo"]);
         let cfg = SynthConfig::default();
         let (passed, diag) = verify_skill(&doc, &goal, &cfg, false);

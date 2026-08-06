@@ -1,17 +1,17 @@
 // Mobile thin-shell mode.
 //
 // On Android/iOS Tauri builds we don't render the full React desktop UI.
-// Instead we redirect the WebView to a remote `phantom serve` instance so
+// Instead we redirect the WebView to a remote `spectyn serve` instance so
 // mobile devices share the exact same web frontend (`core/web/`) that
-// browsers see. The host is configurable via localStorage (PHANTOM_HOST,
-// PHANTOM_PORT, PHANTOM_SCHEME) — defaults to http://localhost:7878/.
+// browsers see. The host is configurable via localStorage (SPECTYN_HOST,
+// SPECTYN_PORT, SPECTYN_SCHEME) — defaults to http://localhost:7878/.
 //
 // Reversible: deleting this file + the call in main.tsx restores the
 // original behaviour. Desktop builds are completely untouched.
 
-const HOST_KEY = "PHANTOM_HOST";
-const PORT_KEY = "PHANTOM_PORT";
-const SCHEME_KEY = "PHANTOM_SCHEME";
+const HOST_KEY = "SPECTYN_HOST";
+const PORT_KEY = "SPECTYN_PORT";
+const SCHEME_KEY = "SPECTYN_SCHEME";
 const DEFAULT_HOST = "localhost";
 const DEFAULT_PORT = "7878";
 const DEFAULT_SCHEME = "http";
@@ -42,9 +42,9 @@ function isMobileTauri(): boolean {
  */
 function showSettingsForm(currentHost: string, currentPort: string): void {
   // Inject one-time stylesheet (no inline style attribute on elements).
-  if (!document.getElementById("phantom-thinshell-style")) {
+  if (!document.getElementById("spectyn-thinshell-style")) {
     const style = document.createElement("style");
-    style.id = "phantom-thinshell-style";
+    style.id = "spectyn-thinshell-style";
     style.textContent = `
       body{font-family:-apple-system,system-ui,sans-serif;background:#0b0d12;color:#e6e6e6;
            margin:0;padding:24px;display:flex;flex-direction:column;gap:16px;min-height:100vh}
@@ -66,18 +66,18 @@ function showSettingsForm(currentHost: string, currentPort: string): void {
   // children with our settings UI. We don't use document.open() / write()
   // because Tauri's CSP nonces are reset by full-document replacement.
   document.body.innerHTML = "";
-  document.title = "Phantom Mesh — connect";
+  document.title = "Spectyn Mesh — connect";
 
   const root = document.createElement("div");
   root.className = "pts";
 
   const h1 = document.createElement("h1");
-  h1.textContent = "Connect to phantom serve";
+  h1.textContent = "Connect to spectyn serve";
   root.appendChild(h1);
 
   const lead = document.createElement("small");
   lead.textContent =
-    "Run `phantom serve` on your Mac/PC, then enter its Tailscale hostname or LAN IP below.";
+    "Run `spectyn serve` on your Mac/PC, then enter its Tailscale hostname or LAN IP below.";
   root.appendChild(lead);
 
   const hostWrap = document.createElement("div");
@@ -163,7 +163,7 @@ function showSettingsForm(currentHost: string, currentPort: string): void {
 
 /**
  * If running inside a mobile Tauri shell, swap the document for a
- * redirect to the remote phantom serve and return true (caller should
+ * redirect to the remote spectyn serve and return true (caller should
  * skip React mount). Otherwise return false.
  */
 export function maybeRedirectToRemoteFrontend(): boolean {

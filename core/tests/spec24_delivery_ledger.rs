@@ -18,23 +18,23 @@
 //!      second same-day fan-out — the live round-trip a scheduler would use.
 //!
 //! Isolation: its own integration-test binary (separate process), so the
-//! per-process `EventKey` cache + `PHANTOM_MESH_COACH_LEDGER_DIR` override are
+//! per-process `EventKey` cache + `SPECTYN_MESH_COACH_LEDGER_DIR` override are
 //! owned solely by these tests. The env-mutating tests serialize behind one
 //! lock (cargo runs a binary's tests on parallel threads).
 
 use std::sync::Mutex;
 
 use base64::Engine;
-use phantom_mesh::coach_delivery_wire::{
+use spectyn_mesh::coach_delivery_wire::{
     dedup_check, deliver_and_persist, persist_receipts, DeliveryChannel, DeliveryReceipt,
     DeliveryStatus,
 };
-use phantom_mesh::encryption_wire::{
+use spectyn_mesh::encryption_wire::{
     derive_recipient_from_identity, encrypt_event, event_key_to_age_identity,
     install_event_key_from_seed,
 };
 
-/// Serialise tests that mutate the process-global `PHANTOM_MESH_COACH_LEDGER_DIR`
+/// Serialise tests that mutate the process-global `SPECTYN_MESH_COACH_LEDGER_DIR`
 /// (and the EventKey cache) so a parallel test can't clobber another's ledger dir.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -51,12 +51,12 @@ fn now_ms() -> u64 {
 fn with_temp_ledger<T>(f: impl FnOnce(&std::path::Path) -> T) -> T {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let dir = tempfile::tempdir().unwrap();
-    let saved = std::env::var("PHANTOM_MESH_COACH_LEDGER_DIR").ok();
-    std::env::set_var("PHANTOM_MESH_COACH_LEDGER_DIR", dir.path());
+    let saved = std::env::var("SPECTYN_MESH_COACH_LEDGER_DIR").ok();
+    std::env::set_var("SPECTYN_MESH_COACH_LEDGER_DIR", dir.path());
     let out = f(dir.path());
     match saved {
-        Some(v) => std::env::set_var("PHANTOM_MESH_COACH_LEDGER_DIR", v),
-        None => std::env::remove_var("PHANTOM_MESH_COACH_LEDGER_DIR"),
+        Some(v) => std::env::set_var("SPECTYN_MESH_COACH_LEDGER_DIR", v),
+        None => std::env::remove_var("SPECTYN_MESH_COACH_LEDGER_DIR"),
     }
     out
 }

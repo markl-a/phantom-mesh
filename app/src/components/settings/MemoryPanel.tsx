@@ -48,7 +48,7 @@ const MOCK_NODE_ENTRIES: Record<NodeMemoryTab, MemoryEntry[]> = {
     { id: "NS-003", content: "ClawtexOS 為分散式 AI Agent 集群作業系統", type: "definition", timestamp: "2026-03-19 14:00", relevance: 0.93 },
   ],
   episodic: [
-    { id: "NE-001", content: "03/21 成功部署 phantom-desktop v0.1.0", type: "event", timestamp: "2026-03-21 09:00", relevance: 0.85 },
+    { id: "NE-001", content: "03/21 成功部署 spectyn-desktop v0.1.0", type: "event", timestamp: "2026-03-21 09:00", relevance: 0.85 },
     { id: "NE-002", content: "03/20 完成 7 個 Tauri command 實作", type: "event", timestamp: "2026-03-20 23:45", relevance: 0.78 },
   ],
   procedural: [
@@ -108,49 +108,49 @@ function parseMemoryStats(raw: Record<string, unknown>): MemoryStats {
 
 function MemoryTable({ entries }: { entries: MemoryEntry[] }) {
   return (
-    <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+    <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-phantom-border">
-            <th className="text-left px-4 py-2 text-phantom-muted font-medium text-xs">ID</th>
-            <th className="text-left px-4 py-2 text-phantom-muted font-medium text-xs">內容</th>
-            <th className="text-left px-4 py-2 text-phantom-muted font-medium text-xs">類型</th>
-            <th className="text-left px-4 py-2 text-phantom-muted font-medium text-xs">相關度</th>
-            <th className="text-left px-4 py-2 text-phantom-muted font-medium text-xs">時間</th>
+          <tr className="border-b border-spectyn-border">
+            <th className="text-left px-4 py-2 text-spectyn-muted font-medium text-xs">ID</th>
+            <th className="text-left px-4 py-2 text-spectyn-muted font-medium text-xs">內容</th>
+            <th className="text-left px-4 py-2 text-spectyn-muted font-medium text-xs">類型</th>
+            <th className="text-left px-4 py-2 text-spectyn-muted font-medium text-xs">相關度</th>
+            <th className="text-left px-4 py-2 text-spectyn-muted font-medium text-xs">時間</th>
           </tr>
         </thead>
         <tbody>
           {entries.map((entry, i) => (
             <tr
               key={entry.id}
-              className={`border-b border-phantom-border last:border-0 ${
-                i % 2 === 1 ? "bg-phantom-bg/50" : ""
+              className={`border-b border-spectyn-border last:border-0 ${
+                i % 2 === 1 ? "bg-spectyn-bg/50" : ""
               }`}
             >
-              <td className="px-4 py-2 font-mono text-phantom-muted text-xs">{entry.id}</td>
+              <td className="px-4 py-2 font-mono text-spectyn-muted text-xs">{entry.id}</td>
               <td className="px-4 py-2">{entry.content}</td>
               <td className="px-4 py-2">
-                <span className="text-xs bg-phantom-primary/10 text-phantom-primary px-2 py-0.5 rounded">
+                <span className="text-xs bg-spectyn-primary/10 text-spectyn-primary px-2 py-0.5 rounded">
                   {entry.type}
                 </span>
               </td>
               <td className="px-4 py-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-12 h-1.5 bg-phantom-border rounded-full overflow-hidden">
+                  <div className="w-12 h-1.5 bg-spectyn-border rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-phantom-primary rounded-full"
+                      className="h-full bg-spectyn-primary rounded-full"
                       style={{ width: `${entry.relevance * 100}%` }}
                     />
                   </div>
-                  <span className="text-xs text-phantom-muted">{(entry.relevance * 100).toFixed(0)}%</span>
+                  <span className="text-xs text-spectyn-muted">{(entry.relevance * 100).toFixed(0)}%</span>
                 </div>
               </td>
-              <td className="px-4 py-2 text-phantom-muted text-xs">{entry.timestamp}</td>
+              <td className="px-4 py-2 text-spectyn-muted text-xs">{entry.timestamp}</td>
             </tr>
           ))}
           {entries.length === 0 && (
             <tr>
-              <td colSpan={5} className="px-4 py-6 text-center text-phantom-muted">
+              <td colSpan={5} className="px-4 py-6 text-center text-spectyn-muted">
                 沒有符合條件的記憶條目
               </td>
             </tr>
@@ -330,7 +330,7 @@ export default function MemoryPanel() {
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">記憶系統</h1>
           {state.isOffline && (
-            <span className="text-xs px-2 py-0.5 rounded bg-phantom-warning/20 text-phantom-warning">
+            <span className="text-xs px-2 py-0.5 rounded bg-spectyn-warning/20 text-spectyn-warning">
               (離線模式)
             </span>
           )}
@@ -338,7 +338,7 @@ export default function MemoryPanel() {
         {!state.loading && (
           <button
             onClick={fetchData}
-            className="text-xs text-phantom-muted hover:text-phantom-text border border-phantom-border rounded px-2 py-1"
+            className="text-xs text-spectyn-muted hover:text-spectyn-text border border-spectyn-border rounded px-2 py-1"
           >
             重新載入
           </button>
@@ -347,13 +347,13 @@ export default function MemoryPanel() {
 
       {/* Error Banner */}
       {state.error && (
-        <div className="mb-4 bg-phantom-danger/10 border border-phantom-danger/30 rounded-lg px-4 py-3 flex items-center justify-between">
-          <span className="text-sm text-phantom-danger">
+        <div className="mb-4 bg-spectyn-danger/10 border border-spectyn-danger/30 rounded-lg px-4 py-3 flex items-center justify-between">
+          <span className="text-sm text-spectyn-danger">
             無法連線至記憶系統: {state.error}
           </span>
           <button
             onClick={fetchData}
-            className="text-xs text-phantom-danger border border-phantom-danger/30 rounded px-2 py-1 hover:bg-phantom-danger/10"
+            className="text-xs text-spectyn-danger border border-spectyn-danger/30 rounded px-2 py-1 hover:bg-spectyn-danger/10"
           >
             重試
           </button>
@@ -363,7 +363,7 @@ export default function MemoryPanel() {
       {/* Loading State */}
       {state.loading && (
         <div className="flex items-center justify-center py-12">
-          <div className="flex items-center gap-3 text-phantom-muted">
+          <div className="flex items-center gap-3 text-spectyn-muted">
             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -377,16 +377,16 @@ export default function MemoryPanel() {
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">總記憶條目</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">總記憶條目</p>
               <p className="text-2xl font-bold mt-1">{state.stats.totalEntries}</p>
             </div>
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">壓縮比</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">壓縮比</p>
               <p className="text-2xl font-bold mt-1">{state.stats.compressionRatio}</p>
             </div>
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <p className="text-phantom-muted text-xs">最後同步</p>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <p className="text-spectyn-muted text-xs">最後同步</p>
               <p className="text-2xl font-bold mt-1 text-base">{state.stats.lastSync}</p>
             </div>
           </div>
@@ -398,11 +398,11 @@ export default function MemoryPanel() {
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
               placeholder="搜尋記憶..."
-              className="w-full bg-phantom-card border border-phantom-border rounded px-4 py-2.5 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+              className="w-full bg-spectyn-card border border-spectyn-border rounded px-4 py-2.5 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
             />
             {state.searchLoading && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <svg className="animate-spin h-4 w-4 text-phantom-muted" viewBox="0 0 24 24" fill="none">
+                <svg className="animate-spin h-4 w-4 text-spectyn-muted" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
@@ -413,9 +413,9 @@ export default function MemoryPanel() {
           {/* Layer 1: Cluster Memory */}
           <section className="mb-6">
             <div className="flex items-center gap-2 mb-3">
-              <span className="w-3 h-3 rounded-full bg-phantom-primary" />
+              <span className="w-3 h-3 rounded-full bg-spectyn-primary" />
               <h2 className="text-lg font-bold">Cluster Memory</h2>
-              <span className="text-xs text-phantom-muted">— 全集群共享</span>
+              <span className="text-xs text-spectyn-muted">— 全集群共享</span>
             </div>
             <MemoryTable entries={filterEntries(state.clusterEntries)} />
           </section>
@@ -423,9 +423,9 @@ export default function MemoryPanel() {
           {/* Layer 2: Node Memory */}
           <section className="mb-6">
             <div className="flex items-center gap-2 mb-3">
-              <span className="w-3 h-3 rounded-full bg-phantom-success" />
+              <span className="w-3 h-3 rounded-full bg-spectyn-success" />
               <h2 className="text-lg font-bold">Node Memory</h2>
-              <span className="text-xs text-phantom-muted">— 本機</span>
+              <span className="text-xs text-spectyn-muted">— 本機</span>
             </div>
 
             {/* Tabs */}
@@ -436,8 +436,8 @@ export default function MemoryPanel() {
                   onClick={() => setNodeTab(tab.key)}
                   className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
                     nodeTab === tab.key
-                      ? "bg-phantom-primary text-phantom-bg"
-                      : "bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text"
+                      ? "bg-spectyn-primary text-spectyn-bg"
+                      : "bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
                   }`}
                   title={tab.description}
                 >
@@ -446,7 +446,7 @@ export default function MemoryPanel() {
               ))}
             </div>
 
-            <p className="text-xs text-phantom-muted mb-2">
+            <p className="text-xs text-spectyn-muted mb-2">
               {NODE_TABS.find((t) => t.key === nodeTab)?.description}
             </p>
 
@@ -456,9 +456,9 @@ export default function MemoryPanel() {
           {/* Layer 3: SubAgent Memory */}
           <section>
             <div className="flex items-center gap-2 mb-3">
-              <span className="w-3 h-3 rounded-full bg-phantom-warning" />
+              <span className="w-3 h-3 rounded-full bg-spectyn-warning" />
               <h2 className="text-lg font-bold">SubAgent Memory</h2>
-              <span className="text-xs text-phantom-muted">— 任務記憶</span>
+              <span className="text-xs text-spectyn-muted">— 任務記憶</span>
             </div>
             <MemoryTable entries={filterEntries(state.subagentEntries)} />
           </section>

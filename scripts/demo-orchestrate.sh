@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# demo-orchestrate.sh — phantom-mesh distributed task orchestration demo
+# demo-orchestrate.sh — spectyn-mesh distributed task orchestration demo
 #
 # WHAT
 #   One user prompt → coordinator's LLM decomposes it into per-platform
@@ -9,27 +9,27 @@
 #
 # PORTABILITY (open-source-ready)
 #   - Zero hardcoded IPs, hostnames, ports, or secrets in this script.
-#   - Coordinator URL: read from $PHANTOM_COORDINATOR_URL, or fallback to
-#     mDNS browse for `_phantom-mesh._tcp.local.`, or finally
+#   - Coordinator URL: read from $SPECTYN_COORDINATOR_URL, or fallback to
+#     mDNS browse for `_spectyn-mesh._tcp.local.`, or finally
 #     http://127.0.0.1:7878.
-#   - Cluster secret: read from $PHANTOM_CLUSTER_SECRET, or from
-#     $HOME/.phantom-mesh/agents.toml `cluster_secret = "..."`.
+#   - Cluster secret: read from $SPECTYN_CLUSTER_SECRET, or from
+#     $HOME/.spectyn-mesh/agents.toml `cluster_secret = "..."`.
 #   - Peer list: queried live from coordinator's `/rpc/peers`. Each peer
 #     advertises its OS + capabilities; the LLM decomposition routes
 #     subtasks by matching against those tags.
 #
-#   Drop this script into any phantom-mesh install + run from any node.
+#   Drop this script into any spectyn-mesh install + run from any node.
 #   No edits required.
 #
 # WHY
-#   The built-in `phantom swarm` does identical fan-out — same prompt to
+#   The built-in `spectyn swarm` does identical fan-out — same prompt to
 #   every peer. This script does TASK DECOMPOSITION + capability-aware
 #   routing: meaningfully different subtask per platform.
 #
 # USAGE
 #   ./scripts/demo-orchestrate.sh "<your task>"
-#   PHANTOM_COORDINATOR_URL=https://my-coordinator.example:443 \
-#     PHANTOM_CLUSTER_SECRET=hunter2 \
+#   SPECTYN_COORDINATOR_URL=https://my-coordinator.example:443 \
+#     SPECTYN_CLUSTER_SECRET=hunter2 \
 #     ./scripts/demo-orchestrate.sh "..."
 #   FALLBACK=1 ./scripts/demo-orchestrate.sh "..."   # skip LLM; identical
 #                                                     # prompt to every peer
@@ -54,8 +54,8 @@ Usage: $0 "<user task>"
 Example: $0 "Tell me OS and hostname, then suggest one thing to improve about this machine"
 
 Env (all optional):
-  PHANTOM_COORDINATOR_URL  Override auto-discovery (default: mDNS or 127.0.0.1:7878)
-  PHANTOM_CLUSTER_SECRET   Override cluster_secret from agents.toml
+  SPECTYN_COORDINATOR_URL  Override auto-discovery (default: mDNS or 127.0.0.1:7878)
+  SPECTYN_CLUSTER_SECRET   Override cluster_secret from agents.toml
   FALLBACK=1               Skip LLM decomposition (identical prompt to all peers)
   MAX_WAIT_S=N             Per-job poll timeout (default 90)
 EOF
@@ -64,14 +64,14 @@ fi
 
 MAX_WAIT_S="${MAX_WAIT_S:-90}"
 FALLBACK="${FALLBACK:-0}"
-AGENTS_TOML="${PHANTOM_AGENTS_TOML:-$HOME/.phantom-mesh/agents.toml}"
+AGENTS_TOML="${SPECTYN_AGENTS_TOML:-$HOME/.spectyn-mesh/agents.toml}"
 
 # ── 1. Resolve coordinator URL (3-tier fallback) ───────────────────────────
-COORDINATOR_URL="${PHANTOM_COORDINATOR_URL:-}"
+COORDINATOR_URL="${SPECTYN_COORDINATOR_URL:-}"
 
 if [[ -z "$COORDINATOR_URL" ]] && command -v dns-sd &>/dev/null; then
   # macOS Bonjour browse — try 3s, take first hit.
-  discovered=$(timeout 3 dns-sd -B _phantom-mesh._tcp local 2>/dev/null \
+  discovered=$(timeout 3 dns-sd -B _spectyn-mesh._tcp local 2>/dev/null \
                | awk '/Add/{print $NF; exit}')
   if [[ -n "$discovered" ]]; then
     # dns-sd gives us the instance name, not URL. Resolve via /rpc/peers
@@ -83,13 +83,13 @@ fi
 [[ -z "$COORDINATOR_URL" ]] && COORDINATOR_URL="http://127.0.0.1:7878"
 
 # ── 2. Resolve cluster_secret ──────────────────────────────────────────────
-SECRET="${PHANTOM_CLUSTER_SECRET:-}"
+SECRET="${SPECTYN_CLUSTER_SECRET:-}"
 if [[ -z "$SECRET" && -r "$AGENTS_TOML" ]]; then
   SECRET=$(awk -F'"' '/^[[:space:]]*cluster_secret[[:space:]]*=/{print $2; exit}' "$AGENTS_TOML")
 fi
 if [[ -z "$SECRET" ]]; then
   echo "ERR: no cluster_secret found." >&2
-  echo "     Set PHANTOM_CLUSTER_SECRET, or run \`phantom serve\` first to generate agents.toml at $AGENTS_TOML" >&2
+  echo "     Set SPECTYN_CLUSTER_SECRET, or run \`spectyn serve\` first to generate agents.toml at $AGENTS_TOML" >&2
   exit 2
 fi
 
@@ -147,7 +147,7 @@ except: print('PARSE_ERR|')
 cat <<EOF
 
 ╭──────────────────────────────────────────────────────────────────────╮
-│  phantom-mesh — distributed task orchestration demo                  │
+│  spectyn-mesh — distributed task orchestration demo                  │
 │                                                                      │
 │  Coordinator: $(printf '%-54s' "${COORDINATOR_URL:0:54}") │
 │  Prompt:      $(printf '%-54s' "${USER_PROMPT:0:54}") │

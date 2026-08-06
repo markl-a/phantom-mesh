@@ -1,6 +1,6 @@
 /// Integration tests for AgentRuntime and ConversationStore/CostTracker.
 /// These tests use no real API calls — they exercise local state only.
-use phantom_mesh::{
+use spectyn_mesh::{
     agent::AgentRuntime, config::AgentsConfig, cost::CostTracker, providers::traits::ChatMessage,
     session::ConversationStore,
 };

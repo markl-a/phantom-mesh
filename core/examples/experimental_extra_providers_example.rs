@@ -6,14 +6,14 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh \
+//!     cargo run -p spectyn-mesh \
 //!       --example experimental_extra_providers_example \
 //!       --features experimental-extra-providers
 //!
 //! Expected last line: `experimental-extra-providers OK`. Exit code 0.
 
-use phantom_mesh::config::ProviderEntry;
-use phantom_mesh::providers::{
+use spectyn_mesh::config::ProviderEntry;
+use spectyn_mesh::providers::{
     ai21, cohere, fireworks, mistral, nvidia, perplexity, together, xai,
 };
 

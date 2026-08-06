@@ -1,4 +1,4 @@
-// MobileJoinCluster — 3-step form to join an existing phantom-mesh cluster.
+// MobileJoinCluster — 3-step form to join an existing spectyn-mesh cluster.
 // Per spec v2 §4.3. Triggered by mode picker [B].
 //
 // Step 1: Coordinator URL (mDNS-discovered or paste)
@@ -48,7 +48,7 @@ async function testCoordinator(url: string, secret: string): Promise<{ ok: boole
     const auth = await hmacSha256Hex(secret, body);
     // On iOS use the native fetch bridge; on Android use plugin-http.
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || "");
-    let respJson: { name?: string; phantom_version?: string } | null = null;
+    let respJson: { name?: string; spectyn_version?: string } | null = null;
     if (isIOS) {
       const { invoke } = await import("@tauri-apps/api/core");
       const r = await invoke<{ status: number; body: string }>("swift_cluster_fetch", {
@@ -64,7 +64,7 @@ async function testCoordinator(url: string, secret: string): Promise<{ ok: boole
         body,
       });
       if (!r.ok) return { ok: false, error: `HTTP ${r.status}: ${(await r.text()).slice(0, 200)}` };
-      respJson = await r.json() as { name?: string; phantom_version?: string };
+      respJson = await r.json() as { name?: string; spectyn_version?: string };
     }
     return { ok: true, name: respJson?.name ?? "unknown" };
   } catch (e) {
@@ -102,9 +102,9 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
     store.setClusterSecret(trimmedSecret);
     store.setEnabled(true);
     try {
-      localStorage.setItem("phantom_mesh_v2_onboarded", "true");
-      localStorage.setItem("phantom_mesh_v2_onboarded_mode", "join");
-      localStorage.setItem("phantom_mesh_device_name", deviceName);
+      localStorage.setItem("spectyn_mesh_v2_onboarded", "true");
+      localStorage.setItem("spectyn_mesh_v2_onboarded_mode", "join");
+      localStorage.setItem("spectyn_mesh_device_name", deviceName);
     } catch (_e) { /* ignore */ }
     // Drive the SPEC-28 FSM up to `joined_cluster`, patching the
     // sanitised cluster_id_hash so downstream telemetry can attribute
@@ -143,18 +143,18 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
   };
 
   return (
-    <div className="h-[100dvh] bg-phantom-bg flex flex-col">
+    <div className="h-[100dvh] bg-spectyn-bg flex flex-col">
       {/* Header */}
       <header
-        className="flex items-center px-4 py-3 border-b border-phantom-border flex-shrink-0"
+        className="flex items-center px-4 py-3 border-b border-spectyn-border flex-shrink-0"
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}
       >
         <button onClick={handleBackOrCancel}
                 aria-label="返回"
-                className="p-2 -ml-2 text-phantom-muted">
+                className="p-2 -ml-2 text-spectyn-muted">
           <ChevronLeft size={22} />
         </button>
-        <h2 className="flex-1 text-base font-semibold text-phantom-text text-center">
+        <h2 className="flex-1 text-base font-semibold text-spectyn-text text-center">
           加入 cluster · 步驟 {step} / 3
         </h2>
         <div className="w-9" />
@@ -164,17 +164,17 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
       <main className="flex-1 overflow-y-auto px-4 py-6">
         {step === 1 && (
           <>
-            <h3 className="text-lg font-semibold text-phantom-text mb-1">Coordinator URL</h3>
-            <p className="text-sm text-phantom-muted mb-4">
-              你 mac 上 phantom serve 監聽的位址 (mac 預設 :7878)
+            <h3 className="text-lg font-semibold text-spectyn-text mb-1">Coordinator URL</h3>
+            <p className="text-sm text-spectyn-muted mb-4">
+              你 mac 上 spectyn serve 監聽的位址 (mac 預設 :7878)
             </p>
             {discovered && (
               <button
                 onClick={() => setUrl(discovered.url)}
-                className="w-full mb-3 p-3 border border-phantom-primary/50 bg-phantom-primary/10 rounded-lg text-left"
+                className="w-full mb-3 p-3 border border-spectyn-primary/50 bg-spectyn-primary/10 rounded-lg text-left"
               >
-                <div className="text-xs text-phantom-muted">本機網路發現</div>
-                <div className="text-phantom-text font-mono text-sm truncate">{discovered.host}:{discovered.port}</div>
+                <div className="text-xs text-spectyn-muted">本機網路發現</div>
+                <div className="text-spectyn-text font-mono text-sm truncate">{discovered.host}:{discovered.port}</div>
               </button>
             )}
             <input
@@ -182,9 +182,9 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
               value={url}
               onChange={e => setUrl(e.target.value)}
               placeholder="https://my-mac.local:7878"
-              className="w-full p-3 bg-phantom-bg-elevated border border-phantom-border rounded-lg text-phantom-text font-mono text-sm"
+              className="w-full p-3 bg-spectyn-bg-elevated border border-spectyn-border rounded-lg text-spectyn-text font-mono text-sm"
             />
-            <p className="text-xs text-phantom-muted mt-2">
+            <p className="text-xs text-spectyn-muted mt-2">
               支援 http://、https:// 任一。如果 mac 在 Tailnet 上、用 Tailscale magic hostname 最穩。
             </p>
           </>
@@ -192,20 +192,20 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
 
         {step === 2 && (
           <>
-            <h3 className="text-lg font-semibold text-phantom-text mb-1">Cluster Secret</h3>
-            <p className="text-sm text-phantom-muted mb-4">
-              從 mac 上 <code className="bg-phantom-bg-elevated px-1 rounded">~/.phantom-mesh/agents.toml</code> 找
-              <code className="bg-phantom-bg-elevated px-1 rounded">cluster_secret = "..."</code>
+            <h3 className="text-lg font-semibold text-spectyn-text mb-1">Cluster Secret</h3>
+            <p className="text-sm text-spectyn-muted mb-4">
+              從 mac 上 <code className="bg-spectyn-bg-elevated px-1 rounded">~/.spectyn-mesh/agents.toml</code> 找
+              <code className="bg-spectyn-bg-elevated px-1 rounded">cluster_secret = "..."</code>
             </p>
             <input
               type="password"
               value={secret}
               onChange={e => setSecret(e.target.value)}
               placeholder="貼上 secret"
-              className="w-full p-3 bg-phantom-bg-elevated border border-phantom-border rounded-lg text-phantom-text font-mono text-sm"
+              className="w-full p-3 bg-spectyn-bg-elevated border border-spectyn-border rounded-lg text-spectyn-text font-mono text-sm"
               autoComplete="off"
             />
-            <p className="text-xs text-phantom-muted mt-2">
+            <p className="text-xs text-spectyn-muted mt-2">
               這個 secret 用 HMAC-SHA256 簽 RPC，不會明文傳。儲存在 iOS Keychain。
             </p>
           </>
@@ -213,8 +213,8 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
 
         {step === 3 && (
           <>
-            <h3 className="text-lg font-semibold text-phantom-text mb-1">這個裝置叫什麼？</h3>
-            <p className="text-sm text-phantom-muted mb-4">
+            <h3 className="text-lg font-semibold text-spectyn-text mb-1">這個裝置叫什麼？</h3>
+            <p className="text-sm text-spectyn-muted mb-4">
               其他裝置會看到這個名字 (e.g. mesh peer list 顯示)
             </p>
             <input
@@ -222,12 +222,12 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
               value={deviceName}
               onChange={e => setDeviceName(e.target.value)}
               placeholder="iPhone-13-mini"
-              className="w-full p-3 bg-phantom-bg-elevated border border-phantom-border rounded-lg text-phantom-text"
+              className="w-full p-3 bg-spectyn-bg-elevated border border-spectyn-border rounded-lg text-spectyn-text"
             />
-            <div className="mt-6 p-3 bg-phantom-bg-elevated border border-phantom-border rounded-lg text-xs text-phantom-muted space-y-1">
-              <div><span className="text-phantom-muted">Coordinator:</span> <code className="text-phantom-text">{url}</code></div>
-              <div><span className="text-phantom-muted">Secret:</span> <code className="text-phantom-text">{"●".repeat(Math.min(secret.length, 16))}</code></div>
-              <div><span className="text-phantom-muted">Capabilities:</span> <code className="text-phantom-text">camera, microphone, mobile-ios</code></div>
+            <div className="mt-6 p-3 bg-spectyn-bg-elevated border border-spectyn-border rounded-lg text-xs text-spectyn-muted space-y-1">
+              <div><span className="text-spectyn-muted">Coordinator:</span> <code className="text-spectyn-text">{url}</code></div>
+              <div><span className="text-spectyn-muted">Secret:</span> <code className="text-spectyn-text">{"●".repeat(Math.min(secret.length, 16))}</code></div>
+              <div><span className="text-spectyn-muted">Capabilities:</span> <code className="text-spectyn-text">camera, microphone, mobile-ios</code></div>
             </div>
             {testError && (
               <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
@@ -239,12 +239,12 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
       </main>
 
       {/* Footer button */}
-      <footer className="border-t border-phantom-border p-4 flex-shrink-0" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}>
+      <footer className="border-t border-spectyn-border p-4 flex-shrink-0" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1rem)" }}>
         {step < 3 ? (
           <button
             onClick={() => setStep(s => s + 1)}
             disabled={step === 1 ? !url.trim() : !secret.trim()}
-            className="w-full py-3 bg-phantom-primary text-white rounded-lg font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 bg-spectyn-primary text-white rounded-lg font-semibold disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             下一步 <ChevronRight size={18} />
           </button>
@@ -252,7 +252,7 @@ export default function MobileJoinCluster({ discovered, onDone, onCancel }: Prop
           <button
             onClick={handleSubmit}
             disabled={testing}
-            className="w-full py-3 bg-phantom-primary text-white rounded-lg font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
+            className="w-full py-3 bg-spectyn-primary text-white rounded-lg font-semibold disabled:opacity-40 flex items-center justify-center gap-2"
           >
             {testing ? <><Loader2 size={18} className="animate-spin" /> 連線測試中...</> : "✓ 加入 cluster"}
           </button>

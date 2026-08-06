@@ -1,6 +1,6 @@
 //! Cluster peer manager — mesh topology, health tracking, and task routing.
 //!
-//! This module is the runtime model of the phantom-mesh cluster: the set of
+//! This module is the runtime model of the spectyn-mesh cluster: the set of
 //! reachable peer nodes, how healthy each one is, and how a task or message is
 //! routed to the best peer that can run it.
 //!
@@ -8,7 +8,7 @@
 //!
 //! * [`PeerInfo`] — the persistent, on-disk record for one peer (URL, version,
 //!   liveness, capabilities, [`PeerHealth`] state). Cached to
-//!   `~/.phantom-mesh/peers.json` via [`save_peers`] / [`load_peers`].
+//!   `~/.spectyn-mesh/peers.json` via [`save_peers`] / [`load_peers`].
 //! * [`PeerStatus`] — the lighter wire type returned by `/rpc/ping` and the
 //!   cluster status API; derived from a [`PeerInfo`].
 //! * [`ClusterManager`] — owns the live peer list behind a lock and drives all
@@ -450,7 +450,7 @@ pub struct ClusterConfig {
     /// `required_caps` mismatch is logged but the task still runs.
     /// `Some(Strict)` rejects the task with `409 Conflict` and a
     /// structured error body. Can be overridden at runtime via the
-    /// `PHANTOM_ENFORCE_REQUIRED_CAPS=soft|strict` env var.
+    /// `SPECTYN_ENFORCE_REQUIRED_CAPS=soft|strict` env var.
     #[serde(default)]
     pub enforce_caps: Option<EnforceMode>,
     /// C4: how often the heartbeat task probes each peer's `/rpc/ping`.
@@ -468,7 +468,7 @@ pub struct ClusterConfig {
 }
 
 /// C4: default heartbeat probe interval when `[cluster] heartbeat_interval_secs`
-/// is unset. Mirrors the pre-C4 background loop in `bin/phantom.rs`.
+/// is unset. Mirrors the pre-C4 background loop in `bin/spectyn.rs`.
 pub const DEFAULT_HEARTBEAT_INTERVAL_SECS: u64 = 30;
 
 /// C4: default consecutive-failure threshold before a peer transitions
@@ -478,10 +478,10 @@ pub const DEFAULT_HEARTBEAT_FAILURE_THRESHOLD: u32 = 3;
 
 impl ClusterConfig {
     /// Resolve the effective enforcement mode, considering both the
-    /// config field and the `PHANTOM_ENFORCE_REQUIRED_CAPS` env var.
+    /// config field and the `SPECTYN_ENFORCE_REQUIRED_CAPS` env var.
     /// Precedence: env (if set to a recognised value) > config > Soft.
     pub fn effective_enforce_mode(&self) -> EnforceMode {
-        if let Ok(raw) = std::env::var("PHANTOM_ENFORCE_REQUIRED_CAPS") {
+        if let Ok(raw) = std::env::var("SPECTYN_ENFORCE_REQUIRED_CAPS") {
             match raw.trim().to_ascii_lowercase().as_str() {
                 "strict" => return EnforceMode::Strict,
                 "soft" => return EnforceMode::Soft,
@@ -528,7 +528,7 @@ pub struct CoordinatorRegistration {
 /// `Healthy` is the default for newly-discovered peers (give them a chance
 /// to respond before routing skips them). `Unhealthy` carries the `Instant`
 /// of the first failure that pushed it over the threshold plus the running
-/// `failure_count` — both useful for `phantom peer list` diagnostics.
+/// `failure_count` — both useful for `spectyn peer list` diagnostics.
 ///
 /// Transitions Healthy → Unhealthy emit `tracing::warn!`; Unhealthy → Healthy
 /// emit `tracing::info!`. The heartbeat task (gated by the
@@ -680,7 +680,7 @@ pub enum MeshError {
     /// so the operator can see "Logged out" / "no network" / etc.
     TailscaleCliFailed { exit_code: Option<i32>, stderr: String },
     /// CLI returned bytes that did not parse as `tailscale status --json`.
-    /// Usually a version skew between phantom and the tailscale binary.
+    /// Usually a version skew between spectyn and the tailscale binary.
     JsonParse(String),
 }
 
@@ -709,7 +709,7 @@ pub struct TailscaleStatus {
     /// Hostname → first IPv4 address. Hostname is the Tailscale `HostName`
     /// (e.g. "node-a", "mac-mini") with the magicDNS suffix stripped. Only
     /// online peers are included; offline peers and IPv6-only peers are
-    /// dropped (phantom dials IPv4:port).
+    /// dropped (spectyn dials IPv4:port).
     pub peers: std::collections::BTreeMap<String, String>,
 }
 
@@ -777,7 +777,7 @@ pub fn parse_tailscale_status_json(bytes: &[u8]) -> Result<TailscaleStatus, Mesh
 /// Invoke `tailscale status --json` synchronously and parse the output
 /// into a [`TailscaleStatus`]. Uses a blocking [`std::process::Command`]
 /// rather than tokio so callers from non-async contexts (e.g. CLI setup,
-/// `phantom selftest`) can use it without an executor.
+/// `spectyn selftest`) can use it without an executor.
 ///
 /// Returns:
 /// * `Err(MeshError::TailscaleNotInstalled)` — CLI missing (most common
@@ -875,12 +875,12 @@ impl From<&PeerInfo> for PeerStatus {
 
 // ── Peer persistence ────────────────────────────────────────────────────────
 
-/// Path to the peers list cache: `~/.phantom-mesh/peers.json`.
+/// Path to the peers list cache: `~/.spectyn-mesh/peers.json`.
 fn peers_path() -> Option<std::path::PathBuf> {
-    crate::cli_config::phantom_data_dir().ok().map(|d| d.join("peers.json"))
+    crate::cli_config::spectyn_data_dir().ok().map(|d| d.join("peers.json"))
 }
 
-/// Save the peer list to `~/.phantom-mesh/peers.json`.
+/// Save the peer list to `~/.spectyn-mesh/peers.json`.
 /// Best-effort — errors are logged but not propagated.
 pub async fn save_peers(peers: &[PeerInfo]) {
     let path = match peers_path() {
@@ -914,7 +914,7 @@ pub async fn save_peers(peers: &[PeerInfo]) {
     }
 }
 
-/// Load the peer list from `~/.phantom-mesh/peers.json`.
+/// Load the peer list from `~/.spectyn-mesh/peers.json`.
 /// Returns an empty vec if the file does not exist or cannot be parsed.
 pub async fn load_peers() -> Vec<PeerInfo> {
     let path = match peers_path() {
@@ -947,9 +947,9 @@ pub async fn load_peers() -> Vec<PeerInfo> {
 // ── mDNS peer discovery ─────────────────────────────────────────────────────
 
 /// Shell command used to browse mDNS via `dns-sd` (macOS / Bonjour).
-const DNS_SD_BROWSE_CMD: &str = "dns-sd -B _phantom-mesh._tcp local. 2>/dev/null";
+const DNS_SD_BROWSE_CMD: &str = "dns-sd -B _spectyn-mesh._tcp local. 2>/dev/null";
 /// Shell command used to browse mDNS via `avahi-browse` (Linux).
-const AVAHI_BROWSE_CMD: &str = "avahi-browse -t -r -p _phantom-mesh._tcp 2>/dev/null";
+const AVAHI_BROWSE_CMD: &str = "avahi-browse -t -r -p _spectyn-mesh._tcp 2>/dev/null";
 
 /// Whether the `sh`-based mDNS browse pipeline can run on this platform.
 ///
@@ -992,7 +992,7 @@ fn parse_mdns_urls(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Discover local peers advertised under the `_phantom-mesh._tcp` service type.
+/// Discover local peers advertised under the `_spectyn-mesh._tcp` service type.
 ///
 /// Tries `dns-sd` (macOS / Bonjour) first, then falls back to `avahi-browse`
 /// (Linux).  This is a best-effort, fire-and-forget operation — on failure or
@@ -1095,14 +1095,14 @@ pub async fn discover_local_peers() -> Vec<String> {
     vec![]
 }
 
-/// Discover peers on the user's Tailscale tailnet running phantom serve.
+/// Discover peers on the user's Tailscale tailnet running spectyn serve.
 ///
 /// Pipeline:
 ///   1. `tailscale status --json` — no sudo, requires user to be in a tailnet.
 ///   2. Collect each online peer's IPv4 TailscaleIP (skip IPv6 — some
 ///      routers don't reliably forward HTTP over v6 on the tailnet).
-///   3. Probe each IP at the standard phantom port for `/info` —
-///      `phantom serve` always replies 200 there.
+///   3. Probe each IP at the standard spectyn port for `/info` —
+///      `spectyn serve` always replies 200 there.
 ///   4. Return base URLs of peers that responded inside `probe_timeout`.
 ///
 /// Best-effort: returns empty Vec when `tailscale` is missing, the tailnet
@@ -1585,7 +1585,7 @@ impl ClusterManager {
     /// ceiling. The shared client is set to 180s so cross-mesh
     /// `/rpc/message` calls (which can stream a remote LLM turn) survive,
     /// but `/rpc/ping` should never need more than a couple seconds —
-    /// without this guard, an offline peer made `phantom peer list` hang
+    /// without this guard, an offline peer made `spectyn peer list` hang
     /// for the full 180s × N peers, which a CLI user reads as "frozen".
     pub async fn ping_peer(&self, url: &str) -> Result<PeerStatus, String> {
         const PING_DEADLINE: Duration = Duration::from_secs(5);
@@ -1825,7 +1825,7 @@ impl ClusterManager {
             {
                 if matches!(peer.health, PeerHealth::Unhealthy { .. }) {
                     tracing::info!(
-                        target: "phantom::cluster::heartbeat",
+                        target: "spectyn::cluster::heartbeat",
                         event = "peer_health_transition",
                         peer_url = %peer.url,
                         peer_name = %peer.name,
@@ -1848,7 +1848,7 @@ impl ClusterManager {
                     PeerHealth::Healthy => {
                         if new_count >= threshold {
                             tracing::warn!(
-                                target: "phantom::cluster::heartbeat",
+                                target: "spectyn::cluster::heartbeat",
                                 event = "peer_health_transition",
                                 peer_url = %peer.url,
                                 peer_name = %peer.name,
@@ -1885,7 +1885,7 @@ impl ClusterManager {
     ///   * the `experimental-cluster-heartbeat` feature is OFF, OR
     ///   * the cluster has zero configured peers (single-node deployment).
     ///
-    /// The pre-C4 background loop in `bin/phantom.rs` already invokes
+    /// The pre-C4 background loop in `bin/spectyn.rs` already invokes
     /// `refresh_all` on a 30s tick for coordinator-driven topology refresh;
     /// this task is the C4-specific *health* loop and respects the
     /// configurable `heartbeat_interval_secs`. Both loops are safe to run
@@ -1897,7 +1897,7 @@ impl ClusterManager {
     ) -> Option<tokio::task::JoinHandle<()>> {
         if self.config.peers.is_empty() {
             tracing::debug!(
-                target: "phantom::cluster::heartbeat",
+                target: "spectyn::cluster::heartbeat",
                 "skipping heartbeat task: cluster has zero peers"
             );
             return None;
@@ -1906,7 +1906,7 @@ impl ClusterManager {
         let interval_dur = self.effective_heartbeat_interval();
         let threshold = self.effective_heartbeat_failure_threshold();
         tracing::info!(
-            target: "phantom::cluster::heartbeat",
+            target: "spectyn::cluster::heartbeat",
             event = "heartbeat_started",
             interval_secs = interval_dur.as_secs(),
             failure_threshold = threshold,
@@ -2188,7 +2188,7 @@ impl ClusterManager {
     /// structured `DispatchError` if the peer was unreachable / rejected / etc.
     ///
     /// Mirrors the error classification done by `assign_task_to_best_peer` so
-    /// `phantom evolve --distributed` and `phantom peer send-async` surface
+    /// `spectyn evolve --distributed` and `spectyn peer send-async` surface
     /// the same reasons (HMAC mismatch, missing agent, peer rejection) rather
     /// than a blanket "failed to dispatch".
     pub async fn assign_task_to_peer(
@@ -2268,7 +2268,7 @@ impl ClusterManager {
 
     /// C1: dispatch a `TaskAssignRequest` (with `required_caps`,
     /// `forward_chain`, `idempotency_key`) to a specific peer URL. Used by:
-    ///   * `phantom peer assign --required-caps ...` (C2 CLI) — first hop.
+    ///   * `spectyn peer assign --required-caps ...` (C2 CLI) — first hop.
     ///   * `forward_task_to_capable_peer` (C3 server) — subsequent hops
     ///     after appending `self` to the chain.
     ///
@@ -2363,7 +2363,7 @@ impl ClusterManager {
         // at the `capability_mismatch` site so log aggregation sees the
         // forward path end-to-end.
         tracing::info!(
-            target: "phantom::dispatch::forward",
+            target: "spectyn::dispatch::forward",
             event = "forward_decision",
             original_node = %forwarded.forward_chain.first().cloned().unwrap_or_else(|| my_node_name.to_string()),
             current_node = %my_node_name,
@@ -2454,7 +2454,7 @@ impl ClusterManager {
                 .config
                 .node_name
                 .clone()
-                .unwrap_or_else(|| "phantom".into()),
+                .unwrap_or_else(|| "spectyn".into()),
             url: self_url.to_string(),
             capabilities: self.config.capabilities.clone(),
             secret_hash,
@@ -2585,7 +2585,7 @@ fn default_agent() -> String {
 ///
 /// `Strict` returns `409 Conflict` with a structured error body. Opt
 /// in via `[cluster] enforce_caps = "strict"` in `agents.toml` or via
-/// `PHANTOM_ENFORCE_REQUIRED_CAPS=strict` (env wins, see
+/// `SPECTYN_ENFORCE_REQUIRED_CAPS=strict` (env wins, see
 /// `ClusterConfig::effective_enforce_mode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -2602,7 +2602,7 @@ pub enum EnforceMode {
 /// `missing` to the caller; `ForwardTo` (C1) = a peer in `peers.json`
 /// satisfies the caps — forward the task there. The fourth arm is only
 /// returned by `enforce_required_caps_with_forwarding` and only when
-/// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1`.
+/// `SPECTYN_FORWARD_ON_CAPS_MISMATCH=1`.
 ///
 /// `PartialEq`/`Eq` are intentionally NOT derived: `ForwardTo` carries a
 /// `PeerInfo` which would need its own equality impl that strips
@@ -2623,7 +2623,7 @@ pub enum CapsDecision {
         missing: Vec<String>,
     },
     /// C1: missing locally, but a peer satisfies. Gated by
-    /// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1` (default OFF) so existing
+    /// `SPECTYN_FORWARD_ON_CAPS_MISMATCH=1` (default OFF) so existing
     /// single-node deployments see zero behaviour change.
     ForwardTo {
         peer: PeerInfo,
@@ -2638,11 +2638,11 @@ pub enum CapsDecision {
 /// real telemetry validates the path.
 pub const FORWARD_CHAIN_LIMIT: usize = 2;
 
-/// Read `PHANTOM_FORWARD_ON_CAPS_MISMATCH` at request time (not process
+/// Read `SPECTYN_FORWARD_ON_CAPS_MISMATCH` at request time (not process
 /// start) so integration tests can toggle the gate per-test by setting and
 /// unsetting the env var around an `app.oneshot` call.
 pub fn forward_on_caps_mismatch_enabled() -> bool {
-    std::env::var("PHANTOM_FORWARD_ON_CAPS_MISMATCH")
+    std::env::var("SPECTYN_FORWARD_ON_CAPS_MISMATCH")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
@@ -2688,7 +2688,7 @@ pub fn enforce_required_caps(
 }
 
 /// C1: caps-aware sibling of `enforce_required_caps`. When the env gate
-/// `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1` is set AND a peer in `peers` satisfies
+/// `SPECTYN_FORWARD_ON_CAPS_MISMATCH=1` is set AND a peer in `peers` satisfies
 /// the missing caps, returns `CapsDecision::ForwardTo { peer, missing }`
 /// instead of the usual `Reject`/`LogAndAllow`. Otherwise delegates verbatim
 /// to `enforce_required_caps` so soft-mode/strict-mode/full-worker behaviour
@@ -3137,7 +3137,7 @@ mod tests {
 
     #[test]
     fn effective_enforce_mode_defaults_to_soft() {
-        // PHANTOM_ENFORCE_REQUIRED_CAPS is process-global and also mutated by
+        // SPECTYN_ENFORCE_REQUIRED_CAPS is process-global and also mutated by
         // serve.rs tests — serialize via the crate env mutex.
         let _g = crate::env_lock::acquire();
         // Bare ClusterConfig with no field set, no env override
@@ -3145,7 +3145,7 @@ mod tests {
         // deployment).
         let cfg = ClusterConfig::default();
         // Make sure the env is not set for this thread / process.
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Soft);
     }
 
@@ -3156,7 +3156,7 @@ mod tests {
             enforce_caps: Some(EnforceMode::Strict),
             ..ClusterConfig::default()
         };
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
     }
 
@@ -3169,9 +3169,9 @@ mod tests {
             enforce_caps: Some(EnforceMode::Soft),
             ..ClusterConfig::default()
         };
-        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "strict");
+        std::env::set_var("SPECTYN_ENFORCE_REQUIRED_CAPS", "strict");
         assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
     }
 
     #[test]
@@ -3181,18 +3181,18 @@ mod tests {
             enforce_caps: Some(EnforceMode::Strict),
             ..ClusterConfig::default()
         };
-        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "garbage");
+        std::env::set_var("SPECTYN_ENFORCE_REQUIRED_CAPS", "garbage");
         assert_eq!(cfg.effective_enforce_mode(), EnforceMode::Strict);
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
     }
 
     // ── C1: RPC capability-aware forwarding ────────────────────────────
     //
-    // Tests in this module mutate `PHANTOM_FORWARD_ON_CAPS_MISMATCH` so they
+    // Tests in this module mutate `SPECTYN_FORWARD_ON_CAPS_MISMATCH` so they
     // must serialise — reuse the env_guard pattern from test_security_t7.rs
     // but inlined because this is a unit-test module.
     fn fwd_env_guard() -> std::sync::MutexGuard<'static, ()> {
-        // Delegate to the crate-wide env mutex so PHANTOM_FORWARD_ON_CAPS_MISMATCH
+        // Delegate to the crate-wide env mutex so SPECTYN_FORWARD_ON_CAPS_MISMATCH
         // tests serialize against every other env-touching test process-wide.
         crate::env_lock::acquire()
     }
@@ -3616,10 +3616,10 @@ mod tests {
 
     #[test]
     fn forward_decision_chooses_capable_peer_when_env_gate_on() {
-        // C1 spec test #1: with PHANTOM_FORWARD_ON_CAPS_MISMATCH=1,
+        // C1 spec test #1: with SPECTYN_FORWARD_ON_CAPS_MISMATCH=1,
         // mismatch + a capable peer in `peers` returns ForwardTo(peer).
         let _g = fwd_env_guard();
-        std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+        std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
 
         let local = vec!["memory".to_string()];
         let required = vec!["shell.write".to_string()];
@@ -3637,16 +3637,16 @@ mod tests {
             other => panic!("expected ForwardTo, got {other:?}"),
         }
 
-        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+        std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
     }
 
     #[test]
     fn forward_disabled_returns_reject_by_default() {
-        // C1 spec test #5: without PHANTOM_FORWARD_ON_CAPS_MISMATCH,
+        // C1 spec test #5: without SPECTYN_FORWARD_ON_CAPS_MISMATCH,
         // behaviour is unchanged from pre-C1 — strict mode still 409s
         // even when a capable peer exists. Back-compat guarantee.
         let _g = fwd_env_guard();
-        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+        std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
         let local = vec!["memory".to_string()];
         let required = vec!["shell.write".to_string()];
@@ -3668,7 +3668,7 @@ mod tests {
         // satisfies → the enforce sibling falls back to Reject. The
         // call site translates that to NoPeerSatisfiesCaps error.
         let _g = fwd_env_guard();
-        std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+        std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
 
         let local = vec!["memory".to_string()];
         let required = vec!["shell.write".to_string()];
@@ -3680,7 +3680,7 @@ mod tests {
             matches!(decision, CapsDecision::Reject { .. }),
             "no capable peer ⇒ fall back to the original Reject (call site translates)"
         );
-        std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+        std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
     }
 
     #[test]
@@ -3979,7 +3979,7 @@ mod tests {
     /// a subset of what `tailscale status --json` emits in practice.
     /// Online peers contribute their IPv4 from `TailscaleIPs`; offline
     /// peers are skipped; IPv6 entries (those containing `:`) are
-    /// dropped because phantom dials :7878 over IPv4 only.
+    /// dropped because spectyn dials :7878 over IPv4 only.
     #[test]
     fn peer_list_parses_tailscale_status_json() {
         let status = json!({
@@ -4018,7 +4018,7 @@ mod tests {
         );
         assert!(
             !ips.iter().any(|s| s.contains(':')),
-            "IPv6 entries must be dropped (phantom dials IPv4 only)"
+            "IPv6 entries must be dropped (spectyn dials IPv4 only)"
         );
         assert!(
             !ips.iter().any(|s| s == "100.64.0.1"),
@@ -4321,7 +4321,7 @@ mod tests {
     // ?? Regression: best-peer dispatch must sign /rpc/message ????????????
     //
     // Guards the bug where `assign_task_to_best_peer` (the default
-    // `phantom peer assign <prompt>` path with no `--target`) passed `None`
+    // `spectyn peer assign <prompt>` path with no `--target`) passed `None`
     // for the auth token, so the POST to the *gated* `/rpc/message` route
     // carried no `X-Cluster-Auth` header and the server returned 401
     // (surfaced as DispatchError::HMACMismatch). The fix signs the raw body
@@ -4461,26 +4461,26 @@ mod tests {
         }
     }
 
-    /// The browse commands must keep targeting the phantom-mesh service type.
+    /// The browse commands must keep targeting the spectyn-mesh service type.
     #[test]
-    fn mdns_browse_commands_target_phantom_mesh_service() {
-        assert!(DNS_SD_BROWSE_CMD.contains("_phantom-mesh._tcp"));
-        assert!(AVAHI_BROWSE_CMD.contains("_phantom-mesh._tcp"));
+    fn mdns_browse_commands_target_spectyn_mesh_service() {
+        assert!(DNS_SD_BROWSE_CMD.contains("_spectyn-mesh._tcp"));
+        assert!(AVAHI_BROWSE_CMD.contains("_spectyn-mesh._tcp"));
     }
 
     #[test]
     fn parse_mdns_urls_extracts_url_fields() {
         // dns-sd-style line: whitespace-delimited, url= in the instance name.
-        let dns_sd_like = "12:00:00.000  Add  2  4 local. _phantom-mesh._tcp. \
+        let dns_sd_like = "12:00:00.000  Add  2  4 local. _spectyn-mesh._tcp. \
                            node-a url=http://192.168.1.10:7878\n\
-                           12:00:00.001  Add  2  4 local. _phantom-mesh._tcp. no-url-here";
+                           12:00:00.001  Add  2  4 local. _spectyn-mesh._tcp. no-url-here";
         assert_eq!(
             parse_mdns_urls(dns_sd_like),
             vec!["http://192.168.1.10:7878".to_string()]
         );
 
         // avahi-browse -p style line: `;`-separated fields, url= in TXT.
-        let avahi_like = "=;eth0;IPv4;node-b;_phantom-mesh._tcp;local;host.local;\
+        let avahi_like = "=;eth0;IPv4;node-b;_spectyn-mesh._tcp;local;host.local;\
                           192.168.1.11;7878;url=http://192.168.1.11:7878;extra";
         assert_eq!(
             parse_mdns_urls(avahi_like),
@@ -4502,7 +4502,7 @@ mod tests {
         // `İstanbul-node` sits before the url= field; the dotted-capital-I is
         // 2 bytes in the original but 3 bytes when lowercased, so any
         // cross-string indexing would be misaligned by the time we reach url=.
-        let line = "12:00:00.000  Add  2  4 local. _phantom-mesh._tcp. \
+        let line = "12:00:00.000  Add  2  4 local. _spectyn-mesh._tcp. \
                     İstanbul-node url=http://192.168.1.42:7878 trailing";
         // Must not panic, and must extract the correct URL.
         let got = parse_mdns_urls(line);

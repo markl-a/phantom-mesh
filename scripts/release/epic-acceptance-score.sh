@@ -10,11 +10,11 @@
 # No external tools beyond awk, grep, sed (all POSIX).
 #
 # Env vars (the contract):
-#   PHANTOM_E007_MIN_PERCENT   integer 0-100, default 80
+#   SPECTYN_E007_MIN_PERCENT   integer 0-100, default 80
 #                              total must be >= this to exit 0 (SHIP gate)
-#   PHANTOM_E007_SPECS_DIR     path, default docs/superpowers/specs/_current
+#   SPECTYN_E007_SPECS_DIR     path, default docs/superpowers/specs/_current
 #                              directory containing E00[1-6]-*.md files
-#   PHANTOM_E007_INCLUDE_E007  "1" to include E007 in the total (default off —
+#   SPECTYN_E007_INCLUDE_E007  "1" to include E007 in the total (default off —
 #                              the gate is about E001-E006 per F600 spec)
 #
 # Exit codes:
@@ -30,18 +30,18 @@
 #   --strict              Fail with exit 2 if any E00[1-6]-*.md lacks an
 #                         acceptance-criteria H2 ("## Acceptance criteria" or
 #                         "## 驗收標準", per F600 risk-register).
-#   --include-e007        Same as PHANTOM_E007_INCLUDE_E007=1.
-#   --threshold N         Same as PHANTOM_E007_MIN_PERCENT=N.
-#   --specs-dir PATH      Same as PHANTOM_E007_SPECS_DIR=PATH.
+#   --include-e007        Same as SPECTYN_E007_INCLUDE_E007=1.
+#   --threshold N         Same as SPECTYN_E007_MIN_PERCENT=N.
+#   --specs-dir PATH      Same as SPECTYN_E007_SPECS_DIR=PATH.
 #
 # Output: a Markdown table on stdout; diagnostics on stderr.
 
 set -u
 
 # ---------- defaults ----------
-THRESHOLD="${PHANTOM_E007_MIN_PERCENT:-80}"
-SPECS_DIR="${PHANTOM_E007_SPECS_DIR:-docs/superpowers/specs/_current}"
-INCLUDE_E007="${PHANTOM_E007_INCLUDE_E007:-0}"
+THRESHOLD="${SPECTYN_E007_MIN_PERCENT:-80}"
+SPECS_DIR="${SPECTYN_E007_SPECS_DIR:-docs/superpowers/specs/_current}"
+INCLUDE_E007="${SPECTYN_E007_INCLUDE_E007:-0}"
 STRICT=0
 
 # ---------- arg parsing ----------
@@ -246,8 +246,8 @@ printf '| TOTAL| %-4d | %-5d | %-3d | %-6s |\n' "$TOTAL_DONE" "$TOTAL_TOTAL" "$T
 
 # ---------- gate output ----------
 printf '\n'
-printf 'Scope:     %s (set PHANTOM_E007_INCLUDE_E007=1 to include E007)\n' "$GATE_SCOPE_LABEL"
-printf 'Threshold: %d%% (set via PHANTOM_E007_MIN_PERCENT or --threshold)\n' "$THRESHOLD"
+printf 'Scope:     %s (set SPECTYN_E007_INCLUDE_E007=1 to include E007)\n' "$GATE_SCOPE_LABEL"
+printf 'Threshold: %d%% (set via SPECTYN_E007_MIN_PERCENT or --threshold)\n' "$THRESHOLD"
 printf 'Result:    TOTAL >= %d%% ? ' "$THRESHOLD"
 
 if [ "$STRICT" -eq 1 ] && [ "$DRIFT" -eq 1 ]; then

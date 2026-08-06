@@ -420,7 +420,7 @@ fn write_food_event(
     // the PII-bearing `note` / `image_path` stay only in the encrypted body).
     // Best-effort: a failed index must NOT lose the just-persisted event — the
     // canonical record already landed in step 4 and can be re-indexed later via
-    // `phantom data export`, so we log + continue instead of unwinding.
+    // `spectyn data export`, so we log + continue instead of unwinding.
     if let Err(e) = event_storage_wire::index_fts5_with_origin(&event_id, &analysis.summary, origin) {
         crate::diag::record(
             "fts5_index_failed",
@@ -920,7 +920,7 @@ mod tests {
     fn file_size_kat_reads_real_metadata() {
         // KAT: write a known-size file to tempdir, assert helper returns it.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom-mesh-spec20-kat.bin");
+        let path = dir.join("spectyn-mesh-spec20-kat.bin");
         std::fs::write(&path, b"hello world").expect("write tempfile");
         let bytes = file_size(&path).expect("file_size ok");
         assert_eq!(bytes, 11);
@@ -931,7 +931,7 @@ mod tests {
     fn file_size_kat_missing_file_maps_to_image_unreadable() {
         // KAT: nonexistent path → ImageUnreadable (NOT panic, NOT
         // ImageTooLarge).
-        let bogus = std::path::Path::new("/nonexistent/phantom-mesh-spec20-xyz");
+        let bogus = std::path::Path::new("/nonexistent/spectyn-mesh-spec20-xyz");
         match file_size(bogus) {
             Err(FoodCaptureError::ImageUnreadable { detail }) => {
                 assert!(!detail.is_empty(), "detail populated: {}", detail);
@@ -945,7 +945,7 @@ mod tests {
         // KAT: full validate_image_size path returns ImageTooLarge for a
         // file > 10 MB. Skipped on hosts where 10 MB tempfile write fails.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom-mesh-spec20-oversize.bin");
+        let path = dir.join("spectyn-mesh-spec20-oversize.bin");
         let oversize = vec![0u8; (IMAGE_MAX_BYTES + 1) as usize];
         if std::fs::write(&path, &oversize).is_ok() {
             match validate_image_size(&path) {
@@ -1065,7 +1065,7 @@ mod tests {
     #[ignore = "integration / env-dependent — run via --ignored"]
     // unix-only: isolates the store by redirecting $HOME, which `dirs::home_dir()`
     // honours on unix but ignores on Windows (it reads USERPROFILE). Running this
-    // on Windows would write into the real ~/.phantom-mesh and then fail the
+    // on Windows would write into the real ~/.spectyn-mesh and then fail the
     // read-back — gate it the same way the hermetic capture/broker-login tests are.
     #[cfg(unix)]
     #[test]
@@ -1080,7 +1080,7 @@ mod tests {
         // finds nothing (a flaky failure that only surfaces under the full suite).
         let _env = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
-        // `event_storage_wire::expand_tilde` resolves `~/.phantom-mesh/` via
+        // `event_storage_wire::expand_tilde` resolves `~/.spectyn-mesh/` via
         // `dirs::home_dir()`, which honours `$HOME` on unix — point HOME at the
         // tempdir so writes land inside it and never touch the real store.
         struct HomeGuard(Option<std::ffi::OsString>);
@@ -1129,7 +1129,7 @@ mod tests {
         let event_id = write_food_event(&request, &analysis).expect("write_food_event");
 
         // (1) The plaintext meta.json must carry only non-PII: kind + "food" tag.
-        let event_dir = tmp.path().join(".phantom-mesh/events").join(&event_id);
+        let event_dir = tmp.path().join(".spectyn-mesh/events").join(&event_id);
         let meta_json =
             std::fs::read_to_string(event_dir.join("meta.json")).expect("read meta.json");
         assert!(meta_json.contains("food"), "food tag in meta: {}", meta_json);
@@ -1179,7 +1179,7 @@ mod tests {
     /// path) finds it by a keyword from the LLM `summary`. Before the fix the
     /// capture flow wrote the encrypted event + meta.json but never called
     /// `index_fts5`, so `search_fts5` was always empty. Uses a `$HOME`-backed
-    /// tempdir so it never touches the real `~/.phantom-mesh` store.
+    /// tempdir so it never touches the real `~/.spectyn-mesh` store.
     // unix-only: see sibling — relies on $HOME redirect, which Windows ignores.
     #[cfg(unix)]
     #[test]
@@ -1190,7 +1190,7 @@ mod tests {
         // so the parallel runner cannot race us onto another test's HOME.
         let _env = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
-        // `event_storage_wire::expand_tilde` resolves `~/.phantom-mesh/` via
+        // `event_storage_wire::expand_tilde` resolves `~/.spectyn-mesh/` via
         // `dirs::home_dir()` (honours `$HOME` on unix) — both the encrypted
         // event dir AND `events.sqlite` (the FTS5 store) land inside the tempdir.
         struct HomeGuard(Option<std::ffi::OsString>);
@@ -1246,17 +1246,17 @@ mod tests {
 
     /// END-TO-END (capture → recall): a meal persisted through the REAL capture
     /// storage entrypoint (`write_food_event`) must be returned by the SAME
-    /// function the user-facing `phantom recall` CLI calls
+    /// function the user-facing `spectyn recall` CLI calls
     /// (`life_node::recall::search_events`) — not just the low-level
     /// `search_fts5` unit. This guards the wiring seam D3 left: capture indexes
-    /// FTS5, but `phantom recall` reads `life_node::recall`, which (before the
+    /// FTS5, but `spectyn recall` reads `life_node::recall`, which (before the
     /// fix) walked only the file store and skipped wire-store food events
     /// (plaintext meta + no `analysis.json`), so recall came back empty. Uses a
-    /// `$HOME`-backed tempdir so the real `~/.phantom-mesh` is never touched.
+    /// `$HOME`-backed tempdir so the real `~/.spectyn-mesh` is never touched.
     // unix-only: see sibling — relies on $HOME redirect, which Windows ignores.
     #[cfg(unix)]
     #[test]
-    fn captured_food_event_is_returned_by_phantom_recall_read_path() {
+    fn captured_food_event_is_returned_by_spectyn_recall_read_path() {
         use crate::encryption_wire;
 
         // See the sibling test: serialize $HOME mutation under the shared env lock
@@ -1296,14 +1296,14 @@ mod tests {
         };
 
         // Capture through the REAL storage entrypoint (writes wire meta.json +
-        // body.age + FTS5 index — the exact path the app / `phantom habit` use).
+        // body.age + FTS5 index — the exact path the app / `spectyn habit` use).
         let event_id = write_food_event(&request, &analysis).expect("write_food_event");
 
-        // Now call the EXACT function `phantom recall` invokes (phantom.rs:5301).
+        // Now call the EXACT function `spectyn recall` invokes (spectyn.rs:5301).
         // The wire-store food hit surfaces from the PLAINTEXT meta.json + the
         // FTS5 `content` summary — neither needs an EventKey — so `None` here is
         // sufficient (and proves the hit does not depend on body decryption).
-        let events_dir = tmp.path().join(".phantom-mesh").join("events");
+        let events_dir = tmp.path().join(".spectyn-mesh").join("events");
         let hits = crate::life_node::recall::search_events(
             &events_dir,
             None,
@@ -1315,7 +1315,7 @@ mod tests {
             hits.iter().any(|h| h.event_id == event_id
                 && h.kind == "food"
                 && h.summary.contains("caesar")),
-            "phantom recall read path must return the captured food event; hits: {:?}, id: {}",
+            "spectyn recall read path must return the captured food event; hits: {:?}, id: {}",
             hits,
             event_id
         );
@@ -1363,7 +1363,7 @@ mod tests {
         use base64::Engine as _;
 
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom-mesh-spec20-tfood02.png");
+        let path = dir.join("spectyn-mesh-spec20-tfood02.png");
         // 8-byte PNG signature stand-in — OSS-safe synthetic bytes.
         let raw_bytes: &[u8] = &[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
         std::fs::write(&path, raw_bytes).expect("write tempfile");
@@ -1394,7 +1394,7 @@ mod tests {
         // The inline path reuses `validate_image_size`, so an oversize file is
         // rejected with ImageTooLarge before any base64 work.
         let dir = std::env::temp_dir();
-        let path = dir.join("phantom-mesh-spec20-tfood02-big.jpg");
+        let path = dir.join("spectyn-mesh-spec20-tfood02-big.jpg");
         let oversize = vec![0u8; (IMAGE_MAX_BYTES + 1) as usize];
         if std::fs::write(&path, &oversize).is_ok() {
             match build_inline_image(path.to_str().unwrap()) {

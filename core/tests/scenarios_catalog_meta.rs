@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use phantom_mesh::scenarios::{
+use spectyn_mesh::scenarios::{
     auto_ratio, load_catalog_at, validate_count_contiguous, validate_manual_justified,
     validate_test_ids_resolve,
 };

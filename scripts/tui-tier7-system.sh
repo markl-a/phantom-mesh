@@ -41,7 +41,7 @@ assert len(d) >= 1, 'no peers configured'
 # Try reaching node-b (node-a) — example Tailscale 100.64.0.11 port 7879
 Z13_HEALTHZ="${Z13_HEALTHZ:-http://100.64.0.11:7879/healthz}"
 if timeout 3 curl -sf "$Z13_HEALTHZ" >/dev/null 2>&1; then
-  ok "node-a (node-b:7879) phantom serve reachable" ""
+  ok "node-a (node-b:7879) spectyn serve reachable" ""
 else
   skip "node-a (node-b:7879) unreachable" "node offline / Tailscale issue"
 fi
@@ -49,7 +49,7 @@ fi
 # Try node-a — example 100.64.0.12 port 7878
 NODEA_HZ="${NODEA_HZ:-http://100.64.0.12:7878/healthz}"
 if timeout 3 curl -sf "$NODEA_HZ" >/dev/null 2>&1; then
-  ok "node-a (:7878) phantom serve reachable" ""
+  ok "node-a (:7878) spectyn serve reachable" ""
 else
   skip "node-a (:7878) unreachable" "node offline"
 fi
@@ -60,18 +60,18 @@ section "39. autoevolve red → green recovery (deferred)"
 # Don't actually break Cargo.toml — too disruptive in a CI run.
 # Instead: verify the AppState wiring + recent history shows green.
 
-last_runs=$(phantom autoevolve log --n 3 2>&1)
+last_runs=$(spectyn autoevolve log --n 3 2>&1)
 echo "$last_runs" | grep -q "green" \
   && ok "autoevolve recent history shows green" "" \
   || fail "autoevolve recent history shows green" ""
 
 # Verify the LaunchAgent is registered with the latest plist
-launchctl list 2>/dev/null | grep -q "ai.phantommesh.autoevolve" \
+launchctl list 2>/dev/null | grep -q "ai.spectynmesh.autoevolve" \
   && ok "autoevolve LaunchAgent loaded" "" \
   || fail "autoevolve LaunchAgent loaded" ""
 
 # Inspect the plist for the cargo PATH fix
-plist="$HOME/Library/LaunchAgents/ai.phantommesh.autoevolve.plist"
+plist="$HOME/Library/LaunchAgents/ai.spectynmesh.autoevolve.plist"
 grep -q "/.cargo/bin" "$plist" 2>/dev/null \
   && ok "autoevolve plist includes ~/.cargo/bin" "" \
   || fail "autoevolve plist includes ~/.cargo/bin" ""
@@ -79,7 +79,7 @@ grep -q "/.cargo/bin" "$plist" 2>/dev/null \
 # ─── session jsonl structure ──────────────────────────────────────────────
 section "40. session jsonl structure"
 
-conv_dir="$HOME/.phantom-mesh/conversations"
+conv_dir="$HOME/.spectyn-mesh/conversations"
 if [[ -d "$conv_dir" ]]; then
   files=$(ls -1 "$conv_dir"/*.jsonl 2>/dev/null | wc -l | tr -d ' ')
   if [[ $files -gt 0 ]]; then
@@ -173,13 +173,13 @@ section "43. APFS snapshot (macOS)"
 
 if [[ "$(uname)" == "Darwin" ]]; then
   # Create a snapshot
-  resp=$(phantom snapshot create "tier7-test-$$" 2>&1)
+  resp=$(spectyn snapshot create "tier7-test-$$" 2>&1)
   echo "$resp" | grep -qE 'Created snapshot|✓|com\.apple\.TimeMachine' \
-    && ok "phantom snapshot create" "$(echo "$resp" | head -1 | head -c 80)" \
-    || fail "phantom snapshot create" "got: $(echo "$resp" | head -c 200)"
+    && ok "spectyn snapshot create" "$(echo "$resp" | head -1 | head -c 80)" \
+    || fail "spectyn snapshot create" "got: $(echo "$resp" | head -c 200)"
 
   # List snapshots
-  resp=$(phantom snapshot list 2>&1)
+  resp=$(spectyn snapshot list 2>&1)
   if echo "$resp" | grep -q "tier7-test-$$"; then
     ok "snapshot appears in list" ""
   else
@@ -213,11 +213,11 @@ print('OK')
   || fail "/api/cost has required fields" "$(cat $TMP/cost.err)"
 
 # costs.json on disk should also be valid JSON (the daemon loads from there)
-costs_file="$HOME/.phantom-mesh/costs.json"
+costs_file="$HOME/.spectyn-mesh/costs.json"
 if [[ -f "$costs_file" ]]; then
   python3 -c "import json; json.load(open('$costs_file'))" 2>/dev/null \
-    && ok "~/.phantom-mesh/costs.json is valid JSON" "" \
-    || fail "~/.phantom-mesh/costs.json is valid JSON" ""
+    && ok "~/.spectyn-mesh/costs.json is valid JSON" "" \
+    || fail "~/.spectyn-mesh/costs.json is valid JSON" ""
 else
   skip "costs.json doesn't exist yet" ""
 fi

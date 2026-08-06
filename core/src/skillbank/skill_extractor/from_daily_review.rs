@@ -1,5 +1,5 @@
 //! Extract skill candidates from a daily review markdown brief
-//! (the output of `phantom coach review --date YYYY-MM-DD --save`).
+//! (the output of `spectyn coach review --date YYYY-MM-DD --save`).
 //!
 //! Contract with E003's `daily_review::aggregate`:
 //!   - `# Daily review — YYYY-MM-DD` heading

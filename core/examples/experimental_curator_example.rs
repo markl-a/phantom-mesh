@@ -1,7 +1,7 @@
 //! Example: experimental-curator (H1 + H2).
 //!
-//! Demonstrates the public surface of `phantom_mesh::skillbank::curator` and
-//! `phantom_mesh::skillbank::skill` without making any network calls:
+//! Demonstrates the public surface of `spectyn_mesh::skillbank::curator` and
+//! `spectyn_mesh::skillbank::skill` without making any network calls:
 //!
 //!   1. Build a judge prompt from an EvolveCheckpoint and verify it
 //!      contains the rubric version marker.
@@ -10,15 +10,15 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh \
+//!     cargo run -p spectyn-mesh \
 //!       --example experimental_curator_example \
 //!       --features experimental-curator
 //!
 //! Expected last line: `experimental-curator OK`. Exit code 0.
 
-use phantom_mesh::evolve_checkpoint::EvolveCheckpoint;
-use phantom_mesh::skillbank::skill::{parse_str, serialize};
-use phantom_mesh::skillbank::{
+use spectyn_mesh::evolve_checkpoint::EvolveCheckpoint;
+use spectyn_mesh::skillbank::skill::{parse_str, serialize};
+use spectyn_mesh::skillbank::{
     build_judge_user_prompt, parse_judge_reply, verdict_from_parsed, DEFAULT_JUDGE_MODEL,
     RUBRIC_VERSION,
 };

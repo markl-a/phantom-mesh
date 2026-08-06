@@ -93,8 +93,8 @@ mod tests {
             ..Limits::default()
         };
         let snap = vec![
-            row("phantom-mesh", "1", TaskState::Executing), // main at its cap 1
-            row("phantom-mesh", "2", TaskState::Pending),
+            row("spectyn-mesh", "1", TaskState::Executing), // main at its cap 1
+            row("spectyn-mesh", "2", TaskState::Pending),
         ];
         assert_eq!(pick_next(&snap, &limits), None, "main capped at 1 active");
     }

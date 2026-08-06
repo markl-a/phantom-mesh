@@ -8,7 +8,7 @@
 //!   * `POST /rpc/inbox`          — the channel the phone POSTs its decision on
 //!     (`{topic: approval_id, text: "approve"/"deny"/"stop"}`).
 //!
-//! Both endpoints are exercised through the REAL `phantom_mesh::serve::router`
+//! Both endpoints are exercised through the REAL `spectyn_mesh::serve::router`
 //! via `tower::ServiceExt::oneshot` (no network socket), with a genuine
 //! `X-Cluster-Auth` HMAC the handlers verify. The decision *resolution* — turning
 //! the inbox reply into an `ApprovalDecision` and clearing the pending card — is
@@ -26,19 +26,19 @@
 //! What it leaves UNPROVEN at the HTTP layer: there is no separate
 //! `/rpc/approvals/decision` route — by design decisions ride `/rpc/inbox`, and a
 //! live governed run polls the inbox via `PhoneEscalator`. This test drives that
-//! escalator directly rather than through a spawned `phantom serve` process, so
+//! escalator directly rather than through a spawned `spectyn serve` process, so
 //! the socket/process lifecycle (bind, TLS, the run-loop thread that calls
 //! `await_decision`) is out of scope; everything from the HTTP handler down is
 //! the real code path. TEST-ONLY — no production code is modified.
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use phantom_mesh::execution_contract::{ApprovalDecision, RiskLevel};
-use phantom_mesh::governed_run::escalation::{Escalator, PhoneEscalator};
-use phantom_mesh::mesh::{ClusterConfig, ClusterManager};
-use phantom_mesh::notifications::NotificationDispatcher;
-use phantom_mesh::pending_approvals::{list_pending, write_pending, PendingCard};
-use phantom_mesh::AppState;
+use spectyn_mesh::execution_contract::{ApprovalDecision, RiskLevel};
+use spectyn_mesh::governed_run::escalation::{Escalator, PhoneEscalator};
+use spectyn_mesh::mesh::{ClusterConfig, ClusterManager};
+use spectyn_mesh::notifications::NotificationDispatcher;
+use spectyn_mesh::pending_approvals::{list_pending, write_pending, PendingCard};
+use spectyn_mesh::AppState;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -70,7 +70,7 @@ fn app_state_with_secret(secret: &str) -> Arc<AppState> {
 /// HMAC-sign-and-POST one request against a fresh router built from `state`.
 /// `token` must be `make_auth_token(body)` over the exact `body` bytes sent.
 async fn post(state: Arc<AppState>, uri: &str, body: &str, token: String) -> (StatusCode, Value) {
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let request = Request::builder()
         .method("POST")
         .uri(uri)

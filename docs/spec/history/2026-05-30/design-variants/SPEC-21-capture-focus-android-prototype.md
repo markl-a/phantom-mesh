@@ -55,7 +55,7 @@ FSM 完全同 iOS hero — Android 不重抄。每個 state 的 Android-specific
 | FSM state | Android 對應 | Android-specific 互動 |
 |---|---|---|
 | `Idle` | A | bottom-nav 顯示；duration ripple + selection haptic |
-| `Requesting` | B1 / B2 系統 prompt | OS 接管，phantom 只設 rationale 字串 |
+| `Requesting` | B1 / B2 系統 prompt | OS 接管，spectyn 只設 rationale 字串 |
 | `Recording` | C + FG-service notification（D）| 通知欄常駐；back 鍵 confirm；status bar tint |
 | `Chunking` | C 內微 state | chunk +1 Snackbar bottom-up |
 | `Interrupted` | C' | AUDIOFOCUS_LOSS callback；通知文字切「電話中已暫停」 |
@@ -142,7 +142,7 @@ FSM 完全同 iOS hero — Android 不重抄。每個 state 的 Android-specific
 
 ## 螢幕 B1 — RECORD_AUDIO Runtime Perm Prompt
 
-OS 渲染，不可控版面。phantom 只能設 `permission_request_text`（manifest rationale）。
+OS 渲染，不可控版面。spectyn 只能設 `permission_request_text`（manifest rationale）。
 
 ### Tap targets
 
@@ -156,7 +156,7 @@ OS 渲染，不可控版面。phantom 只能設 `permission_request_text`（mani
 
 - 視覺 spec 在 mockup B'（mic_off 48dp `colorError`）
 - 文案 keys 同 iOS hero（`focus.perm.denied` / `focus.perm.denied_reassure` / `focus.perm.open_settings`）
-- Tap 「打開設定」→ `Intent("android.settings.APPLICATION_DETAILS_SETTINGS").setData(Uri.parse("package:dev.phantom.mesh"))` startActivity；無 confirm；無 haptic
+- Tap 「打開設定」→ `Intent("android.settings.APPLICATION_DETAILS_SETTINGS").setData(Uri.parse("package:dev.spectyn.mesh"))` startActivity；無 confirm；無 haptic
 - 覆蓋出現時：Idle 底下 PTT + Timer 同套 mockup `overlay-disabled-40`
 - user 從設定回 app → `onResume` 重檢權限 → granted 則自動拿掉遮罩 + scroll-restore
 
@@ -210,7 +210,7 @@ OS 渲染，不可控。Android 12 以下無此 prompt（自動授權）。
 
 | Target | 動作 |
 |---|---|
-| `Pause` (OutlinedButton `focus.btn.pause`) | (1) AudioRecord.stop（保留 file handle）；(2) waveform 凍結 `phantom-muted`；(3) 計時暫停（每秒 1Hz 閃爍 `colorTertiary` 標警；色 token per mockup）；(4) button morph 為 `Resume` (`focus.btn.resume`) FilledTonalButton；haptic `HapticFeedbackConstants.CONFIRM`；通知欄 D 文字切「Focus · 已暫停」 |
+| `Pause` (OutlinedButton `focus.btn.pause`) | (1) AudioRecord.stop（保留 file handle）；(2) waveform 凍結 `spectyn-muted`；(3) 計時暫停（每秒 1Hz 閃爍 `colorTertiary` 標警；色 token per mockup）；(4) button morph 為 `Resume` (`focus.btn.resume`) FilledTonalButton；haptic `HapticFeedbackConstants.CONFIRM`；通知欄 D 文字切「Focus · 已暫停」 |
 | `Resume` | 反向：AudioRecord.startRecording、waveform 重跑、計時繼續、button 變回 `Pause`；haptic `CONFIRM`；通知欄回 "Focus · {elapsed} / {total}" |
 | `Stop` (FilledTonalButton `colorError` `focus.btn.stop`) | 立即 cross-fade 250ms 到 E Finalizing（不加 confirm dialog）；haptic `HapticFeedbackConstants.LONG_PRESS`（≈ iOS heavy）；AudioRecord.close；flush 殘留 chunk → 觸發 Chunking → Finalizing 鏈；MeshNodeService 不停（finalize phase 仍跑 FG）|
 | chunk count Chip `已落地: {n}` | 99 → 100 切 `99+`（`focus.limit.chunk_overflow`）；tap 無動作（v0.6.0 純資訊；v0.7+ 跳 history）|
@@ -252,13 +252,13 @@ OS 渲染，不可控。Android 12 以下無此 prompt（自動授權）。
 
 ## 螢幕 D — FG-service Notification（取代 iOS lock-screen）
 
-通知 channel `focus_session` IMPORTANCE_LOW + setOngoing(true) + smallIcon `R.drawable.ic_phantom_mono`。視覺 spec 在 mockup §104。
+通知 channel `focus_session` IMPORTANCE_LOW + setOngoing(true) + smallIcon `R.drawable.ic_spectyn_mono`。視覺 spec 在 mockup §104。
 
 ### Tap targets
 
 | Target | 動作 |
 |---|---|
-| 通知 body | startActivity launchIntent → 開回 phantom 進 Focus tab；若 app process 死了走 cold start，但因 MeshNodeService 仍在，UI 重建後直接到 C Recording（state 從 service restore）|
+| 通知 body | startActivity launchIntent → 開回 spectyn 進 Focus tab；若 app process 死了走 cold start，但因 MeshNodeService 仍在，UI 重建後直接到 C Recording（state 從 service restore）|
 | `STOP` action button | PendingIntent broadcast → MeshNodeService 收 → 等同 app 內 `Stop`；haptic 不可控（OS 系統手感）；通知欄文字 200ms 內切 `focus.finalizing.asr`；UI 若在前景同步切 E |
 | 通知欄左下 timestamp / app icon | OS 渲染，無動作 |
 | user swipe-dismiss attempt | setOngoing(true) 鎖死 → 滑不掉；user 感受手指能拖但放開 spring-back（OS 行為）|
@@ -300,7 +300,7 @@ OS interrupt 來源（Android-specific，per wireframe §111）：
 
 ### UX 互動
 
-- 視覺等同 iOS C'（waveform 凍結 `phantom-muted` + interrupted toast）
+- 視覺等同 iOS C'（waveform 凍結 `spectyn-muted` + interrupted toast）
 - Snackbar 文案：`focus.interrupted.phone`（來電）/ `focus.interrupted.mic_grabbed`（被搶）+ `focus.interrupted.resume_hint`
 - 計時器：暫停閃爍同 Pause state，但 user 無法主動 Resume — 必須等 AUDIOFOCUS_GAIN
 - 通知欄 D 同步切「電話中已暫停」（取 `focus.interrupted.phone`）
@@ -354,7 +354,7 @@ OS interrupt 來源（Android-specific，per wireframe §111）：
 
 - 所有 ASR 掛：FOCUS-003 雙 button；user 選「先用空白 transcript」→ LLM 仍跑 → takeaway="(無 audio 可分析)" → 寫 row
 - LLM 失敗：FOCUS-004 + 留 transcript + takeaway="(摘要失敗，可手動重跑)" + 寫 row
-- 取消 LLM：transcript 仍 stitch、row 仍寫；`phantom focus reasr <id>` 可後補
+- 取消 LLM：transcript 仍 stitch、row 仍寫；`spectyn focus reasr <id>` 可後補
 - App 進背景：MeshNodeService 持續跑 finalize；user 回前景 UI 從 service state restore；若 app process 被殺 → WorkManager 接管
 
 ### Walkthrough script（usability test：「等 finalize 完成」）
@@ -423,7 +423,7 @@ session metadata 直白 / 兩 button 一 tap 下一步 / 卡片版式跟 history
 C Recording ──[AudioManager AUDIOFOCUS_LOSS]──> C' Interrupted sub-state
        │
        ▼
-   waveform `phantom-muted`、計時暫停、Snackbar `focus.interrupted.phone` + resume_hint
+   waveform `spectyn-muted`、計時暫停、Snackbar `focus.interrupted.phone` + resume_hint
    通知欄 D 文字切「電話中已暫停」
        │
        ▼
@@ -500,7 +500,7 @@ C/E ──[app process killed by OS / MIUI 強殺]──> 已落地 chunks 留 d
 
 | Target | 動作 |
 |---|---|
-| `自啟動` TextButton | `Intent("miui.intent.action.OP_AUTO_START")` → MIUI 安全中心對應頁；若 deep-link 失敗（MIUI 改 API）→ Snackbar「請手動進 安全中心 → 自啟動管理 → 開啟 Phantom Mesh」+ 顯示文字步驟卡片；haptic `KEYBOARD_PRESS` |
+| `自啟動` TextButton | `Intent("miui.intent.action.OP_AUTO_START")` → MIUI 安全中心對應頁；若 deep-link 失敗（MIUI 改 API）→ Snackbar「請手動進 安全中心 → 自啟動管理 → 開啟 Spectyn Mesh」+ 顯示文字步驟卡片；haptic `KEYBOARD_PRESS` |
 | `省電` TextButton | `Intent("miui.intent.action.POWER_HIDE_MODE_APP_LIST")` → 省電白名單頁；失敗 fallback 同上；haptic `KEYBOARD_PRESS` |
 | `不再提示` TextButton | DataStore `miui_guide_dont_show_again=true`（per mockup §190）→ dialog dismiss + 永不再跳（除 settings 主動重設）；haptic `CLOCK_TICK` |
 | dialog 外點擊 | 不可關閉（setCancelable(false) — 強制 user 處理）|
@@ -512,7 +512,7 @@ C/E ──[app process killed by OS / MIUI 強殺]──> 已落地 chunks 留 d
   ```
   1. 開「安全中心」app
   2. 點「應用管理」→「權限」→「自啟動管理」
-  3. 找「Phantom Mesh」→ 開啟
+  3. 找「Spectyn Mesh」→ 開啟
   4. 回到本 app，再試一次
   ```
 - user 點「不再提示」後 MIUI 仍殺 service：WorkManager Expedited Job 接管；通知顯「focus 完成」仍可達；user 體驗略降但不阻斷
@@ -530,7 +530,7 @@ C/E ──[app process killed by OS / MIUI 強殺]──> 已落地 chunks 留 d
 [user 下拉通知欄展 Quick Settings]
        │
        ▼
-[tile state = inactive]   icon: mic outlined, label: "Phantom 焦點", subtitle: "1 tap 啟 25min"
+[tile state = inactive]   icon: mic outlined, label: "Spectyn 焦點", subtitle: "1 tap 啟 25min"
        │
        ▼ user tap
        │
@@ -540,7 +540,7 @@ C/E ──[app process killed by OS / MIUI 強殺]──> 已落地 chunks 留 d
    - tile.updateTile()
        │
        ▼
-[broadcast Intent("dev.phantom.mesh.ACTION_START_FOCUS") → MeshNodeService]
+[broadcast Intent("dev.spectyn.mesh.ACTION_START_FOCUS") → MeshNodeService]
    - Service 收 → startForeground(FOREGROUND_SERVICE_TYPE_MICROPHONE)
    - 起 25 min Timer mode session
        │
@@ -639,7 +639,7 @@ C/E ──[app process killed by OS / MIUI 強殺]──> 已落地 chunks 留 d
 | # | Task | 測項 | 6-state 覆蓋 |
 |---|---|---|---|
 | 1 | **首次使用 + 3 perm gate**：「請開 Focus 並錄 25 分鐘」 | A flow + B1 + B2 + Idle Empty 觀察 | Empty（History tab 觸發 `focus.empty.history`）/ Loading（perm wait）/ Ideal |
-| 2 | **Quick Settings tile**：「請從通知欄下拉，加入 Phantom 焦點 tile，然後 1 tap 啟動 focus」 | tile 加入 + 1 tap 啟動 + tile 倒數 | Ideal + Loading |
+| 2 | **Quick Settings tile**：「請從通知欄下拉，加入 Spectyn 焦點 tile，然後 1 tap 啟動 focus」 | tile 加入 + 1 tap 啟動 + tile 倒數 | Ideal + Loading |
 | 3 | **通知欄 stop**：「session 跑中請從通知欄停止（不要開 app）」 | FG-service notification stop action | Loading |
 | 4 | **Interrupted**：「錄音中接到電話，掛掉後檢查錄音狀態」 | AUDIOFOCUS_LOSS + 通知文字切換 | Error（中斷態）|
 | 5 | **B2 skip 路徑**：「在 perm prompt 拒絕通知權限，看看會發生什麼」 | degraded UI bar + 仍可錄 + 通知不顯示 | Partial（功能 degraded） |

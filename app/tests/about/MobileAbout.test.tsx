@@ -64,14 +64,14 @@ describe('<MobileAbout />', () => {
     await waitFor(() => expect(getAppVersion).toHaveBeenCalled());
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
-    expect(screen.getByText('Phantom Mesh')).toBeInTheDocument();
+    expect(screen.getByText('Spectyn Mesh')).toBeInTheDocument();
   });
 
   it('renders Source + License as external links', () => {
     getVersion.mockResolvedValue({ version: '0', commit: '0' });
     render(<MobileAbout />);
     const source = screen.getByRole('link', { name: /Source/ });
-    expect(source).toHaveAttribute('href', 'https://github.com/markl-a/phantom-mesh');
+    expect(source).toHaveAttribute('href', 'https://github.com/markl-a/spectyn-mesh');
     expect(source).toHaveAttribute('target', '_blank');
     expect(source).toHaveAttribute('rel', 'noreferrer noopener');
     const license = screen.getByRole('link', { name: /License/ });
@@ -82,8 +82,8 @@ describe('<MobileAbout />', () => {
 
   it('restart onboarding clears the onboarding localStorage keys', async () => {
     getVersion.mockResolvedValue({ version: '0', commit: '0' });
-    localStorage.setItem('phantom_mesh_v2_onboarded', 'true');
-    localStorage.setItem('phantom_mesh_v2_onboarded_mode', 'demo');
+    localStorage.setItem('spectyn_mesh_v2_onboarded', 'true');
+    localStorage.setItem('spectyn_mesh_v2_onboarded_mode', 'demo');
     const assign = vi.fn();
     Object.defineProperty(window, 'location', {
       value: { ...window.location, assign },
@@ -93,8 +93,8 @@ describe('<MobileAbout />', () => {
     render(<MobileAbout />);
     await userEvent.click(screen.getByRole('button', { name: /重啟 onboarding/ }));
 
-    expect(localStorage.getItem('phantom_mesh_v2_onboarded')).toBeNull();
-    expect(localStorage.getItem('phantom_mesh_v2_onboarded_mode')).toBeNull();
+    expect(localStorage.getItem('spectyn_mesh_v2_onboarded')).toBeNull();
+    expect(localStorage.getItem('spectyn_mesh_v2_onboarded_mode')).toBeNull();
     expect(assign).toHaveBeenCalledWith('/');
   });
 });

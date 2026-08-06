@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.content.Intent
 import android.os.Bundle
@@ -15,19 +15,19 @@ import androidx.activity.enableEdgeToEdge
  * `open fun onWebViewCreate(webView: WebView)`; WryActivity's own back handling
  * is disabled (`handleBackNavigation = false`), so we own the back gesture.
  *
- * Native → JS: every system back press dispatches a `phantom://system-back`
+ * Native → JS: every system back press dispatches a `spectyn://system-back`
  * DOM event into the WebView via `evaluateJavascript` (no Rust/plugin deps,
  * no internal Tauri event handles needed from the Activity).
  *
  * JS → native (root passthrough): when React Router is already at root it calls
- * `window.PhantomAndroidBack.passthroughSystemBack()`, which disables our
+ * `window.SpectynAndroidBack.passthroughSystemBack()`, which disables our
  * callback and re-runs Android's default back handling (exit app).
  */
 class MainActivity : TauriActivity() {
     private var webView: WebView? = null
 
     // SPEC-34 §17-F: a route the focus tile (or any deep link) asked us to open.
-    // Stored until the WebView exists, then dispatched as a `phantom://deep-link`
+    // Stored until the WebView exists, then dispatched as a `spectyn://deep-link`
     // DOM event the SPA's MobileShell listens for to navigate React Router.
     private var pendingRoute: String? = null
 
@@ -40,7 +40,7 @@ class MainActivity : TauriActivity() {
             }
             wv.post {
                 wv.evaluateJavascript(
-                    "window.dispatchEvent(new Event('phantom://system-back'))",
+                    "window.dispatchEvent(new Event('spectyn://system-back'))",
                     null
                 )
             }
@@ -66,18 +66,18 @@ class MainActivity : TauriActivity() {
     override fun onWebViewCreate(webView: WebView) {
         super.onWebViewCreate(webView)
         this.webView = webView
-        webView.addJavascriptInterface(BackPassthroughBridge(), "PhantomAndroidBack")
+        webView.addJavascriptInterface(BackPassthroughBridge(), "SpectynAndroidBack")
         pendingRoute?.let { dispatchDeepLink(it); pendingRoute = null }
     }
 
-    /** Fire a `phantom://deep-link` DOM event carrying the route to the SPA. */
+    /** Fire a `spectyn://deep-link` DOM event carrying the route to the SPA. */
     private fun dispatchDeepLink(route: String) {
         val wv = webView ?: return
         // route is an app-controlled literal ("/focus"); JSON-encode defensively.
         val safe = route.replace("\\", "\\\\").replace("'", "\\'")
         wv.post {
             wv.evaluateJavascript(
-                "window.dispatchEvent(new CustomEvent('phantom://deep-link',{detail:{route:'$safe'}}))",
+                "window.dispatchEvent(new CustomEvent('spectyn://deep-link',{detail:{route:'$safe'}}))",
                 null,
             )
         }

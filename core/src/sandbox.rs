@@ -12,7 +12,7 @@
 //! Refusal returns a clear error message, NOT a panic. The agent
 //! receives the error in its tool output and can decide whether to
 //! pivot to a different approach OR escalate by passing
-//! `--allow-core-evolve` on the next `phantom evolve` invocation.
+//! `--allow-core-evolve` on the next `spectyn evolve` invocation.
 //!
 //! Default: DISABLED. Existing TUI / REPL / MCP callers are unaffected.
 //! Only `run_evolve_local` and `run_autoevolve` opt in by default.
@@ -119,7 +119,7 @@ pub fn check<P: AsRef<Path>>(path: P) -> Verdict {
     let msg = format!(
         "sandbox guard: refusing to write `{}` (under `{}`{}); \
          autoevolve runs sandboxed by default — pass `--allow-core-evolve` \
-         to opt out, or write to ~/.phantom-mesh/extensions/ which is the \
+         to opt out, or write to ~/.spectyn-mesh/extensions/ which is the \
          intended Tier 1 surface (see docs/CONTRIBUTOR-FUNNEL.md §4)",
         s, prefix, extra
     );
@@ -166,7 +166,7 @@ mod tests {
             assert!(matches!(check("./core/src/main.rs"), Verdict::Denied(_)));
             assert!(matches!(check("app/src/index.tsx"), Verdict::Denied(_)));
             assert!(matches!(
-                check("templates/phantom-mesh.service.tmpl"),
+                check("templates/spectyn-mesh.service.tmpl"),
                 Verdict::Denied(_)
             ));
             assert!(matches!(check("scripts/build-mac.sh"), Verdict::Denied(_)));
@@ -176,9 +176,9 @@ mod tests {
     #[test]
     fn enabled_allows_extensions_and_other_paths() {
         with_enabled(|| {
-            // ~/.phantom-mesh/extensions/ is the intended Tier 1 path
+            // ~/.spectyn-mesh/extensions/ is the intended Tier 1 path
             assert!(matches!(
-                check("/Users/me/.phantom-mesh/extensions/prompts/coder.md"),
+                check("/Users/me/.spectyn-mesh/extensions/prompts/coder.md"),
                 Verdict::Allowed
             ));
             // /tmp / non-repo paths are fine

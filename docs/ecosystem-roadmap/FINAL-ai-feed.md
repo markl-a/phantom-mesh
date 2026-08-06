@@ -1,13 +1,13 @@
-# FINAL Development Plan — `phantom-ai-feed`
+# FINAL Development Plan — `spectyn-ai-feed`
 
 ## What it is + current state
 
-`phantom-ai-feed` is a stdlib-only Python alpha in the phantom-mesh ecosystem.
+`spectyn-ai-feed` is a stdlib-only Python alpha in the spectyn-mesh ecosystem.
 RSS/Atom sources (8 feeds in `sources/feeds.toml`) flow through
 `fetch.py → summarize.py → digest.py / weekly.py / interview_questions.py`
-into Markdown logs under `~/.phantom-mesh/logs/phantom-ai-feed/`, with
-best-effort `phantom event capture` into FTS5 and a 3-tier summariser
-(`phantom exec` → Gemini REST → stdlib stub). An `eval.py` harness scores
+into Markdown logs under `~/.spectyn-mesh/logs/spectyn-ai-feed/`, with
+best-effort `spectyn event capture` into FTS5 and a 3-tier summariser
+(`spectyn exec` → Gemini REST → stdlib stub). An `eval.py` harness scores
 generated questions against a **synthetic** gold set. Daily/weekly CLIs,
 question generation, and a thin test suite (`test_fetch`, `test_summarize_stub`,
 `test_eval_harness` + fixtures) work end-to-end in stub mode. Maturity: usable
@@ -20,7 +20,7 @@ and publishing are immature.
 
 - **P1 — Fix prompt double-wrapping (CORRECTNESS BUG).** `weekly.py` and
   `interview_questions.py` hand a *fully-formed* prompt into the summariser, but
-  `summarize_phantom`/`summarize_gemini` unconditionally re-wrap every input with
+  `summarize_spectyn`/`summarize_gemini` unconditionally re-wrap every input with
   the daily-RSS `_build_prompt()`. Weekly/interview prompts are double-wrapped and
   polluted with daily-summary instructions. *(Verified: `summarize.py:69,101` →
   `_build_prompt`; callers `weekly.py:91`, `interview_questions.py:89`.)*
@@ -29,12 +29,12 @@ and publishing are immature.
   status counts in digest headers, fake-RSS fixtures so tests stop relying on
   the live network.
 - **P1 — FTS5 capture adapter (unit layer).** Extract `_try_capture_fts5()` from
-  `digest.py` into `phantom_ai_feed/phantom.py` with `capture_entry(dry_run=...)`;
+  `digest.py` into `spectyn_ai_feed/spectyn.py` with `capture_entry(dry_run=...)`;
   unit-test missing-CLI / failed-CLI / success via monkeypatched
   `shutil.which` + `subprocess.run`. (Real recall is P2 — see below.)
 - **P2 — FTS5 recall verification (integration).** A gated smoke test against the
-  real `phantom` binary that captures an `ai-feed` entry and asserts
-  `phantom recall "<query>"` finds it. Distinct from the P1 unit layer; needs the
+  real `spectyn` binary that captures an `ai-feed` entry and asserts
+  `spectyn recall "<query>"` finds it. Distinct from the P1 unit layer; needs the
   binary, so it cannot be a mocked unit test.
 - **P2 — Cross-source dedup / topic clustering.** Collapse the same story across
   arXiv/Reddit/HN (URL + title-shingle / token-overlap) **before** `weekly.py`
@@ -55,7 +55,7 @@ and publishing are immature.
 
 ### P1.1 — Fix prompt double-wrapping
 - Add a raw-passthrough path to `summarize.py`: e.g. `prompt: str | None` (or a
-  `raw=True` flag) on `summarize`, `summarize_phantom`, `summarize_gemini` that
+  `raw=True` flag) on `summarize`, `summarize_spectyn`, `summarize_gemini` that
   sends the caller's text verbatim and **skips** `_build_prompt`.
 - Update `weekly.py:91` and `interview_questions.py:89` to use the raw path;
   leave `digest.py` (the only correct caller — passes plain text) on the
@@ -76,10 +76,10 @@ and publishing are immature.
   **optional** network smoke test, not a default-run dependency.
 
 ### P1.3 — FTS5 capture adapter (unit layer)
-- Move `_try_capture_fts5()` into `phantom_ai_feed/phantom.py` as
+- Move `_try_capture_fts5()` into `spectyn_ai_feed/spectyn.py` as
   `capture_entry(entry, *, dry_run=False)`; `digest.py` imports it.
 - Preserve a stable text blob of `title / summary / link / source / category /
-  date` compatible with `phantom event capture --kind ai-feed --text`.
+  date` compatible with `spectyn event capture --kind ai-feed --text`.
 - Unit-test the three branches (no CLI / CLI fails / CLI ok) via monkeypatched
   `shutil.which` + `subprocess.run`; assert `dry_run` builds the command without
   executing.

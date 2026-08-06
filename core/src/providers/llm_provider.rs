@@ -109,7 +109,7 @@ pub trait LlmProvider: Send + Sync {
         tools: &[serde_json::Value],
     ) -> Result<(ChatMessage, serde_json::Value), ProviderError>;
 
-    /// Stable identity. Used by metrics + `PHANTOM_RUNTIME_OVERRIDE` matching.
+    /// Stable identity. Used by metrics + `SPECTYN_RUNTIME_OVERRIDE` matching.
     fn provider_type(&self) -> &'static str;
 
     /// Phase 4: shape a streaming/non-streaming request without sending it.

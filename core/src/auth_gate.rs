@@ -1,8 +1,8 @@
 //! Shared cluster-auth gate.
 //!
-//! Lifted out of `core/src/serve.rs` (T7) so both routers — the `phantom
+//! Lifted out of `core/src/serve.rs` (T7) so both routers — the `spectyn
 //! serve` UI router (`serve.rs`) and the daemon router (`main.rs::build_router`
-//! used by `phantom-mesh daemon`) — can share one HMAC check.
+//! used by `spectyn-mesh daemon`) — can share one HMAC check.
 //!
 //! Behaviour mirrors T7's original `require_cluster_auth` exactly:
 //!
@@ -10,7 +10,7 @@
 //!    `X-Cluster-Auth` HMAC-SHA256 that matches.
 //! 2. If `cluster_secret` is empty / missing, the call is REFUSED
 //!    (`403 Forbidden`) with a migration hint — UNLESS the operator has
-//!    set `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1` to opt into legacy
+//!    set `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1` to opt into legacy
 //!    insecure behaviour for one migration release.
 //!
 //! The error JSON is bare (no wire_version wrapper). Callers in `serve.rs`
@@ -100,7 +100,7 @@ pub fn require_cluster_auth(
         .unwrap_or(false);
 
     if !secret_configured {
-        if std::env::var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET")
+        if std::env::var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false)
         {
@@ -111,7 +111,7 @@ pub fn require_cluster_auth(
             Json(json!({
                 "error": "refused: cluster_secret not configured on this node — \
                          set [cluster].cluster_secret in agents.toml, or set \
-                         PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 to restore the \
+                         SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 to restore the \
                          legacy (insecure) behaviour for one migration release"
             })),
         ));
@@ -139,7 +139,7 @@ mod tests {
     use std::sync::MutexGuard;
 
     /// Serialise env-mutating tests. Delegates to the crate-wide env mutex so
-    /// PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET tests here serialize against the
+    /// SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET tests here serialize against the
     /// serve.rs tests that mutate the same var (a per-file mutex let them race).
     fn env_guard() -> MutexGuard<'static, ()> {
         crate::env_lock::acquire()
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn accepts_valid_token() {
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("topsecret");
         let body = b"{\"hello\":\"world\"}";
         let token = cm.make_auth_token(std::str::from_utf8(body).unwrap());
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn rejects_bad_token() {
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("topsecret");
         let body = b"{\"hello\":\"world\"}";
         let mut h = HeaderMap::new();
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn fails_closed_when_secret_empty() {
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("");
         let body = b"{}";
         let h = HeaderMap::new();
@@ -194,7 +194,7 @@ mod tests {
             "missing migration hint in error body: {body_str}"
         );
         assert!(
-            body_str.contains("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET"),
+            body_str.contains("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET"),
             "missing override hint in error body: {body_str}"
         );
     }
@@ -204,7 +204,7 @@ mod tests {
         // SPEC-46 I3: a same-host (loopback) caller to a local-UI endpoint is
         // exempt from the cluster HMAC even with NO X-Cluster-Auth header.
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("topsecret");
         let body = b"{\"message\":\"hi\"}";
         let h = HeaderMap::new(); // no token at all
@@ -218,7 +218,7 @@ mod tests {
     fn local_ui_remote_still_gated() {
         // A non-loopback peer must STILL need a valid token — no remote hole.
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("topsecret");
         let body = b"{\"message\":\"hi\"}";
         let h = HeaderMap::new(); // no token
@@ -231,7 +231,7 @@ mod tests {
     fn local_ui_remote_with_valid_token_ok() {
         // A remote peer with a correct HMAC still works (delegates to the gate).
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let cm = cm_with_secret("topsecret");
         let body = b"{\"message\":\"hi\"}";
         let token = cm.make_auth_token(std::str::from_utf8(body).unwrap());
@@ -264,12 +264,12 @@ mod tests {
     #[test]
     fn env_override_skips_check() {
         let _g = env_guard();
-        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
         let cm = cm_with_secret("");
         let body = b"{}";
         let h = HeaderMap::new();
         let result = require_cluster_auth(&cm, &h, body);
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         assert!(
             result.is_ok(),
             "override should permit empty-secret call: {result:?}"

@@ -24,7 +24,7 @@ tags:
   - rust
   - maintenance
 created_at: "2026-05-15T00:00:00Z"
-author: phantom-mesh weekend push T32
+author: spectyn-mesh weekend push T32
 ---
 
 # audit-deps
@@ -43,7 +43,7 @@ cargo outdated --version
 先執行安全稽核。`--json` 會提供可供我們過濾與分組的機器可讀輸出；人類可讀的格式較難可靠地分桶歸類。
 
 ```bash
-cargo audit --json > /tmp/phantom-skill-audit.json 2>&1 || true
+cargo audit --json > /tmp/spectyn-skill-audit.json 2>&1 || true
 echo "exit: $?"
 ```
 
@@ -53,7 +53,7 @@ echo "exit: $?"
 
 ```bash
 cargo outdated --workspace --root-deps-only --format json \
-  > /tmp/phantom-skill-outdated.json 2>&1 || true
+  > /tmp/spectyn-skill-outdated.json 2>&1 || true
 ```
 
 ## Prompt：格式化相依性報告

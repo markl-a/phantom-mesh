@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# phantom-mesh daemon update script
+# spectyn-mesh daemon update script
 # Downloads the latest release binary and restarts the service
 #
 # Environment variables (optional):
-#   GITHUB_REPO  — GitHub repo slug, default: markl-a/phantom-mesh
+#   GITHUB_REPO  — GitHub repo slug, default: markl-a/spectyn-mesh
 
-GITHUB_REPO="${GITHUB_REPO:-markl-a/phantom-mesh}"
-INSTALL_DIR="/opt/phantom-mesh"
+GITHUB_REPO="${GITHUB_REPO:-markl-a/spectyn-mesh}"
+INSTALL_DIR="/opt/spectyn-mesh"
 ARCH=$(uname -m)
 
 if [[ "$ARCH" == "aarch64" ]]; then
@@ -23,7 +23,7 @@ VERIFY_HELPER=""
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/_verify-download.sh" ]; then
     VERIFY_HELPER="$SCRIPT_DIR/_verify-download.sh"
 else
-    VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX)"
+    VERIFY_HELPER="$(mktemp -t spectyn-verify.XXXXXX)"
     HELPER_URL="https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/_verify-download.sh"
     if ! curl -fsSL --max-time 10 "$HELPER_URL" -o "$VERIFY_HELPER"; then
         echo "ERROR: Could not load $HELPER_URL — refusing to update unverified binary" >&2
@@ -33,7 +33,7 @@ fi
 # shellcheck disable=SC1090
 . "$VERIFY_HELPER"
 
-echo "==> Fetching latest phantom-mesh release from ${GITHUB_REPO}..."
+echo "==> Fetching latest spectyn-mesh release from ${GITHUB_REPO}..."
 LATEST=$(curl -s "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" \
   | grep "browser_download_url.*$BINARY_SUFFIX" | cut -d'"' -f4)
 
@@ -47,30 +47,30 @@ fi
 # this gives us a definite negative if the URL ever became plain http.)
 require_https "$LATEST" || exit 1
 
-echo "==> Stopping phantom-mesh service..."
-sudo systemctl stop phantom-mesh
+echo "==> Stopping spectyn-mesh service..."
+sudo systemctl stop spectyn-mesh
 
 echo "==> Downloading $LATEST..."
-sudo curl -fsSL "$LATEST" -o "$INSTALL_DIR/phantom-mesh.new"
+sudo curl -fsSL "$LATEST" -o "$INSTALL_DIR/spectyn-mesh.new"
 # Verify SHA256 BEFORE chmod +x or atomic swap. verify_sha256 deletes the
-# .new binary on mismatch; we then need to clean up + restart phantom-mesh
+# .new binary on mismatch; we then need to clean up + restart spectyn-mesh
 # with the old binary so the service comes back online.
-if ! verify_sha256 "$INSTALL_DIR/phantom-mesh.new" "$LATEST"; then
-  echo "==> Verification failed — restarting old phantom-mesh and aborting" >&2
-  sudo systemctl start phantom-mesh
+if ! verify_sha256 "$INSTALL_DIR/spectyn-mesh.new" "$LATEST"; then
+  echo "==> Verification failed — restarting old spectyn-mesh and aborting" >&2
+  sudo systemctl start spectyn-mesh
   exit 1
 fi
-sudo chmod +x "$INSTALL_DIR/phantom-mesh.new"
+sudo chmod +x "$INSTALL_DIR/spectyn-mesh.new"
 
 # Atomic swap
-sudo mv "$INSTALL_DIR/phantom-mesh" "$INSTALL_DIR/phantom-mesh.bak"
-sudo mv "$INSTALL_DIR/phantom-mesh.new" "$INSTALL_DIR/phantom-mesh"
+sudo mv "$INSTALL_DIR/spectyn-mesh" "$INSTALL_DIR/spectyn-mesh.bak"
+sudo mv "$INSTALL_DIR/spectyn-mesh.new" "$INSTALL_DIR/spectyn-mesh"
 
-echo "==> Starting phantom-mesh service..."
-sudo systemctl start phantom-mesh
+echo "==> Starting spectyn-mesh service..."
+sudo systemctl start spectyn-mesh
 
 echo ""
 echo "==> Update complete!"
-echo "    Status: sudo systemctl status phantom-mesh"
-echo "    Logs:   sudo journalctl -u phantom-mesh -f"
-echo "    Backup: $INSTALL_DIR/phantom-mesh.bak (previous binary)"
+echo "    Status: sudo systemctl status spectyn-mesh"
+echo "    Logs:   sudo journalctl -u spectyn-mesh -f"
+echo "    Backup: $INSTALL_DIR/spectyn-mesh.bak (previous binary)"

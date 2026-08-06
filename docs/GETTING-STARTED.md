@@ -1,4 +1,4 @@
-# phantom-mesh — 入門指南
+# spectyn-mesh — 入門指南
 
 在五分鐘內讓一個可運作的代理（agent）、以及選用的第二台機器組成的 mesh（網狀叢集）運作起來。
 
@@ -8,7 +8,7 @@
 
 ### 選項 A — 一行指令安裝（推薦用於第二台 Mac）
 
-如果你已經在另一台機器上跑著 phantom-mesh coordinator（協調者）
+如果你已經在另一台機器上跑著 spectyn-mesh coordinator（協調者）
 （姑且稱它為「Mac 1」），這個 coordinator 會透過 HTTP 提供一個
 bootstrap（啟動引導）腳本和一個二進位檔。在 Mac 2 上執行：
 
@@ -18,10 +18,10 @@ curl -fsSL http://<coordinator-tailscale-ip>:7878/scripts/install-mac.sh \
 ```
 
 這會拉取：
-- 將 `phantom` 二進位檔放入 `~/.cargo/bin/`
-- 一份 cluster-bootstrap（叢集啟動引導）`~/.phantom-mesh/agents.toml`（含 cluster_secret + peers，
+- 將 `spectyn` 二進位檔放入 `~/.cargo/bin/`
+- 一份 cluster-bootstrap（叢集啟動引導）`~/.spectyn-mesh/agents.toml`（含 cluster_secret + peers，
   **不含任何 API 金鑰**）
-- 一個 launchd 項目，讓 `phantom serve` 在登入時自動啟動
+- 一個 launchd 項目，讓 `spectyn serve` 在登入時自動啟動
 
 它**不會**動到你的供應商（provider）金鑰 — 之後請在 REPL（讀取-求值-輸出循環互動介面）裡
 互動式設定那些金鑰（`/keys add groq` 等）。
@@ -32,10 +32,10 @@ tailnet（Tailscale 網路）的 Tailscale。
 ### 選項 B — 從原始碼建置
 
 ```bash
-git clone https://github.com/markl-a/phantom-mesh
-cd phantom-mesh/core
-cargo build --release --bin phantom
-cp target/release/phantom ~/.cargo/bin/phantom
+git clone https://github.com/markl-a/spectyn-mesh
+cd spectyn-mesh/core
+cargo build --release --bin spectyn
+cp target/release/spectyn ~/.cargo/bin/spectyn
 ```
 
 確認 `~/.cargo/bin` 在你的 `PATH` 上。首次執行會引導你完成
@@ -44,11 +44,11 @@ cp target/release/phantom ~/.cargo/bin/phantom
 ### 驗證
 
 ```bash
-phantom --version          # prints the build commit + date
-phantom doctor             # checks config, binary, daemon, tailnet, peers
+spectyn --version          # prints the build commit + date
+spectyn doctor             # checks config, binary, daemon, tailnet, peers
 ```
 
-`phantom doctor` 是最快的「有沒有哪裡出錯」檢查 — 它會逐一巡查每個
+`spectyn doctor` 是最快的「有沒有哪裡出錯」檢查 — 它會逐一巡查每個
 子系統，並印出 OK / warn / fail 以及提示。
 
 ---
@@ -56,7 +56,7 @@ phantom doctor             # checks config, binary, daemon, tailnet, peers
 ## 2. 最初的 5 分鐘
 
 ```bash
-phantom                    # launches the TUI
+spectyn                    # launches the TUI
 ```
 
 你會看到一個金色字、黑底的輸入提示。輸入一則訊息並按 Enter
@@ -78,7 +78,7 @@ What's the current git status of my home dir?
 
 ## 3. 進階使用者指令
 
-以下指令在 TUI（文字使用者介面）以及 `phantom --repl` 中都可使用
+以下指令在 TUI（文字使用者介面）以及 `spectyn --repl` 中都可使用
 （後者多了一些額外功能，例如互動式選取器）。
 
 | 指令 | 功能說明 |
@@ -107,19 +107,19 @@ What's the current git status of my home dir?
 | `/cost` | 工作階段 + 總計花費的金額、請求次數 |
 | `/density compact\|full` | 單行 vs 多行的工具輸出 |
 | `/theme <name>` | `dark`、`light`、`claude`、`codex`、`gemini`、`mono` |
-| `/init` | 在 cwd（目前工作目錄）產生一份專案 `PHANTOM.md` |
+| `/init` | 在 cwd（目前工作目錄）產生一份專案 `SPECTYN.md` |
 | `/clear` | 清除對話記錄 + 移除工作階段歷史 |
 | `/exit` | Ctrl-C 也可以 |
 
 需要阻塞式輸入（blocking input）的 REPL 專屬指令：`/login`、`/logout`、`/add`、
 `/undo`、`/keys add`、`/model pick`。如果你想在行模式（line-mode）下使用這些指令
-而非 TUI，請執行 `phantom --repl`。
+而非 TUI，請執行 `spectyn --repl`。
 
 ---
 
 ## 4. Mesh — 連接另一台機器
 
-phantom-mesh 的核心目的，就是跨你的多台機器派發子代理（subagent）。
+spectyn-mesh 的核心目的，就是跨你的多台機器派發子代理（subagent）。
 設定方式：
 
 ### 前置需求：兩台機器都裝 Tailscale
@@ -133,26 +133,26 @@ tailscale ip -4              # note this IP — the coordinator URL
 ### 在新機器上
 
 執行 §1A 的一行安裝程式，把 `COORD` 指向既有
-機器的 tailscale IP。腳本會寫入 `~/.phantom-mesh/agents.toml`，
+機器的 tailscale IP。腳本會寫入 `~/.spectyn-mesh/agents.toml`，
 內含 cluster_secret 與 peer（對等節點）清單。
 
 ### 驗證 mesh
 
 ```bash
-phantom peer list            # online/offline + active tasks per peer
-phantom peer discover        # mDNS + Tailscale scan, no config needed
-phantom peer ping http://<peer-ip>:7878
+spectyn peer list            # online/offline + active tasks per peer
+spectyn peer discover        # mDNS + Tailscale scan, no config needed
+spectyn peer ping http://<peer-ip>:7878
 ```
 
 ### 派工作給某個 peer
 
 ```bash
 # Send a one-shot job to whichever peer scores best:
-phantom peer assign --agent master "summarise the README.md in 5 bullets"
+spectyn peer assign --agent master "summarise the README.md in 5 bullets"
 
 # Async — get a job ID back, poll later:
-phantom peer send-async --agent master "long task..."
-phantom peer poll http://<peer-ip>:7878 <job-id>
+spectyn peer send-async --agent master "long task..."
+spectyn peer poll http://<peer-ip>:7878 <job-id>
 ```
 
 在 TUI 中，當作用中代理的 `parallel_tasks` 預算允許時，它能自動
@@ -160,9 +160,9 @@ phantom peer poll http://<peer-ip>:7878 <job-id>
 
 ---
 
-## 5. 把 phantom 當成 Claude Code 的子代理使用
+## 5. 把 spectyn 當成 Claude Code 的子代理使用
 
-`phantom mcp` 透過 stdio（標準輸入輸出）以 MCP（模型上下文協議）溝通，
+`spectyn mcp` 透過 stdio（標準輸入輸出）以 MCP（模型上下文協議）溝通，
 向上層的 Claude Code 工作階段揭露每一個工具（shell、file_*、
 git_*、web_*、memory_*、subagent、parallel_tasks 等）。
 
@@ -171,8 +171,8 @@ git_*、web_*、memory_*、subagent、parallel_tasks 等）。
 ```json
 {
   "mcpServers": {
-    "phantom": {
-      "command": "/Users/<you>/.cargo/bin/phantom",
+    "spectyn": {
+      "command": "/Users/<you>/.cargo/bin/spectyn",
       "args": ["mcp"]
     }
   }
@@ -181,12 +181,12 @@ git_*、web_*、memory_*、subagent、parallel_tasks 等）。
 
 接著在 Claude Code 中：
 
-> Use the phantom MCP server to run `cargo test` in `~/projects/foo`,
+> Use the spectyn MCP server to run `cargo test` in `~/projects/foo`,
 > and if it fails, open the failing test file and explain the failure.
 
-Claude Code 會呼叫 `mcp__phantom__shell` 來執行測試、並呼叫
-`mcp__phantom__file_read` 來開啟檔案。你不必離開既有的編輯器，
-就能取得 phantom 的工具沙箱（sandboxing）+ 叢集路由（cluster routing）。
+Claude Code 會呼叫 `mcp__spectyn__shell` 來執行測試、並呼叫
+`mcp__spectyn__file_read` 來開啟檔案。你不必離開既有的編輯器，
+就能取得 spectyn 的工具沙箱（sandboxing）+ 叢集路由（cluster routing）。
 
 ---
 
@@ -197,20 +197,20 @@ Claude Code 會呼叫 `mcp__phantom__shell` 來執行測試、並呼叫
 rustup update stable
 ```
 
-**`phantom serve` 登入時沒有啟動。** 檢查 launchd：
+**`spectyn serve` 登入時沒有啟動。** 檢查 launchd：
 ```bash
-phantom doctor
-launchctl list | grep phantommesh
+spectyn doctor
+launchctl list | grep spectynmesh
 ```
 如果該單元（unit）不見了，重新註冊它：
 ```bash
-phantom service install
+spectyn service install
 ```
 
-**Mesh peer 離線。** 在怪罪 phantom 之前，先驗證網路路徑：
+**Mesh peer 離線。** 在怪罪 spectyn 之前，先驗證網路路徑：
 ```bash
 tailscale status                       # peer up on the tailnet?
-phantom peer ping http://<peer-ip>:7878
+spectyn peer ping http://<peer-ip>:7878
 curl -fsS http://<peer-ip>:7878/healthz
 ```
 如果 `healthz` 有回應但 `peer ping` 失敗，代表兩端的 cluster_secret
@@ -224,13 +224,13 @@ curl -fsS http://<peer-ip>:7878/healthz
 /model pick
 ```
 
-**找不到設定檔。** phantom 會（依序）尋找：
-1. `$PHANTOM_MESH_CONFIG`（若有設定）
-2. `~/.phantom-mesh/agents.toml`
-3. `~/Library/Application Support/ai.phantommesh.app/agents.toml`（macOS）
-4. `~/.config/phantom-mesh/agents.toml`（Linux）
+**找不到設定檔。** spectyn 會（依序）尋找：
+1. `$SPECTYN_MESH_CONFIG`（若有設定）
+2. `~/.spectyn-mesh/agents.toml`
+3. `~/Library/Application Support/ai.spectynmesh.app/agents.toml`（macOS）
+4. `~/.config/spectyn-mesh/agents.toml`（Linux）
 
-`phantom doctor` 會印出實際載入的是哪一個路徑。
+`spectyn doctor` 會印出實際載入的是哪一個路徑。
 
 ---
 

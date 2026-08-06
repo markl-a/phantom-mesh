@@ -22,17 +22,17 @@ export default function HabitQtyPicker({
   return (
     <div className="fixed inset-0 z-50 flex items-end bg-black/40" onClick={onClose}>
       <div
-        className="w-full bg-phantom-card rounded-t-2xl p-5 space-y-3"
+        className="w-full bg-spectyn-card rounded-t-2xl p-5 space-y-3"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="text-sm font-semibold text-phantom-text">{label} — 數量</p>
+        <p className="text-sm font-semibold text-spectyn-text">{label} — 數量</p>
         <div className="grid grid-cols-3 gap-2">
           {meta.quick.map((q) => (
             <button
               key={q}
               aria-label={`${q} ${meta.unit}`}
               onClick={() => onPick(`${q}${meta.unit}`)}
-              className="py-3 rounded-lg border border-phantom-border bg-phantom-bg text-sm text-phantom-text"
+              className="py-3 rounded-lg border border-spectyn-border bg-spectyn-bg text-sm text-spectyn-text"
             >
               {q}
               {meta.unit}
@@ -43,13 +43,13 @@ export default function HabitQtyPicker({
             onChange={(e) => setCustom(e.target.value)}
             inputMode="numeric"
             placeholder="自訂"
-            className="py-3 rounded-lg border border-phantom-border bg-phantom-bg text-sm px-2 text-phantom-text placeholder-phantom-muted"
+            className="py-3 rounded-lg border border-spectyn-border bg-spectyn-bg text-sm px-2 text-spectyn-text placeholder-spectyn-muted"
           />
         </div>
         <button
           onClick={() => onPick(custom ? `${custom}${meta.unit}` : "")}
           disabled={!custom}
-          className="w-full bg-phantom-primary text-phantom-bg py-2.5 rounded-lg text-sm disabled:opacity-50"
+          className="w-full bg-spectyn-primary text-spectyn-bg py-2.5 rounded-lg text-sm disabled:opacity-50"
         >
           送出自訂
         </button>

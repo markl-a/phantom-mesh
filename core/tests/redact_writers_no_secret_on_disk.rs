@@ -7,12 +7,12 @@
 //! flight-recorder case ALSO asserts the redacted transcript still verifies (the
 //! HMAC chain signs the redacted bytes), proving redaction did not break replay.
 
-use phantom_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
-use phantom_mesh::governed_run::recorder::{
+use spectyn_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
+use spectyn_mesh::governed_run::recorder::{
     EventStoreRecorder, RunRecord, RunRecorder, verify_transcript_with_identity,
 };
-use phantom_mesh::tasks::events::EventStore;
-use phantom_mesh::tracing::{Event, Tracer};
+use spectyn_mesh::tasks::events::EventStore;
+use spectyn_mesh::tracing::{Event, Tracer};
 use serde_json::json;
 
 /// The literal secret used across both writers. If ANY byte run of this appears

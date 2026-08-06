@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# tui-full-journey.sh — G-E2E-2: drive the REAL `phantom tui` through a full
+# tui-full-journey.sh — G-E2E-2: drive the REAL `spectyn tui` through a full
 # Mac-terminal user journey in a REAL pseudo-terminal (tmux), capturing the
 # rendered frame at every step + asserting each pane actually opened and the
 # screen stayed intact (no overflow / no escape leak / box present).
 #
-# Why a PTY: `phantom tui` bails unless `stdin().is_terminal()`, and the pane-
+# Why a PTY: `spectyn tui` bails unless `stdin().is_terminal()`, and the pane-
 # opening slash commands run in the async run_loop (handle_tui_slash) — NOT in
 # the in-process handle_key dispatcher — so the only way to exercise the real
 # interactive journey is to drive the real binary in a real terminal. tmux gives
@@ -24,7 +24,7 @@
 #
 # Usage:
 #   scripts/e2e/tui-full-journey.sh
-#   PHANTOM_BIN=/path/to/phantom KEEP=1 COLS=120 ROWS=40 scripts/e2e/tui-full-journey.sh
+#   SPECTYN_BIN=/path/to/spectyn KEEP=1 COLS=120 ROWS=40 scripts/e2e/tui-full-journey.sh
 #
 # Honesty: missing tmux / failed build / a pane that never opens / a corrupted
 # frame all FAIL loudly (exit!=0). screencapture PNGs are best-effort (a
@@ -34,13 +34,13 @@ set -uo pipefail
 
 COLS="${COLS:-100}"
 ROWS="${ROWS:-30}"
-SESSION="phantom-tui-journey-$$"
+SESSION="spectyn-tui-journey-$$"
 TS="$(date +%Y%m%d-%H%M%S)"
-OUT="${TMPDIR:-/tmp}/phantom-tui-journey-$TS"
+OUT="${TMPDIR:-/tmp}/spectyn-tui-journey-$TS"
 mkdir -p "$OUT"
 FRAMES="$OUT/frames"; mkdir -p "$FRAMES"
 SHOTS="$OUT/shots"; mkdir -p "$SHOTS"
-RUN_HOME="$OUT/home"; mkdir -p "$RUN_HOME/.phantom-mesh"
+RUN_HOME="$OUT/home"; mkdir -p "$RUN_HOME/.spectyn-mesh"
 
 note() { printf '%s\n' "$*"; }
 fail() { note "✗ FAIL: $*"; finish 1; }
@@ -56,25 +56,25 @@ trap 'cleanup' EXIT INT TERM
 # ── Preconditions ───────────────────────────────────────────────────────────
 command -v tmux >/dev/null 2>&1 || fail "tmux not found — required for the PTY (brew install tmux)"
 
-BIN="${PHANTOM_BIN:-}"
+BIN="${SPECTYN_BIN:-}"
 if [ -z "$BIN" ]; then
   REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
   # cargo runs from core/ (the crate root — there is NO root workspace), so the
   # binary lands in core/target/, NOT REPO_ROOT/target. Pointing at the latter
   # would run a stale/absent binary after a fresh build (codex review F2).
-  BIN="$REPO_ROOT/core/target/debug/phantom"
+  BIN="$REPO_ROOT/core/target/debug/spectyn"
   if [ ! -x "$BIN" ]; then
-    note "building phantom (debug) ..."
-    ( cd "$REPO_ROOT/core" && cargo build --bin phantom ) || fail "cargo build --bin phantom failed"
+    note "building spectyn (debug) ..."
+    ( cd "$REPO_ROOT/core" && cargo build --bin spectyn ) || fail "cargo build --bin spectyn failed"
   fi
 fi
-[ -x "$BIN" ] || fail "phantom binary not found/executable at $BIN"
+[ -x "$BIN" ] || fail "spectyn binary not found/executable at $BIN"
 note "bin:  $BIN"
 note "home: $RUN_HOME (isolated)"
 note "pty:  tmux ${COLS}x${ROWS}"
 
 # Clean child env (no provider key needed — this journey is local panes only).
-UNSET_KEYS="GROQ_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY MISTRAL_API_KEY DEEPSEEK_API_KEY PHANTOM_MESH_GROQ_API_KEY PHANTOM_MESH_ANTHROPIC_API_KEY PHANTOM_MESH_GEMINI_API_KEY"
+UNSET_KEYS="GROQ_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY MISTRAL_API_KEY DEEPSEEK_API_KEY SPECTYN_MESH_GROQ_API_KEY SPECTYN_MESH_ANTHROPIC_API_KEY SPECTYN_MESH_GEMINI_API_KEY"
 UNSET_ARGS=""
 for k in $UNSET_KEYS; do UNSET_ARGS="$UNSET_ARGS -u $k"; done
 
@@ -129,14 +129,14 @@ assert_contains() {
 # ── Launch ──────────────────────────────────────────────────────────────────
 # shellcheck disable=SC2086
 tmux new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" \
-  "env $UNSET_ARGS HOME='$RUN_HOME' PHANTOM_LOG=error '$BIN' tui 2>'$OUT/tui.stderr'"
+  "env $UNSET_ARGS HOME='$RUN_HOME' SPECTYN_LOG=error '$BIN' tui 2>'$OUT/tui.stderr'"
 
 drew=0
 for _ in $(seq 1 50); do
   sleep 0.2
   tmux capture-pane -t "$SESSION" -p > "$FRAMES/00-startup.txt" 2>/dev/null || true
   if grep -q '[─│╭╮╰╯┌┐└┘║═]' "$FRAMES/00-startup.txt" 2>/dev/null \
-     || grep -q 'phantom ·' "$FRAMES/00-startup.txt" 2>/dev/null; then
+     || grep -q 'spectyn ·' "$FRAMES/00-startup.txt" 2>/dev/null; then
     drew=1; break
   fi
 done
@@ -181,13 +181,13 @@ done
 note "  (structure: no-overflow / no-ESC / box-intact checked on all 5 frames)"
 # Each pane actually opened — assert on the box TITLE in the captured frame
 # (the pane replaces the body, so the pushed transcript line is covered; the
-# box title `┌ phantom · <pane>` is the visible proof). Titles are locale-
+# box title `┌ spectyn · <pane>` is the visible proof). Titles are locale-
 # dependent (this run is zh-Hant): habits→"習慣", focus→"focus", review→"回顧".
-assert_contains "01-habits" "phantom · 習慣|phantom · habits"   "/habits opened the habits pane (title)"
-assert_contains "02-focus"  "phantom · focus|phantom · 專注"    "/focus opened the focus pane (title)"
-assert_contains "03-review" "phantom · daily review"           "/review opened the review pane (title)"
+assert_contains "01-habits" "spectyn · 習慣|spectyn · habits"   "/habits opened the habits pane (title)"
+assert_contains "02-focus"  "spectyn · focus|spectyn · 專注"    "/focus opened the focus pane (title)"
+assert_contains "03-review" "spectyn · daily review"           "/review opened the review pane (title)"
 # Back-to-chat after the final Esc: pane title gone, chat status line shown.
-assert_contains "04-after-esc" "agent: master|phantom v0"        "Esc returned to the chat screen"
+assert_contains "04-after-esc" "agent: master|spectyn v0"        "Esc returned to the chat screen"
 
 # Quit cleanly (Ctrl-D on empty input → Exit).
 tmux send-keys -t "$SESSION" C-d 2>/dev/null || true

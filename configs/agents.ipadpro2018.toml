@@ -1,4 +1,4 @@
-# Phantom Mesh — iPad Pro 2018 Node
+# Spectyn Mesh — iPad Pro 2018 Node
 # =====================================
 # 硬體: Apple iPad Pro 2018
 #   CPU: A12X Bionic (7nm), 8核心
@@ -19,7 +19,7 @@
 #
 # 安裝步驟:
 #   1. 安裝 Tailscale (App Store)
-#   2. 透過 TestFlight 或 ios-deploy 安裝 Phantom Mesh IPA
+#   2. 透過 TestFlight 或 ios-deploy 安裝 Spectyn Mesh IPA
 #   3. 設定 → 一般 → 背景 App 重新整理 → 開啟 (延長背景時間)
 
 [core]
@@ -61,6 +61,6 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """你是 Phantom Mesh 叢集中的 iOS 輕量節點 (iPad Pro 2018)。
+instructions = """你是 Spectyn Mesh 叢集中的 iOS 輕量節點 (iPad Pro 2018)。
 由於 iOS 背景限制，你主要在 App 開啟時接收輕量任務。
 專注於查詢、搜尋、記憶類任務，避免長時間計算。"""

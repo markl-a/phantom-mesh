@@ -83,7 +83,7 @@ describe('<MobileIdentity />', () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === 'identity_status') return Promise.resolve(sampleStatus);
       if (cmd === 'data_export')
-        return Promise.resolve('~/.phantom-mesh/exports/events-2026-05-30.json');
+        return Promise.resolve('~/.spectyn-mesh/exports/events-2026-05-30.json');
       return Promise.resolve(null);
     });
     await renderPanel();

@@ -241,7 +241,7 @@ fn run_bash(code: &str, opts: &ExecutionOpts) -> Result<(i32, String, String), S
 
     // Route Trusted-mode skill bash through the same permission/trust gate as the
     // `shell` tool — otherwise a skill document body is an arbitrary-shell-exec
-    // surface that bypasses PHANTOM_PERM=deny / plan-mode / observe / project-trust.
+    // surface that bypasses SPECTYN_PERM=deny / plan-mode / observe / project-trust.
     if let Err(reason) = crate::tools::gate_allows("shell", &serde_json::json!({ "command": code }))
     {
         return Err(format!("denied by permission/trust gate: {reason}"));
@@ -715,12 +715,12 @@ mod tests {
         // build on.
         let (allowed, body, expect_substr): (Vec<String>, &str, &str) =
             if cfg!(target_os = "windows") {
-                // `cmd.exe /c echo phantom-T29-OK` is byte-deterministic and
+                // `cmd.exe /c echo spectyn-T29-OK` is byte-deterministic and
                 // doesn't depend on locale-specific `ver` output.
                 (
                     vec!["cmd.exe".to_string()],
-                    "cmd.exe /c echo phantom-T29-OK",
-                    "phantom-T29-OK",
+                    "cmd.exe /c echo spectyn-T29-OK",
+                    "spectyn-T29-OK",
                 )
             } else {
                 (vec!["cargo".to_string()], "cargo --version", "cargo")
@@ -1137,7 +1137,7 @@ triggers:
   - test
 ---
 ```bash
-echo phantom-skill-exec-T10
+echo spectyn-skill-exec-T10
 ```
 ",
         );
@@ -1154,7 +1154,7 @@ echo phantom-skill-exec-T10
             } => {
                 assert_eq!(*exit_code, 0, "echo should succeed");
                 assert!(
-                    stdout.trim().ends_with("phantom-skill-exec-T10"),
+                    stdout.trim().ends_with("spectyn-skill-exec-T10"),
                     "stdout was: {stdout:?}"
                 );
             }

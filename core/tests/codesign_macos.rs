@@ -1,7 +1,7 @@
 //! Mac-side codesign / Gatekeeper / notarytool integration tests.
 //!
 //! These exercise the *toolchain*, not actual distribution signing —
-//! they verify that the macOS shipping pipeline phantom relies on
+//! they verify that the macOS shipping pipeline spectyn relies on
 //! (`codesign`, `xattr`, `xcrun notarytool`) is reachable and behaves
 //! as documented. Real signed releases happen through CI with a stored
 //! Developer ID cert; that's out of scope here.
@@ -12,7 +12,7 @@ use std::process::Command;
 
 fn tmp_path(suffix: &str) -> String {
     format!(
-        "/tmp/phantom-codesign-test-{}-{}",
+        "/tmp/spectyn-codesign-test-{}-{}",
         std::process::id(),
         suffix
     )
@@ -20,7 +20,7 @@ fn tmp_path(suffix: &str) -> String {
 
 /// MAC P0 — `codesign -s -` (ad-hoc signing) must succeed on a regular
 /// Mach-O binary and produce a verifiable signature. Ad-hoc signing
-/// requires no Developer ID cert; it's the form phantom emits on
+/// requires no Developer ID cert; it's the form spectyn emits on
 /// `cargo install` so the binary will at least run on the developer's
 /// own Mac without Gatekeeper triggering on every launch.
 #[test]
@@ -65,7 +65,7 @@ fn codesign_self_sign_succeeds() {
 
 /// MAC P0 — The Gatekeeper quarantine xattr that browser/curl downloads
 /// attach to files must be removable via `xattr -d com.apple.quarantine`.
-/// phantom's `self-update` flow relies on this to avoid the "downloaded
+/// spectyn's `self-update` flow relies on this to avoid the "downloaded
 /// from the internet" pop-up after pulling a fresh binary.
 #[test]
 fn gatekeeper_quarantine_strip_via_xattr() {
@@ -79,7 +79,7 @@ fn gatekeeper_quarantine_strip_via_xattr() {
         .args([
             "-w",
             "com.apple.quarantine",
-            "0083;00000000;phantom-tdd;",
+            "0083;00000000;spectyn-tdd;",
             &target,
         ])
         .output()
@@ -136,7 +136,7 @@ fn gatekeeper_quarantine_strip_via_xattr() {
 ///
 /// If the operator has stored notarytool credentials via
 /// `xcrun notarytool store-credentials <profile>`, set
-/// `PHANTOM_NOTARY_PROFILE=<profile>` and this test will also run
+/// `SPECTYN_NOTARY_PROFILE=<profile>` and this test will also run
 /// `notarytool history` (round-trips to Apple's notarization service,
 /// validates the cred pipeline) — the stronger form of the test.
 #[test]
@@ -168,7 +168,7 @@ fn notarytool_submit_dryrun_validates() {
     }
 
     // Stronger variant: if a keychain profile is set up, hit Apple.
-    if let Ok(profile) = std::env::var("PHANTOM_NOTARY_PROFILE") {
+    if let Ok(profile) = std::env::var("SPECTYN_NOTARY_PROFILE") {
         let history = Command::new("xcrun")
             .args(["notarytool", "history", "--keychain-profile", &profile])
             .output()
@@ -183,8 +183,8 @@ fn notarytool_submit_dryrun_validates() {
     } else {
         eprintln!(
             "SKIPPED: notarytool_submit_dryrun_validates (history round-trip only) — \
-             PHANTOM_NOTARY_PROFILE unset. Set via `xcrun notarytool \
-             store-credentials <name>` then export PHANTOM_NOTARY_PROFILE=<name> for \
+             SPECTYN_NOTARY_PROFILE unset. Set via `xcrun notarytool \
+             store-credentials <name>` then export SPECTYN_NOTARY_PROFILE=<name> for \
              the stronger variant of this test."
         );
     }

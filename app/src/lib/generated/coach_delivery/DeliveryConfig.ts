@@ -4,11 +4,11 @@ import type { TelegramConfig } from "./TelegramConfig";
 
 /**
  * Top-level delivery configuration stored under `[coach.delivery]` in
- * `~/.phantom-mesh/config.toml`. Each channel is opt-in — `markdown_enabled`
+ * `~/.spectyn-mesh/config.toml`. Each channel is opt-in — `markdown_enabled`
  * defaults `true` (offline-safe baseline), Telegram + Email default disabled
  * (require explicit user setup), Push is reserved for v0.6.x and `false`.
  *
- * 中文: 教練派送的最上層使用者設定，存在 `~/.phantom-mesh/config.toml` 的
+ * 中文: 教練派送的最上層使用者設定，存在 `~/.spectyn-mesh/config.toml` 的
  * `[coach.delivery]` section。每個通道都 opt-in — `markdown_enabled` 預
  * 設 `true`（離線安全 baseline），Telegram / Email 預設關閉（要 user 自己
  * 設定才開），`push_enabled` 預留 v0.6.x 用、本版固定 `false`。

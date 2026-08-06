@@ -2,9 +2,9 @@
 //! through, its output/error types, and cross-vendor rate-limit detection.
 //! Ported from the `ensemble` project (Apache-2.0) §6 crew port.
 //!
-//! phantom's own `GovernedCliAdapter` (a later slice) implements this trait by
+//! spectyn's own `GovernedCliAdapter` (a later slice) implements this trait by
 //! driving codex/claude/agy/opencode through `cli_session` + `governed_run`, so
-//! ensemble's conductor brain steers phantom's governed hands. The `MockAdapter`
+//! ensemble's conductor brain steers spectyn's governed hands. The `MockAdapter`
 //! here keeps the conductor's orchestration logic hermetically testable.
 
 use std::collections::VecDeque;

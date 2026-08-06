@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# seed-marker.sh — record which commit THIS node's phantom binary was built from.
+# seed-marker.sh — record which commit THIS node's spectyn binary was built from.
 #
 # self-update.sh (S7) decides "am I behind?" by comparing origin/<base> to a
 # marker file = the commit the installed binary was built from. That marker is
 # only knowable at BUILD time (the binary doesn't reliably self-report it:
-# core_sha comes from a build-time PHANTOM_GIT_HASH that the default `cargo
+# core_sha comes from a build-time SPECTYN_GIT_HASH that the default `cargo
 # build` doesn't set). So call this RIGHT AFTER a successful build, while the
 # checkout is still at the built commit — the arm / dev-node flow does this so a
 # fresh node's first self-update is reliable (closes the no-marker edge: review
@@ -18,8 +18,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 # ${HOME:-} so a minimal env with HOME unset doesn't crash under `set -u`
 # before we can give a clear error (review: agy).
-STATE_DIR="${PHANTOM_STATE_DIR:-${HOME:-}/.phantom-mesh}"
-MARKER="${PHANTOM_BUILT_COMMIT:-$STATE_DIR/built-commit}"
+STATE_DIR="${SPECTYN_STATE_DIR:-${HOME:-}/.spectyn-mesh}"
+MARKER="${SPECTYN_BUILT_COMMIT:-$STATE_DIR/built-commit}"
 
 cd "$ROOT" 2>/dev/null || { echo "seed-marker: not in a repo ($ROOT)" >&2; exit 1; }
 sha="${1:-$(git rev-parse HEAD 2>/dev/null)}"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Run the workspace's cargo test suite. Heavy compared to other features
 # (~30s on a warm cache, several minutes cold), so this is P2 — opt-out via
-# `phantom selftest --p0-only` or `--feature <other>`.
+# `spectyn selftest --p0-only` or `--feature <other>`.
 #
 # We don't gate on cargo availability via `requires=cargo` because cargo is
-# de-facto required to ship phantom; if it's missing the run fails loudly,
+# de-facto required to ship spectyn; if it's missing the run fails loudly,
 # which is the right signal.
 
 selftest_feature_meta() {
@@ -24,7 +24,7 @@ selftest_requires() {
     [ -f "$cwd/core/Cargo.toml" ] && return 0
     cwd="$(dirname "$cwd")"
   done
-  echo "could not find core/Cargo.toml from $(pwd) — run from the phantom-mesh repo" >&2
+  echo "could not find core/Cargo.toml from $(pwd) — run from the spectyn-mesh repo" >&2
   return 1
 }
 

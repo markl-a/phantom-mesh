@@ -1,14 +1,14 @@
-//! `GovernedCliAdapter` — phantom's OWN implementation of the ported crew
+//! `GovernedCliAdapter` — spectyn's OWN implementation of the ported crew
 //! `Adapter` seam (this is new glue, not ported from ensemble). It connects
-//! ensemble's conductor brain to phantom's hands: each crew turn drives a real
+//! ensemble's conductor brain to spectyn's hands: each crew turn drives a real
 //! vendor CLI (codex / claude / agy / opencode, or a registered external
-//! gateway) through phantom's `cli_session` L0 substrate and folds the
+//! gateway) through spectyn's `cli_session` L0 substrate and folds the
 //! normalized event stream back into an `AgentOutput` / `AdapterError`.
 //!
 //! Slice-3a wires the cli_session drive + the (unit-tested) event→output fold.
 //! The governed pass — routing the same event `Receiver` through
 //! `governed_run::drive_fold` (governor + flight-recorder + phone escalation,
-//! apex-④) — is wired by the `phantom crew` entry point (slice-3b), which owns
+//! apex-④) — is wired by the `spectyn crew` entry point (slice-3b), which owns
 //! the recorder / EventStore / policy context that `drive_fold` requires.
 
 use crate::cli_session::error::SessionError;
@@ -19,7 +19,7 @@ use crate::governed_run::run::{run_govern_folded, GovernConfig};
 use crate::governed_run::{GovernPolicy, GovernedFold};
 use std::path::Path;
 
-/// Map a crew agent NAME to a phantom `CliKind`. The four first-class vendors map directly; any
+/// Map a crew agent NAME to a spectyn `CliKind`. The four first-class vendors map directly; any
 /// other name is looked up in the external-gateway registry. `None` ⇒ unknown agent.
 pub fn cli_kind_for(agent: &str) -> Option<CliKind> {
     match agent {
@@ -132,7 +132,7 @@ impl GovernanceCtx {
     }
 }
 
-/// A crew `Adapter` that drives a real vendor CLI through phantom's `cli_session` substrate.
+/// A crew `Adapter` that drives a real vendor CLI through spectyn's `cli_session` substrate.
 /// Ungoverned by default (a plain drive); wire [`GovernedCliAdapter::with_governance`] to route
 /// every turn through the governor + flight-recorder (apex-④).
 pub struct GovernedCliAdapter {
@@ -187,7 +187,7 @@ impl GovernedCliAdapter {
         cfg.model = self.model.clone();
         cfg.policy = g.policy.clone();
         // `run_govern_folded` is async; `Adapter::run` is sync. block_on is legal here because the
-        // conductor is driven on a blocking thread (the `phantom crew` CLI uses spawn_blocking).
+        // conductor is driven on a blocking thread (the `spectyn crew` CLI uses spawn_blocking).
         match g.handle.block_on(run_govern_folded(cfg)) {
             Ok((fold, _task_id)) => map_governed_fold(&self.name, fold),
             Err(e) => Err(AdapterError::Flaked(format!("governed run failed: {e}"))),

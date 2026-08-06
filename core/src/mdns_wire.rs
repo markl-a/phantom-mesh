@@ -1,5 +1,5 @@
 // SPEC-11 §7 — mDNS discovery wire types (single source of truth for the
-// `_phantom-mesh._tcp.local.` service: TXT records schema + Rust API surface +
+// `_spectyn-mesh._tcp.local.` service: TXT records schema + Rust API surface +
 // `mdns:peer` event payload shared with SPEC-17).
 //
 // Stage 4 (mdns-sd live — all helpers real): the TXT-parsing pipeline
@@ -10,7 +10,7 @@
 // `mdns_browse`, `dispatch_browse_events`) now use `mdns-sd` 0.13
 // `ServiceDaemon` + `ServiceInfo` per §7.3 lifecycle: one shared daemon
 // guarded by `std::sync::OnceLock`, register/browse the standard
-// `_phantom-mesh._tcp.local.` service, and forward `ServiceEvent` →
+// `_spectyn-mesh._tcp.local.` service, and forward `ServiceEvent` →
 // `DiscoveryEvent` through a `std::thread` (mdns-sd is sync, not tokio).
 //
 // 中文: 本檔對應 SPEC-11 §7（資料模型）。`PeerAdvertisement` 是 mDNS TXT 記錄
@@ -76,7 +76,7 @@ impl PeerOs {
 
 // ─── §7.2 PeerAdvertisement — the 6 TXT records + SRV/A material ─────────────
 
-/// Single-source-of-truth Rust struct for a mDNS-advertised phantom-mesh peer.
+/// Single-source-of-truth Rust struct for a mDNS-advertised spectyn-mesh peer.
 /// Combines the 6 TXT records from §7.2 (`v`, `pf`, `cl`, `ca`, `os`, `na`)
 /// with the SRV port and the A/AAAA addresses resolved by `mdns-sd`.
 ///
@@ -106,7 +106,7 @@ pub struct PeerAdvertisement {
     pub os: PeerOs,
     /// TXT `na` — UTF-8 nickname (≤ 63 bytes per RFC 6763).
     pub na: String,
-    /// SRV record port; default `7878` (shared with `phantom serve`).
+    /// SRV record port; default `7878` (shared with `spectyn serve`).
     pub port: u16,
     /// Resolved A / AAAA addresses (ts-rs has a built-in `IpAddr` impl that
     /// renders as the string representation on the TS side).
@@ -220,7 +220,7 @@ pub enum MdnsError {
 //   without trusting any platform-mDNS implementation. Stage 3 swaps the
 //   `_pseudo` helpers for real mdns-sd / sha2 calls (added then).
 
-/// Start advertising this peer on `_phantom-mesh._tcp.local.` per §7.1.
+/// Start advertising this peer on `_spectyn-mesh._tcp.local.` per §7.1.
 ///
 /// Stage 2 will wire `mdns_sd::ServiceDaemon::register` with the TXT records
 /// composed from `ad`'s fields per §7.2 schema, the SRV port from `ad.port`,
@@ -248,7 +248,7 @@ pub fn start_advertiser(ad: &PeerAdvertisement) -> Result<(), MdnsError> {
     mdns_register(daemon, service_info)
 }
 
-/// Start browsing `_phantom-mesh._tcp.local.` and filter by cluster hash.
+/// Start browsing `_spectyn-mesh._tcp.local.` and filter by cluster hash.
 ///
 /// `expected_cluster_id_hash` is the 16-hex `cl` value derived via
 /// `compute_cluster_id_hash`; mismatched advertisements are silently dropped
@@ -262,7 +262,7 @@ pub fn start_browser(expected_cluster_id_hash: &str) -> Result<(), MdnsError> {
     //         do not race two binds on UDP-5353 per §7.3.
     let daemon = ensure_service_daemon()?;
 
-    // Step 2: open a browse channel on `_phantom-mesh._tcp.local.` —
+    // Step 2: open a browse channel on `_spectyn-mesh._tcp.local.` —
     //         returns an `mdns_sd::Receiver<ServiceEvent>` that emits
     //         `ServiceFound` / `ServiceResolved` / `ServiceRemoved` as
     //         peers come and go on the LAN.
@@ -388,11 +388,11 @@ pub fn compute_pubkey_fingerprint_short(pubkey: &[u8]) -> String {
 //
 // All five previously-pseudocode helpers now use the `mdns-sd` crate
 // (added to core/Cargo.toml in commit fb72982). The §7 service type
-// `_phantom-mesh._tcp.local.` is the single constant the daemon binds on.
+// `_spectyn-mesh._tcp.local.` is the single constant the daemon binds on.
 
 /// SPEC-11 §7.1 — the canonical mDNS service type. Changing this string
 /// is a wire-break across all platforms (Rust / Swift / Kotlin).
-const SERVICE_TYPE: &str = "_phantom-mesh._tcp.local.";
+const SERVICE_TYPE: &str = "_spectyn-mesh._tcp.local.";
 
 /// Process-wide shared `ServiceDaemon` per §7.3 — advertiser + browser
 /// must share one daemon so UDP-5353 is bound exactly once. `OnceLock`
@@ -431,7 +431,7 @@ fn build_service_info(ad: &PeerAdvertisement) -> Result<mdns_sd::ServiceInfo, Md
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
         .collect();
     let host_name = if host_label.is_empty() {
-        format!("phantom-{}.local.", ad.pf)
+        format!("spectyn-{}.local.", ad.pf)
     } else {
         format!("{}.local.", host_label)
     };
@@ -480,7 +480,7 @@ fn mdns_register(
     })
 }
 
-/// Start browsing `_phantom-mesh._tcp.local.` and return the event channel.
+/// Start browsing `_spectyn-mesh._tcp.local.` and return the event channel.
 /// The receiver yields `ServiceEvent` variants per `mdns-sd` 0.13.
 fn mdns_browse(
     daemon: &mdns_sd::ServiceDaemon,
@@ -883,12 +883,12 @@ mod tests {
 
         // ServiceRemoved → PeerRemoved, preserving the instance name.
         let ev = mdns_sd::ServiceEvent::ServiceRemoved(
-            "_phantom-mesh._tcp.local.".to_string(),
-            "z13._phantom-mesh._tcp.local.".to_string(),
+            "_spectyn-mesh._tcp.local.".to_string(),
+            "z13._spectyn-mesh._tcp.local.".to_string(),
         );
         match map_service_event(ev, cl) {
             Some(DiscoveryEvent::PeerRemoved { instance_name }) => {
-                assert_eq!(instance_name, "z13._phantom-mesh._tcp.local.");
+                assert_eq!(instance_name, "z13._spectyn-mesh._tcp.local.");
             }
             other => panic!("expected PeerRemoved, got {other:?}"),
         }
@@ -896,14 +896,14 @@ mod tests {
         // SearchStarted / SearchStopped map to their discovery counterparts.
         assert!(matches!(
             map_service_event(
-                mdns_sd::ServiceEvent::SearchStarted("_phantom-mesh._tcp.local.".to_string()),
+                mdns_sd::ServiceEvent::SearchStarted("_spectyn-mesh._tcp.local.".to_string()),
                 cl,
             ),
             Some(DiscoveryEvent::SearchStarted)
         ));
         assert!(matches!(
             map_service_event(
-                mdns_sd::ServiceEvent::SearchStopped("_phantom-mesh._tcp.local.".to_string()),
+                mdns_sd::ServiceEvent::SearchStopped("_spectyn-mesh._tcp.local.".to_string()),
                 cl,
             ),
             Some(DiscoveryEvent::SearchStopped)
@@ -911,8 +911,8 @@ mod tests {
 
         // ServiceFound is pre-resolve: nothing to emit yet.
         let ev = mdns_sd::ServiceEvent::ServiceFound(
-            "_phantom-mesh._tcp.local.".to_string(),
-            "z13._phantom-mesh._tcp.local.".to_string(),
+            "_spectyn-mesh._tcp.local.".to_string(),
+            "z13._spectyn-mesh._tcp.local.".to_string(),
         );
         assert!(map_service_event(ev, cl).is_none());
     }
@@ -1020,7 +1020,7 @@ mod tests {
     /// Live mDNS smoke test — binds UDP-5353, registers, browses. Behind
     /// `#[ignore]` because it requires a usable network stack and clean
     /// port 5353 (avahi / Bonjour conflicts). Run with
-    /// `cargo test -p phantom-mesh -- --ignored mdns_wire_live`.
+    /// `cargo test -p spectyn-mesh -- --ignored mdns_wire_live`.
     #[test]
     #[ignore]
     fn mdns_wire_live_register_and_browse_smoke() {
@@ -1030,7 +1030,7 @@ mod tests {
             cl: "feedfacecafebabe".to_string(),
             ca: vec!["always-on".to_string(), "gpu".to_string()],
             os: PeerOs::Mac,
-            na: "phantom-live-test".to_string(),
+            na: "spectyn-live-test".to_string(),
             port: 7878,
             addrs: vec![],
         };

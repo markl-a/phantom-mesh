@@ -1,13 +1,13 @@
 //! P0-8 integration tests — at-rest encryption closure for the skill FTS5
 //! owned-memory store (`hermes_memory` / `hermes_memory_fts`).
 //!
-//! These run against the public `phantom_mesh::skillbank::memory::SkillMemory`
-//! API plus raw on-disk inspection, with `PHANTOM_ENCRYPT_MEMORY=1` and a
+//! These run against the public `spectyn_mesh::skillbank::memory::SkillMemory`
+//! API plus raw on-disk inspection, with `SPECTYN_ENCRYPT_MEMORY=1` and a
 //! per-process `EventKey` installed directly.
 //!
 //! Process-global state (the EventKey cache + the env flag) means these MUST run
 //! single-threaded — the harness is invoked with `-- --test-threads=1`, and an
-//! in-file serial lock is belt-and-suspenders. Each test also sets `PHANTOM_HOME`
+//! in-file serial lock is belt-and-suspenders. Each test also sets `SPECTYN_HOME`
 //! to a temp dir with NO `identity.key` so the lib's derive-on-miss path cannot
 //! pick up the operator's real key (the integration build does not get the
 //! `#[cfg(test)]` "never read identity.key" guard the lib's own tests have).
@@ -17,13 +17,13 @@
 
 #![cfg(feature = "experimental-memory")]
 // These tests deliberately hold a std::sync::Mutex across `.await` to serialize
-// the process-global EventKey cache + PHANTOM_ENCRYPT_MEMORY env for the whole
+// the process-global EventKey cache + SPECTYN_ENCRYPT_MEMORY env for the whole
 // async body (an async-aware mutex would release between awaits and defeat the
 // serialization). Suppress the (correct-in-general) lint for this test-only use.
 #![allow(clippy::await_holding_lock)]
 
-use phantom_mesh::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
-use phantom_mesh::skillbank::memory::{SkillMemory, NewMemory};
+use spectyn_mesh::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
+use spectyn_mesh::skillbank::memory::{SkillMemory, NewMemory};
 
 /// Serialize all key/env-touching tests on one process-global mutex.
 fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -37,14 +37,14 @@ fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
 /// Point the data-root at an isolated temp dir (with no `identity.key`) so the
 /// lib's derive-on-miss path can never load the operator's real key.
 fn isolate_home(td: &std::path::Path) {
-    std::env::set_var("PHANTOM_HOME", td);
-    std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+    std::env::set_var("SPECTYN_HOME", td);
+    std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
 }
 
 /// Reset the process-global state a test mutated.
 fn teardown() {
-    std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
-    std::env::remove_var("PHANTOM_HOME");
+    std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
+    std::env::remove_var("SPECTYN_HOME");
     clear_event_key_cache();
 }
 
@@ -236,7 +236,7 @@ async fn delete_purges_index_and_row() {
 
 /// Scenario 4b — key-cache wipe (the kill-switch) immediately renders sealed
 /// rows unreadable, even before the file is shredded. Mirrors the
-/// `phantom data delete --all` path's `clear_event_key_cache()`.
+/// `spectyn data delete --all` path's `clear_event_key_cache()`.
 #[tokio::test]
 async fn key_cache_wipe_makes_rows_unreadable() {
     let _g = serial_lock();
@@ -257,7 +257,7 @@ async fn key_cache_wipe_makes_rows_unreadable() {
         .unwrap()
     };
 
-    // Wipe the key cache (kill-switch). With PHANTOM_HOME pointing at a temp dir
+    // Wipe the key cache (kill-switch). With SPECTYN_HOME pointing at a temp dir
     // that has NO identity.key, the derive-on-miss path also yields nothing, so
     // the sealed row can no longer be opened.
     clear_event_key_cache();

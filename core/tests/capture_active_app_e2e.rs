@@ -10,11 +10,11 @@
 //!      bundle id; mirrors the E004 guard) AND decrypt back via the store/recall.
 //!   3. no-key no-op: with NO EventKey available, the writer logs + writes NOTHING.
 
-use phantom_mesh::capture_focus_wire::{
+use spectyn_mesh::capture_focus_wire::{
     focus_event_tags, write_focus_event, ActiveAppFocus, ActiveAppSampler,
 };
-use phantom_mesh::event_storage_wire::EventKind;
-use phantom_mesh::life_node::storage::EventStore;
+use spectyn_mesh::event_storage_wire::EventKind;
+use spectyn_mesh::life_node::storage::EventStore;
 
 /// 1. on_sample sequence: feed (t0,A),(t1,A),(t2,B),(t3,C) and assert it emits
 ///    focus records for A (duration t2−t0) then B (t3−t2) — ≥2 DISTINCT
@@ -58,9 +58,9 @@ fn on_sample_sequence_emits_two_distinct_records_with_durations() {
 #[test]
 fn emitted_events_are_age_encrypted_on_disk_and_decrypt_back() {
     let tmp = tempfile::tempdir().unwrap();
-    let phantom_dir = tmp.path().join(".phantom-mesh");
-    let events_dir = phantom_dir.join("events");
-    let identity_path = phantom_dir.join("identity.key");
+    let spectyn_dir = tmp.path().join(".spectyn-mesh");
+    let events_dir = spectyn_dir.join("events");
+    let identity_path = spectyn_dir.join("identity.key");
     std::fs::create_dir_all(&events_dir).unwrap();
     // 64-byte identity.key → derives a real age EventKey (same path production uses).
     std::fs::write(&identity_path, [0x5Au8; 64]).unwrap();
@@ -130,10 +130,10 @@ fn emitted_events_are_age_encrypted_on_disk_and_decrypt_back() {
     assert_eq!(meta_a.tags, focus_event_tags(&focus_a));
 }
 
-/// 2b. REAL recall path (FINDING 3 / spec acceptance "visible via phantom recall
+/// 2b. REAL recall path (FINDING 3 / spec acceptance "visible via spectyn recall
 ///     --json"): write a focus event through the PRODUCTION `write_focus_event`
 ///     path (temp EventStore + temp identity.key), then query it through the
-///     EXACT same function `phantom recall` calls — `recall::search_events` — and
+///     EXACT same function `spectyn recall` calls — `recall::search_events` — and
 ///     assert the event is RETURNED. `search_events` SKIPS any event whose
 ///     `analysis.json` can't be read (`let Ok(analysis) = … else continue`); a
 ///     focus event with no analysis sibling is therefore INVISIBLE to recall even
@@ -142,13 +142,13 @@ fn emitted_events_are_age_encrypted_on_disk_and_decrypt_back() {
 ///     analysis-sibling fix in `write_focus_event` and passes WITH it.
 #[test]
 fn focus_event_visible_via_real_recall_by_bundle_id_and_kind() {
-    use phantom_mesh::life_node::key_derivation::event_key_for_write;
-    use phantom_mesh::life_node::recall::{search_events, RecallFilter, RecallMode};
+    use spectyn_mesh::life_node::key_derivation::event_key_for_write;
+    use spectyn_mesh::life_node::recall::{search_events, RecallFilter, RecallMode};
 
     let tmp = tempfile::tempdir().unwrap();
-    let phantom_dir = tmp.path().join(".phantom-mesh");
-    let events_dir = phantom_dir.join("events");
-    let identity_path = phantom_dir.join("identity.key");
+    let spectyn_dir = tmp.path().join(".spectyn-mesh");
+    let events_dir = spectyn_dir.join("events");
+    let identity_path = spectyn_dir.join("identity.key");
     std::fs::create_dir_all(&events_dir).unwrap();
     // Same 64-byte identity.key the production read path derives its EventKey from.
     std::fs::write(&identity_path, [0x5Au8; 64]).unwrap();
@@ -161,7 +161,7 @@ fn focus_event_visible_via_real_recall_by_bundle_id_and_kind() {
         .expect("write must succeed")
         .expect("write must produce an event id (key present)");
 
-    // The SAME key `phantom recall` resolves for reads.
+    // The SAME key `spectyn recall` resolves for reads.
     let key = event_key_for_write(&identity_path)
         .expect("identity.key must load")
         .expect("a present 64-byte identity.key must yield a key");
@@ -178,7 +178,7 @@ fn focus_event_visible_via_real_recall_by_bundle_id_and_kind() {
     .expect("search must not error");
     assert!(
         by_bundle.iter().any(|h| h.event_id == id),
-        "focus event must be VISIBLE via `phantom recall {bundle} --kind focus` \
+        "focus event must be VISIBLE via `spectyn recall {bundle} --kind focus` \
          (got {} hit(s): {:?}) — fails without the analysis-sibling fix",
         by_bundle.len(),
         by_bundle
@@ -246,7 +246,7 @@ fn read_error_tick_skipped_does_not_fragment_focus_interval() {
 
 /// 1c. shutdown-flush behavior (FINDING 2): the production loop flushes the
 ///     in-flight interval when its `CancellationToken` is cancelled. That
-///     cancellation is REACHABLE — `phantom serve` cancels the retained token on
+///     cancellation is REACHABLE — `spectyn serve` cancels the retained token on
 ///     its Ctrl-C graceful-shutdown path. The flush itself is `on_sample(now,
 ///     None)`, which closes out the tracked app. We assert that contract at the
 ///     state-machine level: a final `None` (the shutdown flush) emits the
@@ -289,7 +289,7 @@ async fn sampler_future_completes_promptly_after_cancel() {
 
     // Long interval so a tick can't be the exit; the only way this future
     // completes is via the cancel arm (the shutdown-flush path serve awaits).
-    let handle = tokio::spawn(phantom_mesh::capture_focus_wire::run_active_app_sampler(
+    let handle = tokio::spawn(spectyn_mesh::capture_focus_wire::run_active_app_sampler(
         tmp.path().to_path_buf(),
         3_600,
         token.clone(),
@@ -333,7 +333,7 @@ async fn bind_http_listener_errs_when_port_already_bound() {
 
     // THIS process cannot claim a port another listener already owns → Err.
     // (May take up to the 15s retry budget before giving up — intended.)
-    let result = phantom_mesh::bind_http_listener("127.0.0.1", busy_port).await;
+    let result = spectyn_mesh::bind_http_listener("127.0.0.1", busy_port).await;
     assert!(
         result.is_err(),
         "bind_http_listener must FAIL on a port owned by another service \
@@ -348,7 +348,7 @@ async fn bind_http_listener_errs_when_port_already_bound() {
 ///     never flakes on a busy fixed port.
 #[tokio::test]
 async fn bind_http_listener_succeeds_on_free_port() {
-    let listener = phantom_mesh::bind_http_listener("127.0.0.1", 0)
+    let listener = spectyn_mesh::bind_http_listener("127.0.0.1", 0)
         .await
         .expect("bind on a free ephemeral port (port 0) must succeed");
     let addr = listener.local_addr().expect("bound listener has a local_addr");
@@ -361,9 +361,9 @@ async fn bind_http_listener_succeeds_on_free_port() {
 #[test]
 fn no_event_key_is_a_logged_no_op_no_plaintext() {
     let tmp = tempfile::tempdir().unwrap();
-    let phantom_dir = tmp.path().join(".phantom-mesh");
-    let events_dir = phantom_dir.join("events");
-    let identity_path = phantom_dir.join("identity.key"); // deliberately absent
+    let spectyn_dir = tmp.path().join(".spectyn-mesh");
+    let events_dir = spectyn_dir.join("events");
+    let identity_path = spectyn_dir.join("identity.key"); // deliberately absent
     std::fs::create_dir_all(&events_dir).unwrap();
     assert!(!identity_path.exists(), "precondition: no identity.key");
 
@@ -391,9 +391,9 @@ fn no_event_key_is_a_logged_no_op_no_plaintext() {
 #[test]
 fn corrupt_event_key_is_a_logged_no_op_no_plaintext() {
     let tmp = tempfile::tempdir().unwrap();
-    let phantom_dir = tmp.path().join(".phantom-mesh");
-    let events_dir = phantom_dir.join("events");
-    let identity_path = phantom_dir.join("identity.key");
+    let spectyn_dir = tmp.path().join(".spectyn-mesh");
+    let events_dir = spectyn_dir.join("events");
+    let identity_path = spectyn_dir.join("identity.key");
     std::fs::create_dir_all(&events_dir).unwrap();
     // Present but <16 bytes → derive fails; we must NOT fall back to plaintext.
     std::fs::write(&identity_path, [0x01u8; 5]).unwrap();

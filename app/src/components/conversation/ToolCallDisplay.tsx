@@ -20,11 +20,11 @@ function toolIcon(name: string): string {
 // ─── Status icon ──────────────────────────────────────────────────────────────
 function StatusIcon({ status }: { status: ToolCall["status"] | undefined }) {
   switch (status) {
-    case "pending": return <Clock size={12} className="text-phantom-muted flex-shrink-0" />;
-    case "running": return <Loader2 size={12} className="text-phantom-primary animate-spin flex-shrink-0" />;
-    case "done":    return <CheckCircle2 size={12} className="text-phantom-success flex-shrink-0" />;
-    case "error":   return <XCircle size={12} className="text-phantom-danger flex-shrink-0" />;
-    default:        return <Clock size={12} className="text-phantom-muted flex-shrink-0" />;
+    case "pending": return <Clock size={12} className="text-spectyn-muted flex-shrink-0" />;
+    case "running": return <Loader2 size={12} className="text-spectyn-primary animate-spin flex-shrink-0" />;
+    case "done":    return <CheckCircle2 size={12} className="text-spectyn-success flex-shrink-0" />;
+    case "error":   return <XCircle size={12} className="text-spectyn-danger flex-shrink-0" />;
+    default:        return <Clock size={12} className="text-spectyn-muted flex-shrink-0" />;
   }
 }
 
@@ -41,14 +41,14 @@ function CollapsibleBlock({ label, content, scrollable = false }: CollapsibleBlo
     <div className="mt-1">
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1 text-[10px] text-phantom-muted hover:text-phantom-text transition"
+        className="flex items-center gap-1 text-[10px] text-spectyn-muted hover:text-spectyn-text transition"
       >
         <ChevronDown size={10} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         {label}
       </button>
       {expanded && (
         <pre
-          className={`mt-1 text-[10px] bg-phantom-bg border border-phantom-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all text-phantom-muted ${
+          className={`mt-1 text-[10px] bg-spectyn-bg border border-spectyn-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all text-spectyn-muted ${
             scrollable ? "max-h-[200px] overflow-y-auto" : ""
           }`}
         >
@@ -66,11 +66,11 @@ function SingleToolCall({ toolCall }: { toolCall: ToolCall }) {
   const hasResult = !!toolCall.result;
 
   return (
-    <div className="border border-phantom-border rounded p-2 text-xs bg-phantom-bg/50">
+    <div className="border border-spectyn-border rounded p-2 text-xs bg-spectyn-bg/50">
       <div className="flex items-center gap-1.5">
         <span className="text-sm leading-none">{icon}</span>
         <StatusIcon status={toolCall.status} />
-        <span className="font-mono text-phantom-primary truncate">{toolCall.name}</span>
+        <span className="font-mono text-spectyn-primary truncate">{toolCall.name}</span>
       </div>
 
       {hasArgs && (
@@ -113,7 +113,7 @@ export default function ToolCallDisplay({ toolCalls }: ToolCallDisplayProps) {
       {/* Summary toggle */}
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="flex items-center gap-1.5 text-xs text-phantom-muted hover:text-phantom-text transition"
+        className="flex items-center gap-1.5 text-xs text-spectyn-muted hover:text-spectyn-text transition"
       >
         <ChevronDown size={12} className={`transition-transform ${expanded ? "rotate-180" : ""}`} />
         {summaryLabel}

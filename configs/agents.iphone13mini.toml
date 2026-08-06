@@ -1,4 +1,4 @@
-# Phantom Mesh — iPhone 13 Mini Node
+# Spectyn Mesh — iPhone 13 Mini Node
 # =====================================
 # 硬體: Apple iPhone 13 Mini
 #   CPU: A15 Bionic (5nm) — 比 iPad Pro 2018 更新更快
@@ -17,7 +17,7 @@
 # 安裝步驟:
 #   1. 安裝 Tailscale (App Store)
 #   2. 安裝 Telegram (已有)
-#   3. 透過 TestFlight 或 ios-deploy 安裝 Phantom Mesh IPA
+#   3. 透過 TestFlight 或 ios-deploy 安裝 Spectyn Mesh IPA
 #   4. 設定 → 一般 → 背景 App 重新整理 → 開啟
 
 [core]
@@ -59,6 +59,6 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """你是 Phantom Mesh 叢集中的 iPhone 行動節點 (iPhone 13 Mini)。
+instructions = """你是 Spectyn Mesh 叢集中的 iPhone 行動節點 (iPhone 13 Mini)。
 由於 iOS 背景限制，主要在 App 開啟時接收快速查詢類任務。
 用最短的回覆完成任務。"""

@@ -1,14 +1,14 @@
 // Tauri command for the app's Recall (content search) surface — the app
-// counterpart of the TUI `/recall` + CLI `phantom recall` (BIG-GOAL P2 Life
-// Track). Searches the SAME file event store (~/.phantom-mesh/events) via
+// counterpart of the TUI `/recall` + CLI `spectyn recall` (BIG-GOAL P2 Life
+// Track). Searches the SAME file event store (~/.spectyn-mesh/events) via
 // life_node::recall::search_events, so all three surfaces find the same events.
 // Read-only + offline; encrypted events decrypt only with the key (skipped
 // without one — never surfaces ciphertext).
 
 use serde::Serialize;
 
-use phantom_mesh::life_node::key_derivation::load_event_key;
-use phantom_mesh::life_node::recall::{search_events, RecallFilter, RecallMode};
+use spectyn_mesh::life_node::key_derivation::load_event_key;
+use spectyn_mesh::life_node::recall::{search_events, RecallFilter, RecallMode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,8 +29,8 @@ pub async fn recall_search(
     limit: Option<usize>,
 ) -> Result<Vec<RecallHitView>, String> {
     let home = dirs::home_dir().ok_or_else(|| "recall.no_home_dir".to_string())?;
-    let phantom = home.join(".phantom-mesh");
-    let key = load_event_key(&phantom.join("identity.key")).ok();
+    let spectyn = home.join(".spectyn-mesh");
+    let key = load_event_key(&spectyn.join("identity.key")).ok();
     let filter = RecallFilter {
         query: query.trim(),
         kind: kind.as_deref(),
@@ -39,7 +39,7 @@ pub async fn recall_search(
         // CLI `recall --mode` exposes semantic/hybrid explicitly.
         mode: RecallMode::Keyword,
     };
-    let hits = search_events(&phantom.join("events"), key, &filter, limit.unwrap_or(50))
+    let hits = search_events(&spectyn.join("events"), key, &filter, limit.unwrap_or(50))
         .map_err(|e| format!("recall.failed: {e:?}"))?;
     Ok(hits
         .into_iter()

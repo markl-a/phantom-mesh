@@ -111,14 +111,14 @@ pub fn decide_pretooluse_hook(hook_input: &Value, escalator: &mut dyn Escalator)
         .and_then(|v| v.as_str())
         .unwrap_or("");
     if tool_name.is_empty() {
-        return hook_deny("phantom governor: missing tool_name (fail-safe deny)");
+        return hook_deny("spectyn governor: missing tool_name (fail-safe deny)");
     }
     let tool_input = hook_input
         .get("tool_input")
         .cloned()
         .unwrap_or_else(|| json!({}));
     match decide_core(tool_name, &tool_input, escalator) {
-        GateDecision::Allow => hook_allow(format!("phantom governor: '{tool_name}' allowed")),
+        GateDecision::Allow => hook_allow(format!("spectyn governor: '{tool_name}' allowed")),
         GateDecision::Deny(reason) => hook_deny(reason),
     }
 }
@@ -135,7 +135,7 @@ pub async fn prod_decide_permission(tool_name: String, input: Value) -> Value {
 
     let home = match crate::cli_config::resolve_home_dir() {
         Ok(h) => h,
-        Err(_) => return deny("phantom home could not be resolved"),
+        Err(_) => return deny("spectyn home could not be resolved"),
     };
     let dispatcher = NotificationDispatcher::new();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -166,10 +166,10 @@ pub async fn prod_decide_permission(tool_name: String, input: Value) -> Value {
     }
 }
 
-/// Production entry for the `phantom pretooluse-gate` hook subcommand: build the
+/// Production entry for the `spectyn pretooluse-gate` hook subcommand: build the
 /// REAL phone escalator bound to the GOVERNED RUN's identity and decide.
 ///
-/// The escalator's `task_id` is the run's id, read from `PHANTOM_GOVERN_TASK_ID`
+/// The escalator's `task_id` is the run's id, read from `SPECTYN_GOVERN_TASK_ID`
 /// (set by the parent when it spawns the governed claude) — NOT a fresh uuid — so a
 /// phone reply correlates to this run and there is exactly ONE awaiter (the hook).
 /// The parent loop observes claude's stream WITHOUT a second await (the agy-#3 fix).
@@ -184,14 +184,14 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
 
     let home = match crate::cli_config::resolve_home_dir() {
         Ok(h) => h,
-        Err(_) => return hook_deny("phantom governor: home unresolved (fail-safe deny)"),
+        Err(_) => return hook_deny("spectyn governor: home unresolved (fail-safe deny)"),
     };
-    let task_id = match std::env::var("PHANTOM_GOVERN_TASK_ID")
+    let task_id = match std::env::var("SPECTYN_GOVERN_TASK_ID")
         .ok()
         .and_then(|s| uuid::Uuid::parse_str(s.trim()).ok())
     {
         Some(id) => id,
-        None => return hook_deny("phantom governor: no run identity (fail-safe deny)"),
+        None => return hook_deny("spectyn governor: no run identity (fail-safe deny)"),
     };
 
     let dispatcher = NotificationDispatcher::new();
@@ -217,11 +217,11 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
 
     // Deadline/poll are env-tunable (the live test uses a short deadline to exercise
     // the fail-safe deny without a 5-minute wait); default 300s deadline / 2s poll.
-    let deadline = std::env::var("PHANTOM_GOVERN_DEADLINE_SECS")
+    let deadline = std::env::var("SPECTYN_GOVERN_DEADLINE_SECS")
         .ok()
         .and_then(|s| s.trim().parse::<u64>().ok())
         .unwrap_or(300);
-    let poll = std::env::var("PHANTOM_GOVERN_POLL_SECS")
+    let poll = std::env::var("SPECTYN_GOVERN_POLL_SECS")
         .ok()
         .and_then(|s| s.trim().parse::<u64>().ok())
         .unwrap_or(2);
@@ -240,7 +240,7 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
         .unwrap_or_else(|| serde_json::json!({}));
     let risk = crate::tasks::approvals::classify_tool(&tool_name, &tool_input);
     let record_db_path = if !tool_name.is_empty() && risk.requires_approval() {
-        Some(crate::cli_config::phantom_dir_under(&home).join("phantom.db"))
+        Some(crate::cli_config::spectyn_dir_under(&home).join("spectyn.db"))
     } else {
         None
     };
@@ -262,18 +262,18 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
     // PostActionObserved, which alert-observes and never awaits a pre-action
     // decision). So this hook process is where a dispatched governed run's approval
     // must be correlated onto its dispatch row. `task_id` here is
-    // PHANTOM_GOVERN_TASK_ID, which AFTER the D2 unification EQUALS the dispatch
-    // `job_uuid` for a dispatched governed run. Open the SAME canonical phantom.db
+    // SPECTYN_GOVERN_TASK_ID, which AFTER the D2 unification EQUALS the dispatch
+    // `job_uuid` for a dispatched governed run. Open the SAME canonical spectyn.db
     // the parent (`run.rs`) opened and attach it so `await_decision` stamps the
     // approval_id + AwaitingApproval onto that row at pending-card-write time.
     //
     // SAFE TO ALWAYS ATTACH: `set_approval_id` / `update_status` UPDATE BY task_id.
-    // For a STANDALONE `phantom govern` run (no dispatch row) the task_id matches no
+    // For a STANDALONE `spectyn govern` run (no dispatch row) the task_id matches no
     // tasks row → 0 rows affected → a harmless no-op (rusqlite `execute` returns the
     // affected-row count, not an error, on 0 matches). Best-effort: a failure to
-    // open the DB (e.g. a cross-process lock — `serve` may hold the same phantom.db)
+    // open the DB (e.g. a cross-process lock — `serve` may hold the same spectyn.db)
     // is swallowed; it must never change the gate decision.
-    let db_path = crate::cli_config::phantom_dir_under(&home).join("phantom.db");
+    let db_path = crate::cli_config::spectyn_dir_under(&home).join("spectyn.db");
     if let Ok(store) = crate::tasks::TaskStore::open_at(db_path) {
         escalator = escalator.with_dispatch_store(store);
     }
@@ -281,11 +281,11 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
         decide_pretooluse_hook(&hook_input, &mut escalator)
     })
     .await
-    .unwrap_or_else(|_| hook_deny("phantom governor: gate task failed (fail-safe deny)"));
+    .unwrap_or_else(|_| hook_deny("spectyn governor: gate task failed (fail-safe deny)"));
 
     // Append the governance moment (ApprovalRequested → Approved/Denied) under the
     // run's task_id. BEST-EFFORT: a sqlite open/append failure (e.g. a cross-process
-    // lock — `serve` may hold the same phantom.db) is IGNORED; it must NOT change the
+    // lock — `serve` may hold the same spectyn.db) is IGNORED; it must NOT change the
     // returned decision or fail the gate.
     if let Some(db_path) = record_db_path {
         let approved = decision
@@ -302,10 +302,10 @@ pub async fn prod_decide_pretooluse_hook(hook_input: Value) -> Value {
 /// Best-effort: record the pre-action governance moment to the SHARED S0
 /// `EventStore` under `task_id` — one `ApprovalRequested` (Pending) then one
 /// `Approved`/`Denied` per the decision, mirroring `recorder.rs`'s append usage so
-/// the hook's HIGH-RISK decisions are replayable alongside `phantom govern`'s.
+/// the hook's HIGH-RISK decisions are replayable alongside `spectyn govern`'s.
 ///
 /// Every failure is swallowed: opening the DB can fail under a cross-process lock
-/// (`serve` holds the same `phantom.db`), and the append itself is fire-and-forget.
+/// (`serve` holds the same `spectyn.db`), and the append itself is fire-and-forget.
 /// This MUST never change the gate's decision.
 async fn record_governance_best_effort(
     db_path: std::path::PathBuf,
@@ -502,7 +502,7 @@ mod tests {
         use uuid::Uuid;
 
         let tmp = tempfile::tempdir().unwrap();
-        let db = tmp.path().join("phantom.db");
+        let db = tmp.path().join("spectyn.db");
         let task_id = Uuid::new_v4();
 
         // Approved path: ApprovalRequested (Pending) then Approved.
@@ -544,7 +544,7 @@ mod tests {
     async fn unopenable_db_is_swallowed() {
         use crate::execution_contract::RiskLevel;
         use uuid::Uuid;
-        let bogus = std::path::Path::new("/nonexistent-phantom-dir-xyz/sub/phantom.db");
+        let bogus = std::path::Path::new("/nonexistent-spectyn-dir-xyz/sub/spectyn.db");
         // Returns normally (no panic); the failed open is ignored.
         record_governance_best_effort(
             bogus.to_path_buf(),

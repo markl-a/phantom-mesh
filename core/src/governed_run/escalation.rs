@@ -93,7 +93,7 @@ pub struct PhoneEscalator {
     /// escalator stamps the pending `approval_id` (= `ExecutionContract.id`) onto
     /// the dispatch row AND transitions it `Running -> AwaitingApproval`, live (the
     /// run is blocked in `await_decision`). Best-effort: a store error never changes
-    /// the returned decision. `None` (standalone `phantom govern`, ungoverned) =
+    /// the returned decision. `None` (standalone `spectyn govern`, ungoverned) =
     /// no row to correlate, behavior unchanged.
     store: Option<crate::tasks::TaskStore>,
 }
@@ -145,7 +145,7 @@ impl PhoneEscalator {
         self.handle.block_on(async {
             if let Err(e) = store.set_approval_id(task_id, approval_id).await {
                 tracing::warn!(
-                    target: "phantom::govern",
+                    target: "spectyn::govern",
                     task_id = %task_id,
                     "set_approval_id on dispatch row failed (best-effort): {e}"
                 );
@@ -160,7 +160,7 @@ impl PhoneEscalator {
                 .await
             {
                 tracing::warn!(
-                    target: "phantom::govern",
+                    target: "spectyn::govern",
                     task_id = %task_id,
                     "transition dispatch row to AwaitingApproval failed (best-effort): {e}"
                 );

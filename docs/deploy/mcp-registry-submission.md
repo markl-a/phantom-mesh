@@ -1,4 +1,4 @@
-# MCP Registry（MCP 註冊中心）提交準備 — phantom-mesh
+# MCP Registry（MCP 註冊中心）提交準備 — spectyn-mesh
 
 **狀態：** 草稿 — 尚未提交。最後的 `mcp-publisher publish` 步驟（見 §5）
 必須由 operator（操作者，markl-a）親自執行，因為向第三方
@@ -9,13 +9,13 @@ registry（註冊中心）提交是一項 operator 決策，不是自動化動�
 背後由公開的 repo（程式碼倉庫）
 <https://github.com/modelcontextprotocol/registry> 支撐）。
 
-**Namespace（命名空間）認領：** `io.github.markl-a/phantom-mesh` — 透過
+**Namespace（命名空間）認領：** `io.github.markl-a/spectyn-mesh` — 透過
 GitHub OAuth（開放授權）以使用者 `markl-a` 的身分擁有（也就是公開鏡像站
-<https://github.com/markl-a/phantom-mesh> 的擁有者）。
+<https://github.com/markl-a/spectyn-mesh> 的擁有者）。
 
 ---
 
-## 1. phantom-mesh 透過 MCP 對外暴露什麼
+## 1. spectyn-mesh 透過 MCP 對外暴露什麼
 
 真實來源（source of truth）：
 [`core/src/mcp.rs`](../core/src/mcp.rs) 與
@@ -23,14 +23,14 @@ GitHub OAuth（開放授權）以使用者 `markl-a` 的身分擁有（也就是
 
 實作備註：
 
-- Transport（傳輸方式）：stdio（標準輸入輸出）（`phantom mcp` — 在
-  stdin/stdout 上以換行分隔的 JSON-RPC 2.0）。也由 `phantom serve` 在
+- Transport（傳輸方式）：stdio（標準輸入輸出）（`spectyn mcp` — 在
+  stdin/stdout 上以換行分隔的 JSON-RPC 2.0）。也由 `spectyn serve` 在
   `POST /mcp` 上透過 HTTP 對外暴露（見 `core/src/serve.rs:142`），因此同一套
   工具集可透過 `server.json` 中的 `remotes.streamable-http` 形狀存取。
 - Protocol（協議）版本：`2024-11-05`。
 - Capabilities（能力）：僅 `tools`（無 `resources`、無 `prompts`，
   `listChanged: false`）。
-- Server（伺服器）身分：`serverInfo.name = "phantom-mesh"`，
+- Server（伺服器）身分：`serverInfo.name = "spectyn-mesh"`，
   `serverInfo.version = CARGO_PKG_VERSION`（目前為 `0.4.0`）。
 - 支援的方法：`initialize`、`notifications/initialized`、
   `tools/list`、`tools/call`、`ping`。
@@ -60,7 +60,7 @@ GitHub OAuth（開放授權）以使用者 `markl-a` 的身分擁有（也就是
 | **Diagnostics（診斷，非 iOS）** | `cargo_check`, `cargo_test`, `tsc_check`, `run_tests` |
 | **Background bash（背景 bash，非 iOS）** | `bash_run_background`, `bash_output`, `bash_kill` |
 | **僅 macOS** | `spotlight_search`, `xcode_simctl` |
-| **分散式（於 `mcp.rs` 附加）** | `phantom_swarm`, `phantom_evolve_distributed` |
+| **分散式（於 `mcp.rs` 附加）** | `spectyn_swarm`, `spectyn_evolve_distributed` |
 
 總計：40 + 2 = 在功能完整的 macOS 主機上有 **42 個工具**；
 iOS 上約 30 個；Linux/Windows 上約 40 個。
@@ -72,7 +72,7 @@ description, parameters}}`）；`core/src/mcp.rs:212` 中的 `to_mcp_tool()` 會
 形狀。有一個測試（`all_tools_have_mcp_schema`）保證每個已註冊的工具都有
 schema，因此隨著我們新增工具，回傳給 registry 的清單仍會保持準確。
 
-### 1.2 phantom-mesh（目前）尚未暴露什麼
+### 1.2 spectyn-mesh（目前）尚未暴露什麼
 
 - 沒有 MCP **resources（資源）**（無 `resources/list`、無 `resources/read`）。
 - 沒有 MCP **prompts（提示）**（無 `prompts/list`）。
@@ -112,12 +112,12 @@ schema，因此隨著我們新增工具，回傳給 registry 的清單仍會保�
 | `oci`    | Docker Hub、GHCR、Quay.io、GAR、ACR、MCR |
 | `mcpb`   | 僅 GitHub Releases 與 GitLab Releases |
 
-phantom-mesh 目前並未發布至 npm/PyPI/NuGet 任何一者。目前可行的途徑為：
+spectyn-mesh 目前並未發布至 npm/PyPI/NuGet 任何一者。目前可行的途徑為：
 
 - **`mcpb` + GitHub release** 交叉編譯後的二進位封存檔
   （這是建議的近期途徑）。
-- **`oci`** 當（若）有一個 `phantom mcp` Docker 映像被推送至 GHCR 時。
-- 供自行架設 `phantom serve` 的使用者使用的 **`remotes`** 項目。
+- **`oci`** 當（若）有一個 `spectyn mcp` Docker 映像被推送至 GHCR 時。
+- 供自行架設 `spectyn serve` 的使用者使用的 **`remotes`** 項目。
 
 ### 2.2 Metadata（中繼資料）上限
 
@@ -133,28 +133,28 @@ phantom-mesh 目前並未發布至 npm/PyPI/NuGet 任何一者。目前可行的
 
 ---
 
-## 3. phantom-mesh 的 `server.json` 草稿
+## 3. spectyn-mesh 的 `server.json` 草稿
 
 草稿位於 [`docs/deploy/server.json`](server.json)。
 關鍵抉擇：
 
-- `name = "io.github.markl-a/phantom-mesh"` — 以使用者 `markl-a` 透過
+- `name = "io.github.markl-a/spectyn-mesh"` — 以使用者 `markl-a` 透過
   GitHub OAuth 認領該 namespace。
 - `version = "0.4.0"` — 與 `core/Cargo.toml::version` 一致。每次發行時
   同步遞增。
-- `repository.url = "https://github.com/markl-a/phantom-mesh"` —
+- `repository.url = "https://github.com/markl-a/spectyn-mesh"` —
   公開鏡像站，**不是**私有 repo。Registry 會驗證該 URL 可連線。
-- `repository.subfolder = "core"` — phantom-mesh 是工作區（workspace）中
+- `repository.subfolder = "core"` — spectyn-mesh 是工作區（workspace）中
   位於 `core/` 之下的 Rust crate（套件箱）。
 - 一個 `mcpb` 類型的 `packages[0]` 項目，指向尚未發布的 GitHub release
   tarball（壓縮封存檔）。
-  - `transport.type = "stdio"`、`runtimeHint = "phantom"`、
+  - `transport.type = "stdio"`、`runtimeHint = "spectyn"`、
     `packageArguments = [{type:"positional", value:"mcp"}]`。
   - `fileSha256` 是一個 `TODO_FILL_AFTER_RELEASE_BUILD` 佔位符 —
     必須是實際上傳至 release 的 `.mcpb` 產物的 SHA-256。若雜湊值與 GitHub
     提供的不符，`mcp-publisher publish` 會拒絕該 manifest。
 - 一個 `streamable-http` 類型的 `remotes[0]` 項目，帶有樣板化的
-  `url = "https://{host}/mcp"`，供自行架設的 `phantom serve` 使用。
+  `url = "https://{host}/mcp"`，供自行架設的 `spectyn serve` 使用。
 - `_meta.io.modelcontextprotocol.registry/publisher-provided` 攜帶
   類別標籤、工具數量、授權條款、支援的平台與亮點 — 遠低於 4 KB 上限。
 
@@ -164,39 +164,39 @@ phantom-mesh 目前並未發布至 npm/PyPI/NuGet 任何一者。目前可行的
 
 這些不在本 PR 的範圍內。在此列出是為了讓 operator 知道需要事先備齊什麼：
 
-1. **發布一個公開的 GitHub release。** 撰寫此文時，`markl-a/phantom-mesh`
+1. **發布一個公開的 GitHub release。** 撰寫此文時，`markl-a/spectyn-mesh`
    尚無任何 release。本次提交參照了
-   `releases/download/v0.4.0/phantom-mcpb-v0.4.0.mcpb`，它必須在
+   `releases/download/v0.4.0/spectyn-mcpb-v0.4.0.mcpb`，它必須在
    `mcp-publisher publish` 成功之前確實存在。
 
    `.mcpb`（MCP Bundle，MCP 套裝包）tarball 的建議結構：
 
    ```
-   phantom-mcpb-v0.4.0.mcpb     # gzip tar of:
-     phantom-mesh-aarch64-apple-darwin/phantom
-     phantom-mesh-x86_64-apple-darwin/phantom
-     phantom-mesh-x86_64-unknown-linux-gnu/phantom
-     phantom-mesh-aarch64-unknown-linux-gnu/phantom
-     phantom-mesh-x86_64-pc-windows-msvc/phantom.exe
+   spectyn-mcpb-v0.4.0.mcpb     # gzip tar of:
+     spectyn-mesh-aarch64-apple-darwin/spectyn
+     spectyn-mesh-x86_64-apple-darwin/spectyn
+     spectyn-mesh-x86_64-unknown-linux-gnu/spectyn
+     spectyn-mesh-aarch64-unknown-linux-gnu/spectyn
+     spectyn-mesh-x86_64-pc-windows-msvc/spectyn.exe
      manifest.json   # mcpb metadata (see mcpb spec)
    ```
 
    擷取 SHA-256 並把它修補進 `server.json.packages[0].fileSha256`。
 
-2. **決定 namespace。** `io.github.markl-a/phantom-mesh` 是目前的草稿。
+2. **決定 namespace。** `io.github.markl-a/spectyn-mesh` 是目前的草稿。
    若專案日後擁有自己的 GitHub org（組織）
-   （例如 `phantom-mesh-org`），namespace 會變成
-   `io.github.phantom-mesh-org/phantom-mesh`，且 GitHub 認證必須以該 org
+   （例如 `spectyn-mesh-org`），namespace 會變成
+   `io.github.spectyn-mesh-org/spectyn-mesh`，且 GitHub 認證必須以該 org
    成員的身分進行。
 
-3. **（選用）新增一個 `oci` 套件**，一旦有 `phantom mcp` 的 Docker 映像
+3. **（選用）新增一個 `oci` 套件**，一旦有 `spectyn mcp` 的 Docker 映像
    發布至 GHCR。草圖：
 
    ```jsonc
    {
      "registryType": "oci",
      "registryBaseUrl": "https://ghcr.io",
-     "identifier": "ghcr.io/markl-a/phantom-mesh:0.4.0",
+     "identifier": "ghcr.io/markl-a/spectyn-mesh:0.4.0",
      "transport": { "type": "stdio" },
      "packageArguments": [
        { "type": "positional", "value": "mcp" }
@@ -206,15 +206,15 @@ phantom-mesh 目前並未發布至 npm/PyPI/NuGet 任何一者。目前可行的
 
 4. **（選用）README 擁有權標記。** 對於非 npm 套件，registry 目前要求
    發布者在 repo README 的某處放入一行像是
-   `mcp-name: io.github.markl-a/phantom-mesh`，好讓擁有權檢查有東西可
-   grep（比對）。在發布前把它加進公開鏡像站 `markl-a/phantom-mesh` 的
+   `mcp-name: io.github.markl-a/spectyn-mesh`，好讓擁有權檢查有東西可
+   grep（比對）。在發布前把它加進公開鏡像站 `markl-a/spectyn-mesh` 的
    `README.md`。
 
 ---
 
 ## 5. 逐步提交說明
 
-在 §4 步驟完成後，從公開的 `markl-a/phantom-mesh` 檢出（checkout）執行這些
+在 §4 步驟完成後，從公開的 `markl-a/spectyn-mesh` 檢出（checkout）執行這些
 （**不要**從這個私有 repo 執行）。
 
 ### 5.1 安裝 `mcp-publisher`
@@ -251,8 +251,8 @@ mcp-publisher login github
 從公開的檢出：
 
 ```bash
-# in github.com/markl-a/phantom-mesh checkout
-curl -L https://raw.githubusercontent.com/markl-a/phantom-mesh/feat/mcp-registry/docs/deploy/server.json \
+# in github.com/markl-a/spectyn-mesh checkout
+curl -L https://raw.githubusercontent.com/markl-a/spectyn-mesh/feat/mcp-registry/docs/deploy/server.json \
   -o server.json
 ```
 
@@ -263,7 +263,7 @@ curl -L https://raw.githubusercontent.com/markl-a/phantom-mesh/feat/mcp-registry
 在執行 release 建置之後：
 
 ```bash
-sha256sum phantom-mcpb-v0.4.0.mcpb
+sha256sum spectyn-mcpb-v0.4.0.mcpb
 # paste the hex into server.json.packages[0].fileSha256
 ```
 
@@ -292,11 +292,11 @@ mcp-publisher publish server.json
 CLI 會印出新 registry 項目的正規（canonical）URL。預期不到一分鐘即可完成。
 該項目會出現在：
 
-`https://registry.modelcontextprotocol.io/v0/servers/io.github.markl-a/phantom-mesh`
+`https://registry.modelcontextprotocol.io/v0/servers/io.github.markl-a/spectyn-mesh`
 
 ### 5.7 （未來）遞增版本
 
-對於每一個後續的 phantom-mesh release：
+對於每一個後續的 spectyn-mesh release：
 
 ```bash
 # bump server.json version + identifier + fileSha256
@@ -340,10 +340,10 @@ Registry API 本身處於 **v0.1 凍結（freeze）** 狀態（於 2025-10-24 �
 
 1. **以 v0.4.0 作為首個清單，還是等 v0.5.0？**
    v0.5.0 是已宣布的發行（依 v0.5.0 發行計畫備忘錄）。今天就列出 v0.4.0
-   能讓 phantom-mesh 更早進入 PulseMCP 式的索引；等一個標籤則意味著第一印象
+   能讓 spectyn-mesh 更早進入 PulseMCP 式的索引；等一個標籤則意味著第一印象
    是打磨過的那個。
 
-2. **`io.github.markl-a/phantom-mesh` 是正確的 namespace 嗎，還是我們現在
+2. **`io.github.markl-a/spectyn-mesh` 是正確的 namespace 嗎，還是我們現在
    就想搬到一個 org，以避免日後一次性的改名？**
 
 3. **是否在 mcpb tarball 之外也提供一個 OCI 映像？** 沒有它，

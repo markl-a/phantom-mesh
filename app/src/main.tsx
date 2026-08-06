@@ -11,20 +11,20 @@ import { installBrokerLoginBridge } from "./lib/brokerLogin";
 // banners (`[ERR]`/`[REJ]`, passed force:true) ALWAYS paint so production
 // crashes stay visible on-device. The informational `[diag]` boot trace is
 // noise over the real UI, so it only paints when explicitly enabled — a dev
-// build, or localStorage `phantom_mesh_diag=1` for field debugging.
+// build, or localStorage `spectyn_mesh_diag=1` for field debugging.
 const DIAG_VERBOSE = (() => {
   try {
     // import.meta.env isn't typed in this tsconfig (no vite/client ref), so
     // read it through a cast rather than pulling in global vite types.
     const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
-    return Boolean(env?.DEV) || localStorage.getItem("phantom_mesh_diag") === "1";
+    return Boolean(env?.DEV) || localStorage.getItem("spectyn_mesh_diag") === "1";
   } catch { return false; }
 })();
 
 function _diagAppend(text: string, bg = "#fc0", opts: { force?: boolean } = {}) {
   if (!opts.force && !DIAG_VERBOSE) return;
   try {
-    const id = "__phantom_diag_log";
+    const id = "__spectyn_diag_log";
     let log = document.getElementById(id);
     if (!log) {
       log = document.createElement("div");
@@ -43,7 +43,7 @@ _diagAppend("[diag] main.tsx executed " + new Date().toLocaleTimeString());
 // Expose to all code so any module can append a debug line to the yellow
 // on-screen log without importing this file. Useful for debugging the
 // cluster-dispatch flow on devices where we don't have a remote console.
-(window as { phantomDiag?: (msg: string, bg?: string) => void }).phantomDiag = _diagAppend;
+(window as { spectynDiag?: (msg: string, bg?: string) => void }).spectynDiag = _diagAppend;
 
 window.addEventListener("error", (e) => {
   const stack = e.error && e.error.stack ? String(e.error.stack).slice(0, 900) : "";
@@ -60,7 +60,7 @@ installBrokerLoginBridge().catch((e) =>
   console.warn("[boot] installBrokerLoginBridge failed:", e),
 );
 
-// Demo-mode deeplink: `phantom://demo-mode` toggles a localStorage flag
+// Demo-mode deeplink: `spectyn://demo-mode` toggles a localStorage flag
 // that App.tsx reads to skip MobileOnboardingV2 + land on /settings/cluster.
 // Rust forwards this URL via app_handle.emit("deep-link://demo-mode", ...)
 // (allowlisted in app/src-tauri/src/lib.rs alongside the OAuth callback).
@@ -69,7 +69,7 @@ installBrokerLoginBridge().catch((e) =>
 import { listen } from "@tauri-apps/api/event";
 listen<string>("deep-link://demo-mode", () => {
   try {
-    localStorage.setItem("phantom_mesh_demo_mode_enabled", "true");
+    localStorage.setItem("spectyn_mesh_demo_mode_enabled", "true");
     console.log("[boot] demo-mode enabled via deep-link; reloading to /settings/cluster");
     window.location.reload();
   } catch (e) {
@@ -79,13 +79,13 @@ listen<string>("deep-link://demo-mode", () => {
 
 // iOS default: render React UI with the embedded agent — LLM calls go
 // directly from this device to api.openai.com / api.groq.com / etc.
-// using the keys broker_sync_from_vault pulled into ~/.phantom-mesh/env.
+// using the keys broker_sync_from_vault pulled into ~/.spectyn-mesh/env.
 //
 // Thin-shell (forwarding chat to a remote coordinator) is opt-in via
-// the peer-picker in MobileBrokerLogin — that path sets PHANTOM_THIN_
+// the peer-picker in MobileBrokerLogin — that path sets SPECTYN_THIN_
 // SHELL=1 and the user explicitly chose "let my Mac handle this".
 const useThinShell = (() => {
-  try { return localStorage.getItem("PHANTOM_THIN_SHELL") === "1"; }
+  try { return localStorage.getItem("SPECTYN_THIN_SHELL") === "1"; }
   catch { return false; }
 })();
 

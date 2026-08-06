@@ -11,13 +11,13 @@ interface MessageListProps {
 // ─── Animated typing indicator ────────────────────────────────────────────────
 function TypingIndicator() {
   return (
-    <div className="bg-phantom-card border border-phantom-border p-3 rounded-lg max-w-[80%]">
+    <div className="bg-spectyn-card border border-spectyn-border p-3 rounded-lg max-w-[80%]">
       <div className="flex items-center gap-1.5">
-        <span className="text-sm text-phantom-muted mr-1">Thinking</span>
+        <span className="text-sm text-spectyn-muted mr-1">Thinking</span>
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="inline-block w-1.5 h-1.5 bg-phantom-primary rounded-full animate-bounce"
+            className="inline-block w-1.5 h-1.5 bg-spectyn-primary rounded-full animate-bounce"
             style={{ animationDelay: `${i * 0.18}s`, animationDuration: "0.9s" }}
           />
         ))}
@@ -51,8 +51,8 @@ export default function MessageList({ messages, loading }: MessageListProps) {
             key={i}
             className={`p-3 rounded-lg max-w-[80%] ${
               msg.role === "user"
-                ? "bg-phantom-primary/20 ml-auto"
-                : "bg-phantom-card border border-phantom-border"
+                ? "bg-spectyn-primary/20 ml-auto"
+                : "bg-spectyn-card border border-spectyn-border"
             }`}
           >
             {msg.content && (
@@ -64,7 +64,7 @@ export default function MessageList({ messages, loading }: MessageListProps) {
             )}
 
             {msg.role === "assistant" && (msg.provider || msg.model) && (
-              <p className="mt-1.5 text-[10px] text-phantom-muted font-mono select-none">
+              <p className="mt-1.5 text-[10px] text-spectyn-muted font-mono select-none">
                 {msg.provider}
                 {msg.provider && msg.model ? " · " : ""}
                 {msg.model}

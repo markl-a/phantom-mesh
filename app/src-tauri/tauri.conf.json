@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Phantom Mesh",
+  "productName": "Spectyn Mesh",
   "version": "0.6.0",
-  "identifier": "ai.phantommesh.app",
+  "identifier": "ai.spectynmesh.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Phantom Mesh",
+        "title": "Spectyn Mesh",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -28,28 +28,28 @@
         "enable": false,
         "scope": {
           "allow": [
-            "$HOME/.phantom-mesh/screenshots/**"
+            "$HOME/.spectyn-mesh/screenshots/**"
           ],
           "deny": [
-            "$HOME/.phantom-mesh/auth.json",
-            "$HOME/.phantom-mesh/env",
-            "$HOME/.phantom-mesh/agents.toml",
-            "$HOME/.phantom-mesh/**/.env",
-            "$HOME/.phantom-mesh/**/auth.json"
+            "$HOME/.spectyn-mesh/auth.json",
+            "$HOME/.spectyn-mesh/env",
+            "$HOME/.spectyn-mesh/agents.toml",
+            "$HOME/.spectyn-mesh/**/.env",
+            "$HOME/.spectyn-mesh/**/auth.json"
           ],
           "requireLiteralLeadingDot": false
         }
       }
     },
     "trayIcon": {
-      "tooltip": "Phantom Mesh",
+      "tooltip": "Spectyn Mesh",
       "iconPath": "icons/icon.png"
     }
   },
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/markl-a/phantom-mesh/releases/latest/download/latest.json"
+        "https://github.com/markl-a/spectyn-mesh/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZEOEQxQzkzOTc3N0NGNUIKUldSYnozZVhreHlOL2FBMlUyWVFyNzBwcnpqYmdVMTJlOUNHRkNzRVIrNk5WWWtnam1Id3B6TDAK",
       "windows": {
@@ -59,7 +59,7 @@
     "deep-link": {
       "desktop": {
         "schemes": [
-          "phantom"
+          "spectyn"
         ]
       }
     }

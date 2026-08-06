@@ -35,11 +35,11 @@ jobs:
         with:
           targets: aarch64-linux-android
 
-      - name: Build phantom for Android aarch64
+      - name: Build spectyn for Android aarch64
         run: |
           set -e
           cd core
-          cargo build --release --target aarch64-linux-android --bin phantom
+          cargo build --release --target aarch64-linux-android --bin spectyn
 
       - name: Start Android AVD
         uses: reactivecircus/android-emulator-runner@v2
@@ -52,12 +52,12 @@ jobs:
           emulator-options: -no-window -no-snapshot-save -gpu swiftshader_indirect -noaudio -no-boot-anim
           disable-animations: true
           script: |
-            # Push phantom binary to AVD
-            adb push core/target/aarch64-linux-android/release/phantom /data/local/tmp/phantom
-            adb shell chmod +x /data/local/tmp/phantom
+            # Push spectyn binary to AVD
+            adb push core/target/aarch64-linux-android/release/spectyn /data/local/tmp/spectyn
+            adb shell chmod +x /data/local/tmp/spectyn
 
-            # Start phantom serve with mock worker_caps (no real Android caps, just claim them)
-            adb shell "PHANTOM_WORKER_CAPS='android,camera,gps' /data/local/tmp/phantom serve --port 17878 &"
+            # Start spectyn serve with mock worker_caps (no real Android caps, just claim them)
+            adb shell "SPECTYN_WORKER_CAPS='android,camera,gps' /data/local/tmp/spectyn serve --port 17878 &"
             sleep 3
 
             # Forward port
@@ -83,7 +83,7 @@ jobs:
               -w "\nHTTP_STATUS:%{http_code}\n" | head -5
 
             # Cleanup
-            adb shell "killall phantom || true"
+            adb shell "killall spectyn || true"
 
       - name: Upload AVD logs
         if: failure()
@@ -92,5 +92,5 @@ jobs:
           name: avd-logs
           path: |
             ~/.android/adb.log
-            /tmp/phantom-*.log
+            /tmp/spectyn-*.log
           retention-days: 7

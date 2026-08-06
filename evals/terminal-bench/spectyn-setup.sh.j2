@@ -1,0 +1,29 @@
+#!/bin/bash
+# Terminal-Bench install script for the spectyn-mesh agent.
+#
+# IMPORTANT: this file is *sourced* by the harness, not executed:
+#   source /installed-agent/install-agent.sh || echo 'INSTALL_FAIL_STATUS'
+# so do NOT use `set -e` or `exit` — either would kill the task shell. The
+# harness detects failure when the LAST command (`spectyn --version`) returns
+# non-zero, so keep that as the final statement.
+#
+# Assumes only Debian linux (curl is NOT guaranteed to be present).
+# Environment (exported by the adapter's _env before this runs):
+#   SPECTYN_TB_BINARY_URL       - URL of the spectyn linux binary
+#   SPECTYN_TB_AGENTS_TOML_B64  - base64 of the full agents.toml (providers +
+#                                 failover chain), assembled in spectyn_agent.py
+
+apt-get update -y >/dev/null 2>&1
+apt-get install -y curl ca-certificates >/dev/null 2>&1
+
+echo "[spectyn-setup] downloading binary from ${SPECTYN_TB_BINARY_URL}"
+curl -fsSL "${SPECTYN_TB_BINARY_URL}" -o /usr/local/bin/spectyn \
+  && chmod +x /usr/local/bin/spectyn
+
+echo "[spectyn-setup] writing agents.toml"
+mkdir -p "${HOME}/.spectyn-mesh"
+printf '%s' "${SPECTYN_TB_AGENTS_TOML_B64}" | base64 -d > "${HOME}/.spectyn-mesh/agents.toml"
+
+# Final command — its exit status is what the harness checks for install success.
+echo "[spectyn-setup] verifying"
+spectyn --version

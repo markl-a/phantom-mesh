@@ -1,4 +1,4 @@
-//! E2E for E004 — spawn `phantom serve`, capture an event via `phantom
+//! E2E for E004 — spawn `spectyn serve`, capture an event via `spectyn
 //! event capture`, then verify the new on-disk `meta.json` is
 //! age-encrypted (NOT plain JSON). If Gemini cooperates (no rate-limit),
 //! also verify GET /api/events/:id/analysis decrypts and returns the
@@ -11,7 +11,7 @@
 //! Test isolation note: `dirs::home_dir()` on Windows uses
 //! `SHGetKnownFolderPath` and does NOT honor `USERPROFILE`/`HOME` env
 //! overrides, so we can't redirect the daemon to a temp HOME on this
-//! platform. Instead we diff the operator's real `~/.phantom-mesh/events/`
+//! platform. Instead we diff the operator's real `~/.spectyn-mesh/events/`
 //! before and after the capture, identify the test's new event dirs,
 //! assert encryption on them, then clean them up so the operator's
 //! events dir is restored to its pre-test state.
@@ -20,8 +20,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 /// Snapshot the set of event IDs currently in `events_dir`. Returns an
@@ -48,25 +48,25 @@ async fn captured_event_on_disk_is_age_encrypted() {
         return;
     };
 
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
 
-    // Resolve the operator's real ~/.phantom-mesh — both the daemon
+    // Resolve the operator's real ~/.spectyn-mesh — both the daemon
     // (via dirs::home_dir()) and this test must agree on the same path
     // for the dir-diff to work. We deliberately do NOT override HOME/
     // USERPROFILE because dirs::home_dir() ignores them on Windows.
     let home = dirs::home_dir().expect("home_dir");
-    let phantom_dir = home.join(".phantom-mesh");
-    let events_dir = phantom_dir.join("events");
+    let spectyn_dir = home.join(".spectyn-mesh");
+    let events_dir = spectyn_dir.join("events");
 
     // Skip if identity.key is missing — capture would 500 before
     // write_event runs, defeating the on-disk check. This is the
     // "fresh install" case; the operator's deployment runbook
     // generates identity.key.
-    if !phantom_dir.join("identity.key").exists() {
+    if !spectyn_dir.join("identity.key").exists() {
         eprintln!(
             "SKIPPED: captured_event_on_disk_is_age_encrypted — {} missing \
              (operator hasn't bootstrapped identity yet)",
-            phantom_dir.join("identity.key").display()
+            spectyn_dir.join("identity.key").display()
         );
         return;
     }
@@ -89,13 +89,13 @@ async fn captured_event_on_disk_is_age_encrypted() {
         .arg("127.0.0.1")
         .arg("--port")
         .arg(port.to_string())
-        .env("PHANTOM_NODE_NAME", "e004-e2e")
+        .env("SPECTYN_NODE_NAME", "e004-e2e")
         .env("GEMINI_API_KEY", &gemini_key)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .expect("phantom serve must spawn");
+        .expect("spectyn serve must spawn");
 
     // Wait for /healthz, up to 10 seconds.
     let client = reqwest::Client::builder()
@@ -117,7 +117,7 @@ async fn captured_event_on_disk_is_age_encrypted() {
             break;
         }
     }
-    assert!(ready, "phantom serve never became healthy within 10s");
+    assert!(ready, "spectyn serve never became healthy within 10s");
 
     // Dispatch a text-only event through the CLI. Gemini accepts
     // text-only multimodal so we don't need a jpeg fixture.
@@ -134,7 +134,7 @@ async fn captured_event_on_disk_is_age_encrypted() {
         .env("GEMINI_API_KEY", &gemini_key)
         .output()
         .await
-        .expect("phantom event capture must spawn");
+        .expect("spectyn event capture must spawn");
 
     let stderr_text = String::from_utf8_lossy(&capture_out.stderr).into_owned();
     let stdout_text = String::from_utf8_lossy(&capture_out.stdout).into_owned();

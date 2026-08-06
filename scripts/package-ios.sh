@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Build and package phantom for iOS (Tauri v2 app + IPA).
-# Output: dist/phantom-mesh-ios.ipa  (signed)
-#         dist/phantom-mesh-ios-sim.app (simulator build, unsigned)
+# Build and package spectyn for iOS (Tauri v2 app + IPA).
+# Output: dist/spectyn-mesh-ios.ipa  (signed)
+#         dist/spectyn-mesh-ios-sim.app (simulator build, unsigned)
 #
 # Usage:
-#   cd phantom-mesh
+#   cd spectyn-mesh
 #   ./scripts/package-ios.sh [--sim]     # --sim for simulator build only
 #
 # Requirements:
@@ -38,7 +38,7 @@ if ! xcrun simctl list runtimes 2>/dev/null | grep -q "iOS 26"; then
 fi
 
 # ── Init Tauri iOS project if needed ─────────────────────────────────────────
-if [[ ! -d "$APPLE_DIR/phantom-mesh-app.xcodeproj" ]]; then
+if [[ ! -d "$APPLE_DIR/spectyn-mesh-app.xcodeproj" ]]; then
   echo "◆ Initialising Tauri iOS project …"
   cd "$APP_DIR"
   npm install
@@ -86,11 +86,11 @@ if $SIM_ONLY; then
 
   # Tauri renames the freshly built .app onto the same path, which fails
   # when a previous build (esp. a device archive) left content behind.
-  rm -rf "$APPLE_DIR/build/phantom-mesh-app_iOS.xcarchive" \
+  rm -rf "$APPLE_DIR/build/spectyn-mesh-app_iOS.xcarchive" \
          "$APPLE_DIR/build/arm64-sim"
 
   # DerivedData caches the Externals copy plan; force a clean re-evaluate.
-  rm -rf ~/Library/Developer/Xcode/DerivedData/phantom-mesh-app-*
+  rm -rf ~/Library/Developer/Xcode/DerivedData/spectyn-mesh-app-*
 
   # Re-stub the debug libapp.a (the wipe above also removed dirs); cargo
   # will overwrite during the build phase. See pre-xcodegen block for why.
@@ -98,7 +98,7 @@ if $SIM_ONLY; then
   # Sim path: only stub arm64 (the only --target aarch64-sim ships).
   # Same fix as commit 3a0c7cf for the device path — stubbing BOTH arches
   # makes Xcode generate two CpResource tasks both producing the same
-  # `Phantom Mesh.app/libapp.a` and the build fails with
+  # `Spectyn Mesh.app/libapp.a` and the build fails with
   # "duplicate output file" / "Multiple commands produce libapp.a".
   mkdir -p "$APPLE_DIR/Externals/arm64/debug"
   touch "$APPLE_DIR/Externals/arm64/debug/libapp.a"
@@ -127,21 +127,21 @@ if $SIM_ONLY; then
     --ignore-version-mismatches
 
   # Tauri places the built bundle under
-  #   src-tauri/gen/apple/build/arm64-sim/Phantom Mesh.app   (--debug → debug-iphonesimulator)
+  #   src-tauri/gen/apple/build/arm64-sim/Spectyn Mesh.app   (--debug → debug-iphonesimulator)
   # Hunt for it without assuming the exact intermediate name.
   SIM_APP=$(find "$APPLE_DIR/build" -type d -name "*.app" \
     -path "*iphonesimulator*" 2>/dev/null | head -1)
   if [[ -z "$SIM_APP" ]]; then
-    SIM_APP=$(find "$APPLE_DIR" -type d -name "Phantom Mesh.app" 2>/dev/null | head -1)
+    SIM_APP=$(find "$APPLE_DIR" -type d -name "Spectyn Mesh.app" 2>/dev/null | head -1)
   fi
   if [[ -n "$SIM_APP" ]]; then
-    rm -rf "$DIST/phantom-mesh-ios-sim.app"
-    cp -r "$SIM_APP" "$DIST/phantom-mesh-ios-sim.app"
+    rm -rf "$DIST/spectyn-mesh-ios-sim.app"
+    cp -r "$SIM_APP" "$DIST/spectyn-mesh-ios-sim.app"
     echo ""
-    echo "✓ Simulator app: $DIST/phantom-mesh-ios-sim.app"
+    echo "✓ Simulator app: $DIST/spectyn-mesh-ios-sim.app"
     if [[ -n "$SIM_ID" ]]; then
-      echo "  Install: xcrun simctl install $SIM_ID '$DIST/phantom-mesh-ios-sim.app'"
-      echo "  Launch:  xcrun simctl launch $SIM_ID ai.phantommesh.app"
+      echo "  Install: xcrun simctl install $SIM_ID '$DIST/spectyn-mesh-ios-sim.app'"
+      echo "  Launch:  xcrun simctl launch $SIM_ID ai.spectynmesh.app"
     fi
   else
     echo "⚠  Build finished but no .app bundle was found under $APPLE_DIR"
@@ -157,7 +157,7 @@ fi
 
 # ── Pre-flight: Xcode must be signed into the Apple ID owning the team ───────
 # Without this, automatic provisioning fails late with a cryptic
-# "No profiles for 'ai.phantommesh.app'" deep inside xcodebuild output.
+# "No profiles for 'ai.spectynmesh.app'" deep inside xcodebuild output.
 XCODE_PLIST="$HOME/Library/Preferences/com.apple.dt.Xcode.plist"
 if ! /usr/libexec/PlistBuddy -c "Print :IDEProvisioningTeams" "$XCODE_PLIST" 2>/dev/null \
      | grep -q "$TEAM"; then
@@ -193,11 +193,11 @@ rm -rf "$APPLE_DIR/Externals/arm64/debug" \
        "$APPLE_DIR/Externals/x86_64/debug"
 
 # Same rename collision the sim path hits.
-rm -rf "$APPLE_DIR/build/phantom-mesh-app_iOS.xcarchive" \
+rm -rf "$APPLE_DIR/build/spectyn-mesh-app_iOS.xcarchive" \
        "$APPLE_DIR/build/arm64"
 
 # DerivedData caches the Externals copy plan; force a clean re-evaluate.
-rm -rf ~/Library/Developer/Xcode/DerivedData/phantom-mesh-app-*
+rm -rf ~/Library/Developer/Xcode/DerivedData/spectyn-mesh-app-*
 
 # Re-stub the release libapp.a (wipe above removed it); cargo will
 # overwrite during build phase. See pre-xcodegen block for why.
@@ -245,7 +245,7 @@ echo "◆ Export method: $EXPORT_METHOD"
 # static "1" would re-collide).
 if [[ "$EXPORT_METHOD" == "app-store-connect" ]]; then
   BUILD_NUMBER="$(date +%s)"
-  PLIST="$APPLE_DIR/phantom-mesh-app_iOS/Info.plist"
+  PLIST="$APPLE_DIR/spectyn-mesh-app_iOS/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $BUILD_NUMBER" "$PLIST" 2>/dev/null
   GOT="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST" 2>/dev/null)"
@@ -264,7 +264,7 @@ DEVELOPMENT_TEAM="$TEAM" APPLE_TEAM_ID="$TEAM" \
   --export-method "$EXPORT_METHOD"
 
 # Tauri places the device IPA at:
-#   src-tauri/gen/apple/build/arm64/Phantom Mesh.ipa  (release config)
+#   src-tauri/gen/apple/build/arm64/Spectyn Mesh.ipa  (release config)
 IPA=$(find "$APPLE_DIR/build" -type f -name "*.ipa" 2>/dev/null \
        | grep -v "sim" | head -1)
 if [[ -z "$IPA" ]]; then
@@ -272,23 +272,23 @@ if [[ -z "$IPA" ]]; then
 fi
 
 if [[ -n "$IPA" ]]; then
-  cp "$IPA" "$DIST/phantom-mesh-ios.ipa"
-  SIZE=$(du -sh "$DIST/phantom-mesh-ios.ipa" | cut -f1)
+  cp "$IPA" "$DIST/spectyn-mesh-ios.ipa"
+  SIZE=$(du -sh "$DIST/spectyn-mesh-ios.ipa" | cut -f1)
   echo ""
   echo "✓ IPA ready:"
-  echo "  $DIST/phantom-mesh-ios.ipa  ($SIZE)"
+  echo "  $DIST/spectyn-mesh-ios.ipa  ($SIZE)"
   echo "  Export method: $EXPORT_METHOD"
   echo ""
   if [[ "$EXPORT_METHOD" == "app-store-connect" ]]; then
     echo "Upload to TestFlight (App Store Connect must already have the app record):"
-    echo "  xcrun altool --upload-app -f '$DIST/phantom-mesh-ios.ipa' \\"
+    echo "  xcrun altool --upload-app -f '$DIST/spectyn-mesh-ios.ipa' \\"
     echo "    --type ios --apiKey \$ASC_API_KEY_ID --apiIssuer \$ASC_API_KEY_ISSUER_ID"
     echo ""
     echo "Or via Xcode:"
     echo "  open -a Xcode '$IPA' (Window → Organizer → Distribute App → App Store Connect → Upload)"
   else
     echo "Install on already-paired device:"
-    echo "  xcrun devicectl device install app --device <UDID> '$DIST/phantom-mesh-ios.ipa'"
+    echo "  xcrun devicectl device install app --device <UDID> '$DIST/spectyn-mesh-ios.ipa'"
   fi
 else
   echo "❌  IPA not found under $APPLE_DIR — build may have failed."

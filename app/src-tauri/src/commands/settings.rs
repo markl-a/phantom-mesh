@@ -6,9 +6,9 @@ pub struct AppConfig {
     pub auth_key: String,
     pub agent_name: String,
     pub auto_start: bool,
-    /// Port for the managed phantom-mesh daemon (default 7878)
+    /// Port for the managed spectyn-mesh daemon (default 7878)
     pub daemon_port: u16,
-    /// Optional explicit path to the phantom-mesh binary.
+    /// Optional explicit path to the spectyn-mesh binary.
     /// When `None`, auto-detection is used.
     pub daemon_binary_path: Option<String>,
 }
@@ -66,13 +66,13 @@ mod tests {
             agent_name: "worker-1".to_string(),
             auto_start: false,
             daemon_port: 9090,
-            daemon_binary_path: Some("/opt/phantom-mesh".to_string()),
+            daemon_binary_path: Some("/opt/spectyn-mesh".to_string()),
         };
         let json = serde_json::to_string(&config).unwrap();
         let restored: AppConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.hub_url, config.hub_url);
         assert_eq!(restored.daemon_port, 9090);
-        assert_eq!(restored.daemon_binary_path.unwrap(), "/opt/phantom-mesh");
+        assert_eq!(restored.daemon_binary_path.unwrap(), "/opt/spectyn-mesh");
     }
 
     #[test]

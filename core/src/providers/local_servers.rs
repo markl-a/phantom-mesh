@@ -4,7 +4,7 @@
 //! ports so a machine auto-discovers whatever the operator already has running.
 //!
 //! All three speak the OpenAI `chat/completions` wire format, so once detected
-//! they map to phantom's default OpenAI-compat provider with a localhost
+//! they map to spectyn's default OpenAI-compat provider with a localhost
 //! `base_url` (see [provider-routing]). We only *probe* `/models`; nothing is
 //! started or installed.
 

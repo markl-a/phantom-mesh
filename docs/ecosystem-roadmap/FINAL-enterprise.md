@@ -1,16 +1,16 @@
-# FINAL Development Plan — phantom-enterprise
+# FINAL Development Plan — spectyn-enterprise
 
 ## What it is + current state
-`phantom-enterprise` is the on-prem / 台廠-enterprise connector pack of the phantom-mesh
+`spectyn-enterprise` is the on-prem / 台廠-enterprise connector pack of the spectyn-mesh
 ecosystem: VPN-aware routing, on-prem Git access, LDAP/SSO interfaces, private-code Q&A via a
-**local** `phantom exec`, plus deferred MES/ERP/Atlassian/Apple-Silicon-HA hooks. Maturity is
+**local** `spectyn exec`, plus deferred MES/ERP/Atlassian/Apple-Silicon-HA hooks. Maturity is
 **alpha scaffold — 2 of 7 connectors live** (per the README badge). Real, tested code exists in
 `vpn_aware_routing/` (live Tailscale, `tailscale_route()` / `list_peers()`), `on_prem_gitlab/`
 (live Gitea over Tailscale, `list_repos` / `list_repo_files` / `get_repo_file`), and `code_qa/`
-(repo-context → `phantom exec`). `ldap_sso/auth.py` is three `NotImplementedError` ABCs
+(repo-context → `spectyn exec`). `ldap_sso/auth.py` is three `NotImplementedError` ABCs
 (`LdapAuth` / `SamlAuth` / `OidcAuth`); `confluence_jira/`, `mes_connector/`, `erp_connector/`
 are README-only placeholders; `apple_silicon_ha/` is a `docs/` runbook. README §"Status" and
-`docs/05-phantom-enterprise.md` lock a deliberate strategy: **stay scaffold; activate a
+`docs/05-spectyn-enterprise.md` lock a deliberate strategy: **stay scaffold; activate a
 connector only when a real customer / employer defines the target system** — it is the 7th and
 intentionally lowest-priority sibling (scheduled M4 W13-14, ~2026-08).
 
@@ -28,18 +28,18 @@ corp AD/ERP.
   `OnPremGitClient` with one shared config/token-header/timeout path; keep Gitea `/api/v1`
   working, add the GitLab `/api/v4` path mapping (the README already names this as the first
   swap). Strict prerequisite for the `code_qa` work below.
-- **P1 — Productize `phantom-enterprise ask`** (`code_qa/ask.py`, `context.py`, new `cli.py`):
-  context-size caps, include/exclude globs, `--phantom-bin`, `--dry-run-context`, forced
+- **P1 — Productize `spectyn-enterprise ask`** (`code_qa/ask.py`, `context.py`, new `cli.py`):
+  context-size caps, include/exclude globs, `--spectyn-bin`, `--dry-run-context`, forced
   local-vs-on-prem source, and a citation / empty-context output contract — routed through the
   new client and tested in local + Gitea + GitLab modes. **Sequence after** the Git P1.
 - **P1 — VPN-mesh demo milestone** (the single `docs/05` "Must have" demo): a reproducible,
-  host-leak-safe scenario proving a phantom node on a corp/Tailscale segment reaches a home-mesh
+  host-leak-safe scenario proving a spectyn node on a corp/Tailscale segment reaches a home-mesh
   node via `vpn_aware_routing`, captured self-hosted like the existing `docs/demo.cast`.
 - **P2 — Apple-Silicon-HA runbook → probes** (`apple_silicon_ha/`): turn the runbook into
-  testable, fail-soft checks (launchd state, `phantom serve` port, Tailscale IP, `/cluster/peers`
+  testable, fail-soft checks (launchd state, `spectyn serve` port, Tailscale IP, `/cluster/peers`
   reachability, failover dry-run). The most testable HA work available **today** on the author's
   own M-series Mac.
-- **P2 — `phantom-enterprise status` probe**: one read-only, fail-soft command — Tailscale peer
+- **P2 — `spectyn-enterprise status` probe**: one read-only, fail-soft command — Tailscale peer
   state, Gitea/GitLab reachability + version, configured auth backend, HA readiness. Reuses the
   live routing + Git clients; no new external dependency.
 - **P3 — LDAP activation SPEC only** (`ldap_sso/auth.py`): write the `LdapConfig` shape, the
@@ -68,9 +68,9 @@ corp AD/ERP.
 - Extend tests for both providers plus non-JSON / timeout / HTTP-error paths using faked
   transport; keep the GitLab path config-gated so CI needs no live GitLab.
 
-### P1.2 — Productize `phantom-enterprise ask`
+### P1.2 — Productize `spectyn-enterprise ask`
 - Add a real `cli.py` entrypoint with flags: context byte/file caps, include/exclude globs,
-  `--phantom-bin`, `--dry-run-context` (print selected files + char count, skip the LLM call),
+  `--spectyn-bin`, `--dry-run-context` (print selected files + char count, skip the LLM call),
   and explicit `--source local|gitea|gitlab`.
 - Route Gitea/GitLab context through the new `OnPremGitClient`; improve file ranking (path hits,
   README/pyproject/config, exact symbol match) while preserving `.gitignore` behavior.
@@ -81,7 +81,7 @@ corp AD/ERP.
   local mode.
 
 ### P1.3 — VPN-mesh demo milestone
-- Script the demo: a phantom node on a Tailscale/corp segment resolving + reaching a home-mesh
+- Script the demo: a spectyn node on a Tailscale/corp segment resolving + reaching a home-mesh
   node via `vpn_aware_routing.tailscale_route()`; use a non-existent / placeholder host so no
   real tailnet IPs leak (match the existing `docs/demo.cast` convention).
 - Capture as a self-hosted asciinema cast + a short `docs/` walkthrough (no upload, no

@@ -10,7 +10,7 @@
 
 | 觸發條件 | 效果 |
 |---|---|
-| `git push origin v0.6.0` | 建置已簽章的 APK 與 `phantom-aarch64-linux-android`，並將兩者以**預發佈（prerelease）**資產（asset）形式附加到 `v0.6.0` GitHub Release（發佈）。 |
+| `git push origin v0.6.0` | 建置已簽章的 APK 與 `spectyn-aarch64-linux-android`，並將兩者以**預發佈（prerelease）**資產（asset）形式附加到 `v0.6.0` GitHub Release（發佈）。 |
 | 帶有 `tag` 輸入的 `workflow_dispatch` | 同上，但針對任意一個已經存在的 tag。 |
 | 四個 `ANDROID_*` secrets 中任一缺漏 | 工作流程在 `verify-secrets` job（工作）中**快速失敗（fails fast）**——不浪費任何 Android 工具鏈（toolchain）的時間。 |
 
@@ -26,7 +26,7 @@
 |---|---|
 | `ANDROID_KEYSTORE_BASE64` | `keystore.jks` 內容的 Base64 編碼（不需要換行，但有換行也無害）。 |
 | `ANDROID_KEYSTORE_PASSWORD` | 建立 keystore 時使用的 `-storepass` 值。 |
-| `ANDROID_KEY_ALIAS` | keystore 內簽章金鑰的 alias（別名，例如 `phantom-mesh-release`）。 |
+| `ANDROID_KEY_ALIAS` | keystore 內簽章金鑰的 alias（別名，例如 `spectyn-mesh-release`）。 |
 | `ANDROID_KEY_PASSWORD` | 每把金鑰各自的 `-keypass` 值。可以與 storepass 相同，但建議使用不同的值。 |
 
 > **命名注意：** 舊版的 `release-mobile.yml` 工作流程使用
@@ -44,7 +44,7 @@
 # 1. Pick strong, distinct passwords. Store them in a password manager.
 STORE_PW='<long random string>'
 KEY_PW='<different long random string>'
-KEY_ALIAS='phantom-mesh-release'
+KEY_ALIAS='spectyn-mesh-release'
 
 # 2. Generate a 25-year RSA key.
 keytool -genkeypair \
@@ -56,7 +56,7 @@ keytool -genkeypair \
   -validity 9125 \
   -storepass "$STORE_PW" \
   -keypass   "$KEY_PW" \
-  -dname "CN=Phantom Mesh, OU=Release, O=Phantom Mesh, L=Taipei, C=TW"
+  -dname "CN=Spectyn Mesh, OU=Release, O=Spectyn Mesh, L=Taipei, C=TW"
 
 # 3. Verify.
 keytool -list -keystore keystore.jks -storepass "$STORE_PW"
@@ -102,9 +102,9 @@ gh run watch
    `apksigner` 為 APK 簽章，並驗證簽章。
 4. 清除已解碼的 keystore（縱深防禦（defense-in-depth）——無論如何 `$RUNNER_TEMP`
    都會被 runner 自動清理）。
-5. 把 `phantom-mesh-<tag>-signed.apk` 上傳到對應的 GitHub Release，作為
+5. 把 `spectyn-mesh-<tag>-signed.apk` 上傳到對應的 GitHub Release，作為
    **預發佈（prerelease）**資產。
-6. 同時並行建置並附加 `phantom-aarch64-linux-android`（Termux
+6. 同時並行建置並附加 `spectyn-aarch64-linux-android`（Termux
    coordinator（協調者）二進位檔），讓終端使用者可以從同一個 Release 頁面安裝這兩個部分。
 
 在實體裝置上對 APK 做冒煙測試（smoke-test）後，透過 Releases UI 將該預發佈
@@ -126,10 +126,10 @@ UNSIGNED=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-unive
   --ks-key-alias "$KEY_ALIAS" \
   --ks-pass "pass:$STORE_PW" \
   --key-pass "pass:$KEY_PW" \
-  --out phantom-mesh-local-signed.apk \
+  --out spectyn-mesh-local-signed.apk \
   "$UNSIGNED"
 
-"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose phantom-mesh-local-signed.apk
+"$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose spectyn-mesh-local-signed.apk
 ```
 
 如果本機簽章成功，CI 簽章也會成功。
@@ -157,6 +157,6 @@ UNSIGNED=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-unive
   工作流程。當 `ANDROID_KEYSTORE_BASE64` 缺漏時，會退回到 debug 簽章的 APK。
   保留它是為了 iOS 以及未簽章的測試者（tester）建置。
 - `.github/workflows/release-daemon.yml` — 為所有桌面目標
-  以及 `phantom-aarch64-linux-android` 建置 coordinator 二進位檔。已簽章的
+  以及 `spectyn-aarch64-linux-android` 建置 coordinator 二進位檔。已簽章的
   工作流程會重新建置 Android 二進位檔，因此即使 `release-daemon.yml` 正在執行中，
   它仍能附加到 Release。

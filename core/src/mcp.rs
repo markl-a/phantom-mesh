@@ -1,4 +1,4 @@
-//! `phantom mcp` — MCP (Model Context Protocol) stdio server.
+//! `spectyn mcp` — MCP (Model Context Protocol) stdio server.
 //!
 //! Implements the 2024-11-05 MCP spec over the stdio transport.
 //! Each newline-delimited JSON-RPC 2.0 message is read from stdin;
@@ -7,20 +7,20 @@
 //! Supported methods:
 //!   initialize                  → server capabilities / version handshake
 //!   notifications/initialized   → client ready notification (no-op)
-//!   tools/list                  → return all 40 phantom-mesh tool schemas
+//!   tools/list                  → return all 40 spectyn-mesh tool schemas
 //!   tools/call                  → execute a tool and return text content
 //!   ping                        → liveness check
 //!
 //! Once this server is running you can register it in any MCP host:
 //!
 //!   Claude Code ~/.claude/settings.json:
-//!     { "mcpServers": { "phantom": { "command": "phantom", "args": ["mcp"] } } }
+//!     { "mcpServers": { "spectyn": { "command": "spectyn", "args": ["mcp"] } } }
 //!
 //!   Codex:
-//!     codex --mcp-server "phantom mcp"
+//!     codex --mcp-server "spectyn mcp"
 //!
 //!   Goose:
-//!     goose session --with-extension "phantom mcp"
+//!     goose session --with-extension "spectyn mcp"
 
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -37,7 +37,7 @@ pub async fn run_stdio(tools_config: ToolsConfig) -> anyhow::Result<()> {
     let mut reader = BufReader::new(stdin).lines();
     let mut writer = tokio::io::BufWriter::new(stdout);
 
-    tracing::info!("phantom MCP server started (stdio)");
+    tracing::info!("spectyn MCP server started (stdio)");
 
     while let Some(line) = reader.next_line().await? {
         let line = preprocess_line(line);
@@ -98,7 +98,7 @@ pub async fn run_stdio(tools_config: ToolsConfig) -> anyhow::Result<()> {
 
 // ── Method dispatcher ─────────────────────────────────────────────────────────
 
-/// Public entry point for `phantom serve`'s POST /mcp endpoint.
+/// Public entry point for `spectyn serve`'s POST /mcp endpoint.
 pub async fn handle_http(
     method: &str,
     params: &Value,
@@ -120,7 +120,7 @@ async fn handle(
                 "tools": { "listChanged": false },
             },
             "serverInfo": {
-                "name":    "phantom-mesh",
+                "name":    "spectyn-mesh",
                 "version": env!("CARGO_PKG_VERSION"),
             }
         })),
@@ -133,7 +133,7 @@ async fn handle(
                 .collect();
             // Add distributed cluster tools
             tools.push(json!({
-                "name": "phantom_swarm",
+                "name": "spectyn_swarm",
                 "description": "Send a prompt to ALL cluster nodes in parallel and synthesize results. Best for analysis, code review, or tasks that benefit from multiple perspectives.",
                 "inputSchema": {
                     "type": "object",
@@ -145,7 +145,7 @@ async fn handle(
                 }
             }));
             tools.push(json!({
-                "name": "phantom_evolve_distributed",
+                "name": "spectyn_evolve_distributed",
                 "description": "Decompose a goal into subtasks and run them on all cluster nodes in parallel, then synthesize. Best for large tasks: refactoring, multi-file changes, analysis across a codebase.",
                 "inputSchema": {
                     "type": "object",
@@ -167,8 +167,8 @@ async fn handle(
             }
 
             // Handle distributed cluster tools
-            if name == "phantom_swarm" || name == "phantom_evolve_distributed" {
-                // These spawn a `phantom` subprocess instead of going through
+            if name == "spectyn_swarm" || name == "spectyn_evolve_distributed" {
+                // These spawn a `spectyn` subprocess instead of going through
                 // tools::execute, so gate them explicitly — a deny/trust/plan
                 // policy must block launching distributed agent work too.
                 if let Err(reason) = crate::tools::gate_allows(name, &params["arguments"]) {
@@ -177,11 +177,11 @@ async fn handle(
                         "isError": true,
                     }));
                 }
-                let phantom_bin =
-                    std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("phantom"));
-                let phantom_bin = phantom_bin.to_string_lossy().to_string();
+                let spectyn_bin =
+                    std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("spectyn"));
+                let spectyn_bin = spectyn_bin.to_string_lossy().to_string();
 
-                let output = if name == "phantom_swarm" {
+                let output = if name == "spectyn_swarm" {
                     let prompt = params["arguments"]["prompt"]
                         .as_str()
                         .unwrap_or("")
@@ -190,7 +190,7 @@ async fn handle(
                         .as_str()
                         .unwrap_or("master")
                         .to_string();
-                    tokio::process::Command::new(&phantom_bin)
+                    tokio::process::Command::new(&spectyn_bin)
                         .args(["swarm", "--agent", &agent, &prompt])
                         .output()
                         .await
@@ -205,7 +205,7 @@ async fn handle(
                         .as_u64()
                         .unwrap_or(5)
                         .to_string();
-                    tokio::process::Command::new(&phantom_bin)
+                    tokio::process::Command::new(&spectyn_bin)
                         .args(["evolve", "--distributed", "--rounds", &rounds, &goal])
                         .output()
                         .await
@@ -241,11 +241,11 @@ async fn handle(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Heuristic: did a phantom tool return a textual error?
+/// Heuristic: did a spectyn tool return a textual error?
 ///
 /// MCP 2024-11-05 §`tools/call` requires the server to set `isError: true`
 /// whenever a tool call fails (blocked-shell, missing file, timeout, …).
-/// Phantom tools return `String` and signal failure by prefixing the message
+/// Spectyn tools return `String` and signal failure by prefixing the message
 /// with one of the conventions below. We honour all of them so the MCP host
 /// can surface failures to the user/LLM correctly.
 ///
@@ -265,9 +265,9 @@ pub(crate) fn is_error_output(s: &str) -> bool {
         || t.starts_with("ERROR:")
 }
 
-/// Convert a phantom-mesh tool name to an MCP tool descriptor.
+/// Convert a spectyn-mesh tool name to an MCP tool descriptor.
 ///
-/// phantom-mesh schemas use the OpenAI function-calling envelope:
+/// spectyn-mesh schemas use the OpenAI function-calling envelope:
 ///   `{ "type":"function", "function": { "name", "description", "parameters" } }`
 ///
 /// MCP expects:
@@ -302,7 +302,7 @@ async fn send(
 /// command on non-UTF-8 console codepages (CP950/CP932/CP949 etc., the
 /// default on most localised Windows installs). Without this strip,
 /// `serde_json::from_str` rejects the first line with
-/// `Parse error: expected value at line 1 column 1`, making phantom-mcp
+/// `Parse error: expected value at line 1 column 1`, making spectyn-mcp
 /// unreachable from default-config PowerShell clients — the standard MCP
 /// transport on Windows. RFC 8259 §8.1 permits implementations to ignore
 /// a leading BOM.
@@ -443,8 +443,8 @@ mod tests {
             "shell",
             "dev_verify",
             // distributed tools appended in tools/list
-            "phantom_swarm",
-            "phantom_evolve_distributed",
+            "spectyn_swarm",
+            "spectyn_evolve_distributed",
         ] {
             assert!(
                 names.contains(expected),
@@ -497,7 +497,7 @@ mod tests {
     // ── HIGH-3 (audit V4): tools/call must report isError correctly ───────────
 
     #[test]
-    fn is_error_output_recognises_phantom_conventions() {
+    fn is_error_output_recognises_spectyn_conventions() {
         // Error-shaped strings: must be detected
         assert!(is_error_output("Error: missing 'path' argument"));
         assert!(is_error_output("Error reading /tmp/nope: not found"));
@@ -520,7 +520,7 @@ mod tests {
     #[tokio::test]
     async fn tools_call_reports_iserror_true_on_failure() {
         // file_read with no `path` argument is the canonical "tool failed"
-        // path — phantom returns "Error: missing 'path' argument". MCP spec
+        // path — spectyn returns "Error: missing 'path' argument". MCP spec
         // requires isError:true so the host doesn't silently feed the error
         // text back to the model as if it were real data.
         let cfg = crate::config::ToolsConfig::default();

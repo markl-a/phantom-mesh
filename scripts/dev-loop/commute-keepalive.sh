@@ -14,23 +14,23 @@
 #   * bounded per cycle: COMMUTE_CYCLE_TASKS / COMMUTE_CYCLE_MINUTES cap each
 #     burst, then a breather — never an unbounded runaway.
 #   * NEVER auto-merges to the base branch (that stays §0.1-gated).
-#   * clean stop: `touch ~/.phantom-mesh/commute-stop` (the loop finishes its
+#   * clean stop: `touch ~/.spectyn-mesh/commute-stop` (the loop finishes its
 #     current cycle and exits); the file is consumed on exit.
 #
 # Usage:
 #   bash scripts/dev-loop/commute-keepalive.sh [--writer codex] [--once]
 #   # detached for a real commute (survives the launching shell). log() already
-#   # writes a durable trail to ~/.phantom-mesh/commute.log, so send stdout to
+#   # writes a durable trail to ~/.spectyn-mesh/commute.log, so send stdout to
 #   # /dev/null — redirecting it back to the same file double-writes every line.
 #   nohup bash scripts/dev-loop/commute-keepalive.sh >/dev/null 2>&1 &
-#   tail -f ~/.phantom-mesh/commute.log   # watch it
+#   tail -f ~/.spectyn-mesh/commute.log   # watch it
 # Env: COMMUTE_WRITER (default codex), COMMUTE_CYCLE_TASKS (3),
 #      COMMUTE_CYCLE_MINUTES (30), COMMUTE_IDLE_SLEEP (300), COMMUTE_MAX_HOURS (0=∞)
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNNER="${COMMUTE_RUNNER:-$HERE/runner-loop.sh}"   # overridable for tests
-STATE_DIR="${PHANTOM_STATE_DIR:-$HOME/.phantom-mesh}"
-export PHANTOM_STATE_DIR="$STATE_DIR"   # so runner-loop coordinates in the same dir
+STATE_DIR="${SPECTYN_STATE_DIR:-$HOME/.spectyn-mesh}"
+export SPECTYN_STATE_DIR="$STATE_DIR"   # so runner-loop coordinates in the same dir
 STOP="$STATE_DIR/commute-stop"
 LOG="$STATE_DIR/commute.log"
 

@@ -1,8 +1,8 @@
 //! Self-introspection tool — `diag_read`.
 //!
-//! Lets the agent read phantom's own diagnostic state without having to
-//! know the underlying paths. Powers self-debugging: when `phantom evolve`
-//! or `phantom autoevolve` runs, it can call this tool to ground the
+//! Lets the agent read spectyn's own diagnostic state without having to
+//! know the underlying paths. Powers self-debugging: when `spectyn evolve`
+//! or `spectyn autoevolve` runs, it can call this tool to ground the
 //! prompt in real recent events instead of guessing.
 //!
 //! Three modes:
@@ -51,7 +51,7 @@ fn events(limit: usize) -> String {
 }
 
 fn crashes(limit: usize) -> String {
-    let dir = match crate::cli_config::phantom_data_dir() {
+    let dir = match crate::cli_config::spectyn_data_dir() {
         Ok(d) => d.join("crashes"),
         Err(_) => return "[diag] no home dir".to_string(),
     };
@@ -116,7 +116,7 @@ fn last_crash() -> String {
 
 fn summary() -> String {
     let events = crate::diag::snapshot();
-    let dir = crate::cli_config::phantom_data_dir().ok().map(|d| d.join("crashes"));
+    let dir = crate::cli_config::spectyn_data_dir().ok().map(|d| d.join("crashes"));
     let crash_count: usize = dir
         .as_ref()
         .and_then(|d| std::fs::read_dir(d).ok())
@@ -131,7 +131,7 @@ fn summary() -> String {
     let mut sorted: Vec<(String, usize)> = counts.into_iter().collect();
     sorted.sort_by_key(|kc| std::cmp::Reverse(kc.1));
 
-    let mut out = String::from("=== phantom diag summary ===\n");
+    let mut out = String::from("=== spectyn diag summary ===\n");
     out.push_str(&format!("events in ring : {}\n", events.len()));
     out.push_str(&format!("crash logs     : {}\n", crash_count));
     if let Some(p) = last_crash {

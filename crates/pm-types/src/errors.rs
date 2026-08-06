@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Three-state error type for Phantom Mesh.
+/// Three-state error type for Spectyn Mesh.
 ///
 /// - **Transient**: Temporary failure, safe to retry with backoff.
 /// - **Permanent**: Unrecoverable failure, do not retry.
 /// - **Unknown**: Unclear failure state, retry once then surface.
 #[derive(thiserror::Error, Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
-pub enum PhantomError {
+pub enum SpectynError {
     #[error("transient: {message}")]
     Transient {
         message: String,
@@ -26,7 +26,7 @@ pub enum PhantomError {
     },
 }
 
-impl PhantomError {
+impl SpectynError {
     pub fn transient(message: impl Into<String>) -> Self {
         Self::Transient { message: message.into(), retry_after_ms: None }
     }
@@ -77,16 +77,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_phantom_error_transient() {
-        let err = PhantomError::transient("connection timeout");
+    fn test_spectyn_error_transient() {
+        let err = SpectynError::transient("connection timeout");
         assert!(err.is_retryable());
         assert_eq!(err.kind(), ErrorKind::Transient);
         assert_eq!(err.to_string(), "transient: connection timeout");
     }
 
     #[test]
-    fn test_phantom_error_permanent() {
-        let err = PhantomError::Permanent {
+    fn test_spectyn_error_permanent() {
+        let err = SpectynError::Permanent {
             message: "invalid API key".into(),
             suggestion: Some("Check your .env file".into()),
         };
@@ -95,9 +95,9 @@ mod tests {
     }
 
     #[test]
-    fn test_phantom_error_unknown() {
+    fn test_spectyn_error_unknown() {
         let trace = Uuid::new_v4();
-        let err = PhantomError::Unknown {
+        let err = SpectynError::Unknown {
             message: "unexpected state".into(),
             trace_id: Some(trace),
         };
@@ -106,10 +106,10 @@ mod tests {
     }
 
     #[test]
-    fn test_phantom_error_serde_roundtrip() {
-        let err = PhantomError::transient("timeout");
+    fn test_spectyn_error_serde_roundtrip() {
+        let err = SpectynError::transient("timeout");
         let json = serde_json::to_string(&err).unwrap();
-        let back: PhantomError = serde_json::from_str(&json).unwrap();
+        let back: SpectynError = serde_json::from_str(&json).unwrap();
         assert_eq!(back.kind(), ErrorKind::Transient);
     }
 

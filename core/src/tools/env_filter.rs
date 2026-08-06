@@ -7,7 +7,7 @@
 //! process environment. A model that has any file-write tool can stage a
 //! malicious shared library in `/tmp` and then call `shell` with
 //! `{"command": "ls", "env": {"LD_PRELOAD": "/tmp/x.so"}}` → arbitrary
-//! native code runs as the phantom-mesh user.
+//! native code runs as the spectyn-mesh user.
 //!
 //! Mirror attacks exist on every supported platform:
 //! - **Linux:** `LD_PRELOAD`, `LD_LIBRARY_PATH`, `LD_AUDIT`.
@@ -22,7 +22,7 @@
 //!   the next time the corresponding interpreter starts.
 //!
 //! Approval gates are NOT a substitute — the model already knows about
-//! `PHANTOM_AUTO_APPROVE` from its training corpus, and the `env` arg is
+//! `SPECTYN_AUTO_APPROVE` from its training corpus, and the `env` arg is
 //! frequently set on perfectly legitimate calls (`PYTHONUNBUFFERED=1`,
 //! `RUST_LOG=debug`, etc.) so a blanket prompt would be useless noise.
 //!
@@ -273,7 +273,7 @@ mod tests {
         assert!(validate_extra_env(&one("FORCE_COLOR", "1")).is_ok());
         assert!(validate_extra_env(&one("CI", "true")).is_ok());
         assert!(validate_extra_env(&one("DEBUG", "1")).is_ok());
-        assert!(validate_extra_env(&one("PHANTOM_TEST_VAR", "hello")).is_ok());
+        assert!(validate_extra_env(&one("SPECTYN_TEST_VAR", "hello")).is_ok());
         assert!(validate_extra_env(&one("MY_API_KEY", "secret")).is_ok());
     }
 

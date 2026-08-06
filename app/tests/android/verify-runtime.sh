@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consolidated Android runtime verifier (T-VER-01 V1–V7) for the phantom-mesh
+# Consolidated Android runtime verifier (T-VER-01 V1–V7) for the spectyn-mesh
 # Tauri APK on an x86_64 emulator. Encodes the live checks ayaneo-android runs
 # against z13-android's output so a full verification is one command.
 #
@@ -10,14 +10,14 @@
 # skewed APK can miss V2/V6; see memory project-ayaneo-android-build-verify).
 #
 # Usage:
-#   ./app/tests/android/verify-runtime.sh [--apk <path>] [--pkg ai.phantommesh.app] [--avd Pixel_API_36]
+#   ./app/tests/android/verify-runtime.sh [--apk <path>] [--pkg ai.spectynmesh.app] [--avd Pixel_API_36]
 #
 # Exit 0 if V1+V4 pass (app runs + WebView renders — the hard gates); V2/V3/V5/
 # V6/V7 are reported PASS/INFO/FAIL but only V1+V4 fail the script (the rest can
 # legitimately depend on onboarding state / manual tile+widget placement).
 
 set -uo pipefail
-PKG="ai.phantommesh.app"; AVD="Pixel_API_36"; APK=""
+PKG="ai.spectynmesh.app"; AVD="Pixel_API_36"; APK=""
 while [[ $# -gt 0 ]]; do case "$1" in
   --apk) APK="${2:?--apk needs a path}"; shift 2;; --pkg) PKG="${2:?--pkg needs a value}"; shift 2;; --avd) AVD="${2:?--avd needs a value}"; shift 2;;
   *) echo "unknown arg: $1" >&2; exit 2;; esac; done
@@ -70,10 +70,10 @@ else mark V2 FAIL "MeshNodeService not foreground after FocusQuickTile trigger";
 
 # V3 deep-link — B2-hardened: pin to the app handler's OWN log line ('deep-link demo-mode
 # accepted', emitted by src-tauri/src/lib.rs on_open_url ONLY after the app accepts the URL).
-# A loose 'demo-mode|deep-link' grep also matches the OS `am start` line (act=… dat=phantom://demo-mode)
+# A loose 'demo-mode|deep-link' grep also matches the OS `am start` line (act=… dat=spectyn://demo-mode)
 # → false-green even if the handler never ran. Anchor on 'accepted' so a reject log cannot satisfy it.
-"$ADB" logcat -c; "$ADB" shell am start -a android.intent.action.VIEW -d "phantom://demo-mode" >/dev/null 2>&1; sleep 4
-if "$ADB" logcat -d 2>/dev/null | grep -qiE 'deep-link demo-mode accepted'; then mark V3 PASS "phantom:// deep-link handled (app emitted 'accepted')"; else mark V3 INFO "no app-handler 'accepted' log (handler silent/not invoked — NOT a false PASS)"; fi
+"$ADB" logcat -c; "$ADB" shell am start -a android.intent.action.VIEW -d "spectyn://demo-mode" >/dev/null 2>&1; sleep 4
+if "$ADB" logcat -d 2>/dev/null | grep -qiE 'deep-link demo-mode accepted'; then mark V3 PASS "spectyn:// deep-link handled (app emitted 'accepted')"; else mark V3 INFO "no app-handler 'accepted' log (handler silent/not invoked — NOT a false PASS)"; fi
 
 # V4 WebView CDP (hard gate)
 MJS="$SCRIPT_DIR/webview-cdp-smoke.mjs"; command -v cygpath >/dev/null 2>&1 && MJS="$(cygpath -w "$MJS")"

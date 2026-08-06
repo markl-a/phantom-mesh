@@ -112,14 +112,14 @@ impl PlatformAdapter for Platform {
     }
 
     fn dist_binary_name(&self) -> &'static str {
-        "phantom-windows-x86_64.exe"
+        "spectyn-windows-x86_64.exe"
     }
 
     fn config_dir(&self) -> std::path::PathBuf {
         if let Ok(appdata) = std::env::var("APPDATA") {
-            return std::path::PathBuf::from(appdata).join("phantom-mesh");
+            return std::path::PathBuf::from(appdata).join("spectyn-mesh");
         }
-        crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
     }
 }

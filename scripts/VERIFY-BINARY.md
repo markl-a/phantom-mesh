@@ -1,6 +1,6 @@
-# `verify-binary.{sh,ps1}` — phantom binary 健康檢查
+# `verify-binary.{sh,ps1}` — spectyn binary 健康檢查
 
-Health-check a `phantom` binary to confirm it works. Two parity implementations:
+Health-check a `spectyn` binary to confirm it works. Two parity implementations:
 - `verify-binary.sh` — bash / zsh(Linux, macOS, WSL, Git Bash on Windows)
 - `verify-binary.ps1` — PowerShell 5.1+(Windows)
 
@@ -17,12 +17,12 @@ Health-check a `phantom` binary to confirm it works. Two parity implementations:
 | # | Check | `--quick` 跳? | 需 LLM key? |
 |---|---|---|---|
 | 1 | binary 檔存在 + 可執行 | — | no |
-| 2 | `phantom --version` exit 0 | — | no |
-| 3 | `phantom --version --short` 為 SemVer | — | no |
+| 2 | `spectyn --version` exit 0 | — | no |
+| 3 | `spectyn --version --short` 為 SemVer | — | no |
 | 4 | 若給 `--expect-version`,要相符 | — | no |
-| 5 | `phantom doctor` exit 0 | ✓ | no |
-| 6 | `phantom doctor --json` 可解析為 JSON | ✓ | no |
-| 7 | `phantom selftest --p0-only` exit 0 | ✓ | **yes**(僅 `--full`)|
+| 5 | `spectyn doctor` exit 0 | ✓ | no |
+| 6 | `spectyn doctor --json` 可解析為 JSON | ✓ | no |
+| 7 | `spectyn selftest --p0-only` exit 0 | ✓ | **yes**(僅 `--full`)|
 
 ## 3 個模式
 
@@ -38,38 +38,38 @@ Health-check a `phantom` binary to confirm it works. Two parity implementations:
 
 ```bash
 # 基本
-./scripts/verify-binary.sh /usr/local/bin/phantom
+./scripts/verify-binary.sh /usr/local/bin/spectyn
 
 # CI 模式(沒 doctor / 沒 LLM)
-./scripts/verify-binary.sh ./target/release/phantom --quick
+./scripts/verify-binary.sh ./target/release/spectyn --quick
 
 # 嚴格版本比對
-./scripts/verify-binary.sh ./target/release/phantom --expect-version 0.6.0
+./scripts/verify-binary.sh ./target/release/spectyn --expect-version 0.6.0
 
 # 含 selftest 的完整檢查
-./scripts/verify-binary.sh /usr/local/bin/phantom --full
+./scripts/verify-binary.sh /usr/local/bin/spectyn --full
 
 # 機讀格式
-./scripts/verify-binary.sh /usr/local/bin/phantom --json
+./scripts/verify-binary.sh /usr/local/bin/spectyn --json
 ```
 
 ### PowerShell
 
 ```powershell
 # 基本
-.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\phantom.exe
+.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\spectyn.exe
 
 # CI 模式
-.\scripts\verify-binary.ps1 -BinaryPath .\target\release\phantom.exe -Quick
+.\scripts\verify-binary.ps1 -BinaryPath .\target\release\spectyn.exe -Quick
 
 # 嚴格版本比對
-.\scripts\verify-binary.ps1 -BinaryPath .\target\release\phantom.exe -ExpectVersion 0.6.0
+.\scripts\verify-binary.ps1 -BinaryPath .\target\release\spectyn.exe -ExpectVersion 0.6.0
 
 # 含 selftest 的完整檢查
-.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\phantom.exe -Full
+.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\spectyn.exe -Full
 
 # 機讀格式
-.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\phantom.exe -Json
+.\scripts\verify-binary.ps1 -BinaryPath C:\Users\me\.cargo\bin\spectyn.exe -Json
 ```
 
 ## Exit codes
@@ -83,12 +83,12 @@ Health-check a `phantom` binary to confirm it works. Two parity implementations:
 ## 範例輸出(人類版)
 
 ```text
-phantom verify-binary 0.1.0
-  binary:   /usr/local/bin/phantom
+spectyn verify-binary 0.1.0
+  binary:   /usr/local/bin/spectyn
   duration: 3s
 
-  ✓ binary_exists_executable    /usr/local/bin/phantom
-  ✓ version_runs                phantom 0.6.0 (a1b2c3d, x86_64-unknown-linux-gnu, built 2026-05-18)
+  ✓ binary_exists_executable    /usr/local/bin/spectyn
+  ✓ version_runs                spectyn 0.6.0 (a1b2c3d, x86_64-unknown-linux-gnu, built 2026-05-18)
   ✓ version_short_semver        0.6.0
   ∘ version_match_expected      no --expect-version given
   ✓ doctor_runs                 exit 0; 42 lines
@@ -104,13 +104,13 @@ PASS: 5/5 checks passed (2 skipped)
 {
   "script": "verify-binary.sh",
   "script_version": "0.1.0",
-  "binary": "/usr/local/bin/phantom",
+  "binary": "/usr/local/bin/spectyn",
   "duration_seconds": 3,
   "summary": { "pass": 5, "fail": 0, "skip": 2 },
   "exit_code": 0,
   "checks": [
-    { "name": "binary_exists_executable", "status": "pass", "detail": "/usr/local/bin/phantom" },
-    { "name": "version_runs",             "status": "pass", "detail": "phantom 0.6.0 ..." },
+    { "name": "binary_exists_executable", "status": "pass", "detail": "/usr/local/bin/spectyn" },
+    { "name": "version_runs",             "status": "pass", "detail": "spectyn 0.6.0 ..." },
     { "name": "version_short_semver",     "status": "pass", "detail": "0.6.0" },
     { "name": "version_match_expected",   "status": "skip", "detail": "no --expect-version given" },
     { "name": "doctor_runs",              "status": "pass", "detail": "exit 0; 42 lines" },
@@ -126,24 +126,24 @@ PASS: 5/5 checks passed (2 skipped)
 
 ```yaml
 - name: Verify binary
-  run: bash scripts/verify-binary.sh ./target/${{ matrix.target }}/release/phantom --quick --json
+  run: bash scripts/verify-binary.sh ./target/${{ matrix.target }}/release/spectyn --quick --json
   shell: bash
 
 # Windows runner:
 - name: Verify binary (Windows)
-  run: pwsh scripts\verify-binary.ps1 -BinaryPath .\target\${{ matrix.target }}\release\phantom.exe -Quick -Json
+  run: pwsh scripts\verify-binary.ps1 -BinaryPath .\target\${{ matrix.target }}\release\spectyn.exe -Quick -Json
   shell: pwsh
 ```
 
 ## 已知限制
 
-- **`phantom doctor --json` 在 0.4.0 是 stub**(印彩色文字,忽略 `--json` flag)。Script 寬鬆處理:這項只顯示 `skip` 不算 `fail`。從 0.5.0 起應該真的吐 JSON。
-- **`phantom selftest --p0-only` 走 agent → 需要 `~/.phantom-mesh/env` 或 `agents.toml` 設好 LLM provider key**。除非你把 secret 接到 CI 否則別在 CI 用 `--full`。
+- **`spectyn doctor --json` 在 0.4.0 是 stub**(印彩色文字,忽略 `--json` flag)。Script 寬鬆處理:這項只顯示 `skip` 不算 `fail`。從 0.5.0 起應該真的吐 JSON。
+- **`spectyn selftest --p0-only` 走 agent → 需要 `~/.spectyn-mesh/env` 或 `agents.toml` 設好 LLM provider key**。除非你把 secret 接到 CI 否則別在 CI 用 `--full`。
 - **Windows 用 bash 版**:能用(透過 Git Bash),但 path 參數要用 forward slash 或 escaped backslash。
-- **沒測網路存取**:`phantom serve` 真的能起 + healthz 回 200 OK 沒在這檢查範圍;這是 §29 §4 V-track 矩陣的事。
+- **沒測網路存取**:`spectyn serve` 真的能起 + healthz 回 200 OK 沒在這檢查範圍;這是 §29 §4 V-track 矩陣的事。
 
 ## 相關文件
 
-- `goal_plan/docs/29-phantom-mesh-testing-framework-2026-05-18.md` §4 — V1-V11 GA 驗收矩陣(本 script 是執行端)
-- `goal_plan/docs/30-phantom-mesh-user-flows-per-platform-2026-05-18.md` §1.4 — 完整 CLI 命令詞典含 `phantom doctor`, `phantom selftest`, `phantom --version`
+- `goal_plan/docs/29-spectyn-mesh-testing-framework-2026-05-18.md` §4 — V1-V11 GA 驗收矩陣(本 script 是執行端)
+- `goal_plan/docs/30-spectyn-mesh-user-flows-per-platform-2026-05-18.md` §1.4 — 完整 CLI 命令詞典含 `spectyn doctor`, `spectyn selftest`, `spectyn --version`
 - `scripts/_verify-download.sh` — 不同 scope:那邊驗 SHA256 download integrity,這邊驗 binary functional health

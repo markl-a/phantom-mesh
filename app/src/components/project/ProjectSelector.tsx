@@ -24,45 +24,45 @@ export function ProjectSelector() {
       {/* Trigger */}
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-phantom-muted hover:text-phantom-text hover:bg-phantom-card transition"
+        className="flex items-center gap-1.5 px-2 py-1 rounded text-xs text-spectyn-muted hover:text-spectyn-text hover:bg-spectyn-card transition"
       >
         <FolderOpen size={12} />
         <span className="max-w-32 truncate">
           {currentProject ? currentProject.name : 'no project'}
         </span>
-        {currentProject?.has_git && <GitBranch size={10} className="text-phantom-primary" />}
+        {currentProject?.has_git && <GitBranch size={10} className="text-spectyn-primary" />}
         <ChevronDown size={10} />
       </button>
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-phantom-card border border-phantom-border rounded-lg shadow-xl z-50 p-2">
+        <div className="absolute top-full left-0 mt-1 w-72 bg-spectyn-card border border-spectyn-border rounded-lg shadow-xl z-50 p-2">
           {/* Current */}
           {currentProject && (
-            <div className="px-2 py-1.5 mb-2 border-b border-phantom-border">
-              <div className="text-xs text-phantom-muted">current project</div>
-              <div className="text-sm text-phantom-text font-medium flex items-center gap-1">
+            <div className="px-2 py-1.5 mb-2 border-b border-spectyn-border">
+              <div className="text-xs text-spectyn-muted">current project</div>
+              <div className="text-sm text-spectyn-text font-medium flex items-center gap-1">
                 <span>{projectTypeIcon(currentProject.project_type)}</span>
                 {currentProject.name}
               </div>
-              <div className="text-xs text-phantom-muted truncate">{currentProject.cwd}</div>
+              <div className="text-xs text-spectyn-muted truncate">{currentProject.cwd}</div>
             </div>
           )}
 
           {/* Recent */}
           {recentProjects.length > 0 && (
             <>
-              <div className="text-xs text-phantom-muted px-2 mb-1">recent</div>
+              <div className="text-xs text-spectyn-muted px-2 mb-1">recent</div>
               {recentProjects.slice(0, 5).map((p) => (
                 <button
                   key={p.cwd}
                   onClick={() => { setProject(p.cwd); setOpen(false); }}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-phantom-bg text-left"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-spectyn-bg text-left"
                 >
                   <span>{projectTypeIcon(p.project_type)}</span>
                   <div className="min-w-0">
-                    <div className="text-xs text-phantom-text truncate">{p.name}</div>
-                    <div className="text-xs text-phantom-muted truncate">{p.cwd}</div>
+                    <div className="text-xs text-spectyn-text truncate">{p.name}</div>
+                    <div className="text-xs text-spectyn-muted truncate">{p.cwd}</div>
                   </div>
                 </button>
               ))}
@@ -70,19 +70,19 @@ export function ProjectSelector() {
           )}
 
           {/* Custom path */}
-          <div className="mt-2 pt-2 border-t border-phantom-border">
+          <div className="mt-2 pt-2 border-t border-spectyn-border">
             <div className="flex gap-1">
               <input
                 value={customPath}
                 onChange={e => setCustomPath(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && customPath) { setProject(customPath); setOpen(false); setCustomPath(''); }}}
                 placeholder="/path/to/project"
-                className="flex-1 text-xs bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-phantom-text placeholder-phantom-muted"
+                className="flex-1 text-xs bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-spectyn-text placeholder-spectyn-muted"
               />
               <button
                 onClick={() => { if (customPath) { setProject(customPath); setOpen(false); setCustomPath(''); }}}
                 disabled={!customPath}
-                className="text-xs bg-phantom-primary text-phantom-bg px-2 py-1 rounded disabled:opacity-40"
+                className="text-xs bg-spectyn-primary text-spectyn-bg px-2 py-1 rounded disabled:opacity-40"
               >
                 open
               </button>

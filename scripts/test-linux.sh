@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# phantom Linux — end-to-end test sweep.
+# spectyn Linux — end-to-end test sweep.
 #
 # Linux counterpart of `test-mac.sh` (was the only full-flow Bash
 # runner). Same row format, same PASS/FAIL/SKIP semantics. Covers the
@@ -10,18 +10,18 @@
 #
 # Usage:
 #   ./scripts/test-linux.sh                           # full sweep
-#   PHANTOM_BIN=/custom/path ./scripts/test-linux.sh  # override binary
+#   SPECTYN_BIN=/custom/path ./scripts/test-linux.sh  # override binary
 #   COORD=http://127.0.0.1:7895 ./scripts/test-linux.sh
 #
-# Read-only; safe to run while `phantom serve` is live (uses the running
+# Read-only; safe to run while `spectyn serve` is live (uses the running
 # instance's port if it's the default 7878).
 #
 # Exit code mirrors the FAIL count.
 
 set -u
 
-PHANTOM="${PHANTOM_BIN:-$HOME/.cargo/bin/phantom}"
-[ -x "$PHANTOM" ] || PHANTOM="$(command -v phantom 2>/dev/null || echo "$PHANTOM")"
+SPECTYN="${SPECTYN_BIN:-$HOME/.cargo/bin/spectyn}"
+[ -x "$SPECTYN" ] || SPECTYN="$(command -v spectyn 2>/dev/null || echo "$SPECTYN")"
 COORD="${COORD:-http://127.0.0.1:7878}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -39,8 +39,8 @@ section() { printf "\n\033[35m── %s ──\033[0m\n" "$1"; }
 probe()    { command -v "$1" >/dev/null 2>&1; }
 hit()      { local code; code="$(curl -s --max-time 3 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || echo)"; [ "$code" = "${2:-200}" ]; }
 
-echo "═══ phantom Linux end-to-end test sweep ═══"
-echo "  binary  : $PHANTOM"
+echo "═══ spectyn Linux end-to-end test sweep ═══"
+echo "  binary  : $SPECTYN"
 echo "  coord   : $COORD"
 echo "  kernel  : $(uname -r 2>/dev/null || echo unknown)"
 echo "  date    : $(date '+%Y-%m-%d %H:%M:%S')"
@@ -48,27 +48,27 @@ echo
 
 # ── 1. Binary presence + provenance ──────────────────────────────────────────
 section "binary"
-if [ -x "$PHANTOM" ]; then
-  VERSION="$("$PHANTOM" --version 2>&1 | head -1)"
-  ok "phantom --version" "$VERSION"
-  echo "$VERSION" | grep -qE "phantom [0-9]+\.[0-9]+\.[0-9]+ \([0-9a-f]+" \
+if [ -x "$SPECTYN" ]; then
+  VERSION="$("$SPECTYN" --version 2>&1 | head -1)"
+  ok "spectyn --version" "$VERSION"
+  echo "$VERSION" | grep -qE "spectyn [0-9]+\.[0-9]+\.[0-9]+ \([0-9a-f]+" \
     && ok "version provenance"  "git hash + arch + build date" \
     || fail "version provenance" "missing git hash"
 else
-  fail "binary present" "$PHANTOM not executable"
-  echo "Cannot continue without phantom binary."
+  fail "binary present" "$SPECTYN not executable"
+  echo "Cannot continue without spectyn binary."
   exit 1
 fi
 
 # ── 2. Doctor — single-screen self-diagnostic ────────────────────────────────
-section "phantom doctor"
+section "spectyn doctor"
 DOCTOR_OUT="$TMP/doctor.out"
-"$PHANTOM" doctor > "$DOCTOR_OUT" 2>&1
-[ -s "$DOCTOR_OUT" ] && ok "phantom doctor runs" "$(wc -l < "$DOCTOR_OUT" | tr -d ' ') lines" \
-  || fail "phantom doctor runs" "empty output"
+"$SPECTYN" doctor > "$DOCTOR_OUT" 2>&1
+[ -s "$DOCTOR_OUT" ] && ok "spectyn doctor runs" "$(wc -l < "$DOCTOR_OUT" | tr -d ' ') lines" \
+  || fail "spectyn doctor runs" "empty output"
 
 # Sections expected on Linux (no macOS integrations, no MLX).
-for sec in binary config "provider keys" "phantom serve" network tools autoevolve; do
+for sec in binary config "provider keys" "spectyn serve" network tools autoevolve; do
   if grep -qF "$sec" "$DOCTOR_OUT"; then ok "doctor section: $sec" ""
   else                                  skip "doctor section: $sec" "not present"
   fi
@@ -76,12 +76,12 @@ done
 
 # ── 3. Service / systemd user unit ───────────────────────────────────────────
 section "service (systemd --user)"
-"$PHANTOM" service status > "$TMP/svc" 2>&1
+"$SPECTYN" service status > "$TMP/svc" 2>&1
 if grep -q "registered : .*yes" "$TMP/svc"; then
   PID="$(awk -F: '/pid /{print $2}' "$TMP/svc" | head -1 | tr -d ' ')"
   ok "service registered" "pid $PID"
 else
-  skip "service registered" "phantom service install (needs systemd)"
+  skip "service registered" "spectyn service install (needs systemd)"
 fi
 if grep -q "healthz    : .*ok" "$TMP/svc"; then
   ok "service healthz" "200 OK"
@@ -89,8 +89,8 @@ else
   skip "service healthz" "/healthz unreachable (service not installed?)"
 fi
 if probe systemctl; then
-  if systemctl --user is-enabled phantom-mesh.service >/dev/null 2>&1; then
-    ok "systemctl is-enabled" "phantom-mesh.service"
+  if systemctl --user is-enabled spectyn-mesh.service >/dev/null 2>&1; then
+    ok "systemctl is-enabled" "spectyn-mesh.service"
   else
     skip "systemctl is-enabled" "unit not enabled"
   fi
@@ -105,7 +105,7 @@ else
 fi
 
 # ── 4. Web frontend ──────────────────────────────────────────────────────────
-section "phantom serve / web"
+section "spectyn serve / web"
 hit "$COORD/healthz"                    && ok "/healthz"             "200" || fail "/healthz" "no response"
 hit "$COORD/"                           && ok "/ desktop UI"        ""    || fail "/ desktop UI"        "no response"
 hit "$COORD/m"                          && ok "/m mobile UI"        ""    || fail "/m mobile UI"        "no response"
@@ -117,12 +117,12 @@ hit "$COORD/api/tools/history"          && ok "/api/tools/history"  ""    || fai
 
 DESKTOP_TITLE="$(curl -s --max-time 2 -A 'Mozilla/5.0 Linux' "$COORD/" | grep -E '<title>' | head -1)"
 MOBILE_TITLE="$(curl -s --max-time 2 -A 'Mozilla/5.0 (Android)' "$COORD/" | grep -E '<title>' | head -1)"
-echo "$DESKTOP_TITLE" | grep -qi "phantom · mesh"   && ok "UA: desktop title"   "$DESKTOP_TITLE" || fail "UA: desktop title" "$DESKTOP_TITLE"
-echo "$MOBILE_TITLE"  | grep -qi "phantom · mobile" && ok "UA: mobile title"   "$MOBILE_TITLE" || fail "UA: mobile title"  "$MOBILE_TITLE"
+echo "$DESKTOP_TITLE" | grep -qi "spectyn · mesh"   && ok "UA: desktop title"   "$DESKTOP_TITLE" || fail "UA: desktop title" "$DESKTOP_TITLE"
+echo "$MOBILE_TITLE"  | grep -qi "spectyn · mobile" && ok "UA: mobile title"   "$MOBILE_TITLE" || fail "UA: mobile title"  "$MOBILE_TITLE"
 
 # ── 5. /dist binary CDN allowlist ────────────────────────────────────────────
 section "/dist binary CDN"
-for f in phantom-x86_64-unknown-linux-gnu phantom-aarch64-unknown-linux-gnu phantom-x86_64-pc-windows.exe phantom-mesh-android.apk; do
+for f in spectyn-x86_64-unknown-linux-gnu spectyn-aarch64-unknown-linux-gnu spectyn-x86_64-pc-windows.exe spectyn-mesh-android.apk; do
   if hit "$COORD/dist/$f"; then ok "/dist/$f" ""; else skip "/dist/$f" "not in install_dir mirror"; fi
 done
 hit "$COORD/dist/whatever-not-allowed" "404" && ok "/dist allowlist enforced" "non-allowlisted gets 404" \
@@ -139,7 +139,7 @@ section "MCP server (stdio)"
 INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test-linux","version":"1"}}}'
 LIST='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
 TOOLS_JSON="$TMP/tools.json"
-printf '%s\n%s\n' "$INIT" "$LIST" | timeout 15 "$PHANTOM" mcp 2>/dev/null > "$TOOLS_JSON" || true
+printf '%s\n%s\n' "$INIT" "$LIST" | timeout 15 "$SPECTYN" mcp 2>/dev/null > "$TOOLS_JSON" || true
 
 if [ -s "$TOOLS_JSON" ]; then
   N="$(python3 -c "
@@ -163,7 +163,7 @@ for line in open('$TOOLS_JSON'):
     fi
   done
 else
-  fail "phantom mcp stdio" "no JSON-RPC response"
+  fail "spectyn mcp stdio" "no JSON-RPC response"
 fi
 
 # ── 8. Landlock LSM availability ─────────────────────────────────────────────
@@ -213,16 +213,16 @@ fi
 
 # ── 11. autoevolve daemon ────────────────────────────────────────────────────
 section "autoevolve"
-if [ -f "$HOME/.phantom-mesh/autoevolve.log" ]; then
-  N="$(grep -c '' "$HOME/.phantom-mesh/autoevolve.log" 2>/dev/null || echo 0)"
+if [ -f "$HOME/.spectyn-mesh/autoevolve.log" ]; then
+  N="$(grep -c '' "$HOME/.spectyn-mesh/autoevolve.log" 2>/dev/null || echo 0)"
   ok "autoevolve.log present" "$N JSONL entries"
 else
   skip "autoevolve.log present" "run autoevolve once"
 fi
-"$PHANTOM" autoevolve --help > "$TMP/aev" 2>&1
+"$SPECTYN" autoevolve --help > "$TMP/aev" 2>&1
 grep -q "distributed" "$TMP/aev"  && ok "autoevolve --distributed flag" "" || fail "autoevolve --distributed flag" ""
 
-if "$PHANTOM" autoevolve schedule status > "$TMP/sched" 2>&1; then
+if "$SPECTYN" autoevolve schedule status > "$TMP/sched" 2>&1; then
   if grep -q "registered : .*yes" "$TMP/sched"; then
     ok "autoevolve schedule" "registered"
   else
@@ -232,17 +232,17 @@ fi
 
 # ── 12. self-update — dry run ────────────────────────────────────────────────
 section "self-update"
-PHANTOM_COORD="$COORD" "$PHANTOM" self-update --dry-run > "$TMP/selfup" 2>&1
+SPECTYN_COORD="$COORD" "$SPECTYN" self-update --dry-run > "$TMP/selfup" 2>&1
 grep -q "dry-run" "$TMP/selfup" && ok "self-update --dry-run" "resolves URL" || fail "self-update --dry-run" "no dry-run output"
 grep -q "current : 0\." "$TMP/selfup" && ok "self-update reports current" "" || fail "self-update reports current" ""
 
 # ── 13. journal routing ──────────────────────────────────────────────────────
 section "journal"
 if probe journalctl; then
-  if journalctl --user -u phantom-mesh.service -n 5 --no-pager >/dev/null 2>&1; then
-    ok "journalctl --user phantom-mesh" "readable"
+  if journalctl --user -u spectyn-mesh.service -n 5 --no-pager >/dev/null 2>&1; then
+    ok "journalctl --user spectyn-mesh" "readable"
   else
-    skip "journalctl --user phantom-mesh" "service not installed or no entries"
+    skip "journalctl --user spectyn-mesh" "service not installed or no entries"
   fi
 else
   skip "journalctl present" "no systemd journal"

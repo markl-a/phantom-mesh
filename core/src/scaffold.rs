@@ -1,14 +1,14 @@
-//! Project scaffolding and templating for `phantom init`.
+//! Project scaffolding and templating for `spectyn init`.
 //!
 //! This module inspects a target project directory and synthesizes a
-//! `PHANTOM.md` context file describing the project to downstream agents.
+//! `SPECTYN.md` context file describing the project to downstream agents.
 //! It performs lightweight, dependency-free heuristics — no external parsers
 //! are pulled in — to keep the scaffolding path cheap and self-contained:
 //!
 //! - [`detect_project_type`] — classify the project (Rust / Node.js / Python /
 //!   Go / Unknown) from well-known manifest files.
-//! - [`generate_phantom_md`] / [`generate_phantom_md_async`] — assemble the
-//!   full `PHANTOM.md` template from project metadata, key files, directory
+//! - [`generate_spectyn_md`] / [`generate_spectyn_md_async`] — assemble the
+//!   full `SPECTYN.md` template from project metadata, key files, directory
 //!   layout, build/test commands, and a README excerpt.
 //!
 //! All functions are read-only with respect to the target directory; callers
@@ -33,14 +33,14 @@ pub fn detect_project_type(cwd: &std::path::Path) -> &'static str {
     }
 }
 
-/// Analyzes the project at `cwd` and returns the content of a `PHANTOM.md` file.
+/// Analyzes the project at `cwd` and returns the content of a `SPECTYN.md` file.
 ///
 /// This function is pure — it performs only read operations and returns a `String`.
 /// The caller is responsible for writing the result to disk.
 ///
-/// An async wrapper [`generate_phantom_md_async`] is also available for use in
-/// async contexts (e.g. the `phantom init` CLI command).
-pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
+/// An async wrapper [`generate_spectyn_md_async`] is also available for use in
+/// async contexts (e.g. the `spectyn init` CLI command).
+pub fn generate_spectyn_md(cwd: &std::path::Path) -> String {
     use std::fs;
 
     // ── 1. Project type ───────────────────────────────────────────────────
@@ -125,7 +125,7 @@ pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
         existing_docs.join("\n")
     };
 
-    // ── 9. Assemble PHANTOM.md ────────────────────────────────────────────
+    // ── 9. Assemble SPECTYN.md ────────────────────────────────────────────
     let counts_line = if counts_summary.is_empty() {
         String::new()
     } else {
@@ -190,7 +190,7 @@ pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
     )
 }
 
-/// Async wrapper around [`generate_phantom_md`] for use in async contexts.
+/// Async wrapper around [`generate_spectyn_md`] for use in async contexts.
 ///
 /// Internally delegates to the synchronous implementation via
 /// [`tokio::task::spawn_blocking`] so disk I/O does not block the async runtime.
@@ -198,15 +198,15 @@ pub fn generate_phantom_md(cwd: &std::path::Path) -> String {
 /// # Example
 /// ```no_run
 /// # async fn example() {
-/// let content = phantom_mesh::scaffold::generate_phantom_md_async(
+/// let content = spectyn_mesh::scaffold::generate_spectyn_md_async(
 ///     std::path::Path::new(".")
 /// ).await;
-/// tokio::fs::write("PHANTOM.md", content).await.unwrap();
+/// tokio::fs::write("SPECTYN.md", content).await.unwrap();
 /// # }
 /// ```
-pub async fn generate_phantom_md_async(cwd: &std::path::Path) -> String {
+pub async fn generate_spectyn_md_async(cwd: &std::path::Path) -> String {
     let cwd = cwd.to_path_buf();
-    tokio::task::spawn_blocking(move || generate_phantom_md(&cwd))
+    tokio::task::spawn_blocking(move || generate_spectyn_md(&cwd))
         .await
         .unwrap_or_default()
 }
@@ -597,10 +597,10 @@ mod tests {
         assert_eq!(detect_project_type(&path), "Unknown");
     }
 
-    // ── generate_phantom_md ───────────────────────────────────────────────
+    // ── generate_spectyn_md ───────────────────────────────────────────────
 
     #[test]
-    fn generate_phantom_md_rust() {
+    fn generate_spectyn_md_rust() {
         let (_dir, path) = tmp_dir();
         fs::write(
             path.join("Cargo.toml"),
@@ -610,7 +610,7 @@ mod tests {
         fs::create_dir(path.join("src")).unwrap();
         fs::write(path.join("src").join("main.rs"), "fn main() {}").unwrap();
 
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(md.contains("test-crate"), "should contain crate name");
         assert!(md.contains("A test crate"), "should contain description");
         assert!(md.contains("cargo build"), "should contain build command");
@@ -620,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_phantom_md_node() {
+    fn generate_spectyn_md_node() {
         let (_dir, path) = tmp_dir();
         fs::write(
             path.join("package.json"),
@@ -628,7 +628,7 @@ mod tests {
         )
         .unwrap();
 
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(md.contains("my-app"), "should contain package name");
         assert!(md.contains("A node app"), "should contain description");
         assert!(md.contains("npm run build"), "should contain build command");
@@ -637,11 +637,11 @@ mod tests {
     }
 
     #[test]
-    fn generate_phantom_md_go() {
+    fn generate_spectyn_md_go() {
         let (_dir, path) = tmp_dir();
         fs::write(path.join("go.mod"), "module example.com/myapp\n\ngo 1.21\n").unwrap();
 
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(
             md.contains("example.com/myapp"),
             "should contain module name"
@@ -655,19 +655,19 @@ mod tests {
     }
 
     #[test]
-    fn generate_phantom_md_includes_readme() {
+    fn generate_spectyn_md_includes_readme() {
         let (_dir, path) = tmp_dir();
         fs::write(path.join("README.md"), "Hello from README").unwrap();
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(md.contains("Hello from README"));
     }
 
     #[test]
-    fn generate_phantom_md_truncates_long_readme() {
+    fn generate_spectyn_md_truncates_long_readme() {
         let (_dir, path) = tmp_dir();
         let long = "x".repeat(600);
         fs::write(path.join("README.md"), &long).unwrap();
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(
             md.contains('…'),
             "long README should be truncated with ellipsis"
@@ -675,9 +675,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_phantom_md_unknown_project() {
+    fn generate_spectyn_md_unknown_project() {
         let (_dir, path) = tmp_dir();
-        let md = generate_phantom_md(&path);
+        let md = generate_spectyn_md(&path);
         assert!(md.contains("# Project:"), "should have project header");
         assert!(
             md.contains("TODO: Add project description"),
@@ -690,7 +690,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generate_phantom_md_async_works() {
+    async fn generate_spectyn_md_async_works() {
         let (_dir, path) = tmp_dir();
         fs::write(
             path.join("Cargo.toml"),
@@ -698,7 +698,7 @@ mod tests {
         )
         .unwrap();
 
-        let md = generate_phantom_md_async(&path).await;
+        let md = generate_spectyn_md_async(&path).await;
         assert!(
             md.contains("async-crate"),
             "async wrapper should produce same output"
@@ -710,10 +710,10 @@ mod tests {
 
     #[test]
     fn toml_field_extraction() {
-        let content = "[package]\nname = \"phantom-mesh\"\ndescription = \"An agent mesh\"\n";
+        let content = "[package]\nname = \"spectyn-mesh\"\ndescription = \"An agent mesh\"\n";
         assert_eq!(
             extract_toml_field(content, "name"),
-            Some("phantom-mesh".to_string())
+            Some("spectyn-mesh".to_string())
         );
         assert_eq!(
             extract_toml_field(content, "description"),

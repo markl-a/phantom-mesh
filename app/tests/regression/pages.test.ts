@@ -27,11 +27,11 @@ describe("Page Commands — Regression", () => {
   describe("load_page", () => {
     it("returns HTML with bridge injected", async () => {
       mockInvoke.mockResolvedValueOnce({
-        html: "<html><head><script>window.phantom=...</script></head><body>Hi</body></html>",
+        html: "<html><head><script>window.spectyn=...</script></head><body>Hi</body></html>",
         name: "test",
       });
       const result = await mockInvoke("load_page", { name: "test" });
-      expect(result.html).toContain("phantom");
+      expect(result.html).toContain("spectyn");
     });
   });
 

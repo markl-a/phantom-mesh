@@ -1,11 +1,11 @@
-# phantom-mesh cluster agents.toml
-# 複製到 ~/.phantom-mesh/agents.toml，修改 node_name 和所有 100.x.x.x IP
+# spectyn-mesh cluster agents.toml
+# 複製到 ~/.spectyn-mesh/agents.toml，修改 node_name 和所有 100.x.x.x IP
 #
 # 申請免費 API keys：
 #   Groq  : https://console.groq.com          (Llama 3.1 70B, 免費, 快)
 #   Gemini: https://aistudio.google.com       (Gemini 1.5 Pro, 免費, 長 context)
 #
-# 每個節點的 env 檔 (~/.phantom-mesh/env)：
+# 每個節點的 env 檔 (~/.spectyn-mesh/env)：
 #   GROQ_API_KEY=gsk_...
 #   GEMINI_API_KEY=AIza...
 

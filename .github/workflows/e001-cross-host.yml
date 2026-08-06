@@ -10,18 +10,18 @@ name: E001 Cross-host e2e (operator-triggered)
 # The workflow assumes the operator's two-node testbed (per
 # `docs/superpowers/runbooks/E001-testbed-setup.md`, F005) is already up
 # and reachable from this runner. The ubuntu-latest runner acts as the
-# SSH controller — it does NOT host phantom serve. Both phantom nodes are
+# SSH controller — it does NOT host spectyn serve. Both spectyn nodes are
 # the operator's own machines (e.g. Windows+WSL2 ↔ Pi 4 over Tailscale).
 #
 # Secrets:
-#   `PHANTOM_CLUSTER_SECRET`  — repo secret, used as the cluster HMAC
+#   `SPECTYN_CLUSTER_SECRET`  — repo secret, used as the cluster HMAC
 #     shared secret on both nodes. NEVER pass via workflow_dispatch input
 #     (input values are visible in run logs and the Run-workflow form).
 #   SSH targets / URLs are non-secret connection metadata and come from
 #     the operator-supplied workflow inputs.
 #
 # Spec: docs/superpowers/features/F006-ci-cross-host-workflow-dispatch.md
-# Scenarios: scripts/phantom-test/scenarios/cross_host_{dispatch,recovery}.sh
+# Scenarios: scripts/spectyn-test/scenarios/cross_host_{dispatch,recovery}.sh
 #   (created by F002 / F003 — workflow tolerates them not existing yet)
 
 on:
@@ -58,7 +58,7 @@ on:
         default: '99'
 
 # Operator's testbed is a singleton — never run two of these in parallel
-# or they will clobber each other's phantom serve processes.
+# or they will clobber each other's spectyn serve processes.
 concurrency:
   group: e001-cross-host
   cancel-in-progress: false
@@ -84,23 +84,23 @@ jobs:
       # cannot leak it. Cheap insurance.
       - name: Mask cluster secret in logs
         env:
-          PHANTOM_CLUSTER_SECRET: ${{ secrets.PHANTOM_CLUSTER_SECRET }}
+          SPECTYN_CLUSTER_SECRET: ${{ secrets.SPECTYN_CLUSTER_SECRET }}
         run: |
-          if [ -z "${PHANTOM_CLUSTER_SECRET}" ]; then
-            echo "::error::Repo secret PHANTOM_CLUSTER_SECRET is not set. See docs/superpowers/runbooks/E001-testbed-setup.md (F005) for setup."
+          if [ -z "${SPECTYN_CLUSTER_SECRET}" ]; then
+            echo "::error::Repo secret SPECTYN_CLUSTER_SECRET is not set. See docs/superpowers/runbooks/E001-testbed-setup.md (F005) for setup."
             exit 1
           fi
-          echo "::add-mask::${PHANTOM_CLUSTER_SECRET}"
+          echo "::add-mask::${SPECTYN_CLUSTER_SECRET}"
 
       - name: Resolve scenario script path
         id: resolve
         run: |
           case "${{ inputs.scenario }}" in
             dispatch)
-              script="scripts/phantom-test/scenarios/cross_host_dispatch.sh"
+              script="scripts/spectyn-test/scenarios/cross_host_dispatch.sh"
               ;;
             recovery)
-              script="scripts/phantom-test/scenarios/cross_host_recovery.sh"
+              script="scripts/spectyn-test/scenarios/cross_host_recovery.sh"
               ;;
             *)
               echo "::error::Unknown scenario: ${{ inputs.scenario }}"
@@ -118,14 +118,14 @@ jobs:
         id: run_scenario
         env:
           # Non-secret connection metadata from operator inputs.
-          PHANTOM_NODE_A_SSH: ${{ inputs.node_a_ssh }}
-          PHANTOM_NODE_B_SSH: ${{ inputs.node_b_ssh }}
-          PHANTOM_NODE_A_URL: ${{ inputs.node_a_url }}
-          PHANTOM_NODE_B_URL: ${{ inputs.node_b_url }}
-          PHANTOM_E001_HEARTBEAT_DEADLINE_SECS: ${{ inputs.heartbeat_deadline_secs }}
+          SPECTYN_NODE_A_SSH: ${{ inputs.node_a_ssh }}
+          SPECTYN_NODE_B_SSH: ${{ inputs.node_b_ssh }}
+          SPECTYN_NODE_A_URL: ${{ inputs.node_a_url }}
+          SPECTYN_NODE_B_URL: ${{ inputs.node_b_url }}
+          SPECTYN_E001_HEARTBEAT_DEADLINE_SECS: ${{ inputs.heartbeat_deadline_secs }}
           # Secret: HMAC shared secret. Comes from repo secret, never from
           # workflow_dispatch input (those are visible in logs).
-          PHANTOM_CLUSTER_SECRET: ${{ secrets.PHANTOM_CLUSTER_SECRET }}
+          SPECTYN_CLUSTER_SECRET: ${{ secrets.SPECTYN_CLUSTER_SECRET }}
           NO_COLOR: '1'
         run: |
           set -o pipefail

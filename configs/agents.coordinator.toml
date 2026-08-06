@@ -1,4 +1,4 @@
-# Phantom Mesh — Coordinator Node Config
+# Spectyn Mesh — Coordinator Node Config
 # =========================================
 # For: node-a (Windows) or node-c (Apple Silicon Mac) — the primary hub / development machine
 # Role: Coordinator — orchestrates tasks, hosts the main agent, runs git tools
@@ -7,14 +7,14 @@
 # always-on; the cloud node handles Telegram when this machine is offline.
 #
 # Copy to:
-#   Windows: %APPDATA%\ai.phantommesh.app\agents.toml
-#   macOS:   ~/Library/Application Support/ai.phantommesh.app/agents.toml
-#   Linux:   ~/.config/phantom-mesh/agents.toml
+#   Windows: %APPDATA%\ai.spectynmesh.app\agents.toml
+#   macOS:   ~/Library/Application Support/ai.spectynmesh.app/agents.toml
+#   Linux:   ~/.config/spectyn-mesh/agents.toml
 #
 # Required env vars (set in your shell profile or systemd unit):
 #   ANTHROPIC_API_KEY    — for the primary Anthropic provider
 #   OPENROUTER_API_KEY   — for the OpenRouter fallback provider
-#   PHANTOM_CLUSTER_SECRET — shared secret for cluster auth (same on all nodes)
+#   SPECTYN_CLUSTER_SECRET — shared secret for cluster auth (same on all nodes)
 # ─────────────────────────────────────────────────────────────────────────────
 
 [core]
@@ -53,7 +53,7 @@ default_model = "google/gemini-2.5-flash"
 node_name = "coordinator"
 # cluster_secret: shared HMAC key that authenticates all inter-node RPC calls.
 # Must match on every node. Generate with: openssl rand -hex 32
-# Set the same value in PHANTOM_CLUSTER_SECRET on all machines, then reference
+# Set the same value in SPECTYN_CLUSTER_SECRET on all machines, then reference
 # it here — or paste the value directly and keep this file out of source control.
 cluster_secret = "CHANGE_ME_SHARED_SECRET"   # replace with output of: openssl rand -hex 32
 peers = [

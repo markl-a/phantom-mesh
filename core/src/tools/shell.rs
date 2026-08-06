@@ -87,9 +87,9 @@ pub fn requires_confirmation(cmd: &str) -> Option<&'static str> {
     None
 }
 
-/// Returns true if PHANTOM_AUTO_APPROVE is set to "1".
+/// Returns true if SPECTYN_AUTO_APPROVE is set to "1".
 fn auto_approve_enabled() -> bool {
-    std::env::var("PHANTOM_AUTO_APPROVE").as_deref() == Ok("1")
+    std::env::var("SPECTYN_AUTO_APPROVE").as_deref() == Ok("1")
 }
 
 /// Delegate to `platform::make_command` — all platform logic lives there.
@@ -125,7 +125,7 @@ pub async fn run_bg(args: &Value) -> String {
     // [C7/T76] V9 H-3: enforce the same `requires_confirmation` gate as
     // `shell::run`. Pre-fix, the background path skipped this check, so a
     // model could route destructive commands through `mode=bg` to bypass
-    // approval. Honors `PHANTOM_AUTO_APPROVE=1` like the foreground path.
+    // approval. Honors `SPECTYN_AUTO_APPROVE=1` like the foreground path.
     // Returns a formatted string (not JSON) to match this entry point's
     // existing return shape — by design distinct from `bash_run_background`
     // which returns JSON.
@@ -133,13 +133,13 @@ pub async fn run_bg(args: &Value) -> String {
         if !auto_approve_enabled() {
             return format!(
                 "APPROVAL_REQUIRED: command '{}' matches pattern '{}'.\n\
-                 To allow this command, the caller must set PHANTOM_AUTO_APPROVE=1 or explicitly confirm.\n\
+                 To allow this command, the caller must set SPECTYN_AUTO_APPROVE=1 or explicitly confirm.\n\
                  Re-run with confirmation to proceed.",
                 cmd, reason
             );
         }
         tracing::warn!(
-            "PHANTOM_AUTO_APPROVE is active — shell::run_bg executing potentially dangerous command: '{}'",
+            "SPECTYN_AUTO_APPROVE is active — shell::run_bg executing potentially dangerous command: '{}'",
             cmd
         );
     }
@@ -446,13 +446,13 @@ pub async fn run(args: &Value) -> String {
         if !auto_approve_enabled() {
             return format!(
                 "APPROVAL_REQUIRED: command '{}' matches pattern '{}'.\n\
-                 To allow this command, the caller must set PHANTOM_AUTO_APPROVE=1 or explicitly confirm.\n\
+                 To allow this command, the caller must set SPECTYN_AUTO_APPROVE=1 or explicitly confirm.\n\
                  Re-run with confirmation to proceed.",
                 cmd, reason
             );
         }
         tracing::warn!(
-            "PHANTOM_AUTO_APPROVE is active — executing potentially dangerous command: '{}'",
+            "SPECTYN_AUTO_APPROVE is active — executing potentially dangerous command: '{}'",
             cmd
         );
     }
@@ -915,7 +915,7 @@ mod tests {
     #[tokio::test]
     async fn test_approval_gate_blocks_without_env() {
         let _g = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         let args = serde_json::json!({"command": "rm somefile"});
         let result = run(&args).await;
         assert!(result.starts_with("APPROVAL_REQUIRED:"), "got: {}", result);
@@ -924,10 +924,10 @@ mod tests {
     #[tokio::test]
     async fn test_approval_gate_allows_with_env() {
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
-        let args = serde_json::json!({"command": "rm /tmp/__phantom_test_nonexistent_file__"});
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
+        let args = serde_json::json!({"command": "rm /tmp/__spectyn_test_nonexistent_file__"});
         let result = run(&args).await;
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         assert!(!result.starts_with("APPROVAL_REQUIRED:"), "got: {}", result);
     }
 
@@ -1111,13 +1111,13 @@ mod tests {
     // ── [C7/T76] V9 H-3 approval-gate parity tests for run_bg ────────────
 
     /// V9 H-3 regression: `shell::run_bg` must refuse `requires_confirmation`
-    /// matches without `PHANTOM_AUTO_APPROVE`. Pre-fix the background entry
+    /// matches without `SPECTYN_AUTO_APPROVE`. Pre-fix the background entry
     /// point spawned anything not on the hard blocklist — letting `sudo …`
     /// or `kill …` slip past the approval gate that `run` enforces.
     #[tokio::test]
     async fn test_run_bg_requires_confirmation_blocks_sudo() {
         let _g = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         let args = serde_json::json!({"command": "sudo systemctl restart sshd"});
         let result = run_bg(&args).await;
         assert!(
@@ -1131,7 +1131,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_bg_safe_command_still_launches() {
         let _g = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         // Use a long-running command so we get a real PID before exit.
         let args = serde_json::json!({"command": "sleep 60", "label": "c7_t76_safe"});
         let result = run_bg(&args).await;
@@ -1186,7 +1186,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cwd_invalid() {
-        let args = serde_json::json!({"command": "pwd", "cwd": "/nonexistent_phantom_dir_xyz"});
+        let args = serde_json::json!({"command": "pwd", "cwd": "/nonexistent_spectyn_dir_xyz"});
         let result = run(&args).await;
         assert!(result.starts_with("Error: cwd"), "got: {}", result);
     }
@@ -1241,11 +1241,11 @@ mod tests {
     async fn test_env_injected() {
         let args = serde_json::json!({
             "command": "env",
-            "env": {"PHANTOM_TEST_VAR": "hello_from_phantom"}
+            "env": {"SPECTYN_TEST_VAR": "hello_from_spectyn"}
         });
         let result = run(&args).await;
         assert!(
-            result.contains("PHANTOM_TEST_VAR=hello_from_phantom"),
+            result.contains("SPECTYN_TEST_VAR=hello_from_spectyn"),
             "got: {}",
             result
         );
@@ -1362,7 +1362,7 @@ mod tests {
             "env": {
                 "RUST_LOG": "debug",
                 "PYTHONUNBUFFERED": "1",
-                "PHANTOM_TEST_SAFE": "yes"
+                "SPECTYN_TEST_SAFE": "yes"
             }
         });
         let result = run(&args).await;
@@ -1374,7 +1374,7 @@ mod tests {
         // At least one of the vars should make it through to env(1)'s output
         // (running on Windows/macOS/Linux all emit the K=V format).
         assert!(
-            result.contains("PHANTOM_TEST_SAFE=yes")
+            result.contains("SPECTYN_TEST_SAFE=yes")
                 || result.contains("RUST_LOG=debug")
                 || result.contains("PYTHONUNBUFFERED=1"),
             "expected one of the safe vars to reach the child, got: {}",
@@ -1405,7 +1405,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_output_format_stderr_only() {
-        let args = serde_json::json!({"command": "ls /nonexistent_phantom_path_xyz"});
+        let args = serde_json::json!({"command": "ls /nonexistent_spectyn_path_xyz"});
         let result = run(&args).await;
         // ls to a nonexistent path writes to stderr and exits non-zero
         assert!(result.contains("STDERR:"), "got: {}", result);

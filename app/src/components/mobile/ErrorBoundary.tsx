@@ -18,7 +18,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     // Surface to the on-device diag log (installed in main.tsx) — handsets
     // have no remote console, so this is how we see boundary catches.
-    const diag = (window as { phantomDiag?: (m: string, bg?: string) => void }).phantomDiag;
+    const diag = (window as { spectynDiag?: (m: string, bg?: string) => void }).spectynDiag;
     diag?.(`[ErrorBoundary] ${error.message}`, "#f88");
     console.error("[ErrorBoundary]", error, info.componentStack);
   }

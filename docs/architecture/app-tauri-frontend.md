@@ -2,16 +2,16 @@
 
 ## 目的（Purpose）
 
-`app-tauri-frontend` 子系統是 phantom-mesh 的桌面與行動圖形化客戶端（graphical
+`app-tauri-frontend` 子系統是 spectyn-mesh 的桌面與行動圖形化客戶端（graphical
 client）。它是一個 [Tauri 2](https://tauri.app/) 應用程式：以 React +
 TypeScript 撰寫的 web UI（網頁使用者介面，在系統 WebView（網頁檢視元件）中渲染），
 外面包覆一個小型的 Rust host（宿主）程序。這個 Rust host 透過具型別的 Tauri
 *commands*（命令），把原生能力（檔案存取、程序衍生、作業系統通知、內嵌的 HTTP
-client（HTTP 客戶端））暴露給 WebView，並監管一個隨附打包的 `phantom-mesh`
+client（HTTP 客戶端））暴露給 WebView，並監管一個隨附打包的 `spectyn-mesh`
 daemon（常駐服務）sidecar（隨附子程序）。
 
 它位於整個堆疊（stack）的最頂層：使用者與這個應用程式互動，而此應用程式則與本機的
-phantom-mesh daemon（預設為 `http://localhost:<port>`）溝通，以進行 agent（代理）
+spectyn-mesh daemon（預設為 `http://localhost:<port>`）溝通，以進行 agent（代理）
 執行、cluster（叢集）狀態、life-tracking（生活追蹤）功能與設定。當在 Tauri
 WebView 之外執行時（例如純瀏覽器開發或測試），同一份 UI 會降級（degrade）為對
 daemon 的純 HTTP fallback（後備路徑）。
@@ -39,10 +39,10 @@ daemon 的純 HTTP fallback（後備路徑）。
 | `app/src-tauri/src/main.rs` | Rust 二進位進入點；委派給 `lib.rs`。 |
 | `app/src-tauri/src/lib.rs` | 建構 Tauri 應用程式：受管狀態（managed state）、plugins，以及 `generate_handler!` 命令註冊表。 |
 | `app/src-tauri/src/commands/` | 依功能分組的命令實作（`agent.rs`、`cluster.rs`、`settings.rs`、`*_wire.rs` 模組等等）；`mod.rs` 將它們重新匯出（re-export）。 |
-| `app/src-tauri/src/daemon.rs` | 僅限桌面：衍生、監管（watchdog/restart 看門狗/重啟）並停止隨附打包的 `phantom-mesh` daemon sidecar。 |
+| `app/src-tauri/src/daemon.rs` | 僅限桌面：衍生、監管（watchdog/restart 看門狗/重啟）並停止隨附打包的 `spectyn-mesh` daemon sidecar。 |
 | `app/src-tauri/src/updater.rs` | 僅限桌面的自動更新整合。 |
 | `app/src-tauri/src/runtime_state.rs` | 由 Tauri 管理的共享執行階段狀態（runtime state）。 |
-| `app/src-tauri/build.rs` | 建置腳本（build script）：把 `phantom-mesh` 二進位檔複製到 `binaries/` 以供 sidecar 打包。 |
+| `app/src-tauri/build.rs` | 建置腳本（build script）：把 `spectyn-mesh` 二進位檔複製到 `binaries/` 以供 sidecar 打包。 |
 
 ## 資料流（Data flow）
 
@@ -54,7 +54,7 @@ flowchart TD
   wrap --> compat["tauri-compat.ts（safeInvoke）"]
   compat -->|"Tauri WebView"| rust["Rust host：commands/*.rs"]
   compat -->|"純瀏覽器 fallback"| http["HTTP 至本機 daemon"]
-  rust --> daemon["phantom-mesh daemon（sidecar 子程序）"]
+  rust --> daemon["spectyn-mesh daemon（sidecar 子程序）"]
   http --> daemon
   daemon --> rust
   rust --> compat

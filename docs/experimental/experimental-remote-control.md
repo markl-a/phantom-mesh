@@ -43,21 +43,21 @@ pub enum ChannelError {
 ## 如何啟用
 
 ```toml
-phantom-mesh = { path = "core", features = ["experimental-remote-control"] }
+spectyn-mesh = { path = "core", features = ["experimental-remote-control"] }
 ```
 
 或只挑選單一頻道：
 
 ```toml
-phantom-mesh = { path = "core", features = ["experimental-remote-control-whatsapp"] }
+spectyn-mesh = { path = "core", features = ["experimental-remote-control-whatsapp"] }
 ```
 
 ## 快速嚐鮮
 
 ```rust,ignore
-use phantom_mesh::remote_control::{Channel, ChannelError};
-use phantom_mesh::remote_control::whatsapp::WhatsappStub;
-use phantom_mesh::remote_control::slack::SlackStub;
+use spectyn_mesh::remote_control::{Channel, ChannelError};
+use spectyn_mesh::remote_control::whatsapp::WhatsappStub;
+use spectyn_mesh::remote_control::slack::SlackStub;
 
 let wa = WhatsappStub::with_allowed_users(vec![42]);
 assert!(wa.is_user_allowed(42));
@@ -70,7 +70,7 @@ assert!(matches!(err, ChannelError::NotImplemented { channel: "whatsapp", .. }))
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_remote_control_example \
     --features experimental-remote-control
 ```

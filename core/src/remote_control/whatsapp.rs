@@ -122,7 +122,7 @@ mod tests {
 
     const FULL: &str = r#"
         [persona]
-        name = "phantom-helper"
+        name = "spectyn-helper"
         intro_message = "top"
         [persona.style]
         tone = "professional"

@@ -1,6 +1,6 @@
 // Tauri command surface for SPEC-16 event storage (read/query side).
 //
-// Exposes the real query/search fns from `phantom_mesh::event_storage_wire`:
+// Exposes the real query/search fns from `spectyn_mesh::event_storage_wire`:
 //   - events_query(query)        → Vec<EventRecord>  (metadata only; bodies stay encrypted)
 //   - events_search(query, limit) → Vec<String>      (FTS5 → matching event ids)
 //
@@ -10,7 +10,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::event_storage_wire::{
+use spectyn_mesh::event_storage_wire::{
     self, EventRecord, EventStoreError, EventStoreQuery,
 };
 

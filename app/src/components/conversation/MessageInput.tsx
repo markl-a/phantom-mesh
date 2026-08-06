@@ -18,7 +18,7 @@ export default function MessageInput({
   const disabled = loading || input.trim() === "";
 
   return (
-    <div className="flex gap-2 sticky bottom-0 bg-phantom-bg pt-2 pb-safe">
+    <div className="flex gap-2 sticky bottom-0 bg-spectyn-bg pt-2 pb-safe">
       <input
         type="text"
         value={input}
@@ -26,13 +26,13 @@ export default function MessageInput({
         onKeyDown={(e) => e.key === "Enter" && !disabled && onSend()}
         placeholder={placeholder}
         disabled={loading}
-        className="flex-1 bg-phantom-card border border-phantom-border rounded-lg px-4 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary transition disabled:opacity-50"
+        className="flex-1 bg-spectyn-card border border-spectyn-border rounded-lg px-4 py-2.5 text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary transition disabled:opacity-50"
         style={{ fontSize: "16px" }}
       />
       <button
         onClick={onSend}
         disabled={disabled}
-        className="bg-phantom-primary text-phantom-bg px-4 py-2.5 rounded-lg text-sm font-medium hover:brightness-110 disabled:opacity-40 transition flex items-center gap-1.5 flex-shrink-0"
+        className="bg-spectyn-primary text-spectyn-bg px-4 py-2.5 rounded-lg text-sm font-medium hover:brightness-110 disabled:opacity-40 transition flex items-center gap-1.5 flex-shrink-0"
       >
         <Send size={14} />
         <span className="hidden sm:inline">發送</span>

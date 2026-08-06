@@ -20,11 +20,11 @@
 
 .PARAMETER Threshold
     Integer 0-100. Total must be >= this to exit 0. Default 80
-    (or env PHANTOM_E007_MIN_PERCENT).
+    (or env SPECTYN_E007_MIN_PERCENT).
 
 .PARAMETER SpecsDir
     Directory containing the epic spec files. Default docs/superpowers/specs/_current
-    (or env PHANTOM_E007_SPECS_DIR).
+    (or env SPECTYN_E007_SPECS_DIR).
 
 .NOTES
     Exit codes:
@@ -34,9 +34,9 @@
       64  usage error
 
     Env contract (parity with shell sibling):
-      PHANTOM_E007_MIN_PERCENT   integer 0-100, default 80
-      PHANTOM_E007_SPECS_DIR     path, default docs/superpowers/specs/_current
-      PHANTOM_E007_INCLUDE_E007  "1" to include E007 in the total
+      SPECTYN_E007_MIN_PERCENT   integer 0-100, default 80
+      SPECTYN_E007_SPECS_DIR     path, default docs/superpowers/specs/_current
+      SPECTYN_E007_INCLUDE_E007  "1" to include E007 in the total
 #>
 [CmdletBinding()]
 param(
@@ -50,20 +50,20 @@ $ErrorActionPreference = 'Stop'
 
 # ---------- resolve config (param > env > default) ----------
 if ($Threshold -lt 0) {
-    if ($env:PHANTOM_E007_MIN_PERCENT) {
-        $Threshold = [int]$env:PHANTOM_E007_MIN_PERCENT
+    if ($env:SPECTYN_E007_MIN_PERCENT) {
+        $Threshold = [int]$env:SPECTYN_E007_MIN_PERCENT
     } else {
         $Threshold = 80
     }
 }
 if (-not $SpecsDir) {
-    if ($env:PHANTOM_E007_SPECS_DIR) {
-        $SpecsDir = $env:PHANTOM_E007_SPECS_DIR
+    if ($env:SPECTYN_E007_SPECS_DIR) {
+        $SpecsDir = $env:SPECTYN_E007_SPECS_DIR
     } else {
         $SpecsDir = 'docs/superpowers/specs/_current'
     }
 }
-$includeE007Effective = $IncludeE007.IsPresent -or ($env:PHANTOM_E007_INCLUDE_E007 -eq '1')
+$includeE007Effective = $IncludeE007.IsPresent -or ($env:SPECTYN_E007_INCLUDE_E007 -eq '1')
 
 if ($Threshold -lt 0 -or $Threshold -gt 100) {
     Write-Error "threshold must be 0-100, got: $Threshold"
@@ -187,8 +187,8 @@ Write-Output '|------|------|-------|-----|--------|'
 Write-Output ('| TOTAL| {0,-4} | {1,-5} | {2,-3} | {3,-6} |' -f $totalDone, $totalTotal, $totalPct, $totalStatus)
 
 Write-Output ''
-Write-Output ('Scope:     {0} (set PHANTOM_E007_INCLUDE_E007=1 to include E007)' -f $scopeLabel)
-Write-Output ('Threshold: {0}% (set via PHANTOM_E007_MIN_PERCENT or -Threshold)' -f $Threshold)
+Write-Output ('Scope:     {0} (set SPECTYN_E007_INCLUDE_E007=1 to include E007)' -f $scopeLabel)
+Write-Output ('Threshold: {0}% (set via SPECTYN_E007_MIN_PERCENT or -Threshold)' -f $Threshold)
 
 if ($Strict.IsPresent -and $drift) {
     Write-Output ('Result:    TOTAL >= {0}% ? STRICT-FAIL (spec format drift)' -f $Threshold)

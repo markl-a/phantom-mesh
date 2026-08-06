@@ -6,7 +6,7 @@
 #     --secret "$CLUSTER_SECRET" \
 #     192.0.2.11:7879 192.0.2.13:7878 192.0.2.12:7878
 #
-# Or let it read cluster_secret from ~/.phantom-mesh/agents.toml:
+# Or let it read cluster_secret from ~/.spectyn-mesh/agents.toml:
 #   scripts/day2-windows-verify.sh 192.0.2.11:7879
 
 set -euo pipefail
@@ -46,12 +46,12 @@ if [[ ${#NODES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-if [[ -z "$SECRET" && -f "$HOME/.phantom-mesh/agents.toml" ]]; then
-  SECRET="$(grep cluster_secret "$HOME/.phantom-mesh/agents.toml" | head -1 | cut -d'"' -f2 || true)"
+if [[ -z "$SECRET" && -f "$HOME/.spectyn-mesh/agents.toml" ]]; then
+  SECRET="$(grep cluster_secret "$HOME/.spectyn-mesh/agents.toml" | head -1 | cut -d'"' -f2 || true)"
 fi
 
 if [[ -z "$SECRET" ]]; then
-  echo "error: cluster secret not provided and not found in ~/.phantom-mesh/agents.toml" >&2
+  echo "error: cluster secret not provided and not found in ~/.spectyn-mesh/agents.toml" >&2
   exit 1
 fi
 

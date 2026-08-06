@@ -23,7 +23,7 @@ section "16. multi-line cursor"
 
 # Type line1, Ctrl-J, line2, then Up arrow — should move cursor to row 1
 sess="t-mlu-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "first"; sleep 0.15
 tmux send-keys -t "$sess" C-j; sleep 0.15
 tmux send-keys -t "$sess" -l "second"; sleep 0.15
@@ -45,7 +45,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 
 # Type 1 line, then Up — should recall history (since input is single-line)
 sess="t-uphist-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "abc"; sleep 0.2
 tmux send-keys -t "$sess" Up; sleep 0.3
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
@@ -64,7 +64,7 @@ section "17. transcript scroll keys"
 
 # Mouse scroll up — try ScrollUp event via tmux mouse simulation
 sess="t-scroll-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 # Generate enough transcript content via /help (prints many lines of help)
 tmux send-keys -t "$sess" "/help"; sleep 0.15
 tmux send-keys -t "$sess" Enter; sleep 1
@@ -82,9 +82,9 @@ else
 fi
 tmux kill-session -t "$sess" 2>/dev/null
 
-# Tmux mouse wheel scroll (sends ScrollUp event to phantom — depends on mouse-capture)
+# Tmux mouse wheel scroll (sends ScrollUp event to spectyn — depends on mouse-capture)
 sess="t-wheel-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" "/help"; sleep 0.15
 tmux send-keys -t "$sess" Enter; sleep 1
 # Send raw mouse wheel event via tmux send-keys with mouse codes — fragile,
@@ -100,7 +100,7 @@ section "18. Tab cycle"
 
 # /a has 4 matches: /agent /agents — Tab should cycle through them
 sess="t-tabcycle-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "/a"; sleep 0.2
 tmux send-keys -t "$sess" Tab; sleep 0.25
 CAP1=$(tmux capture-pane -t "$sess" -p | grep '│' | head -1)
@@ -122,7 +122,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "19. resize correctness"
 
 sess="t-resize-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "test resize layout"; sleep 0.3
 tmux resize-window -t "$sess" -x 120 -y 40; sleep 0.4
 CAP_BIG=$(tmux capture-pane -t "$sess" -p)
@@ -137,7 +137,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 
 # Resize VERY narrow — input box must still render
 sess="t-tiny-$$"
-tmux new-session -d -s "$sess" -x 30 -y 15 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 30 -y 15 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "tiny"; sleep 0.3
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
 echo "$TMUX_CAP" | grep -qiE 'panic|crash' \
@@ -150,7 +150,7 @@ section "20. empty input edges"
 
 # Esc on empty input (no-op, no crash)
 sess="t-esc-empty-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" Escape; sleep 0.2
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
 echo "$TMUX_CAP" | grep -qiE 'panic|crash' \
@@ -160,7 +160,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 
 # Multiple consecutive Backspace on empty
 sess="t-bs-empty-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 for _ in 1 2 3 4 5; do tmux send-keys -t "$sess" BSpace; sleep 0.05; done
 sleep 0.3
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
@@ -171,7 +171,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 
 # Delete on empty (no-op)
 sess="t-del-empty-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" Delete; sleep 0.2
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
 echo "$TMUX_CAP" | grep -qiE 'panic|crash' \
@@ -185,7 +185,7 @@ section "21. cursor-on-visual-row-2 (wrapped line)"
 # Type a long line that wraps. Then press Left repeatedly. The cursor should
 # walk back through the wrapped portion.
 sess="t-wrapcur-$$"
-tmux new-session -d -s "$sess" -x 40 -y 20 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 40 -y 20 spectyn 2>/dev/null; sleep 1.5
 # 50 'x' on a 40-wide terminal → wraps to 2 visual rows (38 + 12)
 tmux send-keys -t "$sess" -l "$(printf 'x%.0s' {1..50})"; sleep 0.3
 INITIAL_X=$(tmux display-message -t "$sess" -p '#{cursor_x}')
@@ -202,7 +202,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "22. /clear empties transcript"
 
 sess="t-clear-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" "/help"; sleep 0.15
 tmux send-keys -t "$sess" Enter; sleep 0.7
 CAP_BEFORE=$(tmux capture-pane -t "$sess" -p)
@@ -223,10 +223,10 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "23. status bar"
 
 sess="t-status-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
 STATUS_LINE=$(echo "$TMUX_CAP" | head -1)
-echo "$STATUS_LINE" | grep -qE 'phantom v[0-9]|agent:|cost:' \
+echo "$STATUS_LINE" | grep -qE 'spectyn v[0-9]|agent:|cost:' \
   && ok "Status bar shows version + agent + cost" "$STATUS_LINE" \
   || fail "Status bar shows version + agent + cost" "got: $STATUS_LINE"
 tmux kill-session -t "$sess" 2>/dev/null
@@ -235,7 +235,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "24. /agent switching"
 
 sess="t-agent-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 TMUX_CAP=$(tmux capture-pane -t "$sess" -p)
 ORIG_AGENT_LINE=$(echo "$TMUX_CAP" | head -1)
 tmux send-keys -t "$sess" "/agent coder"; sleep 0.2

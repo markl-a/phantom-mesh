@@ -1,6 +1,6 @@
 # `tests-e2e/`
 
-phantom-mesh 的端對端（end-to-end，端點到端點）情境驗收。半自動化
+spectyn-mesh 的端對端（end-to-end，端點到端點）情境驗收。半自動化
 （檢查清單 + 驗證命令）—— 這些情境需要人眼實際盯著 UI（使用者介面）／
 Telegram／裝置，所以我們不嘗試完全自動化它們。
 
@@ -53,7 +53,7 @@ cat tests-e2e/scenarios/T1.8-tui-render-stress.md
 
 當 tracer（追蹤器，見 `core/src/tracing/`）接入執行階段（runtime）後，每次
 情境執行也會在
-`~/.phantom-mesh/traces/<task-id>.jsonl` 落下一份 JSONL 追蹤紀錄。結果檔
+`~/.spectyn-mesh/traces/<task-id>.jsonl` 落下一份 JSONL 追蹤紀錄。結果檔
 應引用該追蹤路徑，方便你日後重播（replay）。
 
 ## 通過／失敗紀錄
@@ -65,7 +65,7 @@ cat tests-e2e/scenarios/T1.8-tui-render-stress.md
 
 Run by: <operator>
 Machine: <node-a/mac/node-b>
-Binary version: <output of `phantom --version`>
+Binary version: <output of `spectyn --version`>
 
 ## Result
 - [ ] PASS / [ ] PARTIAL / [ ] FAIL

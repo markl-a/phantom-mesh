@@ -1,7 +1,7 @@
 //! Mac-side provider round-trip smoke tests.
 //!
 //! Each test reads its API key from the env. On a healthy dev Mac the
-//! shell has already sourced `~/.phantom-mesh/env` before invoking
+//! shell has already sourced `~/.spectyn-mesh/env` before invoking
 //! cargo, so the keys are visible. When a key is missing the test
 //! eprintln!s and returns — non-fatal so partial-key dev hosts don't
 //! get spurious red on `cargo test`.
@@ -14,7 +14,7 @@
 //!   - endpoint moved / TLS cert expired
 //!   - macOS host can't reach the provider (Tailscale ACL, proxy,
 //!     corporate MITM)
-//! NOT covered: phantom's resolver, retry middleware, streaming
+//! NOT covered: spectyn's resolver, retry middleware, streaming
 //! codepath — those have dedicated wiremock tests inside
 //! `core/src/providers/*.rs`.
 
@@ -73,7 +73,7 @@ async fn round_trip_macos_groq() {
         _ => {
             eprintln!(
                 "SKIPPED: round_trip_macos_groq — GROQ_API_KEY unset \
-                 (source ~/.phantom-mesh/env first)"
+                 (source ~/.spectyn-mesh/env first)"
             );
             return;
         }
@@ -99,7 +99,7 @@ async fn round_trip_macos_mistral() {
         _ => {
             eprintln!(
                 "SKIPPED: round_trip_macos_mistral — MISTRAL_API_KEY unset \
-                 (source ~/.phantom-mesh/env first)"
+                 (source ~/.spectyn-mesh/env first)"
             );
             return;
         }

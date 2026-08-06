@@ -138,9 +138,9 @@ pub struct GitWorktrees;
 impl Workspaces for GitWorktrees {
     fn create(&self, repo_root: &Path, task_id: &str) -> Result<std::path::PathBuf> {
         let branch = format!("fleet/wt-{task_id}");
-        // Place the worktree OUTSIDE the operator's checkout (under phantom's data dir) so the
+        // Place the worktree OUTSIDE the operator's checkout (under spectyn's data dir) so the
         // live working tree never gains untracked nested-worktree noise.
-        let base = crate::cli_config::phantom_data_dir()?.join("fleet-worktrees");
+        let base = crate::cli_config::spectyn_data_dir()?.join("fleet-worktrees");
         std::fs::create_dir_all(&base).ok();
         let wt = base.join(task_id);
         // Idempotently clear any stale leftover (worktree dir AND/OR branch) before recreating.
@@ -299,8 +299,8 @@ mod tests {
     #[tokio::test]
     async fn satellite_task_runs_to_landed() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        q.claim(&task("phantom-quant", "x").task_id, "w1", 60)
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        q.claim(&task("spectyn-quant", "x").task_id, "w1", 60)
             .await
             .unwrap();
         let ex = MockExecutor::new(ExecOutcome {
@@ -320,7 +320,7 @@ mod tests {
             limits: Limits::default(),
             worker: "w1",
         };
-        process_one(&dep, &task("phantom-quant", "x"), std::path::Path::new("."))
+        process_one(&dep, &task("spectyn-quant", "x"), std::path::Path::new("."))
             .await
             .unwrap();
         assert_eq!(q.list(TaskState::Landed).await.unwrap().len(), 1);
@@ -329,8 +329,8 @@ mod tests {
     #[tokio::test]
     async fn changes_loop_parks_after_max_rounds() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "y")).await.unwrap();
-        q.claim(&task("phantom-quant", "y").task_id, "w1", 60)
+        q.upsert(&task("spectyn-quant", "y")).await.unwrap();
+        q.claim(&task("spectyn-quant", "y").task_id, "w1", 60)
             .await
             .unwrap();
         let ex = MockExecutor::new(ExecOutcome {
@@ -354,7 +354,7 @@ mod tests {
             limits,
             worker: "w1",
         };
-        process_one(&dep, &task("phantom-quant", "y"), std::path::Path::new("."))
+        process_one(&dep, &task("spectyn-quant", "y"), std::path::Path::new("."))
             .await
             .unwrap();
         assert_eq!(q.list(TaskState::Parked).await.unwrap().len(), 1);
@@ -363,7 +363,7 @@ mod tests {
     #[tokio::test]
     async fn run_forever_parks_task_with_unconfigured_repo_instead_of_running_in_cwd() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
         let ex = MockExecutor::new(ExecOutcome {
             diff: "d".into(),
             build_ok: true,
@@ -373,7 +373,7 @@ mod tests {
         scripted.insert("codex".into(), "VERDICT: LGTM".into());
         scripted.insert("claude".into(), "VERDICT: LGTM".into());
         let r = crate::fleet::gate::MockReviewer::new(scripted);
-        let repos: HashMap<String, PathBuf> = HashMap::new(); // phantom-quant NOT configured
+        let repos: HashMap<String, PathBuf> = HashMap::new(); // spectyn-quant NOT configured
         let done = run_forever(
             &q,
             &ex,
@@ -418,8 +418,8 @@ mod tests {
     async fn run_forever_passes_full_persisted_task_fields_to_executor() {
         let q = FleetQueue::open_in_memory().unwrap();
         let t = BacklogTask {
-            task_id: crate::fleet::backlog::task_id("phantom-quant", "x"),
-            repo: "phantom-quant".into(),
+            task_id: crate::fleet::backlog::task_id("spectyn-quant", "x"),
+            repo: "spectyn-quant".into(),
             slug: "x".into(),
             component: "REAL COMPONENT".into(),
             acceptance: "REAL ACCEPTANCE".into(),
@@ -440,7 +440,7 @@ mod tests {
         scripted.insert("claude".into(), "VERDICT: LGTM".into());
         let r = crate::fleet::gate::MockReviewer::new(scripted);
         let mut repos: HashMap<String, PathBuf> = HashMap::new();
-        repos.insert("phantom-quant".into(), PathBuf::from("."));
+        repos.insert("spectyn-quant".into(), PathBuf::from("."));
         let ws = MockWorkspaces::default();
         run_forever(
             &q,
@@ -484,13 +484,13 @@ mod tests {
             }
         }
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
         let mut scripted = HashMap::new();
         scripted.insert("codex".into(), "VERDICT: LGTM".into());
         scripted.insert("claude".into(), "VERDICT: LGTM".into());
         let r = crate::fleet::gate::MockReviewer::new(scripted);
         let mut repos: HashMap<String, PathBuf> = HashMap::new();
-        repos.insert("phantom-quant".into(), PathBuf::from("."));
+        repos.insert("spectyn-quant".into(), PathBuf::from("."));
         let ws = MockWorkspaces::default();
         run_forever(
             &q,

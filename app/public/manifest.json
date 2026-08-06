@@ -1,6 +1,6 @@
 {
-  "name": "Phantom Mesh",
-  "short_name": "PhantomMesh",
+  "name": "Spectyn Mesh",
+  "short_name": "SpectynMesh",
   "description": "Cross-device AI agent mesh",
   "start_url": "/",
   "display": "standalone",

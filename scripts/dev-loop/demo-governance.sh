@@ -4,7 +4,7 @@
 # Runs the locked §4 scenario end-to-end in a HERMETIC throwaway git repo + a temp
 # state dir, exercising every R1–R5 path, and asserts the two safety invariants:
 #   • main is never touched (无害化: branch-only, no merge to main);
-#   • the REAL moat ledger (~/.phantom-mesh/partner-signals.jsonl) is byte-identical
+#   • the REAL moat ledger (~/.spectyn-mesh/partner-signals.jsonl) is byte-identical
 #     before and after (防污染牆: machine traffic never pollutes partner-signals).
 #
 # This is both the governance "可示範" acceptance and the dogfood test for spec-gate
@@ -25,7 +25,7 @@ assert() { # label condition(0/1-as-exit)
 }
 
 # ── pollution-wall snapshot of the REAL moat ledger ──────────────────────────
-REAL_MOAT="${HOME}/.phantom-mesh/partner-signals.jsonl"
+REAL_MOAT="${HOME}/.spectyn-mesh/partner-signals.jsonl"
 moat_sig() { [ -f "$REAL_MOAT" ] && cksum "$REAL_MOAT" 2>/dev/null || echo "absent"; }
 MOAT_BEFORE="$(moat_sig)"
 
@@ -33,12 +33,12 @@ MOAT_BEFORE="$(moat_sig)"
 SBX="$(mktemp -d)"; STATE="$(mktemp -d)"
 cleanup() { rm -rf "$SBX" "$STATE"; }
 trap cleanup EXIT
-export PHANTOM_STATE_DIR="$STATE"
+export SPECTYN_STATE_DIR="$STATE"
 export DEVIATION_MAX_ROUNDS=2
 
 cd "$SBX"
 git init -q
-git config user.email demo@phantom.local; git config user.name "phantom-demo"
+git config user.email demo@spectyn.local; git config user.name "spectyn-demo"
 git config commit.gpgsign false; git config tag.gpgsign false   # don't hang on a global signing config
 git config diff.renames true                                    # so renames show as R### (test the R path)
 git symbolic-ref HEAD refs/heads/main 2>/dev/null || true

@@ -22,5 +22,5 @@ selftest_feature_meta() {
 selftest_run() {
   # Replace the body with real checks. Use t_pass / t_fail / t_skip / t_run.
   t_pass "example check"  "always passes"
-  t_run  "phantom --help" "$PHANTOM" --help
+  t_run  "spectyn --help" "$SPECTYN" --help
 }

@@ -1,7 +1,7 @@
 {
-  "name": "phantom-mesh-evals",
+  "name": "spectyn-mesh-evals",
   "private": true,
-  "description": "promptfoo agent-behavior evals for phantom-mesh (Coach Node, SPEC-23/24)",
+  "description": "promptfoo agent-behavior evals for spectyn-mesh (Coach Node, SPEC-23/24)",
   "scripts": {
     "eval": "promptfoo eval",
     "eval:offline": "promptfoo eval -c promptfooconfig.offline.yaml",

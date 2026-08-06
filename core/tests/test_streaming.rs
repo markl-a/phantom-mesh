@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 ///   3. A mock axum SSE server returns chunked tokens that are collected via the
 ///      `on_event` callback
 ///
-/// NOTE: `streaming` must be accessible as `phantom_mesh::streaming` for these
+/// NOTE: `streaming` must be accessible as `spectyn_mesh::streaming` for these
 /// tests to compile.  If it is not yet re-exported from `lib.rs`, add
 ///   `pub mod streaming;`
 /// to `src/lib.rs`.  The module itself exists at `src/streaming.rs`.
@@ -18,7 +18,7 @@ use axum::Router;
 use serde_json::json;
 use tokio::net::TcpListener;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     providers::traits::ChatMessage,
     streaming::{stream_agent_full, StreamEvent, StreamResult},
@@ -418,7 +418,7 @@ async fn test_stream_token_order_preserved() {
 
 // ── T19 retry-test serialization ───────────────────────────────────────────
 //
-// PHANTOM_TEST_PRE_STREAM_FAST is process-global, so tokio's default parallel
+// SPECTYN_TEST_PRE_STREAM_FAST is process-global, so tokio's default parallel
 // runner causes flakes when one test sets it and another removes it. We
 // serialize all the retry tests on an async-aware mutex; happy-path tests
 // above don't touch the env so they stay parallel.
@@ -489,7 +489,7 @@ async fn start_flaky_mock(
 async fn test_pre_stream_retry_429_then_succeeds() {
     let _guard = T19_ENV_LOCK.lock().await;
     // Speed up wallclock for retry tests where applicable.
-    std::env::set_var("PHANTOM_TEST_PRE_STREAM_FAST", "1");
+    std::env::set_var("SPECTYN_TEST_PRE_STREAM_FAST", "1");
 
     let success_sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n\
          data: [DONE]\n\n";
@@ -536,7 +536,7 @@ async fn test_pre_stream_retry_503_exhausted() {
     let _guard = T19_ENV_LOCK.lock().await;
     // 4 attempts total (1 initial + 3 retries). All 503. Fast mode keeps the
     // wallclock under a second.
-    std::env::set_var("PHANTOM_TEST_PRE_STREAM_FAST", "1");
+    std::env::set_var("SPECTYN_TEST_PRE_STREAM_FAST", "1");
 
     let success_sse = "data: [DONE]\n\n"; // unreachable
     let base_url = start_flaky_mock(
@@ -599,7 +599,7 @@ async fn test_pre_stream_retry_honours_retry_after() {
 
     // Make sure the fast-mode env is NOT set for this test — we want to
     // verify that Retry-After (1s) is actually used.
-    std::env::remove_var("PHANTOM_TEST_PRE_STREAM_FAST");
+    std::env::remove_var("SPECTYN_TEST_PRE_STREAM_FAST");
 
     let start = std::time::Instant::now();
     let result = stream_agent_full(
@@ -639,7 +639,7 @@ async fn test_pre_stream_retry_no_retry_on_400() {
     let _guard = T19_ENV_LOCK.lock().await;
     // 400 returned indefinitely. Retry layer must NOT retry; the mock
     // counter at the end must show exactly 1 hit.
-    std::env::set_var("PHANTOM_TEST_PRE_STREAM_FAST", "1");
+    std::env::set_var("SPECTYN_TEST_PRE_STREAM_FAST", "1");
 
     let counter = Arc::new(AtomicUsize::new(0));
     let counter_clone = counter.clone();
@@ -708,7 +708,7 @@ async fn test_pre_stream_retry_no_retry_on_400() {
 #[tokio::test]
 async fn test_pre_stream_retry_no_retry_after_tokens_emitted() {
     let _guard = T19_ENV_LOCK.lock().await;
-    std::env::set_var("PHANTOM_TEST_PRE_STREAM_FAST", "1");
+    std::env::set_var("SPECTYN_TEST_PRE_STREAM_FAST", "1");
 
     let success_sse = "data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n\
          data: {\"choices\":[{\"delta\":{\"content\":\"-second\"}}]}\n\n\

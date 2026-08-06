@@ -27,15 +27,15 @@ interface AdaptationEntry {
 }
 
 const LEVEL_CONFIG: Record<AdaptationLevel, { color: string }> = {
-  Safe: { color: "bg-phantom-success/20 text-phantom-success" },
-  Normal: { color: "bg-phantom-warning/20 text-phantom-warning" },
-  Dangerous: { color: "bg-phantom-danger/20 text-phantom-danger" },
+  Safe: { color: "bg-spectyn-success/20 text-spectyn-success" },
+  Normal: { color: "bg-spectyn-warning/20 text-spectyn-warning" },
+  Dangerous: { color: "bg-spectyn-danger/20 text-spectyn-danger" },
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  "已套用": "text-phantom-success",
-  "待確認": "text-phantom-warning",
-  "已拒絕": "text-phantom-danger",
+  "已套用": "text-spectyn-success",
+  "待確認": "text-spectyn-warning",
+  "已拒絕": "text-spectyn-danger",
 };
 
 const MOCK_SKILLS: Skill[] = [
@@ -77,20 +77,20 @@ export default function EvolutionPanel() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">技能數量</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">技能數量</p>
           <p className="text-2xl font-bold mt-1">{stats.skillCount}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">Plugin 數量</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">Plugin 數量</p>
           <p className="text-2xl font-bold mt-1">{stats.pluginCount}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">今日自動調適</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">今日自動調適</p>
           <p className="text-2xl font-bold mt-1">{stats.todayAdaptations}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">上次更新檢查</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">上次更新檢查</p>
           <p className="text-2xl font-bold mt-1 text-base">{stats.lastUpdateCheck}</p>
         </div>
       </div>
@@ -107,8 +107,8 @@ export default function EvolutionPanel() {
             onClick={() => setActiveSection(tab.key)}
             className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${
               activeSection === tab.key
-                ? "bg-phantom-primary text-phantom-bg"
-                : "bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text"
+                ? "bg-spectyn-primary text-spectyn-bg"
+                : "bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
             }`}
           >
             {tab.label}
@@ -120,52 +120,52 @@ export default function EvolutionPanel() {
       {activeSection === "skills" && (
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-3 h-3 rounded-full bg-phantom-primary" />
+            <span className="w-3 h-3 rounded-full bg-spectyn-primary" />
             <h2 className="text-lg font-bold">已安裝技能</h2>
-            <span className="text-xs text-phantom-muted">— Installed Skills</span>
+            <span className="text-xs text-spectyn-muted">— Installed Skills</span>
           </div>
-          <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-phantom-border">
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">名稱</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">版本</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">來源</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">能力</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">狀態</th>
+                <tr className="border-b border-spectyn-border">
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">名稱</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">版本</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">來源</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">能力</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">狀態</th>
                 </tr>
               </thead>
               <tbody>
                 {MOCK_SKILLS.map((skill, i) => (
                   <tr
                     key={skill.name}
-                    className={`border-b border-phantom-border last:border-0 ${
-                      i % 2 === 1 ? "bg-phantom-bg/50" : ""
+                    className={`border-b border-spectyn-border last:border-0 ${
+                      i % 2 === 1 ? "bg-spectyn-bg/50" : ""
                     }`}
                   >
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-phantom-bg px-1.5 py-0.5 rounded border border-phantom-border">
+                      <span className="font-mono text-xs bg-spectyn-bg px-1.5 py-0.5 rounded border border-spectyn-border">
                         {skill.name}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-phantom-muted">{skill.version}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-spectyn-muted">{skill.version}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`text-xs px-2 py-0.5 rounded ${
                           skill.source === "官方"
-                            ? "bg-phantom-primary/10 text-phantom-primary"
-                            : "bg-phantom-warning/10 text-phantom-warning"
+                            ? "bg-spectyn-primary/10 text-spectyn-primary"
+                            : "bg-spectyn-warning/10 text-spectyn-warning"
                         }`}
                       >
                         {skill.source}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-phantom-muted text-xs">{skill.capability}</td>
+                    <td className="px-4 py-3 text-spectyn-muted text-xs">{skill.capability}</td>
                     <td className="px-4 py-3">
                       {skill.status === "active" ? (
-                        <span className="text-phantom-success text-xs font-medium">&#10003; 正常</span>
+                        <span className="text-spectyn-success text-xs font-medium">&#10003; 正常</span>
                       ) : (
-                        <span className="text-phantom-warning text-xs font-medium">&#9888; 需更新</span>
+                        <span className="text-spectyn-warning text-xs font-medium">&#9888; 需更新</span>
                       )}
                     </td>
                   </tr>
@@ -180,46 +180,46 @@ export default function EvolutionPanel() {
       {activeSection === "plugins" && (
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-3 h-3 rounded-full bg-phantom-success" />
+            <span className="w-3 h-3 rounded-full bg-spectyn-success" />
             <h2 className="text-lg font-bold">已安裝 Plugin</h2>
-            <span className="text-xs text-phantom-muted">— WASM Plugins</span>
+            <span className="text-xs text-spectyn-muted">— WASM Plugins</span>
           </div>
-          <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-phantom-border">
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">名稱</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">版本</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">引擎</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">大小</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">狀態</th>
+                <tr className="border-b border-spectyn-border">
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">名稱</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">版本</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">引擎</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">大小</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">狀態</th>
                 </tr>
               </thead>
               <tbody>
                 {MOCK_PLUGINS.map((plugin, i) => (
                   <tr
                     key={plugin.name}
-                    className={`border-b border-phantom-border last:border-0 ${
-                      i % 2 === 1 ? "bg-phantom-bg/50" : ""
+                    className={`border-b border-spectyn-border last:border-0 ${
+                      i % 2 === 1 ? "bg-spectyn-bg/50" : ""
                     }`}
                   >
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-phantom-bg px-1.5 py-0.5 rounded border border-phantom-border">
+                      <span className="font-mono text-xs bg-spectyn-bg px-1.5 py-0.5 rounded border border-spectyn-border">
                         {plugin.name}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-phantom-muted">{plugin.version}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-spectyn-muted">{plugin.version}</td>
                     <td className="px-4 py-3">
-                      <span className="text-xs bg-phantom-primary/10 text-phantom-primary px-2 py-0.5 rounded">
+                      <span className="text-xs bg-spectyn-primary/10 text-spectyn-primary px-2 py-0.5 rounded">
                         {plugin.engine}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-phantom-muted text-xs">{plugin.size}</td>
+                    <td className="px-4 py-3 text-spectyn-muted text-xs">{plugin.size}</td>
                     <td className="px-4 py-3">
                       {plugin.status === "active" ? (
-                        <span className="text-phantom-success text-xs font-medium">&#10003; 正常</span>
+                        <span className="text-spectyn-success text-xs font-medium">&#10003; 正常</span>
                       ) : (
-                        <span className="text-phantom-danger text-xs font-medium">&#9888; 沙箱錯誤</span>
+                        <span className="text-spectyn-danger text-xs font-medium">&#9888; 沙箱錯誤</span>
                       )}
                     </td>
                   </tr>
@@ -234,32 +234,32 @@ export default function EvolutionPanel() {
       {activeSection === "adaptation" && (
         <section>
           <div className="flex items-center gap-2 mb-3">
-            <span className="w-3 h-3 rounded-full bg-phantom-warning" />
+            <span className="w-3 h-3 rounded-full bg-spectyn-warning" />
             <h2 className="text-lg font-bold">自動調適記錄</h2>
-            <span className="text-xs text-phantom-muted">— Auto Adaptation Log</span>
+            <span className="text-xs text-spectyn-muted">— Auto Adaptation Log</span>
           </div>
-          <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-phantom-border">
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">時間</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">類型</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">動作</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">等級</th>
-                  <th className="text-left px-4 py-3 text-phantom-muted font-medium">狀態</th>
+                <tr className="border-b border-spectyn-border">
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">時間</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">類型</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">動作</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">等級</th>
+                  <th className="text-left px-4 py-3 text-spectyn-muted font-medium">狀態</th>
                 </tr>
               </thead>
               <tbody>
                 {MOCK_ADAPTATIONS.map((entry, i) => (
                   <tr
                     key={`${entry.time}-${entry.type}`}
-                    className={`border-b border-phantom-border last:border-0 ${
-                      i % 2 === 1 ? "bg-phantom-bg/50" : ""
+                    className={`border-b border-spectyn-border last:border-0 ${
+                      i % 2 === 1 ? "bg-spectyn-bg/50" : ""
                     }`}
                   >
-                    <td className="px-4 py-3 text-phantom-muted font-mono text-xs">{entry.time}</td>
+                    <td className="px-4 py-3 text-spectyn-muted font-mono text-xs">{entry.time}</td>
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs bg-phantom-bg px-1.5 py-0.5 rounded border border-phantom-border">
+                      <span className="font-mono text-xs bg-spectyn-bg px-1.5 py-0.5 rounded border border-spectyn-border">
                         {entry.type}
                       </span>
                     </td>

@@ -12,7 +12,7 @@
  */
 
 :root {
-  /* Colour palette — matches the phantom Mac TUI defaults */
+  /* Colour palette — matches the spectyn Mac TUI defaults */
   --term-bg:        #0a0e14;   /* near-black, slight cool tint, fine on OLED */
   --term-fg:        #cbd5e1;   /* off-white, gentle on OLED + tolerable on LCD */
   --term-prompt:    #7dd3fc;   /* cyan-300 — the `>` glyph + cursor */

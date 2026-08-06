@@ -6,7 +6,7 @@
 // 8 secondary providers still TODO): the structural helpers
 // `load_fallback_chain`, `filter_chain_by_class_latency`, `provider_alive`,
 // `resolve_model_to_provider_type`, `compute_cost_usd` are backed by real
-// `toml` + `std::fs` parsing against `~/.phantom-mesh/agents.toml`. The
+// `toml` + `std::fs` parsing against `~/.spectyn-mesh/agents.toml`. The
 // three flagship `complete_*` callers (Groq / Anthropic / Gemini) are now
 // real HTTP via async `reqwest` 0.12 (json + rustls-tls features already in
 // core/Cargo.toml) wrapped in a small `block_on_async` helper so the
@@ -29,7 +29,7 @@
 // per-provider wire impl in `core/src/providers/<each>.rs`; map
 // ProviderError to legacy `core::providers::traits::ProviderError`
 // 6-variant catalog; resolve `api_key_ref` via SPEC-13 age vault
-// (currently read from env var `PHANTOM_MESH_<UPPER>_API_KEY`).
+// (currently read from env var `SPECTYN_MESH_<UPPER>_API_KEY`).
 
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -37,7 +37,7 @@ use ts_rs::TS;
 
 // ─── §7.1 ProviderType — exhaustive 11+ provider enum ────────────────────────
 
-/// Exhaustive list of LLM provider backends recognised by phantom-mesh.
+/// Exhaustive list of LLM provider backends recognised by spectyn-mesh.
 /// Each variant maps to one entry in `core/src/providers/` (some share
 /// `openai_compat.rs` — see SPEC-14 §6.2). Adding a variant is a wire-break:
 /// also update SPEC-14 §7.1 Part C 11-provider × 6-metadata table.
@@ -73,7 +73,7 @@ pub enum ProviderType {
 
 impl ProviderType {
     /// Stable lowercase slug used in `agents.toml` + `ProviderConfig.slug` +
-    /// metric labels (`phantom.llm.<slug>.calls`). Round-trips with
+    /// metric labels (`spectyn.llm.<slug>.calls`). Round-trips with
     /// `FromStr` — the snake_case serde rename matches this slug exactly.
     ///
     /// 中文: 穩定的 lowercase slug，跟 agents.toml + metric 標籤一致；與
@@ -491,7 +491,7 @@ impl Message {
 
 // ─── §7.1 ProviderConfig — agents.toml-side provider record ─────────────────
 
-/// Mirrors one `[providers.X]` section in `~/.phantom-mesh/agents.toml`.
+/// Mirrors one `[providers.X]` section in `~/.spectyn-mesh/agents.toml`.
 /// `api_key_ref` points into the SPEC-13 age vault — raw key bytes are NEVER
 /// stored here (Stage 2 resolves the ref at dispatch time).
 ///
@@ -700,7 +700,7 @@ pub fn select_provider(
     latency: LatencyClass,
 ) -> Result<String, ProviderError> {
     // Step 1: load ordered fallback chain from agents.toml (SPEC-14 §9.2
-    //         input) — Stage 3 reads `~/.phantom-mesh/agents.toml` via
+    //         input) — Stage 3 reads `~/.spectyn-mesh/agents.toml` via
     //         std::fs + toml crate. Returns `FallbackChain` with slugs in
     //         priority order (index 0 = highest preference).
     let chain: FallbackChain = load_fallback_chain()?;
@@ -1283,17 +1283,17 @@ pub fn validate_config(config: &ProviderConfig) -> Result<(), ProviderError> {
 
 /// Path to the on-disk agents.toml file. Resolved once via `dirs::home_dir`
 /// equivalent (std::env::var "HOME") so unit tests can override via the
-/// `PHANTOM_MESH_AGENTS_TOML` env var without booting a fs sandbox.
+/// `SPECTYN_MESH_AGENTS_TOML` env var without booting a fs sandbox.
 /// Resolve a provider's API base URL, honouring a per-slug env override. When
-/// `PHANTOM_MESH_<SLUG>_BASE_URL` is set + non-empty it wins; otherwise the
+/// `SPECTYN_MESH_<SLUG>_BASE_URL` is set + non-empty it wins; otherwise the
 /// built-in production default is returned. This is the test seam that lets
 /// wiremock point a provider call at a local mock server — production behaviour
 /// is byte-identical when the env var is unset.
 ///
-/// 中文: 解析 provider 的 API base URL，可被 `PHANTOM_MESH_<SLUG>_BASE_URL`
+/// 中文: 解析 provider 的 API base URL，可被 `SPECTYN_MESH_<SLUG>_BASE_URL`
 /// 環境變數覆蓋（測試用 wiremock 攔截）；未設時回 production 預設，行為不變。
 fn provider_base_url(slug: &str, default_base: &str) -> String {
-    let key = format!("PHANTOM_MESH_{}_BASE_URL", slug.to_ascii_uppercase());
+    let key = format!("SPECTYN_MESH_{}_BASE_URL", slug.to_ascii_uppercase());
     std::env::var(&key)
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -1301,15 +1301,15 @@ fn provider_base_url(slug: &str, default_base: &str) -> String {
 }
 
 fn agents_toml_path() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var("PHANTOM_MESH_AGENTS_TOML") {
+    if let Ok(p) = std::env::var("SPECTYN_MESH_AGENTS_TOML") {
         return std::path::PathBuf::from(p);
     }
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
         .join("agents.toml")
 }
 
-/// Parsed view of `~/.phantom-mesh/agents.toml`. Only the subset of fields
+/// Parsed view of `~/.spectyn-mesh/agents.toml`. Only the subset of fields
 /// this module needs is modelled; unknown sections (e.g. `[agent.X]`) are
 /// silently ignored thanks to `#[serde(default)]` + `toml::Value` catch-all.
 #[derive(Debug, Default, Deserialize)]
@@ -1521,7 +1521,7 @@ where
 }
 
 /// Resolve an API key for the given provider slug. Stage 3 fallback chain:
-/// (1) env var `PHANTOM_MESH_<UPPER>_API_KEY` (test + CLI friendly);
+/// (1) env var `SPECTYN_MESH_<UPPER>_API_KEY` (test + CLI friendly);
 /// (2) legacy env `<UPPER>_API_KEY` (e.g. `GROQ_API_KEY` per common shell
 /// dotfile habit). Stage 4 will resolve `ProviderConfig.api_key_ref` against
 /// the SPEC-13 age vault — this env-var path is the bridge so the live HTTP
@@ -1529,7 +1529,7 @@ where
 fn resolve_api_key(slug: &str) -> Result<String, ProviderError> {
     let upper = slug.to_ascii_uppercase();
     let candidates = [
-        format!("PHANTOM_MESH_{}_API_KEY", upper),
+        format!("SPECTYN_MESH_{}_API_KEY", upper),
         format!("{}_API_KEY", upper),
     ];
     for k in &candidates {
@@ -2264,7 +2264,7 @@ fn complete_opencode_pseudo(_req: &ProviderRequest) -> Result<ProviderResponse, 
 /// Workers AI puts the model in the PATH (`/client/v4/accounts/<account_id>/ai/
 /// run/<model>`), Bearer-auths with the API token, and wraps the reply in a
 /// `{"result": {"response": "...", "usage": {...}}, "success": ...}` envelope
-/// (not `choices[]`). The account id comes from `PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID`.
+/// (not `choices[]`). The account id comes from `SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID`.
 fn complete_cloudflare_pseudo(req: &ProviderRequest) -> Result<ProviderResponse, ProviderError> {
     let slug = "cloudflare";
     let api_key = resolve_api_key(slug)?;
@@ -2348,10 +2348,10 @@ fn complete_cloudflare_pseudo(req: &ProviderRequest) -> Result<ProviderResponse,
 }
 
 /// Resolve the Cloudflare account id (Workers AI URLs are account-scoped) from
-/// `PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_ACCOUNT_ID`. Mirrors
+/// `SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_ACCOUNT_ID`. Mirrors
 /// `resolve_api_key`'s env-bridge shape; missing → `AuthError`.
 fn resolve_cloudflare_account_id() -> Result<String, ProviderError> {
-    let candidates = ["PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"];
+    let candidates = ["SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"];
     for k in candidates {
         if let Ok(v) = std::env::var(k) {
             if !v.trim().is_empty() {
@@ -2954,7 +2954,7 @@ mod tests {
     struct TempAgentsToml {
         _tmp: tempfile::TempDir,
         // Held for the guard's lifetime so concurrent tests don't clobber the
-        // process-global PHANTOM_MESH_AGENTS_TOML env var. Drop order: the
+        // process-global SPECTYN_MESH_AGENTS_TOML env var. Drop order: the
         // explicit Drop impl below runs first (removes the var), then fields
         // drop in declaration order (_tmp, then _lock) — so the var is removed
         // while the lock is still held.
@@ -2966,13 +2966,13 @@ mod tests {
             let tmp = tempfile::tempdir().expect("tempdir");
             let p = tmp.path().join("agents.toml");
             std::fs::write(&p, body).expect("write agents.toml");
-            std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &p);
+            std::env::set_var("SPECTYN_MESH_AGENTS_TOML", &p);
             Self { _tmp: tmp, _lock: lock }
         }
     }
     impl Drop for TempAgentsToml {
         fn drop(&mut self) {
-            std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+            std::env::remove_var("SPECTYN_MESH_AGENTS_TOML");
         }
     }
 
@@ -3292,17 +3292,17 @@ default_model = "opencode-model"
         // §9.2 Stage 3 helper — confirms env-var path works as the bridge
         // before SPEC-13 age vault lands. Uses a unique slug to avoid
         // colliding with any developer's real env.
-        std::env::set_var("PHANTOM_MESH_TESTSLUG_API_KEY", "test-key-xyz");
+        std::env::set_var("SPECTYN_MESH_TESTSLUG_API_KEY", "test-key-xyz");
         let k = resolve_api_key("testslug").expect("env lookup");
         assert_eq!(k, "test-key-xyz");
-        std::env::remove_var("PHANTOM_MESH_TESTSLUG_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_TESTSLUG_API_KEY");
 
         // Missing env → AuthError carrying the candidate names so the
         // operator can see what to set.
         let err = resolve_api_key("nonexistentslug").unwrap_err();
         match err {
             ProviderError::AuthError { detail } => {
-                assert!(detail.contains("PHANTOM_MESH_NONEXISTENTSLUG_API_KEY"), "detail: {}", detail);
+                assert!(detail.contains("SPECTYN_MESH_NONEXISTENTSLUG_API_KEY"), "detail: {}", detail);
             }
             other => panic!("expected AuthError, got {:?}", other),
         }
@@ -3328,7 +3328,7 @@ default_model = "opencode-model"
     // SPEC-23 §11.1 degraded review. Until now NO test exercised the failover
     // LOOP itself; only the pure config helpers were covered. This test stands
     // up real wiremock HTTP backends (groq / gemini / anthropic all honour
-    // `PHANTOM_MESH_<SLUG>_BASE_URL`, see `provider_base_url`) and proves the
+    // `SPECTYN_MESH_<SLUG>_BASE_URL`, see `provider_base_url`) and proves the
     // two outcomes the coach degraded-path keys off:
     //   1. 429 on the first provider → failover to the next → SUCCESS.
     //   2. 429 on EVERY eligible provider → graceful `FallbackExhausted`
@@ -3940,7 +3940,7 @@ default_model = "opencode-model"
     // These two providers were the highest-value of the 8 Stage-4 stubs:
     // OpenAI (frontier, native tool_calls) + Ollama (local, no auth). Each
     // test stands up a real wiremock HTTP server, points the adapter at it via
-    // `PHANTOM_MESH_<SLUG>_BASE_URL` (see `provider_base_url`), mounts a 200
+    // `SPECTYN_MESH_<SLUG>_BASE_URL` (see `provider_base_url`), mounts a 200
     // chat-completions body, and proves the adapter ROUND-TRIPS it into a
     // `ProviderResponse` with the expected text + token counts — i.e. the real
     // request-build → HTTP → response-parse path, NOT a mocked-away stub. The
@@ -3993,8 +3993,8 @@ default_model = "opencode-model"
             .mount(&server)
             .await;
 
-        std::env::set_var("PHANTOM_MESH_OPENAI_BASE_URL", server.uri());
-        std::env::set_var("PHANTOM_MESH_OPENAI_API_KEY", "test-openai-key");
+        std::env::set_var("SPECTYN_MESH_OPENAI_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_OPENAI_API_KEY", "test-openai-key");
 
         let req = ProviderRequest {
             model: "gpt-4o".into(),
@@ -4011,8 +4011,8 @@ default_model = "opencode-model"
         let resp = tokio::task::block_in_place(|| complete_openai_pseudo(&req))
             .expect("openai adapter must round-trip the 200 mock");
 
-        std::env::remove_var("PHANTOM_MESH_OPENAI_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_OPENAI_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_OPENAI_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_OPENAI_API_KEY");
 
         assert_eq!(resp.text, "Sunny, 24C.", "text lifted from choices[0].message.content");
         assert_eq!(resp.model_used, "gpt-4o-2024-08-06", "model_used echoes upstream model");
@@ -4031,8 +4031,8 @@ default_model = "opencode-model"
         // Ollama OpenAI-compat `/v1/chat/completions` success envelope — same
         // choices[]/usage shape as OpenAI, but NO api key is required (the
         // adapter must NOT send Bearer auth / must not fail when no key env is
-        // set). We deliberately leave PHANTOM_MESH_OLLAMA_API_KEY unset.
-        std::env::remove_var("PHANTOM_MESH_OLLAMA_API_KEY");
+        // set). We deliberately leave SPECTYN_MESH_OLLAMA_API_KEY unset.
+        std::env::remove_var("SPECTYN_MESH_OLLAMA_API_KEY");
         std::env::remove_var("OLLAMA_API_KEY");
 
         let body = serde_json::json!({
@@ -4054,7 +4054,7 @@ default_model = "opencode-model"
             .mount(&server)
             .await;
 
-        std::env::set_var("PHANTOM_MESH_OLLAMA_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_OLLAMA_BASE_URL", server.uri());
 
         let req = ProviderRequest {
             model: "llama3.2".into(),
@@ -4068,7 +4068,7 @@ default_model = "opencode-model"
         let resp = tokio::task::block_in_place(|| complete_ollama_pseudo(&req))
             .expect("ollama adapter must round-trip the 200 mock (no auth)");
 
-        std::env::remove_var("PHANTOM_MESH_OLLAMA_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_OLLAMA_BASE_URL");
 
         assert_eq!(resp.text, "42 is the answer.", "text lifted from choices[0].message.content");
         assert_eq!(resp.model_used, "llama3.2", "model_used echoes upstream model");
@@ -4106,8 +4106,8 @@ default_model = "opencode-model"
             .mount(&server)
             .await;
 
-        std::env::set_var("PHANTOM_MESH_CEREBRAS_BASE_URL", server.uri());
-        std::env::set_var("PHANTOM_MESH_CEREBRAS_API_KEY", "test-cerebras-key");
+        std::env::set_var("SPECTYN_MESH_CEREBRAS_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_CEREBRAS_API_KEY", "test-cerebras-key");
 
         let req = ProviderRequest {
             model: "llama3.1-8b".into(),
@@ -4121,8 +4121,8 @@ default_model = "opencode-model"
         let resp = tokio::task::block_in_place(|| complete_cerebras_pseudo(&req))
             .expect("cerebras adapter must round-trip the 200 mock (with Bearer auth)");
 
-        std::env::remove_var("PHANTOM_MESH_CEREBRAS_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_CEREBRAS_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_CEREBRAS_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_CEREBRAS_API_KEY");
 
         assert_eq!(resp.text, "fast answer.");
         assert_eq!(resp.model_used, "llama3.1-8b");
@@ -4139,7 +4139,7 @@ default_model = "opencode-model"
         let _lock = crate::sandbox::test_lock();
 
         // Local llama-server OpenAI-compat envelope — keyless, NO Bearer header.
-        std::env::remove_var("PHANTOM_MESH_LLAMACPP_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_LLAMACPP_API_KEY");
 
         let body = serde_json::json!({
             "id": "chatcmpl-lc",
@@ -4160,7 +4160,7 @@ default_model = "opencode-model"
             .mount(&server)
             .await;
 
-        std::env::set_var("PHANTOM_MESH_LLAMACPP_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_LLAMACPP_BASE_URL", server.uri());
 
         let req = ProviderRequest {
             model: "local-gguf".into(),
@@ -4174,7 +4174,7 @@ default_model = "opencode-model"
         let resp = tokio::task::block_in_place(|| complete_llamacpp_pseudo(&req))
             .expect("llamacpp adapter must round-trip the 200 mock (no auth)");
 
-        std::env::remove_var("PHANTOM_MESH_LLAMACPP_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_LLAMACPP_BASE_URL");
 
         assert_eq!(resp.text, "on-device reply.");
         assert_eq!(resp.model_used, "local-gguf");
@@ -4211,9 +4211,9 @@ default_model = "opencode-model"
             .mount(&server)
             .await;
 
-        std::env::set_var("PHANTOM_MESH_CLOUDFLARE_BASE_URL", server.uri());
-        std::env::set_var("PHANTOM_MESH_CLOUDFLARE_API_KEY", "test-cf-token");
-        std::env::set_var("PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID", "acct-123");
+        std::env::set_var("SPECTYN_MESH_CLOUDFLARE_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_CLOUDFLARE_API_KEY", "test-cf-token");
+        std::env::set_var("SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID", "acct-123");
 
         let req = ProviderRequest {
             model: "@cf/meta/llama".into(),
@@ -4227,9 +4227,9 @@ default_model = "opencode-model"
         let resp = tokio::task::block_in_place(|| complete_cloudflare_pseudo(&req))
             .expect("cloudflare adapter must round-trip the 200 Workers-AI mock");
 
-        std::env::remove_var("PHANTOM_MESH_CLOUDFLARE_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_CLOUDFLARE_API_KEY");
-        std::env::remove_var("PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID");
+        std::env::remove_var("SPECTYN_MESH_CLOUDFLARE_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_CLOUDFLARE_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID");
 
         assert_eq!(resp.text, "cf workers reply.", "text lifted from result.response");
         assert_eq!(resp.model_used, "@cf/meta/llama", "model_used echoes the requested model");
@@ -4243,9 +4243,9 @@ default_model = "opencode-model"
         // The account id is required (Workers AI URLs are account-scoped); absent
         // → AuthError naming the env vars, never a silent wrong-URL request.
         let _lock = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_MESH_CLOUDFLARE_ACCOUNT_ID");
+        std::env::remove_var("SPECTYN_MESH_CLOUDFLARE_ACCOUNT_ID");
         std::env::remove_var("CLOUDFLARE_ACCOUNT_ID");
-        std::env::set_var("PHANTOM_MESH_CLOUDFLARE_API_KEY", "test-cf-token");
+        std::env::set_var("SPECTYN_MESH_CLOUDFLARE_API_KEY", "test-cf-token");
         let err = complete_cloudflare_pseudo(&ProviderRequest {
             model: "@cf/meta/llama".into(),
             system_prompt: None,
@@ -4256,7 +4256,7 @@ default_model = "opencode-model"
             tools: Vec::new(),
         })
         .expect_err("missing account id must error before any network call");
-        std::env::remove_var("PHANTOM_MESH_CLOUDFLARE_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_CLOUDFLARE_API_KEY");
         match err {
             ProviderError::AuthError { detail } => assert!(
                 detail.contains("CLOUDFLARE_ACCOUNT_ID"),

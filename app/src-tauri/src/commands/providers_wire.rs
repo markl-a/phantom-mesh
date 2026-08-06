@@ -1,6 +1,6 @@
 // Wave H1.2 — Tauri command surface for SPEC-14 LLM provider routing + completion.
 //
-// Wraps `phantom_mesh::providers_wire` so the H2.2 React Conversation surface
+// Wraps `spectyn_mesh::providers_wire` so the H2.2 React Conversation surface
 // can pick a provider, validate config, and run synchronous or
 // fire-and-forget completions through Tauri's invoke channel.
 //
@@ -13,7 +13,7 @@
 // core grows token-stream support we widen the `kind` enum without churning
 // the Tauri seam.
 
-use phantom_mesh::providers_wire::{
+use spectyn_mesh::providers_wire::{
     self, LatencyClass, ProviderClass, ProviderConfig, ProviderError, ProviderRequest,
     ProviderResponse,
 };
@@ -90,13 +90,13 @@ pub async fn providers_complete_streaming(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phantom_mesh::providers_wire::{MessageRole, ResponseFormat};
+    use spectyn_mesh::providers_wire::{MessageRole, ResponseFormat};
 
     fn make_request(model: &str) -> ProviderRequest {
         ProviderRequest {
             model: model.to_string(),
             system_prompt: None,
-            messages: vec![phantom_mesh::providers_wire::Message {
+            messages: vec![spectyn_mesh::providers_wire::Message {
                 role: MessageRole::User,
                 content: "hi".to_string(),
                 images: Vec::new(),
@@ -127,8 +127,8 @@ mod tests {
         // string and tests are single-process.
         unsafe {
             std::env::set_var(
-                "PHANTOM_MESH_AGENTS_TOML",
-                "/nonexistent/path/phantom-mesh-test-agents.toml",
+                "SPECTYN_MESH_AGENTS_TOML",
+                "/nonexistent/path/spectyn-mesh-test-agents.toml",
             );
         }
     }

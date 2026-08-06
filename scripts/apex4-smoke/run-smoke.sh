@@ -22,12 +22,12 @@
 #                  [--approve auto|manual] [--secret-from agents.toml|env] \
 #                  [--prompt "<task>"] [--timeout-await 120] [--timeout-finish 180]
 #
-#   --peer         worker peer NAME (resolved from ~/.phantom-mesh/peers.json) OR
+#   --peer         worker peer NAME (resolved from ~/.spectyn-mesh/peers.json) OR
 #                  a full base URL like http://<host>:<port>
 #   --agent        the worker agent that drives claude (PreActionDelegated)
 #   --approve      auto  = this script signs+POSTs the approval (default)
 #                  manual = print the card + wait for you to approve from phone
-#   --secret-from  agents.toml (default) | env (PHANTOM_CLUSTER_SECRET)
+#   --secret-from  agents.toml (default) | env (SPECTYN_CLUSTER_SECRET)
 #   --prompt       override the default deterministic high-risk prompt
 #
 # HMAC: legacy scheme = HMAC-SHA256(cluster_secret, raw_body) hex, in header
@@ -76,7 +76,7 @@ command -v python3 >/dev/null 2>&1 && JSON=python3 || JSON=""
 
 # ── locate agents.toml + read secret/port ──────────────────────────────────
 AGENTS_TOML=""
-for cand in "${PHANTOM_HOME:-$HOME/.phantom-mesh}/agents.toml" "$HOME/.phantom-mesh/agents.toml" "./agents.toml"; do
+for cand in "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/agents.toml" "$HOME/.spectyn-mesh/agents.toml" "./agents.toml"; do
   if [ -f "$cand" ]; then AGENTS_TOML="$cand"; break; fi
 done
 
@@ -87,13 +87,13 @@ toml_scalar() {
 }
 
 if [ "$SECRET_FROM" = "env" ]; then
-  SECRET="${PHANTOM_CLUSTER_SECRET:-}"
-  [ -n "$SECRET" ] || die "--secret-from env but PHANTOM_CLUSTER_SECRET is unset/empty"
-  ok "cluster secret from env PHANTOM_CLUSTER_SECRET (hidden)"
+  SECRET="${SPECTYN_CLUSTER_SECRET:-}"
+  [ -n "$SECRET" ] || die "--secret-from env but SPECTYN_CLUSTER_SECRET is unset/empty"
+  ok "cluster secret from env SPECTYN_CLUSTER_SECRET (hidden)"
 else
-  [ -n "$AGENTS_TOML" ] || die "no agents.toml found (looked in \$PHANTOM_HOME, ~/.phantom-mesh, .). Use --secret-from env, or run \`phantom cluster join\`."
+  [ -n "$AGENTS_TOML" ] || die "no agents.toml found (looked in \$SPECTYN_HOME, ~/.spectyn-mesh, .). Use --secret-from env, or run \`spectyn cluster join\`."
   SECRET="$(toml_scalar cluster_secret || true)"
-  [ -n "$SECRET" ] || die "[cluster].cluster_secret missing/empty in $AGENTS_TOML. Run \`phantom cluster join <name>\` or use --secret-from env."
+  [ -n "$SECRET" ] || die "[cluster].cluster_secret missing/empty in $AGENTS_TOML. Run \`spectyn cluster join <name>\` or use --secret-from env."
   ok "cluster secret from $AGENTS_TOML (hidden)"
 fi
 
@@ -103,9 +103,9 @@ PEER_URL=""
 case "$PEER" in
   http://*|https://*) PEER_URL="$PEER" ;;
   *)
-    PEERS_JSON="${PHANTOM_HOME:-$HOME/.phantom-mesh}/peers.json"
-    [ -f "$PEERS_JSON" ] || PEERS_JSON="$HOME/.phantom-mesh/peers.json"
-    [ -f "$PEERS_JSON" ] || die "--peer '$PEER' is a name but no peers.json found (~/.phantom-mesh/peers.json). Run \`phantom config pull\`, or pass --peer http://<host>:<port>."
+    PEERS_JSON="${SPECTYN_HOME:-$HOME/.spectyn-mesh}/peers.json"
+    [ -f "$PEERS_JSON" ] || PEERS_JSON="$HOME/.spectyn-mesh/peers.json"
+    [ -f "$PEERS_JSON" ] || die "--peer '$PEER' is a name but no peers.json found (~/.spectyn-mesh/peers.json). Run \`spectyn config pull\`, or pass --peer http://<host>:<port>."
     if [ -n "$JSON" ]; then
       PEER_URL="$(python3 - "$PEERS_JSON" "$PEER" <<'PY'
 import json,sys
@@ -117,7 +117,7 @@ for p in peers:
 PY
 )"
     fi
-    [ -n "$PEER_URL" ] || die "peer '$PEER' not found in $PEERS_JSON. Check \`phantom peer ls\`, or pass --peer http://<host>:<port>."
+    [ -n "$PEER_URL" ] || die "peer '$PEER' not found in $PEERS_JSON. Check \`spectyn peer ls\`, or pass --peer http://<host>:<port>."
     ;;
 esac
 PEER_URL="${PEER_URL%/}"
@@ -162,7 +162,7 @@ PY
 # ── preflight: peer reachable ──────────────────────────────────────────────
 info "preflight: GET $PEER_URL/healthz"
 curl -fsS --max-time 5 "$PEER_URL/healthz" >/dev/null 2>&1 \
-  || die "peer $PEER_URL is not reachable on /healthz. Is \`phantom serve\` up on the worker (run worker-up.sh) and is the tailnet/route up?"
+  || die "peer $PEER_URL is not reachable on /healthz. Is \`spectyn serve\` up on the worker (run worker-up.sh) and is the tailnet/route up?"
 ok "peer healthy"
 
 # ── artifacts ──────────────────────────────────────────────────────────────
@@ -258,7 +258,7 @@ save approvals-list.json "${LIST:-}"
 [ -n "$CARD_JSON" ] && save pending-card.json "$CARD_JSON"
 if [ -z "$CARD_APPROVAL_ID" ]; then
   err "task never produced a pending approval card within ${TIMEOUT_AWAIT}s (last status: ${LAST_STATUS:-?})."
-  err "  Either the run isn't governed (PHANTOM_GOVERN_CLI=1 on the worker?),"
+  err "  Either the run isn't governed (SPECTYN_GOVERN_CLI=1 on the worker?),"
   err "  the agent doesn't drive claude (only claude is PreActionDelegated),"
   err "  or the dispatched claude path doesn't reach the gate (see README 'Known gap')."
   echo "APEX4 SMOKE: FAIL (never reached awaiting-approval)"; exit 1

@@ -323,9 +323,9 @@ mod tests {
     #[test]
     fn ingest_batch_accepts_dedups_rejects_and_applies_lww() {
         let _g = crate::env_lock::acquire();
-        let saved_db = std::env::var_os("PHANTOM_DB_PATH");
+        let saved_db = std::env::var_os("SPECTYN_DB_PATH");
         let tmp = tempfile::NamedTempFile::new().unwrap();
-        std::env::set_var("PHANTOM_DB_PATH", tmp.path());
+        std::env::set_var("SPECTYN_DB_PATH", tmp.path());
 
         let key = test_key();
         let secret = b"cluster-secret-xyz";
@@ -357,8 +357,8 @@ mod tests {
 
         // Restore env.
         match saved_db {
-            Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-            None => std::env::remove_var("PHANTOM_DB_PATH"),
+            Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+            None => std::env::remove_var("SPECTYN_DB_PATH"),
         }
     }
 }

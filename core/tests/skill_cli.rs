@@ -1,7 +1,7 @@
-//! apex ② owned-memory `phantom skill` CLI — real-path integration test.
+//! apex ② owned-memory `spectyn skill` CLI — real-path integration test.
 //!
-//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_phantom")`) against a
-//! temp `PHANTOM_DB_PATH` skill store seeded in-process via the public lib
+//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_spectyn")`) against a
+//! temp `SPECTYN_DB_PATH` skill store seeded in-process via the public lib
 //! `store_skill`, then drives the UNGATED inspect/drive arms a user hits on a
 //! default build — no mocks:
 //!
@@ -18,37 +18,37 @@
 
 use std::process::Command;
 
-use phantom_mesh::skill_wire::{store_skill, Skill};
+use spectyn_mesh::skill_wire::{store_skill, Skill};
 
-// `phantom_mesh::env_lock` is `#[cfg(test)]`-gated (unreachable from an
+// `spectyn_mesh::env_lock` is `#[cfg(test)]`-gated (unreachable from an
 // integration test, which links the non-test lib build). Serialize on a
-// file-local mutex instead — PHANTOM_DB_PATH is a process-global and the seed
+// file-local mutex instead — SPECTYN_DB_PATH is a process-global and the seed
 // step mutates this process's env, so a file-local lock keeps it hermetic.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 /// Seed one skill into a fresh temp DB via the in-process public store path,
-/// returning the temp DB path string. Sets PHANTOM_DB_PATH in THIS process so
+/// returning the temp DB path string. Sets SPECTYN_DB_PATH in THIS process so
 /// `store_skill`'s `resolve_db_path()` writes to the temp file; the caller is
 /// responsible for restoring the env (it holds ENV_LOCK).
 fn seed_skill(db_path: &std::path::Path, skill: Skill) {
-    std::env::set_var("PHANTOM_DB_PATH", db_path);
+    std::env::set_var("SPECTYN_DB_PATH", db_path);
     store_skill(&skill).expect("seed store_skill");
 }
 
-/// Run `phantom skill <args...>` with PHANTOM_DB_PATH + PHANTOM_OWNED_MEMORY set
+/// Run `spectyn skill <args...>` with SPECTYN_DB_PATH + SPECTYN_OWNED_MEMORY set
 /// so the child reads the seeded store and the loop is enabled.
 fn run_skill(db_path: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(phantom_bin())
+    Command::new(spectyn_bin())
         .arg("skill")
         .args(args)
-        .env("PHANTOM_DB_PATH", db_path)
-        .env("PHANTOM_OWNED_MEMORY", "1")
+        .env("SPECTYN_DB_PATH", db_path)
+        .env("SPECTYN_OWNED_MEMORY", "1")
         .output()
-        .expect("phantom must spawn")
+        .expect("spectyn must spawn")
 }
 
 fn deploy_skill() -> Skill {
@@ -68,7 +68,7 @@ fn deploy_skill() -> Skill {
 #[test]
 fn skill_list_stdout_contains_seeded_id() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
 
@@ -76,8 +76,8 @@ fn skill_list_stdout_contains_seeded_id() {
     let out = run_skill(&db_path, &["list"]);
 
     match &saved {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -91,7 +91,7 @@ fn skill_list_stdout_contains_seeded_id() {
 #[test]
 fn skill_stats_stdout_shows_total() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
 
@@ -99,8 +99,8 @@ fn skill_stats_stdout_shows_total() {
     let out = run_skill(&db_path, &["stats"]);
 
     match &saved {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -114,7 +114,7 @@ fn skill_stats_stdout_shows_total() {
 #[test]
 fn skill_recall_stdout_contains_recall_block() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
 
@@ -123,8 +123,8 @@ fn skill_recall_stdout_contains_recall_block() {
     let out = run_skill(&db_path, &["recall", "deploy the staging cluster"]);
 
     match &saved {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -138,7 +138,7 @@ fn skill_recall_stdout_contains_recall_block() {
 #[test]
 fn skill_schedule_prints_unit_and_respects_at_override() {
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
 
@@ -147,8 +147,8 @@ fn skill_schedule_prints_unit_and_respects_at_override() {
     let out_at = run_skill(&db_path, &["schedule", "--at", "04:30"]);
 
     match &saved {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -156,8 +156,8 @@ fn skill_schedule_prints_unit_and_respects_at_override() {
     assert!(stdout.contains("skill"), "unit must reference the skill command: {stdout:?}");
     assert!(stdout.contains("learn"), "unit must reference the learn subcommand: {stdout:?}");
     // The label stem `skill-learn` appears in every platform render: the launchd
-    // plist + schtasks /TN carry the full `ai.phantommesh.skill-learn` label, and
-    // the systemd render carries the `phantom-skill-learn.{service,timer}` unit
+    // plist + schtasks /TN carry the full `ai.spectynmesh.skill-learn` label, and
+    // the systemd render carries the `spectyn-skill-learn.{service,timer}` unit
     // stem — `skill-learn` is the common substring across all three.
     assert!(
         stdout.contains("skill-learn"),

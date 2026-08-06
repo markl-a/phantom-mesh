@@ -1,34 +1,34 @@
 // core/src/service/linux.rs
 //
-// Linux service install/uninstall/status. Registers `phantom serve` as a
+// Linux service install/uninstall/status. Registers `spectyn serve` as a
 // systemd `--user` unit that runs at user login, with a journal-routed
 // log stream and env-var propagation from the install-time shell.
 //
-// Extracted verbatim from `core/src/bin/phantom.rs:8185-8326` (+ the
+// Extracted verbatim from `core/src/bin/spectyn.rs:8185-8326` (+ the
 // `build_extra_env_systemd` helper at :6626-6644 and the
 // `PROPAGATED_ENV_KEYS` const that's now shared via `service/mod.rs`)
 // by PF-2b. Behavior is preserved. Structural changes vs the original:
 //   - private `colored()` copy (matches PF-2a's pattern in `windows.rs`;
 //     PF-2d will consolidate into a shared `util`)
 //   - `LINUX_UNIT_NAME` and `run_service_subcommand` are `pub` so the bin's
-//     `phantom doctor` (which still lives in phantom.rs) can reference
-//     them via `phantom_mesh::service::linux::*`
+//     `spectyn doctor` (which still lives in spectyn.rs) can reference
+//     them via `spectyn_mesh::service::linux::*`
 //   - `build_extra_env_systemd` is private to this module since only the
 //     install path inside this file calls it
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Public so `phantom doctor` (in the bin crate) can report registration
+/// Public so `spectyn doctor` (in the bin crate) can report registration
 /// status of the same unit this module installs/manages.
-pub const LINUX_UNIT_NAME: &str = "phantom-mesh.service";
+pub const LINUX_UNIT_NAME: &str = "spectyn-mesh.service";
 
 // PF-2d: `colored()` + `is_colored()` consolidated to
 // `crate::util::term`. Local duplicates removed.
 use crate::util::term::colored;
 
 /// Pure file-side install: write the rendered unit file under
-/// `<home>/.config/systemd/user/phantom-mesh.service` and ensure the log
+/// `<home>/.config/systemd/user/spectyn-mesh.service` and ensure the log
 /// directory exists. Returns the unit-file path so callers can log it.
 ///
 /// Split out from `run_service_subcommand("install")` so the file-side of
@@ -42,7 +42,7 @@ use crate::util::term::colored;
 pub(crate) fn install_files_in_dir(home: &Path) -> anyhow::Result<(PathBuf, Vec<&'static str>)> {
     let unit_dir = home.join(".config/systemd/user");
     let unit_path = unit_dir.join(LINUX_UNIT_NAME);
-    let log_path = home.join(".phantom-mesh/data/phantom-serve.log");
+    let log_path = home.join(".spectyn-mesh/data/spectyn-serve.log");
 
     let bin_self = std::env::current_exe()?;
     let bin = std::fs::canonicalize(&bin_self).unwrap_or(bin_self);
@@ -52,7 +52,7 @@ pub(crate) fn install_files_in_dir(home: &Path) -> anyhow::Result<(PathBuf, Vec<
     let work_dir = if cwd.join("dist").is_dir() && cwd.join("scripts").is_dir() {
         cwd.display().to_string()
     } else {
-        home.join(".phantom-mesh").display().to_string()
+        home.join(".spectyn-mesh").display().to_string()
     };
 
     std::fs::create_dir_all(&unit_dir)?;
@@ -134,8 +134,8 @@ pub(crate) fn parse_systemctl_status(stdout: &str) -> (bool, Option<String>) {
 /// install path so the substitution can be unit-tested without spawning
 /// systemctl or touching disk.
 fn render_unit_file(bin: &str, work_dir: &str, home: &str, log: &str, extra_env: &str) -> String {
-    let tmpl: &str = include_str!("../../../templates/phantom-mesh.service.tmpl");
-    tmpl.replace("__PHANTOM_BIN__", bin)
+    let tmpl: &str = include_str!("../../../templates/spectyn-mesh.service.tmpl");
+    tmpl.replace("__SPECTYN_BIN__", bin)
         .replace("__WORK_DIR__", work_dir)
         .replace("__HOME__", home)
         .replace("__LOG__", log)
@@ -167,19 +167,19 @@ fn build_extra_env_systemd() -> (String, Vec<&'static str>) {
     (s, included)
 }
 
-/// `phantom service <action>` for Linux.
+/// `spectyn service <action>` for Linux.
 ///
 /// Usage:
-///   phantom service install     write unit + daemon-reload + start
-///   phantom service uninstall   stop + disable + remove unit
-///   phantom service status      systemctl --user status (parsed) + healthz
-/// Resolve the port `phantom serve` will actually listen on, to probe/print the
-/// right healthz URL. The installed unit runs `phantom serve` with no `--port`,
-/// so this mirrors serve's remaining precedence: `PHANTOM_PORT` env >
-/// `~/.phantom-mesh/agents.toml [core].port` > 7878 (the `--port` flag the unit
+///   spectyn service install     write unit + daemon-reload + start
+///   spectyn service uninstall   stop + disable + remove unit
+///   spectyn service status      systemctl --user status (parsed) + healthz
+/// Resolve the port `spectyn serve` will actually listen on, to probe/print the
+/// right healthz URL. The installed unit runs `spectyn serve` with no `--port`,
+/// so this mirrors serve's remaining precedence: `SPECTYN_PORT` env >
+/// `~/.spectyn-mesh/agents.toml [core].port` > 7878 (the `--port` flag the unit
 /// never passes is intentionally out of scope). Best-effort; falls back to 7878.
 fn resolve_serve_port() -> u16 {
-    if let Ok(p) = std::env::var("PHANTOM_PORT") {
+    if let Ok(p) = std::env::var("SPECTYN_PORT") {
         if let Ok(n) = p.trim().parse::<u16>() {
             if n != 0 {
                 return n;
@@ -193,7 +193,7 @@ fn resolve_serve_port() -> u16 {
 }
 
 /// Path-injectable core of [`resolve_serve_port`]: read `[core].port` from
-/// `<home>/.phantom-mesh/agents.toml`, falling back to 7878 (missing file,
+/// `<home>/.spectyn-mesh/agents.toml`, falling back to 7878 (missing file,
 /// parse error, absent/out-of-range value). Separated so tests can target a
 /// tempdir without mutating the process-global `$HOME`.
 fn serve_port_from_config(home: &std::path::Path) -> u16 {
@@ -208,7 +208,7 @@ fn serve_port_from_config(home: &std::path::Path) -> u16 {
     struct Core {
         port: Option<u16>,
     }
-    std::fs::read_to_string(home.join(".phantom-mesh/agents.toml"))
+    std::fs::read_to_string(home.join(".spectyn-mesh/agents.toml"))
         .ok()
         .and_then(|s| toml::from_str::<Doc>(&s).ok())
         .and_then(|d| d.core)
@@ -220,7 +220,7 @@ fn serve_port_from_config(home: &std::path::Path) -> u16 {
 pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
     let home = crate::cli_config::resolve_home_dir()?;
     let unit_path = home.join(".config/systemd/user").join(LINUX_UNIT_NAME);
-    let log_path = home.join(".phantom-mesh/data/phantom-serve.log");
+    let log_path = home.join(".spectyn-mesh/data/spectyn-serve.log");
     // Probe/print the port serve actually uses, not a hardcoded 7878 (D6).
     let port = resolve_serve_port();
 
@@ -237,7 +237,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             let work_dir = if cwd.join("dist").is_dir() && cwd.join("scripts").is_dir() {
                 cwd.display().to_string()
             } else {
-                home.join(".phantom-mesh").display().to_string()
+                home.join(".spectyn-mesh").display().to_string()
             };
 
             let (unit_path, env_names) = install_files_in_dir(&home)?;
@@ -279,7 +279,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
             eprintln!(
                 "{} {} for a full environment health check.",
                 colored("→", 36),
-                colored("phantom doctor", 33)
+                colored("spectyn doctor", 33)
             );
             Ok(())
         }
@@ -327,7 +327,7 @@ pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
 
             println!(
                 "{} {}",
-                colored("phantom service status", 36),
+                colored("spectyn service status", 36),
                 colored(LINUX_UNIT_NAME, 90)
             );
             println!(
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn serve_port_from_config_reads_core_port() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("agents.toml"), "[core]\nport = 17890\n").unwrap();
         assert_eq!(serve_port_from_config(tmp.path()), 17890);
@@ -403,7 +403,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(serve_port_from_config(tmp.path()), 7878);
         // Present but no [core].port → 7878.
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("agents.toml"), "[providers.gemini]\napi_key=\"x\"\n").unwrap();
         assert_eq!(serve_port_from_config(tmp.path()), 7878);
@@ -412,7 +412,7 @@ mod tests {
         assert_eq!(serve_port_from_config(tmp.path()), 7878);
     }
 
-    /// Moved from phantom.rs:6718-6731. Pins the systemd `Environment=`
+    /// Moved from spectyn.rs:6718-6731. Pins the systemd `Environment=`
     /// fragment format. Uses `with_env` from the bin's tests — but
     /// since we're now in the lib, replicate the env-snapshot pattern
     /// inline with the shared `env_lock`.
@@ -435,15 +435,15 @@ mod tests {
     /// systemd unit file. If the template ever drops `[Unit]`/`[Service]`/
     /// `[Install]` sections, or the `ExecStart` / `WantedBy` /
     /// `Restart=on-failure` / `Type=` directives, or stops substituting
-    /// `__PHANTOM_BIN__` / `__EXTRA_ENV__`, this test fails loudly.
+    /// `__SPECTYN_BIN__` / `__EXTRA_ENV__`, this test fails loudly.
     #[test]
     fn systemd_unit_file_content_correct() {
         let extra = "Environment=\"GROQ_API_KEY=gsk_test_value\"";
         let rendered = render_unit_file(
-            "/usr/local/bin/phantom",
-            "/home/u/.phantom-mesh",
+            "/usr/local/bin/spectyn",
+            "/home/u/.spectyn-mesh",
             "/home/u",
-            "/home/u/.phantom-mesh/data/phantom-serve.log",
+            "/home/u/.spectyn-mesh/data/spectyn-serve.log",
             extra,
         );
 
@@ -470,7 +470,7 @@ mod tests {
         let has_type = rendered.contains("Type=simple") || rendered.contains("Type=notify");
         assert!(has_type, "missing Type=simple|notify:\n{}", rendered);
         assert!(
-            rendered.contains("ExecStart=/usr/local/bin/phantom serve"),
+            rendered.contains("ExecStart=/usr/local/bin/spectyn serve"),
             "ExecStart not substituted with bin path:\n{}",
             rendered
         );
@@ -500,8 +500,8 @@ mod tests {
             rendered
         );
         assert!(
-            !rendered.contains("__PHANTOM_BIN__"),
-            "__PHANTOM_BIN__ placeholder not substituted:\n{}",
+            !rendered.contains("__SPECTYN_BIN__"),
+            "__SPECTYN_BIN__ placeholder not substituted:\n{}",
             rendered
         );
         assert!(
@@ -520,10 +520,10 @@ mod tests {
     fn status_parses_systemctl_output() {
         // 1. Active running — taken from real `systemctl --user status` output.
         let running = "\
-● phantom-mesh.service - Phantom Mesh daemon
-     Loaded: loaded (/home/u/.config/systemd/user/phantom-mesh.service; enabled)
+● spectyn-mesh.service - Spectyn Mesh daemon
+     Loaded: loaded (/home/u/.config/systemd/user/spectyn-mesh.service; enabled)
      Active: active (running) since Mon 2026-05-18 09:12:33 PDT; 2min ago
-   Main PID: 8842 (phantom)
+   Main PID: 8842 (spectyn)
       Tasks: 7 (limit: 18874)
      Memory: 12.4M
         CPU: 145ms
@@ -535,8 +535,8 @@ mod tests {
 
         // 2. Inactive (dead) — unit is registered but stopped.
         let inactive = "\
-● phantom-mesh.service - Phantom Mesh daemon
-     Loaded: loaded (/home/u/.config/systemd/user/phantom-mesh.service; disabled)
+● spectyn-mesh.service - Spectyn Mesh daemon
+     Loaded: loaded (/home/u/.config/systemd/user/spectyn-mesh.service; disabled)
      Active: inactive (dead)
 ";
         let (active, pid) = parse_systemctl_status(inactive);
@@ -547,10 +547,10 @@ mod tests {
         //    but systemd does sometimes leave the last PID around. Predicate
         //    requires `active (running)` substring, so this must be inactive.
         let failed = "\
-● phantom-mesh.service - Phantom Mesh daemon
-     Loaded: loaded (/home/u/.config/systemd/user/phantom-mesh.service; enabled)
+● spectyn-mesh.service - Spectyn Mesh daemon
+     Loaded: loaded (/home/u/.config/systemd/user/spectyn-mesh.service; enabled)
      Active: failed (Result: exit-code) since Mon 2026-05-18 09:15:00 PDT; 5s ago
-    Process: 8901 ExecStart=/usr/local/bin/phantom serve (code=exited, status=1)
+    Process: 8901 ExecStart=/usr/local/bin/spectyn serve (code=exited, status=1)
 ";
         let (active, pid) = parse_systemctl_status(failed);
         assert!(!active, "failed output must not be detected as active");
@@ -601,7 +601,7 @@ mod tests {
             unit_path.display()
         );
 
-        // Simulate `systemctl --user enable phantom-mesh.service` having
+        // Simulate `systemctl --user enable spectyn-mesh.service` having
         // run (which is what the real install path does after writing
         // the unit file): a relative symlink under
         // `default.target.wants/` pointing back at the unit file. The

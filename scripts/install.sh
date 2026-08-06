@@ -1,5 +1,5 @@
 #!/bin/sh
-# scripts/install.sh — F500 unified first-touch installer for phantom-mesh.
+# scripts/install.sh — F500 unified first-touch installer for spectyn-mesh.
 #
 # This is the "stranger-friendly" entry point served at
 #   https://phantommesh.io/install
@@ -10,39 +10,39 @@
 # What it does (no questions asked):
 #   1. Detects OS (Linux / macOS) + arch (x86_64 / aarch64).
 #   2. Maps to the matching R2 binary name (see
-#      .github/workflows/publish-phantom-binary.yml for the publish side).
+#      .github/workflows/publish-spectyn-binary.yml for the publish side).
 #   3. Downloads the binary to a tmpdir.
 #   4. Verifies SHA256 via the shared _verify-download.sh helper (the
 #      F-CRIT-3 / PR #111 contract: fail-closed on missing sidecar or
 #      mismatch, refuse plain http://).
-#   5. Installs to $HOME/.phantom-mesh/bin/phantom (matches what
-#      `phantom service install` expects on every OS).
-#   6. Best-effort symlink into $HOME/.local/bin/phantom and a PATH hint
+#   5. Installs to $HOME/.spectyn-mesh/bin/spectyn (matches what
+#      `spectyn service install` expects on every OS).
+#   6. Best-effort symlink into $HOME/.local/bin/spectyn and a PATH hint
 #      in the user's shell rc — never breaks the install if either fails.
-#   7. Prints exactly one final line: `Run \`phantom\` to start.`
+#   7. Prints exactly one final line: `Run \`spectyn\` to start.`
 #
 # What it does NOT do:
 #   - sudo (default install path is per-user, never /usr/local/bin).
 #   - eval any downloaded data.
-#   - touch ~/.phantom-mesh/agents.toml — F501 wizard owns provider config.
-#   - bootstrap a cluster — that's still install-mac.sh / install-phantom-windows.ps1.
+#   - touch ~/.spectyn-mesh/agents.toml — F501 wizard owns provider config.
+#   - bootstrap a cluster — that's still install-mac.sh / install-spectyn-windows.ps1.
 #
 # Env knobs:
-#   PHANTOM_INSTALL_BASE      Base URL to fetch from. Default:
+#   SPECTYN_INSTALL_BASE      Base URL to fetch from. Default:
 #                             https://phantommesh.io. Set to
 #                             https://staging.example.com (or similar) for
 #                             pre-L1 testing.
-#   PHANTOM_INSTALL_DRY_RUN   If 1: print detected OS/arch and the URL we
+#   SPECTYN_INSTALL_DRY_RUN   If 1: print detected OS/arch and the URL we
 #                             would download, then exit 0 without writing
 #                             anything to disk.
-#   PHANTOM_ALLOW_INSECURE    See _verify-download.sh — opt out of HTTPS.
-#   PHANTOM_SKIP_VERIFY       See _verify-download.sh — opt out of SHA256.
+#   SPECTYN_ALLOW_INSECURE    See _verify-download.sh — opt out of HTTPS.
+#   SPECTYN_SKIP_VERIFY       See _verify-download.sh — opt out of SHA256.
 #                             Both are NOISY warnings, NOT silent.
 #
 # F-CRIT-3 invariants preserved:
 #   - HTTPS only (require_https) — refuses plain http:// downloads.
 #   - SHA256 sidecar verified BEFORE chmod +x or move into PATH.
-#   - Fail-closed on missing sidecar (PHANTOM_SKIP_VERIFY=1 to override,
+#   - Fail-closed on missing sidecar (SPECTYN_SKIP_VERIFY=1 to override,
 #     prints a loud stderr warning).
 #
 # POSIX bash compatible (no bash 5+ features, runs under dash too).
@@ -50,18 +50,18 @@
 set -eu
 
 # ── Config ─────────────────────────────────────────────────────────────────
-INSTALL_BASE="${PHANTOM_INSTALL_BASE:-https://phantommesh.io}"
+INSTALL_BASE="${SPECTYN_INSTALL_BASE:-https://phantommesh.io}"
 # Strip trailing slash for clean concatenation.
 INSTALL_BASE="${INSTALL_BASE%/}"
 DIST_BASE="$INSTALL_BASE/dist"
 
-CFG_DIR="$HOME/.phantom-mesh"
+CFG_DIR="$HOME/.spectyn-mesh"
 INSTALL_DIR="$CFG_DIR/bin"
-TARGET_BIN="$INSTALL_DIR/phantom"
+TARGET_BIN="$INSTALL_DIR/spectyn"
 LINK_DIR="$HOME/.local/bin"
-LINK_PATH="$LINK_DIR/phantom"
+LINK_PATH="$LINK_DIR/spectyn"
 
-DRY_RUN="${PHANTOM_INSTALL_DRY_RUN:-0}"
+DRY_RUN="${SPECTYN_INSTALL_DRY_RUN:-0}"
 
 # ── Logging ────────────────────────────────────────────────────────────────
 log()  { printf '  %s\n' "$*"; }
@@ -71,7 +71,7 @@ err()  { printf '  x %s\n' "$*" >&2; }
 # ── Detect OS + arch ───────────────────────────────────────────────────────
 detect_target() {
   # Sets: OS_KIND (linux|darwin), ARCH_KIND (x86_64|aarch64),
-  #       R2_OBJECT (the R2 object name, see publish-phantom-binary.yml).
+  #       R2_OBJECT (the R2 object name, see publish-spectyn-binary.yml).
   uname_s="$(uname -s 2>/dev/null || echo unknown)"
   uname_m="$(uname -m 2>/dev/null || echo unknown)"
 
@@ -97,13 +97,13 @@ detect_target() {
       ;;
   esac
 
-  # Map to the R2 object name that publish-phantom-binary.yml uploads.
+  # Map to the R2 object name that publish-spectyn-binary.yml uploads.
   # Spec (F500): linux-x86_64, aarch64-unknown-linux-gnu, aarch64-apple-darwin.
   # Intel Macs intentionally excluded (matches install-mac.sh).
   case "$OS_KIND-$ARCH_KIND" in
-    linux-x86_64)   R2_OBJECT="phantom-linux-x86_64" ;;
-    linux-aarch64)  R2_OBJECT="phantom-aarch64-unknown-linux-gnu" ;;
-    darwin-aarch64) R2_OBJECT="phantom-aarch64-apple-darwin" ;;
+    linux-x86_64)   R2_OBJECT="spectyn-linux-x86_64" ;;
+    linux-aarch64)  R2_OBJECT="spectyn-aarch64-unknown-linux-gnu" ;;
+    darwin-aarch64) R2_OBJECT="spectyn-aarch64-apple-darwin" ;;
     darwin-x86_64)
       err "Intel Macs are not supported (Apple Silicon only)."
       err "  See scripts/install-mac.sh, which makes the same call."
@@ -120,10 +120,10 @@ detect_target() {
 # We need require_https + verify_sha256 from _verify-download.sh. When piped
 # via `curl | sh` we don't have a local scripts/ dir, so fetch the helper
 # from the same base URL we're already trusting for the binary.
-# Fail-closed if it can't be loaded (PHANTOM_SKIP_VERIFY=1 still requires
+# Fail-closed if it can't be loaded (SPECTYN_SKIP_VERIFY=1 still requires
 # the helper — it only changes the helper's behaviour).
 load_verifier() {
-  VERIFY_HELPER="$(mktemp 2>/dev/null || mktemp -t phantom-verify)"
+  VERIFY_HELPER="$(mktemp 2>/dev/null || mktemp -t spectyn-verify)"
   # Prefer a local copy if we have one (developer running from a checkout).
   SCRIPT_DIR=""
   case "${0:-}" in
@@ -156,17 +156,17 @@ fail_missing_binary() {
   err "Could not download $url"
   err ""
   err "  Most likely cause: the operator has not yet published this target"
-  err "  to the R2 bucket. The L1 'Publish phantom binary to R2' workflow"
+  err "  to the R2 bucket. The L1 'Publish spectyn binary to R2' workflow"
   err "  needs to run for $R2_OBJECT."
   err ""
   err "  If you ARE the operator: follow"
   err "    docs/superpowers/runbooks/L1-cloudflare-creds.md"
   err "  to add CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID secrets and"
   err "  trigger:"
-  err "    https://github.com/markl-a/phantom-mesh/actions/workflows/publish-phantom-binary.yml"
+  err "    https://github.com/markl-a/spectyn-mesh/actions/workflows/publish-spectyn-binary.yml"
   err ""
   err "  In the meantime you can build from source:"
-  err "    cargo install --git https://github.com/markl-a/phantom-mesh --bin phantom"
+  err "    cargo install --git https://github.com/markl-a/spectyn-mesh --bin spectyn"
   exit 1
 }
 
@@ -208,7 +208,7 @@ main() {
   BIN_URL="$DIST_BASE/$R2_OBJECT"
 
   if [ "$DRY_RUN" = "1" ]; then
-    printf '%s\n' "phantom-mesh installer (dry run)"
+    printf '%s\n' "spectyn-mesh installer (dry run)"
     printf '  detected OS:   %s\n' "$OS_KIND"
     printf '  detected arch: %s\n' "$ARCH_KIND"
     printf '  R2 object:     %s\n' "$R2_OBJECT"
@@ -218,7 +218,7 @@ main() {
     printf '  would install: %s\n' "$TARGET_BIN"
     printf '  would symlink: %s -> %s\n' "$LINK_PATH" "$TARGET_BIN"
     printf '\n'
-    printf '  PHANTOM_INSTALL_DRY_RUN=1 — no files written.\n'
+    printf '  SPECTYN_INSTALL_DRY_RUN=1 — no files written.\n'
     exit 0
   fi
 
@@ -227,22 +227,22 @@ main() {
     exit 1
   fi
 
-  log "phantom-mesh installer"
+  log "spectyn-mesh installer"
   log "  target: $R2_OBJECT"
 
   load_verifier
 
   # F-CRIT-3: require_https refuses plain http:// unless the operator
-  # explicitly opts out with PHANTOM_ALLOW_INSECURE=1.
+  # explicitly opts out with SPECTYN_ALLOW_INSECURE=1.
   require_https "$BIN_URL" || exit 1
 
   mkdir -p "$INSTALL_DIR"
 
   # Download to a tmpdir so a mid-stream failure cannot leave a broken
   # binary in PATH.
-  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t phantom-installer)"
+  TMP_DIR="$(mktemp -d 2>/dev/null || mktemp -d -t spectyn-installer)"
   trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
-  TMP_BIN="$TMP_DIR/phantom"
+  TMP_BIN="$TMP_DIR/spectyn"
 
   log "downloading $BIN_URL ..."
   if ! curl -fsSL --max-time 120 "$BIN_URL" -o "$TMP_BIN"; then
@@ -260,9 +260,9 @@ main() {
   wire_path "$TARGET_BIN"
 
   # Per F500 spec: last stdout line must be EXACTLY this so the wizard
-  # (F501) takes over cleanly on next `phantom` invocation. No banners,
+  # (F501) takes over cleanly on next `spectyn` invocation. No banners,
   # no extra prose.
-  printf 'Run `phantom` to start.\n'
+  printf 'Run `spectyn` to start.\n'
 }
 
 main "$@"

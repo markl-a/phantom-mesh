@@ -41,7 +41,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     providers::{
         traits::{ChatMessage, ProviderError},

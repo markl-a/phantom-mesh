@@ -18,8 +18,8 @@ use tokio::runtime::Handle;
 use uuid::Uuid;
 use zeroize::Zeroize;
 
-const TRANSCRIPT_MAC_LABEL: &[u8] = b"phantom-mesh.governed-run.transcript-hmac-v1";
-const TRANSCRIPT_LINE_DOMAIN: &[u8] = b"phantom-mesh.governed-run.transcript-line-v1";
+const TRANSCRIPT_MAC_LABEL: &[u8] = b"spectyn-mesh.governed-run.transcript-hmac-v1";
+const TRANSCRIPT_LINE_DOMAIN: &[u8] = b"spectyn-mesh.governed-run.transcript-line-v1";
 const TRANSCRIPT_ALG: &str = "HKDF-SHA256+HMAC-SHA256";
 const TRANSCRIPT_VERSION: u8 = 1;
 const ZERO_MAC_HEX: &str = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -120,7 +120,7 @@ impl RunRecorder for MemRecorder {
 /// raw `CliEvent`s → a per-run append-only jsonl transcript (the full flight
 /// recording). Bridges the sync `RunRecorder` trait to the async `EventStore` via
 /// a tokio runtime `Handle`, so the `drive` loop MUST run on a blocking
-/// (non-worker) thread (see `phantom govern`).
+/// (non-worker) thread (see `spectyn govern`).
 pub struct EventStoreRecorder {
     store: EventStore,
     task_id: Uuid,

@@ -204,7 +204,7 @@ mod tests {
     }
 
     /// REAL embed against local Ollama. `#[ignore]`d (network/env-dependent) —
-    /// run with `cargo test -p phantom-mesh ollama_real -- --ignored --nocapture`.
+    /// run with `cargo test -p spectyn-mesh ollama_real -- --ignored --nocapture`.
     /// Proves a true 768-dim vector comes back (not a mock).
     #[ignore = "needs local Ollama + nomic-embed-text — run via --ignored"]
     #[test]

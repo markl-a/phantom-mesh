@@ -7,13 +7,13 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh \
+//!     cargo run -p spectyn-mesh \
 //!       --example experimental_memory_example \
 //!       --features experimental-memory
 //!
 //! Expected last line: `experimental-memory OK`. Exit code 0.
 
-use phantom_mesh::skillbank::{escape_fts5_query, SkillMemory, NewMemory};
+use spectyn_mesh::skillbank::{escape_fts5_query, SkillMemory, NewMemory};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -16,7 +16,7 @@ function CopyButton({ text, className = "" }: { text: string; className?: string
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}
-      className={`text-phantom-muted hover:text-phantom-text transition flex items-center gap-1 text-[11px] ${className}`}
+      className={`text-spectyn-muted hover:text-spectyn-text transition flex items-center gap-1 text-[11px] ${className}`}
       aria-label="複製"
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -49,9 +49,9 @@ export default function Markdown({ children, className = "" }: MarkdownProps) {
             const lang = (children as any)?.props?.className?.match(/language-([\w+-]+)/)?.[1];
 
             return (
-              <div className="relative group my-2.5 rounded-lg overflow-hidden border border-phantom-border bg-[#0d1117]">
-                <div className="flex items-center justify-between px-3 py-1.5 bg-phantom-card border-b border-phantom-border text-[10px]">
-                  <span className="text-phantom-muted font-mono uppercase tracking-wide">
+              <div className="relative group my-2.5 rounded-lg overflow-hidden border border-spectyn-border bg-[#0d1117]">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-spectyn-card border-b border-spectyn-border text-[10px]">
+                  <span className="text-spectyn-muted font-mono uppercase tracking-wide">
                     {lang || "code"}
                   </span>
                   <CopyButton text={codeText} />
@@ -71,7 +71,7 @@ export default function Markdown({ children, className = "" }: MarkdownProps) {
               return (
                 <code
                   {...props}
-                  className="px-1.5 py-0.5 rounded bg-phantom-card border border-phantom-border text-[0.875em] text-phantom-primary font-mono"
+                  className="px-1.5 py-0.5 rounded bg-spectyn-card border border-spectyn-border text-[0.875em] text-spectyn-primary font-mono"
                 >
                   {children}
                 </code>
@@ -95,7 +95,7 @@ export default function Markdown({ children, className = "" }: MarkdownProps) {
 
           // ── Block quote ────────────────────────────────────────────────
           blockquote: ({ children }) => (
-            <blockquote className="border-l-2 border-phantom-primary/60 pl-3 my-2 text-phantom-muted italic">
+            <blockquote className="border-l-2 border-spectyn-primary/60 pl-3 my-2 text-spectyn-muted italic">
               {children}
             </blockquote>
           ),
@@ -106,7 +106,7 @@ export default function Markdown({ children, className = "" }: MarkdownProps) {
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-phantom-primary underline underline-offset-2 break-all"
+              className="text-spectyn-primary underline underline-offset-2 break-all"
             >
               {children}
             </a>
@@ -119,16 +119,16 @@ export default function Markdown({ children, className = "" }: MarkdownProps) {
             </div>
           ),
           th: ({ children }) => (
-            <th className="border border-phantom-border bg-phantom-card px-2 py-1 text-left font-medium">
+            <th className="border border-spectyn-border bg-spectyn-card px-2 py-1 text-left font-medium">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-phantom-border px-2 py-1">{children}</td>
+            <td className="border border-spectyn-border px-2 py-1">{children}</td>
           ),
 
           // ── HR ─────────────────────────────────────────────────────────
-          hr: () => <hr className="border-phantom-border my-3" />,
+          hr: () => <hr className="border-spectyn-border my-3" />,
         }}
       >
         {children}

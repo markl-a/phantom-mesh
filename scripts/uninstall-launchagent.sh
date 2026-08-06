@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Remove the ai.phantommesh.serve LaunchAgent.
+# Remove the ai.spectynmesh.serve LaunchAgent.
 #
 # Usage: ./scripts/uninstall-launchagent.sh
 
 set -euo pipefail
 
-LABEL="ai.phantommesh.serve"
+LABEL="ai.spectynmesh.serve"
 PLIST_PATH="$HOME/Library/LaunchAgents/$LABEL.plist"
 DOMAIN="gui/$(id -u)"
 
@@ -19,5 +19,5 @@ if [ -f "$PLIST_PATH" ]; then
   rm -f "$PLIST_PATH"
 fi
 
-echo "✓ Uninstalled. Any running phantom serve is now stopped."
-echo "  (Logs preserved at ~/Library/Logs/phantom-serve.log — delete manually if you want.)"
+echo "✓ Uninstalled. Any running spectyn serve is now stopped."
+echo "  (Logs preserved at ~/Library/Logs/spectyn-serve.log — delete manually if you want.)"

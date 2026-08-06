@@ -3,7 +3,7 @@
 // E2E: same React UI, but rendered in the actual app window the user ships.
 import { browser, expect } from '@wdio/globals';
 
-describe('Phantom Mesh — native window (WKWebView via tauri-wd)', () => {
+describe('Spectyn Mesh — native window (WKWebView via tauri-wd)', () => {
   it('renders the onboarding screen in the native window', async () => {
     // The plugin injects into the live webview; give the SPA a moment to mount.
     await browser.pause(2500);
@@ -13,7 +13,7 @@ describe('Phantom Mesh — native window (WKWebView via tauri-wd)', () => {
 
     const text = await body.getText();
     // The onboarding screen's stable brand/heading text.
-    expect(text).toContain('Phantom Mesh');
+    expect(text).toContain('Spectyn Mesh');
   });
 
   it('lists real providers in the native window', async () => {

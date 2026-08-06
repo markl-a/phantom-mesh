@@ -75,7 +75,7 @@ impl ToolApprovalCache {
     }
 
     /// Drop every cached decision. Use at session boundary
-    /// (`/clear`, agent switch, `phantom logout`) to avoid one
+    /// (`/clear`, agent switch, `spectyn logout`) to avoid one
     /// session's allowances bleeding into the next.
     pub fn clear(&self) {
         if let Ok(mut g) = self.inner.write() {

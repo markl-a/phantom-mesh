@@ -1,11 +1,11 @@
 # scripts/_verify-download.ps1
 #
 # Shared PowerShell helpers for SHA256-verified binary downloads.
-# Dot-sourced by install-phantom-windows.ps1 and windows-bootstrap.ps1.
+# Dot-sourced by install-spectyn-windows.ps1 and windows-bootstrap.ps1.
 #
 # Functions provided:
 #   Require-Https <url>          -- throws if URL is plain http:// (unless
-#                                  $env:PHANTOM_ALLOW_INSECURE -eq '1')
+#                                  $env:SPECTYN_ALLOW_INSECURE -eq '1')
 #   Get-Sha256Local <path>       -- returns lowercase hex sha256 of a file
 #   Verify-Sha256 <bin> <url>    -- downloads <url>.sha256 over HTTPS,
 #                                  compares against Get-Sha256Local <bin>,
@@ -14,8 +14,8 @@
 # Threat model: docs/install-binary-verification.md
 #
 # Env opt-outs:
-#   $env:PHANTOM_ALLOW_INSECURE='1'  -- allow plain http://
-#   $env:PHANTOM_SKIP_VERIFY='1'     -- skip SHA256 verification (loud warn)
+#   $env:SPECTYN_ALLOW_INSECURE='1'  -- allow plain http://
+#   $env:SPECTYN_SKIP_VERIFY='1'     -- skip SHA256 verification (loud warn)
 
 function Require-Https {
     param([Parameter(Mandatory)][string]$Url)
@@ -23,12 +23,12 @@ function Require-Https {
     if ($Url -like 'https://*') { return }
 
     if ($Url -like 'http://*') {
-        if ($env:PHANTOM_ALLOW_INSECURE -eq '1') {
-            Write-Warning "PHANTOM_ALLOW_INSECURE=1 - accepting plain http:// URL ($Url)"
+        if ($env:SPECTYN_ALLOW_INSECURE -eq '1') {
+            Write-Warning "SPECTYN_ALLOW_INSECURE=1 - accepting plain http:// URL ($Url)"
             Write-Warning "  THIS DISABLES MITM PROTECTION."
             return
         }
-        throw "Refusing to download binary over plain http://`n  URL: $Url`n  Use an https:// URL, or set `$env:PHANTOM_ALLOW_INSECURE='1' explicitly`n  (only safe on a trusted tailnet - see docs/install-binary-verification.md)."
+        throw "Refusing to download binary over plain http://`n  URL: $Url`n  Use an https:// URL, or set `$env:SPECTYN_ALLOW_INSECURE='1' explicitly`n  (only safe on a trusted tailnet - see docs/install-binary-verification.md)."
     }
 
     throw "Unsupported URL scheme: $Url"
@@ -47,9 +47,9 @@ function Verify-Sha256 {
         [Parameter(Mandatory)][string]$DownloadUrl
     )
 
-    if ($env:PHANTOM_SKIP_VERIFY -eq '1') {
-        Write-Warning "PHANTOM_SKIP_VERIFY=1 - SKIPPING SHA256 verification of $BinaryPath"
-        Write-Warning "  This means a MITM or compromised mirror can replace the phantom binary."
+    if ($env:SPECTYN_SKIP_VERIFY -eq '1') {
+        Write-Warning "SPECTYN_SKIP_VERIFY=1 - SKIPPING SHA256 verification of $BinaryPath"
+        Write-Warning "  This means a MITM or compromised mirror can replace the spectyn binary."
         Write-Warning "  Do not use except on an air-gapped first install where the sums file"
         Write-Warning "  isn't published yet."
         return
@@ -69,10 +69,10 @@ function Verify-Sha256 {
                               -OutFile $sumsFile `
                               -UseBasicParsing `
                               -TimeoutSec 30 `
-                              -Headers @{ 'User-Agent' = 'phantom-installer/1.0' } | Out-Null
+                              -Headers @{ 'User-Agent' = 'spectyn-installer/1.0' } | Out-Null
         } catch {
             Remove-Item -Force $BinaryPath -ErrorAction SilentlyContinue
-            throw "Could not fetch SHA256 sidecar at $sumsUrl ($_).`n  Refusing to install an unverified binary.`n  Set `$env:PHANTOM_SKIP_VERIFY='1' to bypass (NOT recommended)."
+            throw "Could not fetch SHA256 sidecar at $sumsUrl ($_).`n  Refusing to install an unverified binary.`n  Set `$env:SPECTYN_SKIP_VERIFY='1' to bypass (NOT recommended)."
         }
 
         # sha256sum format is "<hex>  <name>"; take first whitespace-delimited

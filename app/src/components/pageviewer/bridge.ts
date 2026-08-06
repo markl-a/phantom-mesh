@@ -8,7 +8,7 @@ export const BRIDGE_METHODS: Record<string, string> = {
 };
 
 export interface BridgeMessage {
-  phantom: true;
+  spectyn: true;
   id: string;
   method: string;
   args: Record<string, unknown>;
@@ -17,5 +17,5 @@ export interface BridgeMessage {
 export function isBridgeMessage(data: unknown): data is BridgeMessage {
   if (!data || typeof data !== "object") return false;
   const msg = data as Record<string, unknown>;
-  return msg.phantom === true && typeof msg.id === "string" && typeof msg.method === "string";
+  return msg.spectyn === true && typeof msg.id === "string" && typeof msg.method === "string";
 }

@@ -61,7 +61,7 @@ fn onboarding_writer_has_no_remote_url() {
     // The generated first-run config must point ONLY at localhost / loopback /
     // env-var NAMES — never a hosted broker/relay host.
     let src = read("src/onboarding_config.rs");
-    for needle in ["phantommesh.io", "demo.phantommesh", "192.0.2."] {
+    for needle in ["phantommesh.io", "demo.spectynmesh", "192.0.2."] {
         assert!(
             !src.contains(needle),
             "onboarding_config.rs must not hardcode a remote host ({needle})"
@@ -128,11 +128,11 @@ fn demo_relay_is_dead_code_not_on_boot_path() {
 }
 
 #[test]
-fn phantommesh_default_url_only_in_token_gated_paths() {
+fn spectynmesh_default_url_only_in_token_gated_paths() {
     // The https://phantommesh.io broker DEFAULT is *resolved* only via
     // `unwrap_or_else(|| "https://phantommesh.io"...)`. Each such read must be
     // co-located with a broker-token guard (read_broker_config / auth::load /
-    // "no broker token" / "phantom login") — i.e. opt-in, never on boot.
+    // "no broker token" / "spectyn login") — i.e. opt-in, never on boot.
     // (Display-only eprintln help text and doc comments mentioning the host are
     // not URL *reads* and are intentionally out of scope.)
     let src = read("src/cli_config.rs");
@@ -147,7 +147,7 @@ fn phantommesh_default_url_only_in_token_gated_paths() {
                 || window.contains("auth::load")
                 || window.contains("no broker token")
                 || window.contains("no token")
-                || window.contains("phantom login"),
+                || window.contains("spectyn login"),
             "phantommesh.io default at byte {i} must be token-gated (opt-in), not on boot"
         );
     }

@@ -1,31 +1,31 @@
 <#
 .SYNOPSIS
-  verify-binary.ps1 — health-check a phantom binary (Windows / PowerShell)
+  verify-binary.ps1 — health-check a spectyn binary (Windows / PowerShell)
 
 .DESCRIPTION
-  Runs 5-7 checks against a phantom binary to confirm it works.
+  Runs 5-7 checks against a spectyn binary to confirm it works.
   Mirrors scripts/verify-binary.sh for cross-platform parity.
 
 .PARAMETER BinaryPath
-  Path to phantom binary (e.g. C:\Users\me\.cargo\bin\phantom.exe)
+  Path to spectyn binary (e.g. C:\Users\me\.cargo\bin\spectyn.exe)
 
 .PARAMETER ExpectVersion
-  If set, fail when `phantom --version --short` does not equal this.
+  If set, fail when `spectyn --version --short` does not equal this.
 
 .PARAMETER Quick
-  Skip `phantom doctor`. Just version + exists.
+  Skip `spectyn doctor`. Just version + exists.
 
 .PARAMETER Full
-  Include `phantom selftest --p0-only` (requires an LLM provider key in env or agents.toml).
+  Include `spectyn selftest --p0-only` (requires an LLM provider key in env or agents.toml).
 
 .PARAMETER Json
   Machine-readable JSON output.
 
 .EXAMPLE
-  .\scripts\verify-binary.ps1 C:\Users\me\.cargo\bin\phantom.exe
+  .\scripts\verify-binary.ps1 C:\Users\me\.cargo\bin\spectyn.exe
 
 .EXAMPLE
-  .\scripts\verify-binary.ps1 -BinaryPath C:\bin\phantom.exe -ExpectVersion 0.6.0 -Json
+  .\scripts\verify-binary.ps1 -BinaryPath C:\bin\spectyn.exe -ExpectVersion 0.6.0 -Json
 
 .OUTPUTS
   Exit 0: all checks passed
@@ -65,7 +65,7 @@ function Record-Check {
   if ($Status -eq "fail") { $script:ExitCode = 1 }
 }
 
-function Invoke-Phantom {
+function Invoke-Spectyn {
   # Note: param name MUST NOT be $Args — that's a PowerShell automatic variable
   # and splatting @Args would pick up the automatic, not our param.
   param([string[]]$Arguments)
@@ -93,9 +93,9 @@ if (Test-Path -LiteralPath $BinaryPath -PathType Leaf) {
 
 $binaryOk = ($script:Checks[0].status -eq "pass")
 
-# Check 2: phantom --version
+# Check 2: spectyn --version
 if ($binaryOk) {
-  $r = Invoke-Phantom @("--version")
+  $r = Invoke-Spectyn @("--version")
   if ($r.exitCode -eq 0) {
     $firstLine = ($r.output -split "`n")[0]
     Record-Check "version_runs" "pass" $firstLine
@@ -104,9 +104,9 @@ if ($binaryOk) {
   }
 }
 
-# Check 3: phantom --version --short matches SemVer
+# Check 3: spectyn --version --short matches SemVer
 if ($binaryOk -and ($script:Checks[-1].status -eq "pass")) {
-  $r = Invoke-Phantom @("--version", "--short")
+  $r = Invoke-Spectyn @("--version", "--short")
   $shortVer = ($r.output -replace '\s', '')
   if ($r.exitCode -eq 0 -and $shortVer -match '^\d+\.\d+\.\d+') {
     Record-Check "version_short_semver" "pass" $shortVer
@@ -129,12 +129,12 @@ if ($binaryOk -and ($script:Checks[-1].status -eq "pass")) {
   Record-Check "version_match_expected" "skip" "version_runs failed"
 }
 
-# Check 5: phantom doctor (skipped in -Quick)
+# Check 5: spectyn doctor (skipped in -Quick)
 if ($Quick) {
   Record-Check "doctor_runs" "skip" "-Quick mode"
   Record-Check "doctor_json_parseable" "skip" "-Quick mode"
 } elseif ($binaryOk) {
-  $r = Invoke-Phantom @("doctor")
+  $r = Invoke-Spectyn @("doctor")
   if ($r.exitCode -eq 0) {
     $lines = ($r.output -split "`n").Count
     Record-Check "doctor_runs" "pass" "exit 0; $lines lines"
@@ -143,7 +143,7 @@ if ($Quick) {
   }
 
   # Check 6: doctor --json (best-effort; older binaries may not honor --json)
-  $r = Invoke-Phantom @("doctor", "--json")
+  $r = Invoke-Spectyn @("doctor", "--json")
   $trimmed = $r.output.TrimStart()
   if ($r.exitCode -eq 0 -and $trimmed.StartsWith("{")) {
     try {
@@ -159,9 +159,9 @@ if ($Quick) {
   }
 }
 
-# Check 7: phantom selftest --p0-only (only in -Full)
+# Check 7: spectyn selftest --p0-only (only in -Full)
 if ($Full -and $binaryOk) {
-  $r = Invoke-Phantom @("selftest", "--p0-only")
+  $r = Invoke-Spectyn @("selftest", "--p0-only")
   if ($r.exitCode -eq 0) {
     Record-Check "selftest_p0" "pass" "exit 0"
   } else {
@@ -195,7 +195,7 @@ if ($Json) {
   }
   $payload | ConvertTo-Json -Depth 5
 } else {
-  Write-Host "phantom verify-binary $($script:ScriptVersion)"
+  Write-Host "spectyn verify-binary $($script:ScriptVersion)"
   Write-Host "  binary:   $BinaryPath"
   Write-Host "  duration: ${duration}s"
   Write-Host ""

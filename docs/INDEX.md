@@ -1,4 +1,4 @@
-# Phantom Mesh Documentation Index
+# Spectyn Mesh Documentation Index
 
 [繁體中文版](INDEX.zh-TW.md)
 
@@ -65,7 +65,7 @@ The active v0.6.0 epic specifications live in
 | E006 | [`30-second Life hello`](superpowers/specs/_current/E006-30-second-hello-world.md) | Not started |
 | E007 | [`v0.6.0 release prep`](superpowers/specs/_current/E007-v060-release-prep.md) | Accepted |
 
-Also in `_current/` (behavior spec, not an epic): [`linux-cli-spec.md`](superpowers/specs/_current/linux-cli-spec.md) — code-grounded `phantom` CLI behavior reference for Linux (moved here 2026-06-19 from `docs/cli/`).
+Also in `_current/` (behavior spec, not an epic): [`linux-cli-spec.md`](superpowers/specs/_current/linux-cli-spec.md) — code-grounded `spectyn` CLI behavior reference for Linux (moved here 2026-06-19 from `docs/cli/`).
 
 The 2026-05-19 pivot spec is
 [`superpowers/specs/2026-05-19-life-node-pivot.md`](superpowers/specs/2026-05-19-life-node-pivot.md).
@@ -84,7 +84,7 @@ Each declares its `Parent epic` and `Pillar(s) served` in the file header.
 | [`mesh/FLEET-SSH.md`](mesh/FLEET-SSH.md) / [`mesh/MESH-FLEET-ONBOARDING.md`](mesh/MESH-FLEET-ONBOARDING.md) / [`mesh/TAILSCALE-SETUP.md`](mesh/TAILSCALE-SETUP.md) | Fleet / mesh networking |
 | [`deploy/DEPLOYMENT.md`](deploy/DEPLOYMENT.md) / [`deploy/DEPLOY-AUTOUPDATE.md`](deploy/DEPLOY-AUTOUPDATE.md) / [`deploy/DEPLOY-MAC-STAGING.md`](deploy/DEPLOY-MAC-STAGING.md) | Deployment (`DEPLOY-AUTOUPDATE` = signing + release CI + OTA) |
 | [`deploy/PUBLISHING-BINARIES.md`](deploy/PUBLISHING-BINARIES.md) / [`mobile/SMOKE-ANDROID.md`](mobile/SMOKE-ANDROID.md) / [`SELFTEST.md`](SELFTEST.md) / [`DIAGNOSTICS.md`](DIAGNOSTICS.md) | Release / smoke / diagnostics |
-| [`../scripts/phantom-test/README.md`](../scripts/phantom-test/README.md) | Black-box CLI / HTTP-RPC / round-trip test harness |
+| [`../scripts/spectyn-test/README.md`](../scripts/spectyn-test/README.md) | Black-box CLI / HTTP-RPC / round-trip test harness |
 | [`../tests-e2e/README.md`](../tests-e2e/README.md) | Human-assisted Tier-1 E2E scenarios |
 
 ## Topical Subdirectories
@@ -100,7 +100,7 @@ subdirectories. Browse by topic:
 | [`experimental/`](experimental/) | Skill bank (curator/memory/extra-providers/tools) + remote-control experimental notes |
 | [`mesh/`](mesh/) | Cluster co-work/scale, fleet onboarding, FLEET-SSH, Tailscale, multi-device coordination, multi-agent analysis/QA, mobile-vs-desktop |
 | [`mobile/`](mobile/) | iOS test flow, mobile web mode, e2e (mac-real / native-webdriver), Android smoke |
-| [`design/`](design/) | Subsystem/design docs (cross-tool, phantommesh-io, platform-impl, anti-hallucination, commercial, swarm-architecture, dispatch-followups) |
+| [`design/`](design/) | Subsystem/design docs (cross-tool, spectynmesh-io, platform-impl, anti-hallucination, commercial, swarm-architecture, dispatch-followups) |
 | [`commercial/`](commercial/) | Open-source plan, contributor funnel, portfolio spec freeze (strategy SSOT docs stay at root) |
 | [`dev/`](dev/) | Dev-acceleration framework + mesh, dev process, autonomous dev-loop, Claude Code setup, autonomy governance, anthropic streaming |
 | [`dev-notes/`](dev-notes/) | Working dev notes (current, 2026-06-11): error-handling, Windows login-LLM verify, backlog/inbox/status scratch-pad |
@@ -134,7 +134,7 @@ subdirectories. Browse by topic:
 | [`adr/`](adr/) | Architecture Decision Records (ADR-001+) |
 | [`superpowers/design/`](superpowers/design/) | TUI / CLI screen design notes |
 | [`superpowers/ARCH-EXECUTION-ENTITIES.md`](superpowers/ARCH-EXECUTION-ENTITIES.md) | Execution-entity architecture (A/B/C stacks) |
-| [`providers/AUTH-DESIGN.md`](providers/AUTH-DESIGN.md) / [`design/SWARM-ARCHITECTURE.md`](design/SWARM-ARCHITECTURE.md) / [`design/PHANTOMMESH-IO-DESIGN.md`](design/PHANTOMMESH-IO-DESIGN.md) | Subsystem designs |
+| [`providers/AUTH-DESIGN.md`](providers/AUTH-DESIGN.md) / [`design/SWARM-ARCHITECTURE.md`](design/SWARM-ARCHITECTURE.md) / [`design/SPECTYNMESH-IO-DESIGN.md`](design/SPECTYNMESH-IO-DESIGN.md) | Subsystem designs |
 
 ## Commercial & Strategy
 
@@ -160,5 +160,5 @@ See [`_archive/README.md`](_archive/README.md).
 | How is the docs tree governed? Where do things live? | [`superpowers/GOVERNANCE.md`](superpowers/GOVERNANCE.md) |
 | What product are we building? | [`superpowers/BIG-GOAL.md`](superpowers/BIG-GOAL.md) |
 | Which spec governs my implementation? | [`superpowers/specs/v060-deep-spec/SPEC-00-INDEX.md`](superpowers/specs/v060-deep-spec/SPEC-00-INDEX.md) |
-| How do I run black-box verification? | [`../scripts/phantom-test/README.md`](../scripts/phantom-test/README.md) |
+| How do I run black-box verification? | [`../scripts/spectyn-test/README.md`](../scripts/spectyn-test/README.md) |
 | What is the latest tactical state? | [`../SESSION_RESUME.md`](../SESSION_RESUME.md) |

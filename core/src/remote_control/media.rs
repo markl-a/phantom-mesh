@@ -16,7 +16,7 @@
 //!      hostile or buggy peer can't OOM the process by handing us a 5 GB
 //!      "voice memo".
 //!   3. Hand the bytes + MIME to `agent.rs` in the same shape the screenshot
-//!      pipeline already uses (a `<phantom-image …/>` sentinel that
+//!      pipeline already uses (a `<spectyn-image …/>` sentinel that
 //!      [`crate::multimodal::prompt_to_content_value`] turns into an
 //!      OpenAI/Anthropic-compatible `image_url` content part).
 //!
@@ -151,18 +151,18 @@ pub async fn download_with_limit(
     Ok(buf)
 }
 
-/// Wrap downloaded bytes + MIME into the `<phantom-image …/>` sentinel that
+/// Wrap downloaded bytes + MIME into the `<spectyn-image …/>` sentinel that
 /// [`crate::multimodal::prompt_to_content_value`] turns into a multipart
 /// content array. Non-image MIME types (voice, generic document) currently
 /// route through the same sentinel — the model receives the bytes as an
 /// `image_url`-shaped payload, which Anthropic/OpenAI vision endpoints will
 /// reject if non-visual, surfacing as an upstream error rather than a silent
-/// drop. A future revision can introduce an `<phantom-audio …/>` sentinel
+/// drop. A future revision can introduce an `<spectyn-audio …/>` sentinel
 /// once the streaming-multimodal layer supports it; the surface here stays
 /// stable.
 pub fn media_to_image_sentinel(mime: &str, bytes: &[u8]) -> String {
     let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
-    format!(r#"<phantom-image mime="{}" data="{}"/>"#, mime, b64)
+    format!(r#"<spectyn-image mime="{}" data="{}"/>"#, mime, b64)
 }
 
 /// Best-effort MIME inference from a filename (e.g. Telegram's `file_path`,

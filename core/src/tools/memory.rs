@@ -1,10 +1,10 @@
 use serde_json::Value;
 
 fn mem_path() -> std::path::PathBuf {
-    if let Ok(p) = std::env::var("PHANTOM_MEMORY_FILE") {
+    if let Ok(p) = std::env::var("SPECTYN_MEMORY_FILE") {
         return std::path::PathBuf::from(p);
     }
-    crate::cli_config::phantom_data_dir()
+    crate::cli_config::spectyn_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("memory.json")
 }

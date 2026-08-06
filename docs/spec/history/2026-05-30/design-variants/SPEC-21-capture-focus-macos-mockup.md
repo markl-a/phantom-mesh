@@ -21,18 +21,18 @@
 
 ## Design token 對映（per SPEC-02 + SPEC-40 G4）
 
-繼承主打視覺稿 §8-35 全部 token（`phantom-bg` / `phantom-card` / `phantom-border` / `phantom-primary` / `phantom-warning` / `phantom-danger` / `phantom-text` / `phantom-muted` / overlay 系列）— 本檔**不重新定義 hex（十六進位色碼）**。macOS 專屬對映：
+繼承主打視覺稿 §8-35 全部 token（`spectyn-bg` / `spectyn-card` / `spectyn-border` / `spectyn-primary` / `spectyn-warning` / `spectyn-danger` / `spectyn-text` / `spectyn-muted` / overlay 系列）— 本檔**不重新定義 hex（十六進位色碼）**。macOS 專屬對映：
 
-| macOS 系統屬性 | phantom token | 用途 |
+| macOS 系統屬性 | spectyn token | 用途 |
 |---|---|---|
-| NSWindow `backgroundColor` (sheet) | `phantom-card` | Sheet / popover 背景 |
+| NSWindow `backgroundColor` (sheet) | `spectyn-card` | Sheet / popover 背景 |
 | NSPopover `appearance` | `NSAppearanceNameDarkAqua` | 跟隨系統 dark mode（強制 dark v0.6） |
 | NSStatusItem `button.image` | NSImage **template** `isTemplate=true` | menu bar icon 自動深淺色適應（per SPEC-40 G4） |
-| NSMenuItem hover 背景 | `phantom-primary @ 16%` | dropdown row 滑過（取 `overlay-recording-16` 同 16% 系列） |
-| NSMenuItem pressed 背景 | `phantom-primary @ 24%` | dropdown row 按下 |
-| Notification Center 強調色 | `phantom-primary` | banner 上 action button tint（色調）（OS 渲染但 Info.plist 可指定 NSUserNotificationDefaultSoundName） |
+| NSMenuItem hover 背景 | `spectyn-primary @ 16%` | dropdown row 滑過（取 `overlay-recording-16` 同 16% 系列） |
+| NSMenuItem pressed 背景 | `spectyn-primary @ 24%` | dropdown row 按下 |
+| Notification Center 強調色 | `spectyn-primary` | banner 上 action button tint（色調）（OS 渲染但 Info.plist 可指定 NSUserNotificationDefaultSoundName） |
 | Window radius | 12pt | NSWindow / NSPopover 共用（per hero mockup §macOS L332） |
-| Hairline divider | 0.5pt `phantom-border` | sheet / dropdown 分隔線（Retina 1 物理像素） |
+| Hairline divider | 0.5pt `spectyn-border` | sheet / dropdown 分隔線（Retina 1 物理像素） |
 
 > Light-mode 對映：**v0.6.0 範圍外（out of scope）**（per SPEC-02 §7 light token TBD）。實作端 `NSAppearance.current` 強制 `darkAqua`；使用者系統設為 Light 也吃 dark 配色 — 待 v0.7 補。
 
@@ -41,7 +41,7 @@
 繼承主打視覺稿 icon 矩陣 iOS/macOS 欄（column）全部值，macOS 專屬補充：
 
 - **NSStatusItem icon 全用 template image**（單色 mono），`SF.symbol.withConfiguration(.preferringMonochrome)` 拿出單色 SVG → `NSImage(systemSymbolName:)` + `isTemplate=true`
-- icon 尺寸：menu bar 用 SF point size **18pt**（Apple HIG（人機介面指南）menu bar 慣例 16-18pt；phantom 取 18pt 強對比）
+- icon 尺寸：menu bar 用 SF point size **18pt**（Apple HIG（人機介面指南）menu bar 慣例 16-18pt；spectyn 取 18pt 強對比）
 - dropdown row icon 用 **16pt**（選單 row 慣例）
 - Sheet 內 icon 用 **20pt**（情境式 button icon）
 - Notification banner icon = app icon（NSApp.applicationIconImage），不自訂
@@ -49,38 +49,38 @@
 ## 螢幕 A — Focus Start Sheet（視覺稿，per SPEC-41 §10.4 S3）
 
 ```
-┌──────────────────────────────────────┐  Sheet：480×320pt, bg phantom-card, radius 12pt
-│ 開始焦點時段                  [✕]    │  title 24px/600 phantom-text, padding 20pt
-│ ─────────────────────────────────── │  hairline 0.5pt phantom-border
+┌──────────────────────────────────────┐  Sheet：480×320pt, bg spectyn-card, radius 12pt
+│ 開始焦點時段                  [✕]    │  title 24px/600 spectyn-text, padding 20pt
+│ ─────────────────────────────────── │  hairline 0.5pt spectyn-border
 │                                      │
-│ 時長：                                │  title-sm 18px/600 phantom-text
+│ 時長：                                │  title-sm 18px/600 spectyn-text
 │  ○ 25 分鐘 Pomodoro                   │  NSRadioButton：32pt height, label body 14px
-│  ○ 50 分鐘                             │  selected radio dot：phantom-primary 8pt
+│  ○ 50 分鐘                             │  selected radio dot：spectyn-primary 8pt
 │  ◉ 自訂： [ 30 ] 分鐘                  │  custom input：NSTextField 60×28pt,
-│                                      │   bg phantom-bg, radius 6pt, padding 8pt
+│                                      │   bg spectyn-bg, radius 6pt, padding 8pt
 │                                      │
 │ 目標標籤（選填）：                      │  取 `focus.label.goal_tag`
 │ ┌──────────────────────────────┐    │  NSTextField full-width, height 32pt,
-│ │ deep_work, spec_writing      │    │   bg phantom-bg, radius 6pt, padding 8pt
-│ └──────────────────────────────┘    │   placeholder `輸入標籤…` phantom-muted
+│ │ deep_work, spec_writing      │    │   bg spectyn-bg, radius 6pt, padding 8pt
+│ └──────────────────────────────┘    │   placeholder `輸入標籤…` spectyn-muted
 │                                      │
-│ 🔒 本地加密 · 麥克風 ASR               │  caption 12px phantom-muted, 取 `focus.trust_badge`
+│ 🔒 本地加密 · 麥克風 ASR               │  caption 12px spectyn-muted, 取 `focus.trust_badge`
 │                                      │  （與全平台一字不差）
-│      [ 取消 ]      [ 開始 ]          │  Cancel：96×32pt, bg transparent, text phantom-muted
-│                                      │  Start：96×32pt, bg phantom-primary, text phantom-bg, body-lg
+│      [ 取消 ]      [ 開始 ]          │  Cancel：96×32pt, bg transparent, text spectyn-muted
+│                                      │  Start：96×32pt, bg spectyn-primary, text spectyn-bg, body-lg
 └──────────────────────────────────────┘
 ```
 
 **Sheet 視覺狀態**：
 - **idle（閒置）**：上述基準
-- **hover Start（滑過開始）**：背景 `phantom-primary @ 90%`（提亮 10%）
-- **pressed Start（按下開始）**：背景 `phantom-primary @ 80%` + 內縮 1pt
-- **disabled Start（停用開始）**（TCC 未授權）：`overlay-disabled-40`（40% opacity 不透明度，不換色）+ 下方行內提示（inline hint）「需開麥克風權限 [open settings]」(caption phantom-warning)
-- **loading（載入中）**：Start label 替換為 spinner（轉圈）16pt phantom-bg（避免視覺跳動）
+- **hover Start（滑過開始）**：背景 `spectyn-primary @ 90%`（提亮 10%）
+- **pressed Start（按下開始）**：背景 `spectyn-primary @ 80%` + 內縮 1pt
+- **disabled Start（停用開始）**（TCC 未授權）：`overlay-disabled-40`（40% opacity 不透明度，不換色）+ 下方行內提示（inline hint）「需開麥克風權限 [open settings]」(caption spectyn-warning)
+- **loading（載入中）**：Start label 替換為 spinner（轉圈）16pt spectyn-bg（避免視覺跳動）
 
 **視覺備註**：
 - Sheet 跟 parent window（父視窗）用 macOS 內建 `NSWindow.beginSheet` 滑入動畫；Reduce Motion（減少動態效果）開啟時跳過動畫（per SPEC-41 §12.2）
-- title bar（標題列）不顯示系統 traffic light（紅綠燈按鈕）（sheet 模式預設無 close/min/max button；[✕] 為自繪 button 16×16pt phantom-muted hover→phantom-text）
+- title bar（標題列）不顯示系統 traffic light（紅綠燈按鈕）（sheet 模式預設無 close/min/max button；[✕] 為自繪 button 16×16pt spectyn-muted hover→spectyn-text）
 
 **VoiceOver labels**（per SPEC-41 §12.2 NSAccessibilityLabel）：
 - Sheet：「開始焦點時段對話框」role `AXSheet`
@@ -92,40 +92,40 @@
 
 ## 螢幕 B — TCC Microphone Prompt（系統渲染）
 
-OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
+OS 渲染，不可自訂版面。spectyn 只控制 Info.plist 字串：
 
 | 欄位 | 值 |
 |---|---|
-| `NSMicrophoneUsageDescription` | 「Phantom Mesh 在你開始焦點時段時錄音，全程在本機 ASR（自動語音辨識）轉寫，不上傳雲端。」/ en: "Phantom Mesh records during focus sessions; ASR runs on-device, no cloud upload." |
+| `NSMicrophoneUsageDescription` | 「Spectyn Mesh 在你開始焦點時段時錄音，全程在本機 ASR（自動語音辨識）轉寫，不上傳雲端。」/ en: "Spectyn Mesh records during focus sessions; ASR runs on-device, no cloud upload." |
 
 **視覺備註**：
-- OS prompt 視覺隨 macOS 版本（Sonoma 14.x / Sequoia 15.x 略有不同）— phantom 無權更動
+- OS prompt 視覺隨 macOS 版本（Sonoma 14.x / Sequoia 15.x 略有不同）— spectyn 無權更動
 - 拒絕後**不能再彈出** — 使用者須去 `System Settings → Privacy & Security → Microphone` 手動開啟（per SPEC-40 §15 TCC 11 條盤點）
 
 ## 螢幕 B' — TCC Denied（拒絕，覆蓋於 Sheet 上）
 
 ```
 [B' on top of A sheet — overlay-denied-72 半透明遮罩]
-┌────────────────────────────┐  Card：360×200pt, bg phantom-card, radius 12pt,
+┌────────────────────────────┐  Card：360×200pt, bg spectyn-card, radius 12pt,
 │                            │   shadow 0/8/24 rgba(0,0,0,0.4) (macOS native shadow)
-│       [mic.slash.circle    │  SF Symbols `mic.slash.circle.fill` 48pt phantom-danger,
+│       [mic.slash.circle    │  SF Symbols `mic.slash.circle.fill` 48pt spectyn-danger,
 │        .fill 48pt 紅]      │   center top, margin-top 24pt
 │                            │
-│   需要麥克風才能 focus 錄音   │  title-sm 18px/600 phantom-text, 取 `focus.perm.denied`
-│   我們不會上傳音訊到雲端，    │  body 14px phantom-muted, 取 `focus.perm.denied_reassure`
+│   需要麥克風才能 focus 錄音   │  title-sm 18px/600 spectyn-text, 取 `focus.perm.denied`
+│   我們不會上傳音訊到雲端，    │  body 14px spectyn-muted, 取 `focus.perm.denied_reassure`
 │   ASR 也跑在本機              │
 │                            │
-│  ┌────────────────────┐    │  Open Settings：240×32pt, bg phantom-primary,
-│  │   打開系統設定        │    │   text phantom-bg, body-lg, 取 `focus.perm.open_settings`
+│  ┌────────────────────┐    │  Open Settings：240×32pt, bg spectyn-primary,
+│  │   打開系統設定        │    │   text spectyn-bg, body-lg, 取 `focus.perm.open_settings`
 │  └────────────────────┘    │
-│         [取消]              │  TextButton 80×24pt, text phantom-muted
+│         [取消]              │  TextButton 80×24pt, text spectyn-muted
 └────────────────────────────┘
 ```
 
 **視覺狀態**：
 - **idle（閒置）**：上述基準
-- **hover Open Settings（滑過打開設定）**：背景 `phantom-primary @ 90%`
-- **pressed Open Settings（按下打開設定）**：背景 `phantom-primary @ 80%`
+- **hover Open Settings（滑過打開設定）**：背景 `spectyn-primary @ 90%`
+- **pressed Open Settings（按下打開設定）**：背景 `spectyn-primary @ 80%`
 - **clicked（點擊後）**：跳轉系統 `x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone`（NSWorkspace.open URL）— 視覺上 sheet 仍開啟，等使用者回來
 
 **VoiceOver labels**：
@@ -137,14 +137,14 @@ OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
 
 | 狀態 | SF Symbol | Token | NSImage composite | 視覺 |
 |---|---|---|---|---|
-| **Idle（閒置）** | `mic` (mono 單色, line-art 線稿) | phantom-text（dark mode → 淺灰 light gray） | `isTemplate=true` 單一 SVG | menu bar 上一個 18pt 單色 mic icon |
-| **Recording（錄音中）** | `mic.fill` (solid 實心) | phantom-warning 主 icon + phantom-danger 紅點 | `mic.fill` 18pt + 紅點 6pt overlay 位於右上角 (x=12, y=2 從左上算起)，用 `NSImage` drawingHandler 合成 | 實心 mic + 右上紅點，遠看就知道在錄 |
-| **Paused（暫停）** | `mic.slash` | phantom-muted（變暗 dim） | `isTemplate=true` 單一 SVG | 斜線 mic icon，比錄音中更暗 |
-| **Finalizing（收工中）** | `mic.fill` + 旋轉 dot（點） | phantom-warning + animating（動畫中） | 取 `mic.fill` 18pt + 1.5pt 旋轉 dot overlay（細微 subtle，per Apple HIG menu bar 不該太顯眼） | 錄音結束 → spinner 過渡，使用者知道還沒收工 |
+| **Idle（閒置）** | `mic` (mono 單色, line-art 線稿) | spectyn-text（dark mode → 淺灰 light gray） | `isTemplate=true` 單一 SVG | menu bar 上一個 18pt 單色 mic icon |
+| **Recording（錄音中）** | `mic.fill` (solid 實心) | spectyn-warning 主 icon + spectyn-danger 紅點 | `mic.fill` 18pt + 紅點 6pt overlay 位於右上角 (x=12, y=2 從左上算起)，用 `NSImage` drawingHandler 合成 | 實心 mic + 右上紅點，遠看就知道在錄 |
+| **Paused（暫停）** | `mic.slash` | spectyn-muted（變暗 dim） | `isTemplate=true` 單一 SVG | 斜線 mic icon，比錄音中更暗 |
+| **Finalizing（收工中）** | `mic.fill` + 旋轉 dot（點） | spectyn-warning + animating（動畫中） | 取 `mic.fill` 18pt + 1.5pt 旋轉 dot overlay（細微 subtle，per Apple HIG menu bar 不該太顯眼） | 錄音結束 → spinner 過渡，使用者知道還沒收工 |
 
 **視覺備註**：
 - Template image (`isTemplate=true`) 讓 macOS 自動反相（invert）：淺色 menu bar 用 深色 icon，深色 menu bar 用 淺色 icon — **不要硬寫顏色，靠系統處理**（per SPEC-40 G4）
-- 紅點 overlay **不能**用 template — 用寫死（hard-coded）的 `phantom-danger`（使用者視覺上需要警示色保持不變）
+- 紅點 overlay **不能**用 template — 用寫死（hard-coded）的 `spectyn-danger`（使用者視覺上需要警示色保持不變）
 - icon 切換轉場（transition）：直接換圖，不做動畫（menu bar 動畫會干擾，per Apple HIG）
 
 ## NSStatusItem dropdown 完整視覺（per SPEC-41 §7.4 + hero mockup §macOS L360-368）
@@ -155,13 +155,13 @@ OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
 [click NSStatusItem]
         ↓
 ┌──────────────────────────┐  NSPopover：width 320pt（hero mockup L362 鎖），
-│ Phantom Mesh             │   bg phantom-card, radius 12pt, border 0.5pt phantom-border
+│ Spectyn Mesh             │   bg spectyn-card, radius 12pt, border 0.5pt spectyn-border
 │ 焦點時段：未啟動           │   shadow 0/12/32 rgba(0,0,0,0.5)
-│ ─────────────────────── │  hairline 0.5pt phantom-border, margin 8pt
+│ ─────────────────────── │  hairline 0.5pt spectyn-border, margin 8pt
 │ ⏱  開始焦點時段… ⌘⇧F    │  NSMenuItem-like row：min-height 32pt, padding 12pt h / 8pt v
-│ ⚙  設定…                  │   icon SF 16pt phantom-text + label body 14px
-│ ─────────────────────── │   shortcut 灰 right-aligned body-sm phantom-muted
-│ ⓘ  關於 Phantom Mesh      │
+│ ⚙  設定…                  │   icon SF 16pt spectyn-text + label body 14px
+│ ─────────────────────── │   shortcut 灰 right-aligned body-sm spectyn-muted
+│ ⓘ  關於 Spectyn Mesh      │
 └──────────────────────────┘
 ```
 
@@ -169,18 +169,18 @@ OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
 
 ```
 ┌──────────────────────────┐  NSPopover：width 320pt
-│ 🔴 Focus 05:23/25:00      │  body-lg phantom-warning + display-sm 32px/700 time
+│ 🔴 Focus 05:23/25:00      │  body-lg spectyn-warning + display-sm 32px/700 time
 │                          │   padding 12pt
 │ ▁▂▃▅▇▅▃▂                  │  mini waveform 60pt height, 24 bars × 4pt wide × 2pt gap,
-│                          │   color phantom-warning, 即時更新
-│ 📁 已落地 chunk: 3         │  body 14px phantom-muted, icon SF `folder.fill` 14pt
+│                          │   color spectyn-warning, 即時更新
+│ 📁 已落地 chunk: 3         │  body 14px spectyn-muted, icon SF `folder.fill` 14pt
 │ ─────────────────────── │  hairline
 │ ⏹  停止並收工              │  NSMenuItem row：min-height 32pt, icon `stop.fill` 16pt
-│                          │   phantom-danger + label body 14px phantom-text,
+│                          │   spectyn-danger + label body 14px spectyn-text,
 │                          │   取 `focus.btn.stop_finalize`（desktop 用「停止並收工」
 │                          │   不同於 mobile `focus.btn.stop`「停止」— per hero mockup L371）
 │ ⏸  暫停                    │  NSMenuItem row：min-height 32pt, icon `pause.fill` 16pt
-│                          │   phantom-secondary + label body 14px phantom-text,
+│                          │   spectyn-secondary + label body 14px spectyn-text,
 │                          │   取 `focus.btn.pause`
 └──────────────────────────┘
 ```
@@ -191,15 +191,15 @@ OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
 
 | 狀態 | 背景 | text | icon |
 |---|---|---|---|
-| **idle（閒置）** | transparent（透明） | phantom-text | 依角色上色（tinted per role） |
-| **hover（滑過）** | `phantom-primary @ 16%` | phantom-text | 不變（unchanged） |
-| **pressed（按下）** | `phantom-primary @ 24%` | phantom-text | 不變（unchanged） |
+| **idle（閒置）** | transparent（透明） | spectyn-text | 依角色上色（tinted per role） |
+| **hover（滑過）** | `spectyn-primary @ 16%` | spectyn-text | 不變（unchanged） |
+| **pressed（按下）** | `spectyn-primary @ 24%` | spectyn-text | 不變（unchanged） |
 | **disabled（停用）** | transparent（透明） | `overlay-disabled-40` (40% opacity) | 同 opacity 不透明度 |
-| **destructive hover（破壞性滑過）**（Stop row） | `phantom-danger @ 16%` | phantom-text | phantom-danger |
-| **destructive pressed（破壞性按下）**（Stop row） | `phantom-danger @ 24%` | phantom-text | phantom-danger |
+| **destructive hover（破壞性滑過）**（Stop row） | `spectyn-danger @ 16%` | spectyn-text | spectyn-danger |
+| **destructive pressed（破壞性按下）**（Stop row） | `spectyn-danger @ 24%` | spectyn-text | spectyn-danger |
 
 **VoiceOver labels**（per SPEC-41 §12.2）：
-- NSPopover：role `AXPopover`，accessibilityLabel「Phantom Mesh 焦點選單」
+- NSPopover：role `AXPopover`，accessibilityLabel「Spectyn Mesh 焦點選單」
 - Recording row：「焦點時段中，已錄 5 分 23 秒，共 25 分鐘」role `AXStaticText`
 - Stop row：「停止並收工焦點時段」role `AXMenuItem`
 - Pause row：「暫停焦點時段」role `AXMenuItem`
@@ -212,12 +212,12 @@ OS 渲染，不可自訂版面。phantom 只控制 Info.plist 字串：
 
 ## Notification Center banner — Done（完成，per hero mockup §macOS L373-379）
 
-OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` content（內容）：
+OS 渲染，不可自訂版面。spectyn 設定 `UNUserNotificationCenter` content（內容）：
 
 | 欄位 | 值 | Token / 限制 |
 |---|---|---|
-| `icon` | NSApp.applicationIconImage | phantom 單色 icon @ 60pt（OS 渲染） |
-| `title` | `"Phantom Mesh"` | OS 取 18px/600 |
+| `icon` | NSApp.applicationIconImage | spectyn 單色 icon @ 60pt（OS 渲染） |
+| `title` | `"Spectyn Mesh"` | OS 取 18px/600 |
 | `subtitle` | `"Focus 25 min · takeaway ready"` | OS 取 13px/400 |
 | `body` | 第一行 takeaway（取 80 字截斷） | OS 取 13px/400, 最多 2 行（per cross-platform invariant L552） |
 | `sound` | none（Done 非緊急） | — |
@@ -225,24 +225,24 @@ OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` conte
 | click action（點擊動作） | 開啟主視窗 Focus 分頁 | `UNNotificationDefaultActionIdentifier` handler |
 
 **視覺備註**：
-- banner 出現位置：螢幕右上角（使用者系統設定可改）— phantom 無權更動
+- banner 出現位置：螢幕右上角（使用者系統設定可改）— spectyn 無權更動
 - banner 自動消失時機（timing）由 OS 控制（Persistent 持續 相對於 Banner 橫幅 模式看使用者設定）
-- Notification Center 累積 history（歷史）：phantom 最多累積 ≤ 5 條（per SPEC-41 §11 通知 throttle 節流）
+- Notification Center 累積 history（歷史）：spectyn 最多累積 ≤ 5 條（per SPEC-41 §11 通知 throttle 節流）
 
 ## Notification Center banner — Interrupted（系統強制觸發）
 
-錄音中 OS 中斷（interrupt）（mic 被佔用 / sleep 睡眠 / BT 藍牙切換）+ 主視窗非 active focus（作用中焦點）時必發。phantom 設定：
+錄音中 OS 中斷（interrupt）（mic 被佔用 / sleep 睡眠 / BT 藍牙切換）+ 主視窗非 active focus（作用中焦點）時必發。spectyn 設定：
 
 | 欄位 | 值 | Token / 限制 |
 |---|---|---|
-| `icon` | NSApp.applicationIconImage | phantom 單色 icon |
-| `title` | 取 `focus.desktop.interrupt_notif_title`「Phantom Mesh 焦點時段中斷」 | — |
+| `icon` | NSApp.applicationIconImage | spectyn 單色 icon |
+| `title` | 取 `focus.desktop.interrupt_notif_title`「Spectyn Mesh 焦點時段中斷」 | — |
 | `subtitle` | `"5:23 / 25:00 · {reason}"` 動態 reason（原因） | reason 取自 `focus.interrupted.mic_grabbed` / `focus.interrupted.phone` / 新增 sleep / BT 變體 |
 | `body` | 取 `focus.interrupted.resume_hint`「30 秒內回復將自動繼續」 | 跨平台一字不差 |
 | `sound` | **default（預設）**（高優先級） | per hero mockup L388 — OS 中斷必發聲 |
 | `categoryIdentifier` | `focus.interrupted` | 含 action button |
 | action button | 取 `focus.desktop.interrupt_notif_action`「開啟並停止」 | UNNotificationAction title |
-| click action（點擊動作） | 開啟 Phantom Mesh + NSStatusItem dropdown 作用中 | deep-link（深層連結）handler |
+| click action（點擊動作） | 開啟 Spectyn Mesh + NSStatusItem dropdown 作用中 | deep-link（深層連結）handler |
 
 **與 Done 的視覺差異**：sound = default（Done 無聲）+ 含 action button（Done 無 button，點擊整個 banner）
 
@@ -250,15 +250,15 @@ OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` conte
 
 ```
 ┌─────── sidebar 220pt ─────── main 640pt ───────────────┐  NSWindow: 720×640pt default
-│ 最近 10 個 session         ┌──────────────────────────┐│   bg phantom-bg, title bar 系統預設
-│ ─────────────────         │ ✓ 完成 · 25 分鐘 · 5 chunks ││  Sidebar：bg phantom-card,
-│ 🟢 今 14:30 deep_work     │                          ││   border-right 0.5pt phantom-border
-│    25min                  │  [takeaway 三段內容]       ││  Card：bg phantom-card,
+│ 最近 10 個 session         ┌──────────────────────────┐│   bg spectyn-bg, title bar 系統預設
+│ ─────────────────         │ ✓ 完成 · 25 分鐘 · 5 chunks ││  Sidebar：bg spectyn-card,
+│ 🟢 今 14:30 deep_work     │                          ││   border-right 0.5pt spectyn-border
+│    25min                  │  [takeaway 三段內容]       ││  Card：bg spectyn-card,
 │ ⚪ 今 11:00 spec_writing   │  ...                      ││   radius 16pt, padding 20pt,
 │    50min                  │                          ││   shadow 0/4/12 rgba(0,0,0,0.3)
 │ ...                       │  ┌────────┐ ┌──────────┐ ││  Success icon: SF
 │                           │  │看完整稿 │ │新 session ││   `checkmark.circle.fill` 32pt
-│                           │  └────────┘ └──────────┘ ││   phantom-success
+│                           │  └────────┘ └──────────┘ ││   spectyn-success
 │ [+ 新焦點時段]              └──────────────────────────┘│  CTA buttons：min-height 32pt,
 │                                                       │   radius 8pt
 └───────────────────────────────────────────────────────┘
@@ -266,10 +266,10 @@ OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` conte
 
 **視覺狀態**：
 - Sidebar row idle（閒置）：透明背景
-- Sidebar row hover（滑過）：背景 `phantom-primary @ 16%`
-- Sidebar row selected（選取）：背景 `phantom-primary @ 24%` + 左側 border 3pt phantom-primary
-- 「看完整稿」button：背景 `phantom-card` border 1pt phantom-border, text phantom-text body-lg
-- 「新 session」button：背景 `phantom-primary` text phantom-bg body-lg
+- Sidebar row hover（滑過）：背景 `spectyn-primary @ 16%`
+- Sidebar row selected（選取）：背景 `spectyn-primary @ 24%` + 左側 border 3pt spectyn-primary
+- 「看完整稿」button：背景 `spectyn-card` border 1pt spectyn-border, text spectyn-text body-lg
+- 「新 session」button：背景 `spectyn-primary` text spectyn-bg body-lg
 
 **VoiceOver labels**：
 - Sidebar：「最近 10 個焦點時段，列表」role `AXList`
@@ -295,16 +295,16 @@ OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` conte
 | 狀態 | 視覺 |
 |---|---|
 | **理想（Ideal）** | F 主視窗 Takeaway card 完整三段 + sidebar 含 10 個 session history + 雙 CTA（行動呼籲）button |
-| **空白（Empty - history 歷史）** | F window sidebar 空：單色 SVG 插圖 96pt phantom-muted + `focus.empty.history` + 「+ 新焦點時段」button (per hero invariant L557 桌面 sidebar history) |
+| **空白（Empty - history 歷史）** | F window sidebar 空：單色 SVG 插圖 96pt spectyn-muted + `focus.empty.history` + 「+ 新焦點時段」button (per hero invariant L557 桌面 sidebar history) |
 | **空白（Empty - ASR 無語音）** | F card 內安撫文 `focus.empty.no_speech` + 「重錄這次」/「完成」雙 button（與 Android 視覺稿 §150 變體一致） |
 | **極限（Limit）** | Dropdown chunk count `99+`（`focus.limit.chunk_overflow`）chip（標籤）min-width 鎖死避免閃動 / F takeaway > 800 字截斷顯示「看完整摘要」(`focus.limit.view_full_takeaway`) |
-| **錯誤（Error）** | B' TCC denied 遮罩（overlay-denied-72 + mic.slash.circle.fill 48pt phantom-danger + open-settings CTA）/ Notification Center Interrupted banner 帶 sound=default |
-| **局部（Partial）** | E phase 2 部分 chunk ASR 失敗 — 應用程式內（in-app）HUD（抬頭顯示）toast（提示訊息）`focus.partial.chunk_failed` phantom-warning + 後續 takeaway 內以行內方式標示「(chunk 3/5 skipped)」 |
+| **錯誤（Error）** | B' TCC denied 遮罩（overlay-denied-72 + mic.slash.circle.fill 48pt spectyn-danger + open-settings CTA）/ Notification Center Interrupted banner 帶 sound=default |
+| **局部（Partial）** | E phase 2 部分 chunk ASR 失敗 — 應用程式內（in-app）HUD（抬頭顯示）toast（提示訊息）`focus.partial.chunk_failed` spectyn-warning + 後續 takeaway 內以行內方式標示「(chunk 3/5 skipped)」 |
 | **載入中（Loading）** | NSStatusItem icon 切換為 Finalizing 旋轉 dot overlay + dropdown 內 row spinner 16pt + 文字更新 `focus.finalizing.asr` |
 
 ## 已決（per macOS wireframe §225 + hero mockup R8 sign-off 定案）
 
-1. ~~Sheet 背景用 phantom-card 還是系統 vibrancy（半透明材質）?~~ → **已決**：`phantom-card` 純色（vibrancy 在 dark mode 對比不夠 + 品牌一致性（brand consistency）優先）
+1. ~~Sheet 背景用 spectyn-card 還是系統 vibrancy（半透明材質）?~~ → **已決**：`spectyn-card` 純色（vibrancy 在 dark mode 對比不夠 + 品牌一致性（brand consistency）優先）
 2. ~~NSStatusItem icon 錄音中用 fill 還是加紅點?~~ → **已決**：`mic.fill` + 紅點 6pt overlay（per hero mockup §macOS L356 — 雙重視覺提示，色盲安全）
 3. ~~Dropdown width（寬度）~~ → **已決**：320pt（per hero mockup §macOS L362 — 容納 mini waveform（迷你波形）60pt 高 + chunk count + 雙 row CTA）
 4. ~~Notification Done 是否要 sound?~~ → **已決**：無聲（Done 非緊急；只有 Interrupted 才 sound=default per hero invariant L558）
@@ -315,7 +315,7 @@ OS 渲染，不可自訂版面。phantom 設定 `UNUserNotificationCenter` conte
 1. **NSStatusItem Paused 用 `mic.slash` 還是 `mic.fill` + amber（琥珀色）點?**（共用 hero §開放 Q3，L577）— 提案：`mic.slash` 清楚但跟「stopped 已停止」混淆；待原型（prototype）測使用者識別率
 2. **Finalizing icon 旋轉 dot 動畫尺寸** — 1.5pt 會不會在 Retina 上太小看不到？需實機（device）測試（Apple HIG menu bar 不該太顯眼，但要看得到）
 3. **NSPopover dropdown 在 Stage Manager（幕前調度）group（群組）中的行為** — 同 macOS wireframe §開放 Q4；視覺上 popover 仍附著於 status item 沒問題，但 Stage Manager 切換 group 時 popover 是否會被擠掉尚未測試
-4. **Reduce Transparency（減少透明度）開啟時 popover 視覺** — `phantom-card` 純色沒問題，但 shadow（陰影）可能被系統壓掉，需驗證對比是否足夠
+4. **Reduce Transparency（減少透明度）開啟時 popover 視覺** — `spectyn-card` 純色沒問題，但 shadow（陰影）可能被系統壓掉，需驗證對比是否足夠
 
 > 移到原型（Prototype）階段的問題：sheet 滑入 timing / NSStatusItem icon transition timing / dropdown auto-dismiss（自動關閉）delay / Notification banner action button 點按 → app 啟用（activate）順序
 

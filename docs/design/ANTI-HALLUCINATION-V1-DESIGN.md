@@ -1,17 +1,17 @@
-# Phantom 反幻覺（anti-hallucination）v1 — 設計文件
+# Spectyn 反幻覺（anti-hallucination）v1 — 設計文件
 
 > **狀態（Status）**：僅為設計。實作延後到後續的 PR（pull request，合併請求）。
 > **作者註記**：摘自 2026-05-02 的一場多代理（multi-agent）設計會議，
-> 起因是使用者觀察到 phantom 的 master agent（主代理）捏造完成宣稱
+> 起因是使用者觀察到 spectyn 的 master agent（主代理）捏造完成宣稱
 > （不存在的檔案路徑、日期錯誤的新聞標題、
 > 帶有虛構時間戳的日誌條目）。
 
 ## 為什麼會有這份文件
 
-使用者觀察到 phantom 的 `master` agent 產生的回覆會**宣稱
+使用者觀察到 spectyn 的 `master` agent 產生的回覆會**宣稱
 某個動作已執行，卻完全沒有底層的工具呼叫（tool call）**，或是
 **描述磁碟上根本不存在的特定路徑／數值／時間戳**。
-具體證據在 `~/.phantom-mesh/conversations/cwd-aa6066e46ecda552.jsonl`：
+具體證據在 `~/.spectyn-mesh/conversations/cwd-aa6066e46ecda552.jsonl`：
 
 | msg | symptom |
 |---|---|
@@ -20,7 +20,7 @@
 | #115 | 一個 markdown 表格，列出 `[2026-02-13 16:27:21] 偵測到 2 個人臉` 等列，但對應的日誌檔從未被寫入 |
 | #119 | 被指出後，agent 先道歉，接著立刻重複同樣形狀的謊言（「✅ 這次是真的!」） |
 
-第一線的緩解措施——在 `~/.phantom-mesh/agents.toml` 裡用明確的反幻覺規則
+第一線的緩解措施——在 `~/.spectyn-mesh/agents.toml` 裡用明確的反幻覺規則
 強化 `[agent.master].instructions`——可量測地降低了大形狀的捏造
 （新聞標題那個案例現在會產生「I cannot fetch real-time data」之類的揭露），
 但並沒有完全消除檔案建立的案例（agent 偶爾仍會宣稱
@@ -50,7 +50,7 @@ agent 輸出一個 markdown 表格，宣稱某個日誌檔已被寫入，附帶
 agent 回答「今天的新聞」，給出彷彿真的抓取來的文章標題、URL、分數。
 證據：msg #35。
 
-**形狀 5（Shape 5）— 工具實際出錯後仍宣稱成功（phantom-success）。**
+**形狀 5（Shape 5）— 工具實際出錯後仍宣稱成功（spectyn-success）。**
 工具回傳了 `[exit code: N]` 或 `STDERR:`，但自然語言
 回覆卻把它總結為成功。證據：msg #57。
 
@@ -164,7 +164,7 @@ if !report.unbacked_claims.is_empty() {
                 .collect(),
         });
     }
-    if std::env::var("PHANTOM_HALLUCINATION_MODE").as_deref() == Ok("strict") {
+    if std::env::var("SPECTYN_HALLUCINATION_MODE").as_deref() == Ok("strict") {
         // optional: feed back into another round with synthetic system reminder
     }
 }
@@ -184,7 +184,7 @@ if !report.unbacked_claims.is_empty() {
 | `claim_success_after_error` | `(✅\|成功\|completed)` 且先前有一個工具結果含 `[exit code: <non-zero>]` | （負向規則——若兩個訊號同時出現則判定失敗） |
 | `claim_browser_or_process` | `(opened the browser\|已開啟瀏覽器\|腳本.*運行\|started.*process)` | `shell`，其命令以 `start`、`open`、`xdg-open`、`Start-Process` 開頭 |
 
-## 測試情境（對應既有的 scripts/phantom-test/scenarios/25）
+## 測試情境（對應既有的 scripts/spectyn-test/scenarios/25）
 
 每個新情境送出一個設計來觸發某一個形狀的提示（prompt），並斷言
 測試框架（harness）對相符規則看到一個 `ConsistencyWarning`。
@@ -196,7 +196,7 @@ if !report.unbacked_claims.is_empty() {
 - `25e-real-action-no-warning.sh` — 偽陽性（false-positive）護衛
 - `25f-fake-success-after-error.sh` — Shape 5
 
-`25b/25d/25f` 應該使用 mock LLM 伺服器（`scripts/phantom-test/lib/mock-llm-server.py`）
+`25b/25d/25f` 應該使用 mock LLM 伺服器（`scripts/spectyn-test/lib/mock-llm-server.py`）
 來確定性地驅動捏造，而不是寄望真實的 LLM
 會準時地產生幻覺。
 

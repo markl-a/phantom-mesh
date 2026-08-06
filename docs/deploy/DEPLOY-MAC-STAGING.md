@@ -1,6 +1,6 @@
 # Mac local deploys — staging env (不影響 phantommesh.io 線上)
 
-> 用途：Mac 開發時想試 phantommesh-io 改動，但不想動到 production 的
+> 用途：Mac 開發時想試 spectynmesh-io 改動，但不想動到 production 的
 > phantommesh.io 服務。answer = 用 wrangler 的 `--env staging`。
 
 ---
@@ -9,11 +9,11 @@
 
 | | **production** (default) | **staging** |
 |---|---|---|
-| Worker name | `phantommesh-io` | `phantommesh-io-staging` |
-| 公開 URL | https://phantommesh.io | https://phantommesh-io-staging.`<account>`.workers.dev |
+| Worker name | `spectynmesh-io` | `spectynmesh-io-staging` |
+| 公開 URL | https://phantommesh.io | https://spectynmesh-io-staging.`<account>`.workers.dev |
 | 誰能 deploy | **GitHub Actions only** | **任何機器** (Mac/Win) `wrangler deploy --env staging` |
 | 觸發方式 | git push → CI 自動 | 手動 `wrangler deploy --env staging` |
-| Bindings (D1/R2/KV) | `phantommesh-prod` 等 | **同上**（共享資料） |
+| Bindings (D1/R2/KV) | `spectynmesh-prod` 等 | **同上**（共享資料） |
 | Routes | `phantommesh.io/*` | 無 route，純 workers.dev URL |
 
 > 共享 bindings = staging 看得到 prod 的真實 user/keys/peers/binary data。
@@ -29,8 +29,8 @@
 ```bash
 # 1. clone repo (如果還沒)
 cd ~/Projects
-git clone https://github.com/markl-a/phantom-mesh.git
-cd phantom-mesh/phantommesh-io
+git clone https://github.com/markl-a/spectyn-mesh.git
+cd spectyn-mesh/spectynmesh-io
 
 # 2. 安裝 deps
 npm install
@@ -50,7 +50,7 @@ npx wrangler secret put ENV_VAULT_KEY        --env staging
 ### 日常 dev
 
 ```bash
-cd ~/Projects/phantom-mesh/phantommesh-io
+cd ~/Projects/spectyn-mesh/spectynmesh-io
 
 # 改檔...
 
@@ -58,7 +58,7 @@ cd ~/Projects/phantom-mesh/phantommesh-io
 npx wrangler deploy --env staging
 
 # 看 staging 跑得對不對：
-curl -sS https://phantommesh-io-staging.<your-account>.workers.dev/api/health
+curl -sS https://spectynmesh-io-staging.<your-account>.workers.dev/api/health
 ```
 
 ### 確認改動準備上 prod
@@ -93,21 +93,21 @@ GitHub Actions 自動 deploy 到 prod = phantommesh.io。**Mac 永遠不該手�
 如果 staging 要測 schema migration / 不想看到真實 user data，建立獨立的 D1/KV/R2：
 
 ```bash
-cd phantommesh-io
+cd spectynmesh-io
 
 # 建新資源
-npx wrangler d1 create phantommesh-staging
+npx wrangler d1 create spectynmesh-staging
 # 印出 database_id，記下來
 
 npx wrangler kv namespace create SESSIONS_STAGING
 # 印出 id，記下來
 
-npx wrangler r2 bucket create phantom-binaries-staging
+npx wrangler r2 bucket create spectyn-binaries-staging
 
 # 套用同樣的 schema migrations 到新 DB
-npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0001_init.sql
-npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0002_user_settings.sql
-npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0003_cluster_peers.sql
+npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0001_init.sql
+npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0002_user_settings.sql
+npx wrangler d1 execute spectynmesh-staging --remote --file=./migrations/0003_cluster_peers.sql
 ```
 
 然後改 `wrangler.toml` 的 `[env.staging.*]` bindings 用新 id。
@@ -120,12 +120,12 @@ npx wrangler d1 execute phantommesh-staging --remote --file=./migrations/0003_cl
 
 ```bash
 # 1. 看 worker 跑起來
-curl -sS https://phantommesh-io-staging.<account>.workers.dev/api/health
+curl -sS https://spectynmesh-io-staging.<account>.workers.dev/api/health
 # expect: {"status":"ok","version":"0.1.1-staging",...}
 #                                ↑ 注意是 0.1.1-staging 不是 0.1.1-deploy-2026-05-03
 
 # 2. /api/me/cluster-peers 應該 401（沒登入）
-curl -sS https://phantommesh-io-staging.<account>.workers.dev/api/me/cluster-peers
+curl -sS https://spectynmesh-io-staging.<account>.workers.dev/api/me/cluster-peers
 # expect: {"error":"unauthenticated"}
 ```
 
@@ -143,4 +143,4 @@ curl -sS https://phantommesh-io-staging.<account>.workers.dev/api/me/cluster-pee
 照「完全隔離 staging」一節。改 `[env.staging.d1_databases]` 用新 db id。
 
 ### 想把 staging 也接 GitHub Actions
-.github/workflows/deploy-phantommesh-io.yml 加一個 staging job，trigger 改成 push 到 `staging/*` branch。但通常不需要 — staging 就是給 dev 自由部，CI 只管 prod。
+.github/workflows/deploy-spectynmesh-io.yml 加一個 staging job，trigger 改成 push 到 `staging/*` branch。但通常不需要 — staging 就是給 dev 自由部，CI 只管 prod。

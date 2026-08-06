@@ -128,10 +128,10 @@ pub fn codex_paths() -> Vec<PathBuf> {
     }
     if let Some(home) = home_dir_lenient() {
         paths.push(home.join(".codex").join("auth.json"));
-        // phantom-minted "Sign in with ChatGPT" token (opt-in OAuth) — checked
+        // spectyn-minted "Sign in with ChatGPT" token (opt-in OAuth) — checked
         // AFTER the official codex cache so a real `codex` login wins. Never
         // clobbers ~/.codex/auth.json. See providers::openai_oauth.
-        paths.push(home.join(".phantom-mesh").join("openai_oauth.json"));
+        paths.push(home.join(".spectyn-mesh").join("openai_oauth.json"));
     }
     paths
 }
@@ -177,10 +177,10 @@ mod tests {
     fn home_dir_lenient_prefers_home_env() {
         let _g = crate::env_lock::acquire();
         let _saved = VarGuard::save("HOME");
-        std::env::set_var("HOME", "/tmp/phantom-home-lenient-test");
+        std::env::set_var("HOME", "/tmp/spectyn-home-lenient-test");
         assert_eq!(
             home_dir_lenient(),
-            Some(PathBuf::from("/tmp/phantom-home-lenient-test"))
+            Some(PathBuf::from("/tmp/spectyn-home-lenient-test"))
         );
     }
 

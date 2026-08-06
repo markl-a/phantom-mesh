@@ -2,7 +2,7 @@
 
 [English version](README.md)
 
-phantom-mesh 的端對端（E2E）場景驗收。這些測試是半自動流程：
+spectyn-mesh 的端對端（E2E）場景驗收。這些測試是半自動流程：
 checklist 加上驗證命令。因為部分場景需要人類查看真實 UI、Telegram 或裝置，
 所以不強制全部自動化。
 
@@ -55,7 +55,7 @@ cat tests-e2e/scenarios/T1.8-tui-render-stress.md
 當 `core/src/tracing/` 的 tracer 接進 runtime 後，每次場景執行也會產生：
 
 ```text
-~/.phantom-mesh/traces/<task-id>.jsonl
+~/.spectyn-mesh/traces/<task-id>.jsonl
 ```
 
 結果文件應記錄 trace 路徑，方便後續 replay。
@@ -67,7 +67,7 @@ cat tests-e2e/scenarios/T1.8-tui-render-stress.md
 
 Run by: <operator>
 Machine: <z13/m1/acer/ayaneo>
-Binary version: <output of `phantom --version`>
+Binary version: <output of `spectyn --version`>
 
 ## Result
 - [ ] PASS / [ ] PARTIAL / [ ] FAIL

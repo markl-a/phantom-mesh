@@ -1,7 +1,7 @@
 // SPEC-22 habit dashboard — the /habit page: streak cards + quick-log popover.
 //
 // Unlike the other capture screens, the habit backend is fully Stage-3 wired
-// (capture_habit_wire persists to ~/.phantom-mesh/habits.sqlite), so habit_list
+// (capture_habit_wire persists to ~/.spectyn-mesh/habits.sqlite), so habit_list
 // returns real HabitSummary rows. This page shows the logged palette with
 // current streak + 7d/30d counts, and opens the ChipPopover (§10.3) to log.
 // Design lineage: BIG-GOAL P2 → SPEC-22 §7.1.5 (dashboard habit cards).
@@ -39,55 +39,55 @@ export default function HabitPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-5" data-testid="habit-page">
       <header className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center">
-          <ListChecks size={20} className="text-phantom-primary" />
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center">
+          <ListChecks size={20} className="text-spectyn-primary" />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-phantom-text">習慣</h1>
-          <p className="text-xs text-phantom-muted">Habits · SPEC-22 capture-habit</p>
+          <h1 className="text-xl font-bold text-spectyn-text">習慣</h1>
+          <p className="text-xs text-spectyn-muted">Habits · SPEC-22 capture-habit</p>
         </div>
         <button
           onClick={() => void refresh()}
-          className="text-phantom-muted hover:text-phantom-text p-1.5"
+          className="text-spectyn-muted hover:text-spectyn-text p-1.5"
           title="重新整理"
         >
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
         </button>
         <button
           onClick={() => setLogging(true)}
-          className="flex items-center gap-1.5 bg-phantom-primary text-phantom-bg px-3 py-1.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
+          className="flex items-center gap-1.5 bg-spectyn-primary text-spectyn-bg px-3 py-1.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
         >
           <Plus size={15} /> 記錄
         </button>
       </header>
 
       {error && (
-        <div className="bg-phantom-danger/10 border border-phantom-danger/40 rounded-lg p-3 text-sm text-phantom-danger">
+        <div className="bg-spectyn-danger/10 border border-spectyn-danger/40 rounded-lg p-3 text-sm text-spectyn-danger">
           {error}
         </div>
       )}
 
       {!loading && summaries.length === 0 && !error ? (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-          <p className="text-sm text-phantom-text">還沒有習慣紀錄</p>
-          <p className="text-xs text-phantom-muted mt-1">點「記錄」開始打卡，連續天數會在這裡顯示。</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+          <p className="text-sm text-spectyn-text">還沒有習慣紀錄</p>
+          <p className="text-xs text-spectyn-muted mt-1">點「記錄」開始打卡，連續天數會在這裡顯示。</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {summaries.map((s) => {
             const chip = LABEL.get(s.habitSlug);
             return (
-              <div key={s.habitSlug} className="bg-phantom-card border border-phantom-border rounded-lg p-4">
+              <div key={s.habitSlug} className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-lg">{chip?.emoji ?? "•"}</span>
-                  <span className="text-sm font-medium text-phantom-text">{chip?.label ?? s.habitSlug}</span>
+                  <span className="text-sm font-medium text-spectyn-text">{chip?.label ?? s.habitSlug}</span>
                   {(s.streak?.currentStreak ?? 0) > 0 && (
-                    <span className="ml-auto flex items-center gap-0.5 text-phantom-warning text-sm">
+                    <span className="ml-auto flex items-center gap-0.5 text-spectyn-warning text-sm">
                       <Flame size={13} />{s.streak?.currentStreak}
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-4 text-[11px] text-phantom-muted">
+                <div className="flex items-center gap-4 text-[11px] text-spectyn-muted">
                   <span>7 天 {s.last7dCount}</span>
                   <span>30 天 {s.last30dCount}</span>
                   {(s.streak?.longestStreak ?? 0) > 0 && <span>最長 {s.streak?.longestStreak}</span>}

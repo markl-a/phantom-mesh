@@ -47,8 +47,8 @@ jobs:
         run: TARGET=aarch64-apple-darwin bash scripts/build-mac.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-mac-aarch64
-          path: dist/phantom-aarch64-apple-darwin
+          name: spectyn-mac-aarch64
+          path: dist/spectyn-aarch64-apple-darwin
           if-no-files-found: error
 
   build-mac-x86_64:
@@ -56,7 +56,7 @@ jobs:
     # Cross-compile x86_64 on the Apple-Silicon runner instead of a scarce
     # macos-13 Intel runner (which left this job queued ~13h and blocked the
     # nightly release on 2026-06-11). Rosetta lets the build-mac.sh smoke check
-    # (`phantom --version`) execute the cross-built x86_64 binary.
+    # (`spectyn --version`) execute the cross-built x86_64 binary.
     runs-on: macos-latest   # Apple Silicon; x86_64 via cross-compile + Rosetta
     timeout-minutes: 30
     steps:
@@ -74,8 +74,8 @@ jobs:
         run: TARGET=x86_64-apple-darwin bash scripts/build-mac.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-mac-x86_64
-          path: dist/phantom-x86_64-apple-darwin
+          name: spectyn-mac-x86_64
+          path: dist/spectyn-x86_64-apple-darwin
           if-no-files-found: error
 
   build-linux:
@@ -95,10 +95,10 @@ jobs:
         run: bash scripts/package-linux.sh --no-build
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-linux-amd64
+          name: spectyn-linux-amd64
           path: |
-            dist/phantom-mesh_*_amd64.deb
-            dist/phantom-x86_64-unknown-linux-gnu
+            dist/spectyn-mesh_*_amd64.deb
+            dist/spectyn-x86_64-unknown-linux-gnu
           if-no-files-found: error
 
   build-windows:
@@ -119,11 +119,11 @@ jobs:
       # is tracked separately (task-2026052630 Windows half).
       - name: Cargo build
         working-directory: core
-        run: cargo build --release --bin phantom
+        run: cargo build --release --bin spectyn
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-windows-x86_64
-          path: core/target/release/phantom.exe
+          name: spectyn-windows-x86_64
+          path: core/target/release/spectyn.exe
           if-no-files-found: error
 
   build-android:
@@ -149,8 +149,8 @@ jobs:
         run: bash scripts/package-android.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-android-arm64
-          path: dist/phantom-android-arm64.tar.gz
+          name: spectyn-android-arm64
+          path: dist/spectyn-android-arm64.tar.gz
           if-no-files-found: error
 
   build-ios-sim:
@@ -170,11 +170,11 @@ jobs:
           key: ios-sim
       - name: Cargo build (ios simulator lib)
         working-directory: core
-        run: cargo build --release --target aarch64-apple-ios-sim --bin phantom
+        run: cargo build --release --target aarch64-apple-ios-sim --bin spectyn
       - uses: actions/upload-artifact@v4
         with:
-          name: phantom-ios-sim
-          path: core/target/aarch64-apple-ios-sim/release/phantom
+          name: spectyn-ios-sim
+          path: core/target/aarch64-apple-ios-sim/release/spectyn
           if-no-files-found: warn
 
   release:
@@ -201,7 +201,7 @@ jobs:
           TAG="${{ steps.tag.outputs.tag }}"
           # Flatten downloaded artifact dirs into a single upload set. Collect via
           # a NUL-delimited array so filenames with spaces (Tauri bundles like
-          # "Phantom Mesh_x64-setup.exe") aren't word-split by an unquoted $(find).
+          # "Spectyn Mesh_x64-setup.exe") aren't word-split by an unquoted $(find).
           mapfile -d '' -t FILES < <(find artifacts -type f -print0)
           printf '%s\n' "${FILES[@]}"
           gh release create "$TAG" \

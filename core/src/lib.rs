@@ -33,7 +33,7 @@ pub mod cli_session;
 // umbrella) is enabled. Without this, enabling just
 // `experimental-remote-control-telegram` or `experimental-remote-control-slack` would
 // compile `remote_control/mod.rs` (via the inner sub-feature gates) but leave the
-// module path invisible to dependents like `bin/phantom.rs`. The B3/T84
+// module path invisible to dependents like `bin/spectyn.rs`. The B3/T84
 // webhook-secret validator (remote_control::webhook_auth) is reachable via the
 // standalone telegram sub-feature; the B5/T86 real Slack adapter
 // (remote_control::slack) is reachable via the standalone slack sub-feature.
@@ -198,11 +198,11 @@ use std::time::Instant;
 pub const WIRE_VERSION: u32 = 1;
 
 /// Short git SHA the binary was built from. Falls back to "unknown" if
-/// the build script didn't set PHANTOM_GIT_HASH (e.g. cargo install from
+/// the build script didn't set SPECTYN_GIT_HASH (e.g. cargo install from
 /// crates.io). Used in /rpc/ping so peers can detect they're running
 /// different builds even on the same semver.
 pub const fn core_sha() -> &'static str {
-    match option_env!("PHANTOM_GIT_HASH") {
+    match option_env!("SPECTYN_GIT_HASH") {
         Some(h) => h,
         None => "unknown",
     }
@@ -472,7 +472,7 @@ fn default_telegram_agent() -> String {
 ///      trampoline's taskkill). Its socket lingers in TIME_WAIT for
 ///      30-120s. Without REUSEADDR a fresh bind on the same port
 ///      gets EADDRINUSE the whole time.
-///   2. Two phantom serves briefly coexist mid-rollover. REUSEADDR
+///   2. Two spectyn serves briefly coexist mid-rollover. REUSEADDR
 ///      lets the new one bind even if the old hasn't fully cleaned
 ///      up its listening socket yet.
 /// The retry loop catches the rarer "literally another process is
@@ -543,7 +543,7 @@ pub async fn serve_http(
 
 /// Bind + serve in one call. Thin wrapper over `bind_http_listener` +
 /// `serve_http` preserving the ORIGINAL signature and behaviour, so the
-/// non-capture callers (`main.rs`, the non-capture serve path in `bin/phantom.rs`)
+/// non-capture callers (`main.rs`, the non-capture serve path in `bin/spectyn.rs`)
 /// stay unchanged and identical.
 pub async fn start_http_server(host: &str, port: u16, router: axum::Router) -> anyhow::Result<()> {
     let listener = bind_http_listener(host, port).await?;

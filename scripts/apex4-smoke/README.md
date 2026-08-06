@@ -12,7 +12,7 @@ Two scripts:
 
 | Script | Runs on | Does |
 |---|---|---|
-| `worker-up.sh`  | the WORKER (Mac / a-worker-node / Linux sandbox) | preflight + `PHANTOM_GOVERN_CLI=1` + `PHANTOM_HOME` + start `phantom serve`, poll `/healthz` |
+| `worker-up.sh`  | the WORKER (Mac / a-worker-node / Linux sandbox) | preflight + `SPECTYN_GOVERN_CLI=1` + `SPECTYN_HOME` + start `spectyn serve`, poll `/healthz` |
 | `run-smoke.sh`  | the COORDINATOR (e.g. the-coordinator) | dispatch a high-risk claude task, find the card, **assert D7**, approve, watch it finish, print `APEX4 SMOKE: PASS\|FAIL` |
 
 Everything is leak-safe: no IPs / node names / secrets are hardcoded. The peer
@@ -33,11 +33,11 @@ These are the genuinely-manual bits the scripts cannot do for you:
 3. **Tailnet (or routable network) up** between coordinator and worker.
 4. **Shared cluster secret.** Both nodes must have the SAME
    `[cluster].cluster_secret` in their `agents.toml`. Establish it with
-   `phantom cluster join <name>` (or set it by hand identically on both).
+   `spectyn cluster join <name>` (or set it by hand identically on both).
 5. **A worker agent that drives claude.** `agents.toml` on the worker must have
    an `[agent.<name>]` whose provider resolves to claude. Pass that name as
    `--agent`.
-6. **Coordinator peers.json** (`phantom config pull`) so `--peer <name>`
+6. **Coordinator peers.json** (`spectyn config pull`) so `--peer <name>`
    resolves — or skip it and pass `--peer http://<host>:<port>` directly.
 
 ---
@@ -48,12 +48,12 @@ These are the genuinely-manual bits the scripts cannot do for you:
 
 ```bash
 cd scripts/apex4-smoke
-./worker-up.sh                 # uses $PHANTOM_HOME or ~/.phantom-mesh
-# or:  ./worker-up.sh --home ~/.phantom-mesh --foreground
+./worker-up.sh                 # uses $SPECTYN_HOME or ~/.spectyn-mesh
+# or:  ./worker-up.sh --home ~/.spectyn-mesh --foreground
 ```
 
-It preflights, exports `PHANTOM_GOVERN_CLI=1` + `PHANTOM_HOME`, starts
-`phantom serve`, polls `/healthz`, and prints the listen addr.
+It preflights, exports `SPECTYN_GOVERN_CLI=1` + `SPECTYN_HOME`, starts
+`spectyn serve`, polls `/healthz`, and prints the listen addr.
 
 **On the coordinator, then:**
 
@@ -66,7 +66,7 @@ cd scripts/apex4-smoke
 
 Flags: `--peer` (name from `peers.json` OR a full `http://host:port`),
 `--agent` (the claude agent), `--approve auto|manual` (default `auto`),
-`--secret-from agents.toml|env` (env reads `PHANTOM_CLUSTER_SECRET`),
+`--secret-from agents.toml|env` (env reads `SPECTYN_CLUSTER_SECRET`),
 `--prompt "<task>"`, `--timeout-await`, `--timeout-finish`.
 
 ---
@@ -89,7 +89,7 @@ The two gates that must both hold for PASS:
 `D7 CORRELATION: FAIL` with an **empty** row `approval_id` is the *pre-fix gap*:
 the dispatch row never learned which card it's blocked on. The fix
 (`set_approval_id` called from the claude PreToolUse hook's `with_dispatch_store`
-at card-write time, keyed by `PHANTOM_GOVERN_TASK_ID` == the dispatch
+at card-write time, keyed by `SPECTYN_GOVERN_TASK_ID` == the dispatch
 `job_uuid`) is what makes them equal. A non-empty but *different* id means two
 id universes are still in play — re-read the design doc §"The problem".
 
@@ -98,7 +98,7 @@ id universes are still in play — re-read the design doc §"The problem".
 - `dispatch (FAIL)` — no `job_id`: HMAC rejected (secret mismatch), agent
   missing on the worker, or wire-version mismatch.
 - `never reached awaiting-approval` — the run isn't governed
-  (`PHANTOM_GOVERN_CLI=1`?), the agent isn't claude, or (see below) the
+  (`SPECTYN_GOVERN_CLI=1`?), the agent isn't claude, or (see below) the
   dispatched-claude path doesn't reach the gate.
 - `no pre-action approval reached` — the task `done` without pausing.
 - peer-unreachable / missing secret / `claude` not found — caught in preflight.
@@ -128,11 +128,11 @@ name = "coder"
 provider = "claude_session"      # ← governed claude
 # model = "claude-opus-4-8"      # optional
 ```
-Then `worker-up.sh` (PHANTOM_GOVERN_CLI=1) + `run-smoke.sh --agent coder`. The D7
+Then `worker-up.sh` (SPECTYN_GOVERN_CLI=1) + `run-smoke.sh --agent coder`. The D7
 assert should PASS: the pending card's `approval_id` == the dispatch row's
 `approval_id` for the `job_id`.
 
 If `run-smoke.sh` still FAILs at "never reached awaiting-approval", check: (1) the
 `--agent` resolves to `provider_type=claude_session` (not `claude_agent`); (2)
-`PHANTOM_GOVERN_CLI=1` is in the worker `serve` env; (3) the dispatched prompt
+`SPECTYN_GOVERN_CLI=1` is in the worker `serve` env; (3) the dispatched prompt
 actually triggers a high-risk (Bash) tool so the gate fires.

@@ -27,7 +27,7 @@ impl FleetQueue {
     }
 
     pub fn open_default() -> Result<Self> {
-        let dir = crate::cli_config::phantom_data_dir()?;
+        let dir = crate::cli_config::spectyn_data_dir()?;
         std::fs::create_dir_all(&dir)?;
         let conn = Connection::open(dir.join("fleet.db"))?;
         Self::init(&conn)?;
@@ -293,8 +293,8 @@ mod tests {
     #[tokio::test]
     async fn upsert_is_idempotent() {
         let q = FleetQueue::open_in_memory().unwrap();
-        let first = q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        let second = q.upsert(&task("phantom-quant", "x")).await.unwrap();
+        let first = q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        let second = q.upsert(&task("spectyn-quant", "x")).await.unwrap();
         assert!(first, "first upsert inserts a new row");
         assert!(!second, "second upsert is a no-op insert (already present)");
         assert_eq!(q.list(TaskState::Pending).await.unwrap().len(), 1);
@@ -303,7 +303,7 @@ mod tests {
     #[tokio::test]
     async fn upsert_refreshes_pending_metadata_but_freezes_inflight() {
         let q = FleetQueue::open_in_memory().unwrap();
-        let mut t = task("phantom-quant", "x"); // component "c", max_files 3
+        let mut t = task("spectyn-quant", "x"); // component "c", max_files 3
         assert!(q.upsert(&t).await.unwrap());
 
         // Re-ingest with edited fields while the task is still PENDING -> metadata refreshed.
@@ -332,8 +332,8 @@ mod tests {
     async fn upsert_then_get_task_roundtrips_all_fields() {
         let q = FleetQueue::open_in_memory().unwrap();
         let t = BacklogTask {
-            task_id: crate::fleet::backlog::task_id("phantom-quant", "sma"),
-            repo: "phantom-quant".into(),
+            task_id: crate::fleet::backlog::task_id("spectyn-quant", "sma"),
+            repo: "spectyn-quant".into(),
             slug: "sma".into(),
             component: "add SMA".into(),
             acceptance: "sma() returns mean".into(),
@@ -349,8 +349,8 @@ mod tests {
     #[tokio::test]
     async fn claim_is_atomic_exactly_one_winner() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        let id = task("phantom-quant", "x").task_id;
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        let id = task("spectyn-quant", "x").task_id;
         let first = q.claim(&id, "w1", 60).await.unwrap();
         let second = q.claim(&id, "w2", 60).await.unwrap();
         assert!(first, "first claim wins");
@@ -360,8 +360,8 @@ mod tests {
     #[tokio::test]
     async fn reap_expired_returns_lease_to_pending() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        let id = task("phantom-quant", "x").task_id;
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        let id = task("spectyn-quant", "x").task_id;
         q.claim(&id, "w1", 0).await.unwrap(); // lease_secs=0 -> already expired
         let reaped = q.reap_expired().await.unwrap();
         assert_eq!(reaped, 1);
@@ -371,8 +371,8 @@ mod tests {
     #[tokio::test]
     async fn reap_recovers_a_crashed_in_flight_task() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        let id = task("phantom-quant", "x").task_id;
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        let id = task("spectyn-quant", "x").task_id;
         q.claim(&id, "w1", 0).await.unwrap(); // lease = now (already expired)
                                               // worker advances into the long-running window, then "crashes":
         assert!(q.set_state(&id, "w1", TaskState::Executing).await.unwrap());
@@ -408,8 +408,8 @@ mod tests {
     #[tokio::test]
     async fn stale_worker_cannot_mutate_after_reclaim() {
         let q = FleetQueue::open_in_memory().unwrap();
-        q.upsert(&task("phantom-quant", "x")).await.unwrap();
-        let id = task("phantom-quant", "x").task_id;
+        q.upsert(&task("spectyn-quant", "x")).await.unwrap();
+        let id = task("spectyn-quant", "x").task_id;
         q.claim(&id, "w1", 0).await.unwrap(); // w1 claims, lease already expired (0s)
         q.reap_expired().await.unwrap(); // back to pending
         q.claim(&id, "w2", 60).await.unwrap(); // w2 re-claims

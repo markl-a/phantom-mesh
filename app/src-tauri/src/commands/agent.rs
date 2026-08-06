@@ -57,7 +57,7 @@ pub async fn run_hand(
     resp.json().await.map_err(|e| e.to_string())
 }
 
-/// Direct agent execution — calls PhantomMeshRuntime in-process without HTTP.
+/// Direct agent execution — calls SpectynMeshRuntime in-process without HTTP.
 /// Emits `agent_event` Tauri events for real-time frontend updates.
 #[tauri::command]
 pub async fn send_message(
@@ -69,7 +69,7 @@ pub async fn send_message(
     use tauri::Manager;
 
     let agent_log = agent.clone().unwrap_or_else(|| "master".into());
-    tracing::info!(target: "phantom-app", "send_message ENTER: agent={} prompt_len={}",
+    tracing::info!(target: "spectyn-app", "send_message ENTER: agent={} prompt_len={}",
         agent_log, prompt.len());
 
     let runtime_state = app.try_state::<RuntimeState>()
@@ -95,7 +95,7 @@ pub async fn send_message(
     // Inject goals context for the master agent
     let goals_ctx = if agent_name == "master" {
         app_state.goals_store.as_ref()
-            .and_then(|gs| phantom_mesh::goals_push::goals_context(gs).ok())
+            .and_then(|gs| spectyn_mesh::goals_push::goals_context(gs).ok())
             .filter(|s| !s.is_empty())
     } else {
         None
@@ -126,20 +126,20 @@ pub async fn send_message(
         .await
     {
         Ok(r) => {
-            tracing::info!(target: "phantom-app",
+            tracing::info!(target: "spectyn-app",
                 "send_message OK: agent={} elapsed={:.2}s output_len={}",
                 agent_name, r.elapsed_secs, r.output.len());
             r
         }
         Err(e) => {
-            tracing::error!(target: "phantom-app",
+            tracing::error!(target: "spectyn-app",
                 "send_message FAIL: agent={} err={}", agent_name, e);
             return Err(format!("Agent call failed: {}", e));
         }
     };
 
     // Save to conversation history
-    use phantom_mesh::providers::traits::ChatMessage;
+    use spectyn_mesh::providers::traits::ChatMessage;
     let user_msg = ChatMessage { role: "user".into(), content: prompt.clone(), tool_calls: None };
     let asst_msg = ChatMessage { role: "assistant".into(), content: result.output.clone(), tool_calls: None };
     app_state.conversations.append(chat_id, user_msg, asst_msg).await;
@@ -198,10 +198,10 @@ pub async fn import_agents_toml(
         if let Ok(config_dir) = app.path().app_config_dir() {
             v.push(config_dir.join("files").join("agents.toml"));
             v.push(config_dir.join("agents.toml"));
-            v.push(config_dir.join(".phantom-mesh").join("agents.toml"));
+            v.push(config_dir.join(".spectyn-mesh").join("agents.toml"));
         }
         if let Some(home) = dirs::home_dir() {
-            v.push(home.join(".phantom-mesh").join("agents.toml"));
+            v.push(home.join(".spectyn-mesh").join("agents.toml"));
         }
         v
     };

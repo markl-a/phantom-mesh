@@ -148,19 +148,19 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
 
   const polarityTone = (p: string) =>
     p === "positive"
-      ? "bg-phantom-success/15 text-phantom-success"
+      ? "bg-spectyn-success/15 text-spectyn-success"
       : p === "negative"
-        ? "bg-phantom-danger/15 text-phantom-danger"
-        : "bg-phantom-muted/15 text-phantom-muted";
+        ? "bg-spectyn-danger/15 text-spectyn-danger"
+        : "bg-spectyn-muted/15 text-spectyn-muted";
 
   return (
-    <div data-testid="skill-bank" className="flex min-h-screen flex-col bg-phantom-bg text-phantom-text pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    <div data-testid="skill-bank" className="flex min-h-screen flex-col bg-spectyn-bg text-spectyn-text pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
       {/* ── Header ── */}
-      <header className="flex items-center gap-3 px-4 py-4 border-b border-phantom-border">
-        <Library className="h-6 w-6 text-phantom-primary shrink-0" aria-hidden="true" />
+      <header className="flex items-center gap-3 px-4 py-4 border-b border-spectyn-border">
+        <Library className="h-6 w-6 text-spectyn-primary shrink-0" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold leading-tight">技能銀行 Skill Bank</h1>
-          <p className="text-base text-phantom-muted leading-snug">
+          <p className="text-base text-spectyn-muted leading-snug">
             從你的行為自動萃取的可重用技能 Reusable skills
           </p>
         </div>
@@ -173,7 +173,7 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
           <div
             role="status"
             aria-label="載入技能中 Loading skills"
-            className="flex flex-col items-center justify-center gap-3 py-16 text-phantom-muted"
+            className="flex flex-col items-center justify-center gap-3 py-16 text-spectyn-muted"
           >
             <RefreshCw className="h-6 w-6 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             <span className="text-base">載入中… Loading…</span>
@@ -184,11 +184,11 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
         {state === "error" && (
           <div
             role="alert"
-            className="flex flex-col items-center gap-3 rounded-xl border border-phantom-danger/40 bg-phantom-danger/10 px-4 py-8 text-center"
+            className="flex flex-col items-center gap-3 rounded-xl border border-spectyn-danger/40 bg-spectyn-danger/10 px-4 py-8 text-center"
           >
-            <AlertTriangle className="h-7 w-7 text-phantom-danger" aria-hidden="true" />
-            <p className="text-base font-medium text-phantom-danger">載入失敗 Failed to load</p>
-            <p className="text-base text-phantom-muted break-words">{errMsg}</p>
+            <AlertTriangle className="h-7 w-7 text-spectyn-danger" aria-hidden="true" />
+            <p className="text-base font-medium text-spectyn-danger">載入失敗 Failed to load</p>
+            <p className="text-base text-spectyn-muted break-words">{errMsg}</p>
           </div>
         )}
 
@@ -197,11 +197,11 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
           <div
             role="status"
             aria-label="尚無技能 No skills yet"
-            className="flex flex-col items-center gap-3 px-4 py-16 text-center text-phantom-muted"
+            className="flex flex-col items-center gap-3 px-4 py-16 text-center text-spectyn-muted"
           >
-            <Sparkles className="h-8 w-8 text-phantom-muted" aria-hidden="true" />
-            <p className="text-base font-medium text-phantom-text">尚無技能 No skills yet</p>
-            <p className="text-base">隨著使用，phantom 會自動萃取技能 Skills appear as you use phantom</p>
+            <Sparkles className="h-8 w-8 text-spectyn-muted" aria-hidden="true" />
+            <p className="text-base font-medium text-spectyn-text">尚無技能 No skills yet</p>
+            <p className="text-base">隨著使用，spectyn 會自動萃取技能 Skills appear as you use spectyn</p>
           </div>
         )}
 
@@ -210,10 +210,10 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
           <div
             role="status"
             aria-label="技能銀行尚未實作 Skill bank not yet implemented"
-            className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-phantom-border bg-phantom-card/40 px-4 py-16 text-center text-phantom-muted"
+            className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-spectyn-border bg-spectyn-card/40 px-4 py-16 text-center text-spectyn-muted"
           >
-            <Library className="h-8 w-8 text-phantom-muted" aria-hidden="true" />
-            <p className="text-base font-medium text-phantom-text">尚未實作 Not yet wired</p>
+            <Library className="h-8 w-8 text-spectyn-muted" aria-hidden="true" />
+            <p className="text-base font-medium text-spectyn-text">尚未實作 Not yet wired</p>
             <p className="text-base">技能銀行後端尚未接上 The skill-bank backend isn't connected yet</p>
           </div>
         )}
@@ -227,11 +227,11 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
                   type="button"
                   onClick={() => handleOpen(s)}
                   aria-label={`開啟技能 Open skill: ${s.name}`}
-                  className="flex w-full min-h-[44px] items-center gap-3 rounded-xl border border-phantom-border bg-phantom-card px-4 py-3 text-left transition-colors motion-reduce:transition-none active:bg-phantom-border/40"
+                  className="flex w-full min-h-[44px] items-center gap-3 rounded-xl border border-spectyn-border bg-spectyn-card px-4 py-3 text-left transition-colors motion-reduce:transition-none active:bg-spectyn-border/40"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="truncate text-base font-medium text-phantom-text">{s.name}</span>
+                      <span className="truncate text-base font-medium text-spectyn-text">{s.name}</span>
                       {s.polarity && (
                         <span
                           className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${polarityTone(s.polarity)}`}
@@ -242,11 +242,11 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
                       )}
                     </div>
                     {s.description && (
-                      <p className="mt-0.5 line-clamp-2 text-base text-phantom-muted leading-snug">
+                      <p className="mt-0.5 line-clamp-2 text-base text-spectyn-muted leading-snug">
                         {s.description}
                       </p>
                     )}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-phantom-muted">
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-spectyn-muted">
                       {s.source && <span aria-label={`來源 Source: ${s.source}`}>來源 {s.source}</span>}
                       {s.curatorScore != null && (
                         <span aria-label={`品質分數 Quality score: ${s.curatorScore}`}>
@@ -258,7 +258,7 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight className="h-5 w-5 shrink-0 text-phantom-muted" aria-hidden="true" />
+                  <ChevronRight className="h-5 w-5 shrink-0 text-spectyn-muted" aria-hidden="true" />
                 </button>
               </li>
             ))}
@@ -267,13 +267,13 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
       </main>
 
       {/* ── Sticky footer: primary CTA (reachability) ── */}
-      <footer className="sticky bottom-0 border-t border-phantom-border bg-phantom-bg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <footer className="sticky bottom-0 border-t border-spectyn-border bg-spectyn-bg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           onClick={handleRefresh}
           disabled={!BACKEND_WIRED || state === "loading"}
           aria-label="重新整理技能 Refresh skills"
-          className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl bg-phantom-primary px-4 text-base font-semibold text-phantom-bg transition-opacity motion-reduce:transition-none disabled:opacity-40"
+          className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl bg-spectyn-primary px-4 text-base font-semibold text-spectyn-bg transition-opacity motion-reduce:transition-none disabled:opacity-40"
         >
           <RefreshCw
             className={`h-5 w-5 ${state === "loading" ? "animate-spin motion-reduce:animate-none" : ""}`}
@@ -282,7 +282,7 @@ export default function SkillBank({ onOpenSkill }: SkillBankProps) {
           重新整理 Refresh
         </button>
         {!BACKEND_WIRED && (
-          <p className="mt-2 text-center text-xs text-phantom-muted">尚未實作 Not yet implemented</p>
+          <p className="mt-2 text-center text-xs text-spectyn-muted">尚未實作 Not yet implemented</p>
         )}
       </footer>
     </div>

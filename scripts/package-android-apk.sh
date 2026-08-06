@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the phantom-mesh Tauri Android APK (the GUI app, not the Termux CLI).
+# Build the spectyn-mesh Tauri Android APK (the GUI app, not the Termux CLI).
 #
 # This is the reproducible wrapper for the sequence that must run in order:
 #   tauri android init  →  android/inject.sh  →  tauri android build

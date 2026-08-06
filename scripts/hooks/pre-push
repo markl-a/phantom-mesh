@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# phantom-mesh pre-push hook — protect the `main` branch (ACCEL-FRAMEWORK §⑥).
+# spectyn-mesh pre-push hook — protect the `main` branch (ACCEL-FRAMEWORK §⑥).
 #
 # Two guards, and ONLY for pushes that update refs/heads/main — every other ref
 # (feature branches like step3-coach-install-schedule) is always allowed through:

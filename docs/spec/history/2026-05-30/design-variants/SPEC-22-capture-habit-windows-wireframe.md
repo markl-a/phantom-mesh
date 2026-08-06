@@ -39,9 +39,9 @@ SPEC-22 §1 hero 是「home-screen widget 上 6–12 個 chip、≤ 3 tap 完成
 |---|---|---|---|
 | **System tray right-click → chip grid** | ✅ | ✅ | 桌面最快打卡面（取代行動端 widget）；點 chip 即 log |
 | Main window `[Life / Habit tab]` | ✅ | ✅ | chip 管理 + streak heatmap + free-text + 30 天統計 |
-| CLI `phantom habit "water 250"` / `phantom habit streak` | ✅ | ✅ | per SPEC-22 §1 (c)；終端機 user 最快 |
+| CLI `spectyn habit "water 250"` / `spectyn habit streak` | ✅ | ✅ | per SPEC-22 §1 (c)；終端機 user 最快 |
 | `Win+Shift+H` global hotkey → tray chip grid 彈出 | ❌ | ✅ | 預設 OFF（避撞 enterprise app，同 SPEC-21 §8.5 決策）；Settings → Hotkeys 開 |
-| Deep-link `phantom-mesh://habit/log?chip={id}` | ✅ | ✅ | 跨機 / 外部觸發單一 chip |
+| Deep-link `spectyn-mesh://habit/log?chip={id}` | ✅ | ✅ | 跨機 / 外部觸發單一 chip |
 | Win 11 Widgets board | ❌ | ❌ | OoS（SPEC-43 §3.3） |
 
 **v0.6.0 ship 3 個**：tray chip grid + main window Habit tab + CLI。global hotkey 預設 OFF。
@@ -54,7 +54,7 @@ SPEC-22 §1 hero 是「home-screen widget 上 6–12 個 chip、≤ 3 tap 完成
 
 ```
 +-------------------------------------------+
-| Phantom Mesh . Habit                      |  ← header（灰、不可點）
+| Spectyn Mesh . Habit                      |  ← header（灰、不可點）
 +-------------------------------------------+
 |  [1 水]   [2 咖啡] [3 運動] [4 冥想]      |  ← chip grid 3 列 x 4，數字鍵快選
 |  [5 讀書] [6 走路] [7 戒菸] [8 戒酒]      |
@@ -63,7 +63,7 @@ SPEC-22 §1 hero 是「home-screen widget 上 6–12 個 chip、≤ 3 tap 完成
 |  free-text: [____________________] Enter  |  ← 自由打字 fallback（取 habit.input.free_text）
 +-------------------------------------------+
 |  Open Habit tab...            Ctrl+Shift+H |
-|  Open Phantom Mesh             Ctrl+O      |
+|  Open Spectyn Mesh             Ctrl+O      |
 +-------------------------------------------+
 ```
 

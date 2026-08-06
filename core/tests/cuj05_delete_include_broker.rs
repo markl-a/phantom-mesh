@@ -1,10 +1,10 @@
 // CUJ-05 · delete-all with broker wipe — integration test.
 //
 // 對應 [`docs/cuj/05-export-and-uninstall.md`] Happy path B (export + delete)
-// 的 broker-side leg. Verifies that `phantom data delete --all --yes
+// 的 broker-side leg. Verifies that `spectyn data delete --all --yes
 // --include-broker` correctly:
 //   1. Sends `DELETE /vault/wipe` to the broker URL stored in
-//      `~/.phantom-mesh/broker.json` (auth::load).
+//      `~/.spectyn-mesh/broker.json` (auth::load).
 //   2. Sends a `VaultWipeRequest` JSON body with `scope="all"` + reason.
 //      The broker validates `scope` so this is the request shape contract.
 //   3. Handles the 202 accepted response (wipe_id + eta_complete_ts) and
@@ -22,18 +22,18 @@
 // VERIFIES (CUJ-05 Happy path B step 3 + degraded server-down):
 //   - `MAC-CUJ05-DEL-002` from docs/test-cases/mac.md v2
 
-use phantom_mesh::broker_vault_wire::{VaultWipeRequest, VaultWipeResponse};
-use phantom_mesh::cli_config::wipe_broker_vault_now;
+use spectyn_mesh::broker_vault_wire::{VaultWipeRequest, VaultWipeResponse};
+use spectyn_mesh::cli_config::wipe_broker_vault_now;
 use tempfile::TempDir;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// Build a fake broker auth state on disk under a temp HOME so the call
 /// finds `auth::load()` populated without touching the dev's real
-/// `~/.phantom-mesh/auth.json`.
+/// `~/.spectyn-mesh/auth.json`.
 fn install_fake_auth(home: &std::path::Path, broker_url: &str) {
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("mkdir phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("mkdir spectyn-mesh");
     // AuthState has several non-#[serde(default)] fields (provider, email,
     // device_id, created_at_ms, last_login_ms); supplying just broker_token
     // + broker_url silently fails to deserialize so auth::load() returns
@@ -57,7 +57,7 @@ fn install_fake_auth(home: &std::path::Path, broker_url: &str) {
 /// Single sequential #[tokio::test] covering all 3 scenarios.
 ///
 /// **Why one big test instead of three separate ones**: `auth::load()`
-/// reads `$HOME/.phantom-mesh/auth.json`, and `dirs::home_dir()` resolves
+/// reads `$HOME/.spectyn-mesh/auth.json`, and `dirs::home_dir()` resolves
 /// `$HOME` from the *process-global* env. With three #[tokio::test]
 /// functions, Rust's test harness runs them in parallel by default — the
 /// `set_var("HOME", ...)` calls race each other and one test's tempdir
@@ -133,7 +133,7 @@ async fn cuj05_include_broker_all_scenarios_sequential() {
     drop(mock);
 
     // ───────────────────────────────────────────────────────────────────
-    // Phase 3: no `phantom login` yet → friendly Err, not panic.
+    // Phase 3: no `spectyn login` yet → friendly Err, not panic.
     // ───────────────────────────────────────────────────────────────────
     let home3 = TempDir::new().expect("tempdir-no-auth");
     std::env::set_var("HOME", home3.path());

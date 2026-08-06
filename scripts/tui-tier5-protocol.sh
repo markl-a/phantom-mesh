@@ -69,7 +69,7 @@ echo "$body" | python3 -c "import sys,json; json.loads(sys.stdin.read())" 2>/dev
 
 # /api/version
 body=$(curl -sf "$SERVE/api/version" 2>&1 || echo '{}')
-echo "$body" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); assert 'version' in data or 'phantom' in str(data).lower(), 'no version field'" 2>/dev/null \
+echo "$body" | python3 -c "import sys,json; data=json.loads(sys.stdin.read()); assert 'version' in data or 'spectyn' in str(data).lower(), 'no version field'" 2>/dev/null \
   && ok "/api/version returns version info" "" \
   || fail "/api/version returns version info" "got: $body"
 
@@ -103,7 +103,7 @@ section "26. MCP stdio JSON-RPC"
 # tools/list should return an array of tool definitions with shell included.
 # Don't truncate — full response is ~50 tools × ~300 bytes schema each.
 req='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null)
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null)
 if echo "$resp" | python3 -c "
 import sys, json
 text = sys.stdin.read().strip()
@@ -125,7 +125,7 @@ fi
 req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 6000)
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null | head -c 6000)
 if echo "$resp" | grep -q '"id":1' && echo "$resp" | grep -q '"id":2'; then
   ok "MCP initialize → tools/list handshake" ""
 else
@@ -134,7 +134,7 @@ fi
 
 # tools/call shape — invoke a safe tool
 req='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"git_status","arguments":{}}}'
-resp=$(echo "$req" | timeout 12 phantom mcp 2>/dev/null | head -c 4000)
+resp=$(echo "$req" | timeout 12 spectyn mcp 2>/dev/null | head -c 4000)
 if echo "$resp" | grep -q '"id":1' && (echo "$resp" | grep -qE 'content|result|error'); then
   ok "MCP tools/call git_status returns result" ""
 else
@@ -146,31 +146,31 @@ section "27. tool wrappers via MCP"
 
 # shell tool — verify exit code propagates
 req='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo MARKER-SHELL-OK; exit 0"}}}'
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 2000)
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null | head -c 2000)
 echo "$resp" | grep -q "MARKER-SHELL-OK" \
   && ok "shell tool propagates stdout" "" \
   || fail "shell tool propagates stdout" "got: $(echo "$resp" | head -c 200)"
 
 # shell tool — non-zero exit
 req='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo to-stdout; echo to-stderr 1>&2; exit 7"}}}'
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 2000)
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null | head -c 2000)
 echo "$resp" | grep -qE "to-stdout|to-stderr|exit code: 7|exit 7" \
   && ok "shell tool reports stderr + exit code" "" \
   || fail "shell tool reports stderr + exit code" "got: $(echo "$resp" | head -c 300)"
 
 # shell tool — pipes (verifies needs_shell detection in tools/shell.rs)
 req='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"shell","arguments":{"command":"echo abc | wc -c | tr -d \" \""}}}'
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 2000)
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null | head -c 2000)
 # Response shape: {"text":"4\n",...}. The pipe must produce 4 (3 chars + \n).
 echo "$resp" | grep -qE '"text":"4' \
   && ok "shell tool handles pipes" 'echo abc|wc -c → "4\\n"' \
   || fail "shell tool handles pipes" "got: $(echo "$resp" | head -c 300)"
 
 # file_read on a known file (absolute path so the test is cwd-independent)
-README_ABS="${PHANTOM_REPO:-$PWD}/README.md"
+README_ABS="${SPECTYN_REPO:-$PWD}/README.md"
 req=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"%s"}}}' "$README_ABS")
-resp=$(echo "$req" | timeout 8 phantom mcp 2>/dev/null | head -c 6000)
-echo "$resp" | grep -qE 'Phantom Mesh|phantom-mesh' \
+resp=$(echo "$req" | timeout 8 spectyn mcp 2>/dev/null | head -c 6000)
+echo "$resp" | grep -qE 'Spectyn Mesh|spectyn-mesh' \
   && ok "file_read returns README contents" "" \
   || fail "file_read returns README contents" "got: $(echo "$resp" | head -c 200)"
 
@@ -178,9 +178,9 @@ echo "$resp" | grep -qE 'Phantom Mesh|phantom-mesh' \
 key="smoke-key-$$"
 val="smoke-val-$RANDOM"
 req="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_store\",\"arguments\":{\"key\":\"$key\",\"value\":\"$val\"}}}"
-echo "$req" | timeout 5 phantom mcp 2>/dev/null > /dev/null
+echo "$req" | timeout 5 spectyn mcp 2>/dev/null > /dev/null
 req="{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"memory_recall\",\"arguments\":{\"key\":\"$key\"}}}"
-resp=$(echo "$req" | timeout 5 phantom mcp 2>/dev/null | head -c 2000)
+resp=$(echo "$req" | timeout 5 spectyn mcp 2>/dev/null | head -c 2000)
 echo "$resp" | grep -q "$val" \
   && ok "memory_store + memory_recall round-trip" "key=$key" \
   || fail "memory_store + memory_recall round-trip" "got: $(echo "$resp" | head -c 200)"
@@ -190,7 +190,7 @@ section "28. mouse + bracketed paste"
 
 # Bracketed paste — pasting multi-line content via tmux paste-buffer
 sess="t-paste-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux set-buffer -t "$sess" "first line
 second line
 third line"
@@ -204,7 +204,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 
 # Mouse scroll wheel — tmux can send ScrollUp / ScrollDown via send-keys
 sess="t-mouse-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" "/help"; sleep 0.15
 tmux send-keys -t "$sess" Enter; sleep 0.6
 # Send scroll wheel up event via tmux send-keys
@@ -224,7 +224,7 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "29. mid-stream key handling"
 
 sess="t-midstream-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "ask the agent something"; sleep 0.2
 tmux send-keys -t "$sess" Enter; sleep 0.4   # streaming starts
 # While streaming, type some chars — they should buffer or be ignored, not crash
@@ -239,10 +239,10 @@ tmux kill-session -t "$sess" 2>/dev/null
 section "30. session / conversation persistence"
 
 # First session: set a marker
-hist_file="$HOME/.phantom-mesh/tui-history"
+hist_file="$HOME/.spectyn-mesh/tui-history"
 SESSION_MARKER="SESSION-PERSIST-$$-$RANDOM"
 sess="t-persist-1-$$"
-tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess" -l "$SESSION_MARKER"; sleep 0.2
 tmux send-keys -t "$sess" Enter; sleep 0.5
 tmux send-keys -t "$sess" Escape; sleep 0.3
@@ -250,7 +250,7 @@ tmux send-keys -t "$sess" "/exit" Enter; sleep 0.6
 tmux kill-session -t "$sess" 2>/dev/null
 
 # Inspect the conversations dir for the new session
-conv_dir="$HOME/.phantom-mesh/conversations"
+conv_dir="$HOME/.spectyn-mesh/conversations"
 if [[ -d "$conv_dir" ]]; then
   matched=$(grep -lF "$SESSION_MARKER" "$conv_dir"/*.jsonl 2>/dev/null | wc -l)
   if [[ "$matched" -ge 1 ]]; then

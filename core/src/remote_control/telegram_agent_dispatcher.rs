@@ -1,4 +1,4 @@
-//! Track [T1] — Phantom agent dispatcher for the remote-control Telegram channel.
+//! Track [T1] — Spectyn agent dispatcher for the remote-control Telegram channel.
 //!
 //! The cluster-side of Telegram Remote Control (BIG-GOAL §P3): wires the
 //! Telegram remote up to the actual `AgentRuntime` so a chat message
@@ -6,7 +6,7 @@
 //! straight back to the same chat. Without this bridge the bot would
 //! merely echo; with it, the bot *is* the cluster speaking back.
 //!
-//! Bridges `RemoteTelegramBot` to the phantom `AgentRuntime`:
+//! Bridges `RemoteTelegramBot` to the spectyn `AgentRuntime`:
 //! incoming text → `runtime.run(agent_name, text, history, None)` →
 //! `result.output` → response back to the same Telegram chat.
 //!
@@ -49,17 +49,17 @@ use crate::providers::traits::ChatMessage;
 /// pressure also caps useful retention well before this.
 pub const DEFAULT_HISTORY_LIMIT: usize = 40;
 
-/// Dispatcher that invokes the real phantom `AgentRuntime` for each
+/// Dispatcher that invokes the real spectyn `AgentRuntime` for each
 /// incoming Telegram message and maintains per-chat conversation
 /// history in-memory.
-pub struct PhantomAgentDispatcher {
+pub struct SpectynAgentDispatcher {
     runtime: Arc<AgentRuntime>,
     agent_name: String,
     history_limit: usize,
     history: Arc<Mutex<HashMap<i64, Vec<ChatMessage>>>>,
 }
 
-impl PhantomAgentDispatcher {
+impl SpectynAgentDispatcher {
     /// Construct with the default per-chat history bound
     /// ([`DEFAULT_HISTORY_LIMIT`]).
     pub fn new(runtime: Arc<AgentRuntime>, agent_name: String) -> Self {
@@ -95,14 +95,14 @@ impl PhantomAgentDispatcher {
 }
 
 #[async_trait]
-impl RemoteTelegramDispatcher for PhantomAgentDispatcher {
+impl RemoteTelegramDispatcher for SpectynAgentDispatcher {
     /// The legacy single-arg form is unused by this dispatcher — chat
     /// context is keyed on chat_id, which only `dispatch_with_chat`
     /// receives. Return a clear error if the trait's default method is
     /// ever bypassed.
     async fn dispatch(&self, _user_text: String) -> Result<String, String> {
         Err(
-            "PhantomAgentDispatcher requires chat_id context — call dispatch_with_chat instead"
+            "SpectynAgentDispatcher requires chat_id context — call dispatch_with_chat instead"
                 .to_string(),
         )
     }
@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn legacy_dispatch_returns_explanatory_error() {
         let rt = Arc::new(AgentRuntime::new(AgentsConfig::default()));
-        let d = PhantomAgentDispatcher::new(rt, "master".into());
+        let d = SpectynAgentDispatcher::new(rt, "master".into());
         let err = d.dispatch("hi".into()).await.unwrap_err();
         assert!(err.contains("dispatch_with_chat"), "unexpected: {}", err);
     }

@@ -6,17 +6,17 @@
 //! `experimental-memory`, uses raw rusqlite for a COUNT check, only
 //! checks presence of one skill, and never calls apply.
 
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::skill_wire::{apply_skill_to_prompt, recall_skills, store_skill, Skill};
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::skill_wire::{apply_skill_to_prompt, recall_skills, store_skill, Skill};
 
 #[test]
 fn owned_memory_loop_survives_process_restart() {
     // This is the ONLY test in its own integration test binary, so the
-    // process-global PHANTOM_DB_PATH mutation below races nothing.
+    // process-global SPECTYN_DB_PATH mutation below races nothing.
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
-    std::env::set_var("PHANTOM_DB_PATH", &db_path);
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
+    std::env::set_var("SPECTYN_DB_PATH", &db_path);
 
     let target = Skill {
         id: "sk-restart-deploy".into(),
@@ -49,7 +49,7 @@ fn owned_memory_loop_survives_process_restart() {
         store_skill(&distractor).map_err(|e| format!("store distractor: {e:?}"))?;
 
         // PHASE 2 ("process 2 / after restart"): recall opens a brand-new
-        // connection from PHANTOM_DB_PATH, then apply renders what survived.
+        // connection from SPECTYN_DB_PATH, then apply renders what survived.
         let recall = recall_skills("deploy staging", RecallPolicy::default())
             .map_err(|e| format!("recall: {e:?}"))?;
         let top_id = recall.skills.first().map(|s| s.id.clone());
@@ -65,8 +65,8 @@ fn owned_memory_loop_survives_process_restart() {
     })();
 
     match saved {
-        Some(value) => std::env::set_var("PHANTOM_DB_PATH", value),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(value) => std::env::set_var("SPECTYN_DB_PATH", value),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let o = outcome.expect("owned-memory loop survives process restart");

@@ -1,7 +1,7 @@
-//! Linux-side CLI integration tests for the `phantom` binary.
+//! Linux-side CLI integration tests for the `spectyn` binary.
 //!
 //! Counterpart of `cli_macos.rs` + `cli_win.rs`. These exec the
-//! actual built binary (via `env!("CARGO_BIN_EXE_phantom")`) and
+//! actual built binary (via `env!("CARGO_BIN_EXE_spectyn")`) and
 //! assert observable behavior — exit codes, output shape, side
 //! effects — rather than calling internal functions. Slower than
 //! unit tests but they catch real packaging/wiring breakage on
@@ -16,11 +16,11 @@
 use std::process::Command;
 use std::time::Duration;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
-/// LIN P0 — `phantom serve` must bind a TCP port and respond 200 to
+/// LIN P0 — `spectyn serve` must bind a TCP port and respond 200 to
 /// GET /healthz within 10 s. Uses an OS-assigned ephemeral port (bind
 /// 127.0.0.1:0 → take the port → drop) instead of a fixed one, so the test
 /// can't fail spuriously when a long-running dev/cluster node (or a leftover
@@ -28,9 +28,9 @@ fn phantom_bin() -> &'static str {
 /// :17878 is itself a used mesh address.
 #[tokio::test(flavor = "current_thread")]
 async fn serve_starts_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     // Bind :0 to let the OS pick a free port, then drop the listener so
-    // `phantom serve` can bind it (mirrors life_node_capture_e2e.rs / test_rpc_forwarding.rs).
+    // `spectyn serve` can bind it (mirrors life_node_capture_e2e.rs / test_rpc_forwarding.rs).
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port for serve_starts_linux");
@@ -47,7 +47,7 @@ async fn serve_starts_linux() {
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .expect("phantom serve must spawn");
+        .expect("spectyn serve must spawn");
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
@@ -70,27 +70,27 @@ async fn serve_starts_linux() {
 
     assert!(
         got_200,
-        "phantom serve did not respond 200 to GET {} within 10 s — \
+        "spectyn serve did not respond 200 to GET {} within 10 s — \
          the daemon either failed to bind :{} or /healthz route is broken",
         url, port
     );
 }
 
-/// LIN P0 — `phantom doctor` must exit 0 on a healthy dev Linux
+/// LIN P0 — `spectyn doctor` must exit 0 on a healthy dev Linux
 /// host (kernel, /proc, journal access all present). Smoke gate
 /// equivalent of the macOS / Windows variants — new contributors
 /// run this after install to confirm the binary works.
 #[test]
 fn doctor_exit_zero_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .arg("doctor")
         .output()
-        .expect("phantom doctor must spawn — is the bin built?");
+        .expect("spectyn doctor must spawn — is the bin built?");
 
     assert!(
         output.status.success(),
-        "phantom doctor exited {:?} on a Linux dev host.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn doctor exited {:?} on a Linux dev host.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -101,29 +101,29 @@ fn doctor_exit_zero_linux() {
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.trim().is_empty(),
-        "phantom doctor produced empty output — likely short-circuited \
+        "spectyn doctor produced empty output — likely short-circuited \
          without running any checks. exit={:?}",
         output.status
     );
 }
 
-/// LIN P0 — `phantom service status` must exit cleanly (0 or 1) and
+/// LIN P0 — `spectyn service status` must exit cleanly (0 or 1) and
 /// mention "registered" in its output. On Linux this checks the
 /// systemd `--user` unit; non-installed hosts exit 1 with a clean
 /// "not registered" message rather than panic.
 #[test]
 fn service_status_smoke_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .arg("service")
         .arg("status")
         .output()
-        .expect("phantom service status must spawn");
+        .expect("spectyn service status must spawn");
 
     let code = output.status.code().unwrap_or(-1);
     assert!(
         code == 0 || code == 1,
-        "phantom service status exit code must be 0 or 1, got {}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn service status exit code must be 0 or 1, got {}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         code,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -131,39 +131,39 @@ fn service_status_smoke_linux() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("registered") || stdout.contains("phantom"),
-        "phantom service status produced unexpected output: {}",
+        stdout.contains("registered") || stdout.contains("spectyn"),
+        "spectyn service status produced unexpected output: {}",
         stdout
     );
 }
 
-/// LIN P0 — `phantom --version` must print a string matching the
-/// `phantom X.Y.Z (<sha> <triple> <date>)` provenance shape so that
+/// LIN P0 — `spectyn --version` must print a string matching the
+/// `spectyn X.Y.Z (<sha> <triple> <date>)` provenance shape so that
 /// `verify-binary.sh` post-install can grep it.
 #[test]
 fn version_provenance_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .arg("--version")
         .output()
-        .expect("phantom --version must spawn");
+        .expect("spectyn --version must spawn");
 
     assert!(
         output.status.success(),
-        "phantom --version exit={:?}",
+        "spectyn --version exit={:?}",
         output.status
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let first_line = stdout.lines().next().unwrap_or("");
     assert!(
-        first_line.starts_with("phantom "),
-        "first line must start with 'phantom ', got: {first_line:?}",
+        first_line.starts_with("spectyn "),
+        "first line must start with 'spectyn ', got: {first_line:?}",
     );
     let parts: Vec<&str> = first_line.split_whitespace().collect();
     assert!(
         parts.len() >= 2,
-        "version line should be `phantom X.Y.Z [(hash triple date)]`, got: {first_line:?}",
+        "version line should be `spectyn X.Y.Z [(hash triple date)]`, got: {first_line:?}",
     );
     assert!(
         parts[1].chars().filter(|c| *c == '.').count() >= 2,
@@ -172,13 +172,13 @@ fn version_provenance_linux() {
     );
 }
 
-/// LIN D31 — `phantom autoevolve <garbage>` must REJECT (exit 2), not silently
+/// LIN D31 — `spectyn autoevolve <garbage>` must REJECT (exit 2), not silently
 /// fall through and launch the autonomous evolve loop (cargo check + spawn an
 /// LLM code-modifying agent). We only assert the safe rejection + that --help
 /// exits 0; the bare `autoevolve` run-loop is deliberately NOT exercised here.
 #[test]
 fn autoevolve_unknown_subcommand_is_rejected_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home = tempfile::tempdir().expect("home tempdir");
     let run = |args: &[&str]| {
         Command::new(bin)
@@ -186,7 +186,7 @@ fn autoevolve_unknown_subcommand_is_rejected_linux() {
             .env("HOME", home.path())
             .stdin(std::process::Stdio::null())
             .output()
-            .unwrap_or_else(|e| panic!("phantom {args:?} must spawn: {e}"))
+            .unwrap_or_else(|e| panic!("spectyn {args:?} must spawn: {e}"))
     };
 
     for bad in [["autoevolve", "zzzz"], ["autoevolve", "--bogus"]] {
@@ -194,7 +194,7 @@ fn autoevolve_unknown_subcommand_is_rejected_linux() {
         assert_eq!(
             out.status.code(),
             Some(2),
-            "`phantom {bad:?}` must exit 2 (not launch the evolve loop), got {:?}\n{}",
+            "`spectyn {bad:?}` must exit 2 (not launch the evolve loop), got {:?}\n{}",
             out.status.code(),
             String::from_utf8_lossy(&out.stderr),
         );
@@ -211,16 +211,16 @@ fn autoevolve_unknown_subcommand_is_rejected_linux() {
     assert!(help.status.success(), "autoevolve --help must exit 0");
 }
 
-/// LIN D22 — `phantom <sub> --help` must print usage and exit 0 WITHOUT
+/// LIN D22 — `spectyn <sub> --help` must print usage and exit 0 WITHOUT
 /// launching the subcommand. Before the fix, `onboarding --help` hung
 /// (opened a browser), `repl`/`tui --help` launched the UI, `init --help`
-/// wrote PHANTOM.md into the cwd, and `sessions --help` hit the broker.
+/// wrote SPECTYN.md into the cwd, and `sessions --help` hit the broker.
 /// Each invocation runs in an isolated HOME + cwd; we assert it terminates
 /// within a hard timeout (a hang regression fails instead of blocking CI),
-/// emits "usage", and leaves no PHANTOM.md behind.
+/// emits "usage", and leaves no SPECTYN.md behind.
 #[tokio::test(flavor = "current_thread")]
 async fn help_flag_never_executes_subcommand_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     // Includes the pre-existing dangerous guards (serve binds a port, mcp
     // blocks on stdio, coordinator hubs, evolve starts a fix loop) so the whole
     // guard list is regression-covered, not just the D22 additions.
@@ -245,12 +245,12 @@ async fn help_flag_never_executes_subcommand_linux() {
 
             let output = tokio::time::timeout(Duration::from_secs(8), run)
                 .await
-                .unwrap_or_else(|_| panic!("`phantom {sub} {flag}` HUNG (>8s) — it launched the subcommand instead of printing help"))
-                .unwrap_or_else(|e| panic!("`phantom {sub} {flag}` failed to spawn: {e}"));
+                .unwrap_or_else(|_| panic!("`spectyn {sub} {flag}` HUNG (>8s) — it launched the subcommand instead of printing help"))
+                .unwrap_or_else(|e| panic!("`spectyn {sub} {flag}` failed to spawn: {e}"));
 
             assert!(
                 output.status.success(),
-                "`phantom {sub} {flag}` must exit 0, got {:?}",
+                "`spectyn {sub} {flag}` must exit 0, got {:?}",
                 output.status.code()
             );
             let combined = format!(
@@ -260,11 +260,11 @@ async fn help_flag_never_executes_subcommand_linux() {
             );
             assert!(
                 combined.to_lowercase().contains("usage"),
-                "`phantom {sub} {flag}` should print usage, got: {combined}"
+                "`spectyn {sub} {flag}` should print usage, got: {combined}"
             );
             assert!(
-                !cwd.path().join("PHANTOM.md").exists(),
-                "`phantom {sub} {flag}` must NOT write PHANTOM.md (init side-effect leak)"
+                !cwd.path().join("SPECTYN.md").exists(),
+                "`spectyn {sub} {flag}` must NOT write SPECTYN.md (init side-effect leak)"
             );
         }
     }
@@ -278,7 +278,7 @@ async fn help_flag_never_executes_subcommand_linux() {
 /// Each runs in an isolated HOME so it can't touch the operator's real store.
 #[test]
 fn invalid_arg_values_exit_2_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home = tempfile::tempdir().expect("home tempdir");
     let cases: &[&[&str]] = &[
         &["serve", "--port", "abc"],
@@ -296,11 +296,11 @@ fn invalid_arg_values_exit_2_linux() {
             .env("HOME", home.path())
             .stdin(std::process::Stdio::null())
             .output()
-            .unwrap_or_else(|e| panic!("phantom {args:?} must spawn: {e}"));
+            .unwrap_or_else(|e| panic!("spectyn {args:?} must spawn: {e}"));
         assert_eq!(
             output.status.code(),
             Some(2),
-            "`phantom {args:?}` must exit 2 on invalid input, got {:?}\n--- stderr ---\n{}",
+            "`spectyn {args:?}` must exit 2 on invalid input, got {:?}\n--- stderr ---\n{}",
             output.status.code(),
             String::from_utf8_lossy(&output.stderr),
         );
@@ -311,7 +311,7 @@ fn invalid_arg_values_exit_2_linux() {
 /// over-rejection regression). `lang set` + `focus start` write into HOME.
 #[test]
 fn valid_arg_values_still_succeed_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home = tempfile::tempdir().expect("home tempdir");
     let cases: &[&[&str]] = &[
         &["lang", "set", "en"],
@@ -325,39 +325,39 @@ fn valid_arg_values_still_succeed_linux() {
             .env("HOME", home.path())
             .stdin(std::process::Stdio::null())
             .output()
-            .unwrap_or_else(|e| panic!("phantom {args:?} must spawn: {e}"));
+            .unwrap_or_else(|e| panic!("spectyn {args:?} must spawn: {e}"));
         assert!(
             output.status.success(),
-            "`phantom {args:?}` must succeed on valid input, got {:?}\n--- stderr ---\n{}",
+            "`spectyn {args:?}` must succeed on valid input, got {:?}\n--- stderr ---\n{}",
             output.status.code(),
             String::from_utf8_lossy(&output.stderr),
         );
     }
 }
 
-/// LIN D24 — a PRESENT-but-corrupt `identity.key` must make `phantom note`
+/// LIN D24 — a PRESENT-but-corrupt `identity.key` must make `spectyn note`
 /// REFUSE (nonzero exit) and write NO event, rather than silently downgrading
 /// the private note to plaintext. (A genuinely-absent key is the separate
 /// pre-encryption state where plaintext is intended — covered by unit tests.)
 #[test]
 fn corrupt_identity_key_refuses_plaintext_note_linux() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home = tempfile::tempdir().expect("home tempdir");
-    let phantom_dir = home.path().join(".phantom-mesh");
-    std::fs::create_dir_all(&phantom_dir).unwrap();
+    let spectyn_dir = home.path().join(".spectyn-mesh");
+    std::fs::create_dir_all(&spectyn_dir).unwrap();
     // 5 bytes < the 16-byte minimum → present but unloadable.
-    std::fs::write(phantom_dir.join("identity.key"), [0x01u8; 5]).unwrap();
+    std::fs::write(spectyn_dir.join("identity.key"), [0x01u8; 5]).unwrap();
 
     let output = Command::new(bin)
         .args(["note", "this private note must not hit disk in plaintext"])
         .env("HOME", home.path())
         .stdin(std::process::Stdio::null())
         .output()
-        .expect("phantom note must spawn");
+        .expect("spectyn note must spawn");
 
     assert!(
         !output.status.success(),
-        "phantom note with a corrupt identity.key must exit nonzero, got {:?}\n{}",
+        "spectyn note with a corrupt identity.key must exit nonzero, got {:?}\n{}",
         output.status.code(),
         String::from_utf8_lossy(&output.stderr),
     );
@@ -365,7 +365,7 @@ fn corrupt_identity_key_refuses_plaintext_note_linux() {
     // The note event store must contain NO event — the capture was refused, not
     // silently written in plaintext. (events.jsonl, the argv diag, is a separate
     // concern fixed under D21 on its own branch — we only assert the event dir.)
-    let events_dir = phantom_dir.join("events");
+    let events_dir = spectyn_dir.join("events");
     let wrote_event = events_dir
         .read_dir()
         .map(|rd| rd.flatten().any(|e| e.path().is_file()))
@@ -383,7 +383,7 @@ fn corrupt_identity_key_refuses_plaintext_note_linux() {
 fn non_utf8_argv_does_not_panic_linux() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let home = tempfile::tempdir().expect("home tempdir");
     let bad = OsStr::from_bytes(&[0xff, 0xfe]); // invalid UTF-8
 
@@ -405,17 +405,17 @@ fn non_utf8_argv_does_not_panic_linux() {
             .env("HOME", home.path())
             .stdin(std::process::Stdio::null())
             .output()
-            .unwrap_or_else(|e| panic!("phantom {argv:?} must spawn: {e}"));
+            .unwrap_or_else(|e| panic!("spectyn {argv:?} must spawn: {e}"));
         // 101 is the Rust panic/abort exit code — the bug we're guarding against.
         assert_ne!(
             output.status.code(),
             Some(101),
-            "`phantom {argv:?}` panicked (exit 101) instead of degrading gracefully\n--- stderr ---\n{}",
+            "`spectyn {argv:?}` panicked (exit 101) instead of degrading gracefully\n--- stderr ---\n{}",
             String::from_utf8_lossy(&output.stderr),
         );
         assert!(
             !String::from_utf8_lossy(&output.stderr).contains("panicked"),
-            "`phantom {argv:?}` printed a panic message"
+            "`spectyn {argv:?}` printed a panic message"
         );
     }
 }

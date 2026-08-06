@@ -1,12 +1,12 @@
-//! End-to-end tests for `phantom trust` (the Project Trust CLI) + the doctor
+//! End-to-end tests for `spectyn trust` (the Project Trust CLI) + the doctor
 //! Project layer. Spawns the real binary against a temp HOME so the trust.json
 //! write path and the doctor round-trip are exercised, not just lib logic.
 
 use std::path::Path;
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn write(p: &Path, s: &str) {
@@ -21,16 +21,16 @@ fn trust_add_then_show_reports_trusted() {
     let home = tempfile::tempdir().unwrap();
     let proj = tempfile::tempdir().unwrap();
 
-    let add = Command::new(phantom_bin())
+    let add = Command::new(spectyn_bin())
         .args(["trust", "add"])
         .current_dir(proj.path())
         .env("HOME", home.path())
         .output()
         .expect("spawn add");
     assert!(add.status.success(), "add failed: {}", String::from_utf8_lossy(&add.stderr));
-    assert!(home.path().join(".phantom-mesh/trust.json").is_file(), "trust.json not written");
+    assert!(home.path().join(".spectyn-mesh/trust.json").is_file(), "trust.json not written");
 
-    let show = Command::new(phantom_bin())
+    let show = Command::new(spectyn_bin())
         .args(["trust", "show"])
         .current_dir(proj.path())
         .env("HOME", home.path())
@@ -40,7 +40,7 @@ fn trust_add_then_show_reports_trusted() {
 
     // a sibling dir is still untrusted
     let other = tempfile::tempdir().unwrap();
-    let show2 = Command::new(phantom_bin())
+    let show2 = Command::new(spectyn_bin())
         .args(["trust", "show"])
         .current_dir(other.path())
         .env("HOME", home.path())
@@ -54,12 +54,12 @@ fn trust_add_then_show_reports_trusted() {
 #[test]
 fn doctor_project_layer_ok_when_enforcement_off() {
     let home = tempfile::tempdir().unwrap();
-    write(&home.path().join(".phantom-mesh/identity.key"), "x");
+    write(&home.path().join(".spectyn-mesh/identity.key"), "x");
     write(
-        &home.path().join(".phantom-mesh/agents.toml"),
+        &home.path().join(".spectyn-mesh/agents.toml"),
         "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n",
     );
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .args(["doctor", "--json"])
         .current_dir(home.path())
         .env("HOME", home.path())
@@ -77,11 +77,11 @@ fn doctor_project_layer_ok_when_enforcement_off() {
 #[test]
 fn trust_add_rejects_nonexistent_dir() {
     let home = tempfile::tempdir().unwrap();
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .args(["trust", "add", "/no/such/dir/xyzzy"])
         .env("HOME", home.path())
         .output()
         .expect("spawn");
     assert_eq!(out.status.code(), Some(2));
-    assert!(!home.path().join(".phantom-mesh/trust.json").is_file(), "must not write on rejection");
+    assert!(!home.path().join(".spectyn-mesh/trust.json").is_file(), "must not write on rejection");
 }

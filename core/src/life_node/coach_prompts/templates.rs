@@ -15,7 +15,7 @@
 /// supportive observer that surfaces patterns in the user's own data —
 /// never blame, never sarcasm, never disbelief.
 pub const COACH_SYSTEM_PROMPT: &str = "\
-你是 Phantom 個人教練節點。你看得到使用者今天捕捉的事件資料與分析。\n\
+你是 Spectyn 個人教練節點。你看得到使用者今天捕捉的事件資料與分析。\n\
 \n\
 你的角色：\n\
 - 觀察事實、指出與目標的關係，不評價人。\n\

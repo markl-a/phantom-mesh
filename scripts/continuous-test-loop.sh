@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
 # ⛔ GATED (2026-06-07): 閘門前禁跑(ACCEL doc §③)。
-if [ "${PHANTOM_GATE_PASSED:-0}" != "1" ] && [ "${1:-}" != "--break-glass" ]; then
-  echo "GATED: partner app 未過 7 天真用閘門 (docs/ACCEL-FRAMEWORK-AS-PHANTOM-FEATURE.md §③)。" >&2
-  echo "解法: 過閘後 PHANTOM_GATE_PASSED=1;或 --break-glass(手動逃生,輸出只准寫 ~/.phantom-mesh/dev-loop-log.jsonl)。" >&2
+if [ "${SPECTYN_GATE_PASSED:-0}" != "1" ] && [ "${1:-}" != "--break-glass" ]; then
+  echo "GATED: partner app 未過 7 天真用閘門 (docs/ACCEL-FRAMEWORK-AS-SPECTYN-FEATURE.md §③)。" >&2
+  echo "解法: 過閘後 SPECTYN_GATE_PASSED=1;或 --break-glass(手動逃生,輸出只准寫 ~/.spectyn-mesh/dev-loop-log.jsonl)。" >&2
   exit 2
 fi
 
-# Continuous test loop for phantom-mesh (mac-m1 session, started 2026-05-01)
+# Continuous test loop for spectyn-mesh (mac-m1 session, started 2026-05-01)
 #
 # Modes (set via INTERVAL_SECS env var, default 1800 = 30-min "C-mode"):
 #   A — passive            (don't run this loop; user pings on demand)
@@ -35,9 +35,9 @@ fi
 
 set -u
 
-REPO="${REPO:-$HOME/path/to/phantom-mesh}"
+REPO="${REPO:-$HOME/path/to/spectyn-mesh}"
 DAEMON_URL=http://127.0.0.1:7878
-SECRET=$(grep -E "^\s*cluster_secret\s*=" "$HOME/.phantom-mesh/agents.toml" 2>/dev/null \
+SECRET=$(grep -E "^\s*cluster_secret\s*=" "$HOME/.spectyn-mesh/agents.toml" 2>/dev/null \
   | sed 's/.*= *"//; s/"$//' || echo "")
 
 ROUND=0
@@ -54,7 +54,7 @@ while true; do
   # 1. Daemon health + SHA drift
   PING=$(curl -sfm 3 "$DAEMON_URL/rpc/ping" 2>/dev/null || echo "")
   if [ -z "$PING" ]; then
-    echo "[$TS r${ROUND}] DAEMON DOWN — /rpc/ping unreachable. Run: launchctl kickstart -k gui/\$UID/ai.phantommesh.serve"
+    echo "[$TS r${ROUND}] DAEMON DOWN — /rpc/ping unreachable. Run: launchctl kickstart -k gui/\$UID/ai.spectynmesh.serve"
   else
     DAEMON_SHA=$(echo "$PING" | sed -n 's/.*"core_sha":"\([^"]*\)".*/\1/p')
     HEAD_SHA=$(git rev-parse --short=10 HEAD 2>/dev/null)
@@ -109,7 +109,7 @@ while true; do
   # 4. peer list timeout-safe (Bug #23 regression check, every 4th round = ~2h)
   if [ $((ROUND % 4)) -eq 0 ]; then
     START=$(date +%s)
-    timeout 8 "$HOME/.cargo/bin/phantom" peer list >/dev/null 2>&1 || true
+    timeout 8 "$HOME/.cargo/bin/spectyn" peer list >/dev/null 2>&1 || true
     ELAPSED=$(( $(date +%s) - START ))
     if [ "$ELAPSED" -gt 8 ]; then
       echo "[$TS r${ROUND}] PEER LIST SLOW — ${ELAPSED}s (Bug #23 regression?)"

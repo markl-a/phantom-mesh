@@ -1,11 +1,11 @@
 //! Hermetic governed-loop tests: feed a synthetic CliEvent stream through `drive`
 //! with a MemRecorder + a MockEscalator (no real CLI, no real phone).
-use phantom_mesh::cli_session::CliKind;
-use phantom_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
-use phantom_mesh::execution_contract::ApprovalDecision;
-use phantom_mesh::governed_run::escalation::MockEscalator;
-use phantom_mesh::governed_run::recorder::{MemRecorder, RunRecord};
-use phantom_mesh::governed_run::{GovernPolicy, RunOutcome, drive, drive_fold};
+use spectyn_mesh::cli_session::CliKind;
+use spectyn_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
+use spectyn_mesh::execution_contract::ApprovalDecision;
+use spectyn_mesh::governed_run::escalation::MockEscalator;
+use spectyn_mesh::governed_run::recorder::{MemRecorder, RunRecord};
+use spectyn_mesh::governed_run::{GovernPolicy, RunOutcome, drive, drive_fold};
 use serde_json::json;
 use std::sync::mpsc::{Receiver, channel};
 
@@ -221,8 +221,8 @@ fn drive_fold_surfaces_cli_error() {
 #[test]
 #[ignore = "live: runs real codex + writes an OS notification"]
 fn govern_codex_live_completes_and_records() {
-    use phantom_mesh::governed_run::RunOutcome;
-    use phantom_mesh::governed_run::run::{GovernConfig, run_govern_blocking};
+    use spectyn_mesh::governed_run::RunOutcome;
+    use spectyn_mesh::governed_run::run::{GovernConfig, run_govern_blocking};
 
     let tmp = std::env::temp_dir().join(format!("govern-live-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -242,21 +242,21 @@ fn govern_codex_live_completes_and_records() {
 
 /// Gated live: the TRUE apex-④ claude pre-action gate end-to-end. Drives a real
 /// claude under governance; claude is spawned with the PreToolUse hook
-/// (`phantom pretooluse-gate`) that pauses BEFORE each high-risk tool. With NO
+/// (`spectyn pretooluse-gate`) that pauses BEFORE each high-risk tool. With NO
 /// operator reply and a short deadline, the hook FAIL-SAFE DENIES the Bash, so
 /// `echo LIVEGATE` never runs and claude narrates the block.
 ///
-/// REQUIRES a real claude on PATH + a freshly-built phantom; point the hook at it:
-///   PHANTOM_GOVERN_HOOK_CMD='"<abs>/phantom.exe" pretooluse-gate' \
-///   PHANTOM_GOVERN_DEADLINE_SECS=8 PHANTOM_GOVERN_POLL_SECS=1 \
+/// REQUIRES a real claude on PATH + a freshly-built spectyn; point the hook at it:
+///   SPECTYN_GOVERN_HOOK_CMD='"<abs>/spectyn.exe" pretooluse-gate' \
+///   SPECTYN_GOVERN_DEADLINE_SECS=8 SPECTYN_GOVERN_POLL_SECS=1 \
 ///   cargo test --test governed_run_e2e govern_claude_pretooluse_live -- --ignored --nocapture
 #[test]
-#[ignore = "live: runs real claude + the phantom PreToolUse hook gate"]
+#[ignore = "live: runs real claude + the spectyn PreToolUse hook gate"]
 fn govern_claude_pretooluse_live_blocks_high_risk_tool() {
-    use phantom_mesh::governed_run::run::{GovernConfig, run_govern_folded_blocking};
+    use spectyn_mesh::governed_run::run::{GovernConfig, run_govern_folded_blocking};
 
-    if std::env::var("PHANTOM_GOVERN_HOOK_CMD").is_err() {
-        eprintln!("skip: set PHANTOM_GOVERN_HOOK_CMD='\"<phantom-exe>\" pretooluse-gate' first");
+    if std::env::var("SPECTYN_GOVERN_HOOK_CMD").is_err() {
+        eprintln!("skip: set SPECTYN_GOVERN_HOOK_CMD='\"<spectyn-exe>\" pretooluse-gate' first");
         return;
     }
     let tmp = std::env::temp_dir().join(format!("govern-claude-live-{}", std::process::id()));
@@ -276,7 +276,7 @@ fn govern_claude_pretooluse_live_blocks_high_risk_tool() {
     );
 
     // The signed flight transcript captured claude's attempted tool_use.
-    let transcript = phantom_mesh::cli_config::phantom_dir_under(&tmp)
+    let transcript = spectyn_mesh::cli_config::spectyn_dir_under(&tmp)
         .join("governed_runs")
         .join(format!("{run_id}.jsonl"));
     assert!(transcript.exists(), "flight transcript should exist at {transcript:?}");

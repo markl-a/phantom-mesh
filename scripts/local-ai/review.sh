@@ -29,7 +29,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ASK="${LOCAL_AI_ASK:-${HERE}/../../.claude/skills/local-ai/ask.sh}"
 MAX_ROUNDS="${REVIEW_MAX_ROUNDS:-3}"
 MAX_LINES="${REVIEW_MAX_LINES:-800}"
-STATE_DIR="${HOME}/.phantom-mesh"
+STATE_DIR="${HOME}/.spectyn-mesh"
 
 [ -x "$ASK" ] || { echo "review: local-ai ask.sh not found/executable at $ASK" >&2; exit 3; }
 

@@ -1,6 +1,6 @@
-# 自我迭代：phantom 修改自己的程式碼
+# 自我迭代：spectyn 修改自己的程式碼
 
-`phantom evolve` 是自主開發迴圈（autonomous development loop，自動運行的開發循環）。給定一個目標後，代理（agent）會
+`spectyn evolve` 是自主開發迴圈（autonomous development loop，自動運行的開發循環）。給定一個目標後，代理（agent）會
 讀取相關檔案、做出最小幅度的編輯、執行 `cargo check` /
 `cargo test` 來驗證，然後回報結果。
 
@@ -16,11 +16,11 @@
 **執行**（單一命令，約 60 秒，成本 $0）：
 
 ```bash
-phantom evolve "Fix the 'method persist is never used' warning in core/src/cost.rs ..." \
+spectyn evolve "Fix the 'method persist is never used' warning in core/src/cost.rs ..." \
   --max-rounds 4 --agent coder
 ```
 
-**phantom 實際做了什麼**（一個回合，三次工具呼叫）：
+**spectyn 實際做了什麼**（一個回合，三次工具呼叫）：
 
 ```
 ── Round 1/4 ───────────────────────────────────────
@@ -45,7 +45,7 @@ phantom evolve "Fix the 'method persist is never used' warning in core/src/cost.
 **驗證**（執行結束後手動進行）：
 
 ```bash
-cd core && cargo build --release --bin phantom 2>&1 | grep warning
+cd core && cargo build --release --bin spectyn 2>&1 | grep warning
 # → no output (0 warnings — was 1 before)
 ```
 
@@ -57,7 +57,7 @@ cd core && cargo build --release --bin phantom 2>&1 | grep warning
    給定明確的 `tools = [...]` 區塊時，兩者都能可靠地發出 OpenAI 格式的 `tool_calls`。
 2. **每個代理的工具清單是必填的。** 若沒有 `tools = [...]`，代理
    執行時（runtime）會向 LLM（大型語言模型）送出零個工具定義，模型便會幻覺（hallucinate）出
-   工具呼叫，而非真正去呼叫它們。`~/.phantom-mesh/agents.toml` 中的 `coder` 代理
+   工具呼叫，而非真正去呼叫它們。`~/.spectyn-mesh/agents.toml` 中的 `coder` 代理
    列出了約 25 個必要工具（file_*、
    content_search、glob_search、shell、git_*、cargo_check、cargo_test 等）。
 3. **`max_tokens` 從 256 提高到 4096。** 推理型（reasoning-style）模型（minimax、
@@ -71,7 +71,7 @@ cd core && cargo build --release --bin phantom 2>&1 | grep warning
 
 ## 分散式自我演化（尚未驗證）
 
-`phantom evolve --distributed` 會把目標拆分成子任務，並
+`spectyn evolve --distributed` 會把目標拆分成子任務，並
 派發給叢集（cluster）中的對等節點（peers）（node-a / node-b / laptop）。其接線
 已存在；驗證仍在驗證階梯（validation ladder）上待辦。
 

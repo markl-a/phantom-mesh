@@ -1,7 +1,7 @@
-# Phantom Mesh
+# Spectyn Mesh
 
 <p align="center">
-  <img src="site/logo.png" alt="Phantom Mesh" width="280">
+  <img src="site/logo.png" alt="Spectyn Mesh" width="280">
 </p>
 
 <p align="center">
@@ -25,16 +25,16 @@
 ## Preview 🚧
 
 <p align="center">
-  <img src="site/phantom-cli-demo.gif" alt="phantom CLI demo — version, doctor, status mesh, then the interactive REPL: /tools, two real LLM turns via a local subscription CLI (no API keys), and /cost" width="720">
+  <img src="site/spectyn-cli-demo.gif" alt="spectyn CLI demo — version, doctor, status mesh, then the interactive REPL: /tools, two real LLM turns via a local subscription CLI (no API keys), and /cost" width="720">
 </p>
 
 <p align="center">
-  <em>The <code>phantom</code> CLI, unedited: <code>doctor</code> health check → mesh status → interactive REPL —<br>
+  <em>The <code>spectyn</code> CLI, unedited: <code>doctor</code> health check → mesh status → interactive REPL —<br>
   tool listing, two real model turns driven by a locally signed-in subscription CLI (zero API keys on disk), live cost summary.</em>
 </p>
 
 <p align="center">
-  <img src="site/mobile-console-preview.png" alt="Phantom Mesh mobile console — governance flight recorder, MCP tool exposure, goal orchestration" width="360">
+  <img src="site/mobile-console-preview.png" alt="Spectyn Mesh mobile console — governance flight recorder, MCP tool exposure, goal orchestration" width="360">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 
 ## What it is
 
-Phantom Mesh is a personal AI platform you own end to end. Instead of sending your data to someone
+Spectyn Mesh is a personal AI platform you own end to end. Instead of sending your data to someone
 else's server, you run a small Rust backend on hardware you control — your desktop, or a cloud Linux
 sandbox — and drive it from a phone or a desktop app. Connect a few of your own machines (Windows /
 macOS / Linux / Android) over a private [Tailscale](https://tailscale.com) network and they become a
@@ -76,7 +76,7 @@ crypto, an HMAC-authed mesh, and a human-in-the-loop governor that makes unatten
    (approve · deny · stop, from afar)  │
                                        ▼
                           ┌──────────────────────────┐
-                          │   phantom backend (Rust)  │   ← runs on YOUR desktop
+                          │   spectyn backend (Rust)  │   ← runs on YOUR desktop
                           │                           │     or a cloud Linux sandbox
                           │  ┌─────────────────────┐  │
                           │  │  Governor + Flight-  │  │   apex differentiator:
@@ -114,7 +114,7 @@ of what is genuinely tested vs early. Nothing here is claimed beyond what the co
 
 **Solid & tested**
 - **Cross-machine dispatch brain** — rule-based task decomposition, capability-scored peer selection,
-  parallel fan-out, and deterministic result integration (`phantom dispatch`). The best-tested
+  parallel fan-out, and deterministic result integration (`spectyn dispatch`). The best-tested
   subsystem in the repo.
 - **HMAC-authed mesh RPC** — canonical sign/verify with dual-accept, Tailscale-aware routing.
 - **Client-side crypto** — age v1 encrypt/decrypt, ed25519 identity, HKDF subkey derivation, an
@@ -124,7 +124,7 @@ of what is genuinely tested vs early. Nothing here is claimed beyond what the co
 - **Life track** — local capture pipeline (text + image → vision → encrypted store), focus-session
   lifecycle, a deterministic daily-coach review with a shame-free / medical-disclaimer lint, and
   cross-platform scheduler generation (launchd / systemd / schtasks).
-- **Governed runs (L1)** — `phantom govern <claude|codex|opencode|agy>` drives an AI CLI under a
+- **Governed runs (L1)** — `spectyn govern <claude|codex|opencode|agy>` drives an AI CLI under a
   governor + flight-recorder with a real PreToolUse pre-action gate and phone escalation.
 
 **Early / partial (use with eyes open)**
@@ -148,7 +148,7 @@ Right now the only installer builds from source, so you need a Rust toolchain
 ([`rustup`](https://rustup.rs)). No admin rights required; install is per-user and idempotent.
 
 ```powershell
-# Windows (PowerShell) — builds from source, installs to %LOCALAPPDATA%\phantom-mesh\bin
+# Windows (PowerShell) — builds from source, installs to %LOCALAPPDATA%\spectyn-mesh\bin
 .\install.ps1                       # or: .\install.ps1 -Prefix C:\path\to\prefix
 ```
 
@@ -157,15 +157,15 @@ Right now the only installer builds from source, so you need a Rust toolchain
 ./install.sh                        # or: ./install.sh --prefix /path/to/prefix
 ```
 
-The installer checks for `cargo`, runs `cargo build --release --bin phantom`, copies the binary into a
+The installer checks for `cargo`, runs `cargo build --release --bin spectyn`, copies the binary into a
 per-user bin dir, creates the data dir, and prints the line to add the bin dir to your `PATH`.
 
 ### 30-second hello
 
 ```bash
-phantom serve            # start the local daemon (leave running in one terminal)
-phantom food "grilled chicken salad and rice"   # log a meal (another terminal)
-phantom coach review --date "$(date +%F)"        # get today's coach review
+spectyn serve            # start the local daemon (leave running in one terminal)
+spectyn food "grilled chicken salad and rice"   # log a meal (another terminal)
+spectyn coach review --date "$(date +%F)"        # get today's coach review
 ```
 
 > Image analysis (`--image lunch.jpg`) and the LLM "tomorrow's one action" line need a provider key;
@@ -175,7 +175,7 @@ phantom coach review --date "$(date +%F)"        # get today's coach review
 
 ```bash
 # Drive an AI CLI under the governor + flight-recorder, gated by a pre-action approval.
-phantom govern codex "summarize the open TODOs in this repo"
+spectyn govern codex "summarize the open TODOs in this repo"
 ```
 
 ## Building from source
@@ -183,7 +183,7 @@ phantom govern codex "summarize the open TODOs in this repo"
 ```bash
 # Core engine + CLI (Rust workspace)
 cd core
-cargo build --release --bin phantom         # the `phantom` CLI
+cargo build --release --bin spectyn         # the `spectyn` CLI
 cargo test  --lib                           # run the test suite
 cargo clippy --all-targets -- -D warnings   # lint
 
@@ -213,4 +213,4 @@ so others can depend on the protocol without AGPL copyleft reaching their code.
 ## Feedback
 
 If you build it and want to share how it went — good or bad — it's very welcome:
-open an [issue](https://github.com/markl-a/phantom-mesh/issues).
+open an [issue](https://github.com/markl-a/spectyn-mesh/issues).

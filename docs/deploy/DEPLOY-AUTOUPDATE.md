@@ -13,7 +13,7 @@
 ### Android
 | Secret 名稱 | 說明 | 取得方式 |
 |---|---|---|
-| `ANDROID_KEYSTORE_BASE64` | Keystore 的 base64 | `keytool -genkey ...` 後 `base64 phantom-mesh.keystore` |
+| `ANDROID_KEYSTORE_BASE64` | Keystore 的 base64 | `keytool -genkey ...` 後 `base64 spectyn-mesh.keystore` |
 | `ANDROID_KEY_ALIAS` | Key 別名 | 建立 keystore 時設定 |
 | `ANDROID_KEY_PASSWORD` | Key 密碼 | 建立 keystore 時設定 |
 | `ANDROID_STORE_PASSWORD` | Store 密碼 | 建立 keystore 時設定 |
@@ -23,13 +23,13 @@
 ```bash
 # 產生 Android keystore（只需一次）
 keytool -genkey -v \
-  -keystore phantom-mesh.keystore \
-  -alias phantom-mesh \
+  -keystore spectyn-mesh.keystore \
+  -alias spectyn-mesh \
   -keyalg RSA -keysize 2048 -validity 36500 \
-  -dname "CN=Phantom Mesh, O=Your Org, C=TW"
+  -dname "CN=Spectyn Mesh, O=Your Org, C=TW"
 
 # 轉成 base64 存入 secret
-base64 -i phantom-mesh.keystore | pbcopy  # macOS
+base64 -i spectyn-mesh.keystore | pbcopy  # macOS
 ```
 
 ### iOS
@@ -67,14 +67,14 @@ base64 -i profile.mobileprovision | pbcopy
 ```bash
 # 產生 Tauri 更新簽名 key（只需一次，在 app/ 目錄執行）
 cd app
-npm run tauri signer generate -- -w ~/.tauri/phantom-mesh.key
+npm run tauri signer generate -- -w ~/.tauri/spectyn-mesh.key
 
 # 輸出：
-# Finished generating private key at: ~/.tauri/phantom-mesh.key
+# Finished generating private key at: ~/.tauri/spectyn-mesh.key
 # Your pubkey: dW5t...（複製這個填入 tauri.conf.json 的 pubkey 欄位）
 #
 # 私鑰內容存入 TAURI_SIGNING_PRIVATE_KEY secret：
-cat ~/.tauri/phantom-mesh.key | pbcopy
+cat ~/.tauri/spectyn-mesh.key | pbcopy
 ```
 
 ---
@@ -102,13 +102,13 @@ git push origin v1.2.0
 
 ```bash
 # 在 Oracle VM 上建立 systemd 服務（只需一次）
-sudo tee /etc/systemd/system/phantom-mesh.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/spectyn-mesh.service > /dev/null << 'EOF'
 [Unit]
-Description=Phantom Mesh
+Description=Spectyn Mesh
 After=network.target
 
 [Service]
-ExecStart=/home/opc/phantom-mesh
+ExecStart=/home/opc/spectyn-mesh
 Restart=on-failure
 RestartSec=5
 User=opc
@@ -118,7 +118,7 @@ Environment="RUST_LOG=info"
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl enable phantom-mesh
+sudo systemctl enable spectyn-mesh
 
 # 開放防火牆（OCI Security List 也要開）
 sudo firewall-cmd --permanent --add-port=7878/tcp

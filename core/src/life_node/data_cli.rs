@@ -1,7 +1,7 @@
-//! `phantom data delete --all` — wipe all Life Node events.
+//! `spectyn data delete --all` — wipe all Life Node events.
 //!
-//! Scope: removes `~/.phantom-mesh/events/` and its entire subtree. Does
-//! NOT touch other phantom-mesh state (`agents.toml`, `identity.key`,
+//! Scope: removes `~/.spectyn-mesh/events/` and its entire subtree. Does
+//! NOT touch other spectyn-mesh state (`agents.toml`, `identity.key`,
 //! `sessions/`, `cluster.db`, etc.). Requires `--yes` to actually delete
 //! (defensive default — running without `--yes` returns a "would delete N
 //! events" error instead of touching disk).
@@ -16,7 +16,7 @@ pub struct DeleteSummary {
     pub bytes_deleted: u64,
 }
 
-/// Delete all Life Node events under `<home>/.phantom-mesh/events/`.
+/// Delete all Life Node events under `<home>/.spectyn-mesh/events/`.
 ///
 /// When `confirmed` is `false`, this counts what would be deleted and
 /// returns an `Err` describing the scope — nothing is touched on disk.
@@ -25,7 +25,7 @@ pub struct DeleteSummary {
 /// Returns an `Ok(DeleteSummary { event_count: 0, .. })` if the events
 /// directory doesn't exist (idempotent on a fresh install).
 pub fn run_delete_all(home: &Path, confirmed: bool) -> Result<DeleteSummary> {
-    let events_dir = crate::cli_config::phantom_dir_under(home).join("events");
+    let events_dir = crate::cli_config::spectyn_dir_under(home).join("events");
     if !events_dir.exists() {
         return Ok(DeleteSummary {
             events_dir,
@@ -75,7 +75,7 @@ pub fn run_delete_all(home: &Path, confirmed: bool) -> Result<DeleteSummary> {
 /// Resolve an event id (or an unambiguous id prefix) to the full id under
 /// `events_dir`. Errors if nothing matches, or if a short prefix is ambiguous
 /// (so a typo can never silently target the wrong event). Shared by
-/// `delete_event` and `phantom event show`.
+/// `delete_event` and `spectyn event show`.
 pub fn resolve_event_id(events_dir: &Path, id_or_prefix: &str) -> Result<String> {
     let id_or_prefix = id_or_prefix.trim();
     if id_or_prefix.is_empty() {
@@ -109,25 +109,25 @@ pub fn resolve_event_id(events_dir: &Path, id_or_prefix: &str) -> Result<String>
 }
 
 /// Delete a single Life Node event by its id (or an unambiguous id prefix) under
-/// `<home>/.phantom-mesh/events/`. Reversibility at the granular level: take back
+/// `<home>/.spectyn-mesh/events/`. Reversibility at the granular level: take back
 /// one mis-captured note without nuking the whole log. Returns the resolved full
 /// event id.
 pub fn delete_event(home: &Path, id_or_prefix: &str) -> Result<String> {
-    let events_dir = crate::cli_config::phantom_dir_under(home).join("events");
+    let events_dir = crate::cli_config::spectyn_dir_under(home).join("events");
     let id = resolve_event_id(&events_dir, id_or_prefix)?;
     std::fs::remove_dir_all(events_dir.join(&id))
         .with_context(|| format!("remove event {}", id))?;
     Ok(id)
 }
 
-// ── `phantom data export` — portability: get your life log OUT ──────────────
+// ── `spectyn data export` — portability: get your life log OUT ──────────────
 //
 // Counterpart to `delete`: the encryption-first / "your data is yours" ethos
 // means a user must be able to take their data with them. Reuses the tested
 // `recall::search_events` loader (decrypts via identity.key when present), then
 // serializes chronologically (oldest-first) to JSON or Markdown.
 
-/// Output format for `phantom data export`.
+/// Output format for `spectyn data export`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     Json,
@@ -141,15 +141,15 @@ pub struct ExportResult {
 }
 
 /// Export Life Node events matching `filter` (empty filter = everything) from
-/// `<home>/.phantom-mesh/events/`, oldest-first, as JSON or Markdown. Read-only.
+/// `<home>/.spectyn-mesh/events/`, oldest-first, as JSON or Markdown. Read-only.
 pub fn run_export(
     home: &Path,
     format: ExportFormat,
     filter: &crate::life_node::recall::RecallFilter,
 ) -> Result<ExportResult> {
-    let phantom = crate::cli_config::phantom_dir_under(home);
-    let events_dir = phantom.join("events");
-    let key = crate::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
+    let spectyn = crate::cli_config::spectyn_dir_under(home);
+    let events_dir = spectyn.join("events");
+    let key = crate::life_node::key_derivation::load_event_key(&spectyn.join("identity.key")).ok();
     // usize::MAX → no truncation; search_events returns newest-first, so reverse
     // for a chronological (oldest-first) export.
     let mut hits = crate::life_node::recall::search_events(&events_dir, key, filter, usize::MAX)
@@ -178,7 +178,7 @@ pub fn run_export(
     })
 }
 
-// ── `phantom data stats` / TUI `/stats` — life-log rollup ───────────────────
+// ── `spectyn data stats` / TUI `/stats` — life-log rollup ───────────────────
 //
 // Aggregate across the whole event store: total, by-kind breakdown, date span,
 // 7-day activity. Read-only; reuses the tested recall loader.
@@ -195,11 +195,11 @@ pub struct LifeStats {
     pub last_7d: usize,
 }
 
-/// Compute a rollup over all Life Node events under `<home>/.phantom-mesh`.
+/// Compute a rollup over all Life Node events under `<home>/.spectyn-mesh`.
 pub fn compute_stats(home: &Path) -> Result<LifeStats> {
-    let phantom = crate::cli_config::phantom_dir_under(home);
-    let events_dir = phantom.join("events");
-    let key = crate::life_node::key_derivation::load_event_key(&phantom.join("identity.key")).ok();
+    let spectyn = crate::cli_config::spectyn_dir_under(home);
+    let events_dir = spectyn.join("events");
+    let key = crate::life_node::key_derivation::load_event_key(&spectyn.join("identity.key")).ok();
     let hits = crate::life_node::recall::search_events(
         &events_dir,
         key,
@@ -253,7 +253,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn write_dummy_event(home: &Path, id: &str) {
-        let dir = home.join(".phantom-mesh").join("events").join(id);
+        let dir = home.join(".spectyn-mesh").join("events").join(id);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("meta.json"), b"x").unwrap();
         std::fs::write(dir.join("modality_0.jpeg"), [0u8; 1024]).unwrap();
@@ -265,10 +265,10 @@ mod tests {
         use crate::life_node::recall::RecallFilter;
 
         let tmp = TempDir::new().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        capture_note(&phantom, "first thing", &["note".into()]).unwrap();
-        capture_note(&phantom, "second thing", &["note".into()]).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        capture_note(&spectyn, "first thing", &["note".into()]).unwrap();
+        capture_note(&spectyn, "second thing", &["note".into()]).unwrap();
 
         // JSON export: parses, has both summaries.
         let json = run_export(tmp.path(), ExportFormat::Json, &RecallFilter::text("")).unwrap();
@@ -293,10 +293,10 @@ mod tests {
     fn compute_stats_aggregates_total_and_by_kind() {
         use crate::life_node::note_capture::capture_note;
         let tmp = TempDir::new().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        capture_note(&phantom, "a", &["note".into()]).unwrap();
-        capture_note(&phantom, "b", &["note".into()]).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        capture_note(&spectyn, "a", &["note".into()]).unwrap();
+        capture_note(&spectyn, "b", &["note".into()]).unwrap();
 
         let s = compute_stats(tmp.path()).unwrap();
         assert_eq!(s.total, 2);
@@ -310,24 +310,24 @@ mod tests {
     fn delete_event_removes_one_by_id_and_prefix() {
         use crate::life_node::note_capture::capture_note;
         let tmp = TempDir::new().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let a = capture_note(&phantom, "keep me", &["note".into()]).unwrap().event_id;
-        let b = capture_note(&phantom, "delete me", &["note".into()]).unwrap().event_id;
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let a = capture_note(&spectyn, "keep me", &["note".into()]).unwrap().event_id;
+        let b = capture_note(&spectyn, "delete me", &["note".into()]).unwrap().event_id;
 
         // delete b by an 8-char prefix → resolves to the full id, removes it
         let deleted = delete_event(tmp.path(), &b[..8]).unwrap();
         assert_eq!(deleted, b);
-        assert!(!phantom.join("events").join(&b).exists(), "b removed");
-        assert!(phantom.join("events").join(&a).exists(), "a kept");
+        assert!(!spectyn.join("events").join(&b).exists(), "b removed");
+        assert!(spectyn.join("events").join(&a).exists(), "a kept");
 
         // unknown id → error, nothing else touched
         assert!(delete_event(tmp.path(), "zzzzzzzz").is_err());
-        assert!(phantom.join("events").join(&a).exists(), "a still kept");
+        assert!(spectyn.join("events").join(&a).exists(), "a still kept");
 
         // empty id is rejected (never prefix-matches everything)
         assert!(delete_event(tmp.path(), "").is_err());
-        assert!(phantom.join("events").join(&a).exists(), "a survives empty-id guard");
+        assert!(spectyn.join("events").join(&a).exists(), "a survives empty-id guard");
     }
 
     #[test]
@@ -354,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn phantom_data_delete_all_removes_events_dir() {
+    fn spectyn_data_delete_all_removes_events_dir() {
         let tmp = TempDir::new().unwrap();
         write_dummy_event(tmp.path(), "evt-1");
         write_dummy_event(tmp.path(), "evt-2");
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(summary.event_count, 2);
         assert!(summary.bytes_deleted >= 2 * 1024);
         assert!(
-            !tmp.path().join(".phantom-mesh").join("events").exists(),
+            !tmp.path().join(".spectyn-mesh").join("events").exists(),
             "events dir must be gone after run_delete_all(confirmed=true)"
         );
     }
@@ -377,7 +377,7 @@ mod tests {
         assert!(r.is_err(), "non-confirmed run must err to force --yes");
         assert!(
             tmp.path()
-                .join(".phantom-mesh")
+                .join(".spectyn-mesh")
                 .join("events")
                 .join("evt-1")
                 .exists(),
@@ -393,42 +393,42 @@ mod tests {
     }
 
     #[test]
-    fn delete_all_does_not_touch_other_phantom_files() {
+    fn delete_all_does_not_touch_other_spectyn_files() {
         let tmp = TempDir::new().unwrap();
         // Sibling state that MUST survive a `data delete --all`.
-        let phantom_dir = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom_dir).unwrap();
-        std::fs::write(phantom_dir.join("agents.toml"), b"[core]").unwrap();
-        std::fs::write(phantom_dir.join("identity.key"), [0u8; 64]).unwrap();
-        std::fs::create_dir_all(phantom_dir.join("sessions")).unwrap();
-        std::fs::write(phantom_dir.join("sessions").join("a.json"), b"{}").unwrap();
+        let spectyn_dir = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn_dir).unwrap();
+        std::fs::write(spectyn_dir.join("agents.toml"), b"[core]").unwrap();
+        std::fs::write(spectyn_dir.join("identity.key"), [0u8; 64]).unwrap();
+        std::fs::create_dir_all(spectyn_dir.join("sessions")).unwrap();
+        std::fs::write(spectyn_dir.join("sessions").join("a.json"), b"{}").unwrap();
         write_dummy_event(tmp.path(), "evt-1");
 
         run_delete_all(tmp.path(), true).unwrap();
 
         assert!(
-            phantom_dir.join("agents.toml").exists(),
+            spectyn_dir.join("agents.toml").exists(),
             "agents.toml must survive"
         );
         assert!(
-            phantom_dir.join("identity.key").exists(),
+            spectyn_dir.join("identity.key").exists(),
             "identity.key must survive"
         );
         assert!(
-            phantom_dir.join("sessions").exists(),
+            spectyn_dir.join("sessions").exists(),
             "sessions/ must survive"
         );
         assert!(
-            phantom_dir.join("sessions").join("a.json").exists(),
+            spectyn_dir.join("sessions").join("a.json").exists(),
             "session file must survive"
         );
-        assert!(!phantom_dir.join("events").exists(), "events/ must be gone");
+        assert!(!spectyn_dir.join("events").exists(), "events/ must be gone");
     }
 
     #[test]
     fn delete_all_idempotent_on_missing_events_dir() {
         let tmp = TempDir::new().unwrap();
-        // No `.phantom-mesh/events/` at all.
+        // No `.spectyn-mesh/events/` at all.
         let s = run_delete_all(tmp.path(), true).unwrap();
         assert_eq!(s.event_count, 0);
         assert_eq!(s.bytes_deleted, 0);

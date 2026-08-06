@@ -1,9 +1,9 @@
 use std::path::Path;
 
 fn main() {
-    // ── Copy phantom-mesh binary to binaries/ for sidecar bundling ──────────
+    // ── Copy spectyn-mesh binary to binaries/ for sidecar bundling ──────────
     // Must run BEFORE tauri_build::build() which validates externalBin paths.
-    // Tauri expects: binaries/phantom-mesh-{TARGET}[.exe]
+    // Tauri expects: binaries/spectyn-mesh-{TARGET}[.exe]
     let target = std::env::var("TARGET").unwrap_or_default();
     if !target.is_empty() {
         let ext = if target.contains("windows") {
@@ -11,15 +11,15 @@ fn main() {
         } else {
             ""
         };
-        let sidecar_filename = format!("phantom-mesh-{}{}", target, ext);
+        let sidecar_filename = format!("spectyn-mesh-{}{}", target, ext);
         let binaries_dir = Path::new("binaries");
         let dest = binaries_dir.join(&sidecar_filename);
 
         if !dest.exists() {
             std::fs::create_dir_all(binaries_dir).ok();
 
-            // Search for phantom-mesh binary in well-known locations
-            let source_name = format!("phantom-mesh{}", ext);
+            // Search for spectyn-mesh binary in well-known locations
+            let source_name = format!("spectyn-mesh{}", ext);
             let candidates: Vec<std::path::PathBuf> = vec![
                 // Standard cargo target dirs
                 format!("../../core/target/release/{}", source_name).into(),
@@ -40,7 +40,7 @@ fn main() {
                     match std::fs::copy(candidate, &dest) {
                         Ok(_) => {
                             println!(
-                                "cargo:warning=Copied phantom-mesh sidecar from {:?}",
+                                "cargo:warning=Copied spectyn-mesh sidecar from {:?}",
                                 candidate
                             );
                             found = true;
@@ -60,8 +60,8 @@ fn main() {
                 // Create a minimal placeholder so tauri_build doesn't fail.
                 // Dev mode uses daemon.rs find_binary() which resolves the real binary.
                 // Production builds MUST replace this with the real binary.
-                println!("cargo:warning=phantom-mesh sidecar binary not found!");
-                println!("cargo:warning=Creating placeholder. For production: cargo build --release -p phantom-mesh");
+                println!("cargo:warning=spectyn-mesh sidecar binary not found!");
+                println!("cargo:warning=Creating placeholder. For production: cargo build --release -p spectyn-mesh");
 
                 #[cfg(target_os = "windows")]
                 {
@@ -93,7 +93,7 @@ fn main() {
 
     // ── iOS: compile native ObjC HTTP bridge into our dylib ─────────────────
     // tauri-plugin-http (reqwest) silently times out fetching Tailscale magic
-    // hostnames + private IPs on physical iOS devices. The `phantom_ios_fetch`
+    // hostnames + private IPs on physical iOS devices. The `spectyn_ios_fetch`
     // function in native/ios_fetch.m uses NSURLSession, which routes through
     // iOS's standard URL loading stack and works reliably for LAN + Tailnet.
     // Compiled here via cc so the symbol lives in the same dylib as the Rust
@@ -103,25 +103,25 @@ fn main() {
         cc::Build::new()
             .file("native/ios_fetch.m")
             .flag("-fobjc-arc")
-            .compile("phantom_ios_fetch");
+            .compile("spectyn_ios_fetch");
         println!("cargo:rerun-if-changed=native/ios_fetch.m");
         println!("cargo:rustc-link-lib=framework=Foundation");
 
-        // Native one-shot GPS via CoreLocation (phantom_ios_location).
+        // Native one-shot GPS via CoreLocation (spectyn_ios_location).
         cc::Build::new()
             .file("native/ios_location.m")
             .flag("-fobjc-arc")
-            .compile("phantom_ios_location");
+            .compile("spectyn_ios_location");
         println!("cargo:rerun-if-changed=native/ios_location.m");
         println!("cargo:rustc-link-lib=framework=CoreLocation");
 
         // Native multi-sensor one-shot via CoreMotion + UIDevice
-        // (phantom_ios_sensors): accel/gyro/attitude/magnetometer/battery +
+        // (spectyn_ios_sensors): accel/gyro/attitude/magnetometer/battery +
         // best-effort pedometer/activity. See native/ios_motion.m.
         cc::Build::new()
             .file("native/ios_motion.m")
             .flag("-fobjc-arc")
-            .compile("phantom_ios_motion");
+            .compile("spectyn_ios_motion");
         println!("cargo:rerun-if-changed=native/ios_motion.m");
         println!("cargo:rustc-link-lib=framework=CoreMotion");
         println!("cargo:rustc-link-lib=framework=UIKit");

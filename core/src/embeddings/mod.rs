@@ -1,12 +1,12 @@
 //! Semantic memory primitives — the local-first embedding layer that upgrades
-//! `phantom recall` from lexical-only (FTS5 BM25 + file-store substring) to
+//! `spectyn recall` from lexical-only (FTS5 BM25 + file-store substring) to
 //! **hybrid keyword + semantic**. This module owns the *pure* parts (trait,
 //! cosine, brute-force top-k, f32-BLOB codec); the Ollama HTTP implementation
 //! lives in [`ollama`].
 //!
 //! Design invariant (see the recall-engine design doc): the embedding vector is
 //! a **derived index** — the canonical truth is always the age-encrypted event
-//! blob. `events_emb` can be dropped + rebuilt (`phantom recall --reindex`) at
+//! blob. `events_emb` can be dropped + rebuilt (`spectyn recall --reindex`) at
 //! any time. We embed only the already-PII-scrubbed `plaintext_summary` (the
 //! same field FTS5 indexes), never the encrypted body.
 //!

@@ -16,13 +16,13 @@ APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$APP_DIR"
 export PATH="$HOME/.cargo/bin:$PATH"
 
-BIN="src-tauri/target/debug/phantom-mesh-app"
+BIN="src-tauri/target/debug/spectyn-mesh-app"
 VITE_PID=""; WD_PID=""
 cleanup() {
   [ -n "$WD_PID" ] && kill "$WD_PID" 2>/dev/null || true
   [ -n "$VITE_PID" ] && kill "$VITE_PID" 2>/dev/null || true
   # tauri-wd kills the app on session delete, but belt-and-suspenders:
-  pkill -f "target/debug/phantom-mesh-app" 2>/dev/null || true
+  pkill -f "target/debug/spectyn-mesh-app" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -30,7 +30,7 @@ note() { printf '%s\n' "$*"; }
 fail() { note "✗ FAIL: $*"; exit 1; }
 
 command -v tauri-wd >/dev/null 2>&1 || fail "tauri-wd not on PATH (cargo install tauri-webdriver-automation)"
-[ -x "$BIN" ] || fail "debug app binary missing at $BIN — build it WITH the webdriver feature: (cd src-tauri && cargo build --bin phantom-mesh-app --features e2e-webdriver)"
+[ -x "$BIN" ] || fail "debug app binary missing at $BIN — build it WITH the webdriver feature: (cd src-tauri && cargo build --bin spectyn-mesh-app --features e2e-webdriver)"
 [ -x node_modules/.bin/wdio ] || fail "wdio not installed (npm i -D webdriverio @wdio/cli @wdio/local-runner @wdio/mocha-framework)"
 note "✓ prereqs: tauri-wd, debug binary, wdio all present"
 

@@ -102,7 +102,7 @@ fn now_secs() -> u64 {
 }
 
 fn models_cache_path(home: &std::path::Path) -> std::path::PathBuf {
-    home.join(".phantom-mesh").join("codex_models_cache.json")
+    home.join(".spectyn-mesh").join("codex_models_cache.json")
 }
 
 /// Pick the best default model slug from a codex `/models`-shaped JSON body:
@@ -196,10 +196,10 @@ fn read_codex_cli_cache_model(home: &std::path::Path, exclude: Option<&str>) -> 
     pick_best_model(&v, exclude)
 }
 
-/// Resolve the default model dynamically: fresh phantom cache → live backend
+/// Resolve the default model dynamically: fresh spectyn cache → live backend
 /// fetch (cached) → the official `codex` CLI's cache → the static fallback.
 /// `exclude` skips a slug the backend just rejected; `force_refresh` bypasses
-/// the phantom cache (used by the self-heal retry).
+/// the spectyn cache (used by the self-heal retry).
 async fn resolve_default_model(
     home: Option<&std::path::Path>,
     token: &str,
@@ -321,14 +321,14 @@ pub async fn run_codex(
     system: Option<&str>,
 ) -> Result<String, ProviderError> {
     let home = crate::cli_config::resolve_home_dir().ok();
-    // Refresh-on-use: a phantom-minted "Sign in with ChatGPT" token (opt-in
+    // Refresh-on-use: a spectyn-minted "Sign in with ChatGPT" token (opt-in
     // OAuth) is refreshed here if its JWT exp is near — the official `codex` CLI
-    // refreshes its own cache, but a phantom-minted one has no other refresher.
+    // refreshes its own cache, but a spectyn-minted one has no other refresher.
     if let Some(h) = home.as_deref() {
         super::openai_oauth::ensure_fresh_if_present(h, now_secs()).await;
     }
     let auth = super::codex_cli::find_codex_auth()
-        .ok_or_else(|| err("no Codex credentials — run `codex` (Sign in with ChatGPT) once, or `phantom auth chatgpt`; expected ~/.codex/auth.json"))?;
+        .ok_or_else(|| err("no Codex credentials — run `codex` (Sign in with ChatGPT) once, or `spectyn auth chatgpt`; expected ~/.codex/auth.json"))?;
     if !auth.is_oauth {
         return Err(err(
             "~/.codex/auth.json is in API-key mode — use the `openai` provider with that key instead of codex_oauth",

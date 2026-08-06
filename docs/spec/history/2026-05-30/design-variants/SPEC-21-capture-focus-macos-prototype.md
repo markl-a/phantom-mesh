@@ -11,7 +11,7 @@
 iOS hero prototype（488 行）的互動模型建在 `UIViewController push transition` + `UIImpactFeedbackGenerator` + `AVAudioSession.recordPermission` 之上。macOS 互動模型完全不同：
 
 1. **`⌘⇧F` 全域 shortcut** — 從任意 app（含 fullscreen）觸發；註冊 `MASShortcut` / `KeyboardShortcuts` framework，shortcut 衝突的 fallback wizard 是 macOS-only 互動
-2. **NSStatusItem dropdown timing** — `NSPopover.show(relativeTo:)` 預設動畫 200ms，但 phantom 要區分 idle / recording 兩種 dropdown 內容，row sequence 不同
+2. **NSStatusItem dropdown timing** — `NSPopover.show(relativeTo:)` 預設動畫 200ms，但 spectyn 要區分 idle / recording 兩種 dropdown 內容，row sequence 不同
 3. **TCC mic prompt 不可控** — `AVCaptureDevice.requestAccess(for: .audio)` callback 來時間 OS 排程（100ms–5s 不等），sheet 的 disabled state 要會等
 4. **MPNowPlayingInfoCenter** 在 macOS 上行為 ≠ iOS — lock-screen 上 nowPlaying 顯示 + AirPods 中鍵 remote command 走相同 API，但 menu bar app 還要處理 NSStatusItem icon 同步切換
 5. **Multi-monitor sheet spawn** — `NSWindow.beginSheet(_:completionHandler:)` 要決定 parent window 在哪個 monitor，per SPEC-41 G3 spawn 規則
@@ -60,7 +60,7 @@ iOS hero prototype（488 行）的互動模型建在 `UIViewController push tran
 | 理想 | radio 三檔可選；tag input 可輸入；trust badge 顯示；[start] enabled |
 | 空白 | n/a（sheet 不該空） |
 | 極限 | custom radio 選中時 num input clamp 5–180；超過 → input shake 240ms（10pt × 3 cycles × 80ms）+ NSHapticFeedbackManager `.alignment` pattern（macOS 對等 iOS `warning`）+ inline `focus.limit.max_duration_hint`；tag input ≥ 64 char → 不再接受輸入 + caret blink 停一拍 |
-| 錯誤 | TCC 未授 → [start] disabled (`overlay-disabled-40`) + inline hint phantom-warning「需開麥克風權限 [open settings]」；麥克風硬體不存在（無 input device） → [start] disabled + `focus.err.no_mic` toast |
+| 錯誤 | TCC 未授 → [start] disabled (`overlay-disabled-40`) + inline hint spectyn-warning「需開麥克風權限 [open settings]」；麥克風硬體不存在（無 input device） → [start] disabled + `focus.err.no_mic` toast |
 | 局部 | n/a（A 螢幕無 partial 概念） |
 | 載入中 | first-time TCC prompt 等 user 回應 → [start] 替換 16pt spinner（per mockup §79）+ 整 sheet 進 `requesting` 微 state、其他控件 disabled |
 
@@ -70,7 +70,7 @@ iOS hero prototype（488 行）的互動模型建在 `UIViewController push tran
 |---|---|
 | `⌘⇧F` global shortcut | `KeyboardShortcuts.onKeyDown(for: .focusStart)` callback 觸發；20ms 內 dispatch；sheet 250ms slide-down；若已在 Recording state → ignore（per FSM Idle-only entry）+ NSStatusItem dropdown blink 一下提示 |
 | 點 NSStatusItem | NSPopover.show(relativeTo:) 200ms ease-out；箭頭尖端對 status item center；無 haptic（macOS menu bar click 慣例無觸覺反饋） |
-| Dropdown 「⏱ 開始焦點時段… ⌘⇧F」row | press 8ms 視覺回饋（bg `phantom-primary @ 24%`）→ release → popover 100ms dismiss → sheet 250ms attach；總共 ~350ms；focus 自動跳 sheet 第一 radio |
+| Dropdown 「⏱ 開始焦點時段… ⌘⇧F」row | press 8ms 視覺回饋（bg `spectyn-primary @ 24%`）→ release → popover 100ms dismiss → sheet 250ms attach；總共 ~350ms；focus 自動跳 sheet 第一 radio |
 | Dropdown 「⚙ 設定…」row | 同上 timing 但 push `MainSettingsWindow`（720×640pt）非 sheet；NSWindow `makeKeyAndOrderFront` 預設 fade-in 100ms |
 | Sheet radio `○ 25 分鐘 Pomodoro` | NSButton click → 0ms 內 selected dot 視覺切換；`@AppStorage("focus.last_duration_min")` 更新；無 haptic（macOS radio 慣例無觸覺） |
 | Sheet radio `◉ 自訂 [30] 分鐘` | 同上 + custom NSTextField 自動 focus（caret blink）；按↑↓ 鍵 stepper +/-5；超界觸發 Limit state |
@@ -95,7 +95,7 @@ iOS hero prototype（488 行）的互動模型建在 `UIViewController push tran
 ### Failure paths（macOS-specific）
 
 - **`⌘⇧F` shortcut 註冊衝突**（user 已綁此鍵給 Xcode / Raycast / etc）：first-launch wizard 偵測到 `KeyboardShortcuts.System.isReserved` 或 register fail → 跳 onboarding modal「⌘⇧F 已被 _ 占用，請重綁或繼續用 menu bar 觸發」+ NSAlert with `[Change Shortcut]` / `[Skip for now]` button（per SPEC-40 §3.1 G5 caveat）
-- **TCC denied 後再開 sheet**：[start] 永遠 disabled + hint「[打開系統設定]」inline；click hint → `NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)`；user 回 phantom 後 sheet 仍開、但需 user 重 click [start] 觸發 re-check（**TCC 授權變更不會主動 broadcast，要靠 sheet open / status item click trigger re-check**）
+- **TCC denied 後再開 sheet**：[start] 永遠 disabled + hint「[打開系統設定]」inline；click hint → `NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")!)`；user 回 spectyn 後 sheet 仍開、但需 user 重 click [start] 觸發 re-check（**TCC 授權變更不會主動 broadcast，要靠 sheet open / status item click trigger re-check**）
 - **麥克風硬體不存在**（如 Mac Studio 無內建 mic 且未接外接）：`AVCaptureDevice.default(for: .audio) == nil` → [start] disabled + toast `focus.err.no_mic`（FOCUS-002）；不 trigger TCC prompt
 - **Sheet parent window 被 close 中觸發 ⌘⇧F**：fallback 用 NSStatusItem 所在 monitor center spawn 一個 invisible utility window 當 parent（per SPEC-41 G3 multi-monitor rule）
 
@@ -111,11 +111,11 @@ iOS hero prototype（488 行）的互動模型建在 `UIViewController push tran
 
 ## 螢幕 B — TCC Microphone Prompt（OS 渲染）
 
-不可自訂版面。phantom 唯一控字串：
+不可自訂版面。spectyn 唯一控字串：
 
 ```
 Info.plist NSMicrophoneUsageDescription =
-  "Phantom Mesh 在你開始焦點時段時錄音，全程在本機 ASR 轉寫，不上傳雲端。"
+  "Spectyn Mesh 在你開始焦點時段時錄音，全程在本機 ASR 轉寫，不上傳雲端。"
 ```
 
 ### Tap targets
@@ -148,14 +148,14 @@ per mockup §107-123 卡片視覺。互動 spec：
 ### Recovery sequence（macOS-specific）
 
 1. user 點 [打開系統設定] → System Settings.app 開啟（macOS 控制 transition，~500ms）
-2. user 在 Privacy & Security → Microphone 把 phantom-mesh toggle 打開
-3. user 切回 Phantom Mesh（cmd+tab / dock click）
+2. user 在 Privacy & Security → Microphone 把 spectyn-mesh toggle 打開
+3. user 切回 Spectyn Mesh（cmd+tab / dock click）
 4. sheet 在前 → user 重按 [開始]（**sheet 不會自動偵測權限變更**，因 TCC 變更不 broadcast；我們 fallback：每次 sheet `viewDidAppear` / status item click 都 sync check `AVCaptureDevice.authorizationStatus`，若狀態變 → 更新 [start] enable）
 5. 若 user 按 [開始] 此時權限已開 → 直接走 C（不再彈 prompt）
 
 ### Failure paths
 
-- user 在 System Settings 把 toggle 打開但不切回 phantom → 我們無從得知；持續 disabled 直到 user 回來
+- user 在 System Settings 把 toggle 打開但不切回 spectyn → 我們無從得知；持續 disabled 直到 user 回來
 - user 把 toggle 開了又關（折騰中） → 每次回 sheet sync check，UI 反映最後狀態
 
 ---
@@ -188,14 +188,14 @@ per mockup §107-123 卡片視覺。互動 spec：
 | Target | 動作 / Timing |
 |---|---|
 | NSStatusItem click（recording 中） | NSPopover 200ms ease-out 展開 dropdown；dropdown 內容切 Recording 變體（per mockup §168-189）；user 工作 app 失去 key window 但 **不關閉**（per SPEC-41 G7 transient popover focus_steal=false）|
-| Dropdown `[⏹ 停止並收工]` row | label 取 `focus.btn.stop_finalize`（desktop 用長版，per mockup §181）。(1) 8ms press visual（bg `phantom-danger @ 24%`）；(2) NSHapticFeedbackManager `.levelChange` pattern（對等 iOS `heavy`）；(3) AudioRecorder.close + flush；(4) popover 100ms dismiss；(5) NSStatusItem icon 切 Finalizing 變體（旋轉 dot overlay）；(6) D toast in-app HUD 出現 |
+| Dropdown `[⏹ 停止並收工]` row | label 取 `focus.btn.stop_finalize`（desktop 用長版，per mockup §181）。(1) 8ms press visual（bg `spectyn-danger @ 24%`）；(2) NSHapticFeedbackManager `.levelChange` pattern（對等 iOS `heavy`）；(3) AudioRecorder.close + flush；(4) popover 100ms dismiss；(5) NSStatusItem icon 切 Finalizing 變體（旋轉 dot overlay）；(6) D toast in-app HUD 出現 |
 | Dropdown `[⏸ 暫停]` row | label 取 `focus.btn.pause`。(1) press visual；(2) NSHapticFeedbackManager `.alignment`；(3) AVAudioSession 設 inactive；(4) NSStatusItem icon 切 `mic.slash` paused 變體；(5) dropdown row 文字 [⏸ 暫停] 變 [▶ 繼續]（label `focus.btn.resume`）；(6) 計時器停 + waveform 凍結（per mockup §142 paused icon spec） |
 | Dropdown `[▶ 繼續]` row | 反向：session 重啟、waveform 重跑、計時繼續、icon 切回 `mic.fill` 紅點、row 變回 [⏸ 暫停]；haptic `.alignment` |
 | Dropdown 計時器 / waveform 區（純資訊） | 不可 click；tap 無動作 |
 | Dropdown chunk count `📁 已落地 chunk: {n}` | tap 無動作（純資訊）；99 → 100 切顯 `99+` 不刷新動畫（per mockup §300 min-width 鎖死） |
 | Dropdown 外 click | popover 100ms ease-out dismiss；user app 重 key window |
 | Esc 鍵（dropdown 開時） | 同 dropdown 外 click |
-| NSStatusItem right-click | 不支援（macOS 慣例 status item 左鍵 = popover，右鍵 = context menu 但 phantom v0.6 不做） |
+| NSStatusItem right-click | 不支援（macOS 慣例 status item 左鍵 = popover，右鍵 = context menu 但 spectyn v0.6 不做） |
 
 ### Lock-screen / AirPods remote command（macOS-specific）
 
@@ -232,10 +232,10 @@ center.stopCommand.addTarget { _ in handleStop(); return .success }
 
 ### Failure paths（macOS-specific）
 
-- **mic 被 Zoom/FaceTime 搶**：`AVCaptureSession.runtimeErrorNotification` + `AVAudioSession` 等效 callback → 進 Interrupted sub-state；30s 寬限 per wireframe FSM；超時 finalize + `interrupted=true` 標記；**Notification Center banner 必發**（user 不在 phantom dropdown 開啟狀態時，per mockup §232）
+- **mic 被 Zoom/FaceTime 搶**：`AVCaptureSession.runtimeErrorNotification` + `AVAudioSession` 等效 callback → 進 Interrupted sub-state；30s 寬限 per wireframe FSM；超時 finalize + `interrupted=true` 標記；**Notification Center banner 必發**（user 不在 spectyn dropdown 開啟狀態時，per mockup §232）
 - **lid close（外接顯示器以外的情境）**：macOS 觸發 sleep → `NSWorkspace.willSleepNotification` 觸發；如果 user 在 settings 開了「Recording 中防止電腦休眠」toggle → 走 `IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep)`（per wireframe §212）保住；否則進 Interrupted → 30s 寬限超時 finalize
 - **藍牙耳機切換**：AirPods 從 iPhone 切到 Mac → mic source 變 → `AVAudioEngine` 拋 routeChange notification → 我們重啟 audio session（200ms 內），通常 user 無感；若失敗 → Interrupted + banner
-- **NSStatusItem 被 Bartender / Hidden Bar 隱藏 ≥ 60s** → 每 60s 輪詢 `statusItem.button?.window?.isVisible`；偵測到隱藏 → 發 `MACOS_HIDDEN_BAR_DETECTED` 系統通知（per SPEC-41 §11），banner 文字「Phantom Mesh 正在錄音但 menu bar icon 被隱藏 — 請打開 Bartender 設定讓 phantom-mesh 一直顯示」+ deep-link [打開設定]
+- **NSStatusItem 被 Bartender / Hidden Bar 隱藏 ≥ 60s** → 每 60s 輪詢 `statusItem.button?.window?.isVisible`；偵測到隱藏 → 發 `MACOS_HIDDEN_BAR_DETECTED` 系統通知（per SPEC-41 §11），banner 文字「Spectyn Mesh 正在錄音但 menu bar icon 被隱藏 — 請打開 Bartender 設定讓 spectyn-mesh 一直顯示」+ deep-link [打開設定]
 - **macOS Sequoia 15+ Stage Manager 內**：NSPopover 仍 attach status item OK；user 切 Stage Manager group 時 popover 自動 dismiss（被 OS 收掉），重新點 status item 即可再開
 - **存空間滿**（chunk encrypt 寫失敗）：toast `focus.err.disk_full` + 切 Finalizing（保留已落地 chunk）
 
@@ -259,7 +259,7 @@ center.stopCommand.addTarget { _ in handleStop(); return .success }
 - **系統 sleep（lid close / Energy Saver / Cmd+Ctrl+Q）**：`NSWorkspace.willSleepNotification`
 - **藍牙耳機切換**：`AVAudioEngine` routeChange notification（重試失敗時才進 Interrupted）
 
-### Banner 互動（OS 渲染，phantom 設 UNNotificationContent）
+### Banner 互動（OS 渲染，spectyn 設 UNNotificationContent）
 
 per mockup §234-247 content spec。互動：
 
@@ -311,7 +311,7 @@ per mockup §213-230。互動：
 |---|---|
 | Done banner click（整 banner） | (1) `UNNotificationDefaultActionIdentifier` handler；(2) `NSApp.activate(ignoringOtherApps: true)` ~100ms 切前景；(3) F Takeaway NSWindow 開啟（`makeKeyAndOrderFront`），spawn 在 NSStatusItem 所在 monitor center（per SPEC-41 G3 + §8 state machine `follow_menu_bar_icon`）；(4) F window 進場 fade-in 100ms；(5) NSStatusItem icon 切回 idle `mic` mono |
 | Done banner [dismiss] | 留在 Notification Center history（≤ 5 條 throttle）；user 後續從 history click 也走相同 handler |
-| F Window 不開 banner（user 在 phantom 主 window active 時） | per hero invariant L350 desktop interrupted 才強制 banner；Done 只在主 window 非 active 時發 banner，main window active → 直接 F window switch tab focus 動 + in-app micro toast「takeaway 已完成」 |
+| F Window 不開 banner（user 在 spectyn 主 window active 時） | per hero invariant L350 desktop interrupted 才強制 banner；Done 只在主 window 非 active 時發 banner，main window active → 直接 F window switch tab focus 動 + in-app micro toast「takeaway 已完成」 |
 
 ### F window — Takeaway tap targets
 
@@ -377,7 +377,7 @@ per SPEC-41 G3 + wireframe §183-192：
 per SPEC-41 §12.2 + mockup §85-91 / §131-134 / §200-205 / §274-278。
 
 - **Sheet open**：VO focus 自動跳 sheet title「開始焦點時段對話框」→ Tab/VO+→ duration radio group → tag input → trust badge → [取消] → [開始]
-- **Dropdown open**（Idle）：VO focus 跳「Phantom Mesh 焦點選單」→ 「開始焦點時段… ⌘⇧F」→ 「設定…」→ 「關於 Phantom Mesh」
+- **Dropdown open**（Idle）：VO focus 跳「Spectyn Mesh 焦點選單」→ 「開始焦點時段… ⌘⇧F」→ 「設定…」→ 「關於 Spectyn Mesh」
 - **Dropdown open**（Recording）：VO focus 跳「焦點時段中，已錄 _ 分 _ 秒」→ 「停止並收工焦點時段」→ 「暫停焦點時段」
 - **F window open**：VO focus 跳 sidebar「最近 10 個焦點時段，列表」→ Tab/VO+→ main card「焦點時段成果摘要」→「看完整稿」→「新 session」
 
@@ -392,9 +392,9 @@ per SPEC-41 §12.2 + mockup §85-91 / §131-134 / §200-205 / §274-278。
 
 ### App 進背景 / 回前景（macOS-specific）
 
-- Recording → 背景（user cmd+tab 切 Safari）：phantom 仍跑、NSStatusItem 仍紅點、recording continues；無 UI change（per macOS multi-app 慣例）
-- Finalizing → 背景：whisper.cpp 本機跑、不需 background task；user 切回 phantom 主 window 可見 D toast；切走時 Done banner 接管通知
-- F window 關閉但 phantom app 還跑：NSStatusItem 仍 idle 顯示；user 重 click → dropdown「上次 takeaway」row 可重開 F window
+- Recording → 背景（user cmd+tab 切 Safari）：spectyn 仍跑、NSStatusItem 仍紅點、recording continues；無 UI change（per macOS multi-app 慣例）
+- Finalizing → 背景：whisper.cpp 本機跑、不需 background task；user 切回 spectyn 主 window 可見 D toast；切走時 Done banner 接管通知
+- F window 關閉但 spectyn app 還跑：NSStatusItem 仍 idle 顯示；user 重 click → dropdown「上次 takeaway」row 可重開 F window
 
 ---
 
@@ -403,14 +403,14 @@ per SPEC-41 §12.2 + mockup §85-91 / §131-134 / §200-205 / §274-278。
 ### Empty state（F window sidebar 首次 0 session）
 
 - 文案取 `focus.empty.history`（「還沒有 focus session — 開始第一段就會顯示在這」）
-- sidebar 中央 SVG illustration 96pt phantom-muted + 文字 + `[+ 新焦點時段]` button（取 `focus.empty.go_to_focus` 的 macOS 變體 — 直接觸發 ⌘⇧F 等效 sheet open）
+- sidebar 中央 SVG illustration 96pt spectyn-muted + 文字 + `[+ 新焦點時段]` button（取 `focus.empty.go_to_focus` 的 macOS 變體 — 直接觸發 ⌘⇧F 等效 sheet open）
 - haptic 無
 
 ### Maximum state（custom duration 超 180）
 
 - user 在 sheet custom radio input 輸入 200 → input blur 時 clamp 回 180 + shake animation（10pt × 3 cycles × 80ms 共 240ms）
 - NSHapticFeedbackManager `.alignment` pattern（對等 iOS `warning`）
-- inline hint phantom-warning「最長 180 分鐘」(`focus.limit.max_duration_hint`)
+- inline hint spectyn-warning「最長 180 分鐘」(`focus.limit.max_duration_hint`)
 - 下限 5 min 同（clamp + shake + hint）
 
 ### Error state（global error toast / alert）
@@ -453,7 +453,7 @@ per SPEC-41 §12.2 + mockup §85-91 / §131-134 / §200-205 / §274-278。
 2. **Recording 中 IOPMAssertion keep-awake 是否預設 on**：目前預設 off（避免電池焦慮），user 在 settings opt-in；若 usability test 30%+ user 抱怨 lid close 中斷錄音 → 考慮預設 on（per wireframe §212）
 3. **NSStatusItem Paused 用 `mic.slash` 還是 `mic.fill` + amber 點**：共用 mockup §313 開放 Q1；prototype 階段測 user 識別率（recording vs paused vs idle 三態）
 4. **Finalizing icon 旋轉 dot 動畫尺寸**：1.5pt 在 Retina display 上是否看得到？device 測（共用 mockup §316 開放 Q2）
-5. **Stage Manager 內 NSStatusItem 行為**：popover dismiss 是 OS 控制、phantom 無權；若 user 在 Stage Manager 頻繁切 group 導致 dropdown 被收 → 加 fallback「打開 main window 查看 session 狀態」hint？傾向不加（避免 over-engineering）
+5. **Stage Manager 內 NSStatusItem 行為**：popover dismiss 是 OS 控制、spectyn 無權；若 user 在 Stage Manager 頻繁切 group 導致 dropdown 被收 → 加 fallback「打開 main window 查看 session 狀態」hint？傾向不加（避免 over-engineering）
 6. **AirPods 中鍵 single tap vs double tap mapping**：目前單按 = `pauseCommand`（macOS 預設）；雙按 / 三按是否要綁 stop / skip-chunk？v0.6 不做（不搶 iOS Music app 預設）
 7. **VoiceOver 在 dropdown popover 自動 dismiss 後 focus 還哪**：iOS `UIAccessibility.post(.screenChanged, argument: nil)` 對等；macOS `NSAccessibility.post(element: app, notification: .focusedUIElementChanged)` 但 popover 收掉後 focus 還 user 前一個 app — 此跨 app focus 還原是否 work 需測
 

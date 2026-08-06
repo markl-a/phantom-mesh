@@ -1,29 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SPEC-33 §10.1 — night variant. phantom is dark-first, so the night theme
+<!-- SPEC-33 §10.1 — night variant. spectyn is dark-first, so the night theme
      matches the base palette exactly; this entry exists so the DayNight parent
-     resolves a phantom-styled theme in dark mode rather than the M3 default. -->
+     resolves a spectyn-styled theme in dark mode rather than the M3 default. -->
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.phantom_mesh_app" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/phantom_primary</item>
-        <item name="colorOnPrimary">@color/phantom_bg</item>
-        <item name="colorPrimaryContainer">@color/phantom_card</item>
-        <item name="colorOnPrimaryContainer">@color/phantom_primary</item>
-        <item name="colorSecondary">@color/phantom_secondary</item>
-        <item name="colorOnSecondary">@color/phantom_bg</item>
+    <style name="Theme.spectyn_mesh_app" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/spectyn_primary</item>
+        <item name="colorOnPrimary">@color/spectyn_bg</item>
+        <item name="colorPrimaryContainer">@color/spectyn_card</item>
+        <item name="colorOnPrimaryContainer">@color/spectyn_primary</item>
+        <item name="colorSecondary">@color/spectyn_secondary</item>
+        <item name="colorOnSecondary">@color/spectyn_bg</item>
 
-        <item name="android:colorBackground">@color/phantom_bg</item>
-        <item name="colorOnBackground">@color/phantom_text</item>
-        <item name="colorSurface">@color/phantom_card</item>
-        <item name="colorOnSurface">@color/phantom_text</item>
-        <item name="colorSurfaceVariant">@color/phantom_border</item>
-        <item name="colorOnSurfaceVariant">@color/phantom_muted</item>
-        <item name="colorOutline">@color/phantom_border</item>
-        <item name="colorError">@color/phantom_danger</item>
-        <item name="colorOnError">@color/phantom_text</item>
+        <item name="android:colorBackground">@color/spectyn_bg</item>
+        <item name="colorOnBackground">@color/spectyn_text</item>
+        <item name="colorSurface">@color/spectyn_card</item>
+        <item name="colorOnSurface">@color/spectyn_text</item>
+        <item name="colorSurfaceVariant">@color/spectyn_border</item>
+        <item name="colorOnSurfaceVariant">@color/spectyn_muted</item>
+        <item name="colorOutline">@color/spectyn_border</item>
+        <item name="colorError">@color/spectyn_danger</item>
+        <item name="colorOnError">@color/spectyn_text</item>
 
-        <item name="android:windowBackground">@color/phantom_bg</item>
-        <item name="android:statusBarColor">@color/phantom_bg</item>
-        <item name="android:navigationBarColor">@color/phantom_bg</item>
+        <item name="android:windowBackground">@color/spectyn_bg</item>
+        <item name="android:statusBarColor">@color/spectyn_bg</item>
+        <item name="android:navigationBarColor">@color/spectyn_bg</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
     </style>

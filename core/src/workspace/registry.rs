@@ -14,11 +14,11 @@ pub struct WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
-    /// Open (or create) the SQLite registry at `~/.phantom-mesh/phantom.db`.
+    /// Open (or create) the SQLite registry at `~/.spectyn-mesh/spectyn.db`.
     pub fn open_default() -> Result<Self> {
-        let dir = crate::cli_config::phantom_data_dir()?;
+        let dir = crate::cli_config::spectyn_data_dir()?;
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-        let db_path = dir.join("phantom.db");
+        let db_path = dir.join("spectyn.db");
         Self::open_at(db_path)
     }
 

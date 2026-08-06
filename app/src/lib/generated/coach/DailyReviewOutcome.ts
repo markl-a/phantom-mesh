@@ -5,7 +5,7 @@ import type { ReviewStatus } from "./ReviewStatus";
  * Aggregated outcome of a single daily-review run. Mirrors SPEC-23 §7.1
  * `CoachDailyReview` + `ReviewOutcome` collapsed into the wire-facing shape
  * the UI + CLI actually consume. Returned by both the Tauri `coach_run_now`
- * command and the `phantom coach review` CLI.
+ * command and the `spectyn coach review` CLI.
  *
  * 中文: 一次 daily review 跑完的結果。對應 SPEC-23 §7.1 的
  * `CoachDailyReview` 與 `ReviewOutcome`，但合併成 UI / CLI 真正吃的扁平

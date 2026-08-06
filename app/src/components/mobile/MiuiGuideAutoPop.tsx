@@ -3,7 +3,7 @@ import MiuiGuideDialog from "./MiuiGuideDialog";
 import { checkShouldShowMiuiGuide } from "../../lib/miuiGuide";
 
 // SPEC-34 G6 / J5 — proactively surface the MIUI (小米系統) background-kill guide
-// on MIUI / Redmi devices, where phantom's foreground node service gets reaped
+// on MIUI / Redmi devices, where spectyn's foreground node service gets reaped
 // overnight. Self-gates on the native should_show (is_miui && !dont_show_again),
 // so it NEVER pops on non-MIUI devices / desktop / web, nor after the user ticked
 // 不再提示. Rendered once by MobileShell, mirroring the NotifLockCard self-gating

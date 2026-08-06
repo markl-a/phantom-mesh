@@ -2,14 +2,14 @@
 //!
 //! Two surfaces:
 //!
-//!   `phantom keys ...`        — manage `~/.phantom-mesh/env` (the file phantom
+//!   `spectyn keys ...`        — manage `~/.spectyn-mesh/env` (the file spectyn
 //!                               auto-loads at startup) so the user never has
 //!                               to touch PowerShell `[Environment]::SetEnvironmentVariable`
 //!                               or shell rcfile exports by hand.
 //!
-//!   `phantom providers ...`   — view configured providers and edit
+//!   `spectyn providers ...`   — view configured providers and edit
 //!                               `[agent.<name>].providers = [...]` priority
-//!                               in `~/.phantom-mesh/agents.toml`.
+//!                               in `~/.spectyn-mesh/agents.toml`.
 //!
 //! Both subcommands are read-write to user-owned files only — no service
 //! restart, no network. Edits use `toml_edit` to preserve comments and
@@ -25,25 +25,25 @@ use crate::config::AgentsConfig;
 // ── Paths ────────────────────────────────────────────────────────────────
 
 /// Cross-platform home-directory resolver for the dev-session surfaces
-/// (`phantom inbox` / `phantom status`) that hand a `home` base to modules
-/// which then append `.phantom-mesh/...` (see `crate::inbox::inbox_dir` and
+/// (`spectyn inbox` / `spectyn status`) that hand a `home` base to modules
+/// which then append `.spectyn-mesh/...` (see `crate::inbox::inbox_dir` and
 /// `crate::session_status`). Bare `dirs::home_dir()` returns `None` on Windows
 /// when `%HOME%` is unset (it is by default), which broke these two surfaces —
-/// the Windows $HOME gap. Mirror the fallback the rest of phantom uses: prefer
+/// the Windows $HOME gap. Mirror the fallback the rest of spectyn uses: prefer
 /// `$HOME`, then the Windows `%USERPROFILE%`, then `dirs::home_dir()`.
 ///
-/// `pub` (not `pub(crate)`) so the `phantom` binary's `doctor` can resolve the
-/// same home the rest of phantom uses — a bare `dirs::home_dir()` there returns
+/// `pub` (not `pub(crate)`) so the `spectyn` binary's `doctor` can resolve the
+/// same home the rest of spectyn uses — a bare `dirs::home_dir()` there returns
 /// `None` on Windows when `%HOME%` is unset, making `doctor` read `./` and
 /// falsely report "no identity / no config".
 pub fn resolve_home_dir() -> anyhow::Result<PathBuf> {
     // Pure OS-home resolver: `$HOME` → `%USERPROFILE%` → `dirs::home_dir()`.
-    // PHANTOM_HOME is NOT consulted here — it is the DATA-ROOT override (the
-    // `.phantom-mesh` dir itself, per DOCUMENTATION-CHARTER P0-3 / SPEC-44 /
-    // the playbooks) and is applied in `phantom_data_dir()`. Code that needs the
-    // phantom data root must call `phantom_data_dir()`, NOT
-    // `resolve_home_dir()?.join(".phantom-mesh")`, or it will miss a
-    // PHANTOM_HOME override.
+    // SPECTYN_HOME is NOT consulted here — it is the DATA-ROOT override (the
+    // `.spectyn-mesh` dir itself, per DOCUMENTATION-CHARTER P0-3 / SPEC-44 /
+    // the playbooks) and is applied in `spectyn_data_dir()`. Code that needs the
+    // spectyn data root must call `spectyn_data_dir()`, NOT
+    // `resolve_home_dir()?.join(".spectyn-mesh")`, or it will miss a
+    // SPECTYN_HOME override.
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
@@ -56,64 +56,64 @@ pub fn resolve_home_dir() -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("could not resolve home directory ($HOME / %USERPROFILE%)"))
 }
 
-/// Canonical phantom **data-root** resolver (I6 / SPEC-46): the directory that
+/// Canonical spectyn **data-root** resolver (I6 / SPEC-46): the directory that
 /// holds `events/`, `keys/`, `agents.toml`, `identity.key`, etc. — i.e. the
-/// `~/.phantom-mesh` root.
+/// `~/.spectyn-mesh` root.
 ///
 /// DATA-ROOT semantics (DOCUMENTATION-CHARTER P0-3 / SPEC-44 / the integration +
-/// manual playbooks all use `${PHANTOM_HOME:-$HOME/.phantom-mesh}`):
-///   1. `PHANTOM_HOME` — the data root, used VERBATIM (it *is* the
-///      `.phantom-mesh` equivalent; nothing is appended). e.g. SPEC-44's
-///      `PHANTOM_HOME=%h/.phantom-mesh`, tests' `$(mktemp -d)/.phantom-mesh`.
-///   2. otherwise `resolve_home_dir()/.phantom-mesh`.
+/// manual playbooks all use `${SPECTYN_HOME:-$HOME/.spectyn-mesh}`):
+///   1. `SPECTYN_HOME` — the data root, used VERBATIM (it *is* the
+///      `.spectyn-mesh` equivalent; nothing is appended). e.g. SPEC-44's
+///      `SPECTYN_HOME=%h/.spectyn-mesh`, tests' `$(mktemp -d)/.spectyn-mesh`.
+///   2. otherwise `resolve_home_dir()/.spectyn-mesh`.
 ///
 /// This is the single source of truth the ad-hoc
-/// `dirs::home_dir().join(".phantom-mesh")` call sites migrate onto (#322). Bare
-/// `dirs::home_dir()` ignores `$HOME`/`PHANTOM_HOME` on Windows; routing through
+/// `dirs::home_dir().join(".spectyn-mesh")` call sites migrate onto (#322). Bare
+/// `dirs::home_dir()` ignores `$HOME`/`SPECTYN_HOME` on Windows; routing through
 /// here fixes both. Code that hands a base to a callee which then appends
-/// `.phantom-mesh` must pass THIS (the data root), not `resolve_home_dir()`, so
-/// the callee honors a `PHANTOM_HOME` override.
-pub fn phantom_data_dir() -> anyhow::Result<PathBuf> {
-    if let Some(root) = std::env::var_os("PHANTOM_HOME")
+/// `.spectyn-mesh` must pass THIS (the data root), not `resolve_home_dir()`, so
+/// the callee honors a `SPECTYN_HOME` override.
+pub fn spectyn_data_dir() -> anyhow::Result<PathBuf> {
+    if let Some(root) = std::env::var_os("SPECTYN_HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
     {
         return Ok(root);
     }
-    Ok(resolve_home_dir()?.join(".phantom-mesh"))
+    Ok(resolve_home_dir()?.join(".spectyn-mesh"))
 }
 
-/// Resolve the phantom data root given an EXPLICIT home base.
+/// Resolve the spectyn data root given an EXPLICIT home base.
 ///
 /// The "base-injection" surfaces (`data_cli`, `focus_session`, `inbox`,
 /// `session_status`, daily-review/recall/goals/capture helpers) take a
 /// caller-supplied `home` so hermetic tests can point them at a tempdir. Those
-/// callees historically did `home.join(".phantom-mesh")` directly, which MISSED
-/// a `PHANTOM_HOME` data-root override (the caller resolves `home` without
-/// consulting it). Route them through here instead: a non-empty `PHANTOM_HOME`
-/// wins (verbatim data root — so `PHANTOM_HOME`-only test isolation and SPEC-44
-/// service installs work), otherwise `home/.phantom-mesh` (so an explicitly
-/// injected tempdir home stays honored). Equivalent to `phantom_data_dir()`
+/// callees historically did `home.join(".spectyn-mesh")` directly, which MISSED
+/// a `SPECTYN_HOME` data-root override (the caller resolves `home` without
+/// consulting it). Route them through here instead: a non-empty `SPECTYN_HOME`
+/// wins (verbatim data root — so `SPECTYN_HOME`-only test isolation and SPEC-44
+/// service installs work), otherwise `home/.spectyn-mesh` (so an explicitly
+/// injected tempdir home stays honored). Equivalent to `spectyn_data_dir()`
 /// whenever `home == resolve_home_dir()`.
-pub fn phantom_dir_under(home: &Path) -> PathBuf {
-    if let Some(root) = std::env::var_os("PHANTOM_HOME")
+pub fn spectyn_dir_under(home: &Path) -> PathBuf {
+    if let Some(root) = std::env::var_os("SPECTYN_HOME")
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())
     {
         return root;
     }
-    home.join(".phantom-mesh")
+    home.join(".spectyn-mesh")
 }
 
-/// Stdio targets for a detached `phantom serve` spawned from an interactive
+/// Stdio targets for a detached `spectyn serve` spawned from an interactive
 /// surface (the first-run wizard / onboarding FSM). The daemon's startup +
-/// tracing output is sent to `~/.phantom-mesh/serve.log` (append) instead of
+/// tracing output is sent to `~/.spectyn-mesh/serve.log` (append) instead of
 /// inheriting the terminal, where it would bleed into the wizard's own prompts.
 /// Best-effort: if the log file can't be opened, the streams are discarded
 /// (`Stdio::null`) rather than inherited — never let serve noise reach the TTY.
 pub fn serve_log_stdio() -> (std::process::Stdio, std::process::Stdio) {
     if let Ok(home) = resolve_home_dir() {
-        let dir = home.join(".phantom-mesh");
+        let dir = home.join(".spectyn-mesh");
         let _ = fs::create_dir_all(&dir);
         if let Ok(log) = fs::OpenOptions::new()
             .create(true)
@@ -131,27 +131,27 @@ pub fn serve_log_stdio() -> (std::process::Stdio, std::process::Stdio) {
     (std::process::Stdio::null(), std::process::Stdio::null())
 }
 
-/// `~/.phantom-mesh/env` — line-oriented `KEY=value` file phantom auto-loads
+/// `~/.spectyn-mesh/env` — line-oriented `KEY=value` file spectyn auto-loads
 /// at process start. Sourced by shell idiom `set -a; source <file>; set +a`
 /// for parity with operator runbooks.
 pub fn env_file_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("env"))
+    spectyn_data_dir().ok().map(|d| d.join("env"))
 }
 
-/// `~/.phantom-mesh/agents.toml` — primary phantom config.
+/// `~/.spectyn-mesh/agents.toml` — primary spectyn config.
 pub fn agents_toml_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("agents.toml"))
+    spectyn_data_dir().ok().map(|d| d.join("agents.toml"))
 }
 
-/// `~/.phantom-mesh/runtime-override` — single-line file containing the
-/// effective provider:model override for ALL phantom processes (TUI,
+/// `~/.spectyn-mesh/runtime-override` — single-line file containing the
+/// effective provider:model override for ALL spectyn processes (TUI,
 /// serve daemon, repl, mcp). Set by `/model X:Y` in the TUI; read by
 /// every dispatch path in agent.rs and streaming.rs at call time.
 ///
-/// Without this file the override is per-process via PHANTOM_RUNTIME_OVERRIDE
-/// env var, which doesn't reach a separately-spawned `phantom serve`.
+/// Without this file the override is per-process via SPECTYN_RUNTIME_OVERRIDE
+/// env var, which doesn't reach a separately-spawned `spectyn serve`.
 pub fn runtime_override_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("runtime-override"))
+    spectyn_data_dir().ok().map(|d| d.join("runtime-override"))
 }
 
 /// Read the cluster-wide override file. None when missing or empty.
@@ -187,7 +187,7 @@ pub fn write_runtime_override(value: Option<&str>) -> std::io::Result<()> {
 
 // ── Env file (KEY=value lines) ───────────────────────────────────────────
 
-/// Parse `~/.phantom-mesh/env` into a name→value map, ignoring blanks and
+/// Parse `~/.spectyn-mesh/env` into a name→value map, ignoring blanks and
 /// `#`-comment lines. Quoted values keep their inner content; unquoted are
 /// taken verbatim (no shell-style expansion). Resilient to malformed lines:
 /// lines without `=` are skipped silently.
@@ -222,10 +222,10 @@ pub fn write_env_file(path: &Path, vars: &HashMap<String, String>) -> std::io::R
     let mut keys: Vec<&String> = vars.keys().collect();
     keys.sort();
     let mut f = fs::File::create(path)?;
-    writeln!(f, "# phantom-mesh env file — auto-loaded at process start.")?;
+    writeln!(f, "# spectyn-mesh env file — auto-loaded at process start.")?;
     writeln!(
         f,
-        "# Edit via `phantom keys set/remove`, or hand-edit (KEY=value lines)."
+        "# Edit via `spectyn keys set/remove`, or hand-edit (KEY=value lines)."
     )?;
     writeln!(f)?;
     for k in keys {
@@ -247,10 +247,10 @@ pub fn write_env_file(path: &Path, vars: &HashMap<String, String>) -> std::io::R
     Ok(())
 }
 
-/// Source `~/.phantom-mesh/env` into the current process's environment.
+/// Source `~/.spectyn-mesh/env` into the current process's environment.
 /// Idempotent: callable multiple times. Existing env vars are NOT overwritten
 /// — explicit shell-set vars always win. Returns the count of new vars set.
-/// Called from `phantom`'s `main()` before any subcommand dispatch.
+/// Called from `spectyn`'s `main()` before any subcommand dispatch.
 pub fn auto_load_env() -> usize {
     let Some(path) = env_file_path() else {
         return 0;
@@ -291,16 +291,16 @@ pub fn provider_env_var_name(provider: &str) -> String {
     }
 }
 
-// ── `phantom debug` subcommand ───────────────────────────────────────────
+// ── `spectyn debug` subcommand ───────────────────────────────────────────
 //
-// One-command diagnostic bundle. The user runs `phantom debug` after any
+// One-command diagnostic bundle. The user runs `spectyn debug` after any
 // failure on any machine, pastes the output into chat or a bug report,
 // and the responder has everything needed to root-cause without a 20-
-// message back-and-forth asking for `phantom doctor` then `phantom keys
+// message back-and-forth asking for `spectyn doctor` then `spectyn keys
 // list` then `cat agents.toml` etc.
 //
 // Output sections (in order):
-//   1. Header   — phantom version, OS, build hash, current time
+//   1. Header   — spectyn version, OS, build hash, current time
 //   2. doctor   — env + service + provider sanity check (existing)
 //   3. keys     — masked LLM API key inventory (existing, masked already)
 //   4. providers — agents.toml [providers.*] + per-agent priority lists
@@ -308,9 +308,9 @@ pub fn provider_env_var_name(provider: &str) -> String {
 //   6. events  — last 30 lines of events.jsonl, ISO-formatted
 //   7. crashes — most recent crash file (if any) head 100 lines
 //
-// Pipe to clipboard:    phantom debug | Set-Clipboard
-// Save to file:         phantom debug > debug.txt
-// Email me directly:    phantom debug | iwr ... (future, --upload flag)
+// Pipe to clipboard:    spectyn debug | Set-Clipboard
+// Save to file:         spectyn debug > debug.txt
+// Email me directly:    spectyn debug | iwr ... (future, --upload flag)
 
 pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
     let mut tail_events: usize = 30;
@@ -322,24 +322,24 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
                 tail_events = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(30);
             }
             "--help" | "-h" => {
-                eprintln!("phantom debug — collect everything needed to root-cause an error");
+                eprintln!("spectyn debug — collect everything needed to root-cause an error");
                 eprintln!();
-                eprintln!("  phantom debug                  default bundle (last 30 events)");
-                eprintln!("  phantom debug --tail 200       include more event history");
+                eprintln!("  spectyn debug                  default bundle (last 30 events)");
+                eprintln!("  spectyn debug --tail 200       include more event history");
                 eprintln!();
-                eprintln!("Pipe to clipboard:  phantom debug | Set-Clipboard");
-                eprintln!("Save to file:       phantom debug > debug.txt");
+                eprintln!("Pipe to clipboard:  spectyn debug | Set-Clipboard");
+                eprintln!("Save to file:       spectyn debug > debug.txt");
                 eprintln!();
                 eprintln!("Output is auto-redacted: api_key= and cluster_secret= values");
                 eprintln!("are replaced with [REDACTED]. Safe to paste into chat / issues.");
                 return Ok(());
             }
-            other => anyhow::bail!("unknown flag {} for `phantom debug`", other),
+            other => anyhow::bail!("unknown flag {} for `spectyn debug`", other),
         }
         i += 1;
     }
 
-    println!("=== phantom debug bundle ===");
+    println!("=== spectyn debug bundle ===");
     println!(
         "generated: {}",
         iso_ms(
@@ -353,7 +353,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
 
     // 1. version + OS
     println!("## version + os");
-    println!("  phantom: {}", env!("CARGO_PKG_VERSION"));
+    println!("  spectyn: {}", env!("CARGO_PKG_VERSION"));
     println!(
         "  os:      {} {}",
         std::env::consts::OS,
@@ -362,7 +362,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
     println!();
 
     // 2. keys (masked already by mask_key)
-    println!("## keys (~/.phantom-mesh/env, masked)");
+    println!("## keys (~/.spectyn-mesh/env, masked)");
     match keys_list_lines() {
         Ok(lines) => {
             for l in lines {
@@ -374,7 +374,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
     println!();
 
     // 3. providers
-    println!("## providers (~/.phantom-mesh/agents.toml [providers.*])");
+    println!("## providers (~/.spectyn-mesh/agents.toml [providers.*])");
     match providers_list_lines() {
         Ok(lines) => {
             for l in lines {
@@ -405,7 +405,7 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
     println!();
 
     // 5. broker config (also redacted)
-    println!("## broker config (~/.phantom-mesh/broker.json)");
+    println!("## broker config (~/.spectyn-mesh/broker.json)");
     if let Some(cfg) = read_broker_config() {
         println!("  url:   {}", cfg.url);
         println!(
@@ -414,13 +414,13 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
             cfg.token.len()
         );
     } else {
-        println!("  (none — never ran `phantom config pull` / `phantom login`)");
+        println!("  (none — never ran `spectyn config pull` / `spectyn login`)");
     }
     println!();
 
     // 6. events tail
     println!(
-        "## last {} events (~/.phantom-mesh/events.jsonl)",
+        "## last {} events (~/.spectyn-mesh/events.jsonl)",
         tail_events
     );
     if let Some(path) = events_log_path() {
@@ -450,8 +450,8 @@ pub async fn run_debug(args: &[String]) -> anyhow::Result<()> {
     println!();
 
     // 7. most recent crash
-    println!("## most recent crash (~/.phantom-mesh/crashes/, head 100 lines)");
-    if let Some(crashes_dir) = phantom_data_dir().ok().map(|d| d.join("crashes")) {
+    println!("## most recent crash (~/.spectyn-mesh/crashes/, head 100 lines)");
+    if let Some(crashes_dir) = spectyn_data_dir().ok().map(|d| d.join("crashes")) {
         let recent = fs::read_dir(&crashes_dir).ok().and_then(|rd| {
             let mut entries: Vec<(std::time::SystemTime, std::path::PathBuf)> = rd
                 .filter_map(|e| e.ok())
@@ -517,23 +517,23 @@ fn redact_secrets(s: &str) -> String {
         .join("\n")
 }
 
-// ── `phantom logs` subcommand ────────────────────────────────────────────
+// ── `spectyn logs` subcommand ────────────────────────────────────────────
 //
 // Surface:
-//   phantom logs                       — last 50 events
-//   phantom logs --tail N              — last N events
-//   phantom logs --since 5m            — events from the last 5 minutes
+//   spectyn logs                       — last 50 events
+//   spectyn logs --tail N              — last N events
+//   spectyn logs --since 5m            — events from the last 5 minutes
 //                                        (units: s|m|h|d, e.g. 30s 2m 1h 1d)
-//   phantom logs --kind error          — filter by event kind substring
-//   phantom logs --raw                 — emit raw JSON lines (no formatting)
+//   spectyn logs --kind error          — filter by event kind substring
+//   spectyn logs --raw                 — emit raw JSON lines (no formatting)
 //
-// Source: ~/.phantom-mesh/events.jsonl. One JSON object per line:
+// Source: ~/.spectyn-mesh/events.jsonl. One JSON object per line:
 //   { "ts_ms": 1777..., "kind": "...", "summary": "..." }
 // crashes/ panic dumps and the cluster.db / costs.db SQLite stores are
-// not in this view (they have their own tooling — `phantom doctor`, etc.).
+// not in this view (they have their own tooling — `spectyn doctor`, etc.).
 
 pub fn events_log_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("events.jsonl"))
+    spectyn_data_dir().ok().map(|d| d.join("events.jsonl"))
 }
 
 pub fn run_logs(args: &[String]) -> anyhow::Result<()> {
@@ -572,8 +572,8 @@ pub fn run_logs(args: &[String]) -> anyhow::Result<()> {
                 return Ok(());
             }
             other => anyhow::bail!("{}", crate::i18n::tr_owned(
-                format!("unknown flag {} for `phantom logs` (try `phantom logs help`)", other),
-                format!("未知的旗標 {}（用 `phantom logs help` 查看用法）", other),
+                format!("unknown flag {} for `spectyn logs` (try `spectyn logs help`)", other),
+                format!("未知的旗標 {}（用 `spectyn logs help` 查看用法）", other),
             )),
         }
         i += 1;
@@ -670,19 +670,19 @@ pub fn run_logs(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn logs_help() {
-    eprintln!("phantom logs — tail serve/system telemetry from ~/.phantom-mesh/events.jsonl");
+    eprintln!("spectyn logs — tail serve/system telemetry from ~/.spectyn-mesh/events.jsonl");
     eprintln!("  (the daemon's operational log — NOT your Life-Track life-log; for captured");
-    eprintln!("   events use `phantom recall` / `review` / `event show`.)");
+    eprintln!("   events use `spectyn recall` / `review` / `event show`.)");
     eprintln!();
-    eprintln!("  phantom logs                  last 50 events");
-    eprintln!("  phantom logs --tail 200       last 200");
-    eprintln!("  phantom logs --since 5m       events from last 5 min (s|m|h|d)");
-    eprintln!("  phantom logs --kind error     only kinds containing 'error'");
-    eprintln!("  phantom logs --raw            emit JSON lines (machine-readable)");
+    eprintln!("  spectyn logs                  last 50 events");
+    eprintln!("  spectyn logs --tail 200       last 200");
+    eprintln!("  spectyn logs --since 5m       events from last 5 min (s|m|h|d)");
+    eprintln!("  spectyn logs --kind error     only kinds containing 'error'");
+    eprintln!("  spectyn logs --raw            emit JSON lines (machine-readable)");
     eprintln!();
     eprintln!("Useful when something fails on a remote box — paste the output");
     eprintln!("into chat / a bug report. Crash dumps live separately in");
-    eprintln!("~/.phantom-mesh/crashes/ — see `phantom doctor` for that.");
+    eprintln!("~/.spectyn-mesh/crashes/ — see `spectyn doctor` for that.");
 }
 
 /// "5m" → 300_000 ms, "30s" → 30_000, "2h" → 7_200_000, "1d" → 86_400_000.
@@ -746,22 +746,22 @@ fn days_to_ymd(days: i64) -> (i32, u32, u32) {
     (y, m, d)
 }
 
-// ── `phantom dispatch` subcommand ────────────────────────────────────────
+// ── `spectyn dispatch` subcommand ────────────────────────────────────────
 //
 // Capability-based RPC dispatcher. Beats hand-typing
-//   phantom rpc assign --target http://192.0.2.12:7878 --agent master "..."
+//   spectyn rpc assign --target http://192.0.2.12:7878 --agent master "..."
 // by looking up peers from peers.json + filtering on capability tags.
 //
 // Surface:
-//   phantom dispatch "task"                  → any peer (round-robin pick)
-//   phantom dispatch --tag rust "build"      → peers with "rust" capability
-//   phantom dispatch --tag rust --tag gpu .. → peers with rust AND gpu
-//   phantom dispatch --to host-a "..."       → specific peer by name
-//   phantom dispatch --agent coder "..."     → run as that agent on remote
-//   phantom dispatch --async ...             → don't wait, print job_id
+//   spectyn dispatch "task"                  → any peer (round-robin pick)
+//   spectyn dispatch --tag rust "build"      → peers with "rust" capability
+//   spectyn dispatch --tag rust --tag gpu .. → peers with rust AND gpu
+//   spectyn dispatch --to host-a "..."       → specific peer by name
+//   spectyn dispatch --agent coder "..."     → run as that agent on remote
+//   spectyn dispatch --async ...             → don't wait, print job_id
 //
 // Auth: HMAC-SHA256 over body with cluster_secret from local agents.toml
-// (same as `phantom rpc assign` already does internally — we reuse the
+// (same as `spectyn rpc assign` already does internally — we reuse the
 // signing logic).
 
 /// Build SPEC-26 orchestrator `PeerCapabilities` from the cached `peers.json`
@@ -790,23 +790,23 @@ fn cluster_peers_to_capabilities(
 }
 
 /// SPEC-26 Stage 5 (G6/G9): persist a tri-role dispatch result to the encrypted
-/// event log under `<base>/.phantom-mesh/events/` (kind `"dispatch"`), so the
-/// run shows up in `phantom coach review` / the event history with its
+/// event log under `<base>/.spectyn-mesh/events/` (kind `"dispatch"`), so the
+/// run shows up in `spectyn coach review` / the event history with its
 /// succeeded/failed/latency tally. Age-encrypted when an `identity.key` exists
 /// (same policy as the focus/food capture paths); plaintext fallback otherwise.
 /// Returns the new event id. `base` is the home dir (a temp dir in tests).
 fn persist_dispatch_event(
-    phantom: &std::path::Path,
+    spectyn: &std::path::Path,
     result: &crate::cluster_dispatch_wire::IntegratedResult,
 ) -> std::io::Result<String> {
     use crate::life_node::key_derivation::event_key_for_write;
     use crate::life_node::multimodal::Modality;
     use crate::life_node::storage::EventStore;
-    // `phantom` is the `.phantom-mesh` data root (W6/#322: callers pass
-    // phantom_data_dir(), which already honors PHANTOM_HOME / $HOME).
-    let events_dir = phantom.join("events");
+    // `spectyn` is the `.spectyn-mesh` data root (W6/#322: callers pass
+    // spectyn_data_dir(), which already honors SPECTYN_HOME / $HOME).
+    let events_dir = spectyn.join("events");
     // Shared no-silent-downgrade policy (D24): present-but-corrupt key → refuse.
-    let store = match event_key_for_write(&phantom.join("identity.key")).map_err(|e| {
+    let store = match event_key_for_write(&spectyn.join("identity.key")).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::Other,
             format!("identity.key present but unloadable — refusing to write a plaintext dispatch event: {e}"),
@@ -820,15 +820,15 @@ fn persist_dispatch_event(
         "dispatch — {} ok, {} failed, {}ms, {}\n\n{}",
         result.succeeded, result.failed, result.total_latency_ms, cost_str, result.markdown
     );
-    let source_node = std::env::var("PHANTOM_NODE")
+    let source_node = std::env::var("SPECTYN_NODE")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "local".to_string());
     let meta = store.write_event("dispatch", &[Modality::Text(body)], &[], &source_node)?;
-    // Also write analysis.json with a one-line outcome summary. `phantom recall`
+    // Also write analysis.json with a one-line outcome summary. `spectyn recall`
     // skips any event without an analysis.json (recall.rs file-walk), so without
     // this a dispatch event exists on disk but never surfaces in search — the
     // summary is the searchable, human-facing text that makes a dispatch
-    // observable via `phantom recall --kind dispatch`.
+    // observable via `spectyn recall --kind dispatch`.
     let summary = format!(
         "dispatch — {} ok, {} failed, {}ms, {}",
         result.succeeded, result.failed, result.total_latency_ms, cost_str
@@ -846,7 +846,7 @@ fn persist_dispatch_event(
     // Best-effort (cross-review catch, 2026-06-08): the event meta is ALREADY on
     // disk by this point. A failed analysis-summary write must NOT report the whole
     // dispatch-persist as failed — it just means this event won't surface in
-    // `phantom recall` (the prior behaviour), not that the dispatch was lost.
+    // `spectyn recall` (the prior behaviour), not that the dispatch was lost.
     if let Err(e) = store.write_analysis(&meta.event_id, &analysis) {
         tracing::warn!(
             event_id = %meta.event_id,
@@ -896,39 +896,39 @@ pub async fn run_dispatch(args: &[String]) -> anyhow::Result<()> {
                 tri = true;
             }
             "--help" | "-h" => {
-                eprintln!("phantom dispatch — capability-routed cross-node RPC");
+                eprintln!("spectyn dispatch — capability-routed cross-node RPC");
                 eprintln!();
-                eprintln!("  phantom dispatch \"task description\"        any peer");
-                eprintln!("  phantom dispatch --tag rust \"cargo build\"  peers with 'rust' cap");
-                eprintln!("  phantom dispatch --tag rust --tag gpu ..    intersect of all tags");
-                eprintln!("  phantom dispatch --to host-a \"...\"          specific peer by name");
-                eprintln!("  phantom dispatch --all \"cargo test\"         broadcast: every peer in parallel");
-                eprintln!("  phantom dispatch --agent coder \"...\"        agent on remote (default master)");
+                eprintln!("  spectyn dispatch \"task description\"        any peer");
+                eprintln!("  spectyn dispatch --tag rust \"cargo build\"  peers with 'rust' cap");
+                eprintln!("  spectyn dispatch --tag rust --tag gpu ..    intersect of all tags");
+                eprintln!("  spectyn dispatch --to host-a \"...\"          specific peer by name");
+                eprintln!("  spectyn dispatch --all \"cargo test\"         broadcast: every peer in parallel");
+                eprintln!("  spectyn dispatch --agent coder \"...\"        agent on remote (default master)");
                 eprintln!(
-                    "  phantom dispatch --async \"...\"              return job_id, don't wait"
+                    "  spectyn dispatch --async \"...\"              return job_id, don't wait"
                 );
                 eprintln!(
-                    "  phantom dispatch --tri \"...\"                SPEC-26 tri-role: split into"
+                    "  spectyn dispatch --tri \"...\"                SPEC-26 tri-role: split into"
                 );
                 eprintln!(
                     "                                              coder+researcher, run in parallel, integrate"
                 );
                 eprintln!();
-                eprintln!("Peers + capabilities come from ~/.phantom-mesh/peers.json");
-                eprintln!("(populated by `phantom config pull`). Edit caps via");
+                eprintln!("Peers + capabilities come from ~/.spectyn-mesh/peers.json");
+                eprintln!("(populated by `spectyn config pull`). Edit caps via");
                 eprintln!("https://phantommesh.io/account → Cluster peers.");
                 return Ok(());
             }
             other if !other.starts_with("--") => {
                 prompt_parts.push(other.to_string());
             }
-            other => anyhow::bail!("unknown flag {} for `phantom dispatch`", other),
+            other => anyhow::bail!("unknown flag {} for `spectyn dispatch`", other),
         }
         i += 1;
     }
     let prompt = prompt_parts.join(" ");
     if prompt.trim().is_empty() {
-        anyhow::bail!("no prompt — usage: phantom dispatch [--tag X] [--to Y] [--all] [--tri] [--agent Z] \"task description\"");
+        anyhow::bail!("no prompt — usage: spectyn dispatch [--tag X] [--to Y] [--all] [--tri] [--agent Z] \"task description\"");
     }
 
     // SPEC-26 tri-role orchestrator path: decompose the prompt into
@@ -946,7 +946,7 @@ pub async fn run_dispatch(args: &[String]) -> anyhow::Result<()> {
         println!("{}", result.markdown);
         // Persist to the encrypted event log (audit / coach review). Best-effort:
         // a storage hiccup must not fail the dispatch the user already saw.
-        if let Ok(data) = phantom_data_dir() {
+        if let Ok(data) = spectyn_data_dir() {
             match persist_dispatch_event(&data, &result) {
                 Ok(id) => eprintln!("(saved to event log: {})", id),
                 Err(e) => eprintln!("(warning: dispatch not saved to event log: {})", e),
@@ -981,7 +981,7 @@ pub async fn run_dispatch(args: &[String]) -> anyhow::Result<()> {
             .filter(|p| Some(p.name.as_str()) != me.as_deref())
             .collect();
         if peers.is_empty() {
-            anyhow::bail!("no peers found in peers.json — run `phantom config pull` first");
+            anyhow::bail!("no peers found in peers.json — run `spectyn config pull` first");
         }
         eprintln!(
             "◆ fanout → {} peer(s): {}",
@@ -1053,9 +1053,9 @@ pub async fn dispatch_lines(
         // placeholders for `cluster join`, not real peers. Warn so a dispatch that
         // then times out isn't a mystery.
         eprintln!(
-            "⚠ no ~/.phantom-mesh/peers.json — using placeholder topology \
+            "⚠ no ~/.spectyn-mesh/peers.json — using placeholder topology \
              (192.0.2.x are unreachable doc-range IPs; --tag can't match). \
-             Run `phantom config pull` to load real peers."
+             Run `spectyn config pull` to load real peers."
         );
         // Fallback to hardcoded topology if vault peers haven't been
         // synced yet. Each entry has empty capabilities, so --tag
@@ -1074,7 +1074,7 @@ pub async fn dispatch_lines(
     let target = if let Some(name) = target_name {
         peers.into_iter().find(|p| p.name == name).ok_or_else(|| {
             anyhow::anyhow!(
-                "no peer named '{}' in peers.json — try `phantom cluster sync` first",
+                "no peer named '{}' in peers.json — try `spectyn cluster sync` first",
                 name
             )
         })?
@@ -1089,7 +1089,7 @@ pub async fn dispatch_lines(
             .collect();
         if candidates.is_empty() {
             if tags.is_empty() {
-                anyhow::bail!("no peers in peers.json — run `phantom config pull` or `phantom cluster join <name>`");
+                anyhow::bail!("no peers in peers.json — run `spectyn config pull` or `spectyn cluster join <name>`");
             } else {
                 anyhow::bail!(
                     "no peers match tags {:?} — check capabilities at https://phantommesh.io/account",
@@ -1124,7 +1124,7 @@ pub async fn dispatch_lines(
     let secret = cfg.cluster.cluster_secret.clone()
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| anyhow::anyhow!(
-            "cluster_secret missing in [cluster] block of {} — run `phantom cluster join <name>` first",
+            "cluster_secret missing in [cluster] block of {} — run `spectyn cluster join <name>` first",
             cfg_path.display()
         ))?;
 
@@ -1164,7 +1164,7 @@ pub async fn dispatch_lines(
 
     if async_mode {
         out.push(format!(
-            "  (async mode — poll later: phantom dispatch-status {} --to {})",
+            "  (async mode — poll later: spectyn dispatch-status {} --to {})",
             job_id, target.name
         ));
         return Ok(out);
@@ -1182,7 +1182,7 @@ pub async fn dispatch_lines(
     let mut last_status = String::new();
     loop {
         if started.elapsed() > std::time::Duration::from_secs(60) {
-            out.push(format!("⚠ timeout after 60s. last status: {}. Continue polling: phantom dispatch-status {}",
+            out.push(format!("⚠ timeout after 60s. last status: {}. Continue polling: spectyn dispatch-status {}",
                 last_status, job_id));
             break;
         }
@@ -1213,9 +1213,9 @@ pub async fn dispatch_lines(
                 // Persist a durable, recallable record of this dispatch. Covers
                 // the everyday plain/--to/--all paths (--all delegates here per
                 // peer), not just --tri — so every dispatch is observable via
-                // `phantom recall --kind dispatch`. Best-effort: a failed write
+                // `spectyn recall --kind dispatch`. Best-effort: a failed write
                 // must not fail a dispatch that already succeeded.
-                if let Ok(data) = phantom_data_dir() {
+                if let Ok(data) = spectyn_data_dir() {
                     let result = crate::cluster_dispatch_wire::IntegratedResult {
                         markdown: format!(
                             "dispatch to {} ({})\nagent: {}\nprompt: {}\n\noutput:\n{}",
@@ -1257,11 +1257,11 @@ pub async fn dispatch_lines(
     Ok(out)
 }
 
-/// `phantom inbox` — node mailbox for cross-machine dev-session coordination.
+/// `spectyn inbox` — node mailbox for cross-machine dev-session coordination.
 ///
 /// `send` POSTs a small message to a peer's `/rpc/inbox` (HMAC, same legacy
-/// body-signing arm as `phantom dispatch`); the receiving serve daemon drops
-/// it under `~/.phantom-mesh/inbox/`. `list`/`ack` operate on THIS node's
+/// body-signing arm as `spectyn dispatch`); the receiving serve daemon drops
+/// it under `~/.spectyn-mesh/inbox/`. `list`/`ack` operate on THIS node's
 /// inbox files — the dev session reads its directives on each loop tick and
 /// acks what it has handled. Messages are coordination traffic (≤16 KB);
 /// anything bigger travels as a git branch/commit ref inside the text.
@@ -1288,7 +1288,7 @@ pub async fn run_inbox(args: &[String]) -> anyhow::Result<()> {
                 }
                 eprintln!();
                 eprintln!(
-                    "{} message(s) — `phantom inbox list --json` for full text, `phantom inbox ack <id>` when handled",
+                    "{} message(s) — `spectyn inbox list --json` for full text, `spectyn inbox ack <id>` when handled",
                     msgs.len()
                 );
             }
@@ -1304,26 +1304,26 @@ pub async fn run_inbox(args: &[String]) -> anyhow::Result<()> {
             let id = args
                 .get(3)
                 .filter(|s| !s.starts_with("--"))
-                .ok_or_else(|| anyhow::anyhow!("usage: phantom inbox ack <id> | --all"))?;
+                .ok_or_else(|| anyhow::anyhow!("usage: spectyn inbox ack <id> | --all"))?;
             crate::inbox::ack_message(&home, id)?;
             eprintln!("✓ acked {}", id);
             Ok(())
         }
         "help" | "--help" | "-h" => {
-            eprintln!("phantom inbox — node mailbox for dev-session coordination");
+            eprintln!("spectyn inbox — node mailbox for dev-session coordination");
             eprintln!();
-            eprintln!("  phantom inbox send <node> \"<text>\"     deliver to one peer's inbox");
-            eprintln!("  phantom inbox send all \"<text>\"        broadcast to every peer (skips self)");
-            eprintln!("  phantom inbox send <node> --topic backlog \"<text>\"   tag with a topic");
-            eprintln!("  phantom inbox list [--json]            pending messages on THIS node");
-            eprintln!("  phantom inbox ack <id> | --all         mark handled (moves to inbox/done/)");
+            eprintln!("  spectyn inbox send <node> \"<text>\"     deliver to one peer's inbox");
+            eprintln!("  spectyn inbox send all \"<text>\"        broadcast to every peer (skips self)");
+            eprintln!("  spectyn inbox send <node> --topic backlog \"<text>\"   tag with a topic");
+            eprintln!("  spectyn inbox list [--json]            pending messages on THIS node");
+            eprintln!("  spectyn inbox ack <id> | --all         mark handled (moves to inbox/done/)");
             eprintln!();
-            eprintln!("Peers come from ~/.phantom-mesh/peers.json; auth = cluster_secret HMAC");
-            eprintln!("(same as `phantom dispatch`). Text cap 16 KB — send git refs, not diffs.");
+            eprintln!("Peers come from ~/.spectyn-mesh/peers.json; auth = cluster_secret HMAC");
+            eprintln!("(same as `spectyn dispatch`). Text cap 16 KB — send git refs, not diffs.");
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom inbox` subcommand: {} — try `phantom inbox help`",
+            "unknown `spectyn inbox` subcommand: {} — try `spectyn inbox help`",
             other
         ),
     }
@@ -1342,22 +1342,22 @@ async fn run_inbox_send(args: &[String]) -> anyhow::Result<()> {
                 }
             }
             other if !other.starts_with("--") => positional.push(other.to_string()),
-            other => anyhow::bail!("unknown flag {} for `phantom inbox send`", other),
+            other => anyhow::bail!("unknown flag {} for `spectyn inbox send`", other),
         }
         i += 1;
     }
     if positional.len() < 2 {
-        anyhow::bail!("usage: phantom inbox send <node|all> [--topic t] \"<text>\"");
+        anyhow::bail!("usage: spectyn inbox send <node|all> [--topic t] \"<text>\"");
     }
     let target = positional.remove(0);
     let text = positional.join(" ");
 
     let me = resolve_self_node_name().unwrap_or_else(|| "unknown".to_string());
     let peers = read_peers_json().ok_or_else(|| {
-        anyhow::anyhow!("no ~/.phantom-mesh/peers.json — run `phantom config pull` or `phantom cluster join <name>` first")
+        anyhow::anyhow!("no ~/.spectyn-mesh/peers.json — run `spectyn config pull` or `spectyn cluster join <name>` first")
     })?;
 
-    // Same secret source as `phantom dispatch` (agents.toml [cluster]).
+    // Same secret source as `spectyn dispatch` (agents.toml [cluster]).
     let cfg_path = agents_toml_path().ok_or_else(|| anyhow::anyhow!("no $HOME"))?;
     let raw = fs::read_to_string(&cfg_path)
         .map_err(|e| anyhow::anyhow!("read {}: {}", cfg_path.display(), e))?;
@@ -1370,7 +1370,7 @@ async fn run_inbox_send(args: &[String]) -> anyhow::Result<()> {
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "cluster_secret missing in [cluster] block of {} — run `phantom cluster join <name>` first",
+                "cluster_secret missing in [cluster] block of {} — run `spectyn cluster join <name>` first",
                 cfg_path.display()
             )
         })?;
@@ -1386,7 +1386,7 @@ async fn run_inbox_send(args: &[String]) -> anyhow::Result<()> {
             .find(|p| p.name == target)
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "no peer named '{}' in peers.json — try `phantom cluster sync` first",
+                    "no peer named '{}' in peers.json — try `spectyn cluster sync` first",
                     target
                 )
             })?;
@@ -1447,7 +1447,7 @@ async fn run_inbox_send(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `phantom status` — dev-session heartbeat surface (S2).
+/// `spectyn status` — dev-session heartbeat surface (S2).
 ///
 /// `set` is what the routine calls each tick; `show` reads the local file;
 /// `mesh` rolls up every node's heartbeat over the tailnet (GET
@@ -1481,13 +1481,13 @@ pub async fn run_status(args: &[String]) -> anyhow::Result<()> {
                         verdict = args.get(i).cloned();
                     }
                     other if !other.starts_with("--") => detail_parts.push(other.to_string()),
-                    other => anyhow::bail!("unknown flag {} for `phantom status set`", other),
+                    other => anyhow::bail!("unknown flag {} for `spectyn status set`", other),
                 }
                 i += 1;
             }
             let state = state.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "usage: phantom status set --state <working|idle|blocked> [--task t] [--branch b] [--verdict v] [detail...]"
+                    "usage: spectyn status set --state <working|idle|blocked> [--task t] [--branch b] [--verdict v] [detail...]"
                 )
             })?;
             let detail = if detail_parts.is_empty() {
@@ -1520,7 +1520,7 @@ pub async fn run_status(args: &[String]) -> anyhow::Result<()> {
                         println!("{}", format_status_line(&s.node, Some(&s)));
                     }
                 }
-                None => eprintln!("no session status on this node yet — `phantom status set --state ...`"),
+                None => eprintln!("no session status on this node yet — `spectyn status set --state ...`"),
             }
             Ok(())
         }
@@ -1529,21 +1529,21 @@ pub async fn run_status(args: &[String]) -> anyhow::Result<()> {
             run_status_mesh(json).await
         }
         "help" | "--help" | "-h" => {
-            eprintln!("phantom status — dev-session heartbeat");
+            eprintln!("spectyn status — dev-session heartbeat");
             eprintln!();
-            eprintln!("  phantom status set --state working --task \"S2\" --branch step3 [--verdict v] [detail]");
-            eprintln!("  phantom status show [--json]      this node's heartbeat");
-            eprintln!("  phantom status mesh [--json]      every node's heartbeat (tailnet roll-up)");
+            eprintln!("  spectyn status set --state working --task \"S2\" --branch step3 [--verdict v] [detail]");
+            eprintln!("  spectyn status show [--json]      this node's heartbeat");
+            eprintln!("  spectyn status mesh [--json]      every node's heartbeat (tailnet roll-up)");
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom status` subcommand: {} — try `phantom status help`",
+            "unknown `spectyn status` subcommand: {} — try `spectyn status help`",
             other
         ),
     }
 }
 
-/// `phantom nodes <subcommand>` — read-only view of known mesh nodes.
+/// `spectyn nodes <subcommand>` — read-only view of known mesh nodes.
 ///
 /// LOCAL/known-peers view only: composes this node's `[cluster]` config +
 /// runtime platform/capability detector + the broker-pulled `peers.json`
@@ -1551,9 +1551,9 @@ pub async fn run_status(args: &[String]) -> anyhow::Result<()> {
 /// heartbeat) — that lives in a separate lane.
 ///
 /// Subcommands:
-///   phantom nodes inspect <node> [--json]   one node's full manifest
-///   phantom nodes caps [--json]             this node's caps + each peer's
-///   phantom nodes list [--json]             every known node, one per line
+///   spectyn nodes inspect <node> [--json]   one node's full manifest
+///   spectyn nodes caps [--json]             this node's caps + each peer's
+///   spectyn nodes list [--json]             every known node, one per line
 pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
     use crate::node_manifest::{all_known_nodes, resolve_node, NodeManifest};
 
@@ -1570,7 +1570,7 @@ pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
                 .cloned();
             let Some(target) = target else {
                 anyhow::bail!(
-                    "usage: phantom nodes inspect <node> [--json]  (try `phantom nodes list`)"
+                    "usage: spectyn nodes inspect <node> [--json]  (try `spectyn nodes list`)"
                 );
             };
             match resolve_node(&target) {
@@ -1586,7 +1586,7 @@ pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
                 None => {
                     // Clean error + nonzero exit for an unknown node.
                     anyhow::bail!(
-                        "unknown node '{}' — not the local node and not in peers.json (try `phantom nodes list`)",
+                        "unknown node '{}' — not the local node and not in peers.json (try `spectyn nodes list`)",
                         target
                     )
                 }
@@ -1641,11 +1641,11 @@ pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
         "help" | "--help" | "-h" => {
             // Keep `NodeManifest` referenced so doc consumers see the type.
             let _ = NodeManifest::binary_version();
-            eprintln!("phantom nodes — read-only view of known mesh nodes (local + peers.json)");
+            eprintln!("spectyn nodes — read-only view of known mesh nodes (local + peers.json)");
             eprintln!();
-            eprintln!("  phantom nodes inspect <node> [--json]   one node's full manifest");
-            eprintln!("  phantom nodes caps [--json]             this node + each peer's caps");
-            eprintln!("  phantom nodes list [--json]             every known node");
+            eprintln!("  spectyn nodes inspect <node> [--json]   one node's full manifest");
+            eprintln!("  spectyn nodes caps [--json]             this node + each peer's caps");
+            eprintln!("  spectyn nodes list [--json]             every known node");
             eprintln!();
             eprintln!("  <node> resolves case-insensitively: 'local' or this node's name");
             eprintln!("  -> the local manifest; otherwise a peer name/label from peers.json.");
@@ -1653,7 +1653,7 @@ pub async fn run_nodes(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom nodes` subcommand: {} — try `phantom nodes help`",
+            "unknown `spectyn nodes` subcommand: {} — try `spectyn nodes help`",
             other
         ),
     }
@@ -1793,9 +1793,9 @@ async fn run_status_mesh(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `phantom git ...` — cluster git operations.
+/// `spectyn git ...` — cluster git operations.
 ///
-/// Today: only `phantom git sync [--all|--to <name>] [--cwd <path>]
+/// Today: only `spectyn git sync [--all|--to <name>] [--cwd <path>]
 /// [--branch <name>]` — fan-out git pull across peers, report each
 /// peer's resulting HEAD commit. Skips self by default.
 ///
@@ -1808,24 +1808,24 @@ pub async fn run_git(args: &[String]) -> anyhow::Result<()> {
     match sub {
         "sync" => run_git_sync(args).await,
         "help" | "--help" | "-h" => {
-            eprintln!("phantom git — cluster git operations");
+            eprintln!("spectyn git — cluster git operations");
             eprintln!();
             eprintln!(
-                "  phantom git sync --all              git pull on every peer's pinned project"
+                "  spectyn git sync --all              git pull on every peer's pinned project"
             );
-            eprintln!("  phantom git sync --to host-a        git pull on one peer");
-            eprintln!("  phantom git sync --all --branch X   checkout branch X then pull");
-            eprintln!("  phantom git sync --all --cwd D:/path   override the cwd on each peer");
+            eprintln!("  spectyn git sync --to host-a        git pull on one peer");
+            eprintln!("  spectyn git sync --all --branch X   checkout branch X then pull");
+            eprintln!("  spectyn git sync --all --cwd D:/path   override the cwd on each peer");
             eprintln!();
             eprintln!("Each peer runs `git pull` (and optional `git checkout`) in its own");
             eprintln!(
-                "[workspace].default_dir from agents.toml (set via `phantom workspace set`)."
+                "[workspace].default_dir from agents.toml (set via `spectyn workspace set`)."
             );
             eprintln!("Use --cwd to override that for this run.");
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom git` subcommand: {} — try `phantom git help`",
+            "unknown `spectyn git` subcommand: {} — try `spectyn git help`",
             other
         ),
     }
@@ -1854,12 +1854,12 @@ async fn run_git_sync(args: &[String]) -> anyhow::Result<()> {
                 i += 1;
                 cwd = args.get(i).cloned();
             }
-            other => anyhow::bail!("unknown flag {} for `phantom git sync`", other),
+            other => anyhow::bail!("unknown flag {} for `spectyn git sync`", other),
         }
         i += 1;
     }
     if !all && to.is_none() {
-        anyhow::bail!("usage: phantom git sync (--all | --to <name>) [--branch X] [--cwd P]");
+        anyhow::bail!("usage: spectyn git sync (--all | --to <name>) [--branch X] [--cwd P]");
     }
 
     // Build the shell command — single line so it's atomic at the remote.
@@ -1885,7 +1885,7 @@ async fn run_git_sync(args: &[String]) -> anyhow::Result<()> {
         peers.retain(|p| Some(p.name.as_str()) != me.as_deref());
     }
     if peers.is_empty() {
-        anyhow::bail!("no peers — run `phantom config pull` first");
+        anyhow::bail!("no peers — run `spectyn config pull` first");
     }
 
     // Read cluster_secret for HMAC.
@@ -1980,7 +1980,7 @@ pub struct AdminShellResult {
 }
 
 /// POST /rpc/admin/shell to a peer with HMAC auth, return parsed result.
-/// Used by `phantom git sync` and any future fan-out admin task.
+/// Used by `spectyn git sync` and any future fan-out admin task.
 pub async fn admin_shell(
     peer_url: &str,
     secret: &str,
@@ -2046,11 +2046,11 @@ fn hmac_sha256_hex(secret: &str, body: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-// ── `phantom sessions` + TUI heartbeat ───────────────────────────────────
+// ── `spectyn sessions` + TUI heartbeat ───────────────────────────────────
 //
 // Live presence across the user's machines. The TUI POSTs to
 // /api/me/sessions/heartbeat on launch and every 30s; on graceful exit
-// it DELETEs its row. Other machines list peers via `phantom sessions`
+// it DELETEs its row. Other machines list peers via `spectyn sessions`
 // (which calls GET /api/me/sessions and renders the result).
 //
 // Session id is a uuid generated once per TUI process — survives the
@@ -2129,9 +2129,9 @@ pub fn start_session_heartbeat(agent: String, cwd: String) -> Option<SessionHand
     Some(SessionHandle { id, stop: tx })
 }
 
-/// Base URL of the local plane (`phantom serve` on this machine). The
+/// Base URL of the local plane (`spectyn serve` on this machine). The
 /// local `/api/sessions` endpoint is loopback-only and needs no auth, so
-/// `phantom sessions` can always show *this machine's* sessions even
+/// `spectyn sessions` can always show *this machine's* sessions even
 /// before the user has logged in to the cross-mesh broker.
 pub fn local_plane_base_url() -> String {
     format!("http://127.0.0.1:{}", detect_listen_port())
@@ -2162,11 +2162,11 @@ pub fn render_local_sessions(arr: &[serde_json::Value]) -> Vec<String> {
 }
 
 /// Fetch + render this machine's sessions from the LOCAL plane (no auth;
-/// loopback only). `base_url` is the scheme+host+port of `phantom serve`
+/// loopback only). `base_url` is the scheme+host+port of `spectyn serve`
 /// (see `local_plane_base_url`); the path `/api/sessions` is appended.
 ///
 /// Factored out so the local-first path can be exercised against a mock
-/// HTTP server in tests without standing up a real `phantom serve`.
+/// HTTP server in tests without standing up a real `spectyn serve`.
 pub async fn local_sessions_lines(base_url: &str) -> anyhow::Result<Vec<String>> {
     let url = format!("{}/api/sessions", base_url.trim_end_matches('/'));
     let client = reqwest::Client::builder()
@@ -2211,7 +2211,7 @@ pub async fn sessions_lines() -> anyhow::Result<Vec<String>> {
     match local_sessions_lines(&local_plane_base_url()).await {
         Ok(lines) => out.extend(lines),
         Err(e) => {
-            // No local `phantom serve` running (or it errored). Not fatal —
+            // No local `spectyn serve` running (or it errored). Not fatal —
             // we may still get the cross-mesh view from the broker below.
             tracing::debug!("local sessions plane unavailable: {}", e);
         }
@@ -2234,7 +2234,7 @@ pub async fn sessions_lines() -> anyhow::Result<Vec<String>> {
 
     if out.is_empty() {
         out.push("no active sessions".into());
-        out.push("(start `phantom serve` here, or run `phantom login` for the cross-mesh view)".into());
+        out.push("(start `spectyn serve` here, or run `spectyn login` for the cross-mesh view)".into());
     }
     Ok(out)
 }
@@ -2245,9 +2245,9 @@ pub async fn sessions_lines() -> anyhow::Result<Vec<String>> {
 /// local-only path stays usable.
 async fn broker_sessions_lines() -> anyhow::Result<Vec<String>> {
     let auth = crate::auth::load()
-        .ok_or_else(|| anyhow::anyhow!("not logged in — run `phantom login` first"))?;
+        .ok_or_else(|| anyhow::anyhow!("not logged in — run `spectyn login` first"))?;
     if auth.broker_token.is_empty() || auth.broker_url.is_empty() {
-        anyhow::bail!("no broker token — run `phantom login` to refresh");
+        anyhow::bail!("no broker token — run `spectyn login` to refresh");
     }
     let url = format!("{}/api/me/sessions", auth.broker_url.trim_end_matches('/'));
     let client = reqwest::Client::builder()
@@ -2278,7 +2278,7 @@ async fn broker_sessions_lines() -> anyhow::Result<Vec<String>> {
     let mut out = Vec::new();
     if sessions.is_empty() {
         out.push("no active sessions in the last 60s".into());
-        out.push("(open a phantom TUI on any logged-in machine to register one)".into());
+        out.push("(open a spectyn TUI on any logged-in machine to register one)".into());
         return Ok(out);
     }
     let now_s = (std::time::SystemTime::now()
@@ -2337,7 +2337,7 @@ async fn broker_sessions_lines() -> anyhow::Result<Vec<String>> {
 /// **Important caveat**: this is fire-and-forget — the wipe runs
 /// asynchronously broker-side within the 24h SLA. Callers who need to
 /// confirm completion should poll `GET /vault/wipe/{wipe_id}` (the
-/// `VaultWipeStatusResponse` shape). For `phantom data delete --all
+/// `VaultWipeStatusResponse` shape). For `spectyn data delete --all
 /// --yes --include-broker`, we treat the 202 accepted as success and
 /// rely on the SLA — pollers are out of scope for the CLI MVP.
 pub async fn wipe_broker_vault_now(
@@ -2345,9 +2345,9 @@ pub async fn wipe_broker_vault_now(
     reason: Option<String>,
 ) -> anyhow::Result<crate::broker_vault_wire::VaultWipeResponse> {
     let auth = crate::auth::load()
-        .ok_or_else(|| anyhow::anyhow!("not logged in — run `phantom login` first"))?;
+        .ok_or_else(|| anyhow::anyhow!("not logged in — run `spectyn login` first"))?;
     if auth.broker_token.is_empty() || auth.broker_url.is_empty() {
-        anyhow::bail!("no broker token — run `phantom login` to refresh");
+        anyhow::bail!("no broker token — run `spectyn login` to refresh");
     }
     let url = format!(
         "{}/vault/wipe",
@@ -2390,7 +2390,7 @@ pub async fn wipe_broker_vault_now(
     Ok(parsed)
 }
 
-/// `phantom sessions` — print live TUI sessions across the user's mesh.
+/// `spectyn sessions` — print live TUI sessions across the user's mesh.
 pub async fn run_sessions(_args: &[String]) -> anyhow::Result<()> {
     for line in sessions_lines().await? {
         println!("{}", line);
@@ -2410,18 +2410,18 @@ fn human_duration(secs: i64) -> String {
     }
 }
 
-// ── `phantom workspace` subcommand ───────────────────────────────────────
+// ── `spectyn workspace` subcommand ───────────────────────────────────────
 //
-// Per-machine pin: which directory + which agent the bare `phantom`
+// Per-machine pin: which directory + which agent the bare `spectyn`
 // command lands you in. Lets you keep one Windows box dedicated to one
-// project so opening a fresh PowerShell + typing `phantom` drops you
+// project so opening a fresh PowerShell + typing `spectyn` drops you
 // straight into the right context.
 //
 // Surface:
-//   phantom workspace show               — current pin (or "no pin")
-//   phantom workspace set <dir> [agent]  — pin this dir + optional agent
-//   phantom workspace clear              — remove the [workspace] block
-//   phantom workspace help
+//   spectyn workspace show               — current pin (or "no pin")
+//   spectyn workspace set <dir> [agent]  — pin this dir + optional agent
+//   spectyn workspace clear              — remove the [workspace] block
+//   spectyn workspace help
 
 pub fn run_workspace(args: &[String]) -> anyhow::Result<()> {
     let sub = args.get(2).map(|s| s.as_str()).unwrap_or("show");
@@ -2436,8 +2436,8 @@ pub fn run_workspace(args: &[String]) -> anyhow::Result<()> {
         "set" => {
             let dir = args.get(3).ok_or_else(|| {
                 anyhow::anyhow!(
-                    "usage: phantom workspace set <dir> [pinned-agent]\n\
-                 example: phantom workspace set C:\\Users\\you\\Projects\\foo coder"
+                    "usage: spectyn workspace set <dir> [pinned-agent]\n\
+                 example: spectyn workspace set C:\\Users\\you\\Projects\\foo coder"
                 )
             })?;
             let pinned_agent = args.get(4).map(|s| s.as_str());
@@ -2456,21 +2456,21 @@ pub fn run_workspace(args: &[String]) -> anyhow::Result<()> {
             workspace_help();
             Ok(())
         }
-        other => anyhow::bail!("unknown `phantom workspace` subcommand: {}", other),
+        other => anyhow::bail!("unknown `spectyn workspace` subcommand: {}", other),
     }
 }
 
 fn workspace_help() {
-    eprintln!("phantom workspace — pin this machine to a project dir + agent");
+    eprintln!("spectyn workspace — pin this machine to a project dir + agent");
     eprintln!();
-    eprintln!("  phantom workspace show                    show current pin");
-    eprintln!("  phantom workspace set <dir> [agent]       set pin (agent default = master)");
-    eprintln!("  phantom workspace clear                   remove [workspace] block");
+    eprintln!("  spectyn workspace show                    show current pin");
+    eprintln!("  spectyn workspace set <dir> [agent]       set pin (agent default = master)");
+    eprintln!("  spectyn workspace clear                   remove [workspace] block");
     eprintln!();
-    eprintln!("Once pinned, bare `phantom` (no args) auto-cd to <dir>, pre-selects");
+    eprintln!("Once pinned, bare `spectyn` (no args) auto-cd to <dir>, pre-selects");
     eprintln!("[agent.<agent>], and the conversation history lives under that path's");
     eprintln!("cwd-hash. Per-machine isolation: host-a can pin /projects/foo while");
-    eprintln!("host-b pins /projects/bar without either machine's phantom getting confused.");
+    eprintln!("host-b pins /projects/bar without either machine's spectyn getting confused.");
 }
 
 pub fn workspace_show_lines() -> anyhow::Result<Vec<String>> {
@@ -2490,7 +2490,7 @@ pub fn workspace_show_lines() -> anyhow::Result<Vec<String>> {
                 if exists { "✓ exists" } else { "⚠ missing" }
             ));
         }
-        _ => out.push("  default_dir:  (unset — bare `phantom` uses caller's cwd)".into()),
+        _ => out.push("  default_dir:  (unset — bare `spectyn` uses caller's cwd)".into()),
     }
     out.push(format!(
         "  pinned_agent: {}",
@@ -2533,10 +2533,10 @@ pub fn workspace_set_lines(dir: &str, pinned_agent: Option<&str>) -> anyhow::Res
             if exists {
                 "✓ dir exists"
             } else {
-                "⚠ dir missing — create it before launching phantom"
+                "⚠ dir missing — create it before launching spectyn"
             }
         ),
-        format!("  effective on next `phantom` (no args)."),
+        format!("  effective on next `spectyn` (no args)."),
     ];
     out.push(format!("  config:   {}", path.display()));
     Ok(out)
@@ -2562,29 +2562,29 @@ pub fn workspace_clear_lines() -> anyhow::Result<Vec<String>> {
     )])
 }
 
-// ── `phantom cluster` subcommand ─────────────────────────────────────────
+// ── `spectyn cluster` subcommand ─────────────────────────────────────────
 //
-// Auto-wire the local node into the user's phantom-mesh cluster. The
+// Auto-wire the local node into the user's spectyn-mesh cluster. The
 // cluster_secret is HMAC-SHA256 key shared across nodes; lives in the
-// vault as CLUSTER_SECRET so a fresh install can pull it via `phantom
-// config pull` and then `phantom cluster join <name>` writes the right
+// vault as CLUSTER_SECRET so a fresh install can pull it via `spectyn
+// config pull` and then `spectyn cluster join <name>` writes the right
 // [cluster] block to agents.toml.
 //
 // Surface:
-//   phantom cluster join <name>      — wire this box as <name> in the mesh
-//   phantom cluster status           — ping each peer + show RPC reachability
-//   phantom cluster leave            — remove the [cluster] block
+//   spectyn cluster join <name>      — wire this box as <name> in the mesh
+//   spectyn cluster status           — ping each peer + show RPC reachability
+//   spectyn cluster leave            — remove the [cluster] block
 //
 // Known node names: peer-alpha, peer-beta, peer-gamma. Add new ones to
 // CLUSTER_TOPOLOGY below + redeploy. Each node writes the OTHERS as its
 // peers (skips itself), so config is self-correcting if you re-run.
 
-/// FALLBACK cluster topology — used only when ~/.phantom-mesh/peers.json
-/// is missing/empty (i.e. the user hasn't yet run `phantom config pull`
+/// FALLBACK cluster topology — used only when ~/.spectyn-mesh/peers.json
+/// is missing/empty (i.e. the user hasn't yet run `spectyn config pull`
 /// against a broker that has cluster peers configured). The vault
 /// version (via /api/me/cluster-peers) is the source of truth once it
 /// exists. Add a new machine via the dashboard — these constants are
-/// just bootstrap defaults so a fresh box can `phantom cluster join
+/// just bootstrap defaults so a fresh box can `spectyn cluster join
 /// <name>` against the historic 4-node mesh without first having to
 /// configure the dashboard.
 const CLUSTER_TOPOLOGY: &[(&str, &str)] = &[
@@ -2608,7 +2608,7 @@ pub struct ClusterPeer {
 }
 
 pub fn peers_json_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("peers.json"))
+    spectyn_data_dir().ok().map(|d| d.join("peers.json"))
 }
 
 /// Read the broker-pulled peer list. Returns Some only when the file
@@ -2672,11 +2672,11 @@ pub fn detect_tailscale_ipv4() -> Option<String> {
 }
 
 /// Resolve a node_name for self-registration. Order:
-///   1. PHANTOM_NODE_NAME env var (explicit override)
+///   1. SPECTYN_NODE_NAME env var (explicit override)
 ///   2. existing [cluster].node_name in agents.toml (don't overwrite user choice)
 ///   3. system hostname (lowercased; '_' replaced with '-' for cleaner urls)
 pub fn resolve_self_node_name() -> Option<String> {
-    if let Ok(v) = std::env::var("PHANTOM_NODE_NAME") {
+    if let Ok(v) = std::env::var("SPECTYN_NODE_NAME") {
         let v = v.trim();
         if !v.is_empty() {
             return Some(v.to_string());
@@ -2813,7 +2813,7 @@ pub async fn login_post_register_lines(broker_url: &str, token: &str) -> Vec<Str
                 token,
                 &name,
                 &url,
-                Some("auto-registered via phantom login"),
+                Some("auto-registered via spectyn login"),
             )
             .await;
             match registered {
@@ -2832,7 +2832,7 @@ pub async fn login_post_register_lines(broker_url: &str, token: &str) -> Vec<Str
                         }
                         Err(e) => {
                             out.push(format!("  ⚠ cluster join skipped: {}", e));
-                            out.push(format!("    (you can retry: phantom cluster join {})", n));
+                            out.push(format!("    (you can retry: spectyn cluster join {})", n));
                         }
                     }
                 }
@@ -2848,12 +2848,12 @@ pub async fn login_post_register_lines(broker_url: &str, token: &str) -> Vec<Str
         (None, _) => {
             out.push("  ◇ tailscale not detected — skipping self-register".into());
             out.push(
-                "    (install Tailscale + auth, then run: phantom cluster join <name>)".into(),
+                "    (install Tailscale + auth, then run: spectyn cluster join <name>)".into(),
             );
         }
         (_, None) => {
             out.push("  ◇ couldn't determine node_name — skipping self-register".into());
-            out.push("    (set: $env:PHANTOM_NODE_NAME='<name>'; phantom login)".into());
+            out.push("    (set: $env:SPECTYN_NODE_NAME='<name>'; spectyn login)".into());
         }
     }
     out
@@ -2872,13 +2872,13 @@ pub async fn run_cluster(args: &[String]) -> anyhow::Result<()> {
                     .join(", ");
                 anyhow::anyhow!("{}", crate::i18n::tr_owned(
                     format!(
-                        "usage: phantom cluster join <node-name>\n\
+                        "usage: spectyn cluster join <node-name>\n\
                          known names: {}\n\
                          Add new names to CLUSTER_TOPOLOGY in core/src/cli_config.rs.",
                         known
                     ),
                     format!(
-                        "用法：phantom cluster join <node-name>\n\
+                        "用法：spectyn cluster join <node-name>\n\
                          已知名稱：{}\n\
                          新名稱請加到 core/src/cli_config.rs 的 CLUSTER_TOPOLOGY。",
                         known
@@ -2893,7 +2893,7 @@ pub async fn run_cluster(args: &[String]) -> anyhow::Result<()> {
         // sync = config pull (gets latest peers list from broker) then
         // re-run cluster_join with this machine's stored node_name. The
         // 1-step shortcut for "a new machine joined the mesh; refresh me".
-        // Same effect as `phantom config pull && phantom cluster join <name>`
+        // Same effect as `spectyn config pull && spectyn cluster join <name>`
         // but doesn't require remembering the node name on every machine.
         "sync" | "refresh" => {
             for line in cluster_sync_lines().await? {
@@ -2915,7 +2915,7 @@ pub async fn run_cluster(args: &[String]) -> anyhow::Result<()> {
         }
         // Fan-out self-update: each peer downloads the latest binary for
         // its platform from the broker's R2 mirror, swaps via trampoline,
-        // restarts `phantom serve`. --to <name> targets one node only.
+        // restarts `spectyn serve`. --to <name> targets one node only.
         "upgrade" | "update" | "self-update" => {
             // Optional `--to <name>` to scope to a single peer.
             let mut target: Option<String> = None;
@@ -2932,17 +2932,17 @@ pub async fn run_cluster(args: &[String]) -> anyhow::Result<()> {
                         i += 2;
                     }
                     "--help" | "-h" => {
-                        eprintln!("phantom cluster upgrade — fan-out self-update across the mesh");
+                        eprintln!("spectyn cluster upgrade — fan-out self-update across the mesh");
                         eprintln!();
                         eprintln!(
-                            "  phantom cluster upgrade               every peer in peers.json"
+                            "  spectyn cluster upgrade               every peer in peers.json"
                         );
-                        eprintln!("  phantom cluster upgrade --to host-a   one peer only");
-                        eprintln!("  phantom cluster upgrade --url <u>     override download url for ALL targets");
+                        eprintln!("  spectyn cluster upgrade --to host-a   one peer only");
+                        eprintln!("  spectyn cluster upgrade --url <u>     override download url for ALL targets");
                         eprintln!();
                         eprintln!("Each peer downloads the platform-specific binary from");
                         eprintln!("https://phantommesh.io/dist/<asset> by default, swaps via");
-                        eprintln!("trampoline (3s delay), then restarts `phantom serve`.");
+                        eprintln!("trampoline (3s delay), then restarts `spectyn serve`.");
                         eprintln!();
                         eprintln!("Auth: HMAC-SHA256 with cluster_secret in agents.toml.");
                         return Ok(());
@@ -2960,32 +2960,32 @@ pub async fn run_cluster(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!("{}", crate::i18n::tr_owned(
-            format!("unknown `phantom cluster` subcommand: {}", other),
-            format!("未知的 `phantom cluster` 子命令：{}", other),
+            format!("unknown `spectyn cluster` subcommand: {}", other),
+            format!("未知的 `spectyn cluster` 子命令：{}", other),
         )),
     }
 }
 
 fn cluster_help() {
-    eprintln!("phantom cluster — wire this machine into the phantom-mesh cluster");
+    eprintln!("spectyn cluster — wire this machine into the spectyn-mesh cluster");
     eprintln!();
-    eprintln!("  phantom cluster join <name>   add [cluster] block to agents.toml");
+    eprintln!("  spectyn cluster join <name>   add [cluster] block to agents.toml");
     eprintln!("                                <name> picks the node's identity from the");
     eprintln!("                                vault peers (or hardcoded topology) + lists");
     eprintln!("                                the OTHERS as peers.");
-    eprintln!("  phantom cluster sync          shortcut: pull latest peers + rejoin self");
+    eprintln!("  spectyn cluster sync          shortcut: pull latest peers + rejoin self");
     eprintln!("                                (use after a new machine joined the mesh)");
-    eprintln!("  phantom cluster status        parallel ping each peer + show alive/dead + RTT");
-    eprintln!("  phantom cluster upgrade       fan-out self-update: every peer pulls the latest");
+    eprintln!("  spectyn cluster status        parallel ping each peer + show alive/dead + RTT");
+    eprintln!("  spectyn cluster upgrade       fan-out self-update: every peer pulls the latest");
     eprintln!("                                binary, swaps it via trampoline, restarts serve");
-    eprintln!("  phantom cluster leave         remove the [cluster] block");
+    eprintln!("  spectyn cluster leave         remove the [cluster] block");
     eprintln!();
     eprintln!("Known names:");
     for (name, url) in CLUSTER_TOPOLOGY {
         eprintln!("  {:<18} {}", name, url);
     }
     eprintln!();
-    eprintln!("CLUSTER_SECRET is read from process env (set via `phantom config pull`");
+    eprintln!("CLUSTER_SECRET is read from process env (set via `spectyn config pull`");
     eprintln!("which fetches it from the vault, OR from a user-scope env var). Bail with");
     eprintln!("a useful error if missing.");
 }
@@ -2999,7 +2999,7 @@ pub fn cluster_join_lines(node_name: &str) -> anyhow::Result<Vec<String>> {
         anyhow::bail!(
             "unknown node-name '{}'. Known: {}\n\
              Add this name via the dashboard at https://phantommesh.io/account\n\
-             (Cluster peers section), then run `phantom config pull` and retry.",
+             (Cluster peers section), then run `spectyn config pull` and retry.",
             node_name,
             known.join(", ")
         );
@@ -3015,7 +3015,7 @@ pub fn cluster_join_lines(node_name: &str) -> anyhow::Result<Vec<String>> {
                 "CLUSTER_SECRET not in env — set via:\n\
              \n\
              1. (recommended) phantommesh.io/account → CLUSTER_SECRET field → Save\n\
-                then on this box: phantom config pull\n\
+                then on this box: spectyn config pull\n\
              \n\
              2. (one-time, this shell only) $env:CLUSTER_SECRET = '<paste>'\n\
              \n\
@@ -3090,24 +3090,24 @@ pub fn cluster_join_lines(node_name: &str) -> anyhow::Result<Vec<String>> {
         out.push(format!("    {}", line.trim_start_matches("  ")));
     }
     out.push("".into());
-    out.push("  Next: restart `phantom serve` so the new [cluster] block takes effect:".into());
+    out.push("  Next: restart `spectyn serve` so the new [cluster] block takes effect:".into());
     // Per-OS restart hint. Was hardcoded to PowerShell, which made
     // macOS/Linux users see Stop-Process commands they couldn't run.
     if cfg!(target_os = "windows") {
-        out.push("    Stop-Process -Name phantom -Force; Start-Process \"$env:USERPROFILE\\.local\\bin\\phantom.exe\" serve -WindowStyle Hidden".into());
+        out.push("    Stop-Process -Name spectyn -Force; Start-Process \"$env:USERPROFILE\\.local\\bin\\spectyn.exe\" serve -WindowStyle Hidden".into());
     } else if cfg!(target_os = "macos") {
-        out.push("    launchctl kickstart -k gui/$(id -u)/ai.phantommesh.serve".into());
+        out.push("    launchctl kickstart -k gui/$(id -u)/ai.spectynmesh.serve".into());
     } else {
         // Linux + everything else — assume systemd user unit when
         // present, else fall back to pkill + nohup.
         out.push(
-            "    systemctl --user restart phantom-serve  # if installed as a user unit".into(),
+            "    systemctl --user restart spectyn-serve  # if installed as a user unit".into(),
         );
         out.push(
-            "    # or:  pkill -f 'phantom serve' && nohup phantom serve >/dev/null 2>&1 &".into(),
+            "    # or:  pkill -f 'spectyn serve' && nohup spectyn serve >/dev/null 2>&1 &".into(),
         );
     }
-    out.push("  Then verify: phantom cluster status".into());
+    out.push("  Then verify: spectyn cluster status".into());
     Ok(out)
 }
 
@@ -3115,7 +3115,7 @@ pub async fn cluster_status_lines() -> anyhow::Result<Vec<String>> {
     let path = agents_toml_path().ok_or_else(|| anyhow::anyhow!("no $HOME"))?;
     // D20: a missing agents.toml = a fresh box with no cluster configured, not an
     // error. Treat NotFound as an empty config (0 peers) and report it gracefully,
-    // mirroring `phantom peer list`. A *malformed* file still errors (don't mask
+    // mirroring `spectyn peer list`. A *malformed* file still errors (don't mask
     // corruption); any other read error still surfaces too.
     let cfg: AgentsConfig = match fs::read_to_string(&path) {
         Ok(raw) => {
@@ -3205,7 +3205,7 @@ pub async fn cluster_upgrade_lines(
     url_override: Option<&str>,
 ) -> anyhow::Result<Vec<String>> {
     // 1. Load the peer registry (vault-synced) — fall back to hardcoded
-    //    topology if the user hasn't run `phantom config pull` yet.
+    //    topology if the user hasn't run `spectyn config pull` yet.
     let mut peers = read_peers_json().unwrap_or_else(|| {
         CLUSTER_TOPOLOGY
             .iter()
@@ -3221,7 +3221,7 @@ pub async fn cluster_upgrade_lines(
         peers.retain(|p| p.name == name);
         if peers.is_empty() {
             anyhow::bail!(
-                "no peer named '{}' in peers.json — run `phantom config pull` to refresh",
+                "no peer named '{}' in peers.json — run `spectyn config pull` to refresh",
                 name
             );
         }
@@ -3244,7 +3244,7 @@ pub async fn cluster_upgrade_lines(
     let secret = cfg.cluster.cluster_secret.clone()
         .filter(|s| !s.trim().is_empty())
         .ok_or_else(|| anyhow::anyhow!(
-            "cluster_secret missing in [cluster] block of {} — run `phantom cluster join <name>` first",
+            "cluster_secret missing in [cluster] block of {} — run `spectyn cluster join <name>` first",
             cfg_path.display()
         ))?;
 
@@ -3337,9 +3337,9 @@ pub async fn cluster_upgrade_lines(
     ));
     out.push(String::new());
     out.push("  Each peer's serve will exit ~500ms after responding, then a".into());
-    out.push("  trampoline waits ~3s, swaps phantom.exe.new → phantom.exe,".into());
-    out.push("  and starts `phantom serve` again. Verify with:".into());
-    out.push("    sleep 10 && phantom cluster status".into());
+    out.push("  trampoline waits ~3s, swaps spectyn.exe.new → spectyn.exe,".into());
+    out.push("  and starts `spectyn serve` again. Verify with:".into());
+    out.push("    sleep 10 && spectyn cluster status".into());
     Ok(out)
 }
 
@@ -3365,7 +3365,7 @@ pub async fn cluster_sync_lines() -> anyhow::Result<Vec<String>> {
         .map(|s| s.token.clone())
         .or_else(|| from_auth.as_ref().map(|a| a.broker_token.clone()))
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("no broker token — run `phantom login` first"))?;
+        .ok_or_else(|| anyhow::anyhow!("no broker token — run `spectyn login` first"))?;
 
     out.push(format!("◆ pulling latest cluster peers from {}…", url));
     match config_pull_lines(&url, &token).await {
@@ -3384,13 +3384,13 @@ pub async fn cluster_sync_lines() -> anyhow::Result<Vec<String>> {
     out.push(String::new());
 
     // Resolve this machine's name from agents.toml (set by previous
-    // `phantom cluster join`) — fall back to PHANTOM_NODE_NAME or hostname
-    // detection so a fresh box can also `phantom cluster sync` without
+    // `spectyn cluster join`) — fall back to SPECTYN_NODE_NAME or hostname
+    // detection so a fresh box can also `spectyn cluster sync` without
     // a prior explicit join.
     let node_name = resolve_self_node_name().ok_or_else(|| {
         anyhow::anyhow!(
             "couldn't determine this machine's node name. \
-             Set $env:PHANTOM_NODE_NAME='<name>' or run `phantom cluster join <name>` once first."
+             Set $env:SPECTYN_NODE_NAME='<name>' or run `spectyn cluster join <name>` once first."
         )
     })?;
     out.push(format!("◆ rewriting [cluster] block as '{}'…", node_name));
@@ -3428,21 +3428,21 @@ pub fn cluster_leave_lines() -> anyhow::Result<Vec<String>> {
     )])
 }
 
-// ── `phantom config` subcommand ──────────────────────────────────────────
+// ── `spectyn config` subcommand ──────────────────────────────────────────
 //
 // Surface:
-//   phantom config pull  --token <jwt> [--url <broker>]   — fetch + write env
-//   phantom config show                                   — show stored broker config
-//   phantom config clear                                  — drop stored broker config
+//   spectyn config pull  --token <jwt> [--url <broker>]   — fetch + write env
+//   spectyn config show                                   — show stored broker config
+//   spectyn config clear                                  — drop stored broker config
 //
 // The pull flow is the other half of the phantommesh.io key vault: user
-// stores keys once via /account UI, then runs `phantom config pull` on
+// stores keys once via /account UI, then runs `spectyn config pull` on
 // each box to sync. First call needs --token (copy from the dashboard);
-// subsequent calls remember the token in ~/.phantom-mesh/broker.json so
+// subsequent calls remember the token in ~/.spectyn-mesh/broker.json so
 // you can re-pull without arguments.
 
 pub fn broker_config_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("broker.json"))
+    spectyn_data_dir().ok().map(|d| d.join("broker.json"))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
@@ -3492,29 +3492,29 @@ pub fn write_broker_config(cfg: &BrokerConfig) -> anyhow::Result<()> {
 //
 // The sealed E2EE path is now the DEFAULT (SPEC-15 review #3): the deployed
 // broker 410s the old plaintext route, so the client seals by default. The
-// `PHANTOM_VAULT_E2EE` flag now only lets you opt BACK OUT — set
-// `PHANTOM_VAULT_E2EE=0` (or `false`) to fall back to the legacy plaintext path.
+// `SPECTYN_VAULT_E2EE` flag now only lets you opt BACK OUT — set
+// `SPECTYN_VAULT_E2EE=0` (or `false`) to fall back to the legacy plaintext path.
 //
 // MIGRATION TODO (cross-scope, NOT this file): once the broker exposes the
 // `/vault/*` routes and the wire structs are reconciled (snake_case + `items`
 // batch wrapper per SPEC-15 §7), make the E2EE path the default and delete the
 // plaintext branch + the broker's `getSettingsRaw`/`deriveUserKey`/
 // `ENV_VAULT_KEY`. Until then DO NOT remove the plaintext fallback — doing so
-// would break `phantom config pull` against the currently-deployed broker.
+// would break `spectyn config pull` against the currently-deployed broker.
 
 /// Is the SPEC-15 sealed E2EE vault path enabled? **On by default** (the broker
-/// only accepts the sealed path now); set `PHANTOM_VAULT_E2EE=0` (or `false`) to
+/// only accepts the sealed path now); set `SPECTYN_VAULT_E2EE=0` (or `false`) to
 /// opt back into the legacy broker-readable plaintext path.
 fn vault_e2ee_enabled() -> bool {
     // SPEC-15 review #3: the sealed E2EE path is now the DEFAULT so the client
     // is co-deployable with the broker (which 410s the old plaintext route).
-    // Only an explicit PHANTOM_VAULT_E2EE=0|false opts back into legacy plaintext.
-    std::env::var("PHANTOM_VAULT_E2EE")
+    // Only an explicit SPECTYN_VAULT_E2EE=0|false opts back into legacy plaintext.
+    std::env::var("SPECTYN_VAULT_E2EE")
         .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false")))
         .unwrap_or(true)
 }
 
-/// `~/.phantom-mesh/vault-seal.key` — base64url(no-pad) of the 32-byte
+/// `~/.spectyn-mesh/vault-seal.key` — base64url(no-pad) of the 32-byte
 /// per-account `VaultSealKey`. This is the ONE secret that must never leave the
 /// device. Mode 0600 best-effort on Unix.
 ///
@@ -3523,7 +3523,7 @@ fn vault_e2ee_enabled() -> bool {
 /// follow-up; the flat-file form keeps the migration self-contained and is no
 /// worse than the existing `broker.json` token storage.
 fn vault_seal_key_path() -> Option<PathBuf> {
-    phantom_data_dir().ok().map(|d| d.join("vault-seal.key"))
+    spectyn_data_dir().ok().map(|d| d.join("vault-seal.key"))
 }
 
 /// Load the per-account `VaultSealKey`, generating + persisting a fresh one on
@@ -3538,7 +3538,7 @@ fn load_or_create_vault_seal_key() -> anyhow::Result<crate::broker_vault_wire::V
         if decoded.len() == 32 {
             let mut bytes = [0u8; 32];
             bytes.copy_from_slice(&decoded);
-            // `bytes` is pub(crate); we are in the same crate (phantom-mesh).
+            // `bytes` is pub(crate); we are in the same crate (spectyn-mesh).
             return Ok(crate::broker_vault_wire::VaultSealKey { bytes });
         }
         anyhow::bail!(
@@ -3616,7 +3616,7 @@ fn unseal_vault_value(
 
 /// SPEC-15 sealed download: pull every sealed vault item from the broker's
 /// dumb-storage `/vault/get` list endpoint, unseal each locally, and merge into
-/// `~/.phantom-mesh/env` exactly like the plaintext path. The broker never sees
+/// `~/.spectyn-mesh/env` exactly like the plaintext path. The broker never sees
 /// plaintext — only ciphertext crosses the wire.
 async fn config_pull_sealed_lines(
     broker_url: &str,
@@ -3868,7 +3868,7 @@ async fn config_push_sealed_lines(
 /// Resolve the broker `(url, token)` if the user is logged in (or has pulled
 /// once). Returns `None` when there is no usable token — callers then stay
 /// silent rather than nagging a no-account local user. Mirrors the resolution
-/// in the `phantom config push` branch (stored broker.json → auth session).
+/// in the `spectyn config push` branch (stored broker.json → auth session).
 pub fn broker_auth() -> Option<(String, String)> {
     let stored = read_broker_config();
     let from_auth = crate::auth::load();
@@ -3905,7 +3905,7 @@ pub async fn push_single_key_to_vault(
         anyhow::bail!("refusing to sync an empty value for {env_var_name}");
     }
     if !vault_e2ee_enabled() {
-        anyhow::bail!("vault sync needs the sealed E2EE path, but PHANTOM_VAULT_E2EE is disabled");
+        anyhow::bail!("vault sync needs the sealed E2EE path, but SPECTYN_VAULT_E2EE is disabled");
     }
     let base = broker_url.trim_end_matches('/');
     let seal_key = load_or_create_vault_seal_key()?;
@@ -3997,7 +3997,7 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
                         }
                     }
                     other => anyhow::bail!(
-                        "unknown flag {} for `phantom config pull` (expected --token / --url)",
+                        "unknown flag {} for `spectyn config pull` (expected --token / --url)",
                         other
                     ),
                 }
@@ -4005,12 +4005,12 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
             }
             // Resolution order for url + token:
             //   1. explicit --url / --token flags (highest priority)
-            //   2. ~/.phantom-mesh/broker.json from a previous `config pull`
-            //   3. ~/.phantom-mesh/auth.json from a previous `phantom login`
+            //   2. ~/.spectyn-mesh/broker.json from a previous `config pull`
+            //   3. ~/.spectyn-mesh/auth.json from a previous `spectyn login`
             //      (broker_token field — set by login_broker)
             //   4. URL default = https://phantommesh.io; token default = error
-            // Means a fresh box can do `phantom login` once and then
-            // `phantom config pull` is zero-arg from there on.
+            // Means a fresh box can do `spectyn login` once and then
+            // `spectyn config pull` is zero-arg from there on.
             let stored = read_broker_config();
             let from_auth = crate::auth::load();
             let url = url
@@ -4024,7 +4024,7 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| {
                     anyhow::anyhow!(
-                        "no token — run `phantom login` first to get one (it'll auto-pull keys), \
+                        "no token — run `spectyn login` first to get one (it'll auto-pull keys), \
                      or pass --token <jwt> manually (copy from {}/account)",
                         url,
                     )
@@ -4054,8 +4054,8 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
             // legacy plaintext broker has no client-driven write endpoint.
             if !vault_e2ee_enabled() {
                 anyhow::bail!(
-                    "`phantom config push` requires the SPEC-15 sealed vault path, but \
-                     PHANTOM_VAULT_E2EE is explicitly disabled — unset it (sealed is the \
+                    "`spectyn config push` requires the SPEC-15 sealed vault path, but \
+                     SPECTYN_VAULT_E2EE is explicitly disabled — unset it (sealed is the \
                      default) to push; the legacy plaintext broker has no client write endpoint"
                 );
             }
@@ -4073,7 +4073,7 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
                 .or_else(|| from_auth.as_ref().map(|a| a.broker_token.clone()))
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("no token — run `phantom login` or `phantom config pull --token <jwt>` first")
+                    anyhow::anyhow!("no token — run `spectyn login` or `spectyn config pull --token <jwt>` first")
                 })?;
             for line in config_push_sealed_lines(&url, &token).await? {
                 eprintln!("{}", line);
@@ -4101,7 +4101,7 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
                     Ok(())
                 }
                 None => {
-                    eprintln!("(no broker config saved yet — run `phantom config pull --token <jwt>` once)");
+                    eprintln!("(no broker config saved yet — run `spectyn config pull --token <jwt>` once)");
                     Ok(())
                 }
             }
@@ -4118,30 +4118,30 @@ pub async fn run_config(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom config` subcommand: {} — try `phantom config help`",
+            "unknown `spectyn config` subcommand: {} — try `spectyn config help`",
             other
         ),
     }
 }
 
 fn config_help() {
-    eprintln!("phantom config — pull LLM API keys from your phantommesh.io vault");
+    eprintln!("spectyn config — pull LLM API keys from your phantommesh.io vault");
     eprintln!();
-    eprintln!("  phantom config pull --token <jwt> [--url <broker>]");
+    eprintln!("  spectyn config pull --token <jwt> [--url <broker>]");
     eprintln!("                                first-time pull. Token comes from the");
     eprintln!("                                broker's /account page; URL defaults to");
     eprintln!("                                https://phantommesh.io.");
-    eprintln!("  phantom config pull           subsequent pulls reuse the saved token.");
-    eprintln!("  phantom config push           (E2EE only) seal local keys + upload to vault.");
-    eprintln!("  phantom config show           show saved url + masked token");
-    eprintln!("  phantom config clear          delete saved broker config");
+    eprintln!("  spectyn config pull           subsequent pulls reuse the saved token.");
+    eprintln!("  spectyn config push           (E2EE only) seal local keys + upload to vault.");
+    eprintln!("  spectyn config show           show saved url + masked token");
+    eprintln!("  spectyn config clear          delete saved broker config");
     eprintln!();
     eprintln!("SPEC-15 end-to-end-encrypted (E2EE) vault is the DEFAULT: keys are sealed");
     eprintln!("client-side before upload (broker only ever stores ciphertext). The seal key");
-    eprintln!("lives at ~/.phantom-mesh/vault-seal.key and never leaves this device. Set");
-    eprintln!("PHANTOM_VAULT_E2EE=0 only to force the deprecated legacy plaintext path.");
+    eprintln!("lives at ~/.spectyn-mesh/vault-seal.key and never leaves this device. Set");
+    eprintln!("SPECTYN_VAULT_E2EE=0 only to force the deprecated legacy plaintext path.");
     eprintln!();
-    eprintln!("Pulled keys are written to ~/.phantom-mesh/env (auto-loaded by phantom");
+    eprintln!("Pulled keys are written to ~/.spectyn-mesh/env (auto-loaded by spectyn");
     eprintln!("on every command). Existing entries are merged: keys returned by the");
     eprintln!("broker overwrite the local file's values; locals not in the response");
     eprintln!("are kept untouched (so a key you've only set locally isn't deleted).");
@@ -4190,7 +4190,7 @@ pub async fn config_pull_lines(broker_url: &str, token: &str) -> anyhow::Result<
                 continue;
             }
             existing.insert(k.clone(), val.to_string());
-            // Also push into current process env so a follow-up phantom
+            // Also push into current process env so a follow-up spectyn
             // command in the same shell sees the new keys without needing
             // a re-source ritual.
             std::env::set_var(k, val);
@@ -4283,29 +4283,29 @@ pub async fn config_pull_lines(broker_url: &str, token: &str) -> anyhow::Result<
     }
 
     out.push("  active in this shell session immediately.".into());
-    out.push("  for `phantom serve` to pick up: restart the service.".into());
+    out.push("  for `spectyn serve` to pick up: restart the service.".into());
     Ok(out)
 }
 
-// ── `phantom keys` subcommand ────────────────────────────────────────────
+// ── `spectyn keys` subcommand ────────────────────────────────────────────
 
-/// Entry point for `phantom keys ...`.
-/// Writes always go through `~/.phantom-mesh/env`; the running phantom
-/// process is told to set the var in its own env too so `phantom keys set`
-/// followed by another phantom command in the same shell sees the new value.
+/// Entry point for `spectyn keys ...`.
+/// Writes always go through `~/.spectyn-mesh/env`; the running spectyn
+/// process is told to set the var in its own env too so `spectyn keys set`
+/// followed by another spectyn command in the same shell sees the new value.
 pub fn run_keys(args: &[String]) -> anyhow::Result<()> {
     let sub = args.get(2).map(|s| s.as_str()).unwrap_or("list");
     match sub {
         "list" | "ls" => keys_list(),
         "set" => {
             let provider = args.get(3).ok_or_else(|| anyhow::anyhow!(
-                "usage: phantom keys set <provider> <key>\n\
-                 example: phantom keys set groq sk-...\n\
+                "usage: spectyn keys set <provider> <key>\n\
+                 example: spectyn keys set groq sk-...\n\
                  list known: groq, cerebras, opencode, openai, anthropic, gemini, openrouter, nvidia, deepseek, mistral, together"
             ))?;
             let key = args.get(4).ok_or_else(|| {
                 anyhow::anyhow!(
-                    "usage: phantom keys set <provider> <key> — got provider but no key value"
+                    "usage: spectyn keys set <provider> <key> — got provider but no key value"
                 )
             })?;
             keys_set(provider, key)
@@ -4313,7 +4313,7 @@ pub fn run_keys(args: &[String]) -> anyhow::Result<()> {
         "remove" | "rm" | "unset" => {
             let provider = args
                 .get(3)
-                .ok_or_else(|| anyhow::anyhow!("usage: phantom keys remove <provider>"))?;
+                .ok_or_else(|| anyhow::anyhow!("usage: spectyn keys remove <provider>"))?;
             keys_remove(provider)
         }
         "help" | "--help" | "-h" => {
@@ -4321,18 +4321,18 @@ pub fn run_keys(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom keys` subcommand: {} — try `phantom keys help`",
+            "unknown `spectyn keys` subcommand: {} — try `spectyn keys help`",
             other
         ),
     }
 }
 
 fn keys_help() {
-    eprintln!("phantom keys — manage ~/.phantom-mesh/env (auto-loaded at startup)");
+    eprintln!("spectyn keys — manage ~/.spectyn-mesh/env (auto-loaded at startup)");
     eprintln!();
-    eprintln!("  phantom keys list                       show all configured keys (masked)");
-    eprintln!("  phantom keys set <provider> <key>       save a key (overwrites if present)");
-    eprintln!("  phantom keys remove <provider>          delete a key");
+    eprintln!("  spectyn keys list                       show all configured keys (masked)");
+    eprintln!("  spectyn keys set <provider> <key>       save a key (overwrites if present)");
+    eprintln!("  spectyn keys remove <provider>          delete a key");
     eprintln!();
     eprintln!("Provider names map to env vars by convention:");
     eprintln!("  groq        → GROQ_API_KEY");
@@ -4345,9 +4345,9 @@ fn keys_help() {
     eprintln!("  nvidia      → NVIDIA_NIM_API_KEY");
     eprintln!("  deepseek    → DEEPSEEK_API_KEY");
     eprintln!();
-    eprintln!("After `phantom keys set`, the new var takes effect for any phantom");
+    eprintln!("After `spectyn keys set`, the new var takes effect for any spectyn");
     eprintln!("command in this shell session. To pick it up in an already-running");
-    eprintln!("`phantom serve`, restart the service.");
+    eprintln!("`spectyn serve`, restart the service.");
 }
 
 fn keys_list() -> anyhow::Result<()> {
@@ -4366,7 +4366,7 @@ pub fn keys_list_lines() -> anyhow::Result<Vec<String>> {
     let mut out = Vec::new();
     if vars.is_empty() {
         out.push(format!("(no keys saved in {})", path.display()));
-        out.push("set one via: phantom keys set <provider> <key>".into());
+        out.push("set one via: spectyn keys set <provider> <key>".into());
         return Ok(out);
     }
     out.push(format!("Keys saved in {}", path.display()));
@@ -4408,7 +4408,7 @@ pub fn keys_set_lines(provider: &str, key: &str) -> anyhow::Result<Vec<String>> 
     });
     out.push(format!("  file: {}", path.display()));
     out.push("  active in this shell session immediately.".into());
-    out.push("  for `phantom serve` to pick it up: restart the service.".into());
+    out.push("  for `spectyn serve` to pick it up: restart the service.".into());
     Ok(out)
 }
 
@@ -4435,7 +4435,7 @@ pub fn keys_remove_lines(provider: &str) -> anyhow::Result<Vec<String>> {
     )])
 }
 
-// ── `phantom providers` subcommand ───────────────────────────────────────
+// ── `spectyn providers` subcommand ───────────────────────────────────────
 
 /// D33: several read-only status commands (`whoami`, `providers list`,
 /// `models status`, `cluster status`) historically IGNORED a `--json` flag —
@@ -4449,7 +4449,7 @@ pub fn keys_remove_lines(provider: &str) -> anyhow::Result<Vec<String>> {
 pub fn reject_unsupported_json(args: &[String], cmd: &str) {
     if args.iter().any(|a| a == "--json") {
         eprintln!(
-            "\u{2717} `phantom {cmd}` does not support --json — it would have silently \
+            "\u{2717} `spectyn {cmd}` does not support --json — it would have silently \
              printed human-readable text. For machine-readable output use \
              `node-capabilities --json`, `data export --json`, or `exec --json`."
         );
@@ -4468,33 +4468,33 @@ pub fn run_providers(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom providers` subcommand: {} — try `phantom providers help`",
+            "unknown `spectyn providers` subcommand: {} — try `spectyn providers help`",
             other
         ),
     }
 }
 
 fn providers_help() {
-    eprintln!("phantom providers — view configured providers and edit failover priority");
+    eprintln!("spectyn providers — view configured providers and edit failover priority");
     eprintln!();
     eprintln!(
-        "  phantom providers list                          show configured providers + key status"
+        "  spectyn providers list                          show configured providers + key status"
     );
     eprintln!(
-        "  phantom providers priority <agent>              show current priority for that agent"
+        "  spectyn providers priority <agent>              show current priority for that agent"
     );
-    eprintln!("  phantom providers priority <agent> <p1> <p2>... set priority list for that agent");
+    eprintln!("  spectyn providers priority <agent> <p1> <p2>... set priority list for that agent");
     eprintln!();
     eprintln!("Examples:");
-    eprintln!("  phantom providers priority master groq cerebras opencode");
-    eprintln!("  phantom providers priority coder groq");
+    eprintln!("  spectyn providers priority master groq cerebras opencode");
+    eprintln!("  spectyn providers priority coder groq");
     eprintln!();
-    eprintln!("Edits ~/.phantom-mesh/agents.toml in place, preserving comments and formatting.");
-    eprintln!("Effective on next `phantom repl` / restart of `phantom serve`.");
+    eprintln!("Edits ~/.spectyn-mesh/agents.toml in place, preserving comments and formatting.");
+    eprintln!("Effective on next `spectyn repl` / restart of `spectyn serve`.");
 }
 
 fn providers_list() -> anyhow::Result<()> {
-    // D10: read-only listing → stdout so `phantom providers list | …` is pipeable
+    // D10: read-only listing → stdout so `spectyn providers list | …` is pipeable
     // (help/errors still go to stderr).
     for line in providers_list_lines()? {
         println!("{}", line);
@@ -4569,7 +4569,7 @@ pub fn providers_list_lines() -> anyhow::Result<Vec<String>> {
 }
 
 fn providers_priority(args: &[String]) -> anyhow::Result<()> {
-    // Convert `phantom providers priority <agent> ...` argv into the
+    // Convert `spectyn providers priority <agent> ...` argv into the
     // generic _lines API: `_lines(agent, [p1, p2, ...])`.
     let agent = args.get(3).cloned();
     let names: Vec<String> = args.get(4..).map(|s| s.to_vec()).unwrap_or_default();
@@ -4706,19 +4706,19 @@ pub fn providers_priority_lines(
     Ok(out)
 }
 
-// ── `phantom models` subcommand ──────────────────────────────────────────
+// ── `spectyn models` subcommand ──────────────────────────────────────────
 //
 // Surface:
-//   phantom models status                  — show cache age + free/paid counts
-//   phantom models refresh                 — refresh ALL configured providers
-//   phantom models refresh <provider>      — refresh just that one
+//   spectyn models status                  — show cache age + free/paid counts
+//   spectyn models refresh                 — refresh ALL configured providers
+//   spectyn models refresh <provider>      — refresh just that one
 //
 // Why this exists separate from the TUI `/models` command: the TUI command
-// fetches into the same on-disk cache (~/.phantom-mesh/models-cache.json)
+// fetches into the same on-disk cache (~/.spectyn-mesh/models-cache.json)
 // but only when the user is sitting in the TUI. Operators warming a fresh
-// box, CI smoke tests, and `phantom serve` startup all want a no-TUI way
-// to populate or audit the cache. Symmetric with `phantom keys` /
-// `phantom providers` for hands-off automation.
+// box, CI smoke tests, and `spectyn serve` startup all want a no-TUI way
+// to populate or audit the cache. Symmetric with `spectyn keys` /
+// `spectyn providers` for hands-off automation.
 
 pub async fn run_models(args: &[String]) -> anyhow::Result<()> {
     reject_unsupported_json(args, "models");
@@ -4738,7 +4738,7 @@ pub async fn run_models(args: &[String]) -> anyhow::Result<()> {
             }
             Ok(())
         }
-        // `phantom models test [provider:model | provider]` — probe whether
+        // `spectyn models test [provider:model | provider]` — probe whether
         // a model actually executes tool calls when the API request asks for
         // them. Background: free models (especially preview tier on opencode
         // like hy3-preview-free) frequently respond with plausible-sounding
@@ -4761,22 +4761,22 @@ pub async fn run_models(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom models` subcommand: {} — try `phantom models help`",
+            "unknown `spectyn models` subcommand: {} — try `spectyn models help`",
             other
         ),
     }
 }
 
 fn models_help() {
-    eprintln!("phantom models — manage the model cache + probe model behavior");
+    eprintln!("spectyn models — manage the model cache + probe model behavior");
     eprintln!();
-    eprintln!("  phantom models status                show cached providers, model counts, age");
-    eprintln!("  phantom models refresh               refresh ALL configured providers");
-    eprintln!("  phantom models refresh <provider>    refresh just that one");
-    eprintln!("  phantom models test                  probe ALL provider default_models for");
+    eprintln!("  spectyn models status                show cached providers, model counts, age");
+    eprintln!("  spectyn models refresh               refresh ALL configured providers");
+    eprintln!("  spectyn models refresh <provider>    refresh just that one");
+    eprintln!("  spectyn models test                  probe ALL provider default_models for");
     eprintln!("                                       real tool-call support (vs. text-only fake)");
-    eprintln!("  phantom models test <provider>           probe that provider's default_model");
-    eprintln!("  phantom models test <provider>:<model>   probe a specific model");
+    eprintln!("  spectyn models test <provider>           probe that provider's default_model");
+    eprintln!("  spectyn models test <provider>:<model>   probe a specific model");
     eprintln!();
     eprintln!("test is the truth check for hallucinating models — sends a request that");
     eprintln!("explicitly demands a `shell` tool call, then checks whether the response");
@@ -4810,7 +4810,7 @@ fn resolve_provider_call_params(
     };
     match (key, url) {
         (None, _) => Err(format!(
-            "no key for {} (set via `phantom keys set {} <key>`)",
+            "no key for {} (set via `spectyn keys set {} <key>`)",
             name, name
         )),
         (_, None) => Err(format!("no base url for {} and no default known", name)),
@@ -4898,7 +4898,7 @@ pub fn models_status_lines() -> anyhow::Result<Vec<String>> {
     let mut out = Vec::new();
     if cache.providers.is_empty() {
         out.push(format!("(empty cache at {})", cache_path));
-        out.push("  populate via: phantom models refresh".into());
+        out.push("  populate via: spectyn models refresh".into());
         return Ok(out);
     }
 
@@ -4952,7 +4952,7 @@ enum ToolProbe {
 /// Send a deterministic prompt that explicitly demands a `shell` tool call,
 /// then inspect the response for a real `tool_calls` block. Returns a tagged
 /// result so the caller can render a row consistent with the rest of the
-/// `phantom models` output.
+/// `spectyn models` output.
 ///
 /// Important: this only works for OpenAI-compatible endpoints (opencode,
 /// openai, openrouter, groq, deepseek, mistral, together, cerebras, nvidia
@@ -5221,15 +5221,15 @@ fn human_age(ms: u64) -> String {
     }
 }
 
-// ── `phantom task` — user-facing CLI over the durable TaskStore/TaskQueue ──
+// ── `spectyn task` — user-facing CLI over the durable TaskStore/TaskQueue ──
 //
 // S0 lane F2: surfaces the already-built `tasks::{TaskStore, TaskQueue}`
-// (SQLite at `~/.phantom-mesh/phantom.db`) as four verbs:
+// (SQLite at `~/.spectyn-mesh/spectyn.db`) as four verbs:
 //
-//   phantom task submit "<prompt>" [--agent <name>] [--json]
-//   phantom task show <id> [--json]
-//   phantom task logs <id>
-//   phantom task cancel <id>
+//   spectyn task submit "<prompt>" [--agent <name>] [--json]
+//   spectyn task show <id> [--json]
+//   spectyn task logs <id>
+//   spectyn task cancel <id>
 //
 // v1 `submit` ENQUEUES only — it mints a durable Pending TaskRecord and returns
 // the id. Wiring it to actual agent execution is a deliberate follow-up (it
@@ -5240,17 +5240,17 @@ fn human_age(ms: u64) -> String {
 /// is keyed per-workspace; the CLI surface is single-workspace in v1.
 const TASK_CLI_WORKSPACE: &str = "default";
 
-/// Open the durable task store under the resolved phantom home
-/// (`<home>/.phantom-mesh/phantom.db`). Resolving via [`resolve_home_dir`]
+/// Open the durable task store under the resolved spectyn home
+/// (`<home>/.spectyn-mesh/spectyn.db`). Resolving via [`resolve_home_dir`]
 /// (rather than `TaskStore::open_default`, which uses a bare
 /// `dirs::home_dir()`) keeps the surface honest about `$HOME` / `%USERPROFILE%`
-/// — the same resolver the rest of phantom uses — so a redirected `$HOME`
+/// — the same resolver the rest of spectyn uses — so a redirected `$HOME`
 /// (tests, sandboxes) lands the DB in the right place.
 fn open_task_store() -> anyhow::Result<crate::tasks::TaskStore> {
-    let dir = resolve_home_dir()?.join(".phantom-mesh");
+    let dir = resolve_home_dir()?.join(".spectyn-mesh");
     std::fs::create_dir_all(&dir)
         .map_err(|e| anyhow::anyhow!("create {}: {}", dir.display(), e))?;
-    crate::tasks::TaskStore::open_at(dir.join("phantom.db"))
+    crate::tasks::TaskStore::open_at(dir.join("spectyn.db"))
 }
 
 /// Serialize a [`TaskRecord`] to a stable JSON object for `--json` surfaces.
@@ -5285,17 +5285,17 @@ fn task_event_json(e: &crate::tasks::TaskEvent) -> serde_json::Value {
 }
 
 fn task_help() {
-    eprintln!("phantom task — manage durable long-running tasks");
+    eprintln!("spectyn task — manage durable long-running tasks");
     eprintln!();
-    eprintln!("  phantom task submit \"<prompt>\" [--agent <name>] [--json]");
+    eprintln!("  spectyn task submit \"<prompt>\" [--agent <name>] [--json]");
     eprintln!("                                       enqueue a Pending task, print its id");
-    eprintln!("  phantom task show <id> [--json]      print a task's fields + status");
-    eprintln!("  phantom task logs <id>               print a task's output / error so far");
-    eprintln!("  phantom task replay <id> [--json]    re-emit the task's event timeline in order");
-    eprintln!("  phantom task export <id>             print a Markdown report (header + timeline)");
-    eprintln!("  phantom task cancel <id>             transition a task to Cancelled");
+    eprintln!("  spectyn task show <id> [--json]      print a task's fields + status");
+    eprintln!("  spectyn task logs <id>               print a task's output / error so far");
+    eprintln!("  spectyn task replay <id> [--json]    re-emit the task's event timeline in order");
+    eprintln!("  spectyn task export <id>             print a Markdown report (header + timeline)");
+    eprintln!("  spectyn task cancel <id>             transition a task to Cancelled");
     eprintln!();
-    eprintln!("Tasks persist in ~/.phantom-mesh/phantom.db (durable across restarts).");
+    eprintln!("Tasks persist in ~/.spectyn-mesh/spectyn.db (durable across restarts).");
     eprintln!("v1 `submit` enqueues only — it does not run the task inline.");
 }
 
@@ -5310,12 +5310,12 @@ fn first_non_flag_arg(args: &[String], from: usize) -> Option<&String> {
 }
 
 fn parse_task_id(raw: Option<&String>) -> anyhow::Result<uuid::Uuid> {
-    let raw = raw.ok_or_else(|| anyhow::anyhow!("missing <id> — usage: phantom task show <id>"))?;
+    let raw = raw.ok_or_else(|| anyhow::anyhow!("missing <id> — usage: spectyn task show <id>"))?;
     uuid::Uuid::parse_str(raw)
         .map_err(|_| anyhow::anyhow!("invalid task id `{}` (expected a UUID)", raw))
 }
 
-/// `phantom agents probe [--json]` — detect which external coding agents
+/// `spectyn agents probe [--json]` — detect which external coding agents
 /// (Claude Code / Codex / Gemini) are signed in on this machine. Pure local
 /// detection (reuses the provider credential finders); no network, no API calls.
 pub fn run_agents(args: &[String]) -> anyhow::Result<()> {
@@ -5341,7 +5341,7 @@ pub fn run_agents(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "help" | "--help" | "-h" => {
-            println!("phantom agents probe [--json]   detect signed-in external coding agents");
+            println!("spectyn agents probe [--json]   detect signed-in external coding agents");
             Ok(())
         }
         other => anyhow::bail!("unknown `agents` subcommand `{other}` (try `agents probe`)"),
@@ -5354,7 +5354,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
         "submit" => {
             // Collect the positional prompt + parse flags. The prompt is every
             // non-flag arg joined (so an unquoted multi-word prompt still works,
-            // mirroring `phantom dispatch`).
+            // mirroring `spectyn dispatch`).
             let mut agent = "master".to_string();
             let mut json = false;
             let mut prompt_parts: Vec<String> = Vec::new();
@@ -5373,14 +5373,14 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
                         return Ok(());
                     }
                     other if !other.starts_with("--") => prompt_parts.push(other.to_string()),
-                    other => anyhow::bail!("unknown flag {} for `phantom task submit`", other),
+                    other => anyhow::bail!("unknown flag {} for `spectyn task submit`", other),
                 }
                 i += 1;
             }
             let prompt = prompt_parts.join(" ");
             if prompt.trim().is_empty() {
                 anyhow::bail!(
-                    "no prompt — usage: phantom task submit \"<prompt>\" [--agent <name>] [--json]"
+                    "no prompt — usage: spectyn task submit \"<prompt>\" [--agent <name>] [--json]"
                 );
             }
 
@@ -5392,7 +5392,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
             } else {
                 println!("{}", task.task_id);
                 eprintln!(
-                    "queued task {} (agent={}, status=pending) — `phantom task show {}`",
+                    "queued task {} (agent={}, status=pending) — `spectyn task show {}`",
                     task.task_id, task.agent_name, task.task_id
                 );
                 eprintln!("note: v1 enqueues only; the task is not executed inline.");
@@ -5439,7 +5439,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("task {} not found", id))?;
             // Output is the agent's result text; error is the failure reason.
             // Print whichever the task carries; if neither, say so on stderr so
-            // a `phantom task logs <id> > file` capture stays clean (empty file).
+            // a `spectyn task logs <id> > file` capture stays clean (empty file).
             let mut had_any = false;
             if let Some(out) = &task.output {
                 print!("{}", out);
@@ -5506,7 +5506,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
         "export" => {
             // Markdown report: header (task fields, mirroring `show`) + a
             // "## Timeline" section listing the events in order. Printed to
-            // stdout so `phantom task export <id> > report.md` captures cleanly.
+            // stdout so `spectyn task export <id> > report.md` captures cleanly.
             let id = parse_task_id(first_non_flag_arg(args, 3))?;
             let store = open_task_store()?;
             let task = store
@@ -5631,7 +5631,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
                 args.iter().skip(3).filter(|a| !a.starts_with("--")).collect();
             let id = parse_task_id(non_flags.first().copied())?;
             let contract_id = non_flags.get(1).copied().ok_or_else(|| {
-                anyhow::anyhow!("usage: phantom task {} <task-id> <contract-id>", sub)
+                anyhow::anyhow!("usage: spectyn task {} <task-id> <contract-id>", sub)
             })?;
             let store = open_task_store()?;
             store
@@ -5683,7 +5683,7 @@ pub async fn run_task(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         other => anyhow::bail!(
-            "unknown `phantom task` subcommand: {} (try `phantom task --help`)",
+            "unknown `spectyn task` subcommand: {} (try `spectyn task --help`)",
             other
         ),
     }
@@ -5696,48 +5696,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phantom_data_dir_honors_override_then_falls_back() {
+    fn spectyn_data_dir_honors_override_then_falls_back() {
         let _guard = crate::env_lock::acquire();
-        let saved_ph = std::env::var_os("PHANTOM_HOME");
+        let saved_ph = std::env::var_os("SPECTYN_HOME");
         let saved_home = std::env::var_os("HOME");
 
-        // DATA-ROOT semantics (charter P0-3 / SPEC-44 / playbooks): PHANTOM_HOME
-        // IS the .phantom-mesh data root, used verbatim (nothing appended), and
+        // DATA-ROOT semantics (charter P0-3 / SPEC-44 / playbooks): SPECTYN_HOME
+        // IS the .spectyn-mesh data root, used verbatim (nothing appended), and
         // it does NOT affect the pure home resolver.
-        std::env::set_var("PHANTOM_HOME", "/tmp/pm-data-root-test/.phantom-mesh");
+        std::env::set_var("SPECTYN_HOME", "/tmp/pm-data-root-test/.spectyn-mesh");
         assert_eq!(
-            phantom_data_dir().unwrap(),
-            PathBuf::from("/tmp/pm-data-root-test/.phantom-mesh"),
-            "PHANTOM_HOME is the data root verbatim"
+            spectyn_data_dir().unwrap(),
+            PathBuf::from("/tmp/pm-data-root-test/.spectyn-mesh"),
+            "SPECTYN_HOME is the data root verbatim"
         );
 
-        // phantom_dir_under: PHANTOM_HOME override beats the injected home.
+        // spectyn_dir_under: SPECTYN_HOME override beats the injected home.
         assert_eq!(
-            phantom_dir_under(std::path::Path::new("/some/injected/home")),
-            PathBuf::from("/tmp/pm-data-root-test/.phantom-mesh"),
-            "PHANTOM_HOME override wins over an injected home base"
+            spectyn_dir_under(std::path::Path::new("/some/injected/home")),
+            PathBuf::from("/tmp/pm-data-root-test/.spectyn-mesh"),
+            "SPECTYN_HOME override wins over an injected home base"
         );
 
-        // Empty PHANTOM_HOME is ignored; fall back to <base>/.phantom-mesh.
-        std::env::set_var("PHANTOM_HOME", "");
+        // Empty SPECTYN_HOME is ignored; fall back to <base>/.spectyn-mesh.
+        std::env::set_var("SPECTYN_HOME", "");
         std::env::set_var("HOME", "/tmp/pm-home-test");
         assert_eq!(
-            phantom_data_dir().unwrap(),
-            PathBuf::from("/tmp/pm-home-test").join(".phantom-mesh"),
-            "fallback must be $HOME/.phantom-mesh"
+            spectyn_data_dir().unwrap(),
+            PathBuf::from("/tmp/pm-home-test").join(".spectyn-mesh"),
+            "fallback must be $HOME/.spectyn-mesh"
         );
-        // Without an override, phantom_dir_under honors the INJECTED home (so
+        // Without an override, spectyn_dir_under honors the INJECTED home (so
         // hermetic tests that pass a tempdir stay isolated).
         assert_eq!(
-            phantom_dir_under(std::path::Path::new("/tmp/pm-injected")),
-            PathBuf::from("/tmp/pm-injected/.phantom-mesh"),
+            spectyn_dir_under(std::path::Path::new("/tmp/pm-injected")),
+            PathBuf::from("/tmp/pm-injected/.spectyn-mesh"),
             "no override => injected home is honored"
         );
 
         // Restore so we don't leak into other serialized tests.
         match saved_ph {
-            Some(v) => std::env::set_var("PHANTOM_HOME", v),
-            None => std::env::remove_var("PHANTOM_HOME"),
+            Some(v) => std::env::set_var("SPECTYN_HOME", v),
+            None => std::env::remove_var("SPECTYN_HOME"),
         }
         match saved_home {
             Some(v) => std::env::set_var("HOME", v),
@@ -5747,10 +5747,10 @@ mod tests {
 
     #[test]
     fn cluster_join_then_leave_returns_to_baseline() {
-        // SYS-D round-trip on agents.toml: `phantom cluster join <name>` writes a
-        // [cluster] membership block; `phantom cluster leave` removes it,
+        // SYS-D round-trip on agents.toml: `spectyn cluster join <name>` writes a
+        // [cluster] membership block; `spectyn cluster leave` removes it,
         // restoring the file to its pre-join baseline (other sections preserved).
-        // Hermetic: PHANTOM_HOME tempdir + CLUSTER_SECRET in env, under env_lock;
+        // Hermetic: SPECTYN_HOME tempdir + CLUSTER_SECRET in env, under env_lock;
         // no peers.json, so effective_topology() uses the hardcoded
         // CLUSTER_TOPOLOGY (where "peer-alpha" is a known node name).
         let _guard = crate::env_lock::acquire();
@@ -5761,8 +5761,8 @@ mod tests {
         impl Drop for EnvGuard {
             fn drop(&mut self) {
                 match &self.ph {
-                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
-                    None => std::env::remove_var("PHANTOM_HOME"),
+                    Some(v) => std::env::set_var("SPECTYN_HOME", v),
+                    None => std::env::remove_var("SPECTYN_HOME"),
                 }
                 match &self.secret {
                     Some(v) => std::env::set_var("CLUSTER_SECRET", v),
@@ -5771,11 +5771,11 @@ mod tests {
             }
         }
         let _restore = EnvGuard {
-            ph: std::env::var_os("PHANTOM_HOME"),
+            ph: std::env::var_os("SPECTYN_HOME"),
             secret: std::env::var_os("CLUSTER_SECRET"),
         };
         let tmp = tempfile::TempDir::new().expect("tempdir");
-        std::env::set_var("PHANTOM_HOME", tmp.path());
+        std::env::set_var("SPECTYN_HOME", tmp.path());
         std::env::set_var("CLUSTER_SECRET", "test-cluster-secret");
 
         // Seed agents.toml with an unrelated section that MUST survive the round-trip.
@@ -5841,15 +5841,15 @@ mod tests {
     fn vault_e2ee_flag_parsing() {
         let _guard = crate::env_lock::acquire();
         // Default ON (SPEC-15 sealed path is the default); only "0"/"false" off.
-        std::env::remove_var("PHANTOM_VAULT_E2EE");
+        std::env::remove_var("SPECTYN_VAULT_E2EE");
         assert!(vault_e2ee_enabled());
-        std::env::set_var("PHANTOM_VAULT_E2EE", "1");
+        std::env::set_var("SPECTYN_VAULT_E2EE", "1");
         assert!(vault_e2ee_enabled());
-        std::env::set_var("PHANTOM_VAULT_E2EE", "0");
+        std::env::set_var("SPECTYN_VAULT_E2EE", "0");
         assert!(!vault_e2ee_enabled());
-        std::env::set_var("PHANTOM_VAULT_E2EE", "false");
+        std::env::set_var("SPECTYN_VAULT_E2EE", "false");
         assert!(!vault_e2ee_enabled());
-        std::env::remove_var("PHANTOM_VAULT_E2EE");
+        std::env::remove_var("SPECTYN_VAULT_E2EE");
     }
 
     #[test]
@@ -5930,7 +5930,7 @@ mod tests {
 
     #[test]
     fn env_file_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("phantom-test-env-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn-test-env-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         let path = dir.join("env");
         let mut vars = HashMap::new();
@@ -5952,7 +5952,7 @@ mod tests {
     #[test]
     fn env_file_skips_blanks_and_comments() {
         let dir =
-            std::env::temp_dir().join(format!("phantom-test-env-comments-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spectyn-test-env-comments-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("env");
@@ -5976,12 +5976,12 @@ mod tests {
     #[test]
     fn auto_load_does_not_overwrite_existing_env() {
         let dir =
-            std::env::temp_dir().join(format!("phantom-test-env-noclobber-{}", std::process::id()));
+            std::env::temp_dir().join(format!("spectyn-test-env-noclobber-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("env");
-        fs::write(&path, "PHANTOM_TEST_NOCLOBBER=from_file\n").unwrap();
-        std::env::set_var("PHANTOM_TEST_NOCLOBBER", "from_shell");
+        fs::write(&path, "SPECTYN_TEST_NOCLOBBER=from_file\n").unwrap();
+        std::env::set_var("SPECTYN_TEST_NOCLOBBER", "from_shell");
 
         // Use read_env_file directly since auto_load_env hardcodes the home path.
         let vars = read_env_file(&path);
@@ -5992,10 +5992,10 @@ mod tests {
         }
         // Shell value must still win.
         assert_eq!(
-            std::env::var("PHANTOM_TEST_NOCLOBBER").ok(),
+            std::env::var("SPECTYN_TEST_NOCLOBBER").ok(),
             Some("from_shell".into())
         );
-        std::env::remove_var("PHANTOM_TEST_NOCLOBBER");
+        std::env::remove_var("SPECTYN_TEST_NOCLOBBER");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -6014,8 +6014,8 @@ mod tests {
         // ent missing url → falls back to default_provider_meta("groq").1
         let mut ent = crate::config::ProviderEntry::default();
         ent.provider_type = "groq".into();
-        ent.api_key_env = Some("PHANTOM_TEST_RESOLVE_KEY".into());
-        std::env::set_var("PHANTOM_TEST_RESOLVE_KEY", "gsk_resolved_from_env");
+        ent.api_key_env = Some("SPECTYN_TEST_RESOLVE_KEY".into());
+        std::env::set_var("SPECTYN_TEST_RESOLVE_KEY", "gsk_resolved_from_env");
         let (ptype, url, key) = resolve_provider_call_params("groq", &ent).unwrap();
         assert_eq!(ptype, "groq");
         assert!(
@@ -6024,15 +6024,15 @@ mod tests {
             url
         );
         assert_eq!(key, "gsk_resolved_from_env");
-        std::env::remove_var("PHANTOM_TEST_RESOLVE_KEY");
+        std::env::remove_var("SPECTYN_TEST_RESOLVE_KEY");
     }
 
     #[test]
     fn resolve_provider_call_params_missing_key_returns_err() {
         let mut ent = crate::config::ProviderEntry::default();
         ent.provider_type = "groq".into();
-        ent.api_key_env = Some("PHANTOM_TEST_DEFINITELY_NOT_SET".into());
-        std::env::remove_var("PHANTOM_TEST_DEFINITELY_NOT_SET");
+        ent.api_key_env = Some("SPECTYN_TEST_DEFINITELY_NOT_SET".into());
+        std::env::remove_var("SPECTYN_TEST_DEFINITELY_NOT_SET");
         let err = resolve_provider_call_params("groq", &ent).unwrap_err();
         assert!(err.contains("no key"), "expected no-key err, got: {}", err);
     }
@@ -6042,11 +6042,11 @@ mod tests {
         let mut ent = crate::config::ProviderEntry::default();
         ent.provider_type = "groq".into();
         ent.api_key = Some("inline_key".into());
-        ent.api_key_env = Some("PHANTOM_TEST_SHOULD_BE_IGNORED".into());
-        std::env::set_var("PHANTOM_TEST_SHOULD_BE_IGNORED", "env_key_loses");
+        ent.api_key_env = Some("SPECTYN_TEST_SHOULD_BE_IGNORED".into());
+        std::env::set_var("SPECTYN_TEST_SHOULD_BE_IGNORED", "env_key_loses");
         let (_, _, key) = resolve_provider_call_params("groq", &ent).unwrap();
         assert_eq!(key, "inline_key");
-        std::env::remove_var("PHANTOM_TEST_SHOULD_BE_IGNORED");
+        std::env::remove_var("SPECTYN_TEST_SHOULD_BE_IGNORED");
     }
 
     #[test]
@@ -6096,8 +6096,8 @@ mod tests {
             total_cost_usd: 0.0238,
         };
         // persist_dispatch_event now takes the data root directly (W6); pass the
-        // tmp's .phantom-mesh so the asserted on-disk layout is unchanged.
-        let data_root = tmp.path().join(".phantom-mesh");
+        // tmp's .spectyn-mesh so the asserted on-disk layout is unchanged.
+        let data_root = tmp.path().join(".spectyn-mesh");
         let id = persist_dispatch_event(&data_root, &result).unwrap();
         let meta = data_root.join("events").join(&id).join("meta.json");
         assert!(meta.exists(), "dispatch event meta.json written");
@@ -6114,7 +6114,7 @@ mod tests {
         assert!(raw.contains("2 ok, 0 failed"), "body carries the result tally");
 
         // SPEC-26 J5: the dispatch spend ($0.0238) reaches the recall summary
-        // (analysis.json) so `phantom recall --kind dispatch` shows cost.
+        // (analysis.json) so `spectyn recall --kind dispatch` shows cost.
         let analysis = data_root.join("events").join(&id).join("analysis.json");
         let araw = std::fs::read_to_string(&analysis).unwrap();
         assert!(
@@ -6134,9 +6134,9 @@ mod tests {
         // Security: an identity.key that EXISTS but can't load (corrupt/too short)
         // must NOT silently downgrade to a plaintext event — refuse instead.
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        std::fs::write(phantom.join("identity.key"), b"too-short").unwrap(); // < 16 bytes → unloadable
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        std::fs::write(spectyn.join("identity.key"), b"too-short").unwrap(); // < 16 bytes → unloadable
         let result = crate::cluster_dispatch_wire::IntegratedResult {
             markdown: "x".into(),
             succeeded: 0,
@@ -6144,15 +6144,15 @@ mod tests {
             total_latency_ms: 0,
             total_cost_usd: 0.0,
         };
-        // W6: persist_dispatch_event now takes the .phantom-mesh data root directly.
-        let err = persist_dispatch_event(&phantom, &result).unwrap_err();
+        // W6: persist_dispatch_event now takes the .spectyn-mesh data root directly.
+        let err = persist_dispatch_event(&spectyn, &result).unwrap_err();
         assert!(
             err.to_string().contains("unloadable"),
             "corrupt key must error, not write plaintext: {}",
             err
         );
         // …and no plaintext event leaked to disk.
-        let events = phantom.join("events");
+        let events = spectyn.join("events");
         let leaked = events.exists()
             && std::fs::read_dir(&events)
                 .map(|mut d| d.next().is_some())

@@ -8,14 +8,14 @@
 //!
 //! Design (mirrors `skillbank::memory_seal` EXACTLY):
 //!   * Reuses `memory_seal::{seal, open, is_sealed}` — i.e. the SAME age v1 /
-//!     `EventKey` primitive (key derived from `~/.phantom-mesh/identity.key` via
+//!     `EventKey` primitive (key derived from `~/.spectyn-mesh/identity.key` via
 //!     `encryption_wire`) that the owned-memory store, the conversation seal, and
 //!     the SPEC-16 event store already use. There is exactly ONE encryption
 //!     implementation; this module adds none.
-//!   * Opt-in kill-switch `PHANTOM_ENCRYPT_AGENTS` — **DEFAULT OFF**. Off ⇒
+//!   * Opt-in kill-switch `SPECTYN_ENCRYPT_AGENTS` — **DEFAULT OFF**. Off ⇒
 //!     load/save are byte-identical to today (plaintext exactly as before) and
 //!     the new code paths are pure no-ops. A DEDICATED flag (not the memory flag
-//!     `PHANTOM_ENCRYPT_MEMORY`) so the two stores ship independently.
+//!     `SPECTYN_ENCRYPT_MEMORY`) so the two stores ship independently.
 //!   * Seal-on-save (when ON): [`seal_api_key_for_save`] seals the provider key
 //!     immediately before it is written by [`crate::keys::set_api_key`] (the
 //!     canonical provider-key writer). Empty / already-sealed values pass through
@@ -34,18 +34,18 @@
 //! secret-bearing fields outside it: `[tools].brave_search_api_key`,
 //! `[tools].todoist_api_token`, and `[core].hub_api_key`. They all seal on save
 //! ([`seal_api_key_for_save`], called by the `keys.rs` writers) and unseal on
-//! load ([`unseal_on_load`]) under the SAME `PHANTOM_ENCRYPT_AGENTS` flag, with
+//! load ([`unseal_on_load`]) under the SAME `SPECTYN_ENCRYPT_AGENTS` flag, with
 //! the SAME age/`EventKey` primitive — no per-field mechanism. With the flag OFF
 //! (the ship default) behaviour is 100% unchanged.
 
 use crate::config::AgentsConfig;
 use crate::skillbank::memory_seal::{self, MemSealError};
 
-/// Opt-in kill-switch. **Default OFF.** Only `PHANTOM_ENCRYPT_AGENTS` = `1` /
+/// Opt-in kill-switch. **Default OFF.** Only `SPECTYN_ENCRYPT_AGENTS` = `1` /
 /// `true` (case-insensitive) enables at-rest sealing of `agents.toml` provider
 /// API keys. Deliberately mirrors `memory_seal::memory_e2ee_enabled` exactly.
 pub fn agents_e2ee_enabled() -> bool {
-    std::env::var("PHANTOM_ENCRYPT_AGENTS")
+    std::env::var("SPECTYN_ENCRYPT_AGENTS")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
 
     // IMPORTANT: these lib unit tests deliberately NEVER set
-    // `PHANTOM_ENCRYPT_AGENTS` to ON. The flag is process-global and is read by
+    // `SPECTYN_ENCRYPT_AGENTS` to ON. The flag is process-global and is read by
     // `config::AgentsConfig::load_path` + `keys::set_api_key` on EVERY call, so
     // flipping it ON here could make a *concurrent* keys.rs/config.rs unit test
     // try to seal with no key (`#[cfg(test)]` has no identity.key) and panic on
@@ -140,7 +140,7 @@ mod tests {
     fn enabled_is_false_when_unset() {
         // Default OFF when the var is absent (the ship default). We do NOT assert
         // the ON case here — see the module-level note on cross-test env safety.
-        if std::env::var_os("PHANTOM_ENCRYPT_AGENTS").is_none() {
+        if std::env::var_os("SPECTYN_ENCRYPT_AGENTS").is_none() {
             assert!(!agents_e2ee_enabled());
         }
     }

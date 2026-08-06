@@ -1,24 +1,24 @@
 //! P0-5 — OPT-IN live smoke. NOT run in CI (every test is `#[ignore]` AND
-//! gated on `PHANTOM_LIVE_SMOKE=1`). Run manually:
-//!   PHANTOM_LIVE_SMOKE=1 GROQ_API_KEY=sk-... \
-//!     cargo test -p phantom-mesh --test provider_failover_live_smoke -- --ignored --nocapture
+//! gated on `SPECTYN_LIVE_SMOKE=1`). Run manually:
+//!   SPECTYN_LIVE_SMOKE=1 GROQ_API_KEY=sk-... \
+//!     cargo test -p spectyn-mesh --test provider_failover_live_smoke -- --ignored --nocapture
 //!
 //! Confirms a real upstream's HTTP status maps through `classify_error` →
 //! `classify_failure` to the expected failover decision. Hermetic unit tests
 //! own correctness; this only catches drift in a live endpoint's error shape.
 
-use phantom_mesh::providers::circuit_breaker::{classify_failure, FailureKind};
-use phantom_mesh::providers::traits::classify_error;
+use spectyn_mesh::providers::circuit_breaker::{classify_failure, FailureKind};
+use spectyn_mesh::providers::traits::classify_error;
 
 fn smoke_enabled() -> bool {
-    std::env::var("PHANTOM_LIVE_SMOKE").map(|v| v == "1").unwrap_or(false)
+    std::env::var("SPECTYN_LIVE_SMOKE").map(|v| v == "1").unwrap_or(false)
 }
 
 #[tokio::test]
-#[ignore = "opt-in live smoke; set PHANTOM_LIVE_SMOKE=1 + GROQ_API_KEY"]
+#[ignore = "opt-in live smoke; set SPECTYN_LIVE_SMOKE=1 + GROQ_API_KEY"]
 async fn live_groq_bad_key_is_classified_failover() {
     if !smoke_enabled() {
-        eprintln!("skipped: PHANTOM_LIVE_SMOKE != 1");
+        eprintln!("skipped: SPECTYN_LIVE_SMOKE != 1");
         return;
     }
     // Deliberately send a bogus key → expect 401 → AuthError → Failover.

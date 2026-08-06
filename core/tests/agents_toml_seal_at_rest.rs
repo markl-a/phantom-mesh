@@ -1,28 +1,28 @@
 //! apex P4 — at-rest sealing for `agents.toml` provider API keys
-//! (`PHANTOM_ENCRYPT_AGENTS`), anti-fake-green hermetic coverage.
+//! (`SPECTYN_ENCRYPT_AGENTS`), anti-fake-green hermetic coverage.
 //!
 //! Runs against the PUBLIC crate API only — `keys::set_api_key` (the canonical
 //! provider-key writer / save seam) and `AgentsConfig::load_path` (the load
 //! seam) — plus raw on-disk inspection. It exercises the REAL device-key path:
-//! a generated `identity.key` is written into a temp `PHANTOM_HOME` and the lib
+//! a generated `identity.key` is written into a temp `SPECTYN_HOME` and the lib
 //! derives the `EventKey` from it exactly as in production (the integration
 //! build does NOT get the lib's `#[cfg(test)]` "never read identity.key" guard).
 //!
-//! Safety: every test sets `PHANTOM_HOME` to its own temp dir BEFORE any crypto
+//! Safety: every test sets `SPECTYN_HOME` to its own temp dir BEFORE any crypto
 //! call and clears the process-global `EventKey` cache, so the operator's real
-//! `~/.phantom-mesh/identity.key` is NEVER read or written.
+//! `~/.spectyn-mesh/identity.key` is NEVER read or written.
 //!
-//! Process-global state (the `EventKey` cache + the `PHANTOM_ENCRYPT_AGENTS` env
+//! Process-global state (the `EventKey` cache + the `SPECTYN_ENCRYPT_AGENTS` env
 //! flag) means these MUST run single-threaded — the harness is invoked with
 //! `-- --test-threads=1`, and an in-file serial lock is belt-and-suspenders.
 //!
 //! Not feature-gated on purpose: the sealing layer is always-compiled, so this
 //! runs (and must pass) in the DEFAULT build that ships.
 
-use phantom_mesh::config::AgentsConfig;
-use phantom_mesh::encryption_wire::clear_event_key_cache;
-use phantom_mesh::skillbank::memory_seal;
-use phantom_mesh::keys;
+use spectyn_mesh::config::AgentsConfig;
+use spectyn_mesh::encryption_wire::clear_event_key_cache;
+use spectyn_mesh::skillbank::memory_seal;
+use spectyn_mesh::keys;
 
 /// Serialize all key/env-touching tests on one process-global mutex.
 fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -34,9 +34,9 @@ fn serial_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// Point the data-root at an isolated temp dir so the lib's identity-key path can
-/// never reach the operator's real `~/.phantom-mesh`.
+/// never reach the operator's real `~/.spectyn-mesh`.
 fn isolate_home(td: &std::path::Path) {
-    std::env::set_var("PHANTOM_HOME", td);
+    std::env::set_var("SPECTYN_HOME", td);
 }
 
 /// Write a generated 64-byte `identity.key` (the lib derives the EventKey from
@@ -47,8 +47,8 @@ fn write_identity_key(td: &std::path::Path, fill: u8) {
 
 /// Reset the process-global state a test mutated.
 fn teardown() {
-    std::env::remove_var("PHANTOM_ENCRYPT_AGENTS");
-    std::env::remove_var("PHANTOM_HOME");
+    std::env::remove_var("SPECTYN_ENCRYPT_AGENTS");
+    std::env::remove_var("SPECTYN_HOME");
     clear_event_key_cache();
 }
 
@@ -81,7 +81,7 @@ fn on_round_trips_and_seals_provider_key_on_disk() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x42);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const SECRET: &str = "sk-ant-PLAINTEXT-NEEDLE-顧客機密-0xDEADBEEF";
@@ -123,7 +123,7 @@ fn off_is_byte_identical_plaintext() {
     // A device key IS available — proving OFF seals nothing even when it could.
     write_identity_key(td.path(), 0x55);
     clear_event_key_cache();
-    std::env::remove_var("PHANTOM_ENCRYPT_AGENTS"); // explicitly OFF (ship default)
+    std::env::remove_var("SPECTYN_ENCRYPT_AGENTS"); // explicitly OFF (ship default)
 
     let path = td.path().join("agents.toml");
     const KEY: &str = "gsk_PLAINTEXT_off_path_67890";
@@ -167,7 +167,7 @@ fn sealed_field_wrong_key_fails_closed_on_load() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x11);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const SECRET: &str = "sk-ant-FAILCLOSED-NEEDLE-99999";
@@ -201,7 +201,7 @@ fn sealed_field_missing_key_fails_closed_on_load() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x33);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const SECRET: &str = "sk-ant-NOKEY-NEEDLE-77777";
@@ -232,7 +232,7 @@ fn on_round_trips_and_seals_tools_and_core_secrets_on_disk() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x43);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const BRAVE: &str = "brave-PLAINTEXT-NEEDLE-顧客機密-0xBEEF01";
@@ -294,7 +294,7 @@ fn off_tools_and_core_secrets_are_byte_identical_plaintext() {
     // A device key IS available — proving OFF seals nothing even when it could.
     write_identity_key(td.path(), 0x56);
     clear_event_key_cache();
-    std::env::remove_var("PHANTOM_ENCRYPT_AGENTS"); // explicitly OFF (ship default)
+    std::env::remove_var("SPECTYN_ENCRYPT_AGENTS"); // explicitly OFF (ship default)
 
     let path = td.path().join("agents.toml");
     const BRAVE: &str = "brave_PLAINTEXT_off_111";
@@ -353,7 +353,7 @@ fn sealed_tools_field_wrong_key_fails_closed_on_load() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x13);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const SECRET: &str = "brave-FAILCLOSED-NEEDLE-44444";
@@ -387,7 +387,7 @@ fn sealed_core_field_missing_key_fails_closed_on_load() {
     isolate_home(td.path());
     write_identity_key(td.path(), 0x34);
     clear_event_key_cache();
-    std::env::set_var("PHANTOM_ENCRYPT_AGENTS", "1");
+    std::env::set_var("SPECTYN_ENCRYPT_AGENTS", "1");
 
     let path = td.path().join("agents.toml");
     const SECRET: &str = "hub-NOKEY-NEEDLE-88888";

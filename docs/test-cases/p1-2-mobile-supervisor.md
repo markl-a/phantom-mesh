@@ -3,7 +3,7 @@
 > 從屬於 apex (`docs/superpowers/BIG-GOAL.md`)。本檔只是 P1-2 手機監督面的真機驗證清單,
 > 不主張任何 apex/北極星/唯一真相地位。
 
-Backend prep: on the supervised node run `phantom serve` with a non-empty
+Backend prep: on the supervised node run `spectyn serve` with a non-empty
 `[cluster].cluster_secret` in agents.toml. Note its Tailscale URL + secret.
 In the app Settings (設定) tab: enter Base URL + Cluster Secret, tap 測試連線 → 連線成功.
 
@@ -11,7 +11,7 @@ Cross-refs: SPEC-31 (iOS screens), SPEC-32 (iOS flows), SPEC-34 (Android screens
 
 Backend contract is locked by the hermetic Rust tests
 (`serve::squad_dispatch_tests::rpc_tasks_list_*` / `rpc_captures_recent_*` /
-`rpc_review_*`, run via `cargo test -p phantom-mesh --lib serve::squad_dispatch_tests::rpc_`)
+`rpc_review_*`, run via `cargo test -p spectyn-mesh --lib serve::squad_dispatch_tests::rpc_`)
 and the app-side parser + wire-contract tests under `app/tests/p12/`. This file
 covers what only a real phone + real backend can exercise.
 
@@ -25,7 +25,7 @@ covers what only a real phone + real backend can exercise.
 
 ## 擷取 (Capture History) — SPEC-31 screen
 
-- [ ] Capture a food/focus/habit event on the backend (`phantom event capture …`).
+- [ ] Capture a food/focus/habit event on the backend (`spectyn event capture …`).
 - [ ] Open 擷取 → the event shows with kind emoji, local time, goal tags, newest first.
 - [ ] Empty backend → 尚無擷取事件 (not a crash).
 

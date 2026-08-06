@@ -9,8 +9,8 @@ use std::path::PathBuf;
 /// Allowed roots (recomputed every call so tests that `set_current_dir`
 /// or flip env vars are observed):
 ///   - process CWD at call time (canonicalised)
-///   - `$HOME/.phantom-mesh/` — phantom's own state dir
-///   - any path listed in `PHANTOM_EXTRA_ALLOWED_ROOTS` (split on `:`
+///   - `$HOME/.spectyn-mesh/` — spectyn's own state dir
+///   - any path listed in `SPECTYN_EXTRA_ALLOWED_ROOTS` (split on `:`
 ///     on Unix, `;` on Windows) — for test scaffolds + advanced users
 ///     who really need broader scope
 ///
@@ -96,14 +96,14 @@ fn allowed_roots() -> Vec<PathBuf> {
             roots.push(cwd);
         }
     }
-    if let Ok(phantom_dir) = crate::cli_config::phantom_data_dir() {
-        if let Ok(c) = phantom_dir.canonicalize() {
+    if let Ok(spectyn_dir) = crate::cli_config::spectyn_data_dir() {
+        if let Ok(c) = spectyn_dir.canonicalize() {
             roots.push(c);
         } else {
-            roots.push(phantom_dir);
+            roots.push(spectyn_dir);
         }
     }
-    if let Ok(extra) = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS") {
+    if let Ok(extra) = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS") {
         let sep = if cfg!(windows) { ';' } else { ':' };
         for piece in extra.split(sep) {
             if piece.is_empty() {
@@ -478,7 +478,7 @@ pub async fn edit(args: &Value) -> String {
 //   (c) reject `..` traversal that escapes the root (canonicalisation
 //       collapses `..`, so the resolved path must still be bounded).
 //
-// `allowed_roots()` reads `PHANTOM_EXTRA_ALLOWED_ROOTS` fresh on every call,
+// `allowed_roots()` reads `SPECTYN_EXTRA_ALLOWED_ROOTS` fresh on every call,
 // so the tests register a tempdir as an extra root and exercise paths
 // relative to it. The env var is process-global, so we serialise via the
 // shared `crate::sandbox::test_lock()` (already used by other tool tests).
@@ -486,7 +486,7 @@ pub async fn edit(args: &Value) -> String {
 mod safe_path_tests {
     use super::safe_path;
 
-    /// RAII guard that sets PHANTOM_EXTRA_ALLOWED_ROOTS to `dir` for the
+    /// RAII guard that sets SPECTYN_EXTRA_ALLOWED_ROOTS to `dir` for the
     /// duration of a test and restores the previous value (or removes it)
     /// on drop. Holds the process-global sandbox test lock so concurrent
     /// tests don't clobber each other's env.
@@ -497,16 +497,16 @@ mod safe_path_tests {
     impl RootGuard {
         fn new(dir: &std::path::Path) -> Self {
             let lock = crate::sandbox::test_lock();
-            let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
-            std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", dir);
+            let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").ok();
+            std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", dir);
             RootGuard { _lock: lock, prev }
         }
     }
     impl Drop for RootGuard {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v),
-                None => std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS"),
+                Some(v) => std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", v),
+                None => std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS"),
             }
         }
     }

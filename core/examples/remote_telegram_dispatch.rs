@@ -1,16 +1,16 @@
-//! Round-trip demo for track [T1] — Telegram → PhantomAgentDispatcher →
+//! Round-trip demo for track [T1] — Telegram → SpectynAgentDispatcher →
 //! AgentRuntime → reply. Supersedes the [O1] echo example.
 //!
 //! Build + run (PowerShell):
-//!   $env:TELEGRAM_BOT_API_KEY = "<paste from phantom keys list>"
+//!   $env:TELEGRAM_BOT_API_KEY = "<paste from spectyn keys list>"
 //!   $env:TELEGRAM_ALLOWED_USERS = "<your_telegram_user_id>"
 //!   $env:CARGO_TARGET_DIR = "D:/tmp/telegram-dispatch-target"
-//!   cargo run -p phantom-mesh `
+//!   cargo run -p spectyn-mesh `
 //!     --example remote_telegram_dispatch `
 //!     --features experimental-remote-control-telegram
 //!
 //! Then send the bot any text from your Telegram desktop client; the
-//! bot dispatches it through the configured phantom agent and replies
+//! bot dispatches it through the configured spectyn agent and replies
 //! with the agent's output. Conversation context is maintained
 //! per-chat in-memory for the lifetime of this process.
 //!
@@ -30,22 +30,22 @@ fn main() {
 async fn main() -> anyhow::Result<()> {
     use std::sync::Arc;
 
-    use phantom_mesh::agent::AgentRuntime;
-    use phantom_mesh::remote_control::telegram::{
+    use spectyn_mesh::agent::AgentRuntime;
+    use spectyn_mesh::remote_control::telegram::{
         run_round_trip, RemoteTelegramBot, RemoteTelegramConfig,
     };
-    use phantom_mesh::remote_control::telegram_agent_dispatcher::PhantomAgentDispatcher;
+    use spectyn_mesh::remote_control::telegram_agent_dispatcher::SpectynAgentDispatcher;
 
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    // Bot token: read from env (set by `phantom keys set telegram_bot`).
+    // Bot token: read from env (set by `spectyn keys set telegram_bot`).
     // Never logged.
     let bot_token = std::env::var("TELEGRAM_BOT_API_KEY").map_err(|_| {
         anyhow::anyhow!(
             "TELEGRAM_BOT_API_KEY env var not set. \
-             Run: phantom keys set telegram_bot <token>, then import it \
+             Run: spectyn keys set telegram_bot <token>, then import it \
              into your shell before re-running."
         )
     })?;
@@ -66,19 +66,19 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Agent name: defaults to "master" (matches phantom's default agent
-    // in `agents.toml.example`). Override via PHANTOM_AGENT env var.
-    let agent_name = std::env::var("PHANTOM_AGENT").unwrap_or_else(|_| "master".to_string());
+    // Agent name: defaults to "master" (matches spectyn's default agent
+    // in `agents.toml.example`). Override via SPECTYN_AGENT env var.
+    let agent_name = std::env::var("SPECTYN_AGENT").unwrap_or_else(|_| "master".to_string());
 
     // AgentRuntime: load from the standard agents.toml location (the
-    // same path the phantom CLI uses). If that fails (file missing or
+    // same path the spectyn CLI uses). If that fails (file missing or
     // parse error), fall through to the empty default — startup will
     // succeed but every dispatch will return "All providers failed"
     // until the user configures providers.
     let agents_config = load_agents_config_or_default();
     let runtime = Arc::new(AgentRuntime::new(agents_config));
 
-    let dispatcher = Arc::new(PhantomAgentDispatcher::new(runtime, agent_name.clone()));
+    let dispatcher = Arc::new(SpectynAgentDispatcher::new(runtime, agent_name.clone()));
 
     let cfg = RemoteTelegramConfig {
         bot_token,
@@ -95,13 +95,13 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("round-trip loop exited: {}", e))
 }
 
-/// Load `~/.phantom-mesh/agents.toml` from the standard phantom location.
+/// Load `~/.spectyn-mesh/agents.toml` from the standard spectyn location.
 /// On any failure (missing file, parse error, no $HOME) log a warning and
 /// return `AgentsConfig::default()` so the bot still starts.
 #[cfg(feature = "experimental-remote-control-telegram")]
-fn load_agents_config_or_default() -> phantom_mesh::config::AgentsConfig {
-    use phantom_mesh::cli_config::agents_toml_path;
-    use phantom_mesh::config::AgentsConfig;
+fn load_agents_config_or_default() -> spectyn_mesh::config::AgentsConfig {
+    use spectyn_mesh::cli_config::agents_toml_path;
+    use spectyn_mesh::config::AgentsConfig;
 
     let path = match agents_toml_path() {
         Some(p) => p,

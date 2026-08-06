@@ -42,12 +42,12 @@ export default class ErrorBoundary extends Component<Props, State> {
       const err = this.state.error;
       const msg = err instanceof Error ? err.message : String(err);
       return (
-        <div className="p-6 text-center text-sm text-phantom-muted" role="alert">
-          <p className="text-phantom-text mb-2">這個畫面發生錯誤</p>
+        <div className="p-6 text-center text-sm text-spectyn-muted" role="alert">
+          <p className="text-spectyn-text mb-2">這個畫面發生錯誤</p>
           <p className="text-xs break-words mb-4">{msg}</p>
           <button
             onClick={() => this.setState({ error: null })}
-            className="px-4 py-2 bg-phantom-card border border-phantom-border rounded-lg text-phantom-text"
+            className="px-4 py-2 bg-spectyn-card border border-spectyn-border rounded-lg text-spectyn-text"
           >
             重試
           </button>

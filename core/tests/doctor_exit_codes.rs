@@ -1,4 +1,4 @@
-//! Regression guard for `phantom doctor`'s PROCESS EXIT CODE.
+//! Regression guard for `spectyn doctor`'s PROCESS EXIT CODE.
 //!
 //! An earlier review found the wiring broken: `run_doctor` printed its report
 //! but returned `Ok(())` regardless of severity, so a genuinely broken machine
@@ -11,15 +11,15 @@
 //! which prefers `$HOME` on every platform), so these run everywhere.
 //!
 //! Conventions asserted (see the doc block over the `doctor` dispatch in
-//! `src/bin/phantom.rs`):
-//!   • `phantom doctor`        → 2 on a genuine Fail, 0 on healthy-or-warnings
-//!   • `phantom doctor --json` → ALWAYS 0 (health is in the JSON `state.worst`)
+//! `src/bin/spectyn.rs`):
+//!   • `spectyn doctor`        → 2 on a genuine Fail, 0 on healthy-or-warnings
+//!   • `spectyn doctor --json` → ALWAYS 0 (health is in the JSON `state.worst`)
 
 use std::path::Path;
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn write(p: &Path, s: &str) {
@@ -39,13 +39,13 @@ const USABLE_CONFIG: &str = "[providers.groq]\n\
 fn doctor_exits_2_on_broken_machine() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
-    let status = Command::new(phantom_bin())
+    let status = Command::new(spectyn_bin())
         .arg("doctor")
         .current_dir(cwd.path())
         .env("HOME", home.path())
         .env_remove("GROQ_API_KEY")
         .status()
-        .expect("phantom doctor must spawn");
+        .expect("spectyn doctor must spawn");
     assert_eq!(
         status.code(),
         Some(2),
@@ -59,15 +59,15 @@ fn doctor_exits_2_on_broken_machine() {
 fn doctor_exits_0_when_configured_and_key_present() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
-    write(&home.path().join(".phantom-mesh/identity.key"), "x");
-    write(&home.path().join(".phantom-mesh/agents.toml"), USABLE_CONFIG);
-    let status = Command::new(phantom_bin())
+    write(&home.path().join(".spectyn-mesh/identity.key"), "x");
+    write(&home.path().join(".spectyn-mesh/agents.toml"), USABLE_CONFIG);
+    let status = Command::new(spectyn_bin())
         .arg("doctor")
         .current_dir(cwd.path())
         .env("HOME", home.path())
         .env("GROQ_API_KEY", "sk-test")
         .status()
-        .expect("phantom doctor must spawn");
+        .expect("spectyn doctor must spawn");
     assert_eq!(
         status.code(),
         Some(0),
@@ -82,15 +82,15 @@ fn doctor_exits_0_when_configured_and_key_present() {
 fn doctor_exits_0_on_warnings_only() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
-    write(&home.path().join(".phantom-mesh/identity.key"), "x");
-    write(&home.path().join(".phantom-mesh/agents.toml"), USABLE_CONFIG);
-    let status = Command::new(phantom_bin())
+    write(&home.path().join(".spectyn-mesh/identity.key"), "x");
+    write(&home.path().join(".spectyn-mesh/agents.toml"), USABLE_CONFIG);
+    let status = Command::new(spectyn_bin())
         .arg("doctor")
         .current_dir(cwd.path())
         .env("HOME", home.path())
         .env_remove("GROQ_API_KEY") // named but unset → PROVIDER_KEY_MISSING warn
         .status()
-        .expect("phantom doctor must spawn");
+        .expect("spectyn doctor must spawn");
     assert_eq!(
         status.code(),
         Some(0),
@@ -106,12 +106,12 @@ fn doctor_exits_0_on_warnings_only() {
 fn doctor_json_always_exits_0_even_when_broken() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
-    let output = Command::new(phantom_bin())
+    let output = Command::new(spectyn_bin())
         .args(["doctor", "--json"])
         .current_dir(cwd.path())
         .env("HOME", home.path())
         .output()
-        .expect("phantom doctor --json must spawn");
+        .expect("spectyn doctor --json must spawn");
     assert_eq!(
         output.status.code(),
         Some(0),

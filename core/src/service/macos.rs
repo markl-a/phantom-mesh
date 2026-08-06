@@ -3,7 +3,7 @@
 // macOS service-manager adapter (PF-2c minimal scaffold).
 //
 // The full launchd install / uninstall / status logic still lives in
-// `core/src/bin/phantom.rs` (lines 6886-7977 + 9096-9155) where it was
+// `core/src/bin/spectyn.rs` (lines 6886-7977 + 9096-9155) where it was
 // before PF-2a/2b. This file currently exposes only the path-derivation
 // helpers so the V7+PF-2c P0 test `launchctl_plist_paths_correct` has
 // somewhere to live. The full impl port is the rest of PF-2c.
@@ -13,15 +13,15 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// launchd job label for the always-on `phantom serve` daemon. Must
-/// stay in sync with `LAUNCH_AGENT_LABEL` in `core/src/bin/phantom.rs`
+/// launchd job label for the always-on `spectyn serve` daemon. Must
+/// stay in sync with `LAUNCH_AGENT_LABEL` in `core/src/bin/spectyn.rs`
 /// — both compile-time pinned because the label is referenced from
-/// templates (`templates/ai.phantommesh.serve.plist.tmpl`) and from
-/// `launchctl kickstart gui/<uid>/ai.phantommesh.serve` strings.
-pub const LAUNCH_AGENT_LABEL: &str = "ai.phantommesh.serve";
+/// templates (`templates/ai.spectynmesh.serve.plist.tmpl`) and from
+/// `launchctl kickstart gui/<uid>/ai.spectynmesh.serve` strings.
+pub const LAUNCH_AGENT_LABEL: &str = "ai.spectynmesh.serve";
 
 /// Path to the per-user LaunchAgent plist:
-/// `~/Library/LaunchAgents/ai.phantommesh.serve.plist`. Returns `None`
+/// `~/Library/LaunchAgents/ai.spectynmesh.serve.plist`. Returns `None`
 /// when `$HOME` is unresolvable (test sandboxes, headless CI).
 pub fn launch_agent_plist_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| {
@@ -31,7 +31,7 @@ pub fn launch_agent_plist_path() -> Option<PathBuf> {
 }
 
 /// Path to the system-wide LaunchDaemon plist:
-/// `/Library/LaunchDaemons/ai.phantommesh.serve.plist`. Independent
+/// `/Library/LaunchDaemons/ai.spectynmesh.serve.plist`. Independent
 /// of `$HOME` because LaunchDaemons run as root.
 pub fn launch_daemon_plist_path() -> PathBuf {
     PathBuf::from("/Library/LaunchDaemons").join(format!("{}.plist", LAUNCH_AGENT_LABEL))
@@ -98,7 +98,7 @@ fn nix_uid() -> u32 {
 mod tests {
     use super::*;
 
-    /// MAC P0 — `launchctl print gui/<uid>/ai.phantommesh.serve` on a
+    /// MAC P0 — `launchctl print gui/<uid>/ai.spectynmesh.serve` on a
     /// host where the LaunchAgent is registered (this dev Mac, pid 1156
     /// at session-start) must surface a parseable pid. We don't assert
     /// the *value* (pid changes on every install/launchctl bootout),
@@ -111,18 +111,18 @@ mod tests {
     #[test]
     fn launchctl_print_includes_pid() {
         // Parser-only check first (no I/O).
-        let sample = "gui/501/ai.phantommesh.serve = {\n\
+        let sample = "gui/501/ai.spectynmesh.serve = {\n\
                       \tactive count = 1\n\
-                      \tpath = /Users/foo/Library/LaunchAgents/ai.phantommesh.serve.plist\n\
+                      \tpath = /Users/foo/Library/LaunchAgents/ai.spectynmesh.serve.plist\n\
                       \ttype = LaunchAgent\n\
                       \tstate = running\n\
-                      \tprogram = /Users/foo/.local/bin/phantom\n\
+                      \tprogram = /Users/foo/.local/bin/spectyn\n\
                       \tpid = 4242\n\
                       }";
         assert_eq!(parse_pid_from_launchctl_print(sample), Some(4242));
 
         // Reject impostor lines (e.g. inherited_pid, stopped_pid).
-        let no_pid = "gui/501/ai.phantommesh.serve = {\n\
+        let no_pid = "gui/501/ai.spectynmesh.serve = {\n\
                       \tactive count = 0\n\
                       \tstate = not running\n}";
         assert_eq!(parse_pid_from_launchctl_print(no_pid), None);
@@ -155,10 +155,10 @@ mod tests {
     }
 
     /// Build a minimal LaunchAgent plist for testing that won't collide
-    /// with the real `ai.phantommesh.serve` (test label, /bin/true program).
+    /// with the real `ai.spectynmesh.serve` (test label, /bin/true program).
     /// Returns (label, plist_path). Caller is responsible for cleanup.
     fn write_test_plist() -> (String, std::path::PathBuf) {
-        let label = format!("ai.phantommesh.tdd-{}", std::process::id());
+        let label = format!("ai.spectynmesh.tdd-{}", std::process::id());
         let plist = format!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
              <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \
@@ -192,7 +192,7 @@ mod tests {
     /// well-formed plist must succeed and result in the agent being
     /// registered. Test uses a throwaway plist (`/bin/true` program,
     /// `tdd-<pid>` label) so it can't collide with the real
-    /// `ai.phantommesh.serve` daemon running on the dev's Mac.
+    /// `ai.spectynmesh.serve` daemon running on the dev's Mac.
     #[test]
     #[ignore = "integration / env-dependent — real launchctl bootstrap (needs root / clean launchd session); run via --ignored"]
     fn launchctl_bootstrap_succeeds() {
@@ -296,15 +296,15 @@ mod tests {
     #[test]
     fn launchctl_plist_paths_correct() {
         // Label must match what's hard-coded across the codebase
-        // (phantom.rs templates, cli_config.rs launchctl strings,
+        // (spectyn.rs templates, cli_config.rs launchctl strings,
         // OAuth client id is a different label so don't conflate).
-        assert_eq!(LAUNCH_AGENT_LABEL, "ai.phantommesh.serve");
+        assert_eq!(LAUNCH_AGENT_LABEL, "ai.spectynmesh.serve");
 
         // LaunchDaemon path is fixed — no $HOME involvement.
         let daemon = launch_daemon_plist_path();
         assert_eq!(
             daemon,
-            PathBuf::from("/Library/LaunchDaemons/ai.phantommesh.serve.plist"),
+            PathBuf::from("/Library/LaunchDaemons/ai.spectynmesh.serve.plist"),
             "system-wide LaunchDaemon must live at /Library/LaunchDaemons \
              (not /System/, which is SIP-protected)"
         );
@@ -317,7 +317,7 @@ mod tests {
                 .expect("home_dir present → launch_agent_plist_path is Some");
             let expected = home
                 .join("Library/LaunchAgents")
-                .join("ai.phantommesh.serve.plist");
+                .join("ai.spectynmesh.serve.plist");
             assert_eq!(
                 agent, expected,
                 "per-user LaunchAgent must live under \
@@ -328,11 +328,11 @@ mod tests {
             // exactly what `launchctl bootstrap gui/<uid> <path>` expects.
             assert_eq!(
                 agent.file_name().and_then(|s| s.to_str()),
-                Some("ai.phantommesh.serve.plist")
+                Some("ai.spectynmesh.serve.plist")
             );
             assert!(agent
                 .to_string_lossy()
-                .ends_with("/Library/LaunchAgents/ai.phantommesh.serve.plist"));
+                .ends_with("/Library/LaunchAgents/ai.spectynmesh.serve.plist"));
         }
     }
 }

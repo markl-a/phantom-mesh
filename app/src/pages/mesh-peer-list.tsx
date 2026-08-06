@@ -45,10 +45,10 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
         : "green";
   const healthDot =
     health === "green"
-      ? "bg-phantom-success"
+      ? "bg-spectyn-success"
       : health === "amber"
-        ? "bg-phantom-warning"
-        : "bg-phantom-muted";
+        ? "bg-spectyn-warning"
+        : "bg-spectyn-muted";
   const healthLabel =
     health === "green"
       ? "健康 Healthy"
@@ -70,33 +70,33 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
   // PeerStatus union has no "Healthy": Online→green, Unhealthy→red, Unknown→muted.
   const dotColor = (peerStatus: string) =>
     peerStatus === "Online"
-      ? "bg-phantom-success"
+      ? "bg-spectyn-success"
       : peerStatus === "Unhealthy"
-        ? "bg-phantom-danger"
-        : "bg-phantom-muted";
+        ? "bg-spectyn-danger"
+        : "bg-spectyn-muted";
 
   return (
     <div
       data-testid="mesh-peer-list"
-      className="min-h-screen flex flex-col bg-phantom-bg text-phantom-text
+      className="min-h-screen flex flex-col bg-spectyn-bg text-spectyn-text
         pt-[env(safe-area-inset-top)]
         pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       {/* Header: health summary + refresh */}
-      <header className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-phantom-border">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-          <Network size={20} className="text-phantom-primary" aria-hidden="true" />
+      <header className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-spectyn-border">
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+          <Network size={20} className="text-spectyn-primary" aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-phantom-text">叢集對等節點 Mesh peers</h1>
-          <p className="text-sm text-phantom-muted flex items-center gap-1.5 mt-0.5">
+          <h1 className="text-lg font-bold text-spectyn-text">叢集對等節點 Mesh peers</h1>
+          <p className="text-sm text-spectyn-muted flex items-center gap-1.5 mt-0.5">
             <span
               className={`inline-block w-2.5 h-2.5 rounded-full ${healthDot} flex-shrink-0`}
               aria-hidden="true"
             />
             <span className="truncate">
               {healthLabel}
-              <span className="mx-1.5 text-phantom-muted">·</span>
+              <span className="mx-1.5 text-spectyn-muted">·</span>
               {thisDeviceId || "本機（未命名）"}
             </span>
           </p>
@@ -107,8 +107,8 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
           disabled={isLoading}
           aria-label="重新整理對等節點清單 Refresh peer list"
           className="flex items-center gap-1.5 min-h-[44px] px-3 rounded-lg text-base
-            bg-phantom-card border border-phantom-border text-phantom-text
-            hover:border-phantom-primary/40 transition motion-reduce:transition-none
+            bg-spectyn-card border border-spectyn-border text-spectyn-text
+            hover:border-spectyn-primary/40 transition motion-reduce:transition-none
             disabled:opacity-60 flex-shrink-0"
         >
           <RefreshCw
@@ -125,7 +125,7 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
         {error && (
           <div
             role="alert"
-            className="bg-phantom-danger/10 border border-phantom-danger/40 rounded-lg p-3 text-base text-phantom-danger"
+            className="bg-spectyn-danger/10 border border-spectyn-danger/40 rounded-lg p-3 text-base text-spectyn-danger"
           >
             無法取得對等節點：{error}
             <span className="block text-sm opacity-80 mt-1">Failed to load peers.</span>
@@ -136,7 +136,7 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
         {isLoading && peers.length === 0 && !error && (
           <div
             role="status"
-            className="flex items-center justify-center gap-2 min-h-[44px] text-base text-phantom-muted py-8"
+            className="flex items-center justify-center gap-2 min-h-[44px] text-base text-spectyn-muted py-8"
           >
             <RefreshCw
               size={18}
@@ -149,9 +149,9 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
 
         {/* Empty / isolated */}
         {!isLoading && !error && peers.length === 0 && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-            <p className="text-base text-phantom-text">孤立模式 Isolated</p>
-            <p className="text-sm text-phantom-muted mt-1.5">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+            <p className="text-base text-spectyn-text">孤立模式 Isolated</p>
+            <p className="text-sm text-spectyn-muted mt-1.5">
               尚未連接任何對等節點。透過下方按鈕加入叢集。
               <span className="block mt-0.5">No peers connected yet. Add one below.</span>
             </p>
@@ -165,14 +165,14 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
               <li
                 key={p.peer_id}
                 className="flex items-center gap-3 min-h-[44px] px-3 py-2.5 rounded-lg
-                  bg-phantom-card border border-phantom-border"
+                  bg-spectyn-card border border-spectyn-border"
               >
                 <span
                   className={`inline-block w-3 h-3 rounded-full ${dotColor(p.status)} flex-shrink-0`}
                   aria-hidden="true"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-base text-phantom-text truncate">
+                  <p className="text-base text-spectyn-text truncate">
                     {p.display_name || p.peer_id}
                   </p>
                   {(p.caps ?? []).length > 0 && (
@@ -180,7 +180,7 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
                       {(p.caps ?? []).slice(0, 4).map((c) => (
                         <span
                           key={c}
-                          className="text-xs px-1.5 py-0.5 rounded bg-phantom-primary/10 text-phantom-primary"
+                          className="text-xs px-1.5 py-0.5 rounded bg-spectyn-primary/10 text-spectyn-primary"
                         >
                           {c}
                         </span>
@@ -188,7 +188,7 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
                     </p>
                   )}
                 </div>
-                <span className="text-sm text-phantom-muted flex-shrink-0 text-right">
+                <span className="text-sm text-spectyn-muted flex-shrink-0 text-right">
                   {relTime(p.last_seen_unix)}
                 </span>
               </li>
@@ -197,7 +197,7 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
         )}
 
         {/* Last-sync footer line */}
-        <p className="text-sm text-phantom-muted pt-1">
+        <p className="text-sm text-spectyn-muted pt-1">
           {lastSyncMs > 0
             ? `最後同步 Last sync：${relTime(Math.floor(lastSyncMs / 1000))}`
             : "尚未同步 Not synced yet"}
@@ -205,13 +205,13 @@ export default function MeshPeerList({ onAddPeer }: MeshPeerListProps) {
       </main>
 
       {/* Sticky bottom CTA (reachability) */}
-      <footer className="sticky bottom-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] border-t border-phantom-border bg-phantom-bg">
+      <footer className="sticky bottom-0 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] border-t border-spectyn-border bg-spectyn-bg">
         <button
           type="button"
           onClick={handleAddPeer}
           aria-label="新增對等節點 Add peer"
           className="w-full min-h-[48px] flex items-center justify-center gap-2 rounded-xl
-            bg-phantom-primary text-phantom-bg text-base font-semibold
+            bg-spectyn-primary text-spectyn-bg text-base font-semibold
             hover:opacity-90 transition motion-reduce:transition-none"
         >
           <Plus size={18} aria-hidden="true" />

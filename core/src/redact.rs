@@ -283,9 +283,9 @@ mod tests {
             ),
             // 8. A normal hyphenated word / version is NOT a secret.
             (
-                "phantom-mesh v0.6.0 release-candidate build",
+                "spectyn-mesh v0.6.0 release-candidate build",
                 &[],
-                &["phantom-mesh v0.6.0 release-candidate build"],
+                &["spectyn-mesh v0.6.0 release-candidate build"],
             ),
         ];
 

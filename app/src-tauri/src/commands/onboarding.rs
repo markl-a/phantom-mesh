@@ -167,7 +167,7 @@ async fn probe_ollama_quick() -> (String, Vec<String>) {
 }
 
 fn find_daemon_binary() -> Option<String> {
-    let bin_name = if cfg!(windows) { "phantom-mesh.exe" } else { "phantom-mesh" };
+    let bin_name = if cfg!(windows) { "spectyn-mesh.exe" } else { "spectyn-mesh" };
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
@@ -192,7 +192,7 @@ fn find_daemon_binary() -> Option<String> {
         }
     }
 
-    which::which("phantom-mesh")
+    which::which("spectyn-mesh")
         .ok()
         .map(|p| p.to_string_lossy().to_string())
 }
@@ -248,14 +248,14 @@ pub async fn test_ollama(endpoint: String) -> Result<OllamaProbeResult, String> 
 }
 
 #[tauri::command]
-pub async fn scan_credentials() -> Result<Vec<phantom_mesh::providers::DiscoveredProviderInfo>, String> {
-    let discovered = phantom_mesh::providers::credential_scanner::scan_all().await;
+pub async fn scan_credentials() -> Result<Vec<spectyn_mesh::providers::DiscoveredProviderInfo>, String> {
+    let discovered = spectyn_mesh::providers::credential_scanner::scan_all().await;
     Ok(discovered.iter().map(|d| d.to_frontend_info()).collect())
 }
 
 #[tauri::command]
 pub async fn read_copilot_token() -> Result<CopilotTokenStatus, String> {
-    let paths = phantom_mesh::providers::credential_scanner::copilot_token_paths();
+    let paths = spectyn_mesh::providers::credential_scanner::copilot_token_paths();
     for path in &paths {
         if let Ok(content) = tokio::fs::read_to_string(path).await {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -294,7 +294,7 @@ pub async fn read_claude_cli_token() -> Result<ClaudeCliStatus, String> {
     // item, parsing the modern nested OAuth shape. Runs on a blocking thread
     // because the Keychain read shells out to `security`.
     let found = tokio::task::spawn_blocking(|| {
-        phantom_mesh::providers::claude_cli::find_claude_token().is_some()
+        spectyn_mesh::providers::claude_cli::find_claude_token().is_some()
     })
     .await
     .unwrap_or(false);
@@ -306,7 +306,7 @@ pub async fn read_claude_cli_token() -> Result<ClaudeCliStatus, String> {
 /// provider) from a plain `OPENAI_API_KEY` (→ openai provider).
 #[tauri::command]
 pub async fn read_codex_token() -> Result<CodexCliStatus, String> {
-    let auth = phantom_mesh::providers::codex_cli::find_codex_auth();
+    let auth = spectyn_mesh::providers::codex_cli::find_codex_auth();
     Ok(CodexCliStatus {
         found: auth.is_some(),
         is_oauth: auth.map(|a| a.is_oauth).unwrap_or(false),
@@ -317,8 +317,8 @@ pub async fn read_codex_token() -> Result<CodexCliStatus, String> {
 /// Lemonade) and return the ones currently running, with their models.
 #[tauri::command]
 pub async fn detect_local_servers(
-) -> Result<Vec<phantom_mesh::providers::local_servers::LocalServer>, String> {
-    Ok(phantom_mesh::providers::local_servers::detect_local_servers().await)
+) -> Result<Vec<spectyn_mesh::providers::local_servers::LocalServer>, String> {
+    Ok(spectyn_mesh::providers::local_servers::detect_local_servers().await)
 }
 
 /// One free-tier cloud provider, flattened for the onboarding picker.
@@ -350,7 +350,7 @@ pub struct FreeProviderSuggestion {
 /// lives in the environment). Reads only env-var PRESENCE — never a key value.
 #[tauri::command]
 pub async fn detect_free_provider() -> Result<FreeProviderSuggestion, String> {
-    use phantom_mesh::providers::free_plugin;
+    use spectyn_mesh::providers::free_plugin;
     fn to_info(p: &free_plugin::FreeProvider) -> FreeProviderInfo {
         FreeProviderInfo {
             slug: p.slug.to_string(),
@@ -388,7 +388,7 @@ pub struct FinalizeOnboardingInput {
 
 /// Write the first-run `agents.toml` for the GUI onboarding flow — the streamlined
 /// flow's missing config-write (unified onboarding design §8.1). Calls the SAME
-/// core writer the CLI uses (`phantom_mesh::onboarding_config::write_onboarding_config`)
+/// core writer the CLI uses (`spectyn_mesh::onboarding_config::write_onboarding_config`)
 /// so the generated config is identical across surfaces, then persists a pasted
 /// free key via the escaping `keys::set_api_key` path. Returns the active
 /// (primary) provider slug. No secret is string-built into the file here.
@@ -397,8 +397,8 @@ pub async fn finalize_onboarding_config(
     app: tauri::AppHandle,
     input: FinalizeOnboardingInput,
 ) -> Result<String, String> {
-    use phantom_mesh::providers::free_plugin;
-    use phantom_mesh::providers::local_servers::LocalServer;
+    use spectyn_mesh::providers::free_plugin;
+    use spectyn_mesh::providers::local_servers::LocalServer;
 
     let config_dir = app
         .path()
@@ -427,7 +427,7 @@ pub async fn finalize_onboarding_config(
 
     let ordered_refs: Vec<&str> = input.ordered.iter().map(|s| s.as_str()).collect();
 
-    let active = phantom_mesh::onboarding_config::write_onboarding_config(
+    let active = spectyn_mesh::onboarding_config::write_onboarding_config(
         &cfg_path,
         &ordered_refs,
         ollama.as_ref(),
@@ -438,7 +438,7 @@ pub async fn finalize_onboarding_config(
     // Persist a pasted free key (if any) via the escaping keys API.
     if let (Some(slug), Some(key)) = (input.free_slug.as_deref(), input.free_key.as_deref()) {
         if !key.trim().is_empty() {
-            phantom_mesh::keys::set_api_key(&cfg_path, slug, key).map_err(|e| e.to_string())?;
+            spectyn_mesh::keys::set_api_key(&cfg_path, slug, key).map_err(|e| e.to_string())?;
         }
     }
 
@@ -452,7 +452,7 @@ pub async fn finalize_onboarding_config(
 ///   - `http://<host>...` where host is exactly `localhost` or `127.0.0.1`
 ///
 /// Rejects:
-///   - Any other scheme (file://, javascript:, vscode://, phantom://, ...)
+///   - Any other scheme (file://, javascript:, vscode://, spectyn://, ...)
 ///   - URLs with a userinfo component (e.g. `http://localhost@attacker.com`)
 ///     because browsers route those to the userinfo-stripped authority.
 ///   - Hosts that *look* like localhost but aren't, e.g. `localhost.attacker.com`,
@@ -563,7 +563,7 @@ mod open_external_url_tests {
         assert!(validate_external_url("file:///etc/passwd").is_err());
         assert!(validate_external_url("javascript:alert(1)").is_err());
         assert!(validate_external_url("vscode://path").is_err());
-        assert!(validate_external_url("phantom://oauth/callback").is_err());
+        assert!(validate_external_url("spectyn://oauth/callback").is_err());
         assert!(validate_external_url("ftp://example.com/").is_err());
     }
 
@@ -947,7 +947,7 @@ pub async fn write_config(
 #[tauri::command]
 pub fn generate_qr_data(hub_url: String, auth_key: String, node_id: String) -> QrPayload {
     QrPayload {
-        payload_type: "phantom-mesh-hub".to_string(),
+        payload_type: "spectyn-mesh-hub".to_string(),
         version: 1,
         hub_url,
         auth_key,

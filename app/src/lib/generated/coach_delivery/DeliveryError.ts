@@ -4,7 +4,7 @@
  * Wire-facing error variants for the coach delivery subsystem. Mirrors the
  * SPEC-24 §11.1 error catalog one-to-one (subset focused on per-channel
  * failure modes the UI + CLI dispatch on). Sent back via Tauri command
- * failure path; CLI maps via `phantom_error::Error::user_message`.
+ * failure path; CLI maps via `spectyn_error::Error::user_message`.
  *
  * 中文: SPEC-24 §11.1 error catalog 的 wire-facing 鏡像（聚焦在 per-channel
  * 失敗模式，UI + CLI 用機器可讀 code 做 dispatch）。`#[serde(tag = "code")]`

@@ -1,8 +1,8 @@
-//! Lightweight JSON-Lines tracer for phantom agent task execution.
+//! Lightweight JSON-Lines tracer for spectyn agent task execution.
 //!
 //! Records agent plan / route / tool_call / result events as one-line JSON
-//! to `~/.phantom-mesh/traces/<task-id>.jsonl`. Used by L2 of the testing
-//! framework (see goal_plan/docs/29-phantom-mesh-testing-framework).
+//! to `~/.spectyn-mesh/traces/<task-id>.jsonl`. Used by L2 of the testing
+//! framework (see goal_plan/docs/29-spectyn-mesh-testing-framework).
 //!
 //! Intentionally minimal: no OpenTelemetry, no async runtime dep, no
 //! thread-safety beyond what `BufWriter<File>` gives. One Tracer per task.
@@ -29,7 +29,7 @@ pub struct Tracer {
 
 impl Tracer {
     /// Create a tracer writing to the default location:
-    /// `~/.phantom-mesh/traces/<task_id>.jsonl`.
+    /// `~/.spectyn-mesh/traces/<task_id>.jsonl`.
     pub fn new(task_id: impl Into<String>) -> io::Result<Self> {
         let dir = default_trace_dir()?;
         Self::new_in_dir(task_id, dir)
@@ -90,9 +90,9 @@ impl Drop for Tracer {
     }
 }
 
-/// Returns `~/.phantom-mesh/traces/`.
+/// Returns `~/.spectyn-mesh/traces/`.
 pub fn default_trace_dir() -> io::Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|_| io::Error::new(io::ErrorKind::NotFound, "home dir not found"))?;
     Ok(data.join("traces"))
 }

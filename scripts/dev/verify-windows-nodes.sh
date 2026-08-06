@@ -1,5 +1,5 @@
 #!/bin/bash
-# Verify SSH connectivity + phantom-mesh status on the three Windows nodes.
+# Verify SSH connectivity + spectyn-mesh status on the three Windows nodes.
 # Run after `windows-bootstrap.ps1` has been executed on each Windows machine.
 #
 # Usage:
@@ -25,7 +25,7 @@ probe_node() {
     # SSH probe
     local ssh_out
     ssh_out=$(timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
-        "$target" 'hostname; whoami; tasklist 2>nul | findstr phantom-mesh; tailscale ip -4 2>nul | findstr 100.' 2>&1 \
+        "$target" 'hostname; whoami; tasklist 2>nul | findstr spectyn-mesh; tailscale ip -4 2>nul | findstr 100.' 2>&1 \
         | grep -v "post-quantum\|store now")
     local ssh_rc=$?
 
@@ -43,11 +43,11 @@ probe_node() {
     local http
     http=$(curl -s --max-time 5 "http://$ts_ip:7878/healthz" 2>&1)
     if [ "$http" = "ok" ]; then
-        echo "  ✅ phantom-mesh HTTP ok (/healthz)"
+        echo "  ✅ spectyn-mesh HTTP ok (/healthz)"
     elif [ -z "$http" ]; then
-        echo "  ⚠ phantom-mesh HTTP no response (尚未啟動?)"
+        echo "  ⚠ spectyn-mesh HTTP no response (尚未啟動?)"
     else
-        echo "  ⚠ phantom-mesh HTTP: $http"
+        echo "  ⚠ spectyn-mesh HTTP: $http"
     fi
     echo ""
 }
@@ -57,5 +57,5 @@ for n in node-a node-b node-c; do
 done
 
 echo "═══ 結束 ═══"
-echo "如果有節點 SSH ✅ 但 phantom-mesh HTTP ❌：表示 SSH 通了但 phantom 沒在跑，"
+echo "如果有節點 SSH ✅ 但 spectyn-mesh HTTP ❌：表示 SSH 通了但 spectyn 沒在跑，"
 echo "Mac 端可以接著 SCP 新 binary 上去並啟動。"

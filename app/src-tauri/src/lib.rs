@@ -34,7 +34,7 @@ use tauri::Manager;
 // hostnames + private IPs from physical iOS devices.
 #[cfg(target_os = "ios")]
 unsafe extern "C" {
-    fn phantom_ios_fetch(
+    fn spectyn_ios_fetch(
         url:          *const std::os::raw::c_char,
         method:       *const std::os::raw::c_char,
         body:         *const u8,
@@ -47,7 +47,7 @@ unsafe extern "C" {
     );
 
     // native/ios_location.m — one-shot CoreLocation GPS read.
-    fn phantom_ios_location(
+    fn spectyn_ios_location(
         lat_out: *mut f64,
         lon_out: *mut f64,
         acc_out: *mut f64,
@@ -59,7 +59,7 @@ unsafe extern "C" {
     // native/ios_motion.m — one-shot CoreMotion + UIDevice multi-sensor read,
     // returns a UTF-8 JSON object (battery/accel/gyro/attitude/magnetometer +
     // best-effort steps/activity).
-    fn phantom_ios_sensors(
+    fn spectyn_ios_sensors(
         json_buf: *mut u8,
         json_len: *mut std::os::raw::c_long,
         max_len: std::os::raw::c_long,
@@ -94,7 +94,7 @@ async fn swift_get_location() -> Result<LocationResult, String> {
         // SAFETY: native/ios_location.m writes at most MAXE bytes into errbuf
         // and bounds its wait at 25s via a DispatchSemaphore.
         unsafe {
-            phantom_ios_location(
+            spectyn_ios_location(
                 &mut lat as *mut f64,
                 &mut lon as *mut f64,
                 &mut acc as *mut f64,
@@ -131,7 +131,7 @@ async fn swift_get_sensors() -> Result<String, String> {
         // SAFETY: native/ios_motion.m writes at most MAX bytes into buf and
         // bounds each sensor read with a DispatchSemaphore.
         unsafe {
-            phantom_ios_sensors(buf.as_mut_ptr(), &mut len as *mut std::os::raw::c_long, MAX);
+            spectyn_ios_sensors(buf.as_mut_ptr(), &mut len as *mut std::os::raw::c_long, MAX);
         }
         let n = (len as usize).min(buf.len());
         Ok(String::from_utf8_lossy(&buf[..n]).to_string())
@@ -177,7 +177,7 @@ async fn swift_cluster_fetch(
         // into the buffer and updates result_buf_len / status_out. The
         // synchronous DispatchSemaphore inside ObjC bounds the wait at 35s.
         unsafe {
-            phantom_ios_fetch(
+            spectyn_ios_fetch(
                 url_c.as_ptr(),
                 method_c.as_ptr(),
                 body_bytes.as_ptr(),
@@ -205,7 +205,7 @@ pub fn run() {
     {
         let log_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".phantom-mesh")
+            .join(".spectyn-mesh")
             .join("logs");
         let _ = std::fs::create_dir_all(&log_dir);
         let file_appender = tracing_appender::rolling::daily(&log_dir, "app.log");
@@ -225,7 +225,7 @@ pub fn run() {
             .unwrap_or_else(|_| PathBuf::from("/tmp"));
         let _ = std::fs::create_dir_all(&log_dir);
         let file_appender =
-            tracing_appender::rolling::never(&log_dir, "phantom-mesh.log");
+            tracing_appender::rolling::never(&log_dir, "spectyn-mesh.log");
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         // Leak guard so the worker thread keeps draining for app lifetime.
         // Without this the file would never flush.
@@ -236,7 +236,7 @@ pub fn run() {
             .init();
         // One INFO line so the file is non-empty even if nothing else logs.
         tracing::info!(
-            "phantom-mesh mobile logger started — tmp={:?}",
+            "spectyn-mesh mobile logger started — tmp={:?}",
             log_dir.display()
         );
     }
@@ -256,14 +256,14 @@ pub fn run() {
         // this uses UIApplication.openURL: — the `open` crate fails in the iOS
         // sandbox, which forced open_external_url to fall back to in-webview nav,
         // so Google rejected the broker OAuth flow (disallowed_useragent). Opening
-        // Safari lets the callback return via the phantom://oauth/callback deep-link.
+        // Safari lets the callback return via the spectyn://oauth/callback deep-link.
         .plugin(tauri_plugin_opener::init())
         // tauri-plugin-deep-link receives the OAuth-callback URL the broker
-        // redirects to (`phantom://oauth/callback?p=<base64-payload>`) and
+        // redirects to (`spectyn://oauth/callback?p=<base64-payload>`) and
         // routes it to on_open_url(). Required on iOS where the sandbox
         // blocks the loopback HTTP server pattern that desktop uses, and
         // also useful on macOS for the same scheme. Info.plist
-        // (CFBundleURLSchemes) registers the `phantom` scheme on iOS.
+        // (CFBundleURLSchemes) registers the `spectyn` scheme on iOS.
         .plugin(tauri_plugin_deep_link::init())
         // tauri-plugin-http: native reqwest-based fetch that bypasses
         // WKWebView's CORS + Mixed Content policies. Required on iOS
@@ -343,7 +343,7 @@ pub fn run() {
             // flow. The result: silent timeouts when the app tries to reach
             // any private IP (Tailscale 100.x, LAN 192.168.x, etc) — iOS
             // never shows the "this app wants to use your local network"
-            // dialog, and there's no toggle in Settings > Phantom Mesh.
+            // dialog, and there's no toggle in Settings > Spectyn Mesh.
             //
             // Fix: kick a one-shot mDNS browse on startup. The act of
             // binding a multicast UDP socket on the local network triggers
@@ -353,7 +353,7 @@ pub fn run() {
             std::thread::spawn(|| {
                 use mdns_sd::ServiceDaemon;
                 if let Ok(daemon) = ServiceDaemon::new() {
-                    let _ = daemon.browse("_phantom-mesh._tcp.local.");
+                    let _ = daemon.browse("_spectyn-mesh._tcp.local.");
                     // Keep the browse alive for 30s so the iOS prompt has
                     // time to surface and the user has time to tap Allow.
                     std::thread::sleep(std::time::Duration::from_secs(30));
@@ -361,40 +361,40 @@ pub fn run() {
                 }
             });
 
-            // Deep-link handler — fires when the OS hands us a phantom://
+            // Deep-link handler — fires when the OS hands us a spectyn://
             // URL (typically the OAuth callback the broker meta-refreshes
             // to). We hand the raw URL to the JS layer via a Tauri event
             // so the front-end can parse the `?p=<base64-payload>` query
             // and store the broker_token in the right platform vault
-            // (iOS Keychain / desktop ~/.phantom-mesh/auth.json).
+            // (iOS Keychain / desktop ~/.spectyn-mesh/auth.json).
             //
             // Attached inside setup() so it's wired before iOS hands us
-            // the launch URL when the app cold-starts via `phantom://...`.
+            // the launch URL when the app cold-starts via `spectyn://...`.
             {
                 let app_handle = app.handle().clone();
                 app.deep_link().on_open_url(move |event| {
                     for url in event.urls() {
                         let url_str = url.to_string();
                         // V8-HIGH-5: filter at the Rust layer so only valid
-                        // phantom://oauth/callback?p=<b64url> URLs reach the
+                        // spectyn://oauth/callback?p=<b64url> URLs reach the
                         // JS deep-link listener. The OS routes EVERY
-                        // phantom:// URL here (the scheme registration is
+                        // spectyn:// URL here (the scheme registration is
                         // path-blind), so without this filter an attacker
-                        // who can route a `phantom://anything?…` URL to the
+                        // who can route a `spectyn://anything?…` URL to the
                         // app could deliver crafted payloads to whatever
                         // front-end listeners happen to be attached. The
                         // state-binding check in broker_login_finish is the
                         // primary defense; this is defense-in-depth.
 
                         // Allowlist for non-OAuth deep links. Currently:
-                        //   phantom://demo-mode  → QA/demo entry point that
+                        //   spectyn://demo-mode  → QA/demo entry point that
                         //   lets the JS layer pre-seed onboarding flags and
                         //   land directly on /settings/cluster. Carries NO
                         //   credentials, sets NO server state — purely a
                         //   navigation signal — so it's safe to forward.
-                        if url_str.starts_with("phantom://demo-mode") {
+                        if url_str.starts_with("spectyn://demo-mode") {
                             tracing::info!(
-                                target: "phantom-app",
+                                target: "spectyn-app",
                                 "deep-link demo-mode accepted"
                             );
                             let _ = app_handle.emit("deep-link://demo-mode", url_str);
@@ -404,7 +404,7 @@ pub fn run() {
                         match commands::broker_login::validate_oauth_callback_url(&url_str) {
                             Ok(_parsed) => {
                                 tracing::info!(
-                                    target: "phantom-app",
+                                    target: "spectyn-app",
                                     "deep-link OAuth callback accepted (len={})",
                                     url_str.len(),
                                 );
@@ -416,13 +416,13 @@ pub fn run() {
                                 // navigation dispatcher. core::dispatch_deep_link
                                 // enforces the SPEC-17 §8/§11.2 allowlist +
                                 // path-traversal rejection + OAuth-token
-                                // sanitization, so only well-formed phantom://
+                                // sanitization, so only well-formed spectyn://
                                 // URLs survive. We forward ONLY credential-free,
                                 // state-free navigation hosts (chat/settings/mesh)
                                 // to the webview; oauth/demo-mode are handled
                                 // above, and anything else is dropped. §13: log
                                 // length + reason only, never the raw URL.
-                                match phantom_mesh::tauri_wire::dispatch_deep_link(&url_str) {
+                                match spectyn_mesh::tauri_wire::dispatch_deep_link(&url_str) {
                                     Ok(route)
                                         if matches!(
                                             route.host.as_str(),
@@ -430,7 +430,7 @@ pub fn run() {
                                         ) =>
                                     {
                                         tracing::info!(
-                                            target: "phantom-app",
+                                            target: "spectyn-app",
                                             "deep-link navigate host={} (len={})",
                                             route.host,
                                             url_str.len(),
@@ -443,7 +443,7 @@ pub fn run() {
                                         // forwardable nav host (e.g. onboarding)
                                         // — drop without navigating.
                                         tracing::warn!(
-                                            target: "phantom-app",
+                                            target: "spectyn-app",
                                             "deep-link dropped: non-nav host={} (len={})",
                                             route.host,
                                             url_str.len(),
@@ -457,7 +457,7 @@ pub fn run() {
                                         // earlier OAuth-validation reason was
                                         // `{reason}`.
                                         tracing::warn!(
-                                            target: "phantom-app",
+                                            target: "spectyn-app",
                                             "deep-link rejected: {} (oauth-check={}, len={})",
                                             dl_err.code,
                                             reason,
@@ -482,7 +482,7 @@ pub fn run() {
             if let Ok(config_dir) = app_config_dir_result {
                 // On Android, app_config_dir() returns the package dir (e.g. /data/user/0/PACKAGE),
                 // NOT the files/ subdirectory. Set HOME to the package dir so that
-                // dirs::home_dir().join(".phantom-mesh") resolves inside the app's sandbox.
+                // dirs::home_dir().join(".spectyn-mesh") resolves inside the app's sandbox.
                 {
                     let _ = std::env::set_var("HOME", &config_dir);
                 }
@@ -497,24 +497,24 @@ pub fn run() {
                 // 2026-05-30; cross-device key reconciliation is a flagged follow-up).
                 #[cfg(any(target_os = "android", target_os = "ios"))]
                 {
-                    let phantom_dir = config_dir.join(".phantom-mesh");
-                    match phantom_mesh::encryption_wire::ensure_local_event_key(&phantom_dir) {
-                        Ok(()) => tracing::info!(target: "phantom-app", "local EventKey ready"),
+                    let spectyn_dir = config_dir.join(".spectyn-mesh");
+                    match spectyn_mesh::encryption_wire::ensure_local_event_key(&spectyn_dir) {
+                        Ok(()) => tracing::info!(target: "spectyn-app", "local EventKey ready"),
                         Err(e) => tracing::warn!(
-                            target: "phantom-app",
+                            target: "spectyn-app",
                             "ensure_local_event_key failed: {:?}",
                             e
                         ),
                     }
                 }
 
-                // Load ~/.phantom-mesh/env (KEY=VALUE per line, written by
+                // Load ~/.spectyn-mesh/env (KEY=VALUE per line, written by
                 // broker_sync_from_vault) into the process env. The agent
                 // runtime reads provider keys via std::env::var() so without
                 // this step a freshly-logged-in iOS user would have keys on
                 // disk but no LLM calls would work — the in-process providers
                 // would skip every entry for "no api_key set".
-                let env_file = config_dir.join(".phantom-mesh").join("env");
+                let env_file = config_dir.join(".spectyn-mesh").join("env");
                 if let Ok(text) = std::fs::read_to_string(&env_file) {
                     let mut loaded = 0usize;
                     for line in text.lines() {
@@ -550,7 +550,7 @@ pub fn run() {
                 // Search for agents.toml in the package dir and its common subdirectories.
                 let candidates = [
                     config_dir.join("files").join("agents.toml"),
-                    config_dir.join(".phantom-mesh").join("agents.toml"),
+                    config_dir.join(".spectyn-mesh").join("agents.toml"),
                     config_dir.join("agents.toml"),
                     config_dir.join("files").join("config").join("agents.toml"),
                 ];
@@ -594,17 +594,17 @@ pub fn run() {
                 }
             }
 
-            // Start in-process PhantomMeshRuntime
+            // Start in-process SpectynMeshRuntime
             {
                 let handle = app.handle().clone();
                 let port = resolved_port;
                 let config_path = resolved_config_path.clone();
                 let data_dir = dirs::home_dir()
                     .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".phantom-mesh");
+                    .join(".spectyn-mesh");
 
                 tauri::async_runtime::spawn(async move {
-                    let rt_config = phantom_mesh::runtime::RuntimeConfig {
+                    let rt_config = spectyn_mesh::runtime::RuntimeConfig {
                         config_path,
                         data_dir: Some(data_dir),
                         ..Default::default()
@@ -614,7 +614,7 @@ pub fn run() {
                     match RuntimeState::init(rt_config, port).await {
                         Ok(runtime_state) => {
                             tracing::info!(
-                                "PhantomMeshRuntime ready in {:.2}s",
+                                "SpectynMeshRuntime ready in {:.2}s",
                                 started.elapsed().as_secs_f64()
                             );
                             let app_state = runtime_state.runtime.app_state().clone();
@@ -649,14 +649,14 @@ pub fn run() {
                                 // mobile anyway.
                                 let _ = http_port; // referenced only for log
                                 let app_state_arc = std::sync::Arc::new(app_state);
-                                let router = phantom_mesh::serve::router(app_state_arc).layer(cors);
+                                let router = spectyn_mesh::serve::router(app_state_arc).layer(cors);
                                 // 0.0.0.0 on iOS binds to all interfaces incl
                                 // Tailscale's utun*, but iOS app-sandbox will
                                 // refuse the bind silently if entitlements
                                 // don't include `com.apple.developer.networking
                                 // .multipath` etc. For dev-cert IPAs this
                                 // tends to "just work" on Wi-Fi/Tailscale.
-                                if let Err(e) = phantom_mesh::start_http_server(
+                                if let Err(e) = spectyn_mesh::start_http_server(
                                     "0.0.0.0", http_port, router,
                                 ).await {
                                     tracing::warn!("HTTP server bind failed: {}", e);
@@ -664,7 +664,7 @@ pub fn run() {
                             });
                         }
                         Err(e) => {
-                            tracing::warn!("PhantomMeshRuntime init failed: {:#}", e);
+                            tracing::warn!("SpectynMeshRuntime init failed: {:#}", e);
                         }
                     }
                 });
@@ -682,7 +682,7 @@ pub fn run() {
                 let header = MenuItem::with_id(
                     app,
                     "header",
-                    format!("Phantom Mesh v{}", env!("CARGO_PKG_VERSION")),
+                    format!("Spectyn Mesh v{}", env!("CARGO_PKG_VERSION")),
                     false,
                     None::<&str>,
                 )?;
@@ -716,7 +716,7 @@ pub fn run() {
                 }
                 let _tray = TrayIconBuilder::new()
                     .menu(&menu)
-                    .tooltip("Phantom Mesh")
+                    .tooltip("Spectyn Mesh")
                     .on_menu_event(|app, event| match event.id.as_ref() {
                         "open" => {
                             if let Some(w) = app.get_webview_window("main") {
@@ -820,7 +820,7 @@ pub fn run() {
             // get_broker_token_preview / rotate_broker_token /
             // get_heartbeat_interval / set_heartbeat_interval / add_cluster_peer.
             // All inputs validated in Rust against the V8-HIGH-2 allow-list
-            // and write back to ~/.phantom-mesh/agents.toml or auth.json.
+            // and write back to ~/.spectyn-mesh/agents.toml or auth.json.
             commands::mobile_settings::get_broker_token_preview,
             commands::mobile_settings::rotate_broker_token,
             commands::mobile_settings::get_heartbeat_interval,
@@ -953,40 +953,40 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Router {
+fn build_compat_router(state: spectyn_mesh::AppState, _port: u16) -> axum::Router {
     use axum::{routing::get, routing::post, Json, Router};
     use axum::extract::{State, Query};
     use axum::response::{IntoResponse, Redirect};
     use serde_json::{json, Value};
     use std::collections::HashMap;
 
-    async fn health(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn health(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(json!({
             "status": "ok",
             "version": env!("CARGO_PKG_VERSION"),
-            "service": "phantom-mesh",
+            "service": "spectyn-mesh",
             "mode": "library",
             "uptime_seconds": state.started_at.elapsed().as_secs(),
         }))
     }
 
-    async fn tools_list(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn tools_list(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(json!({ "tools": state.tool_registry.names() }))
     }
 
-    async fn hands_list(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn hands_list(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(json!({ "hands": state.hands.names() }))
     }
 
-    async fn costs(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn costs(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(state.cost_tracker.summary().await)
     }
 
-    async fn revenue(State(_): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn revenue(State(_): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(json!({ "total_usd": 0.0 }))
     }
 
-    async fn task_history(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn task_history(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         match &state.task_queue {
             Some(q) => match q.store().list(None, None, 50).await {
                 Ok(tasks) => Json(json!({ "tasks": tasks })),
@@ -996,7 +996,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
         }
     }
 
-    async fn dashboard_status(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn dashboard_status(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         Json(json!({
             "tools_count": state.tool_registry.names().len(),
             "hands_count": state.hands.names().len(),
@@ -1006,7 +1006,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
         }))
     }
 
-    async fn provider_health(State(state): State<phantom_mesh::AppState>) -> Json<Value> {
+    async fn provider_health(State(state): State<spectyn_mesh::AppState>) -> Json<Value> {
         let providers = state.llm_router.inner().health_summary().into_iter().map(|s| {
             let health = if s.is_available { "healthy" } else { "offline" };
             json!({
@@ -1022,7 +1022,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
     }
 
     async fn agent_run(
-        State(state): State<phantom_mesh::AppState>,
+        State(state): State<spectyn_mesh::AppState>,
         axum::extract::Path(name): axum::extract::Path<String>,
         Json(body): Json<Value>,
     ) -> Json<Value> {
@@ -1030,7 +1030,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
         let history = state.conversations.get_history("app").await;
         match state.agent_runtime.run(&name, prompt, &history, None).await {
             Ok(result) => {
-                use phantom_mesh::providers::traits::ChatMessage;
+                use spectyn_mesh::providers::traits::ChatMessage;
                 state.conversations.append("app",
                     ChatMessage { role: "user".into(), content: prompt.to_string(), tool_calls: None },
                     ChatMessage { role: "assistant".into(), content: result.output.clone(), tool_calls: None },
@@ -1042,11 +1042,11 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
     }
 
     async fn oauth_google_start() -> impl IntoResponse {
-        Redirect::temporary(&phantom_mesh::oauth::google_start_url(7878))
+        Redirect::temporary(&spectyn_mesh::oauth::google_start_url(7878))
     }
 
     async fn oauth_apple_start() -> impl IntoResponse {
-        match phantom_mesh::oauth::apple_start_url(7878) {
+        match spectyn_mesh::oauth::apple_start_url(7878) {
             Ok(url) => Redirect::temporary(&url).into_response(),
             Err(e) => axum::response::Html(format!("<html><body>{}</body></html>", e)).into_response(),
         }
@@ -1059,14 +1059,14 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
         if !error.is_empty() {
             return axum::response::Html(format!("<html><body>{}</body></html>", error)).into_response();
         }
-        match phantom_mesh::oauth::handle_callback(&code, &state_param).await {
+        match spectyn_mesh::oauth::handle_callback(&code, &state_param).await {
             Ok(url) => Redirect::temporary(&url).into_response(),
             Err(e) => axum::response::Html(format!("<html><body>{}</body></html>", e)).into_response(),
         }
     }
 
     async fn oauth_result() -> Json<Value> {
-        match phantom_mesh::oauth::get_result() {
+        match spectyn_mesh::oauth::get_result() {
             Some(Ok(id)) => Json(json!({"ok": true, "identity": id})),
             Some(Err(e)) => Json(json!({"ok": false, "error": e})),
             None => Json(json!({"ok": false, "error": "no result yet"})),
@@ -1074,11 +1074,11 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
     }
 
     async fn oauth_apple_available() -> Json<Value> {
-        Json(json!({"available": phantom_mesh::oauth::apple_available()}))
+        Json(json!({"available": spectyn_mesh::oauth::apple_available()}))
     }
 
     async fn debug_send_message(
-        State(state): State<phantom_mesh::AppState>,
+        State(state): State<spectyn_mesh::AppState>,
         Json(body): Json<Value>,
     ) -> Json<Value> {
         let prompt = body["prompt"].as_str().unwrap_or("hello").to_string();
@@ -1115,7 +1115,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
         let config_dir = std::path::PathBuf::from(&home);
         let check_paths: Vec<std::path::PathBuf> = vec![
             config_dir.join("files").join("agents.toml"),
-            config_dir.join(".phantom-mesh").join("agents.toml"),
+            config_dir.join(".spectyn-mesh").join("agents.toml"),
             config_dir.join("agents.toml"),
             config_dir.join("files").join("config").join("agents.toml"),
         ];
@@ -1126,7 +1126,7 @@ fn build_compat_router(state: phantom_mesh::AppState, _port: u16) -> axum::Route
             let content = if exists { std::fs::read_to_string(p).ok() } else { None };
             if let Some(ref c) = content {
                 if parse_result.is_none() {
-                    match toml::from_str::<phantom_mesh::AgentsConfig>(c) {
+                    match toml::from_str::<spectyn_mesh::AgentsConfig>(c) {
                         Ok(cfg) => {
                             let provider_names: Vec<String> = cfg.providers.keys().cloned().collect();
                             parse_result = Some(format!("OK: providers={:?}", provider_names));

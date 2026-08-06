@@ -30,13 +30,13 @@ function statusBadgeClass(status: HistoryStatus): string {
     case 'done':
       return 'bg-green-500/15 text-green-400 border border-green-500/30';
     case 'failed':
-      return 'bg-phantom-danger/15 text-phantom-danger border border-phantom-danger/30';
+      return 'bg-spectyn-danger/15 text-spectyn-danger border border-spectyn-danger/30';
     case 'cancelled':
-      return 'bg-phantom-muted/15 text-phantom-muted border border-phantom-muted/30';
+      return 'bg-spectyn-muted/15 text-spectyn-muted border border-spectyn-muted/30';
     case 'running':
     case 'queued':
     default:
-      return 'bg-phantom-primary/15 text-phantom-primary border border-phantom-primary/30';
+      return 'bg-spectyn-primary/15 text-spectyn-primary border border-spectyn-primary/30';
   }
 }
 
@@ -67,12 +67,12 @@ function HistoryRow({
       : null;
 
   return (
-    <li className="border-b border-phantom-border last:border-b-0">
+    <li className="border-b border-spectyn-border last:border-b-0">
       <button
         type="button"
         onClick={onToggle}
         data-testid={`history-row-${entry.id}`}
-        className="w-full text-left px-4 py-3 hover:bg-phantom-card/50 transition-colors"
+        className="w-full text-left px-4 py-3 hover:bg-spectyn-card/50 transition-colors"
         aria-expanded={expanded}
       >
         <div className="flex items-center gap-2 mb-1">
@@ -83,19 +83,19 @@ function HistoryRow({
           >
             {entry.status}
           </span>
-          <span className="text-[10px] text-phantom-muted">
+          <span className="text-[10px] text-spectyn-muted">
             {relativeTime(entry.startedAt)}
           </span>
           {elapsed && (
-            <span className="text-[10px] text-phantom-muted">· {elapsed}</span>
+            <span className="text-[10px] text-spectyn-muted">· {elapsed}</span>
           )}
           {entry.provider && (
-            <span className="text-[10px] text-phantom-muted">
+            <span className="text-[10px] text-spectyn-muted">
               · {entry.provider}
             </span>
           )}
         </div>
-        <div className="text-sm text-phantom-text break-words">
+        <div className="text-sm text-spectyn-text break-words">
           {redactPromptForDisplay(entry.prompt)}
         </div>
         {Array.isArray(entry.caps) && entry.caps.length > 0 && (
@@ -103,7 +103,7 @@ function HistoryRow({
             {entry.caps.map((c) => (
               <span
                 key={c}
-                className="text-[10px] text-phantom-muted bg-phantom-card border border-phantom-border rounded px-1.5"
+                className="text-[10px] text-spectyn-muted bg-spectyn-card border border-spectyn-border rounded px-1.5"
               >
                 {c}
               </span>
@@ -118,24 +118,24 @@ function HistoryRow({
           className="px-4 pb-3 space-y-2"
         >
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-phantom-muted mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-spectyn-muted mb-1">
               prompt
             </div>
             <pre
               data-testid="history-prompt-full"
-              className="bg-phantom-card border border-phantom-border rounded-lg p-2 text-xs text-phantom-text whitespace-pre-wrap break-words"
+              className="bg-spectyn-card border border-spectyn-border rounded-lg p-2 text-xs text-spectyn-text whitespace-pre-wrap break-words"
             >
               {entry.prompt}
             </pre>
           </div>
 
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-phantom-muted mb-1">
+            <div className="text-[10px] uppercase tracking-wider text-spectyn-muted mb-1">
               transcript ({entry.finalTokens?.length ?? 0} tokens)
             </div>
             <pre
               data-testid="history-transcript"
-              className="bg-phantom-card border border-phantom-border rounded-lg p-2 text-xs text-phantom-text whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto"
+              className="bg-spectyn-card border border-spectyn-border rounded-lg p-2 text-xs text-spectyn-text whitespace-pre-wrap break-words max-h-[40vh] overflow-y-auto"
             >
               {transcript || '​'}
             </pre>
@@ -144,7 +144,7 @@ function HistoryRow({
           {entry.status === 'done' && entry.result && (
             <div
               data-testid="history-result"
-              className="bg-phantom-card border border-green-500/40 rounded-lg p-2 text-sm text-phantom-text"
+              className="bg-spectyn-card border border-green-500/40 rounded-lg p-2 text-sm text-spectyn-text"
             >
               <div className="text-[10px] text-green-400 uppercase tracking-wider mb-1">
                 result
@@ -156,10 +156,10 @@ function HistoryRow({
           {entry.status === 'failed' && (
             <div
               data-testid="history-error"
-              className="bg-phantom-card border border-phantom-danger/40 rounded-lg p-2 text-sm text-phantom-text"
+              className="bg-spectyn-card border border-spectyn-danger/40 rounded-lg p-2 text-sm text-spectyn-text"
               role="alert"
             >
-              <div className="text-[10px] text-phantom-danger uppercase tracking-wider mb-1">
+              <div className="text-[10px] text-spectyn-danger uppercase tracking-wider mb-1">
                 {entry.errorCode || 'error'}
               </div>
               {entry.errorMessage || 'Dispatch failed'}
@@ -196,7 +196,7 @@ export default function MobileHistory() {
       >
         <div
           data-testid="history-empty"
-          className="flex flex-1 flex-col items-center justify-center text-center px-6 py-10 text-phantom-muted"
+          className="flex flex-1 flex-col items-center justify-center text-center px-6 py-10 text-spectyn-muted"
         >
           <Clock size={32} className="mb-2 opacity-60" />
           <div className="text-sm">No dispatches yet</div>

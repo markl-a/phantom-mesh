@@ -182,7 +182,7 @@ pub async fn run_claude_print(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     // Run from a neutral dir so `claude -p` doesn't load/explore whatever
-    // project phantom is running in (that was minutes-slow in a big repo and
+    // project spectyn is running in (that was minutes-slow in a big repo and
     // is surprising for a plain LLM call).
     if let Some(home) = super::credential_scanner::home_dir_lenient() {
         cmd.current_dir(home);
@@ -193,7 +193,7 @@ pub async fn run_claude_print(
     if let Some(s) = system.filter(|s| !s.is_empty()) {
         cmd.arg("--append-system-prompt").arg(s);
     }
-    // If phantom itself was launched from inside a Claude Code session, these
+    // If spectyn itself was launched from inside a Claude Code session, these
     // markers are inherited; passing them on makes the spawned `claude` think
     // it's nested and hang. Strip them so the print run is clean. (We keep
     // CLAUDE_CODE_OAUTH_TOKEN — that's auth, not a nesting marker.)

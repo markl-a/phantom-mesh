@@ -2,17 +2,17 @@
 //!
 //! Two hermetic proofs, both with HTTP(S)_PROXY black-holed so a stray outbound
 //! call fails fast instead of silently hitting the real internet:
-//!   1. wiremock-local-model: `phantom exec` against an OpenAI-compat provider
+//!   1. wiremock-local-model: `spectyn exec` against an OpenAI-compat provider
 //!      whose base_url points at a localhost wiremock — proves the real local
 //!      model code path answers under the 30s budget, no cloud. (Independent of
 //!      S2; same seam as cli_exec_jsonl_schema_hermetic.rs.)
-//!   2. (feature offline-stub-model) stub-model: `phantom exec` with NO provider
+//!   2. (feature offline-stub-model) stub-model: `spectyn exec` with NO provider
 //!      url at all, only the built-in stub — proves the truly-zero-install path
 //!      answers offline.
 //!
 //! Unix-gated for the same reason as cli_exec_jsonl_schema_hermetic.rs: the exec
 //! child resolves its data root via bare dirs::home_dir(), which ignores the
-//! HOME/USERPROFILE/PHANTOM_HOME redirect on Windows, so the isolation only
+//! HOME/USERPROFILE/SPECTYN_HOME redirect on Windows, so the isolation only
 //! holds on Unix. On Windows this compiles to an empty binary and passes
 //! trivially; it runs for real on WSL / Linux CI.
 #![cfg(unix)]
@@ -25,13 +25,13 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const HELLO_BUDGET: Duration = Duration::from_secs(30);
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn temp_root(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-p07-{}-{}-{}",
+        "spectyn-p07-{}-{}-{}",
         tag,
         std::process::id(),
         std::time::SystemTime::now()
@@ -79,7 +79,7 @@ fn offline_hello_local_model_under_budget() {
     let uri = server.uri();
 
     let root = temp_root("hello");
-    let pm = root.join(".phantom-mesh");
+    let pm = root.join(".spectyn-mesh");
     std::fs::create_dir_all(&pm).unwrap();
     // Local-model config: type=openai (OpenAICompatProvider) honouring base_url.
     // An inline api_key satisfies the key gate WITHOUT any env var (so it never
@@ -93,7 +93,7 @@ fn offline_hello_local_model_under_budget() {
     )
     .unwrap();
 
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let root_s = root.to_string_lossy().to_string();
     let config_s = config_path.to_string_lossy().to_string();
     let start = Instant::now();
@@ -103,7 +103,7 @@ fn offline_hello_local_model_under_budget() {
                 .args(["exec", "say hello", "--config", &config_s])
                 .env("HOME", &root_s)
                 .env("USERPROFILE", &root_s)
-                .env("PHANTOM_HOME", &root_s)
+                .env("SPECTYN_HOME", &root_s)
                 // Black-hole any CLOUD (non-loopback) HTTP so a stray outbound
                 // call fails fast — but EXEMPT loopback (NO_PROXY) so the local
                 // wiremock model is reachable. Without the exemption ALL_PROXY
@@ -113,10 +113,10 @@ fn offline_hello_local_model_under_budget() {
                 .env("ALL_PROXY", "http://127.0.0.1:1")
                 .env("NO_PROXY", "127.0.0.1,localhost")
                 .env("no_proxy", "127.0.0.1,localhost")
-                .env_remove("PHANTOM_LOCAL_FIRST")
-                .env_remove("PHANTOM_RUNTIME_OVERRIDE")
+                .env_remove("SPECTYN_LOCAL_FIRST")
+                .env_remove("SPECTYN_RUNTIME_OVERRIDE")
                 .output()
-                .expect("run phantom exec")
+                .expect("run spectyn exec")
         })
         .await
         .expect("join exec spawn_blocking")
@@ -150,7 +150,7 @@ fn offline_hello_stub_model_nothing_installed() {
     // No provider url at all — rely on the built-in stub. Proves the truly
     // zero-install path answers offline.
     let root = temp_root("stub");
-    let pm = root.join(".phantom-mesh");
+    let pm = root.join(".spectyn-mesh");
     std::fs::create_dir_all(&pm).unwrap();
     std::fs::write(
         pm.join("agents.toml"),
@@ -160,24 +160,24 @@ fn offline_hello_stub_model_nothing_installed() {
     let config_s = pm.join("agents.toml").to_string_lossy().to_string();
     let root_s = root.to_string_lossy().to_string();
     let start = Instant::now();
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .args(["exec", "say hello", "--config", &config_s])
         .env("HOME", &root_s)
         .env("USERPROFILE", &root_s)
-        .env("PHANTOM_HOME", &root_s)
+        .env("SPECTYN_HOME", &root_s)
         .env("HTTPS_PROXY", "http://127.0.0.1:1")
         .env("ALL_PROXY", "http://127.0.0.1:1")
-        .env_remove("PHANTOM_LOCAL_FIRST")
-        .env_remove("PHANTOM_RUNTIME_OVERRIDE")
+        .env_remove("SPECTYN_LOCAL_FIRST")
+        .env_remove("SPECTYN_RUNTIME_OVERRIDE")
         .output()
-        .expect("run phantom exec");
+        .expect("run spectyn exec");
     assert!(
         out.status.success(),
         "stub exec must succeed offline; stderr={}",
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&out.stdout).contains("phantom offline (stub)"),
+        String::from_utf8_lossy(&out.stdout).contains("spectyn offline (stub)"),
         "must render the built-in stub reply; stdout={}\nstderr={}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)

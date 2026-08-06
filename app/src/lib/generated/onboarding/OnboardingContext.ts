@@ -3,7 +3,7 @@
 /**
  * Side-effect summary the FSM accumulates as the user moves through steps.
  * Every field is **derived / sanitised** so it can be persisted to
- * `~/.phantom-mesh/onboarding.json` plaintext per §7.5 without leaking any
+ * `~/.spectyn-mesh/onboarding.json` plaintext per §7.5 without leaking any
  * secret material. Specifically:
  *
  * - `cluster_id_hash` is the SHA-256 hash slug, never the raw cluster name

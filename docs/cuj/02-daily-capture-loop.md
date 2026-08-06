@@ -25,7 +25,7 @@
 1. (07:30) user 拍早餐 → SPEC-20 → 抽出「燕麥 80g + 香蕉 1 根」→ event 寫入
 2. (09:00-12:00) user 啟動 SPEC-21 focus session → 環境音 + 結束 takeaway「KSCH 第 7 章 done」
 3. (10:15) user 點 widget「咖啡」chip → SPEC-22 record + streak 顯示
-4. (15:30) user CLI `phantom habit "讀完 SICP ch3"` → SPEC-22 freetext fallback
+4. (15:30) user CLI `spectyn habit "讀完 SICP ch3"` → SPEC-22 freetext fallback
 5. (21:00) user 拍晚餐 → SPEC-20
 6. (隔日 07:00) coach.agent → SPEC-23 aggregator 拉昨日 events → SPEC-14 跑 Gemini/Groq → 產出 review markdown
 7. (07:00-07:05) SPEC-24 把 markdown push 給 user (notification / Telegram / in-app)

@@ -11,7 +11,7 @@
 
 ## 0. 願景（使用者的描述，2026-05-02）
 
-> 「每位使用者運行 phantom 並使用 LLM（大型語言模型，或修改自己的版本）；
+> 「每位使用者運行 spectyn 並使用 LLM（大型語言模型，或修改自己的版本）；
 > 應該要有一套機制，讓他們的修改成為一個候選版本，使所有系統都能運行。
 > 使用者的名字會被加入 contributor（貢獻者）清單。
 > 他們的版本可以維持為自己客製化的特化版，
@@ -20,7 +20,7 @@
 
 這就是**貢獻漏斗（contribution funnel）**：使用者修改 → 自動
 成為候選 → maintainer（維護者）審查 → 下一個釋出版本含有他們的
-名字 → 所有使用者在執行 `phantom upgrade` 時得到此修正。
+名字 → 所有使用者在執行 `spectyn upgrade` 時得到此修正。
 
 這就是 OSS（開放原始碼軟體）的夢想：**每位使用者都可能是貢獻者；每一個
 成功的本地修正都可能是一次全域升級**；除了使用者選擇是否分享之外，沒有任何阻力。
@@ -31,7 +31,7 @@
 
 | Capability（能力） | Status（狀態，5/2） |
 |---|---|
-| 單次 agent 迴圈（`phantom evolve "<goal>"`） | ✅ 4/27 首次成功，在免費方案上花費 $0 |
+| 單次 agent 迴圈（`spectyn evolve "<goal>"`） | ✅ 4/27 首次成功，在免費方案上花費 $0 |
 | EvolveCheckpoint 作為 content-addressed（內容定址）JSON（原子儲存、稽核軌跡） | ✅ Phase 1 出貨 |
 | Mesh handoff（網格交棒）RPC（HMAC 保護的跨機接力棒） | ✅ Phase 2 出貨（commit `027afe8`） |
 | 目標佇列（`EVOLVE-GOALS.md` 往返解析） | ✅ 已出貨 |
@@ -49,17 +49,17 @@ attribution（署名歸屬）。
 
 | # | Gap（缺口） | Status（狀態，5/2 更新） | Lands in（落地於） |
 |---|---|---|---|
-| 1 | **每位使用者的 identity（身分）** — ed25519 金鑰對 | ✅ 已出貨（commit `4a61a0c`） | v0.1.0 — `phantom keys init` |
-| 2a | Recipe（配方）匯出 — `phantom evolve publish`（本地 + ed25519 簽署） | ✅ 已出貨（commit `cbbbe50`） | v0.1.0 — `--private` 為預設 |
-| 2b | `phantom evolve adopt <recipe>` — 驗證 + 套用 | ⏸ 延後 | v0.2 |
+| 1 | **每位使用者的 identity（身分）** — ed25519 金鑰對 | ✅ 已出貨（commit `4a61a0c`） | v0.1.0 — `spectyn keys init` |
+| 2a | Recipe（配方）匯出 — `spectyn evolve publish`（本地 + ed25519 簽署） | ✅ 已出貨（commit `cbbbe50`） | v0.1.0 — `--private` 為預設 |
+| 2b | `spectyn evolve adopt <recipe>` — 驗證 + 套用 | ⏸ 延後 | v0.2 |
 | 3 | **Broker（中介伺服器）作為 recipe 收件匣** — phantommesh.io 接受已簽署的 recipe、分類 tier（分層）、排入佇列 | ⏸ 延後（Cloudflare DNS 遷移為前置條件） | v0.2 |
-| 4 | **選擇加入式自動發布** — `phantom autoevolve --share-recipes` | ⏸ 延後 | v0.2（依賴 §3） |
+| 4 | **選擇加入式自動發布** — `spectyn autoevolve --share-recipes` | ⏸ 延後 | v0.2（依賴 §3） |
 | 5 | **Auto-PR 管線** — broker fork 上游、推送 patch、開啟 PR | ⏸ 延後 | v0.2 |
 | 6 | **合併時自動附加至 CONTRIBUTORS.md** | ⏸ 延後 | v0.2（依賴 §5） |
 | 7 | **聲望 / 公開貢獻者儀表板** | ⏸ 延後 | v0.4 |
-| 8 | **特化保存** — `~/.phantom-mesh/extensions/{prompts,skills,hooks}/` 資料夾慣例 | ✅ 已出貨（commit `ed6e2dd`） | v0.1.0 — 資料夾已存在；loader（載入器）也在 v0.1.0 出貨 |
-| 9 | **Issue → 解法的署名歸屬** — `phantom evolve --solve <issue-num>` 關閉該 issue | ⏸ 延後 | v0.3 — 需要 gh api 整合 |
-| 10a | **隱私預設** — `--private` 是 `phantom evolve publish` 的預設 | ✅ 已出貨（commit `cbbbe50`） | v0.1.0 |
+| 8 | **特化保存** — `~/.spectyn-mesh/extensions/{prompts,skills,hooks}/` 資料夾慣例 | ✅ 已出貨（commit `ed6e2dd`） | v0.1.0 — 資料夾已存在；loader（載入器）也在 v0.1.0 出貨 |
+| 9 | **Issue → 解法的署名歸屬** — `spectyn evolve --solve <issue-num>` 關閉該 issue | ⏸ 延後 | v0.3 — 需要 gh api 整合 |
+| 10a | **隱私預設** — `--private` 是 `spectyn evolve publish` 的預設 | ✅ 已出貨（commit `cbbbe50`） | v0.1.0 |
 | 10b | `--share` 旗標用於明確的選擇加入上傳 | ⏸ 延後 | v0.2（依賴 §3） |
 | 11 | **CO-EVO Phase 1 沙箱守衛** — autoevolve 預設拒絕寫入 `core/` `app/` `templates/` `scripts/` | ✅ 已出貨（commit `fcd9bd1`） | v0.1.0 — `--allow-core-evolve` 可選擇退出 |
 
@@ -81,28 +81,28 @@ USER LAYER 使用者層（每位使用者的機器）
 ═══════════════════════════════════════════════════════════════════════
 
   Onboarding 入門（一次性）:
-    $ phantom keys init
-      → ~/.phantom-mesh/keys/{ed25519.priv, ed25519.pub}
-    $ phantom keys link --github
+    $ spectyn keys init
+      → ~/.spectyn-mesh/keys/{ed25519.priv, ed25519.pub}
+    $ spectyn keys link --github
       → 與 broker 進行 OAuth 流程
       → broker 儲存: { pub_key → github_user → email }
       → 使用者現在可在整個 mesh 中被識別
 
   Daily flow 日常流程:
-    $ phantom autoevolve --watch --share-recipes
+    $ spectyn autoevolve --watch --share-recipes
       ↓
     LLM agent 在 core/*.rs（或 extensions/）中做了一項變更
       ↓
     cargo test 通過
       ↓
-    EvolveCheckpoint 序列化至 ~/.phantom-mesh/evolve-checkpoints/
+    EvolveCheckpoint 序列化至 ~/.spectyn-mesh/evolve-checkpoints/
       ↓
-    phantom evolve publish（自動，若設了 --share-recipes）
+    spectyn evolve publish（自動，若設了 --share-recipes）
       ↓
     Recipe = ed25519 簽署的 JSON，內含:
       - goal, plan, dead_ends, journey
       - patch（git format-patch 的 blob，若有觸及程式碼）
-      - descriptor: {platform, phantom_version, target_files_class}
+      - descriptor: {platform, spectyn_version, target_files_class}
       - signature: ed25519(body, 使用者的私鑰)
       - author: { pub_key, github_user（入門時連結） }
       ↓
@@ -115,7 +115,7 @@ BROKER LAYER 中介伺服器層（phantommesh.io / Cloudflare Workers）
   POST /recipe 處理器:
     1. 以使用者已知的公鑰驗證 ed25519 簽章
     2. 依 patch 中的檔案路徑分類:
-         - 僅觸及 ~/.phantom-mesh/extensions/        → Tier 1 catalog（目錄）
+         - 僅觸及 ~/.spectyn-mesh/extensions/        → Tier 1 catalog（目錄）
          - 觸及 scripts/, docs/, tests/              → Tier 2 fast-track（快速通道）
          - 觸及 core/*.rs, app/*.rs                  → Tier 3 PR 佇列
          - 觸及敏感檔（auth/, mesh.rs, keys.rs）     → Tier 3 + 人工
@@ -123,7 +123,7 @@ BROKER LAYER 中介伺服器層（phantommesh.io / Cloudflare Workers）
     4. 回傳: { recipe_url, tier, status: "queued" }
 
   Tier 1（僅目錄）:
-    → recipe 留在 registry（登錄表），其他人可 `phantom evolve adopt <url>`
+    → recipe 留在 registry（登錄表），其他人可 `spectyn evolve adopt <url>`
     → 無上游變更
 
   Tier 2（快速通道）:
@@ -133,14 +133,14 @@ BROKER LAYER 中介伺服器層（phantommesh.io / Cloudflare Workers）
     → 若黃燈 → 通知 maintainer
 
   Tier 3（core/* PR）:
-    → broker 將 markl-a/phantom-mesh fork 至沙箱 repo
+    → broker 將 markl-a/spectyn-mesh fork 至沙箱 repo
     → 將 patch 推送至名為 auto/<sha> 的新分支
     → 對上游開 PR，body = EvolveCheckpoint markdown
     → 為 PR 標記: auto-evolve, <platform>, <classification>
     → PR body Co-Authored-By: <github_user> <noreply email>
 
 ═══════════════════════════════════════════════════════════════════════
-UPSTREAM LAYER 上游層（github.com/markl-a/phantom-mesh）
+UPSTREAM LAYER 上游層（github.com/markl-a/spectyn-mesh）
 ═══════════════════════════════════════════════════════════════════════
 
   GitHub Actions / CI:
@@ -169,18 +169,18 @@ UPSTREAM LAYER 上游層（github.com/markl-a/phantom-mesh）
        "fix(<area>): <goal-summary> by @github_user"
     3. 若符合 auto-tag 規則則標記 release
 
-  每位使用者的 `phantom upgrade`:
+  每位使用者的 `spectyn upgrade`:
     - Curl 最新 tag 對應的 artefact（產物）
     - 驗證 maintainer 簽章
     - 原子替換（bootout → swap → ad-hoc codesign → bootstrap）
     - 曾貢獻的使用者 A 會看到:
-        $ phantom --version
-        → "phantom 0.2.1 (... built 2026-05-22)"
+        $ spectyn --version
+        → "spectyn 0.2.1 (... built 2026-05-22)"
         → release notes 為他們署名
 
   使用者 A 繼續運行:
-    canonical（標準正規的）phantom 0.2.1 core
-    + ~/.phantom-mesh/extensions/（他們個人的客製化）
+    canonical（標準正規的）spectyn 0.2.1 core
+    + ~/.spectyn-mesh/extensions/（他們個人的客製化）
 
   → 「每個人都用同一份標準正規核心，再加上各使用者專屬的 extensions」
 ```
@@ -192,7 +192,7 @@ UPSTREAM LAYER 上游層（github.com/markl-a/phantom-mesh）
 每位使用者有兩個 scope（範圍）:
 
 ```
-~/.phantom-mesh/
+~/.spectyn-mesh/
 ├─ keys/                  ← identity（簽署 recipe）
 ├─ extensions/            ← Tier 1: 個人客製化，永不上傳上游
 │  ├─ prompts/
@@ -213,12 +213,12 @@ UPSTREAM LAYER 上游層（github.com/markl-a/phantom-mesh）
 └─ events.jsonl           ← 診斷日誌（永不自動上傳）
 ```
 
-當 `phantom upgrade` 替換標準正規二進位檔（例如 v0.1.0 → v0.2.0）時:
+當 `spectyn upgrade` 替換標準正規二進位檔（例如 v0.1.0 → v0.2.0）時:
 1. 二進位檔被原子地替換
 2. **`extensions/` 被原封不動地保存**
-3. phantom 在下次啟動時重新載入 extensions，將它們套用於新核心之上
+3. spectyn 在下次啟動時重新載入 extensions，將它們套用於新核心之上
 4. 若 extension API 出現破壞性變更（罕見；Tier 1 有穩定的契約）：會提示使用者透過以下方式解決：
-   - `phantom extensions migrate <ext-name>`（盡可能自動修正）
+   - `spectyn extensions migrate <ext-name>`（盡可能自動修正）
    - 或在附帶變更摘要的情況下接受 extension 的失效
 
 **關鍵不變量（invariant）**: 升級永不靜默地丟棄客製化。
@@ -236,8 +236,8 @@ UPSTREAM LAYER 上游層（github.com/markl-a/phantom-mesh）
 ### 5.1 ed25519 金鑰對（每位使用者、每台機器）
 
 ```
-$ phantom keys init
-✓ 已在 ~/.phantom-mesh/keys/ 產生金鑰對
+$ spectyn keys init
+✓ 已在 ~/.spectyn-mesh/keys/ 產生金鑰對
   - ed25519.priv（0600 權限；永不離開此機器）
   - ed25519.pub （首次同步時廣播至 broker）
 ```
@@ -245,20 +245,20 @@ $ phantom keys init
 ### 5.2 GitHub OAuth 連結（一次性）
 
 ```
-$ phantom keys link --github
+$ spectyn keys link --github
 → 開啟瀏覽器 → 在 phantommesh.io 上進行 OAuth 流程
 → broker 儲存: pub_key_b64 → github_username → noreply_email
-→ 這是 phantom 攜帶至上游的唯一識別資訊
+→ 這是 spectyn 攜帶至上游的唯一識別資訊
 ```
 
 ### 5.3 自動 recipe 發布
 
 ```
-$ phantom autoevolve --watch --share-recipes
+$ spectyn autoevolve --watch --share-recipes
 ... [agent 達成目標，cargo test 綠燈]
-✓ Recipe ~/.phantom-mesh/recipes/cdf3a8b9.json（已簽署）
+✓ Recipe ~/.spectyn-mesh/recipes/cdf3a8b9.json（已簽署）
 ✓ 已發布至 phantommesh.io/recipe → tier=2, status=queued
-✓ PR https://github.com/markl-a/phantom-mesh/pull/847 由 phantom-bot 開啟
+✓ PR https://github.com/markl-a/spectyn-mesh/pull/847 由 spectyn-bot 開啟
   Co-Authored-By: yourname <yourname@users.noreply.github.com>
 ```
 
@@ -314,8 +314,8 @@ CHANGELOG 中看到自己的修正。
 對於想要主動貢獻（而非僅是偶然貢獻）的使用者:
 
 ```
-$ phantom evolve --solve 234
-→ phantom 透過 gh api 取得 issue #234 的內容
+$ spectyn evolve --solve 234
+→ spectyn 透過 gh api 取得 issue #234 的內容
 → agent 閱讀 issue、規劃做法
 → 標準 autoevolve 迴圈，附帶額外脈絡: "this is to close #234"
 → 成功時，recipe 攜帶 "solved_issue: 234"
@@ -323,8 +323,8 @@ $ phantom evolve --solve 234
 → 合併時，GitHub 自動關閉 #234 + 為使用者致謝
 ```
 
-這讓 phantom 成為一個**個人單兵貢獻 agent**：提交一個你想修的
-issue，執行 `phantom evolve --solve <num>`，PR 就會自動
+這讓 spectyn 成為一個**個人單兵貢獻 agent**：提交一個你想修的
+issue，執行 `spectyn evolve --solve <num>`，PR 就會自動
 開啟。
 
 ---
@@ -335,7 +335,7 @@ phantommesh.io 公開儀表板:
 - 依被接受的 recipe 數排名的頂尖貢獻者
 - 依被合併的 Tier 3 PR 數排名的頂尖貢獻者
 - 被採用 N 次的 recipe（人氣）
-- phantom 本週解決的 issue
+- spectyn 本週解決的 issue
 
 → 使用者擁有可分享的公開個人檔案。成為一份作品集
 作品。部分貢獻者可能獲得:
@@ -350,18 +350,18 @@ phantommesh.io 公開儀表板:
 ### 8.1 預設：選擇加入式發布
 
 ```
-$ phantom autoevolve --watch
+$ spectyn autoevolve --watch
 → 僅在本地執行；無任何 broker 呼叫
-$ phantom autoevolve --watch --share-recipes
+$ spectyn autoevolve --watch --share-recipes
 → 明確選擇加入
 ```
 
 ### 8.2 每個 recipe 的覆寫
 
 ```
-$ phantom evolve "<sensitive personal automation>"
+$ spectyn evolve "<sensitive personal automation>"
 ... [成功]
-$ phantom evolve publish --private
+$ spectyn evolve publish --private
 → 儲存於本地，不推送至 broker
 ```
 
@@ -373,7 +373,7 @@ $ phantom evolve publish --private
 | ed25519 公鑰 | ✅ |
 | GitHub 使用者名稱 | ✅（你已透過 OAuth 選擇加入） |
 | ed25519 私鑰 | ❌ 永不 |
-| 當機日誌（Crash logs） | ❌ 永不（留在本地 ~/.phantom-mesh/crashes/） |
+| 當機日誌（Crash logs） | ❌ 永不（留在本地 ~/.spectyn-mesh/crashes/） |
 | 對話逐字稿 | ❌ 永不 |
 | 工具呼叫輸出（你私有檔案的 file_read） | ❌ 永不 |
 
@@ -390,15 +390,15 @@ $ phantom evolve publish --private
 
 ```
 - [ ] CO-EVO Phase 1 — sandbox guard（autoevolve 在沒有 --allow-core-evolve
-      旗標時拒絕寫入 ~/.phantom-mesh/extensions/ 之外）
+      旗標時拒絕寫入 ~/.spectyn-mesh/extensions/ 之外）
 - [ ] MULTI-DEV Gap 1 — GitHub Actions release 矩陣（跨 5 個平台的
       單一二進位真相）
-- [ ] MULTI-DEV Gap 3 — phantom doctor --mesh（漂移偵測）
-- [ ] MULTI-DEV Gap 4 — phantom upgrade（原子替換並保存
+- [ ] MULTI-DEV Gap 3 — spectyn doctor --mesh（漂移偵測）
+- [ ] MULTI-DEV Gap 4 — spectyn upgrade（原子替換並保存
       extension）
-- [ ] CO-EVO Phase 2 — phantom evolve publish/adopt（recipe 匯出 +
+- [ ] CO-EVO Phase 2 — spectyn evolve publish/adopt（recipe 匯出 +
       ed25519 簽署，僅本地，尚無 broker）
-- [ ] CO-EVO Phase 3 — phantom keys init + 透過 broker 的 GitHub OAuth 連結
+- [ ] CO-EVO Phase 3 — spectyn keys init + 透過 broker 的 GitHub OAuth 連結
 ```
 
 ### v0.3 衝刺（5/22 → 5/29；1 週）
@@ -408,16 +408,16 @@ $ phantom evolve publish --private
       PR；CI 執行 Phase 5 的 .yml）
 - [ ] CO-EVO Phase 5 — CI 關卡 + automerge bot
 - [ ] CONTRIBUTOR-FUNNEL §5 — 合併時自動附加至 CONTRIBUTORS.md
-- [ ] CONTRIBUTOR-FUNNEL §6 — phantom evolve --solve <issue> 整合
+- [ ] CONTRIBUTOR-FUNNEL §6 — spectyn evolve --solve <issue> 整合
 - [ ] CONTRIBUTOR-FUNNEL §8 — 隱私 + 選擇退出旗標 + 稽核
-- [ ] phantom upgrade 附帶 extension 遷移提示
+- [ ] spectyn upgrade 附帶 extension 遷移提示
 ```
 
 ### v0.4 衝刺（5/29 → 6/5；1 週）
 
 ```
 - [ ] CONTRIBUTOR-FUNNEL §7 — phantommesh.io 貢獻者儀表板
-- [ ] CO-EVO Phase 6 — phantom evolve sync（每日上游拉取
+- [ ] CO-EVO Phase 6 — spectyn evolve sync（每日上游拉取
       選用；替換前驗證簽章）
 - [ ] Recipe registry / 人氣計數器 / 搜尋
 - [ ] 基於聲望、給予受信任貢獻者的審查者權限
@@ -438,24 +438,24 @@ CO-EVOLUTION.md 的 3 層模型提供了圍堵。
 | 「貢獻者有獲得致謝嗎」 | CONTRIBUTORS.md 自動附加、CHANGELOG 依作者分組、公開儀表板 |
 | 「使用者隱私」 | 預設為選擇加入；沒有明確的 `--share-recipes` 就不會有任何東西離開機器 |
 | 「惡意行為者問題」 | 每個 recipe 都有 ed25519 簽章；broker 可撤銷某把金鑰；敏感路徑以人工審查把關 |
-| 「像 jcode 那樣的 fork 漂移」 | release 矩陣 = 單一二進位真相；`phantom doctor --mesh` 漂移偵測；`phantom upgrade` 原子替換 |
+| 「像 jcode 那樣的 fork 漂移」 | release 矩陣 = 單一二進位真相；`spectyn doctor --mesh` 漂移偵測；`spectyn upgrade` 原子替換 |
 
 這是帶有 auto-PR 人因設計的 **Linux 核心模型**:
 - Linus / lieutenants（副手）= automerge bot + 敏感路徑的 maintainer
-- 任何人都能修補上游 = `phantom evolve --share-recipes`
+- 任何人都能修補上游 = `spectyn evolve --share-recipes`
 - Linux 基金會負責 release 矩陣 = GitHub Actions
 - 長尾核心使用者保留自訂設定 / 模組 = Tier 1 extensions
-- 新核心對照你的設定進行 rebase = `phantom upgrade --migrate-extensions`
+- 新核心對照你的設定進行 rebase = `spectyn upgrade --migrate-extensions`
 
 ---
 
 ## 11. 它不會做的事（刻意設下的界限）
 
 - **不靜默上傳。** 每一次分享都是選擇加入。
-- **不強制更新。** 使用者可以永遠停留在舊版 phantom。
-- **不對 fork 進行中央控制。** 任何人都能 fork phantom-mesh 並
+- **不強制更新。** 使用者可以永遠停留在舊版 spectyn。
+- **不對 fork 進行中央控制。** 任何人都能 fork spectyn-mesh 並
   運行自己的 broker；auto-PR 流程只對
-  `markl-a/phantom-mesh` 的上游有效，因為那是
+  `markl-a/spectyn-mesh` 的上游有效，因為那是
   broker 指向的地方。
 - **recipe 產生時不強制程式碼品質。** 品質檢查是在
   上游的 CI，而非 broker（broker 是一層薄薄的分類層）。
@@ -470,7 +470,7 @@ CO-EVOLUTION.md 的 3 層模型提供了圍堵。
 - **多 broker 聯邦（federation）** — 是否應該有替代的 broker
   （不只 phantommesh.io）？對於想在公司內部有私有
   貢獻者漏斗的組織很有用。
-- **Recipe 版本管理** — recipe 標示「for phantom 0.2.0」；它能否
+- **Recipe 版本管理** — recipe 標示「for spectyn 0.2.0」；它能否
   被自動 rebase 到 0.3.0？
 - **Recipe registry 搜尋** — 對 goal 文字做模糊比對，「此修正
   與 issue #X 相似」

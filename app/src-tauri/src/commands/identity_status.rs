@@ -1,6 +1,6 @@
 // Tauri command surfacing the REAL on-device cryptographic identity to the app
 // (BIG-GOAL P4). The app's email "login" is a cosmetic display profile; the
-// actual identity is the per-device root key at ~/.phantom-mesh/identity.key
+// actual identity is the per-device root key at ~/.spectyn-mesh/identity.key
 // (the HKDF seed that also decrypts Life Node events). This command reports its
 // public fingerprint + age + keystore backend so the UI can show the user their
 // true identity instead of a localStorage stub.
@@ -30,16 +30,16 @@ pub struct IdentityStatus {
 #[tauri::command]
 pub async fn identity_status() -> Result<IdentityStatus, String> {
     let identity_line =
-        phantom_mesh::auth::load().map(|s| phantom_mesh::auth::human_summary(&s));
+        spectyn_mesh::auth::load().map(|s| spectyn_mesh::auth::human_summary(&s));
 
-    let fingerprint = phantom_mesh::identity::load_pub_hex()
+    let fingerprint = spectyn_mesh::identity::load_pub_hex()
         .ok()
         .and_then(|h| hex::decode(h.trim()).ok())
-        .map(|bytes| phantom_mesh::identity_wire::fingerprint_short(&bytes))
+        .map(|bytes| spectyn_mesh::identity_wire::fingerprint_short(&bytes))
         .unwrap_or_else(|| "—".to_string());
 
     let key_path = dirs::home_dir()
-        .map(|h| h.join(".phantom-mesh").join("identity.key"));
+        .map(|h| h.join(".spectyn-mesh").join("identity.key"));
     let has_identity = key_path.as_ref().map(|p| p.exists()).unwrap_or(false);
     let created_at = key_path
         .and_then(|p| std::fs::metadata(p).ok())

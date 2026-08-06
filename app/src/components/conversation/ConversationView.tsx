@@ -470,10 +470,10 @@ export default function ConversationView() {
       {/* Header row: status + session selector + reset */}
       <div className="flex items-center gap-3 mb-3 px-1 flex-wrap">
         {/* Status dot */}
-        <div className="flex items-center gap-1.5 text-xs text-phantom-muted">
+        <div className="flex items-center gap-1.5 text-xs text-spectyn-muted">
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-            status.daemonHealthy === true  ? "bg-phantom-success" :
-            status.daemonHealthy === false ? "bg-phantom-danger"  : "bg-phantom-muted"
+            status.daemonHealthy === true  ? "bg-spectyn-success" :
+            status.daemonHealthy === false ? "bg-spectyn-danger"  : "bg-spectyn-muted"
           }`} />
           <span>
             {status.daemonHealthy === true  ? "Runtime 運行中" :
@@ -495,8 +495,8 @@ export default function ConversationView() {
             : "切換到夥伴大腦模式(走 /partner/message)"}
           className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition disabled:opacity-40 ${
             partnerMode
-              ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-              : "border-phantom-border text-phantom-muted hover:text-phantom-text"
+              ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+              : "border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
           }`}
         >
           <HeartHandshake size={12} />
@@ -512,8 +512,8 @@ export default function ConversationView() {
             : "切換到 Provider 直連模式（跳過 agent loop）"}
           className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition disabled:opacity-40 ${
             providerMode
-              ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-              : "border-phantom-border text-phantom-muted hover:text-phantom-text"
+              ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+              : "border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
           }`}
         >
           <Zap size={12} />
@@ -528,7 +528,7 @@ export default function ConversationView() {
           <button
             onClick={stop}
             title="中斷目前的回應"
-            className="p-1.5 text-phantom-danger hover:opacity-80 transition rounded"
+            className="p-1.5 text-spectyn-danger hover:opacity-80 transition rounded"
           >
             <Square size={14} fill="currentColor" />
           </button>
@@ -539,7 +539,7 @@ export default function ConversationView() {
           onClick={() => setShowResetConfirm(true)}
           disabled={resetting || loading}
           title="Reset conversation"
-          className="p-1.5 text-phantom-muted hover:text-phantom-danger transition disabled:opacity-40 rounded"
+          className="p-1.5 text-spectyn-muted hover:text-spectyn-danger transition disabled:opacity-40 rounded"
         >
           {resetting ? (
             <RefreshCw size={14} className="animate-spin" />
@@ -552,22 +552,22 @@ export default function ConversationView() {
       {/* Reset confirm dialog */}
       {showResetConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-5 w-72 shadow-xl">
-            <p className="text-sm font-medium text-phantom-text mb-2">Reset conversation?</p>
-            <p className="text-xs text-phantom-muted mb-4">
-              This will clear all messages in <span className="font-mono text-phantom-primary">{chatId}</span>.
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-5 w-72 shadow-xl">
+            <p className="text-sm font-medium text-spectyn-text mb-2">Reset conversation?</p>
+            <p className="text-xs text-spectyn-muted mb-4">
+              This will clear all messages in <span className="font-mono text-spectyn-primary">{chatId}</span>.
               This action cannot be undone.
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 onClick={() => setShowResetConfirm(false)}
-                className="px-3 py-1.5 text-xs text-phantom-muted hover:text-phantom-text border border-phantom-border rounded transition"
+                className="px-3 py-1.5 text-xs text-spectyn-muted hover:text-spectyn-text border border-spectyn-border rounded transition"
               >
                 Cancel
               </button>
               <button
                 onClick={resetConversation}
-                className="px-3 py-1.5 text-xs bg-phantom-danger text-white rounded hover:opacity-90 transition"
+                className="px-3 py-1.5 text-xs bg-spectyn-danger text-white rounded hover:opacity-90 transition"
               >
                 Reset
               </button>
@@ -581,12 +581,12 @@ export default function ConversationView() {
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-amber-300">Daemon 未運行</p>
-            <p className="text-xs text-phantom-muted">需要啟動 Daemon 才能對話</p>
+            <p className="text-xs text-spectyn-muted">需要啟動 Daemon 才能對話</p>
           </div>
           <button
             onClick={startDaemon}
             disabled={starting}
-            className="flex items-center gap-2 bg-phantom-primary text-phantom-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            className="flex items-center gap-2 bg-spectyn-primary text-spectyn-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
           >
             {starting ? (
               <><RefreshCw size={14} className="animate-spin" /> 啟動中...</>
@@ -599,7 +599,7 @@ export default function ConversationView() {
 
       {/* Error banner */}
       {error && (
-        <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 text-sm">
+        <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-4 text-sm">
           {error}
         </div>
       )}
@@ -609,26 +609,26 @@ export default function ConversationView() {
 
         {/* Welcome goal-oriented onboarding */}
         {!goalSet && (
-          <div className="bg-phantom-card border border-phantom-border p-5 rounded-lg max-w-[90%]">
-            <p className="text-base text-phantom-text leading-relaxed">
-              你好 Master，我是你的 <span className="text-phantom-primary font-semibold">Phantom</span>。
+          <div className="bg-spectyn-card border border-spectyn-border p-5 rounded-lg max-w-[90%]">
+            <p className="text-base text-spectyn-text leading-relaxed">
+              你好 Master，我是你的 <span className="text-spectyn-primary font-semibold">Spectyn</span>。
             </p>
-            <p className="text-sm text-phantom-text leading-relaxed mt-2">
+            <p className="text-sm text-spectyn-text leading-relaxed mt-2">
               我是你的影舞者 — 在幕後持續為你工作的 AI 幕僚。
-              不只是回答問題，我會幫你<span className="text-phantom-primary">制定計畫、追蹤進度、定時執行任務</span>，
+              不只是回答問題，我會幫你<span className="text-spectyn-primary">制定計畫、追蹤進度、定時執行任務</span>，
               直到你達成目標為止。
             </p>
 
-            <div className="border-t border-phantom-border my-4" />
+            <div className="border-t border-spectyn-border my-4" />
 
-            <p className="text-sm text-phantom-text font-medium mb-4">
+            <p className="text-sm text-spectyn-text font-medium mb-4">
               告訴我，你現在最想達成的目標是什麼？
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               {GOAL_EXAMPLES.map((cat, ci) => (
                 <div key={ci} className="space-y-1.5">
-                  <p className="text-xs text-phantom-muted">
+                  <p className="text-xs text-spectyn-muted">
                     <span className="mr-1">{cat.emoji}</span>{cat.title}
                   </p>
                   {cat.goals.map((g, gi) => (
@@ -636,8 +636,8 @@ export default function ConversationView() {
                       key={gi}
                       onClick={() => send(g.prompt)}
                       disabled={loading}
-                      className="w-full text-left bg-phantom-bg border border-phantom-border rounded-lg px-3 py-2 text-xs text-phantom-text
-                                 hover:border-phantom-primary/50 hover:text-phantom-primary transition disabled:opacity-50"
+                      className="w-full text-left bg-spectyn-bg border border-spectyn-border rounded-lg px-3 py-2 text-xs text-spectyn-text
+                                 hover:border-spectyn-primary/50 hover:text-spectyn-primary transition disabled:opacity-50"
                     >
                       {g.label}
                     </button>
@@ -646,7 +646,7 @@ export default function ConversationView() {
               ))}
             </div>
 
-            <p className="text-xs text-phantom-muted mt-4">
+            <p className="text-xs text-spectyn-muted mt-4">
               以上只是範例 — 你也可以直接輸入你自己的目標，無論大小我都會認真對待。
             </p>
           </div>

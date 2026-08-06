@@ -10,7 +10,7 @@
 # per-node commands. --smoke is the only mutation and cleans up after itself.
 #
 # Fleet list (IPs NEVER hardcoded here — they live OUTSIDE the repo so they can't
-# leak): $PHANTOM_FLEET_NODES (default: ~/.phantom-mesh/fleet.nodes), each line:
+# leak): $SPECTYN_FLEET_NODES (default: ~/.spectyn-mesh/fleet.nodes), each line:
 #   <label>  <target|local>  <shell: local|mac|win>  <caps,csv>  <role: primary|backup>
 # A `backup` node (e.g. M1, taken to work / drops) is probed but NOT required for
 # the M-S gate; macOS/iOS work is pinned to the primary mac (M5).
@@ -24,12 +24,12 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 CHECK="$HERE/node-check.sh"
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new"
 GITBASH='"C:\Program Files\Git\bin\bash.exe"'
-NODES_FILE="${PHANTOM_FLEET_NODES:-$HOME/.phantom-mesh/fleet.nodes}"
+NODES_FILE="${SPECTYN_FLEET_NODES:-$HOME/.spectyn-mesh/fleet.nodes}"
 [ -f "$NODES_FILE" ] || NODES_FILE="$ROOT/scripts/test-matrix.nodes"
 SMOKE=0; [ "${1:-}" = "--smoke" ] && SMOKE=1
 
 [ -f "$CHECK" ]      || { echo "goal-setup: missing $CHECK" >&2; exit 2; }
-[ -f "$NODES_FILE" ] || { echo "goal-setup: no fleet list ($NODES_FILE) — create ~/.phantom-mesh/fleet.nodes" >&2; exit 2; }
+[ -f "$NODES_FILE" ] || { echo "goal-setup: no fleet list ($NODES_FILE) — create ~/.spectyn-mesh/fleet.nodes" >&2; exit 2; }
 
 # Run node-check.sh ON a node, in its native LOGIN shell (script arrives via stdin).
 run_check() { # <shell-kind> <target>

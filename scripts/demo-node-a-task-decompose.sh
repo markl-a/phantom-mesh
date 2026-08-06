@@ -25,7 +25,7 @@
 #   peer (demo-mobile-swarm.sh / demo-any-platform-joint.sh). This is the
 #   first demo where the coordinator's LLM acts as a *task planner* — it
 #   reads the user intent and DECIDES which sub-task each platform should
-#   run. End-to-end proof that phantom-mesh isn't just RPC fan-out, it's a
+#   run. End-to-end proof that spectyn-mesh isn't just RPC fan-out, it's a
 #   distributed agent runtime where the brain picks the body.
 #
 # USAGE
@@ -76,9 +76,9 @@ AGENT="${AGENT:-master}"
 
 # Find a readable agents.toml: prefer env, then mac path, then node-a/WSL path.
 SECRET=""
-for path in "${PHANTOM_AGENTS_TOML:-}" "$HOME/.phantom-mesh/agents.toml" \
-            "/root/.phantom-mesh/agents.toml" \
-            "/mnt/c/Users/<you>/.phantom-mesh/agents.toml"; do
+for path in "${SPECTYN_AGENTS_TOML:-}" "$HOME/.spectyn-mesh/agents.toml" \
+            "/root/.spectyn-mesh/agents.toml" \
+            "/mnt/c/Users/<you>/.spectyn-mesh/agents.toml"; do
   [[ -z "$path" || ! -r "$path" ]] && continue
   SECRET=$(awk -F'"' '/^[[:space:]]*cluster_secret[[:space:]]*=/{print $2; exit}' "$path")
   if [[ -n "$SECRET" ]]; then
@@ -88,18 +88,18 @@ for path in "${PHANTOM_AGENTS_TOML:-}" "$HOME/.phantom-mesh/agents.toml" \
 done
 
 # Allow direct override (useful on machines with no agents.toml, e.g. CI).
-SECRET="${PHANTOM_CLUSTER_SECRET:-$SECRET}"
+SECRET="${SPECTYN_CLUSTER_SECRET:-$SECRET}"
 
 if [[ -z "$SECRET" ]]; then
-  echo "ERROR: no cluster_secret found. Set PHANTOM_CLUSTER_SECRET=... or place" >&2
-  echo "       agents.toml at ~/.phantom-mesh/agents.toml" >&2
+  echo "ERROR: no cluster_secret found. Set SPECTYN_CLUSTER_SECRET=... or place" >&2
+  echo "       agents.toml at ~/.spectyn-mesh/agents.toml" >&2
   exit 2
 fi
 
 # curl flags — accept self-signed Tailscale Serve cert.
 CURL_OPTS=(-sS -k --max-time 15)
 
-echo "=== phantom-mesh node-a task-decompose demo ==="
+echo "=== spectyn-mesh node-a task-decompose demo ==="
 echo "coordinator: $COORD"
 echo "win peer:    $WIN_PEER     (node-b)"
 echo "linux peer:  $LINUX_PEER   (node-b-linux)"
@@ -289,7 +289,7 @@ WIN_JID=$(dispatch "$WIN_PEER" "$WIN_TASK")
 LINUX_JID=$(dispatch "$LINUX_PEER" "$LINUX_TASK")
 
 if [[ -z "$WIN_JID" && -z "$LINUX_JID" ]]; then
-  echo "  ERROR: both peers refused dispatch — check phantom serve health"
+  echo "  ERROR: both peers refused dispatch — check spectyn serve health"
   exit 1
 fi
 echo "  windows (node-b)        job_id=${WIN_JID:-FAILED}"

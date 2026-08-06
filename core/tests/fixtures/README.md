@@ -1,10 +1,10 @@
 # `core/tests/fixtures/`
 
-phantom-mesh **獨有工具（unique tools）** 的 L1 測試黃金 I/O 固件（golden fixture，黃金基準測試樣本）——
-即由 phantom-mesh 自行撰寫的工具（不是從上游工具來源繼承來的）。
+spectyn-mesh **獨有工具（unique tools）** 的 L1 測試黃金 I/O 固件（golden fixture，黃金基準測試樣本）——
+即由 spectyn-mesh 自行撰寫的工具（不是從上游工具來源繼承來的）。
 
 > 為什麼只測「獨有工具」？見 `goal_plan/docs/29 §2 紅線 2`：
-> > phantom-mesh 自己寫的工具/能力才需要 PM 自己出力測。
+> > spectyn-mesh 自己寫的工具/能力才需要 PM 自己出力測。
 > > 上游工具來源的 25 個 tool + 11 個 provider 繼承上游 CI 即可,不重測。
 
 ## Schema（綱要）
@@ -22,7 +22,7 @@ phantom-mesh **獨有工具（unique tools）** 的 L1 測試黃金 I/O 固件�
   "expected": {                       // expected response shape
     "ok": true,
     "subset_match": {                 // subset of fields that must match
-      "task_name": "PhantomMesh",
+      "task_name": "SpectynMesh",
       "status": "registered"
     }
   },

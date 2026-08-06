@@ -3,7 +3,7 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Rust / clawtex-core (dir kept) / phantom-mesh
+# Rust / clawtex-core (dir kept) / spectyn-mesh
 # -----------------------------------------------------------------------------
 target/
 target*/
@@ -56,10 +56,10 @@ pip-delete-this-directory.txt
 .Python
 develop-eggs/
 lib/
-!phantommesh-io/src/lib/
-!phantommesh-io/dashboard/src/lib/
+!spectynmesh-io/src/lib/
+!spectynmesh-io/dashboard/src/lib/
 !app/src/lib/
-!scripts/phantom-test/lib/
+!scripts/spectyn-test/lib/
 lib64/
 parts/
 var/
@@ -137,7 +137,7 @@ clawdbot.json.bak
 # -----------------------------------------------------------------------------
 # Project-specific user data
 # -----------------------------------------------------------------------------
-.phantom-mesh/
+.spectyn-mesh/
 *.db
 *.db-journal
 *.sqlite
@@ -190,7 +190,7 @@ $RECYCLE.BIN/
 # Re-include shared slash commands (cross-tool TDD framework, see AGENTS.md §10)
 !.claude/commands/
 !.claude/commands/**
-# Re-include Claude Code Skills (phantom-coord-bootstrap etc, see SPEC-81)
+# Re-include Claude Code Skills (spectyn-coord-bootstrap etc, see SPEC-81)
 !.claude/skills/
 !.claude/skills/**
 # Re-include the SHARED project settings + SessionStart hook (dev-node auto-arm
@@ -245,8 +245,8 @@ nul'
 # Day 4 sprint additions — sensitive
 *.keystore
 cluster-secret*.txt
-phantom-mesh.key
-phantom-mesh.key.pub
+spectyn-mesh.key
+spectyn-mesh.key.pub
 SPRINT.md
 
 # Distribution artifacts (use GitHub Releases instead)
@@ -297,7 +297,7 @@ app/src-tauri/binaries/*
 # Git worktrees (parallel feature development)
 .worktrees/
 
-# Cloudflare Workers local dev artifact (phantommesh-io)
+# Cloudflare Workers local dev artifact (spectynmesh-io)
 .wrangler/
 
 # -----------------------------------------------------------------------------

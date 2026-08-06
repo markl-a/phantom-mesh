@@ -76,7 +76,7 @@ flowchart TD
   內嵌單元測試（狀態轉換 + 錯誤分類，全部 `MockClock` 驅動）；
   `core/tests/provider_failover_p0_5.rs`（fixture provider 失敗 K 次後成功、
   open-after-N、half-open-after-cooldown、chain-exhaustion → FallbackExhausted）；
-  `core/tests/provider_failover_live_smoke.rs`（opt-in，`PHANTOM_LIVE_SMOKE=1`，
+  `core/tests/provider_failover_live_smoke.rs`（opt-in，`SPECTYN_LIVE_SMOKE=1`，
   CI 不跑）。
 
-> 本文件中的設定路徑使用佔位符（placeholder），例如 `agents.toml` 與 `~/.phantom-mesh/`；請替換成你自己的安裝位置。
+> 本文件中的設定路徑使用佔位符（placeholder），例如 `agents.toml` 與 `~/.spectyn-mesh/`；請替換成你自己的安裝位置。

@@ -34,7 +34,7 @@ function Pass($msg) {
 
 # --- 1. onboarding writer: no remote host, only loopback URLs ---------------
 $onb = Get-Content (Join-Path $core 'src/onboarding_config.rs') -Raw
-foreach ($needle in @('phantommesh.io', 'demo.phantommesh', '192.0.2.')) {
+foreach ($needle in @('phantommesh.io', 'demo.spectynmesh', '192.0.2.')) {
     if ($onb.Contains($needle)) { Fail "onboarding_config.rs hardcodes a remote host ($needle)" }
 }
 # Every http(s):// literal must be loopback.
@@ -76,7 +76,7 @@ while (($idx = $cfg.IndexOf($needle, $idx)) -ge 0) {
     $window = $cfg.Substring($start, $end - $start)
     $gated = $window.Contains('broker_token') -or $window.Contains('read_broker_config') `
         -or $window.Contains('auth::load') -or $window.Contains('no broker token') `
-        -or $window.Contains('no token') -or $window.Contains('phantom login')
+        -or $window.Contains('no token') -or $window.Contains('spectyn login')
     if (-not $gated) { Fail "phantommesh.io default at byte $idx is not token-gated" }
     $idx += $needle.Length
 }

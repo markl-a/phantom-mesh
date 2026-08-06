@@ -36,8 +36,8 @@ export default function UptimeBadge() {
   if (uptime === null) return null;
 
   return (
-    <span className="text-xs text-phantom-muted flex items-center gap-1">
-      <span className="w-1.5 h-1.5 rounded-full bg-phantom-success" />
+    <span className="text-xs text-spectyn-muted flex items-center gap-1">
+      <span className="w-1.5 h-1.5 rounded-full bg-spectyn-success" />
       {formatUptime(uptime)}
     </span>
   );

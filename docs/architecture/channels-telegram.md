@@ -4,7 +4,7 @@
 
 `channels-telegram` 子系統是一個**極簡的 Telegram bot（機器人）傳輸層**，直接
 建構在 `reqwest` HTTP 客戶端之上 —— 不使用任何第三方 Telegram SDK（軟體開發
-套件）。它讓正在執行的 `phantom serve` daemon（常駐服務）能夠接收來自 Telegram
+套件）。它讓正在執行的 `spectyn serve` daemon（常駐服務）能夠接收來自 Telegram
 使用者的聊天訊息、把每則訊息路由到 agent runtime（代理執行環境），並把回覆送
 回原始的聊天對話。
 
@@ -75,7 +75,7 @@ flowchart LR
 `last_seen_unix` 時間戳記保存在一張 SQLite 資料表（`telegram_chat_sessions`）中；
 `DeliveryModeStore` 把目前作用中的 polling/webhook 選擇保存在一張單列的資料表
 （`telegram_delivery_mode`）中。兩者都使用 `CREATE TABLE IF NOT EXISTS` 且可重新
-開啟，因此狀態能在 daemon 重啟之間往返保存。正式環境的呼叫者會使用 phantom 資料
+開啟，因此狀態能在 daemon 重啟之間往返保存。正式環境的呼叫者會使用 spectyn 資料
 目錄底下的某個路徑（例如 `<data-dir>/telegram_sessions.db`）；測試則使用一個用完
 即丟的暫存目錄。
 
@@ -111,6 +111,6 @@ flowchart LR
 通知轉接器在 `core/src/notifications/channels/telegram.rs` 中有自己的測試
 （`escape_handles_specials`）。
 
-執行方式：`cargo test -p phantom-mesh channels::telegram`（轉接器則用
+執行方式：`cargo test -p spectyn-mesh channels::telegram`（轉接器則用
 `notifications::channels::telegram`）。測試使用 `tempfile::TempDir`，因此絕不會
-觸碰到真正的 phantom 資料目錄。
+觸碰到真正的 spectyn 資料目錄。

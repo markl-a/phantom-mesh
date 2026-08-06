@@ -1,4 +1,4 @@
-//! `phantom serve` — Codex-compatible JSON-RPC WebSocket daemon + cluster RPC.
+//! `spectyn serve` — Codex-compatible JSON-RPC WebSocket daemon + cluster RPC.
 //!
 //! Wire format: JSON-RPC 2.0-ish (no `"jsonrpc"` field required) over:
 //!   - WebSocket  at  ws://HOST:PORT/ws
@@ -48,7 +48,7 @@ use tower_http::cors::CorsLayer;
 // ── Captured tool-call history (web /api/tools/history) ───────────────────────
 //
 // Mirrors what the REPL exposes via /show <n>: a rolling buffer of the last
-// 100 tool calls observed during this `phantom serve` session. Populated from
+// 100 tool calls observed during this `spectyn serve` session. Populated from
 // the `api_chat` SSE handler as ToolStart/ToolDone events fire.
 #[derive(Clone, Serialize)]
 struct ToolCallRecord {
@@ -190,7 +190,7 @@ fn build_base_router() -> Router<Arc<AppState>> {
         .route("/api/providers/health", get(api_providers_health))
         .route("/api/dashboard/status", get(api_dashboard_status))
         // Hardware + credential scan (Tauri onboarding hardware-detect; handlers
-        // also live in main.rs but `phantom serve` uses this router, so wire them here)
+        // also live in main.rs but `spectyn serve` uses this router, so wire them here)
         .route(
             "/scan/hardware",
             get(|| async {
@@ -279,7 +279,7 @@ fn build_base_router() -> Router<Arc<AppState>> {
 /// or hit the dashboard JSON endpoints. The dashboard ships from the same
 /// origin as the API, so we don't need any cross-origin allowance for
 /// normal use. Operators who genuinely need cross-origin can set
-/// `PHANTOM_CORS_ALLOW_ANY=1` for the legacy permissive behaviour during
+/// `SPECTYN_CORS_ALLOW_ANY=1` for the legacy permissive behaviour during
 /// migration; this is logged loudly on serve startup like the HMAC
 /// override.
 #[derive(Debug, PartialEq, Eq)]
@@ -289,7 +289,7 @@ enum CorsMode {
     /// so it is unaffected; this is the secure default.
     SameOrigin,
     /// Allow only localhost dev frontends (Vite :5173 / Tauri dev :1420 on
-    /// both `localhost` and `127.0.0.1`). Lets `phantom serve` be dogfooded
+    /// both `localhost` and `127.0.0.1`). Lets `spectyn serve` be dogfooded
     /// from a browser pointed at the local dev server without opening the API
     /// to arbitrary websites — a random `evil.com` origin is still rejected.
     Localhost,
@@ -305,11 +305,11 @@ fn env_flag(name: &str) -> bool {
 
 /// Resolve the CORS policy from env. Pure + side-effect-free so the policy
 /// decision is unit-testable without constructing an (opaque) `CorsLayer`.
-/// `PHANTOM_CORS_ALLOW_ANY` wins over `PHANTOM_CORS_ALLOW_LOCALHOST`.
+/// `SPECTYN_CORS_ALLOW_ANY` wins over `SPECTYN_CORS_ALLOW_LOCALHOST`.
 fn cors_mode_from_env() -> CorsMode {
-    if env_flag("PHANTOM_CORS_ALLOW_ANY") {
+    if env_flag("SPECTYN_CORS_ALLOW_ANY") {
         CorsMode::AllowAny
-    } else if env_flag("PHANTOM_CORS_ALLOW_LOCALHOST") {
+    } else if env_flag("SPECTYN_CORS_ALLOW_LOCALHOST") {
         CorsMode::Localhost
     } else {
         CorsMode::SameOrigin
@@ -340,12 +340,12 @@ fn build_cors_layer() -> CorsLayer {
 }
 
 /// T7 fix (codex audit 2026-05-15): emit `SECURITY WARNING:` to stderr if
-/// either migration override is active. Called by `bin/phantom.rs` at the
+/// either migration override is active. Called by `bin/spectyn.rs` at the
 /// top of the `serve` subcommand so operators see the warning EVERY boot.
 ///
 /// Back-compat shim retained for callers that don't have ready access to the
 /// cluster_secret status. Prefer
-/// [`emit_boot_security_warnings_with_config`] from `phantom serve` so the
+/// [`emit_boot_security_warnings_with_config`] from `spectyn serve` so the
 /// "deployment is failing-closed" diagnostic also surfaces.
 ///
 /// Returns the number of warnings emitted (mainly so callers can suppress
@@ -354,12 +354,12 @@ pub fn emit_boot_security_warnings() -> u8 {
     emit_boot_security_warnings_with_config(true)
 }
 
-/// T55: Boot-time security override summary, called by `phantom serve` BEFORE
+/// T55: Boot-time security override summary, called by `spectyn serve` BEFORE
 /// the HTTP listener binds. Surfaces three conditions to stderr:
 ///
-///   1. `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1` (T7  override)  — loud
+///   1. `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1` (T7  override)  — loud
 ///      `SECURITY WARNING:` line; will be removed next minor.
-///   2. `PHANTOM_CORS_ALLOW_ANY=1`             (T7c override) — loud
+///   2. `SPECTYN_CORS_ALLOW_ANY=1`             (T7c override) — loud
 ///      `SECURITY WARNING:` line; mirror of broker side.
 ///   3. `cluster_secret` empty AND override unset — INFO line confirming
 ///      the deployment is failing-closed (so operators reading logs after
@@ -372,12 +372,12 @@ pub fn emit_boot_security_warnings() -> u8 {
 /// expected output without parsing stderr capture.
 pub fn emit_boot_security_warnings_with_config(cluster_secret_configured: bool) -> u8 {
     let mut count: u8 = 0;
-    let allow_empty = std::env::var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET")
+    let allow_empty = std::env::var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     if allow_empty {
         eprintln!(
-            "SECURITY WARNING: PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 is set — \
+            "SECURITY WARNING: SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 is set — \
              /api/chat, /rpc/message, and /rpc/task/assign accept \
              unauthenticated requests. This override will be REMOVED in the \
              next minor release; set [cluster].cluster_secret in agents.toml \
@@ -388,7 +388,7 @@ pub fn emit_boot_security_warnings_with_config(cluster_secret_configured: bool) 
     match cors_mode_from_env() {
         CorsMode::AllowAny => {
             eprintln!(
-                "SECURITY WARNING: PHANTOM_CORS_ALLOW_ANY=1 is set — \
+                "SECURITY WARNING: SPECTYN_CORS_ALLOW_ANY=1 is set — \
                  dashboard/API endpoints accept cross-origin requests from \
                  any web page. Remove the env var after migration."
             );
@@ -396,7 +396,7 @@ pub fn emit_boot_security_warnings_with_config(cluster_secret_configured: bool) 
         }
         CorsMode::Localhost => {
             eprintln!(
-                "phantom serve: PHANTOM_CORS_ALLOW_LOCALHOST=1 — CORS allowed \
+                "spectyn serve: SPECTYN_CORS_ALLOW_LOCALHOST=1 — CORS allowed \
                  from local dev frontends only (http://localhost:5173 / :1420 \
                  + 127.0.0.1) for browser dogfooding. Unset for same-origin-only \
                  (the production default)."
@@ -410,8 +410,8 @@ pub fn emit_boot_security_warnings_with_config(cluster_secret_configured: bool) 
     // SECURITY WARNING above.
     if !cluster_secret_configured && !allow_empty {
         eprintln!(
-            "phantom serve: cluster_secret not configured and \
-             PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET unset — \
+            "spectyn serve: cluster_secret not configured and \
+             SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET unset — \
              deployment is failing-closed (cluster RPC endpoints will return \
              403 until [cluster].cluster_secret is set in agents.toml)."
         );
@@ -519,7 +519,7 @@ async fn api_projects() -> Json<Value> {
 async fn api_activity() -> Json<Value> {
     let mut items: Vec<Value> = Vec::new();
 
-    // Subagent task log (in-memory, lives in the running phantom serve).
+    // Subagent task log (in-memory, lives in the running spectyn serve).
     for rec in crate::tools::subagent::task_log_snapshot() {
         items.push(serde_json::json!({
             "kind":     "subagent",
@@ -532,7 +532,7 @@ async fn api_activity() -> Json<Value> {
     }
 
     // Autoevolve JSONL log on disk.
-    if let Ok(data) = crate::cli_config::phantom_data_dir() {
+    if let Ok(data) = crate::cli_config::spectyn_data_dir() {
         let path = data.join("autoevolve.log");
         if let Ok(content) = std::fs::read_to_string(&path) {
             for line in content.lines().rev().take(40) {
@@ -979,7 +979,7 @@ async fn api_onboarding(
     body: Bytes,
 ) -> Response {
     // T7b T13-N4 HIGH: HMAC gate on /api/onboarding. Use
-    // PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 for first-install workflows.
+    // SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 for first-install workflows.
     if let Err((code, json)) = require_cluster_auth(&state.cluster_manager, &headers, &body) {
         return (code, json).into_response();
     }
@@ -1016,7 +1016,7 @@ async fn api_onboarding(
         Ok(h) => h,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
-    let cfg_dir = crate::cli_config::phantom_dir_under(&home);
+    let cfg_dir = crate::cli_config::spectyn_dir_under(&home);
     if let Err(e) = std::fs::create_dir_all(&cfg_dir) {
         return (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir: {}", e)).into_response();
     }
@@ -1179,7 +1179,7 @@ async fn api_onboarding(
         master.insert("provider".to_string(), toml::Value::String(primary.into()));
         master.insert(
             "instructions".to_string(),
-            toml::Value::String("You are phantom, a helpful AI agent.".into()),
+            toml::Value::String("You are spectyn, a helpful AI agent.".into()),
         );
         agent.insert("master".to_string(), toml::Value::Table(master));
     }
@@ -1348,9 +1348,9 @@ async fn api_chat(
 
 // ── Todo / Sessions / Cost JSON endpoints ─────────────────────────────────────
 
-/// GET /api/todos — read ~/.phantom-mesh/todos.json (returns [] if absent or invalid).
+/// GET /api/todos — read ~/.spectyn-mesh/todos.json (returns [] if absent or invalid).
 async fn api_todos() -> Json<Value> {
-    let data = match crate::cli_config::phantom_data_dir() {
+    let data = match crate::cli_config::spectyn_data_dir() {
         Ok(d) => d,
         Err(_) => return Json(Value::Array(vec![])),
     };
@@ -1370,9 +1370,9 @@ async fn api_todos() -> Json<Value> {
     }
 }
 
-/// GET /api/sessions — list ~/.phantom-mesh/conversations/*.jsonl.
+/// GET /api/sessions — list ~/.spectyn-mesh/conversations/*.jsonl.
 async fn api_sessions() -> Json<Value> {
-    let data = match crate::cli_config::phantom_data_dir() {
+    let data = match crate::cli_config::spectyn_data_dir() {
         Ok(d) => d,
         Err(_) => return Json(Value::Array(vec![])),
     };
@@ -1640,7 +1640,7 @@ async fn dispatch(
             vec![ok(
                 &id,
                 json!({
-                    "userAgent":      concat!("phantom-mesh/", env!("CARGO_PKG_VERSION")),
+                    "userAgent":      concat!("spectyn-mesh/", env!("CARGO_PKG_VERSION")),
                     "platformFamily": if cfg!(windows) { "windows" } else { "unix" },
                     "platformOs":     std::env::consts::OS,
                 }),
@@ -1829,7 +1829,7 @@ fn check_wire_version(body: &Value) -> Option<(StatusCode, Json<Value>)> {
         .unwrap_or(0) as u32;
     if peer_wv > crate::WIRE_VERSION {
         let msg = format!(
-            "peer is wire v{}, this binary is v{}, run `phantom upgrade`",
+            "peer is wire v{}, this binary is v{}, run `spectyn upgrade`",
             peer_wv,
             crate::WIRE_VERSION
         );
@@ -1914,8 +1914,8 @@ fn require_cluster_auth_dual(
 /// `GET /node/capabilities` — return this node's capability report
 /// as JSON for cluster peer discovery + capability-aware dispatch.
 ///
-/// Same payload as `phantom node-capabilities --json` CLI; both use
-/// `phantom_mesh::capabilities::NodeCapabilityReport::detect()`. PF-4.
+/// Same payload as `spectyn node-capabilities --json` CLI; both use
+/// `spectyn_mesh::capabilities::NodeCapabilityReport::detect()`. PF-4.
 async fn node_capabilities() -> Json<Value> {
     let report = crate::capabilities::NodeCapabilityReport::detect();
     // serde_json::to_value never fails for serde-derived types in
@@ -1931,7 +1931,7 @@ async fn node_capabilities() -> Json<Value> {
 }
 
 /// POST/GET /rpc/ping — return this node's own PeerStatus PLUS the
-/// wire-protocol compatibility tuple (wire_version + phantom_version +
+/// wire-protocol compatibility tuple (wire_version + spectyn_version +
 /// core_sha) PLUS this node's [agent.*] inventory so the Squad
 /// Pipeline dispatcher (SPEC-FREEZE-V1 §11.1, §12.4 step [2]) can
 /// build a routing plan without a separate inventory RPC.
@@ -1948,7 +1948,7 @@ async fn rpc_ping(State(state): State<Arc<AppState>>) -> Json<Value> {
     if let Some(obj) = body.as_object_mut() {
         obj.insert("wire_version".to_string(), json!(crate::WIRE_VERSION));
         obj.insert(
-            "phantom_version".to_string(),
+            "spectyn_version".to_string(),
             json!(env!("CARGO_PKG_VERSION")),
         );
         obj.insert("core_sha".to_string(), json!(crate::core_sha()));
@@ -2010,7 +2010,7 @@ async fn rpc_skill_sync(
                 .into_response();
         }
     };
-    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+    let Ok(data) = crate::cli_config::spectyn_data_dir() else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": "no_data_dir" })),
@@ -2066,7 +2066,7 @@ async fn rpc_peers(State(state): State<Arc<AppState>>) -> Json<Value> {
 ///
 /// **Auth (T7 codex audit 2026-05-15):** requires `X-Cluster-Auth` HMAC.
 /// Refuses outright if cluster_secret is empty unless
-/// `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1` is set.
+/// `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1` is set.
 async fn rpc_message(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -2115,8 +2115,8 @@ async fn rpc_message(
 /// POST /rpc/inbox — persist a small coordination message for the dev
 /// session running on this node (S1 of the multi-machine dev framework).
 /// Body: `{ "from": "m1", "text": "...", "topic": "backlog" }` (from/topic
-/// optional). The message lands as a file under `~/.phantom-mesh/inbox/`;
-/// the local session reads + acks it via `phantom inbox list/ack` on its
+/// optional). The message lands as a file under `~/.spectyn-mesh/inbox/`;
+/// the local session reads + acks it via `spectyn inbox list/ack` on its
 /// next loop tick. Unlike `/rpc/message` this never runs an agent — it is
 /// pure mailbox, so delivery is cheap and safe to broadcast.
 ///
@@ -2402,7 +2402,7 @@ async fn rpc_tasks_list(
         Some(tq) => match tq.list(None, None, limit).await {
             Ok(rows) => rows.iter().map(task_record_to_wire).collect(),
             Err(e) => {
-                tracing::warn!(target: "phantom::serve", "tasks/list failed: {e}");
+                tracing::warn!(target: "spectyn::serve", "tasks/list failed: {e}");
                 Vec::new()
             }
         },
@@ -2473,7 +2473,7 @@ async fn rpc_captures_recent(
         .unwrap_or(50)
         .min(200) as usize;
 
-    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+    let Ok(data) = crate::cli_config::spectyn_data_dir() else {
         return Json(with_wire_version(json!({ "captures": [] }))).into_response();
     };
     // The enumeration is unbounded synchronous disk I/O + per-event decryption
@@ -2542,7 +2542,7 @@ async fn rpc_review(
         .and_then(|v| v.get("date").and_then(|d| d.as_str().map(String::from)))
         .unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
 
-    let Ok(data) = crate::cli_config::phantom_data_dir() else {
+    let Ok(data) = crate::cli_config::spectyn_data_dir() else {
         return Json(with_wire_version(json!({ "date": date, "markdown": "" }))).into_response();
     };
     // load_events_for_date does synchronous dir traversal + per-event decrypt;
@@ -2556,7 +2556,7 @@ async fn rpc_review(
         match crate::life_node::daily_review::load_events_for_date(&events_dir, &date_for_task, key) {
             Ok(events) => crate::life_node::daily_review::aggregate(&date_for_task, &events),
             Err(e) => {
-                tracing::warn!(target: "phantom::serve", "review load failed: {e}");
+                tracing::warn!(target: "spectyn::serve", "review load failed: {e}");
                 String::new()
             }
         }
@@ -2567,10 +2567,10 @@ async fn rpc_review(
 }
 
 /// GET /rpc/session-status — this node's dev-session heartbeat (S2).
-/// Returns `{ "node": "...", "status": {...}|null, "phantom_version": "..." }`
+/// Returns `{ "node": "...", "status": {...}|null, "spectyn_version": "..." }`
 /// where `status` is whatever the local routine last wrote via
-/// `phantom status set` (null on a node whose session never reported).
-/// Read-only and cheap — `phantom status mesh` fans this out cluster-wide.
+/// `spectyn status set` (null on a node whose session never reported).
+/// Read-only and cheap — `spectyn status mesh` fans this out cluster-wide.
 ///
 /// **Auth:** same HMAC posture as the other /rpc routes (clients sign the
 /// empty body with the legacy arm, like the dispatch status poll).
@@ -2596,7 +2596,7 @@ async fn rpc_session_status(
         "node": node,
         "status": status,
         "age_secs": age,
-        "phantom_version": env!("CARGO_PKG_VERSION"),
+        "spectyn_version": env!("CARGO_PKG_VERSION"),
     })))
     .into_response()
 }
@@ -2625,7 +2625,7 @@ async fn rpc_task_assign(
 ) -> impl IntoResponse {
     // T7 fix (codex audit 2026-05-15): fail closed when cluster_secret is
     // empty (previously silently accepted unauthenticated remote agent
-    // execution). Override via PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 for
+    // execution). Override via SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 for
     // one migration release; logged loudly at boot.
     if let Err((code, json)) = require_cluster_auth_dual(
         &state.cluster_manager,
@@ -2699,7 +2699,7 @@ async fn rpc_task_assign(
     // strict mode we bounce with 409; in soft mode (default) we log and
     // continue so existing deployments are unchanged.
     //
-    // C1 extension: if PHANTOM_FORWARD_ON_CAPS_MISMATCH=1 AND a peer in
+    // C1 extension: if SPECTYN_FORWARD_ON_CAPS_MISMATCH=1 AND a peer in
     // peers.json satisfies, route the task there instead of running it
     // locally. Q3 (spec §14): forwarding is refused when node_name is
     // unset to avoid malformed chains — we just fall back to the base
@@ -2711,8 +2711,8 @@ async fn rpc_task_assign(
         && crate::mesh::forward_on_caps_mismatch_enabled()
     {
         tracing::warn!(
-            target: "phantom::dispatch::forward",
-            "PHANTOM_FORWARD_ON_CAPS_MISMATCH=1 but node_name is unset; \
+            target: "spectyn::dispatch::forward",
+            "SPECTYN_FORWARD_ON_CAPS_MISMATCH=1 but node_name is unset; \
              refusing to forward (would emit a malformed chain). \
              Add [cluster].node_name to agents.toml."
         );
@@ -2730,7 +2730,7 @@ async fn rpc_task_assign(
         crate::mesh::CapsDecision::Allow => { /* fall through to local run */ }
         crate::mesh::CapsDecision::LogAndAllow { missing } => {
             tracing::warn!(
-                target: "phantom::dispatch",
+                target: "spectyn::dispatch",
                 ?missing,
                 local = ?local_caps,
                 required = ?req.required_caps,
@@ -2797,7 +2797,7 @@ async fn rpc_task_assign(
                 }
                 Err(e) => {
                     tracing::warn!(
-                        target: "phantom::dispatch::forward",
+                        target: "spectyn::dispatch::forward",
                         peer = %target_name,
                         url = %target_url,
                         error = %e,
@@ -2943,7 +2943,7 @@ async fn rpc_task_assign(
             // re-derives the same dedup key, the now-orphaned ledger entry is
             // detected as a missing row above, and a fresh job is created once
             // the DB recovers.
-            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable job create failed: {e}");
+            tracing::error!(target: "spectyn::dispatch", job_id = %job_id, "durable job create failed: {e}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(with_wire_version(json!({
@@ -2956,7 +2956,7 @@ async fn rpc_task_assign(
             .transition(job_uuid, pm_types::TaskStatus::Running, None)
             .await
         {
-            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable mark-running failed: {e}");
+            tracing::error!(target: "spectyn::dispatch", job_id = %job_id, "durable mark-running failed: {e}");
         }
         // apex-④ off-switch: register a cooperative-abort handle keyed by job_id
         // BEFORE launching the runner, and attach it so a `/rpc/task/stop` flip
@@ -2993,7 +2993,7 @@ async fn rpc_task_assign(
                         )
                         .await
                     {
-                        tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable record done failed: {e}");
+                        tracing::error!(target: "spectyn::dispatch", job_id = %job_uuid, "durable record done failed: {e}");
                     }
                 }
                 Err(e) => {
@@ -3006,7 +3006,7 @@ async fn rpc_task_assign(
                         )
                         .await
                     {
-                        tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable record error failed: {err}");
+                        tracing::error!(target: "spectyn::dispatch", job_id = %job_uuid, "durable record error failed: {err}");
                     }
                 }
             }
@@ -3144,7 +3144,7 @@ async fn rpc_dev_verify(
 /// Markers are read with this precedence (first present wins):
 ///   1. body `origin` field (`{"text":"…","origin":"machine"}`)
 ///   2. `X-Partner-Origin` header  ← the canonical marker for test/bot clients
-///   3. `X-Phantom-Origin` header  ← historical alias, kept for back-compat
+///   3. `X-Spectyn-Origin` header  ← historical alias, kept for back-compat
 ///
 /// The value is parsed by [`crate::partner::MessageOrigin::from_wire`]
 /// (case-insensitive: `machine`/`bot`/`system`/`classifier`/`loop`/`smoke`/`test`
@@ -3168,7 +3168,7 @@ fn parse_origin_marker(
         .filter(|s| !s.trim().is_empty())
         .map(str::to_string)
         .or_else(|| header_marker("X-Partner-Origin"))
-        .or_else(|| header_marker("X-Phantom-Origin"))
+        .or_else(|| header_marker("X-Spectyn-Origin"))
         .and_then(|s| crate::partner::MessageOrigin::from_wire(&s))
 }
 
@@ -3226,7 +3226,7 @@ async fn partner_message(
                 .map(|s| s.to_string())
         });
     // Dogfood-moat guard: an explicit origin marker (body `origin` field, or the
-    // `X-Partner-Origin` / `X-Phantom-Origin` header) lets the app/loops/smoke-
+    // `X-Partner-Origin` / `X-Spectyn-Origin` header) lets the app/loops/smoke-
     // tests tag themselves as machine so their turns don't pollute the human-usage
     // ledger; absent a marker, the content heuristic still catches legacy untagged
     // classifier prompts, otherwise it defaults to Human. (See
@@ -3288,8 +3288,8 @@ async fn partner_signal(
         }
     };
     // Pollution hard wall (ACCEL-FRAMEWORK §④, owner option B): a signal tagged as
-    // dev-loop / `phantom_self` / machine (body `origin` field or the
-    // `X-Partner-Origin` / `X-Phantom-Origin` header) is diverted to the dev-loop
+    // dev-loop / `spectyn_self` / machine (body `origin` field or the
+    // `X-Partner-Origin` / `X-Spectyn-Origin` header) is diverted to the dev-loop
     // log and NEVER written to the human-usage moat. Absent any marker the signal
     // defaults to Human (a sensor check-in carries no classifier markers, so the
     // content heuristic effectively never fires here — real human use is not
@@ -3383,13 +3383,13 @@ async fn rpc_swarm(
             .create_with_id(job_uuid, "swarm", &agent, &prompt)
             .await
         {
-            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable swarm create failed: {e}");
+            tracing::error!(target: "spectyn::dispatch", job_id = %job_id, "durable swarm create failed: {e}");
         }
         if let Err(e) = tq
             .transition(job_uuid, pm_types::TaskStatus::Running, None)
             .await
         {
-            tracing::error!(target: "phantom::dispatch", job_id = %job_id, "durable swarm mark-running failed: {e}");
+            tracing::error!(target: "spectyn::dispatch", job_id = %job_id, "durable swarm mark-running failed: {e}");
         }
         let state_for_task = state.clone();
         tokio::spawn(async move {
@@ -3412,7 +3412,7 @@ async fn rpc_swarm(
                 )
                 .await
             {
-                tracing::error!(target: "phantom::dispatch", job_id = %job_uuid, "durable swarm record done failed: {e}");
+                tracing::error!(target: "spectyn::dispatch", job_id = %job_uuid, "durable swarm record done failed: {e}");
             }
         });
     } else {
@@ -3598,7 +3598,7 @@ async fn rpc_task_status(
                 }
                 Ok(None) => { /* not in durable store — fall through to legacy map */ }
                 Err(e) => {
-                    tracing::warn!(target: "phantom::dispatch", job_id = %id, "durable status read failed: {e}");
+                    tracing::warn!(target: "spectyn::dispatch", job_id = %id, "durable status read failed: {e}");
                 }
             }
         }
@@ -3853,9 +3853,9 @@ async fn rpc_task_resume(
     .into_response()
 }
 
-/// POST /rpc/admin/self-update — download a new phantom binary from a URL,
+/// POST /rpc/admin/self-update — download a new spectyn binary from a URL,
 /// stage it next to the current exe as `<exe>.new`, spawn a detached
-/// trampoline that swaps files + restarts `phantom serve`, then exit.
+/// trampoline that swaps files + restarts `spectyn serve`, then exit.
 ///
 /// Body (JSON, optional):
 ///   { "url": "<override download url>" }   // defaults to https://phantommesh.io/dist/<platform-asset>
@@ -4001,21 +4001,21 @@ async fn rpc_admin_self_update(
 /// table in dist.ts on the broker side.
 fn default_dist_asset_name() -> &'static str {
     if cfg!(target_os = "windows") {
-        "phantom-windows-x86_64.exe"
+        "spectyn-windows-x86_64.exe"
     } else if cfg!(target_os = "macos") {
         if cfg!(target_arch = "aarch64") {
-            "phantom-darwin-arm64"
+            "spectyn-darwin-arm64"
         } else {
-            "phantom-darwin-x86_64"
+            "spectyn-darwin-x86_64"
         }
     } else if cfg!(target_os = "linux") {
         if cfg!(target_arch = "aarch64") {
-            "phantom-linux-aarch64"
+            "spectyn-linux-aarch64"
         } else {
-            "phantom-linux-x86_64"
+            "spectyn-linux-x86_64"
         }
     } else {
-        "phantom-windows-x86_64.exe" // best-effort fallback
+        "spectyn-windows-x86_64.exe" // best-effort fallback
     }
 }
 
@@ -4028,7 +4028,7 @@ fn default_dist_asset_name() -> &'static str {
 /// Body: { "cmd": "...", "cwd"?: "...", "timeout_secs"?: N }
 /// Response: { "exit_code": N, "stdout": "...", "stderr": "..." }
 ///
-/// Used by `phantom git sync --all` and other admin fan-outs that need
+/// Used by `spectyn git sync --all` and other admin fan-outs that need
 /// a deterministic shell behavior (LLM-flavored shell calls hallucinate
 /// or refuse on free-tier models).
 async fn rpc_admin_shell(
@@ -4081,7 +4081,7 @@ async fn rpc_admin_shell(
         }
     };
     // cwd resolution: explicit body.cwd wins; otherwise fall back to
-    // this node's own [workspace].default_dir so `phantom git sync --all`
+    // this node's own [workspace].default_dir so `spectyn git sync --all`
     // pulls each peer's pinned project without the caller having to know
     // each remote's path layout.
     let cwd = req
@@ -4194,7 +4194,7 @@ async fn download_binary(url: &str) -> anyhow::Result<Vec<u8>> {
 /// outlives the parent's death-by-self-update.
 ///
 /// We also redirect the trampoline's chained-command output to a log
-/// file (`<exe-dir>/phantom-restart.log`) so when something does go
+/// file (`<exe-dir>/spectyn-restart.log`) so when something does go
 /// sideways we have a forensic trail rather than a silent dead serve.
 fn spawn_swap_trampoline(
     exe: &std::path::Path,
@@ -4213,11 +4213,11 @@ fn spawn_swap_trampoline(
             .parent()
             .unwrap_or(std::path::Path::new("."))
             .to_path_buf();
-        let log_path = bin_dir.join("phantom-restart.log");
-        let bat_path = bin_dir.join("phantom-restart.bat");
+        let log_path = bin_dir.join("spectyn-restart.log");
+        let bat_path = bin_dir.join("spectyn-restart.bat");
         let log_s = log_path.to_string_lossy().to_string();
-        let out_path = bin_dir.join("phantom-serve.out.log");
-        let err_path = bin_dir.join("phantom-serve.err.log");
+        let out_path = bin_dir.join("spectyn-serve.out.log");
+        let err_path = bin_dir.join("spectyn-serve.err.log");
         let out_s = out_path.to_string_lossy().to_string();
         let err_s = err_path.to_string_lossy().to_string();
         let new_name = std::path::Path::new(&new_s)
@@ -4249,7 +4249,7 @@ fn spawn_swap_trampoline(
         // this actually work end-to-end.
         let bat_content = format!(
             "@echo off\r\n\
-             echo === phantom self-update unix={ts} pid={pid} === > \"{log}\"\r\n\
+             echo === spectyn self-update unix={ts} pid={pid} === > \"{log}\"\r\n\
              ping 127.0.0.1 -n {pings} > nul\r\n\
              echo killing parent pid {pid} >> \"{log}\"\r\n\
              taskkill /F /PID {pid} >> \"{log}\" 2>&1\r\n\
@@ -4326,7 +4326,7 @@ fn notif(method: &str, params: Value) -> String {
 // ── Mobile onboarding ─────────────────────────────────────────────────────────
 //
 // Flow:
-//   1. User opens Phantom Mesh on Mac, copies an onboarding token (printed by CLI
+//   1. User opens Spectyn Mesh on Mac, copies an onboarding token (printed by CLI
 //      or shown in Settings UI).
 //   2. On the mobile device, user enters Mac Tailscale IP + token + node_name.
 //      Mobile fetches GET /onboarding/config?token=...&node_name=...
@@ -4347,14 +4347,14 @@ fn default_node_name() -> String {
 }
 
 /// Derive a stable, secret-derived onboarding token.
-/// HMAC-SHA256(cluster_secret, b"phantom-mesh-onboarding-v1") truncated to first 16 hex chars.
+/// HMAC-SHA256(cluster_secret, b"spectyn-mesh-onboarding-v1") truncated to first 16 hex chars.
 fn make_onboarding_token(cluster_secret: &str) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
     let mut mac =
         HmacSha256::new_from_slice(cluster_secret.as_bytes()).expect("HMAC accepts any key length");
-    mac.update(b"phantom-mesh-onboarding-v1");
+    mac.update(b"spectyn-mesh-onboarding-v1");
     let bytes = mac.finalize().into_bytes();
     bytes[..8].iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -4491,7 +4491,7 @@ async fn onboarding_config(
     toml.push_str(&format!("provider     = \"{}\"\n", default_provider));
     toml.push_str(&format!("model        = \"{}\"\n", default_model));
     toml.push_str("tools        = [\"shell\",\"file_read\",\"file_write\",\"web_search\",\"content_search\"]\n");
-    toml.push_str(&format!("instructions = \"You are {}, a phantom-mesh mobile worker. Reply concisely in Traditional Chinese.\"\n", node_name));
+    toml.push_str(&format!("instructions = \"You are {}, a spectyn-mesh mobile worker. Reply concisely in Traditional Chinese.\"\n", node_name));
 
     Response::builder()
         .status(StatusCode::OK)
@@ -4507,14 +4507,14 @@ async fn onboarding_config(
 ///   - setup-pi.sh
 ///   - termux-setup.sh
 ///
-/// CWD when phantom serve runs is wherever the user launched it. The script
+/// CWD when spectyn serve runs is wherever the user launched it. The script
 /// dir is resolved relative to where the binary's `core/` parent lives, with
-/// a fallback to `$HOME/.phantom-mesh/scripts` and finally `/usr/local/share/phantom-mesh/scripts`.
+/// a fallback to `$HOME/.spectyn-mesh/scripts` and finally `/usr/local/share/spectyn-mesh/scripts`.
 async fn serve_script(axum::extract::Path(filename): axum::extract::Path<String>) -> Response {
     // Allowlist — no path traversal possible
     const ALLOWED: &[&str] = &[
         "windows-bootstrap.ps1",
-        "install-phantom-windows.ps1",
+        "install-spectyn-windows.ps1",
         "setup-pi.sh",
         "termux-setup.sh",
         "install-mac.sh",
@@ -4531,11 +4531,11 @@ async fn serve_script(axum::extract::Path(filename): axum::extract::Path<String>
         // 2. <repo-root>/scripts/<file>  (cwd is core/, ../scripts/)
         v.push(std::path::PathBuf::from("../scripts").join(&filename));
         // 3. user-local
-        if let Ok(data) = crate::cli_config::phantom_data_dir() {
+        if let Ok(data) = crate::cli_config::spectyn_data_dir() {
             v.push(data.join("scripts").join(&filename));
         }
         // 4. system-wide
-        v.push(std::path::PathBuf::from("/usr/local/share/phantom-mesh/scripts").join(&filename));
+        v.push(std::path::PathBuf::from("/usr/local/share/spectyn-mesh/scripts").join(&filename));
         v
     };
 
@@ -4571,7 +4571,7 @@ async fn serve_script(axum::extract::Path(filename): axum::extract::Path<String>
         .into_response()
 }
 
-/// Serve cross-platform phantom binaries from the repository's `dist/` so
+/// Serve cross-platform spectyn binaries from the repository's `dist/` so
 /// remote nodes (Termux on Android, fresh Linux/Windows boxes) can curl
 /// them directly off the coordinator without going through GitHub releases.
 ///
@@ -4579,13 +4579,13 @@ async fn serve_script(axum::extract::Path(filename): axum::extract::Path<String>
 /// outside it is rejected to prevent path traversal and arbitrary download.
 async fn serve_dist(axum::extract::Path(filename): axum::extract::Path<String>) -> Response {
     const ALLOWED: &[&str] = &[
-        "phantom-aarch64-apple-darwin",
-        "phantom-aarch64-linux-android",
-        "phantom-aarch64-unknown-linux",
-        "phantom-x86_64-pc-windows.exe",
-        "phantom-x86_64-unknown-linux",
-        "phantom-mesh-android.apk", // Tauri Android thin-shell APK
-        "phantom-mesh-ios.ipa",     // Tauri iOS thin-shell IPA (signed dev cert)
+        "spectyn-aarch64-apple-darwin",
+        "spectyn-aarch64-linux-android",
+        "spectyn-aarch64-unknown-linux",
+        "spectyn-x86_64-pc-windows.exe",
+        "spectyn-x86_64-unknown-linux",
+        "spectyn-mesh-android.apk", // Tauri Android thin-shell APK
+        "spectyn-mesh-ios.ipa",     // Tauri iOS thin-shell IPA (signed dev cert)
     ];
     if !ALLOWED.contains(&filename.as_str()) {
         return (StatusCode::NOT_FOUND, "binary not in allowlist").into_response();
@@ -4599,15 +4599,15 @@ async fn serve_dist(axum::extract::Path(filename): axum::extract::Path<String>) 
         v.push(std::path::PathBuf::from("../dist").join(&filename));
         // 3. user-local
         if let Some(home) = dirs::home_dir() {
-            v.push(crate::cli_config::phantom_dir_under(&home).join("dist").join(&filename));
+            v.push(crate::cli_config::spectyn_dir_under(&home).join("dist").join(&filename));
             // launchd-friendly install location
             v.push(
-                home.join("Library/Application Support/phantom-mesh/dist")
+                home.join("Library/Application Support/spectyn-mesh/dist")
                     .join(&filename),
             );
         }
         // 4. system-wide
-        v.push(std::path::PathBuf::from("/usr/local/share/phantom-mesh/dist").join(&filename));
+        v.push(std::path::PathBuf::from("/usr/local/share/spectyn-mesh/dist").join(&filename));
         v
     };
 
@@ -4646,7 +4646,7 @@ async fn serve_dist(axum::extract::Path(filename): axum::extract::Path<String>) 
 
 // ── /api/version, /api/providers/health, /api/dashboard/status ──────────────
 //
-// These were registered in core/src/main.rs but never wired into phantom serve,
+// These were registered in core/src/main.rs but never wired into spectyn serve,
 // so the README's documented endpoints 404'd in production. Tier-5 protocol
 // test caught it. Keeping them here keeps every documented endpoint live on
 // the actual daemon.
@@ -4655,7 +4655,7 @@ async fn serve_dist(axum::extract::Path(filename): axum::extract::Path<String>) 
 async fn api_version() -> Json<Value> {
     Json(json!({
         "version":      env!("CARGO_PKG_VERSION"),
-        // build.rs sets PHANTOM_GIT_HASH; this used to read GIT_COMMIT_HASH
+        // build.rs sets SPECTYN_GIT_HASH; this used to read GIT_COMMIT_HASH
         // (a name nothing in the repo sets), so the field always returned
         // "unknown" — see Bug #13 in the 2026-05-01 test sweep.
         "commit":       crate::core_sha(),
@@ -4700,7 +4700,7 @@ async fn api_providers_health(State(state): State<Arc<AppState>>) -> Json<Value>
 ///
 /// Note: this endpoint accepts the checkpoint and saves it. It does NOT
 /// auto-resume the evolve loop on receipt — the receiver is expected to
-/// invoke `phantom autoevolve --resume <session-id>` (or pick up via
+/// invoke `spectyn autoevolve --resume <session-id>` (or pick up via
 /// the normal scheduled run) to act on the handed-off state. Keeping
 /// receipt and execution decoupled means a peer can be a passive
 /// "shelter" for in-flight work without needing to be ready to run it
@@ -4718,7 +4718,7 @@ async fn rpc_evolve_handoff(
     // SKIPPED auth entirely and let an unauthenticated remote peer reach
     // `checkpoint.save()`. Route through the shared `require_cluster_auth_dual`
     // helper (same as /rpc/message, /rpc/task/assign, …) which refuses outright
-    // when the secret is empty unless PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1.
+    // when the secret is empty unless SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1.
     if let Err((code, json)) = require_cluster_auth_dual(
         &state.cluster_manager,
         &headers,
@@ -4755,8 +4755,8 @@ async fn rpc_evolve_handoff(
         .config
         .node_name
         .clone()
-        .or_else(|| std::env::var("PHANTOM_NODE_NAME").ok())
-        .unwrap_or_else(|| "phantom".into());
+        .or_else(|| std::env::var("SPECTYN_NODE_NAME").ok())
+        .unwrap_or_else(|| "spectyn".into());
 
     let prior_node = checkpoint.current_node.clone();
     checkpoint.record_node_hop(
@@ -4812,7 +4812,7 @@ async fn rpc_squad_dispatch(
     //    `agent_runtime.run()` (unauth RCE). Route through the shared
     //    `require_cluster_auth_dual` helper (same as /rpc/task/assign,
     //    /rpc/evolve-handoff, …) which refuses outright when the secret is
-    //    empty unless PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1.
+    //    empty unless SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1.
     if let Err((code, json)) = require_cluster_auth_dual(
         &state.cluster_manager,
         &headers,
@@ -4886,7 +4886,7 @@ async fn rpc_squad_dispatch(
         .config
         .node_name
         .clone()
-        .unwrap_or_else(|| "phantom".into());
+        .unwrap_or_else(|| "spectyn".into());
 
     // 5. At-most-once: a peer re-posts a dispatch on its own timeout even though
     //    this node may already be running/finished the same job. Dedup BEFORE the
@@ -5094,7 +5094,7 @@ async fn api_events_post(
         .filter(|s| !s.is_empty())
         .collect();
 
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "no home dir".to_string()))?;
     let identity_path = data.join("identity.key");
     let key = crate::life_node::key_derivation::load_event_key(&identity_path).map_err(|e| {
@@ -5104,7 +5104,7 @@ async fn api_events_post(
         )
     })?;
     let store = EventStore::with_key(data.join("events"), key);
-    let source_node = std::env::var("PHANTOM_NODE_NAME").unwrap_or_else(|_| "unknown".into());
+    let source_node = std::env::var("SPECTYN_NODE_NAME").unwrap_or_else(|_| "unknown".into());
     let meta = store
         .write_event(&kind, &modalities, &goal_tags, &source_node)
         .map_err(|e| {
@@ -5198,7 +5198,7 @@ async fn api_events_post(
 async fn api_events_analysis_get(
     AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "no home dir".to_string()))?;
     let identity_path = data.join("identity.key");
     let store =
@@ -5220,8 +5220,8 @@ mod boot_security_warning_tests {
     use super::*;
     use std::sync::MutexGuard;
 
-    // Delegate to the crate-wide env mutex: PHANTOM_ENFORCE_REQUIRED_CAPS and
-    // PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET are also mutated by tests in mesh.rs
+    // Delegate to the crate-wide env mutex: SPECTYN_ENFORCE_REQUIRED_CAPS and
+    // SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET are also mutated by tests in mesh.rs
     // and auth_gate.rs. A per-file mutex here let those groups race; sharing
     // crate::env_lock serializes every env-touching test process-wide.
     fn env_guard() -> MutexGuard<'static, ()> {
@@ -5229,9 +5229,9 @@ mod boot_security_warning_tests {
     }
 
     fn clear_overrides() {
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
-        std::env::remove_var("PHANTOM_CORS_ALLOW_ANY");
-        std::env::remove_var("PHANTOM_CORS_ALLOW_LOCALHOST");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_CORS_ALLOW_ANY");
+        std::env::remove_var("SPECTYN_CORS_ALLOW_LOCALHOST");
     }
 
     #[test]
@@ -5245,7 +5245,7 @@ mod boot_security_warning_tests {
     fn cors_mode_localhost_when_flag_set() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_CORS_ALLOW_LOCALHOST", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_LOCALHOST", "1");
         assert_eq!(cors_mode_from_env(), CorsMode::Localhost);
         clear_overrides();
     }
@@ -5254,8 +5254,8 @@ mod boot_security_warning_tests {
     fn cors_mode_allow_any_wins_over_localhost() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_CORS_ALLOW_LOCALHOST", "1");
-        std::env::set_var("PHANTOM_CORS_ALLOW_ANY", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_LOCALHOST", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_ANY", "1");
         assert_eq!(cors_mode_from_env(), CorsMode::AllowAny);
         clear_overrides();
     }
@@ -5264,7 +5264,7 @@ mod boot_security_warning_tests {
     fn cors_localhost_emits_one_info_line() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_CORS_ALLOW_LOCALHOST", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_LOCALHOST", "1");
         // secret configured → only the localhost CORS info line is emitted.
         let n = emit_boot_security_warnings_with_config(true);
         clear_overrides();
@@ -5284,7 +5284,7 @@ mod boot_security_warning_tests {
     fn cors_override_emits_warning() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_CORS_ALLOW_ANY", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_ANY", "1");
         let n = emit_boot_security_warnings_with_config(true);
         clear_overrides();
         assert_eq!(n, 1, "CORS override alone should emit exactly 1 line");
@@ -5294,7 +5294,7 @@ mod boot_security_warning_tests {
     fn allow_empty_secret_override_emits_warning() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
         // Even with secret_configured=false, the override should suppress the
         // failing-closed diagnostic (would contradict the warning).
         let n = emit_boot_security_warnings_with_config(false);
@@ -5321,8 +5321,8 @@ mod boot_security_warning_tests {
     fn both_overrides_set_emit_two_warnings() {
         let _g = env_guard();
         clear_overrides();
-        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
-        std::env::set_var("PHANTOM_CORS_ALLOW_ANY", "1");
+        std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        std::env::set_var("SPECTYN_CORS_ALLOW_ANY", "1");
         let n = emit_boot_security_warnings_with_config(false);
         clear_overrides();
         assert_eq!(n, 2, "both overrides → both warnings, no fail-closed line");
@@ -5377,7 +5377,7 @@ mod wire_version_tests {
         assert_eq!(code, StatusCode::BAD_REQUEST);
         let err = json.0["error"].as_str().unwrap_or("");
         assert!(
-            err.contains("phantom upgrade"),
+            err.contains("spectyn upgrade"),
             "error missing upgrade hint: {err}"
         );
         assert!(err.contains(&format!("v{}", crate::WIRE_VERSION + 5)));
@@ -5399,8 +5399,8 @@ mod squad_dispatch_tests {
     use tower::ServiceExt; // for `oneshot`
 
     /// Serialise tests that mutate process env. These tests touch
-    /// `PHANTOM_ENFORCE_REQUIRED_CAPS` AND — now that `/rpc/task/assign`
-    /// records an at-most-once dedup key — `PHANTOM_IDEMPOTENCY_STORE`. Both
+    /// `SPECTYN_ENFORCE_REQUIRED_CAPS` AND — now that `/rpc/task/assign`
+    /// records an at-most-once dedup key — `SPECTYN_IDEMPOTENCY_STORE`. Both
     /// vars are also mutated by tests in other modules (coach, auth_gate,
     /// mesh), so we share the crate-wide [`crate::env_lock`] rather than a
     /// module-local mutex; a module-local lock would let those groups race.
@@ -5422,9 +5422,9 @@ mod squad_dispatch_tests {
     impl IdemStoreGuard {
         fn new() -> Self {
             let tmp = tempfile::TempDir::new().expect("tempdir");
-            let prev = std::env::var("PHANTOM_IDEMPOTENCY_STORE").ok();
+            let prev = std::env::var("SPECTYN_IDEMPOTENCY_STORE").ok();
             std::env::set_var(
-                "PHANTOM_IDEMPOTENCY_STORE",
+                "SPECTYN_IDEMPOTENCY_STORE",
                 tmp.path().join("idempotency.jsonl"),
             );
             Self { _tmp: tmp, prev }
@@ -5433,8 +5433,8 @@ mod squad_dispatch_tests {
     impl Drop for IdemStoreGuard {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", v),
-                None => std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE"),
+                Some(v) => std::env::set_var("SPECTYN_IDEMPOTENCY_STORE", v),
+                None => std::env::remove_var("SPECTYN_IDEMPOTENCY_STORE"),
             }
         }
     }
@@ -5526,11 +5526,11 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn zk_put_get_roundtrip_seals_and_fails_closed() {
         use base64::Engine as _;
-        let _g = env_guard(); // serialize the PHANTOM_HOME mutation
+        let _g = env_guard(); // serialize the SPECTYN_HOME mutation
         let tmp = tempfile::tempdir().unwrap();
-        let prev = std::env::var_os("PHANTOM_HOME");
-        // PHANTOM_HOME is the data-root verbatim → isolates the relay store dir.
-        std::env::set_var("PHANTOM_HOME", tmp.path().join(".phantom-mesh"));
+        let prev = std::env::var_os("SPECTYN_HOME");
+        // SPECTYN_HOME is the data-root verbatim → isolates the relay store dir.
+        std::env::set_var("SPECTYN_HOME", tmp.path().join(".spectyn-mesh"));
 
         // Client seals plaintext; the server only ever sees this ciphertext.
         let key = crate::life_node::key_derivation::derive_event_key(&[0x33u8; 32]).unwrap();
@@ -5576,8 +5576,8 @@ mod squad_dispatch_tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND, "missing key must fail closed");
 
         match prev {
-            Some(v) => std::env::set_var("PHANTOM_HOME", v),
-            None => std::env::remove_var("PHANTOM_HOME"),
+            Some(v) => std::env::set_var("SPECTYN_HOME", v),
+            None => std::env::remove_var("SPECTYN_HOME"),
         }
     }
 
@@ -5721,7 +5721,7 @@ mod squad_dispatch_tests {
         // reads OK and the request proceeds down the SAME path as a tiny one.
         //
         // Pin HOME to a tempdir (so any event write stays out of the real
-        // ~/.phantom-mesh) and clear provider keys (so no network call), under
+        // ~/.spectyn-mesh) and clear provider keys (so no network call), under
         // the shared env lock. Assert by behaviour-equivalence: with the fix a
         // 3 MiB and a 1 KiB photo reach the identical downstream status; without
         // it the 3 MiB one would be 400.
@@ -5824,7 +5824,7 @@ mod squad_dispatch_tests {
         // Request demands "shell" (not in local caps).
         // Strict mode → 409 with capability_mismatch body.
         let _g = env_guard();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec!["file_in_container".into(), "memory".into()],
             Some(EnforceMode::Strict),
@@ -5855,7 +5855,7 @@ mod squad_dispatch_tests {
         // (The warn log is fire-and-forget; we don't assert on it.)
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec!["file_in_container".into(), "memory".into()],
             Some(EnforceMode::Soft),
@@ -5906,7 +5906,7 @@ mod squad_dispatch_tests {
         // mis-read as a DispatchError → spurious forward failure.
         let _g = env_guard(); // process-wide env lock (serializes env-touching tests)
         let _idem = IdemStoreGuard::new(); // isolate the dedup ledger to a tempdir
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
 
         // One job store shared by both router instances (oneshot consumes the
         // router, so we build it twice over the SAME Arc).
@@ -5969,7 +5969,7 @@ mod squad_dispatch_tests {
     async fn empty_secret_fails_closed_on_dispatch_handoff_and_assign() {
         let _g = env_guard();
         // The whole point of the fix: with the override OFF, empty secret rejects.
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
 
         // AppState::new() has no cluster_secret configured (None/empty).
         let state = AppState::new();
@@ -6024,14 +6024,14 @@ mod squad_dispatch_tests {
     async fn duplicate_with_missing_durable_row_never_respawns() {
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
 
         // A DURABLE task queue is configured but we will NEVER let the first
         // assign create a row in it — instead we pre-seed the at-most-once ledger
         // with a job_id that has no matching durable row, simulating the
         // crash-orphan gap (ledger recorded, row write lost).
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let db = dir.path().join("phantom.db");
+        let db = dir.path().join("spectyn.db");
         let queue = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
 
         let jobs: super::ClusterJobStore =
@@ -6141,7 +6141,7 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let job_id = seed_running_task(&queue).await;
         let (arc, router) = router_with_queue(queue);
@@ -6177,7 +6177,7 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let job_id = seed_running_task(&queue).await;
         let (arc, router) = router_with_queue(queue);
@@ -6221,7 +6221,7 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let job_id = seed_running_task(&queue).await;
         let (arc, router) = router_with_queue(queue);
@@ -6253,7 +6253,7 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let job_id = seed_running_task(&queue).await;
         // Park it first (as STOP would).
@@ -6292,7 +6292,7 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let job_id = seed_running_task(&queue).await;
         queue
@@ -6335,14 +6335,14 @@ mod squad_dispatch_tests {
         let _g = env_guard();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let (_arc, _r) = router_with_queue(queue);
         for path in ["/rpc/task/stop", "/rpc/task/resume"] {
             // Fresh router per call (oneshot consumes it).
             let dir2 = tempfile::TempDir::new().expect("tempdir");
             let q2 = crate::TaskQueue::new(
-                crate::TaskStore::open_at(dir2.path().join("phantom.db")).expect("open"),
+                crate::TaskStore::open_at(dir2.path().join("spectyn.db")).expect("open"),
             );
             let (_a, router) = router_with_queue(q2);
             let req = Request::builder()
@@ -6365,33 +6365,33 @@ mod squad_dispatch_tests {
     // ─── P1-2 mobile-supervisor RPC tests ──────────────────────────────────
     // `/rpc/tasks/list`, `/rpc/captures/recent`, `/rpc/review` — HMAC-authed
     // read endpoints that the phone supervisor tabs poll. All hermetic: a
-    // temp PHANTOM_HOME data-root + plaintext on-disk fixtures + oneshot.
+    // temp SPECTYN_HOME data-root + plaintext on-disk fixtures + oneshot.
 
-    /// RAII: point the phantom DATA-ROOT (`PHANTOM_HOME`) at a throwaway dir for
-    /// one test, restoring the prior value on drop. `phantom_data_dir()` honors
-    /// `PHANTOM_HOME` verbatim, so `events/` and `pending/` both resolve under it
-    /// (MEMORY: windows-home-resolution-phantom-home). Caller must hold
+    /// RAII: point the spectyn DATA-ROOT (`SPECTYN_HOME`) at a throwaway dir for
+    /// one test, restoring the prior value on drop. `spectyn_data_dir()` honors
+    /// `SPECTYN_HOME` verbatim, so `events/` and `pending/` both resolve under it
+    /// (MEMORY: windows-home-resolution-spectyn-home). Caller must hold
     /// [`env_guard`] (serializes the env mutation).
-    struct PhantomHomeGuard {
+    struct SpectynHomeGuard {
         _tmp: tempfile::TempDir,
         prev: Option<std::ffi::OsString>,
     }
-    impl PhantomHomeGuard {
+    impl SpectynHomeGuard {
         fn new() -> Self {
             let tmp = tempfile::TempDir::new().expect("tempdir");
-            let prev = std::env::var_os("PHANTOM_HOME");
-            std::env::set_var("PHANTOM_HOME", tmp.path());
+            let prev = std::env::var_os("SPECTYN_HOME");
+            std::env::set_var("SPECTYN_HOME", tmp.path());
             Self { _tmp: tmp, prev }
         }
         fn data_dir(&self) -> std::path::PathBuf {
             self._tmp.path().to_path_buf()
         }
     }
-    impl Drop for PhantomHomeGuard {
+    impl Drop for SpectynHomeGuard {
         fn drop(&mut self) {
             match &self.prev {
-                Some(v) => std::env::set_var("PHANTOM_HOME", v),
-                None => std::env::remove_var("PHANTOM_HOME"),
+                Some(v) => std::env::set_var("SPECTYN_HOME", v),
+                None => std::env::remove_var("SPECTYN_HOME"),
             }
         }
     }
@@ -6468,9 +6468,9 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_tasks_list_returns_durable_tasks_authed() {
         let _g = env_guard();
-        let _home = PhantomHomeGuard::new(); // isolate pending dir
+        let _home = SpectynHomeGuard::new(); // isolate pending dir
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let db = dir.path().join("phantom.db");
+        let db = dir.path().join("spectyn.db");
         let queue = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
         // Seed one durable task.
         queue
@@ -6495,10 +6495,10 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_tasks_list_rejects_unauthed() {
         let _g = env_guard();
-        let _home = PhantomHomeGuard::new();
+        let _home = SpectynHomeGuard::new();
         let dir = tempfile::TempDir::new().expect("tempdir");
         let queue = crate::TaskQueue::new(
-            crate::TaskStore::open_at(dir.path().join("phantom.db")).expect("open"),
+            crate::TaskStore::open_at(dir.path().join("spectyn.db")).expect("open"),
         );
         let (_arc, router) = router_with_queue(queue);
         let req = Request::builder()
@@ -6515,7 +6515,7 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_captures_recent_lists_event_metas_authed() {
         let _g = env_guard();
-        let home = PhantomHomeGuard::new();
+        let home = SpectynHomeGuard::new();
         let events_dir = home.data_dir().join("events");
         write_event_fixture(
             &events_dir,
@@ -6544,7 +6544,7 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_captures_recent_rejects_unauthed() {
         let _g = env_guard();
-        let _home = PhantomHomeGuard::new();
+        let _home = SpectynHomeGuard::new();
         let router = router_secret_only();
         let req = Request::builder()
             .method("POST")
@@ -6560,7 +6560,7 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_review_aggregates_events_for_date_authed() {
         let _g = env_guard();
-        let home = PhantomHomeGuard::new();
+        let home = SpectynHomeGuard::new();
         let events_dir = home.data_dir().join("events");
         // 01:02:03Z is the same local calendar day for any TZ ≥ UTC-1, which
         // covers the operator's UTC+8 host; load_events_for_date matches on the
@@ -6597,7 +6597,7 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn rpc_review_rejects_unauthed() {
         let _g = env_guard();
-        let _home = PhantomHomeGuard::new();
+        let _home = SpectynHomeGuard::new();
         let router = router_secret_only();
         let req = Request::builder()
             .method("POST")
@@ -6618,7 +6618,7 @@ mod squad_dispatch_tests {
         // drop the connection (≈ process exit), reopen the same db file, run
         // the boot-time mark_interrupted sweep, then poll via the handler.
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let db = dir.path().join("phantom.db");
+        let db = dir.path().join("spectyn.db");
 
         // Before restart: accept + mark running, persisted to the db file.
         let job_id = {
@@ -6672,10 +6672,10 @@ mod squad_dispatch_tests {
         // whatever terminal status the background agent run lands on.
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS"); // soft mode → Allow
 
         let dir = tempfile::TempDir::new().expect("tempdir");
-        let db = dir.path().join("phantom.db");
+        let db = dir.path().join("spectyn.db");
         let q = crate::TaskQueue::new(crate::TaskStore::open_at(db).expect("open"));
         let (state, router) = router_with_queue(q);
 
@@ -6710,7 +6710,7 @@ mod squad_dispatch_tests {
         // required ⊆ local, strict mode → 202 Accepted, job_id present.
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec!["file_in_container".into(), "memory".into(), "web".into()],
             Some(EnforceMode::Strict),
@@ -6736,7 +6736,7 @@ mod squad_dispatch_tests {
         // Even a tight sandbox worker in strict mode must accept.
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(vec!["file_in_container".into()], Some(EnforceMode::Strict));
         let req = assign_request(json!({
             "agent":  "master",
@@ -6760,7 +6760,7 @@ mod squad_dispatch_tests {
         // worker_caps=[] sentinel means "no restriction".
         let _g = env_guard();
         let _idem = IdemStoreGuard::new();
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
         let router = router_with_caps(
             vec![], // full worker
             Some(EnforceMode::Strict),
@@ -6783,11 +6783,11 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn env_override_flips_soft_node_to_strict() {
         // Operator escape hatch: a node configured for soft mode
-        // (or no config) should flip to strict when PHANTOM_ENFORCE_
+        // (or no config) should flip to strict when SPECTYN_ENFORCE_
         // REQUIRED_CAPS=strict is in the environment. The override
         // is read at request time via effective_enforce_mode().
         let _g = env_guard();
-        std::env::set_var("PHANTOM_ENFORCE_REQUIRED_CAPS", "strict");
+        std::env::set_var("SPECTYN_ENFORCE_REQUIRED_CAPS", "strict");
         let router = router_with_caps(
             vec!["file_in_container".into()],
             Some(EnforceMode::Soft), // config says soft …
@@ -6804,7 +6804,7 @@ mod squad_dispatch_tests {
             StatusCode::CONFLICT,
             "env override must promote soft config to strict enforcement"
         );
-        std::env::remove_var("PHANTOM_ENFORCE_REQUIRED_CAPS");
+        std::env::remove_var("SPECTYN_ENFORCE_REQUIRED_CAPS");
     }
 
     /// SHARED P0 (`mesh::tests::cluster_secret_mismatch_rejects_with_401`)
@@ -6864,7 +6864,7 @@ mod squad_dispatch_tests {
     #[tokio::test]
     async fn empty_secret_fails_closed_on_dispatch_and_handoff() {
         let _g = crate::env_lock::acquire();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
 
         // Router with an EMPTY cluster_secret (the fail-open trigger).
         let cfg = ClusterConfig {
@@ -6899,7 +6899,7 @@ mod node_capabilities_tests {
     use serde_json::Value;
 
     /// PF-4: `GET /node/capabilities` handler returns the same payload
-    /// as `phantom node-capabilities --json` (NodeCapabilityReport via
+    /// as `spectyn node-capabilities --json` (NodeCapabilityReport via
     /// the PF-3 detector).
     ///
     /// We call the handler directly (no router/server spin-up) and
@@ -6927,7 +6927,7 @@ mod node_capabilities_tests {
         }
     }
 
-    /// Confirms response format matches `phantom node-capabilities --json`
+    /// Confirms response format matches `spectyn node-capabilities --json`
     /// (which uses the same `NodeCapabilityReport` via PF-3). PF-4 DoD.
     #[tokio::test]
     async fn http_payload_matches_cli_json_payload() {
@@ -6987,7 +6987,7 @@ mod api_events_route_tests {
     #[tokio::test]
     async fn capability_query_route_is_wired_and_auth_gated() {
         let _g = crate::env_lock::acquire();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let state = AppState::new();
         let router = super::router(Arc::new(state));
         let req = Request::builder()
@@ -7012,7 +7012,7 @@ mod api_events_route_tests {
     #[tokio::test]
     async fn onboarding_non_table_key_returns_graceful_500_not_panic() {
         let _g = crate::env_lock::acquire();
-        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
         struct VarGuard(&'static str, Option<String>);
         impl Drop for VarGuard {
             fn drop(&mut self) {
@@ -7025,14 +7025,14 @@ mod api_events_route_tests {
         let tmp = tempfile::TempDir::new().expect("tempdir");
         let _h = VarGuard("HOME", std::env::var("HOME").ok());
         let _a = VarGuard(
-            "PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET",
-            std::env::var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET").ok(),
+            "SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET",
+            std::env::var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET").ok(),
         );
         std::env::set_var("HOME", tmp.path());
 
-        // Seed ~/.phantom-mesh/agents.toml with a NON-TABLE `core` key. This is
+        // Seed ~/.spectyn-mesh/agents.toml with a NON-TABLE `core` key. This is
         // valid TOML (parses fine) but breaks the `core.as_table_mut()` assumption.
-        let cfg_dir = tmp.path().join(".phantom-mesh");
+        let cfg_dir = tmp.path().join(".spectyn-mesh");
         std::fs::create_dir_all(&cfg_dir).expect("mkdir cfg");
         std::fs::write(cfg_dir.join("agents.toml"), "core = 1\n").expect("seed toml");
 
@@ -7096,7 +7096,7 @@ mod dual_auth_gate_tests {
         // T-DRIFT-10a acceptance: a SPEC-10-literal client puts the canonical
         // HMAC in the spec's `X-Cluster-Auth` header (NOT an invented header).
         // The legacy body-HMAC check fails, then the canonical arm — reading the
-        // SAME X-Cluster-Auth header — verifies it. No X-Phantom-Signature.
+        // SAME X-Cluster-Auth header — verifies it. No X-Spectyn-Signature.
         let secret = "seal-the-mesh";
         let mgr = cm(secret);
         let body = br#"{"message":"hi","agent":"master"}"#;
@@ -7145,7 +7145,7 @@ mod dual_auth_gate_tests {
     #[test]
     fn inbox_auth_accepts_legacy_body_hmac_and_binds_canonical_to_path() {
         // /rpc/inbox is gated by the same dual scheme as the other /rpc routes:
-        // (1) the legacy body-HMAC arm (what `phantom inbox send` mints) must
+        // (1) the legacy body-HMAC arm (what `spectyn inbox send` mints) must
         // pass, and (2) a canonical sig minted for a different path must NOT
         // authorize /rpc/inbox.
         let secret = "seal-the-mesh";
@@ -7162,7 +7162,7 @@ mod dual_auth_gate_tests {
         h.insert("X-Cluster-Auth", legacy.parse().unwrap());
         assert!(
             require_cluster_auth_dual(&mgr, &h, "POST", "/rpc/inbox", None, body).is_ok(),
-            "legacy body-HMAC (the `phantom inbox send` client arm) must authorize /rpc/inbox"
+            "legacy body-HMAC (the `spectyn inbox send` client arm) must authorize /rpc/inbox"
         );
 
         let canonical =
@@ -7179,7 +7179,7 @@ mod dual_auth_gate_tests {
     #[test]
     fn session_status_auth_accepts_legacy_empty_body_hmac() {
         // GET /rpc/session-status is signed over the EMPTY body with the
-        // legacy arm (what `phantom status mesh` mints, same as the dispatch
+        // legacy arm (what `spectyn status mesh` mints, same as the dispatch
         // status poll). Must pass; and a sig over a non-empty body must not.
         let secret = "seal-the-mesh";
         let mgr = cm(secret);
@@ -7205,7 +7205,7 @@ mod dual_auth_gate_tests {
     }
 
     #[test]
-    fn rejects_empty_phantom_signature() {
+    fn rejects_empty_spectyn_signature() {
         // An empty X-Cluster-Auth is present-but-unusable: it must reject
         // (hex-decode of "" fails), never accidentally pass (review: codex).
         let mgr = cm("seal-the-mesh");
@@ -7223,7 +7223,7 @@ mod dual_auth_gate_tests {
         // Fail-closed: a node with no cluster_secret must reject a canonical sig
         // (review: opencode O3) — 403, matching the legacy gate.
         let _g = crate::env_lock::acquire();
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         let mgr = ClusterManager::new(ClusterConfig {
             cluster_secret: None,
             ..ClusterConfig::default()
@@ -7245,10 +7245,10 @@ mod dual_auth_gate_tests {
 
     #[test]
     fn empty_secret_override_env_accepts() {
-        // Criterion C: PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 still bypasses the
+        // Criterion C: SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 still bypasses the
         // gate through the dual path (delegates to the legacy gate first).
         let _g = crate::env_lock::acquire();
-        std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+        std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
         let mgr = ClusterManager::new(ClusterConfig {
             cluster_secret: None,
             ..ClusterConfig::default()
@@ -7256,7 +7256,7 @@ mod dual_auth_gate_tests {
         let body = br#"{"message":"hi"}"#;
         let h = HeaderMap::new();
         let result = require_cluster_auth_dual(&mgr, &h, "POST", "/rpc/message", None, body);
-        std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
         assert!(
             result.is_ok(),
             "empty-secret override must permit the dual gate: {result:?}"
@@ -7341,7 +7341,7 @@ mod dual_auth_gate_tests {
 /// recorder it calls (skipping only the LLM agent turn, which needs a live model),
 /// then assert which ledger file the interaction landed in.
 ///
-/// `PHANTOM_PARTNER_SIGNALS` relocates BOTH the human ledger and its derived
+/// `SPECTYN_PARTNER_SIGNALS` relocates BOTH the human ledger and its derived
 /// `.machine.jsonl` into a tempdir; it is taken under the crate-wide
 /// [`crate::env_lock`] mutex — the SAME lock `partner.rs`'s env-touching tests
 /// now use — so the two groups never race on the var.
@@ -7361,7 +7361,7 @@ mod partner_origin_marker_tests {
         let _g = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         let human = tmp.path().join("partner-signals.jsonl");
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         let machine = machine_signals_path();
 
         // (a-1) Header form: `X-Partner-Origin: machine` (the canonical marker).
@@ -7385,7 +7385,7 @@ mod partner_origin_marker_tests {
         let machine_content = std::fs::read_to_string(&machine).unwrap_or_default();
         // The human ledger may not even be created — treat absent as empty.
         let human_content = std::fs::read_to_string(&human).unwrap_or_default();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // Both machine-marked messages landed in the segregated machine log...
         assert!(machine_content.contains("header bot note"), "machine: {machine_content}");
@@ -7414,7 +7414,7 @@ mod partner_origin_marker_tests {
         let _g = crate::env_lock::acquire();
         let tmp = tempfile::TempDir::new().expect("tempdir");
         let human = tmp.path().join("partner-signals.jsonl");
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &human);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &human);
         let machine = machine_signals_path();
 
         // No header, no `origin` field — exactly what the real app sends.
@@ -7429,7 +7429,7 @@ mod partner_origin_marker_tests {
 
         let human_content = std::fs::read_to_string(&human).unwrap_or_default();
         let machine_content = std::fs::read_to_string(&machine).unwrap_or_default();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         // The unmarked (real-app) message is in the human-usage ledger...
         assert!(human_content.contains("今天天氣如何"), "human: {human_content}");
@@ -7448,7 +7448,7 @@ mod partner_origin_marker_tests {
     #[test]
     fn parse_origin_marker_precedence_and_aliases() {
         // Pin the wire-marker precedence + header aliases the handler relies on,
-        // without IO: body `origin` > `X-Partner-Origin` > `X-Phantom-Origin`,
+        // without IO: body `origin` > `X-Partner-Origin` > `X-Spectyn-Origin`,
         // unknown/absent → None (caller applies heuristic + Human default).
 
         // Body field wins over both headers.
@@ -7470,23 +7470,23 @@ mod partner_origin_marker_tests {
             "X-Partner-Origin: machine → Machine"
         );
 
-        // `X-Phantom-Origin` still recognized (historical alias / back-compat).
+        // `X-Spectyn-Origin` still recognized (historical alias / back-compat).
         let mut h = HeaderMap::new();
-        h.insert("X-Phantom-Origin", "bot".parse().unwrap());
+        h.insert("X-Spectyn-Origin", "bot".parse().unwrap());
         assert_eq!(
             parse_origin_marker(&h, &json!({ "text": "x" })),
             Some(MessageOrigin::Machine),
-            "X-Phantom-Origin alias still honored"
+            "X-Spectyn-Origin alias still honored"
         );
 
-        // `X-Partner-Origin` takes precedence over `X-Phantom-Origin`.
+        // `X-Partner-Origin` takes precedence over `X-Spectyn-Origin`.
         let mut h = HeaderMap::new();
         h.insert("X-Partner-Origin", "human".parse().unwrap());
-        h.insert("X-Phantom-Origin", "machine".parse().unwrap());
+        h.insert("X-Spectyn-Origin", "machine".parse().unwrap());
         assert_eq!(
             parse_origin_marker(&h, &json!({ "text": "x" })),
             Some(MessageOrigin::Human),
-            "X-Partner-Origin outranks the X-Phantom-Origin alias"
+            "X-Partner-Origin outranks the X-Spectyn-Origin alias"
         );
 
         // No marker anywhere → None (real-app default path).

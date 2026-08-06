@@ -1,6 +1,6 @@
 # Mac 真實端到端測試地圖（CLI / TUI / App）
 
-> 2026-05-31。記錄 phantom-mesh 在 macOS 上「真 binary / 真 PTY」端到端測試的
+> 2026-05-31。記錄 spectyn-mesh 在 macOS 上「真 binary / 真 PTY」端到端測試的
 > 現況、怎麼跑、邊界在哪。全部不是 mock。
 >
 > ⚠️ **更正**：本文件初版（commit e77c87a6）的 App 段宣稱「Playwright 11 passed
@@ -12,7 +12,7 @@
 | 層 | 對象 | 工具 | 腳本 / 命令 | 現況 |
 |---|---|---|---|---|
 | L1 單元/整合 | core 邏輯 | cargo | `cd core && cargo test` | 綠 |
-| L2 CLI 全生命週期 | 真 `phantom` binary（非互動）| shell | `scripts/e2e/full-lifecycle-mac.sh` | 13/13 PASS |
+| L2 CLI 全生命週期 | 真 `spectyn` binary（非互動）| shell | `scripts/e2e/full-lifecycle-mac.sh` | 13/13 PASS |
 | L2.5 TUI render | headless ratatui | cargo | `cargo test --lib tui::tui_render_tests` | 128 passed |
 | **L3 TUI 真互動** | 真 binary + 真 PTY | tmux | `scripts/e2e/tui-full-journey.sh`、`tui-provider-error.sh` | PASS |
 | L3 App GUI (web-shell) | 真 React UI + 真瀏覽器 | Playwright (chromium+webkit) | `cd app && npx playwright test e2e/gui-interaction.spec.ts` | 🟢 webkit 7/7 + chromium 7/7 |
@@ -28,13 +28,13 @@ KEEP_HOME=1 bash scripts/e2e/full-lifecycle-mac.sh   # 13/13 PASS
 ```
 
 ## L3 — Mac terminal TUI 真互動（真 PTY）✅
-`phantom tui` 要求 `stdin().is_terminal()`，且開 pane 的 slash command 跑在 async
+`spectyn tui` 要求 `stdin().is_terminal()`，且開 pane 的 slash command 跑在 async
 run_loop（非 handle_key），所以**只能用真偽終端驅動**。用 tmux 開真 PTY、跑真
 binary、`tmux capture-pane` 抓真渲染字格。
 
 - **`scripts/e2e/tui-full-journey.sh`** — 完整旅程：startup → `/habits` →
   `/focus` → `/review` → Esc 回聊天。每個 frame 斷言：無溢位（顯示寬度，非 bytes）、
-  無 raw ESC、邊框完整；每步用 box 標題 `phantom · <pane>` 證明 pane 真的開了。
+  無 raw ESC、邊框完整；每步用 box 標題 `spectyn · <pane>` 證明 pane 真的開了。
   `COLS=100 ROWS=30` 實跑 PASS（5/5 ✓, RC=0）。
 - **`scripts/e2e/tui-provider-error.sh`** — Bug A 回歸：無金鑰觸發 provider error，
   斷言渲染不漏。60/100/200 全 PASS（Bug A 真 PTY 未重現）。
@@ -76,7 +76,7 @@ cd app && npx playwright test e2e/gui-interaction.spec.ts --project=chromium # 7
   已分別用 850e92ec / 8cf3e3f8 更正到真實全綠。
 
 **尚未跑（honest）**：`smoke.spec.ts` 混了 daemon-API 測試（`:7878` health/tools/
-tasks/metrics，且 version 預期 0.5.0 已過時），需要先起 `phantom serve` —— 另案處理。
+tasks/metrics，且 version 預期 0.5.0 已過時），需要先起 `spectyn serve` —— 另案處理。
 **app headless 保證層（已綠）**：vitest frontend lifecycle（25, 36109efb）+ IPC 契約
 （19, 10176c9c）。
 

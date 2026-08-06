@@ -4,7 +4,7 @@
 每個 token（權杖）的 API 成本，模型下載完成後即可完全離線，速度
 足以應付 M1/M2/M3 Mac 上的 autoevolve（自動演化）/ subagent（子代理）流程。
 
-phantom 本身不會綑綁 MLX，也不會下載模型——它只負責協調
+spectyn 本身不會綑綁 MLX，也不會下載模型——它只負責協調
 `mlx_lm.server`（與 OpenAI 相容）以及 `huggingface-cli`。
 
 ---
@@ -18,7 +18,7 @@ pip3 install mlx-lm
 （或使用 `uv tool install mlx-lm` / `pipx install mlx-lm`。任何
 能把 `mlx_lm` 放上你預設 `python3` import 路徑的方法都可以。）
 
-`phantom doctor` 接著會顯示：
+`spectyn doctor` 接著會顯示：
 
 ```
 MLX local LLM
@@ -30,9 +30,9 @@ MLX local LLM
 ## 拉取模型
 
 ```bash
-phantom mlx pull                         # default: Llama 3.1 8B 4-bit (~5 GB)
-phantom mlx pull mlx-community/Llama-3.3-70B-Instruct-4bit   # ~38 GB, 32+ GB RAM
-phantom mlx pull mlx-community/Qwen2.5-Coder-7B-Instruct-4bit  # ~4 GB, code-focused
+spectyn mlx pull                         # default: Llama 3.1 8B 4-bit (~5 GB)
+spectyn mlx pull mlx-community/Llama-3.3-70B-Instruct-4bit   # ~38 GB, 32+ GB RAM
+spectyn mlx pull mlx-community/Qwen2.5-Coder-7B-Instruct-4bit  # ~4 GB, code-focused
 ```
 
 預設的 `Llama-3.1-8B-Instruct-4bit` 在 16 GB 的 M1 上可順暢執行。
@@ -43,9 +43,9 @@ phantom mlx pull mlx-community/Qwen2.5-Coder-7B-Instruct-4bit  # ~4 GB, code-foc
 ## 提供服務（Serve）
 
 ```bash
-phantom mlx serve                # foreground, default model + port 8080
-phantom mlx serve --port 9090    # custom port
-phantom mlx serve --model mlx-community/Llama-3.3-70B-Instruct-4bit
+spectyn mlx serve                # foreground, default model + port 8080
+spectyn mlx serve --port 9090    # custom port
+spectyn mlx serve --model mlx-community/Llama-3.3-70B-Instruct-4bit
 ```
 
 `mlx_lm.server` 會在
@@ -65,7 +65,7 @@ MLX local LLM
 
 ## 接入 agents.toml
 
-附加到 `~/.phantom-mesh/agents.toml`：
+附加到 `~/.spectyn-mesh/agents.toml`：
 
 ```toml
 [providers.mlx-local]
@@ -77,7 +77,7 @@ default_model = "mlx-community/Llama-3.1-8B-Instruct-4bit"
 [agent.local]
 provider     = "mlx-local"
 model        = "mlx-community/Llama-3.1-8B-Instruct-4bit"
-instructions = "You are phantom-mesh's on-device agent running via MLX. Use tools when needed; respond concisely."
+instructions = "You are spectyn-mesh's on-device agent running via MLX. Use tools when needed; respond concisely."
 tools        = ["shell", "file_read", "ls", "content_search"]
 ```
 
@@ -85,15 +85,15 @@ tools        = ["shell", "file_read", "ls", "content_search"]
 
 ```bash
 # CLI
-phantom evolve --agent local "fix the failing tests"
+spectyn evolve --agent local "fix the failing tests"
 
 # MCP (Claude Code / Codex)
-mcp__phantom__subagent({ agent: "local", prompt: "..." })
+mcp__spectyn__subagent({ agent: "local", prompt: "..." })
 
 # Web mobile UI agent dropdown will list 'local' alongside master/coder.
 ```
 
-`phantom autoevolve --agent local` 會將每小時的自我改善
+`spectyn autoevolve --agent local` 會將每小時的自我改善
 迴圈完全在裝置端執行——在下一次成本定價更新後，來自 `local` 代理的 autoevolve.log 條目
 會顯示 `cost: $0.000`。
 
@@ -108,7 +108,7 @@ mcp__phantom__subagent({ agent: "local", prompt: "..." })
 | Qwen2.5-Coder-7B-Instruct-4bit | 3.8 GB | ~120 s | ~5 s | 在工具 schema（結構描述）上表現較佳 |
 
 8B 4-bit 的工具呼叫（tool-calling）品質時好時壞——這些小模型
-有時會幻覺出（hallucinate）phantom 的工具 schema。對於工具忠實度
+有時會幻覺出（hallucinate）spectyn 的工具 schema。對於工具忠實度
 攸關重要的 evolve / autoevolve，建議優先使用 **Qwen2.5-Coder-7B**，或退回
 使用付費的 Groq/Anthropic 供應商。對於純聊天流程，8B Llama
 已經夠用。
@@ -118,13 +118,13 @@ mcp__phantom__subagent({ agent: "local", prompt: "..." })
 ## 停止 / 重啟
 
 ```bash
-phantom mlx stop                         # pkill -f mlx_lm.server
-phantom mlx status                       # is it up?
-phantom mlx serve --model Qwen2.5-Coder…  # swap model
+spectyn mlx stop                         # pkill -f mlx_lm.server
+spectyn mlx status                       # is it up?
+spectyn mlx serve --model Qwen2.5-Coder…  # swap model
 ```
 
 serve 指令是前景（foreground）執行的。若要將它作為背景常駐服務（daemon）執行，
-請以 launchd 包裝（類似 `phantom service install` 的 LaunchAgent
+請以 launchd 包裝（類似 `spectyn service install` 的 LaunchAgent
 範本）——目前尚未以一行指令（one-liner）形式提供。
 
 ---
@@ -132,7 +132,7 @@ serve 指令是前景（foreground）執行的。若要將它作為背景常駐�
 ## 為何這很重要
 
 - **零成本**——適用於 autoevolve 每小時的修復嘗試
-- **完全離線**——模型下載後即可離線，phantom Mac 在飛機上、火車上、
+- **完全離線**——模型下載後即可離線，spectyn Mac 在飛機上、火車上、
   或在 SCIF（敏感隔離資訊設施）中都能持續修復並提交
 - **延遲（Latency）**——對於不需要 Sonnet 級推理的提示（prompt），Apple Silicon 的
   GPU（或 M3+ 上的 NPU）比往返 api.anthropic.com 的網路來回更快

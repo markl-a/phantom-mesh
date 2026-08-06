@@ -1,6 +1,6 @@
 //! Windows computer-use MCP tools: screen capture + mouse + keyboard.
 //!
-//! Closes part of the doc 28 §5 v0.6.0 gap: phantom can read text, run
+//! Closes part of the doc 28 §5 v0.6.0 gap: spectyn can read text, run
 //! shells, fetch the web — but had no way to drive a GUI. This module
 //! exposes three Win32-native tools that let an agent loop perceive
 //! and act on the desktop:
@@ -18,7 +18,7 @@
 //! ## Safety
 //!
 //! These tools manipulate the **real** logged-in desktop. There is
-//! no sandbox between phantom and Excel. Treat them like `shell` —
+//! no sandbox between spectyn and Excel. Treat them like `shell` —
 //! gated by the agent's permission model; never invoke from an
 //! untrusted prompt. The module is `#[cfg(target_os = "windows")]`
 //! so non-Win builds get an empty stub.
@@ -56,7 +56,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// Where screenshots land.
 fn capture_dir() -> std::io::Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
     let dir = data.join("captures");
     std::fs::create_dir_all(&dir)?;
@@ -69,7 +69,7 @@ fn capture_dir() -> std::io::Result<PathBuf> {
 ///
 /// Optional args:
 /// - `path` (string) — override output path. Default is
-///   `~/.phantom-mesh/captures/<unix-ts>.png`.
+///   `~/.spectyn-mesh/captures/<unix-ts>.png`.
 ///
 /// Returns the absolute path to the saved PNG.
 pub async fn screen_capture(args: &Value) -> String {

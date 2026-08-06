@@ -10,7 +10,7 @@ emulator — it does not author the app, it verifies it (SPEC-33 / SPEC-34).
 
 | Layer | Script | Proves | Blind to |
 |---|---|---|---|
-| **Native** | [`scripts/smoke-android-emulator.sh`](../../../scripts/smoke-android-emulator.sh) | process survives launch (no native crash), `MeshNodeService` foreground (SPEC-33 §6), `phantom://` deep-link (SPEC-33 G6) | the WebView DOM |
+| **Native** | [`scripts/smoke-android-emulator.sh`](../../../scripts/smoke-android-emulator.sh) | process survives launch (no native crash), `MeshNodeService` foreground (SPEC-33 §6), `spectyn://` deep-link (SPEC-33 G6) | the WebView DOM |
 | **WebView** | [`webview-cdp-smoke.mjs`](./webview-cdp-smoke.mjs) | real DOM rendered (not a white screen), buttons/testids present, optional per-flow `--expr` runs a real `safeInvoke→native` path | native service/process state |
 | **Runtime** | [`verify-runtime.sh`](./verify-runtime.sh) | V1–V8 matrix: launch / FG service / deep-link / WebView DOM / QS tile / WorkManager / Glance widget / bottom-nav route sweep | — |
 
@@ -49,7 +49,7 @@ Prereqs: Android SDK + NDK, an AVD named `Pixel_API_36` (x86_64), Node ≥ 22.
 |---|---|---|
 | V1 | App launches, no native crash | `smoke-android-emulator.sh` launch step |
 | V2 | `MeshNodeService` foreground (SPEC-33 §6) | smoke FG step (`isForeground=true`) |
-| V3 | `phantom://` deep-link (SPEC-33 G6) | smoke deep-link step (app-handler log line) |
+| V3 | `spectyn://` deep-link (SPEC-33 G6) | smoke deep-link step (app-handler log line) |
 | V4 | WebView UI renders (not blank) | `webview-cdp-smoke.mjs` core probe |
 | V5 | Focus Quick Settings tile | `adb shell cmd statusbar ...` + tile toggles FSM |
 | V6 | WorkManager job scheduled | `adb shell dumpsys jobscheduler \| grep <pkg>` |

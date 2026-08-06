@@ -3,7 +3,7 @@ import type { HabitStreak } from "./HabitStreak";
 
 /**
  * Multi-window summary for the dashboard's "habit cards" — one row per chip.
- * Returned by `list_habits()`; intended for `phantom habit streak` (CLI) +
+ * Returned by `list_habits()`; intended for `spectyn habit streak` (CLI) +
  * the macOS menu-bar dropdown + the iOS main app "habits" tab.
  *
  * 中文: 儀表板用的多窗格 rollup（聚合）。`last_7d_count` 是過去 7 天內

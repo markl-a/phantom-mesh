@@ -111,7 +111,7 @@ iOS hero wireframe 的 macOS 段只 ~30 行（L170-200）只到「sheet + menu b
 ```
 [macOS menu bar 右上角]
                                           ┌──────────────────────┐
-[●][●][●] ... [📶] [🔋] [🕐]  [🎙🔴]  →  │ Phantom Mesh         │  ← NSStatusItem dropdown
+[●][●][●] ... [📶] [🔋] [🕐]  [🎙🔴]  →  │ Spectyn Mesh         │  ← NSStatusItem dropdown
                                 ↑         │ Focus 05:23/25:00    │   click 後展開
                           recording-icon  │ [waveform-mini]      │
                           + 紅點 overlay  │ ──                   │
@@ -140,7 +140,7 @@ OS interrupt 來源（macOS 上）：
 ```
 [C' macOS Notification Center banner（系統渲染，OS interrupt + 主視窗非 active focus 時必發）]
 ┌────────────────────────────────────┐
-│ [app-icon]  Phantom Mesh           │  ← title `focus.desktop.interrupt_notif_title`
+│ [app-icon]  Spectyn Mesh           │  ← title `focus.desktop.interrupt_notif_title`
 │ Focus 05:23 / 25:00 · [reason]     │  ← subtitle 動態（mic 被佔 / sleep / BT 切）
 │ [resume-hint-body]                 │  ← `focus.interrupted.resume_hint`（跨平台一字不差）
 │ [stop-action]                      │  ← `focus.desktop.interrupt_notif_action` deep-link
@@ -148,7 +148,7 @@ OS interrupt 來源（macOS 上）：
 └────────────────────────────────────┘
 ```
 
-Banner 點擊 → 開回 Phantom Mesh 主 window 或 NSStatusItem dropdown active。
+Banner 點擊 → 開回 Spectyn Mesh 主 window 或 NSStatusItem dropdown active。
 
 ## 螢幕 D / E — Finalizing / Done（per hero + macOS Notification Center）
 
@@ -159,7 +159,7 @@ Banner 點擊 → 開回 Phantom Mesh 主 window 或 NSStatusItem dropdown activ
         ↓ 完成
 [E. macOS Notification Center banner — Done]
 ┌────────────────────────────────────┐
-│ [app-icon]  Phantom Mesh           │  ← title「Phantom Mesh」（per mockup §macOS L368-374）
+│ [app-icon]  Spectyn Mesh           │  ← title「Spectyn Mesh」（per mockup §macOS L368-374）
 │ Focus 25 min · takeaway ready      │  ← subtitle
 │ [takeaway-first-line-80-chars]     │  ← body 第一行 takeaway 取 80 字
 │                                    │  click → open main window Focus tab

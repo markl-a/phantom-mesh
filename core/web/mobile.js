@@ -1,4 +1,4 @@
-/* phantom mobile — minimal SSE chat client.
+/* spectyn mobile — minimal SSE chat client.
  *
  * Talks to the same /api/chat endpoint as the desktop UI. Each chunk is a
  * `data: {json}\n` line; events: token / thinking / tool_start / tool_done

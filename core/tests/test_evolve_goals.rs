@@ -1,6 +1,6 @@
 use std::process::Command;
 
-/// Verifies `phantom evolve goals next --file <path>` emits ONLY the goal text
+/// Verifies `spectyn evolve goals next --file <path>` emits ONLY the goal text
 /// on stdout (no eprintln decorations) so it composes cleanly with shell pipelines.
 #[test]
 fn test_evolve_goals_next_stdout_only() {
@@ -19,7 +19,7 @@ fn test_evolve_goals_next_stdout_only() {
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let output = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args([
             "evolve",
             "goals",
@@ -28,7 +28,7 @@ fn test_evolve_goals_next_stdout_only() {
             &goals_file.to_string_lossy(),
         ])
         .output()
-        .expect("phantom binary must be available via CARGO_BIN_EXE_phantom");
+        .expect("spectyn binary must be available via CARGO_BIN_EXE_spectyn");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -46,7 +46,7 @@ fn test_evolve_goals_next_stdout_only() {
     );
 }
 
-/// Verifies `phantom evolve goals list --json` outputs valid JSON.
+/// Verifies `spectyn evolve goals list --json` outputs valid JSON.
 #[test]
 fn test_evolve_goals_list_json() {
     let td = tempfile::tempdir().unwrap();
@@ -66,7 +66,7 @@ fn test_evolve_goals_list_json() {
     )
     .unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let output = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args([
             "evolve",
             "goals",
@@ -76,7 +76,7 @@ fn test_evolve_goals_list_json() {
             &goals_file.to_string_lossy(),
         ])
         .output()
-        .expect("phantom binary must be available via CARGO_BIN_EXE_phantom");
+        .expect("spectyn binary must be available via CARGO_BIN_EXE_spectyn");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -95,7 +95,7 @@ fn test_evolve_goals_list_json() {
     assert_eq!(parsed["pending"][0], "First pending goal");
 }
 
-/// Verifies `phantom evolve goals add "<text>"` appends a new unchecked goal
+/// Verifies `spectyn evolve goals add "<text>"` appends a new unchecked goal
 /// under `## Pending`, saves the file, and the next `goals next` call
 /// returns exactly that text — i.e. load → add → save → load → next_pending
 /// matches the new entry.
@@ -110,7 +110,7 @@ fn test_evolve_goals_add_round_trip() {
     let goal_text = "Add JSON output to goals list";
 
     // ── Step 1: add the goal via CLI ───────────────────────────────────
-    let add_output = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let add_output = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args([
             "evolve",
             "goals",
@@ -120,7 +120,7 @@ fn test_evolve_goals_add_round_trip() {
             &goals_file.to_string_lossy(),
         ])
         .output()
-        .expect("phantom binary must be available via CARGO_BIN_EXE_phantom");
+        .expect("spectyn binary must be available via CARGO_BIN_EXE_spectyn");
 
     assert!(
         add_output.status.success(),
@@ -129,7 +129,7 @@ fn test_evolve_goals_add_round_trip() {
     );
 
     // ── Step 2: verify `goals next` returns the newly added goal ─────────
-    let next_output = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let next_output = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args([
             "evolve",
             "goals",
@@ -138,7 +138,7 @@ fn test_evolve_goals_add_round_trip() {
             &goals_file.to_string_lossy(),
         ])
         .output()
-        .expect("phantom binary must be available via CARGO_BIN_EXE_phantom");
+        .expect("spectyn binary must be available via CARGO_BIN_EXE_spectyn");
 
     let next_stdout = String::from_utf8_lossy(&next_output.stdout)
         .trim()
@@ -169,19 +169,19 @@ fn test_evolve_goals_mark_done_by_ordinal() {
     let goals_file = td.path().join("EVOLVE-GOALS.md");
     std::fs::write(&goals_file, "").unwrap();
     for g in ["First goal alpha", "Second goal beta"] {
-        let out = Command::new(env!("CARGO_BIN_EXE_phantom"))
+        let out = Command::new(env!("CARGO_BIN_EXE_spectyn"))
             .args(["evolve", "goals", "add", g, "--file", &goals_file.to_string_lossy()])
             .output()
-            .expect("phantom binary");
+            .expect("spectyn binary");
         assert!(out.status.success());
     }
 
     // mark-done 1 → marks the FIRST goal.
-    let out = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let out = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args(["evolve", "goals", "mark-done", "1", "--sha", "abcdef0",
                "--date", "2026-05-30", "--file", &goals_file.to_string_lossy()])
         .output()
-        .expect("phantom binary");
+        .expect("spectyn binary");
     assert!(
         out.status.success(),
         "mark-done 1 must succeed, got {:?}\n{}",
@@ -207,16 +207,16 @@ fn test_evolve_goals_mark_done_out_of_range() {
     let td = tempfile::tempdir().unwrap();
     let goals_file = td.path().join("EVOLVE-GOALS.md");
     std::fs::write(&goals_file, "").unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let out = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args(["evolve", "goals", "add", "only goal", "--file", &goals_file.to_string_lossy()])
         .output()
-        .expect("phantom binary");
+        .expect("spectyn binary");
     assert!(out.status.success());
 
-    let out = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let out = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args(["evolve", "goals", "mark-done", "99", "--file", &goals_file.to_string_lossy()])
         .output()
-        .expect("phantom binary");
+        .expect("spectyn binary");
     assert!(
         !out.status.success(),
         "mark-done with an out-of-range ordinal must exit non-zero"
@@ -229,21 +229,21 @@ fn test_evolve_goals_mark_done_out_of_range() {
 }
 
 /// D26 — with no `--file` and no `./EVOLVE-GOALS.md` in the cwd, `goals add`
-/// must write to `$HOME/.phantom-mesh/EVOLVE-GOALS.md` (home-anchored) rather
+/// must write to `$HOME/.spectyn-mesh/EVOLVE-GOALS.md` (home-anchored) rather
 /// than littering the current directory. Runs with cwd == HOME == a temp dir.
 #[test]
 fn test_evolve_goals_default_path_is_home_not_cwd() {
     let home = tempfile::tempdir().unwrap();
     let cwd = tempfile::tempdir().unwrap();
 
-    let out = Command::new(env!("CARGO_BIN_EXE_phantom"))
+    let out = Command::new(env!("CARGO_BIN_EXE_spectyn"))
         .args(["evolve", "goals", "add", "home anchored goal"])
         .current_dir(cwd.path())
         .env("HOME", home.path())
         // Clear the env override so we exercise the cwd→home fallback.
-        .env_remove("PHANTOM_EVOLVE_GOALS")
+        .env_remove("SPECTYN_EVOLVE_GOALS")
         .output()
-        .expect("phantom binary must be available via CARGO_BIN_EXE_phantom");
+        .expect("spectyn binary must be available via CARGO_BIN_EXE_spectyn");
     assert!(
         out.status.success(),
         "goals add failed: {}",
@@ -256,7 +256,7 @@ fn test_evolve_goals_default_path_is_home_not_cwd() {
         "goals add must not litter the cwd with EVOLVE-GOALS.md"
     );
     // …and MUST have written the home-anchored default.
-    let home_file = home.path().join(".phantom-mesh").join("EVOLVE-GOALS.md");
+    let home_file = home.path().join(".spectyn-mesh").join("EVOLVE-GOALS.md");
     assert!(
         home_file.exists(),
         "goals add should write {}",

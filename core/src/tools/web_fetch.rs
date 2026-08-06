@@ -204,7 +204,7 @@ pub async fn fetch(args: &Value) -> String {
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
     // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
-    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    // unless SPECTYN_FETCH_ALLOW_LOCAL=1 is set.
     if let Err(e) = crate::tools::urlguard::validate_url(&url) {
         return format!("ERROR: {}", e);
     }
@@ -217,7 +217,7 @@ pub async fn fetch(args: &Value) -> String {
     let client = match ClientBuilder::new()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .use_rustls_tls()
-        .user_agent("phantom-mesh/web_fetch")
+        .user_agent("spectyn-mesh/web_fetch")
         .build()
     {
         Ok(c) => c,

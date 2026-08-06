@@ -1,12 +1,12 @@
 # Windows Desktop App (Tauri 2) — 全測試用例庫 v1 (2026-06-12)
 
-> **Surface**: `win desktop app` = Tauri 2 GUI（`app/src-tauri`，productName "Phantom Mesh"，identifier `ai.phantommesh.app`，v0.6.0）。與 mac/linux/mobile **同一份 `app/` React+Rust codebase**；本檔記 Windows deltas。其 headless 雙生子 = SPEC-46 治理的 `phantom.exe` CLI（GUI 把它 bundle 成 daemon binary），故 CLI invariant I1–I13 滲入 app 的 process model。
+> **Surface**: `win desktop app` = Tauri 2 GUI（`app/src-tauri`，productName "Spectyn Mesh"，identifier `ai.spectynmesh.app`，v0.6.0）。與 mac/linux/mobile **同一份 `app/` React+Rust codebase**；本檔記 Windows deltas。其 headless 雙生子 = SPEC-46 治理的 `spectyn.exe` CLI（GUI 把它 bundle 成 daemon binary），故 CLI invariant I1–I13 滲入 app 的 process model。
 >
 > **覆蓋範圍**: 桌面 daily-loop 主要 CUJ × Windows 桌面行為（WebView2 / in-proc runtime :7878 / DPAPI + Credential Manager / 全域捷徑 Modifiers / Defender Firewall / SmartScreen / 註冊表 deep-link）+ 跨 SPEC P4/SPEC-31 invariant。
 >
 > **權威來源**: 流程 = `docs/superpowers/specs/2026-06-12-platform-flows-design/surface-win-app.md`（已逐面驗證、附 file/line cite）；參考 = `plans/desktop-app-references-2026-06-12.md`、SPEC-46（Windows CLI behavior）。Code 真相裁決一律以 `app/src/*` + `app/src-tauri/src/*` + `core/src/*` as-built 為準（SSOT 規則 A.2.4）。
 >
-> **docs-only 鐵則**: 本檔只記驗收條件，不改 code。已知 code 問題（Modifiers::SUPER 在 Windows 被攔、asset-protocol enable:false、uninstall taskkill /F I9 violation、MOCK_EVENTS 假稽核、awaiting_approval→pending、firewall prompt、StartupCheck race、stale phantom.exe shadowing、demo-relay no-op）一律「可重複測試的驗收條件 + 標 [現況 FAIL / code-backlog]」，FAIL case 要求改的是 **code**。
+> **docs-only 鐵則**: 本檔只記驗收條件，不改 code。已知 code 問題（Modifiers::SUPER 在 Windows 被攔、asset-protocol enable:false、uninstall taskkill /F I9 violation、MOCK_EVENTS 假稽核、awaiting_approval→pending、firewall prompt、StartupCheck race、stale spectyn.exe shadowing、demo-relay no-op）一律「可重複測試的驗收條件 + 標 [現況 FAIL / code-backlog]」，FAIL case 要求改的是 **code**。
 >
 > **編號規約**: `WINAPP-{CUJ|ABIL|PLAT|INV|NOFAKE}-{feat}-{nnn}`，ID 永不重用。每條對齊 INV-15（流程 + 驗收 + 測試三件套）。與 `mac-app.md` MACAPP-* 對等格式。
 
@@ -42,10 +42,10 @@
 
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
-| WINAPP-CUJ01-ONB-001 | e2e | ⚠ fresh | 清 localStorage | 冷啟 Phantom Mesh.exe | `localStorage[ONBOARDED_KEY] !== "true"` → render `<OnboardingHello>`（App.tsx:113-115）| §1 gate | ⬜ | ⬜ |
+| WINAPP-CUJ01-ONB-001 | e2e | ⚠ fresh | 清 localStorage | 冷啟 Spectyn Mesh.exe | `localStorage[ONBOARDED_KEY] !== "true"` → render `<OnboardingHello>`（App.tsx:113-115）| §1 gate | ⬜ | ⬜ |
 | WINAPP-CUJ01-ONB-002 | unit | ✅ | - | `cargo test --lib onboarding_wire::tests` | FORWARD_ORDER 5 step 順序正確 | §1 FSM SSOT | ⬜ | ✅ existing |
-| WINAPP-CUJ01-ONB-003 | integ | ⚠ broker mock | `BROKER_URL=mock` | `broker_login_start` → 開系統瀏覽器（tauri-plugin-opener）→ `phantom://oauth/callback?p=<b64>` | OS 路由回 on_open_url → validate_oauth_callback_url → emit `deep-link://oauth-callback` → broker_login_finish | §1 identity/login / lib.rs:375-413 | ⬜ | 🟡 |
-| WINAPP-CUJ01-ONB-004 | integ | ✅ | clean HKCU | install 後查註冊表 | `HKCU\Software\Classes\phantom` deep-link handler 已寫（Tauri-managed）| §1 Windows delta / tauri.conf deep-link.desktop.schemes | ⬜ | ⬜ |
+| WINAPP-CUJ01-ONB-003 | integ | ⚠ broker mock | `BROKER_URL=mock` | `broker_login_start` → 開系統瀏覽器（tauri-plugin-opener）→ `spectyn://oauth/callback?p=<b64>` | OS 路由回 on_open_url → validate_oauth_callback_url → emit `deep-link://oauth-callback` → broker_login_finish | §1 identity/login / lib.rs:375-413 | ⬜ | 🟡 |
+| WINAPP-CUJ01-ONB-004 | integ | ✅ | clean HKCU | install 後查註冊表 | `HKCU\Software\Classes\spectyn` deep-link handler 已寫（Tauri-managed）| §1 Windows delta / tauri.conf deep-link.desktop.schemes | ⬜ | ⬜ |
 | WINAPP-CUJ01-ONB-005 | integ | ✅ | TempDir HOME | `onboarding_advance(created_identity)` | ed25519 master seed 以 **DPAPI** per-user wrap + 存 **Windows Credential Manager**（`KeystoreBackend::WindowsCredentialManager` → name `windows-credman`）| §1 / identity_wire.rs:202,475,1062+ / SPEC-12 | ⬜ | 🟡（SPEC-12 標 Win Keychain v0.7.0 partial）|
 | WINAPP-CUJ01-ONB-006 | integ | ✅ | TempDir | `onboarding_advance(joined_cluster)` | single-node `serve` + mDNS advertise（本機=backend）| §1 joined_cluster / onboarding-hello.tsx:96-103 | ⬜ | 🟡 |
 | WINAPP-CUJ01-ONB-007 | integ | ⚠ mock | mock claude/codex token + Ollama | `set_provider`：`read_claude_cli_token`/`read_codex_token`/`detect_local_servers`（讀 Windows-path token stores，credential_scanner.rs）| 偵測 + drag-rank + Ollama fallback | §1 set_provider / D5 / Windows delta | ⬜ | 🟡 |
@@ -64,7 +64,7 @@
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
 | WINAPP-CUJ01-SCK-001 | integ | ✅ | onboarded、runtime ready | 冷啟 → StartupCheck | runtime/providers/LLM healthy → 800ms auto-advance | §1 self-check / StartupCheck.tsx | ⬜ | 🟡 |
-| WINAPP-CUJ01-SCK-002 | e2e | ⚠ cold | 冷啟（in-proc runtime 需 ~15-18s init）| 啟動瞬間觀察 StartupCheck | **非** false unhealthy：有界輪詢「Starting your node…」直到 ready，逾時才 fail | §1 / findings high#2 | ⬜ | 🟥 FAIL [G6/code-backlog]（**high**）：`useSystemHealth.runCheck()` 單射探 localhost:7878/api/status（useSystemHealth.ts:52-69），但 in-proc PhantomMeshRuntime 需 ~15-18s init（lib.rs:613-619）。冷啟探針早於 runtime bind → 顯示 `overallStatus='unhealthy'` → 「系統無法正常運作」+ retry/skip，但其實只是在開機。違反「冷啟不該感覺壞掉」。修法=有界輪詢 ~1s×25s 或 Rust emit `runtime://ready` 事件 gate（surface-win-app.md findings high#2）|
+| WINAPP-CUJ01-SCK-002 | e2e | ⚠ cold | 冷啟（in-proc runtime 需 ~15-18s init）| 啟動瞬間觀察 StartupCheck | **非** false unhealthy：有界輪詢「Starting your node…」直到 ready，逾時才 fail | §1 / findings high#2 | ⬜ | 🟥 FAIL [G6/code-backlog]（**high**）：`useSystemHealth.runCheck()` 單射探 localhost:7878/api/status（useSystemHealth.ts:52-69），但 in-proc SpectynMeshRuntime 需 ~15-18s init（lib.rs:613-619）。冷啟探針早於 runtime bind → 顯示 `overallStatus='unhealthy'` → 「系統無法正常運作」+ retry/skip，但其實只是在開機。違反「冷啟不該感覺壞掉」。修法=有界輪詢 ~1s×25s 或 Rust emit `runtime://ready` 事件 gate（surface-win-app.md findings high#2）|
 | WINAPP-CUJ01-SCK-003 | manual | ❌ | 連續 5 次 first-of-session 冷啟 | 計每次「重新檢查」click 數 | 0 click（auto-advance on ready）| findings high#2 | ⬜ | 🟥 FAIL [G6/code-backlog]：現況每次 cold launch = 1 false-failure 屏 + ≥1 手動 click |
 | WINAPP-CUJ01-SCK-004 | e2e | ⚠ fail | runtime 真壞 | StartupCheck | per-check fail icon + 重新檢查/重新設定/跳過強制進入（StartupCheck.tsx:89-114）| §5 self-check fail | ⬜ | 🟡（fail 面正確，但 race 造成 false-fail）|
 | WINAPP-CUJ01-SCK-005 | integ | ✅ | - | 監聽 runtime init | 有 `runtime://ready` 事件可 gate（取代 HTTP poll 自己擁有的 port）| findings high#2 fix | ⬜ | 🟥 FAIL [G6/code-backlog]：現況無 ready 事件 |
@@ -115,7 +115,7 @@
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
 | WINAPP-ABIL1-CAP-001 | integ | ✅ | TempDir + EventKey | `/focus` `/habit` `/food` `/timeline`（screens/macos/* 在 Windows 復用）→ focus_*/habit_*/food_analyze/events_query | event 加密寫入 | §3① / lib.rs:869-884 | ⬜ | 🟡 |
-| WINAPP-ABIL1-CAP-002 | integ | ✅ | Windows | 截圖落 `$HOME/.phantom-mesh/screenshots/**` | 截圖檔寫入 | §3① Windows delta | ⬜ | 🟡 |
+| WINAPP-ABIL1-CAP-002 | integ | ✅ | Windows | 截圖落 `$HOME/.spectyn-mesh/screenshots/**` | 截圖檔寫入 | §3① Windows delta | ⬜ | 🟡 |
 | WINAPP-ABIL1-CAP-003 | static | ✅ | - | 讀 `app/src-tauri/tauri.conf.json:28` `assetProtocol.enable` | `enable: true`（截圖可經 `asset:` in-app 渲染）| §3① / P2-14 / G(asset) | ⬜ | 🟥 FAIL [P2-14/code-backlog]：現況 `assetProtocol.enable: false`（tauri.conf.json:28），雖 `assetProtocol.scope.allow` 已配（line:31），但 protocol disabled → 截圖**無法**經 `asset:` in-app 渲染（scope 是半真）。須翻 `enable: true` 才能渲染。標 [PARTIAL]。對映 Charter §C P2-14（enable:false 勝，標記改 PARTIAL）|
 | WINAPP-ABIL1-CAP-004 | integ | ✅ | Windows | 硬體探測 `scripts/detect_hardware.ps1`（bundled resource）| PowerShell 探測跑通（Windows-specific）| §3① / tauri.conf.json:71 | ⬜ | 🟡 |
 
@@ -162,8 +162,8 @@
 | WINAPP-CUJ04-DL-001 | integ | ✅ | app 起 | broker auth + `broker_sync_from_vault`/`broker_list_cached_peers` | 兩面同 broker 認證、拉 peer | §4 / lib.rs:780-786 | ⬜ | 🟡 |
 | WINAPP-CUJ04-DL-002 | integ | ✅ | app 起 | `broker_register_self_peer` | Windows node 註冊使 phone 可發現 | §4 reachability | ⬜ | 🟡 |
 | WINAPP-CUJ04-DL-003 | integ | ✅ | app 起、phone 連 | phone 打 axum `:7878 /rpc/*`（同網 mDNS / 跨 NAT broker/Tailnet `*.ts.net` CSP-allowed）| /rpc/* 回應 | §4 / lib.rs:632-664 / tauri.conf.json:26 | ⬜ | 🟡 |
-| WINAPP-CUJ04-DL-004 | integ | ✅ | app 起 | 傳 `phantom://chat/:id`/`phantom://settings/*`/`phantom://mesh/:peer` | on_open_url→dispatch_deep_link→emit `deep-link://navigate`（僅 chat/settings/mesh host forward）| §4 / lib.rs:425-451 / SPEC-17 §11.2 | ⬜ | 🟡 |
-| WINAPP-CUJ04-DL-005 | integ | ✅ | 非 allowlist | 傳 `phantom://evil` | drop + 僅 log length/code（不 log raw URL，§13 privacy）| §4 / lib.rs:452-466 | ⬜ | 🟡 |
+| WINAPP-CUJ04-DL-004 | integ | ✅ | app 起 | 傳 `spectyn://chat/:id`/`spectyn://settings/*`/`spectyn://mesh/:peer` | on_open_url→dispatch_deep_link→emit `deep-link://navigate`（僅 chat/settings/mesh host forward）| §4 / lib.rs:425-451 / SPEC-17 §11.2 | ⬜ | 🟡 |
+| WINAPP-CUJ04-DL-005 | integ | ✅ | 非 allowlist | 傳 `spectyn://evil` | drop + 僅 log length/code（不 log raw URL，§13 privacy）| §4 / lib.rs:452-466 | ⬜ | 🟡 |
 | WINAPP-CUJ04-DL-006 | e2e | ⚠ daemon | 長跑碰 budget/stuck/high-risk 邊界 | 觀察 escalation transport（tool-call-boundary → push phone → consent token back）| phone 被喚 + approve/redirect/stop async bounded | §4 §3④ loop | ⬜ | 🟥 FAIL [G(escalate)/code-backlog]：headline differentiator [PLANNED]。現況長跑只 stream `agent_event` 給在看的 surface，無 async consent gate；PushNotification/RemoteTrigger plumbing 不在 app。修法=接 escalation transport（surface-win-app.md §4 core loop）|
 
 ---
@@ -179,11 +179,11 @@
 | WINAPP-CUJ05-ERR-003 | e2e | ✅ | 空記憶 day-0 | /recall | 「尚無事件 — 用專注/習慣/飲食頁記錄後會出現在這裡」（RecallSearch.tsx:89）| §5 empty memory | ⬜ | 🟡（誠實空態，但無 retro-ingest，見 CONV-002）|
 | WINAPP-CUJ05-ERR-004 | e2e | ✅ | 無 provider | set_provider 空態 | 「No signed-in providers or local Ollama detected yet…」（onboarding-hello.tsx:494-498）| §5 provider-empty | ⬜ | 🟡 |
 | WINAPP-CUJ05-ERR-005 | integ | ✅ | 非 allowlist deep-link | 傳惡意 URL | drop + log（no raw URL，defense-in-depth，no user error）| §5 / §13 | ⬜ | 🟡 |
-| WINAPP-CUJ05-WIN-001 | e2e | ⚠ Windows | 冷啟、bind `0.0.0.0:7878`（lib.rs:659-661）| 觀察 Defender Firewall 對話框 | bind 前先 in-app 一行卡片解釋「Windows 會問是否允許…這讓手機連到後端，請允許 Private network」；預設 bind 127.0.0.1，opt-in 才 0.0.0.0 | §5 / findings high#3 | ⬜ | 🟥 FAIL [G(fw)/code-backlog]（**high**）：現況 bind 0.0.0.0:7878 觸發 Defender Firewall「Allow Phantom Mesh?」對話框 onboarding 中途彈出、無 in-app 解釋。User 慣性 Cancel → 靜默斷掉 mesh-peer/phone-supervises 路徑（整個 MVP 依賴）。修法=bind 前說明卡 + 預設 loopback + 可選 netsh advfirewall 規則（surface-win-app.md findings high#3）|
-| WINAPP-CUJ05-WIN-002 | e2e | ⚠ Windows | PATH 上有 stale `phantom.exe` shadow | `selftest --json` / `focus` | 非 0 bytes、focus 非 stub（GUI bundle 的 daemon binary 不被舊 exe 遮蔽）| §5 / SPEC-46 §3 I-violation | ⬜ | 🟥 FAIL [SPEC-46/code-backlog]：現況 stale phantom.exe shadowing on PATH → `selftest --json` 0 bytes + `focus` stub（SPEC-46 §3 EXISTS-bug）|
+| WINAPP-CUJ05-WIN-001 | e2e | ⚠ Windows | 冷啟、bind `0.0.0.0:7878`（lib.rs:659-661）| 觀察 Defender Firewall 對話框 | bind 前先 in-app 一行卡片解釋「Windows 會問是否允許…這讓手機連到後端，請允許 Private network」；預設 bind 127.0.0.1，opt-in 才 0.0.0.0 | §5 / findings high#3 | ⬜ | 🟥 FAIL [G(fw)/code-backlog]（**high**）：現況 bind 0.0.0.0:7878 觸發 Defender Firewall「Allow Spectyn Mesh?」對話框 onboarding 中途彈出、無 in-app 解釋。User 慣性 Cancel → 靜默斷掉 mesh-peer/phone-supervises 路徑（整個 MVP 依賴）。修法=bind 前說明卡 + 預設 loopback + 可選 netsh advfirewall 規則（surface-win-app.md findings high#3）|
+| WINAPP-CUJ05-WIN-002 | e2e | ⚠ Windows | PATH 上有 stale `spectyn.exe` shadow | `selftest --json` / `focus` | 非 0 bytes、focus 非 stub（GUI bundle 的 daemon binary 不被舊 exe 遮蔽）| §5 / SPEC-46 §3 I-violation | ⬜ | 🟥 FAIL [SPEC-46/code-backlog]：現況 stale spectyn.exe shadowing on PATH → `selftest --json` 0 bytes + `focus` stub（SPEC-46 §3 EXISTS-bug）|
 | WINAPP-CUJ05-WIN-003 | manual | ❌ | Defender 持 handle | build/link | 非 `os error 5`（用 CARGO_TARGET_DIR 移出 worktree mitigate）| §5 / windows-msi-build.md §7 | ⬜ | 🟡 known mitigation（MEMORY: Windows Defender locks cargo target）|
 | WINAPP-CUJ05-WIN-004 | manual | ❌ | release-signed installer | 跑 .msi | 非 SmartScreen 警告（EV cert 簽，非 dev self-signed）| §5 / windows-msi-build.md §7 | ⬜ | 🟥 FAIL [code-backlog]：現況 dev self-signed → SmartScreen 警告（EV cert = release-prep）|
-| WINAPP-CUJ05-WIN-005 | static | ✅ | - | 讀 `service uninstall` 實作 | **非**無條件 `taskkill /F /IM phantom.exe`（I9：不得殺正在跑的 unattended run）| §3④ Windows delta / SPEC-46 g2/§3 / I9 | ⬜ | 🟥 FAIL [SPEC-46-I9/code-backlog]（**high**）：現況 `service uninstall` 無條件 `taskkill /F /IM phantom.exe`（EXISTS-bug），危及 live unattended run，違反 SPEC-46 g2/§3 I9。修法=uninstall 前檢查/優雅停 live run，不無腦 /F kill |
+| WINAPP-CUJ05-WIN-005 | static | ✅ | - | 讀 `service uninstall` 實作 | **非**無條件 `taskkill /F /IM spectyn.exe`（I9：不得殺正在跑的 unattended run）| §3④ Windows delta / SPEC-46 g2/§3 / I9 | ⬜ | 🟥 FAIL [SPEC-46-I9/code-backlog]（**high**）：現況 `service uninstall` 無條件 `taskkill /F /IM spectyn.exe`（EXISTS-bug），危及 live unattended run，違反 SPEC-46 g2/§3 I9。修法=uninstall 前檢查/優雅停 live run，不無腦 /F kill |
 
 ---
 
@@ -208,10 +208,10 @@
 |---|---|---|---|---|---|---|---|---|
 | WINAPP-PLAT-DPAPI-001 | integ | ✅ | TempDir | created_identity 後 | seed DPAPI per-user wrap + 存 Windows Credential Manager（`windows-credman`），非明文檔 | §1 / identity_wire.rs / SPEC-12 P4 | ⬜ | 🟡（SPEC-12 標 v0.7.0 partial）|
 | WINAPP-PLAT-DPAPI-002 | static | ✅ | - | 讀 lib.rs:496-497 comment | DPAPI key wrap non-portable by design；cross-device key reconciliation 標 flagged follow-up（誠實）| §3② Windows portability | ⬜ | 🟡 honest flagged |
-| WINAPP-PLAT-REG-001 | integ | ✅ | install | 查 `HKCU\Software\Classes\phantom` | deep-link scheme handler 已註冊（Tauri-managed at install）| §1 Windows delta | ⬜ | ⬜ |
-| WINAPP-PLAT-INPROC-001 | integ | ✅ | desktop run() | `run()` in lib.rs:597-671 | 起 in-proc `PhantomMeshRuntime`（RuntimeState::init ~15-18s）+ axum :7878；前端走 `tauri::invoke` 非 HTTP | §0 architecture | ⬜ | 🟡 |
-| WINAPP-PLAT-SIDECAR-001 | integ | ✅ | tray「重新啟動精靈」 | `daemon.rs` spawn `phantom-mesh-x86_64-pc-windows-msvc.exe` + watchdog（5 restart/120s）| sidecar 起 + watchdog 守 | §0 / daemon.rs | ⬜ | 🟡 |
-| WINAPP-PLAT-REV-001 | e2e | ✅ | onboarded | Settings → Security 找「Delete all my data」 | 有 GUI 資料刪除 affordance（含 confirm）| §reversibility / INV-12 | ⬜ | 🟥 FAIL [code-backlog]：現況無 GUI delete-all（`phantom data delete --all` CLI-only），違反 INV-12 可逆性。修法=Settings 加 delete-all（同 mac-app PLAT-REV-001）|
+| WINAPP-PLAT-REG-001 | integ | ✅ | install | 查 `HKCU\Software\Classes\spectyn` | deep-link scheme handler 已註冊（Tauri-managed at install）| §1 Windows delta | ⬜ | ⬜ |
+| WINAPP-PLAT-INPROC-001 | integ | ✅ | desktop run() | `run()` in lib.rs:597-671 | 起 in-proc `SpectynMeshRuntime`（RuntimeState::init ~15-18s）+ axum :7878；前端走 `tauri::invoke` 非 HTTP | §0 architecture | ⬜ | 🟡 |
+| WINAPP-PLAT-SIDECAR-001 | integ | ✅ | tray「重新啟動精靈」 | `daemon.rs` spawn `spectyn-mesh-x86_64-pc-windows-msvc.exe` + watchdog（5 restart/120s）| sidecar 起 + watchdog 守 | §0 / daemon.rs | ⬜ | 🟡 |
+| WINAPP-PLAT-REV-001 | e2e | ✅ | onboarded | Settings → Security 找「Delete all my data」 | 有 GUI 資料刪除 affordance（含 confirm）| §reversibility / INV-12 | ⬜ | 🟥 FAIL [code-backlog]：現況無 GUI delete-all（`spectyn data delete --all` CLI-only），違反 INV-12 可逆性。修法=Settings 加 delete-all（同 mac-app PLAT-REV-001）|
 
 ---
 
@@ -254,7 +254,7 @@ By 狀態（2026-06-12 建檔，依審查者欄 emoji 機械重數）:
 | WINAPP-ABIL4-GOV-003/004 | 無 governor UI / flight-recorder viewer + Win32 power brake 未接 | G(gov) | 加 Unattended/Long-run 面 |
 | WINAPP-CUJ04-DL-006 | escalation transport 未接（tool-call→phone consent）| G(escalate) | 接 push/consent channel |
 | WINAPP-CUJ05-WIN-001 | bind 0.0.0.0 觸發 Firewall prompt 無解釋 + 預設非 loopback | G(fw) | 說明卡 + 預設 127.0.0.1 |
-| WINAPP-CUJ05-WIN-002 | stale phantom.exe shadowing → selftest 0 bytes/focus stub | SPEC-46 §3 | PATH 解析優先自 bundle binary |
+| WINAPP-CUJ05-WIN-002 | stale spectyn.exe shadowing → selftest 0 bytes/focus stub | SPEC-46 §3 | PATH 解析優先自 bundle binary |
 | WINAPP-CUJ05-WIN-004 | dev self-signed → SmartScreen 警告 | — | EV cert（release-prep）|
 | WINAPP-CUJ05-WIN-005 | `service uninstall` 無條件 taskkill /F /IM 殺 live run | SPEC-46 I9 | uninstall 前檢查/優雅停 |
 | WINAPP-NOFAKE-001/002/003/004 | SecurityPanel MOCK_EVENTS 假稽核 | G4 | 移除 MOCK 或標 demo |
@@ -280,7 +280,7 @@ if (Select-String -Path app/src-tauri/src/lib.rs -Pattern "Modifiers::SUPER" -Qu
 if (Select-String -Path app/src-tauri/tauri.conf.json -Pattern '"enable"\s*:\s*false' -Quiet) { "FAIL CAP-003 (asset enable:false)" }
 
 # §5 SPEC-46 I9：service uninstall 不該無條件 taskkill /F
-if (Get-ChildItem app/src-tauri/src -Recurse | Select-String -Pattern "taskkill /F /IM phantom" -Quiet) { "FAIL WIN-005 (I9 violation)" }
+if (Get-ChildItem app/src-tauri/src -Recurse | Select-String -Pattern "taskkill /F /IM spectyn" -Quiet) { "FAIL WIN-005 (I9 violation)" }
 
 # §3③ INV-8 proactive 守恆（應 0 命中 = PASS）
 if (-not (Get-ChildItem app/src -Recurse | Select-String -Pattern "GPS|real.?time.*proactive" -Quiet)) { "PASS REV-002" }

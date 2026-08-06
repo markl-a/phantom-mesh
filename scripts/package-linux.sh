@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# scripts/package-linux.sh — build Linux packages for phantom (.deb / .rpm / AppImage)
+# scripts/package-linux.sh — build Linux packages for spectyn (.deb / .rpm / AppImage)
 #
 # Wave H3.1 (Linux half) + LIN-PKG-1/LIN-PKG-2. Multiple artefacts; the CLI
-# variants ship the same /usr/bin/phantom + systemd unit so they install the
+# variants ship the same /usr/bin/spectyn + systemd unit so they install the
 # headless CLI/TUI/serve daemon end-to-end:
 #
-#   • CLI .deb      → package `phantom-mesh-cli`, ships /usr/bin/phantom
+#   • CLI .deb      → package `spectyn-mesh-cli`, ships /usr/bin/spectyn
 #                     (headless CLI/TUI/serve). Built with dpkg-deb (default).
-#   • CLI .rpm      → package `phantom-mesh-cli`, mirrors the .deb tree
-#                     (/usr/bin/phantom + systemd unit + %post useradd/enable
+#   • CLI .rpm      → package `spectyn-mesh-cli`, mirrors the .deb tree
+#                     (/usr/bin/spectyn + systemd unit + %post useradd/enable
 #                     + %preun disable). Built via rpmbuild or fpm. Use --rpm.
-#   • CLI AppImage  → self-contained dist/phantom-mesh-<version>-<arch>.AppImage
-#                     wrapping /usr/bin/phantom via an AppRun + .desktop, built
+#   • CLI AppImage  → self-contained dist/spectyn-mesh-<version>-<arch>.AppImage
+#                     wrapping /usr/bin/spectyn via an AppRun + .desktop, built
 #                     with linuxdeploy/appimagetool. Use --appimage.
-#   • GUI .deb      → package `phantom-mesh` (Tauri desktop), ships
-#                     /usr/bin/phantom-mesh-app + .desktop + icons. Built via
+#   • GUI .deb      → package `spectyn-mesh` (Tauri desktop), ships
+#                     /usr/bin/spectyn-mesh-app + .desktop + icons. Built via
 #                     `tauri build --bundles deb` (needs webkit2gtk-4.1 / gtk-3
 #                     / pnpm). Use --gui.
 #
 # Usage:
 #   scripts/package-linux.sh                 # build CLI release binary then package .deb
-#   scripts/package-linux.sh --no-build      # CLI, use existing core/target/release/phantom
+#   scripts/package-linux.sh --no-build      # CLI, use existing core/target/release/spectyn
 #   scripts/package-linux.sh --rpm           # build the CLI .rpm (rpmbuild or fpm)
 #   scripts/package-linux.sh --appimage      # build the CLI AppImage (appimagetool)
 #   scripts/package-linux.sh --gui           # build the Tauri desktop GUI .deb instead
 #   scripts/package-linux.sh --out DIR       # output dir (default: dist/)
 #   scripts/package-linux.sh --arch amd64    # override detected arch (CLI only)
 #
-# Output: <out>/phantom-mesh-cli_<version>_<arch>.deb          (CLI .deb)
-#         <out>/phantom-mesh-cli-<version>.<arch>.rpm           (--rpm)
-#         <out>/phantom-mesh-<version>-<arch>.AppImage          (--appimage)
-#         <out>/Phantom_Mesh_<version>_<arch>.deb               (--gui)
+# Output: <out>/spectyn-mesh-cli_<version>_<arch>.deb          (CLI .deb)
+#         <out>/spectyn-mesh-cli-<version>.<arch>.rpm           (--rpm)
+#         <out>/spectyn-mesh-<version>-<arch>.AppImage          (--appimage)
+#         <out>/Spectyn_Mesh_<version>_<arch>.deb               (--gui)
 # Exit:   0 ok, 1 build/package/tool-missing error, 2 bad args.
 
 set -euo pipefail
@@ -64,8 +64,8 @@ if [ "$DO_RPM" = 0 ] && [ "$DO_APPIMAGE" = 0 ]; then
 fi
 
 # ── GUI mode: delegate to Tauri's deb bundler ─────────────────────────────
-# The Tauri desktop .deb (package `phantom-mesh`) is produced by the tauri CLI,
-# which compiles the GUI app crate + bundles /usr/bin/phantom-mesh-app, a
+# The Tauri desktop .deb (package `spectyn-mesh`) is produced by the tauri CLI,
+# which compiles the GUI app crate + bundles /usr/bin/spectyn-mesh-app, a
 # .desktop entry, and hicolor icons. Needs the Tauri-v2 Linux build deps.
 if [ "$DO_GUI" = 1 ]; then
   APP_DIR="$REPO_ROOT/app"
@@ -89,7 +89,7 @@ if [ "$DO_GUI" = 1 ]; then
             | sort -rn | head -1 | cut -d' ' -f2-)"
   [ -n "$BUILT" ] && [ -f "$BUILT" ] || { echo "FATAL: tauri build produced no .deb" >&2; exit 1; }
   mkdir -p "$OUT_DIR"
-  # Normalise spaces in Tauri's "Phantom Mesh_<ver>_amd64.deb" to underscores.
+  # Normalise spaces in Tauri's "Spectyn Mesh_<ver>_amd64.deb" to underscores.
   GUI_DEST="$OUT_DIR/$(basename "$BUILT" | tr ' ' '_')"
   cp "$BUILT" "$GUI_DEST"
   echo "package-linux: wrote GUI $GUI_DEST ($(du -h "$GUI_DEST" | cut -f1))"
@@ -113,15 +113,15 @@ if [ -z "$ARCH" ]; then
   esac
 fi
 
-echo "package-linux: phantom-mesh $VERSION ($DEB_VERSION) arch=$ARCH"
+echo "package-linux: spectyn-mesh $VERSION ($DEB_VERSION) arch=$ARCH"
 
 # ── Build (unless --no-build) ─────────────────────────────────────────────
-BIN="$REPO_ROOT/core/target/release/phantom"
+BIN="$REPO_ROOT/core/target/release/spectyn"
 if [ "$DO_BUILD" = 1 ]; then
   echo "package-linux: building release binary…"
-  ( cd "$REPO_ROOT/core" && cargo build --release --bin phantom )
+  ( cd "$REPO_ROOT/core" && cargo build --release --bin spectyn )
 fi
-[ -x "$BIN" ] || { echo "FATAL: phantom binary not found at $BIN (run without --no-build)" >&2; exit 1; }
+[ -x "$BIN" ] || { echo "FATAL: spectyn binary not found at $BIN (run without --no-build)" >&2; exit 1; }
 
 # Map the Debian arch (amd64/arm64) onto the RPM/AppImage convention (x86_64/
 # aarch64). Reuses the .deb arch detection above so all three artefacts agree
@@ -133,12 +133,12 @@ case "$ARCH" in
 esac
 
 # ── RPM mode: mirror the .deb tree as an .rpm (LIN-PKG-2) ──────────────────
-# Ships the same /usr/bin/phantom + systemd unit, and reproduces the .deb's
-# postinst/prerm as RPM scriptlets: %post creates the unprivileged `phantom`
+# Ships the same /usr/bin/spectyn + systemd unit, and reproduces the .deb's
+# postinst/prerm as RPM scriptlets: %post creates the unprivileged `spectyn`
 # user + enables the unit, %preun disables it on uninstall. Prefers rpmbuild
 # (spec file); falls back to fpm if only that is present.
 if [ "$DO_RPM" = 1 ]; then
-  PKG="phantom-mesh-cli"
+  PKG="spectyn-mesh-cli"
   # RPM Version: must not contain '-'; map a -rc.N pre-release onto ~rc.N which
   # rpm sorts *below* the final release, mirroring the .deb DEB_VERSION rule.
   RPM_VERSION="${VERSION/-rc./~rc}"
@@ -165,19 +165,19 @@ if [ "$DO_RPM" = 1 ]; then
     # --rpm-* / --*-script hooks.
     ROOT="$(mktemp -d)"; SCR="$(mktemp -d)"
     trap 'rm -rf "$ROOT" "$SCR"' EXIT
-    install -Dm755 "$BIN" "$ROOT/usr/bin/phantom"
-    install -Dm644 "$SCRIPT_DIR/phantom-mesh.service" \
-      "$ROOT/usr/lib/systemd/system/phantom-mesh.service"
+    install -Dm755 "$BIN" "$ROOT/usr/bin/spectyn"
+    install -Dm644 "$SCRIPT_DIR/spectyn-mesh.service" \
+      "$ROOT/usr/lib/systemd/system/spectyn-mesh.service"
     cat > "$SCR/after-install.sh" <<'POST'
 #!/bin/sh
 set -e
-if ! getent passwd phantom >/dev/null 2>&1; then
-    useradd --system --home-dir /home/phantom --create-home --shell /usr/sbin/nologin phantom || true
+if ! getent passwd spectyn >/dev/null 2>&1; then
+    useradd --system --home-dir /home/spectyn --create-home --shell /usr/sbin/nologin spectyn || true
 fi
-install -d -o phantom -g phantom -m 700 /home/phantom/.phantom-mesh || true
+install -d -o spectyn -g spectyn -m 700 /home/spectyn/.spectyn-mesh || true
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
-    systemctl enable phantom-mesh.service || true
+    systemctl enable spectyn-mesh.service || true
 fi
 POST
     cat > "$SCR/before-remove.sh" <<'PREUN'
@@ -185,15 +185,15 @@ POST
 set -e
 # $1 == 0 on final erase (not on upgrade) — match the .deb prerm semantics.
 if [ "$1" = 0 ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now phantom-mesh.service || true
+    systemctl disable --now spectyn-mesh.service || true
 fi
 PREUN
     rm -f "$RPM_DEST"
     fpm -s dir -t rpm -n "$PKG" -v "$RPM_VERSION" -a "$RPMARCH" \
       --license 'AGPL-3.0-only' \
-      --maintainer 'phantom-mesh maintainers <noreply@phantom-mesh.local>' \
-      --url 'https://github.com/markl-a/phantom-mesh' \
-      --description 'Phantom Mesh — AI agent mesh CLI / terminal' \
+      --maintainer 'spectyn-mesh maintainers <noreply@spectyn-mesh.local>' \
+      --url 'https://github.com/markl-a/spectyn-mesh' \
+      --description 'Spectyn Mesh — AI agent mesh CLI / terminal' \
       --after-install "$SCR/after-install.sh" \
       --before-remove "$SCR/before-remove.sh" \
       -p "$RPM_DEST" \
@@ -211,23 +211,23 @@ PREUN
     trap 'rm -rf "$TOP"' EXIT
     mkdir -p "$TOP/BUILD" "$TOP/RPMS" "$TOP/SOURCES" "$TOP/SPECS"
     STAGE="$TOP/stage"
-    install -Dm755 "$BIN" "$STAGE/usr/bin/phantom"
-    install -Dm644 "$SCRIPT_DIR/phantom-mesh.service" \
-      "$STAGE/usr/lib/systemd/system/phantom-mesh.service"
+    install -Dm755 "$BIN" "$STAGE/usr/bin/spectyn"
+    install -Dm644 "$SCRIPT_DIR/spectyn-mesh.service" \
+      "$STAGE/usr/lib/systemd/system/spectyn-mesh.service"
     SPEC="$TOP/SPECS/${PKG}.spec"
     cat > "$SPEC" <<SPEC
 Name:           $PKG
 Version:        $RPM_VERSION
 Release:        1
-Summary:        Phantom Mesh — AI agent mesh CLI / terminal
+Summary:        Spectyn Mesh — AI agent mesh CLI / terminal
 License:        AGPLv3
-URL:            https://github.com/markl-a/phantom-mesh
+URL:            https://github.com/markl-a/spectyn-mesh
 BuildArch:      $RPMARCH
 %global debug_package %{nil}
 
 %description
-Phantom is a peer-to-peer AI agent mesh. This package installs the headless
-phantom CLI + TUI terminal (interactive REPL, headless exec, and the serve
+Spectyn is a peer-to-peer AI agent mesh. This package installs the headless
+spectyn CLI + TUI terminal (interactive REPL, headless exec, and the serve
 daemon) for Linux. The desktop GUI is packaged separately.
 
 %install
@@ -237,23 +237,23 @@ mkdir -p %{buildroot}
 cp -a "$STAGE"/. %{buildroot}/
 
 %files
-/usr/bin/phantom
-/usr/lib/systemd/system/phantom-mesh.service
+/usr/bin/spectyn
+/usr/lib/systemd/system/spectyn-mesh.service
 
 %post
-if ! getent passwd phantom >/dev/null 2>&1; then
-    useradd --system --home-dir /home/phantom --create-home --shell /usr/sbin/nologin phantom || true
+if ! getent passwd spectyn >/dev/null 2>&1; then
+    useradd --system --home-dir /home/spectyn --create-home --shell /usr/sbin/nologin spectyn || true
 fi
-install -d -o phantom -g phantom -m 700 /home/phantom/.phantom-mesh || true
+install -d -o spectyn -g spectyn -m 700 /home/spectyn/.spectyn-mesh || true
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
-    systemctl enable phantom-mesh.service || true
+    systemctl enable spectyn-mesh.service || true
 fi
 
 %preun
 # \$1 == 0 on final erase (not on upgrade) — match the .deb prerm semantics.
 if [ "\$1" = 0 ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now phantom-mesh.service || true
+    systemctl disable --now spectyn-mesh.service || true
 fi
 SPEC
     rm -f "$RPM_DEST"
@@ -276,9 +276,9 @@ SPEC
   exit 0
 fi
 
-# ── AppImage mode: wrap /usr/bin/phantom in a relocatable AppImage (LIN-PKG-1) ─
-# Builds an AppDir { AppRun, .desktop, icon, usr/bin/phantom } and folds it into
-# a single self-contained dist/phantom-mesh-<version>-<arch>.AppImage. Prefers
+# ── AppImage mode: wrap /usr/bin/spectyn in a relocatable AppImage (LIN-PKG-1) ─
+# Builds an AppDir { AppRun, .desktop, icon, usr/bin/spectyn } and folds it into
+# a single self-contained dist/spectyn-mesh-<version>-<arch>.AppImage. Prefers
 # linuxdeploy (which also pulls runtime libs); falls back to a plain
 # appimagetool run over the hand-built AppDir.
 if [ "$DO_APPIMAGE" = 1 ]; then
@@ -298,37 +298,37 @@ if [ "$DO_APPIMAGE" = 1 ]; then
     exit 1
   fi
 
-  APPDIR="$(mktemp -d)/phantom-mesh.AppDir"
+  APPDIR="$(mktemp -d)/spectyn-mesh.AppDir"
   trap 'rm -rf "$(dirname "$APPDIR")"' EXIT
-  install -Dm755 "$BIN" "$APPDIR/usr/bin/phantom"
+  install -Dm755 "$BIN" "$APPDIR/usr/bin/spectyn"
 
   # .desktop — required by appimagetool; categories/keys mirror the Tauri entry.
   install -d "$APPDIR/usr/share/applications"
-  cat > "$APPDIR/usr/share/applications/phantom-mesh.desktop" <<'DESKTOP'
+  cat > "$APPDIR/usr/share/applications/spectyn-mesh.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
-Name=Phantom Mesh
-Comment=Phantom Mesh — AI agent mesh CLI / terminal
-Exec=phantom
-Icon=phantom-mesh
+Name=Spectyn Mesh
+Comment=Spectyn Mesh — AI agent mesh CLI / terminal
+Exec=spectyn
+Icon=spectyn-mesh
 Categories=Utility;Development;
 Terminal=true
 DESKTOP
   # appimagetool wants the .desktop at the AppDir root too.
-  cp "$APPDIR/usr/share/applications/phantom-mesh.desktop" "$APPDIR/phantom-mesh.desktop"
+  cp "$APPDIR/usr/share/applications/spectyn-mesh.desktop" "$APPDIR/spectyn-mesh.desktop"
 
   # Icon — reuse the Tauri app icon if present, else synthesise a 1x1 placeholder
   # so appimagetool (which requires an icon) still succeeds.
   ICON_SRC="$REPO_ROOT/app/src-tauri/icons/128x128.png"
   install -d "$APPDIR/usr/share/icons/hicolor/128x128/apps"
   if [ -f "$ICON_SRC" ]; then
-    install -Dm644 "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/128x128/apps/phantom-mesh.png"
-    cp "$ICON_SRC" "$APPDIR/phantom-mesh.png"
+    install -Dm644 "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/128x128/apps/spectyn-mesh.png"
+    cp "$ICON_SRC" "$APPDIR/spectyn-mesh.png"
   else
     # 1x1 transparent PNG (base64) — minimal valid icon.
     printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC' \
-      | base64 -d > "$APPDIR/phantom-mesh.png" 2>/dev/null || true
-    cp "$APPDIR/phantom-mesh.png" "$APPDIR/usr/share/icons/hicolor/128x128/apps/phantom-mesh.png" 2>/dev/null || true
+      | base64 -d > "$APPDIR/spectyn-mesh.png" 2>/dev/null || true
+    cp "$APPDIR/spectyn-mesh.png" "$APPDIR/usr/share/icons/hicolor/128x128/apps/spectyn-mesh.png" 2>/dev/null || true
   fi
 
   # AppRun — entrypoint that execs the bundled CLI, forwarding all args.
@@ -336,22 +336,22 @@ DESKTOP
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "$0")")"
 export PATH="$HERE/usr/bin:$PATH"
-exec "$HERE/usr/bin/phantom" "$@"
+exec "$HERE/usr/bin/spectyn" "$@"
 APPRUN
   chmod 755 "$APPDIR/AppRun"
 
   mkdir -p "$OUT_DIR"
-  APPIMAGE_DEST="$OUT_DIR/phantom-mesh-${VERSION}-${RPMARCH}.AppImage"
+  APPIMAGE_DEST="$OUT_DIR/spectyn-mesh-${VERSION}-${RPMARCH}.AppImage"
   rm -f "$APPIMAGE_DEST"
-  echo "package-linux: building CLI AppImage phantom-mesh $VERSION ($RPMARCH)…"
+  echo "package-linux: building CLI AppImage spectyn-mesh $VERSION ($RPMARCH)…"
 
   if [ "$HAVE_LINUXDEPLOY" = 1 ]; then
     # linuxdeploy with its appimage output plugin folds the AppDir + deps into
     # the final image; point OUTPUT at our dist name.
     ( cd "$OUT_DIR" && OUTPUT="$(basename "$APPIMAGE_DEST")" \
         linuxdeploy --appdir "$APPDIR" \
-          --desktop-file "$APPDIR/usr/share/applications/phantom-mesh.desktop" \
-          --icon-file "$APPDIR/phantom-mesh.png" \
+          --desktop-file "$APPDIR/usr/share/applications/spectyn-mesh.desktop" \
+          --icon-file "$APPDIR/spectyn-mesh.png" \
           --output appimage )
   else
     # appimagetool consumes the hand-built AppDir directly. ARCH env tells it
@@ -381,30 +381,30 @@ fi
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 chmod 755 "$STAGE"   # mktemp -d is 700; dpkg root dir must be 755
-PKG="phantom-mesh-cli"
+PKG="spectyn-mesh-cli"
 
-install -Dm755 "$BIN" "$STAGE/usr/bin/phantom"
+install -Dm755 "$BIN" "$STAGE/usr/bin/spectyn"
 
 # ── systemd service (T-WLA-07: make the advertised "serve daemon" installable
 # end-to-end). Ship the unit + a postinst that creates the unprivileged service
-# user and registers the unit. The unit's ExecStart=/usr/bin/phantom serve
-# matches the binary path installed above, and it carries Alias=phantom.service.
+# user and registers the unit. The unit's ExecStart=/usr/bin/spectyn serve
+# matches the binary path installed above, and it carries Alias=spectyn.service.
 # (SCRIPT_DIR is resolved once near the top of this script.)
-install -Dm644 "$SCRIPT_DIR/phantom-mesh.service" "$STAGE/usr/lib/systemd/system/phantom-mesh.service"
+install -Dm644 "$SCRIPT_DIR/spectyn-mesh.service" "$STAGE/usr/lib/systemd/system/spectyn-mesh.service"
 
 mkdir -p "$STAGE/DEBIAN"
 cat > "$STAGE/DEBIAN/postinst" <<'POSTINST'
 #!/bin/sh
 set -e
-# Unprivileged system user the unit runs as (User=phantom, HOME=/home/phantom).
-if ! getent passwd phantom >/dev/null 2>&1; then
-    useradd --system --home-dir /home/phantom --create-home --shell /usr/sbin/nologin phantom || true
+# Unprivileged system user the unit runs as (User=spectyn, HOME=/home/spectyn).
+if ! getent passwd spectyn >/dev/null 2>&1; then
+    useradd --system --home-dir /home/spectyn --create-home --shell /usr/sbin/nologin spectyn || true
 fi
-install -d -o phantom -g phantom -m 700 /home/phantom/.phantom-mesh || true
+install -d -o spectyn -g spectyn -m 700 /home/spectyn/.spectyn-mesh || true
 if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     # Enable on boot, but do NOT start now — operator must write agents.toml first.
-    systemctl enable phantom-mesh.service || true
+    systemctl enable spectyn-mesh.service || true
 fi
 POSTINST
 chmod 755 "$STAGE/DEBIAN/postinst"
@@ -413,13 +413,13 @@ cat > "$STAGE/DEBIAN/prerm" <<'PRERM'
 #!/bin/sh
 set -e
 if [ -d /run/systemd/system ]; then
-    systemctl disable --now phantom-mesh.service || true
+    systemctl disable --now spectyn-mesh.service || true
 fi
 PRERM
 chmod 755 "$STAGE/DEBIAN/prerm"
 
 # Control file
-INSTALLED_KB="$(du -k "$STAGE/usr/bin/phantom" | cut -f1)"
+INSTALLED_KB="$(du -k "$STAGE/usr/bin/spectyn" | cut -f1)"
 mkdir -p "$STAGE/DEBIAN"
 cat > "$STAGE/DEBIAN/control" <<EOF
 Package: $PKG
@@ -428,22 +428,22 @@ Section: utils
 Priority: optional
 Architecture: $ARCH
 Installed-Size: $INSTALLED_KB
-Maintainer: phantom-mesh maintainers <noreply@phantom-mesh.local>
-Homepage: https://github.com/markl-a/phantom-mesh
-Description: Phantom Mesh — AI agent mesh CLI / terminal
- Phantom is a peer-to-peer AI agent mesh. This package installs the headless
- phantom CLI + TUI terminal (interactive REPL, headless exec, and the
+Maintainer: spectyn-mesh maintainers <noreply@spectyn-mesh.local>
+Homepage: https://github.com/markl-a/spectyn-mesh
+Description: Spectyn Mesh — AI agent mesh CLI / terminal
+ Spectyn is a peer-to-peer AI agent mesh. This package installs the headless
+ spectyn CLI + TUI terminal (interactive REPL, headless exec, and the
  serve daemon) for Linux. The desktop GUI is packaged separately.
 EOF
 
-# Copyright (AGPL-3.0-only per core/Cargo.toml — this packages the `phantom`
+# Copyright (AGPL-3.0-only per core/Cargo.toml — this packages the `spectyn`
 # CLI built from core/, which is AGPL; the permissive pm-types SDK crate is not
 # shipped as a standalone artifact here.)
 install -d "$STAGE/usr/share/doc/$PKG"
 cat > "$STAGE/usr/share/doc/$PKG/copyright" <<EOF
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: phantom-mesh
-Source: https://github.com/markl-a/phantom-mesh
+Upstream-Name: spectyn-mesh
+Source: https://github.com/markl-a/spectyn-mesh
 
 Files: *
 License: AGPL-3.0-only

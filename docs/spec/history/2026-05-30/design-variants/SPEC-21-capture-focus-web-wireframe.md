@@ -144,7 +144,7 @@ iOS / Android / desktop 都沒這變體。Web 場景：
        │
        │ 觸發來源：
        │  - 網路斷
-       │  - phantom-serve 重啟 / crash
+       │  - spectyn-serve 重啟 / crash
        │  - Tailscale 連線掉
        │  - cert 改變導致 fetch 失敗
        ▼
@@ -176,7 +176,7 @@ iOS / Android / desktop 都沒這變體。Web 場景：
 機制同 iOS：E phase 1 (Transcribing) + phase 2 (SummaryGen) → F Done takeaway card。
 
 **Web delta**：
-- **ASR / chunk transport / LLM 全跑在 host**（phantom-serve 那台），**不在 browser**
+- **ASR / chunk transport / LLM 全跑在 host**（spectyn-serve 那台），**不在 browser**
   - browser 只負責 `MediaRecorder` chunk → POST 給 host → 收 transcript/takeaway → render
   - whisper.cpp / Ollama 都在 host，跟 Web 無關
 - **沒有「app 被殺」概念** — tab 關了就斷，沒 WorkManager 接管。tab 關前 fire `beforeunload` 提示「未 finalize 的 session 會丟」（per save-offline 同 key 但 mode 不同）

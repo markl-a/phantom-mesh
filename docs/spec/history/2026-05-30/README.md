@@ -23,8 +23,8 @@
 | SPEC-72 EXP paid-broker | future |
 | SPEC-73 EXP watch-companion | future |
 | SPEC-74 EXP extensions-share-widget | future |
-| SPEC-75 EXP phantom-recall | future |
-| SPEC-76 EXP phantom-personas | future |
+| SPEC-75 EXP spectyn-recall | future |
+| SPEC-76 EXP spectyn-personas | future |
 | SPEC-80 INFRA mode-b-collab-dev | 多 CLI 協作模式、未啟動 |
 
 ---

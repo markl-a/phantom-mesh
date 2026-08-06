@@ -53,9 +53,9 @@ fn main() {
 #[cfg(feature = "experimental-curator")]
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 #[cfg(feature = "experimental-curator")]
-use phantom_mesh::evolve_checkpoint::JudgeVerdict;
+use spectyn_mesh::evolve_checkpoint::JudgeVerdict;
 #[cfg(feature = "experimental-curator")]
-use phantom_mesh::skillbank::{aggregate, median_score, population_stddev};
+use spectyn_mesh::skillbank::{aggregate, median_score, population_stddev};
 #[cfg(feature = "experimental-curator")]
 use serde::Deserialize;
 

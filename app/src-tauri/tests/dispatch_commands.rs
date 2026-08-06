@@ -15,7 +15,7 @@
 //     code path) hands them to the emitter. We assert frame parsing +
 //     bearer-auth handling on the wire.
 
-use phantom_mesh_app_lib::commands::dispatch::{
+use spectyn_mesh_app_lib::commands::dispatch::{
     parse_frame, validate_caps, validate_prompt, validate_provider_in_set, DispatchFrame,
 };
 

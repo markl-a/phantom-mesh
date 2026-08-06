@@ -208,7 +208,7 @@ export function describeError(err: string): string {
     return "Provider streaming 只在桌面 / 行動 App 內運作（瀏覽器模式不支援）";
   }
   // No usable LLM key. The backend returns a long CLI/TUI-oriented message
-  // ("All providers failed ... no key ... env var X unset ... run `phantom
+  // ("All providers failed ... no key ... env var X unset ... run `spectyn
   // config pull` ... Open /priority in TUI") — none of which applies on iOS.
   // Replace it with a short, actionable prompt to set a key in Settings.
   if (/no provider had a usable key|_api_key unset|no key —/i.test(err)) {

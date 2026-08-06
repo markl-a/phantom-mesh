@@ -1,5 +1,5 @@
 // Tauri command for the timeline event-detail view — app counterpart of the CLI
-// `phantom event show <id>` / TUI `/event <id>`. Reads ONE Life Node event's
+// `spectyn event show <id>` / TUI `/event <id>`. Reads ONE Life Node event's
 // metadata + LLM analysis (summary / suggestion / goal-impact) via the same
 // real, key-aware `EventStore` the daily review uses, so encrypted events
 // decrypt transparently when an identity key is present. Analysis is optional
@@ -8,8 +8,8 @@
 
 use serde::Serialize;
 
-use phantom_mesh::life_node::daily_review::clean_summary;
-use phantom_mesh::life_node::storage::EventStore;
+use spectyn_mesh::life_node::daily_review::clean_summary;
+use spectyn_mesh::life_node::storage::EventStore;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,10 +36,10 @@ pub async fn event_show(event_id: String) -> Result<EventDetailView, String> {
         return Err("event_show.empty: event id is required".to_string());
     }
     let home = dirs::home_dir().ok_or_else(|| "event_show.no_home_dir".to_string())?;
-    let events_dir = home.join(".phantom-mesh").join("events");
+    let events_dir = home.join(".spectyn-mesh").join("events");
     let store = EventStore::with_identity_file(
         &events_dir,
-        &home.join(".phantom-mesh").join("identity.key"),
+        &home.join(".spectyn-mesh").join("identity.key"),
     );
 
     let meta = store

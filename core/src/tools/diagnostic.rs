@@ -366,7 +366,7 @@ fn write_verify_log(label: &str, content: &str) -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!("phantom-verify-{}-{}.log", safe, ts));
+    let path = std::env::temp_dir().join(format!("spectyn-verify-{}-{}.log", safe, ts));
     let _ = std::fs::write(&path, content);
     path.to_string_lossy().into_owned()
 }
@@ -447,8 +447,8 @@ fn now_ms() -> u128 {
         .unwrap_or(0)
 }
 
-/// `~/.phantom-mesh` (parent of agents.toml) — home for the verify ledger.
-fn phantom_home() -> Option<std::path::PathBuf> {
+/// `~/.spectyn-mesh` (parent of agents.toml) — home for the verify ledger.
+fn spectyn_home() -> Option<std::path::PathBuf> {
     crate::cli_config::agents_toml_path().and_then(|p| p.parent().map(|d| d.to_path_buf()))
 }
 
@@ -518,10 +518,10 @@ fn parse_compile_errors(output: &str) -> Option<u64> {
         .map(|l| num_before(l, "previous error"))
 }
 
-/// Append one audit line to `~/.phantom-mesh/verify-log.jsonl` so the history
+/// Append one audit line to `~/.spectyn-mesh/verify-log.jsonl` so the history
 /// of "what was green at which commit" survives across runs.
 fn append_ledger(command: &str, label: &str, cwd: &str, passed: bool, exit_code: i32, summary: &str) {
-    let dir = match phantom_home() {
+    let dir = match spectyn_home() {
         Some(d) => d,
         None => return,
     };
@@ -752,7 +752,7 @@ pub async fn dev_verify(args: &Value) -> String {
                 0
             }
         });
-    // Optional env vars for the command (e.g. {"PHANTOM_MESH_GOOGLE_CLIENT_ID": "..."}),
+    // Optional env vars for the command (e.g. {"SPECTYN_MESH_GOOGLE_CLIENT_ID": "..."}),
     // so callers can verify env-gated flows without a shell `export ... &&` prefix.
     let env_pairs: Vec<(String, String)> = args["env"]
         .as_object()
@@ -833,7 +833,7 @@ pub async fn dev_verify(args: &Value) -> String {
 
 /// HMAC-SHA256 hex over the body with the cluster_secret — matches the legacy
 /// body-HMAC scheme that the server's `require_cluster_auth_dual` accepts
-/// (same as `phantom dispatch`).
+/// (same as `spectyn dispatch`).
 fn dv_hmac_sha256_hex(secret: &str, body: &[u8]) -> String {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;

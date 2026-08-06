@@ -10,7 +10,7 @@
 //! test runs single-threaded relative to itself; we serialize the two test fns
 //! behind one async lock and restore the env afterwards.
 
-use phantom_mesh::todoist;
+use spectyn_mesh::todoist;
 use serde_json::json;
 use std::sync::Mutex;
 use wiremock::matchers::{method, path};
@@ -54,7 +54,7 @@ async fn goal_model_contains_real_todoist_tasks_not_unknown() {
     });
     let projects = json!({
         "results": [
-            {"id": "p1", "name": "🤝 phantom-mesh"},
+            {"id": "p1", "name": "🤝 spectyn-mesh"},
             {"id": "p2", "name": "暫存"}
         ],
         "next_cursor": null
@@ -99,7 +99,7 @@ async fn goal_model_contains_real_todoist_tasks_not_unknown() {
     let lo = block.find("買牛奶").unwrap();
     assert!(hi < lo, "higher-priority goal listed first:\n{block}");
     // Project label + due string surfaced.
-    assert!(block.contains("🤝 phantom-mesh"), "project label present:\n{block}");
+    assert!(block.contains("🤝 spectyn-mesh"), "project label present:\n{block}");
     assert!(block.contains("今天") || block.contains("2026-06-05"), "due surfaced:\n{block}");
 
     std::env::remove_var("TODOIST_API_BASE");

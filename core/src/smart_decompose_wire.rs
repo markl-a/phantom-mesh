@@ -1019,7 +1019,7 @@ mod tests {
 
     /// Stage 3 → Stage 3 chained delegation marker — `dispatch_plan` now
     /// runs the real topo-sort (Kahn) and delegates each subtask to the
-    /// real SPEC-26 `execute_plan`. Without `PHANTOM_CLUSTER_SECRET` in
+    /// real SPEC-26 `execute_plan`. Without `SPECTYN_CLUSTER_SECRET` in
     /// the env the dispatcher returns `DispatchAuthFailed` per
     /// `load_cluster_secret`, which `dispatch_subtask` converts into a
     /// synthetic `DispatchStatus::Failed` outcome — no panic. The test
@@ -1029,7 +1029,7 @@ mod tests {
     fn dispatch_plan_chains_through_real_executor() {
         // Ensure no live cluster secret in the test env so the chain
         // resolves deterministically via the auth-failed path.
-        std::env::remove_var("PHANTOM_CLUSTER_SECRET");
+        std::env::remove_var("SPECTYN_CLUSTER_SECRET");
         let plan = DecomposePlan {
             request_id: "req-stage3".into(),
             parent_task_id: "task-stage3".into(),

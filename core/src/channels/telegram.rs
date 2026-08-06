@@ -15,7 +15,7 @@ use std::path::Path;
 /// * `Polling` — the bot calls `getUpdates` in a loop (default; suitable for
 ///   dev/local setups without a public URL).
 /// * `Webhook { url }` — Telegram POSTs updates to `url` (suitable for
-///   production deployments behind a reverse proxy / `phantom serve`).
+///   production deployments behind a reverse proxy / `spectyn serve`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[derive(Default)]
 pub enum DeliveryMode {
@@ -31,7 +31,7 @@ pub enum DeliveryMode {
 /// SQLite-backed persistence for the active `DeliveryMode`.
 ///
 /// Stored as a single-row table (`telegram_delivery_mode`) so the mode
-/// survives phantom restarts. The schema is created on `open_at` and is safe
+/// survives spectyn restarts. The schema is created on `open_at` and is safe
 /// to call repeatedly (`CREATE TABLE IF NOT EXISTS`).
 pub struct DeliveryModeStore {
     conn: Connection,
@@ -100,7 +100,7 @@ impl DeliveryModeStore {
 }
 
 /// A persisted Telegram chat session: chat_id is the primary key, persona is
-/// the agent binding (e.g. "phantom-default"), and last_seen_unix is the
+/// the agent binding (e.g. "spectyn-default"), and last_seen_unix is the
 /// most-recent message timestamp used for inactivity GC.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatSession {
@@ -109,10 +109,10 @@ pub struct ChatSession {
     pub last_seen_unix: i64,
 }
 
-/// SQLite-backed chat session store. Chat sessions MUST survive a phantom
+/// SQLite-backed chat session store. Chat sessions MUST survive a spectyn
 /// restart (V3 P0 ship-blocker) — see `tests::sqlite_persists_chat_session`.
 ///
-/// Production callers use `~/.phantom-mesh/telegram_sessions.db`; tests use a
+/// Production callers use `~/.spectyn-mesh/telegram_sessions.db`; tests use a
 /// `tempfile::TempDir` path. The schema is created on `open_at` and is safe to
 /// call repeatedly (`CREATE TABLE IF NOT EXISTS`).
 pub struct ChatSessionStore {
@@ -436,10 +436,10 @@ mod tests {
     }
 
     /// V3 ship-blocker: chat sessions (chat_id → persona binding + last_seen)
-    /// MUST survive a phantom restart. This pins the SQLite persistence layer:
+    /// MUST survive a spectyn restart. This pins the SQLite persistence layer:
     /// open store → save state → drop → reopen at same path → assert preserved.
     ///
-    /// Uses `tempfile::TempDir` so the real `~/.phantom-mesh/` is never touched
+    /// Uses `tempfile::TempDir` so the real `~/.spectyn-mesh/` is never touched
     /// during cargo test.
     #[test]
     fn sqlite_persists_chat_session() {
@@ -452,18 +452,18 @@ mod tests {
             store
                 .upsert(&ChatSession {
                     chat_id: 12345,
-                    persona: "phantom-default".to_string(),
+                    persona: "spectyn-default".to_string(),
                     last_seen_unix: 1_700_000_000,
                 })
                 .expect("upsert chat 12345");
             store
                 .upsert(&ChatSession {
                     chat_id: -67890,
-                    persona: "phantom-research".to_string(),
+                    persona: "spectyn-research".to_string(),
                     last_seen_unix: 1_700_000_500,
                 })
                 .expect("upsert chat -67890");
-            // store drops here → connection closes → simulates phantom restart
+            // store drops here → connection closes → simulates spectyn restart
         }
 
         // ── Phase 2: reopen at the same path; both rows must round-trip ─────
@@ -475,7 +475,7 @@ mod tests {
                 .expect("load chat 12345 after restart")
                 .expect("chat 12345 must persist across restart");
             assert_eq!(s1.chat_id, 12345);
-            assert_eq!(s1.persona, "phantom-default");
+            assert_eq!(s1.persona, "spectyn-default");
             assert_eq!(s1.last_seen_unix, 1_700_000_000);
 
             let s2 = store
@@ -483,7 +483,7 @@ mod tests {
                 .expect("load chat -67890 after restart")
                 .expect("chat -67890 must persist across restart");
             assert_eq!(s2.chat_id, -67890);
-            assert_eq!(s2.persona, "phantom-research");
+            assert_eq!(s2.persona, "spectyn-research");
             assert_eq!(s2.last_seen_unix, 1_700_000_500);
 
             // Unknown chat_id returns None (not an error).
@@ -499,7 +499,7 @@ mod tests {
             store
                 .upsert(&ChatSession {
                     chat_id: 12345,
-                    persona: "phantom-codereview".to_string(),
+                    persona: "spectyn-codereview".to_string(),
                     last_seen_unix: 1_700_001_000,
                 })
                 .expect("upsert overwrite");
@@ -507,7 +507,7 @@ mod tests {
                 .load(12345)
                 .expect("reload")
                 .expect("row still present");
-            assert_eq!(updated.persona, "phantom-codereview");
+            assert_eq!(updated.persona, "spectyn-codereview");
             assert_eq!(updated.last_seen_unix, 1_700_001_000);
         }
     }
@@ -578,7 +578,7 @@ mod tests {
     /// V3 ship-blocker: Telegram bot must support two delivery modes —
     /// long-polling (`getUpdates`) for dev/local and webhook (`setWebhook`)
     /// for production. The mode is configurable, defaults to `Polling`, and
-    /// the choice persists across phantom restarts via the session store.
+    /// the choice persists across spectyn restarts via the session store.
     ///
     /// This test pins the `DeliveryMode` enum contract:
     /// 1. `DeliveryMode::Polling` is the default (backward-compat).
@@ -666,7 +666,7 @@ mod tests {
     }
 
     /// V3 ship-blocker: persona bindings (chat_id → persona) MUST survive a
-    /// phantom restart. On startup the bot calls `load_all()` to restore
+    /// spectyn restart. On startup the bot calls `load_all()` to restore
     /// every active chat→persona mapping and resume serving each chat with
     /// its previously assigned agent persona.
     ///
@@ -687,25 +687,25 @@ mod tests {
             store
                 .upsert(&ChatSession {
                     chat_id: 100,
-                    persona: "phantom-default".to_string(),
+                    persona: "spectyn-default".to_string(),
                     last_seen_unix: 1_700_000_000,
                 })
                 .expect("upsert chat 100");
             store
                 .upsert(&ChatSession {
                     chat_id: 200,
-                    persona: "phantom-research".to_string(),
+                    persona: "spectyn-research".to_string(),
                     last_seen_unix: 1_700_000_100,
                 })
                 .expect("upsert chat 200");
             store
                 .upsert(&ChatSession {
                     chat_id: 300,
-                    persona: "phantom-codereview".to_string(),
+                    persona: "spectyn-codereview".to_string(),
                     last_seen_unix: 1_700_000_200,
                 })
                 .expect("upsert chat 300");
-            // store drops → simulates phantom restart
+            // store drops → simulates spectyn restart
         }
 
         // ── Phase 2: reopen → load_all must return all 3 bindings ───────────
@@ -719,14 +719,14 @@ mod tests {
                 all.iter().map(|s| (s.chat_id, s)).collect();
 
             let s100 = by_id.get(&100).expect("chat 100 must exist");
-            assert_eq!(s100.persona, "phantom-default");
+            assert_eq!(s100.persona, "spectyn-default");
             assert_eq!(s100.last_seen_unix, 1_700_000_000);
 
             let s200 = by_id.get(&200).expect("chat 200 must exist");
-            assert_eq!(s200.persona, "phantom-research");
+            assert_eq!(s200.persona, "spectyn-research");
 
             let s300 = by_id.get(&300).expect("chat 300 must exist");
-            assert_eq!(s300.persona, "phantom-codereview");
+            assert_eq!(s300.persona, "spectyn-codereview");
         }
 
         // ── Phase 3: update one persona, verify others unaffected ───────────
@@ -735,7 +735,7 @@ mod tests {
             store
                 .upsert(&ChatSession {
                     chat_id: 200,
-                    persona: "phantom-devops".to_string(),
+                    persona: "spectyn-devops".to_string(),
                     last_seen_unix: 1_700_001_000,
                 })
                 .expect("update chat 200 persona");
@@ -751,12 +751,12 @@ mod tests {
 
             // Chat 200 persona changed
             assert_eq!(
-                by_id[&200].persona, "phantom-devops",
-                "chat 200 persona must be updated to phantom-devops"
+                by_id[&200].persona, "spectyn-devops",
+                "chat 200 persona must be updated to spectyn-devops"
             );
             // Chat 100 and 300 unchanged
-            assert_eq!(by_id[&100].persona, "phantom-default");
-            assert_eq!(by_id[&300].persona, "phantom-codereview");
+            assert_eq!(by_id[&100].persona, "spectyn-default");
+            assert_eq!(by_id[&300].persona, "spectyn-codereview");
         }
     }
 }

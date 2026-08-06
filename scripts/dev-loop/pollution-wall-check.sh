@@ -17,11 +17,11 @@
 #      Reported with TRUE original line numbers; a future legitimate READ fails ON PURPOSE so the
 #      exception is a deliberate, reviewed decision.
 #   2. RUNTIME (self-contained hermetic proof) — seed a known partner-signals.jsonl inside a TEMP
-#      PHANTOM_STATE_DIR, run a REAL deviation-handler cycle against a throwaway git repo, then
+#      SPECTYN_STATE_DIR, run a REAL deviation-handler cycle against a throwaway git repo, then
 #      assert that ledger is byte-identical AND that no partner-signals file was created anywhere in
 #      the state dir. This tests the EXACT production invariant (a write into the CONFIGURED state
-#      dir's ledger) and is hermetic — it does NOT read $HOME, so ambient phantom activity cannot
-#      make it flake, and a write to $PHANTOM_STATE_DIR/partner-signals cannot slip past it. It also
+#      dir's ledger) and is hermetic — it does NOT read $HOME, so ambient spectyn activity cannot
+#      make it flake, and a write to $SPECTYN_STATE_DIR/partner-signals cannot slip past it. It also
 #      catches a constructed-string write the static text scan cannot see.
 #
 # Usage:
@@ -94,7 +94,7 @@ else
     # hermetic repo: base commit on the default branch, then an IN-SCOPE change on a dev branch so a
     # real (passing) deviation cycle runs and exercises the ledger-writing path.
     ( cd "$repo"
-      git init -q; git config user.email proof@phantom.local; git config user.name proof
+      git init -q; git config user.email proof@spectyn.local; git config user.name proof
       git config commit.gpgsign false
       printf 'one\n' > src/widget.txt; git add -A; git commit -q -m base
       git checkout -q -b dev/pollution-proof
@@ -106,7 +106,7 @@ component   = "pollution proof widget"
 acceptance  = "widget returns ok"
 scope_allow = ["src/"]
 EOF
-      PHANTOM_STATE_DIR="$state" bash "$DEVIATION" --spec spec.toml --range HEAD~1..HEAD \
+      SPECTYN_STATE_DIR="$state" bash "$DEVIATION" --spec spec.toml --range HEAD~1..HEAD \
         --verify-exit 0 --review-exit 0 >/dev/null 2>&1
       echo $? > "$work/devrc"
     )
@@ -123,7 +123,7 @@ EOF
     if [ "$ran" = 0 ]; then
       say_setup "runtime proof INCONCLUSIVE — the deviation cycle did not actually run (exit=$devrc, ledger $([ -f "$state/dev-loop-log.jsonl" ] && echo written || echo missing)); cannot prove non-pollution"
     elif [ "$before" = "$after" ] && [ -z "$stray" ]; then
-      say_pass "a real deviation cycle ran (exit=$devrc, ledger written) and left \$PHANTOM_STATE_DIR/partner-signals.jsonl byte-identical; no partner-signals ledger created"
+      say_pass "a real deviation cycle ran (exit=$devrc, ledger written) and left \$SPECTYN_STATE_DIR/partner-signals.jsonl byte-identical; no partner-signals ledger created"
     else
       [ "$before" != "$after" ] && say_fail "runtime proof: the seeded partner-signals.jsonl CHANGED during a real cycle (moat pollution)"
       [ -n "$stray" ] && say_fail "runtime proof: the cycle created a partner-signals file in the state dir: $stray"

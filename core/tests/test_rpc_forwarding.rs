@@ -4,9 +4,9 @@
 //!
 //! Scenarios covered:
 //!   * `test_forward_decision_chooses_capable_peer` — single-host two-port
-//!     acceptance test. Spawns two `phantom serve` instances on ephemeral
+//!     acceptance test. Spawns two `spectyn serve` instances on ephemeral
 //!     ports, posts to the sandbox peer with `required_caps=["shell.write"]`
-//!     and `PHANTOM_FORWARD_ON_CAPS_MISMATCH=1`, asserts the 202 carries
+//!     and `SPECTYN_FORWARD_ON_CAPS_MISMATCH=1`, asserts the 202 carries
 //!     `dispatched_to: <full-worker-name>` and that the remote job_id
 //!     resolves on the full worker. (Spec §11.3.)
 //!   * `test_forward_cycle_guard_rejects_at_chain_len_2` — POST with a
@@ -24,8 +24,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use phantom_mesh::mesh::{ClusterConfig, ClusterManager, EnforceMode, TaskAssignRequest};
-use phantom_mesh::AppState;
+use spectyn_mesh::mesh::{ClusterConfig, ClusterManager, EnforceMode, TaskAssignRequest};
+use spectyn_mesh::AppState;
 use serde_json::{json, Value};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -33,7 +33,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
-/// Tests in this file set / clear `PHANTOM_FORWARD_ON_CAPS_MISMATCH`. Env vars
+/// Tests in this file set / clear `SPECTYN_FORWARD_ON_CAPS_MISMATCH`. Env vars
 /// are process-global so we serialise on a single lock per the existing
 /// pattern in `test_security_t7.rs`.
 fn env_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -88,7 +88,7 @@ async fn spawn_serve(state: Arc<AppState>) -> SocketAddr {
         .await
         .expect("bind ephemeral");
     let addr = listener.local_addr().expect("local_addr");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
@@ -101,7 +101,7 @@ async fn spawn_serve(state: Arc<AppState>) -> SocketAddr {
 /// network — used when we don't need the receiving node to make outbound
 /// forward calls of its own).
 async fn post_inproc(state: &Arc<AppState>, req: &TaskAssignRequest) -> (StatusCode, Value) {
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
     let body = serde_json::to_vec(req).expect("encode");
     let token = state
         .cluster_manager
@@ -127,8 +127,8 @@ async fn post_inproc(state: &Arc<AppState>, req: &TaskAssignRequest) -> (StatusC
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_forward_decision_chooses_capable_peer() {
     let _g = env_guard();
-    std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
 
     // Bring up the full worker FIRST so we know its bound address before
     // configuring the sandbox node to point at it.
@@ -180,7 +180,7 @@ async fn test_forward_decision_chooses_capable_peer() {
     };
     let (status, body) = post_inproc(&sandbox_state, &req).await;
 
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     eprintln!("sandbox response: status={status} body={body}");
     assert_eq!(
@@ -209,7 +209,7 @@ async fn test_forward_decision_chooses_capable_peer() {
 #[tokio::test]
 async fn test_forward_cycle_guard_rejects_at_chain_len_2() {
     let _g = env_guard();
-    std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+    std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
 
     // A receiving node that would normally forward, but is asked to
     // forward a request whose chain is already at FORWARD_CHAIN_LIMIT.
@@ -230,7 +230,7 @@ async fn test_forward_cycle_guard_rejects_at_chain_len_2() {
     };
     let (status, body) = post_inproc(&state, &req).await;
 
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     assert_eq!(status, StatusCode::CONFLICT, "expected 409, body={body}");
     assert_eq!(
@@ -240,7 +240,7 @@ async fn test_forward_cycle_guard_rejects_at_chain_len_2() {
     );
     assert_eq!(
         body.get("limit").and_then(|v| v.as_u64()),
-        Some(phantom_mesh::mesh::FORWARD_CHAIN_LIMIT as u64),
+        Some(spectyn_mesh::mesh::FORWARD_CHAIN_LIMIT as u64),
     );
 }
 
@@ -249,7 +249,7 @@ async fn test_forward_cycle_guard_rejects_at_chain_len_2() {
 #[tokio::test]
 async fn test_forward_self_in_chain_rejects() {
     let _g = env_guard();
-    std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+    std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
 
     let state = make_state("node-x", vec!["memory".into()], Vec::new(), "secret");
     // Chain has only 1 entry — passes the length check — but it contains
@@ -263,7 +263,7 @@ async fn test_forward_self_in_chain_rejects() {
     };
     let (status, body) = post_inproc(&state, &req).await;
 
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     assert_eq!(status, StatusCode::CONFLICT, "expected 409, body={body}");
     assert_eq!(
@@ -279,7 +279,7 @@ async fn test_forward_self_in_chain_rejects() {
 #[tokio::test]
 async fn test_no_peer_satisfies_caps_returns_taxonomy_error() {
     let _g = env_guard();
-    std::env::set_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH", "1");
+    std::env::set_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH", "1");
 
     // Sandbox with NO peers at all: enforce returns Reject, the call site
     // sees the env gate is ON, and surfaces `no_peer_satisfies_caps`
@@ -299,7 +299,7 @@ async fn test_no_peer_satisfies_caps_returns_taxonomy_error() {
     };
     let (status, body) = post_inproc(&state, &req).await;
 
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     assert_eq!(status, StatusCode::CONFLICT, "expected 409, body={body}");
     assert_eq!(
@@ -320,7 +320,7 @@ async fn test_no_peer_satisfies_caps_returns_taxonomy_error() {
 async fn test_forward_disabled_returns_reject_by_default() {
     let _g = env_guard();
     // Explicit guarantee: no env var = no behaviour change.
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     let state = make_state("sandbox-bc", vec!["memory".into()], Vec::new(), "secret");
     let req = TaskAssignRequest {
@@ -345,7 +345,7 @@ async fn test_forward_disabled_returns_reject_by_default() {
 #[tokio::test]
 async fn test_local_run_emits_dispatched_to_field() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_FORWARD_ON_CAPS_MISMATCH");
+    std::env::remove_var("SPECTYN_FORWARD_ON_CAPS_MISMATCH");
 
     // Full worker, no required_caps → Allow path → runs locally.
     // The runtime may error because no LLM is configured in the test

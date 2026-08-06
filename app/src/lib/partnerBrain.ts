@@ -59,7 +59,7 @@ export interface LatestReflection {
 
 /**
  * Load the most recent daily alignment reflection the coach daemon produced
- * (read-only, offline — reads ~/.phantom-mesh/partner-signals.jsonl via the
+ * (read-only, offline — reads ~/.spectyn-mesh/partner-signals.jsonl via the
  * `partner_latest_reflection` Tauri command). Returns null when none exists yet
  * (fresh install before the first 21:00 coach run) or in web/browser mode where
  * the command is unwired. Never throws.

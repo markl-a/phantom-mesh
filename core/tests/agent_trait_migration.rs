@@ -17,7 +17,7 @@
 //!      shim returns tool-calls as text, never structured `tool_calls`.
 //!   4. ClaudeCliProvider's `build_stream_request` uses the same
 //!      Anthropic-native shape as AnthropicProvider (cache_control etc.).
-//!   5. `call_with_streaming` honours `PHANTOM_RUNTIME_OVERRIDE` after
+//!   5. `call_with_streaming` honours `SPECTYN_RUNTIME_OVERRIDE` after
 //!      the trait migration (the URL the provider hits must match the
 //!      override, not the agent's primary).
 //!   6. `call_with_fallback` cascades on auth errors (401) after the
@@ -32,7 +32,7 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     providers::{
         resolver::DefaultProviderResolver, BuildRequestOpts, BuildRequestParts, LlmProvider,
@@ -401,7 +401,7 @@ fn cfg_two_providers(primary_url: &str, secondary_url: &str) -> AgentsConfig {
 }
 
 /// Process-wide mutex serialising any test that touches
-/// `PHANTOM_RUNTIME_OVERRIDE` (or relies on it being unset). Multiple
+/// `SPECTYN_RUNTIME_OVERRIDE` (or relies on it being unset). Multiple
 /// tokio tests in this binary run in parallel by default; without this
 /// the override test races the cascade test and corrupts both.
 static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -412,7 +412,7 @@ async fn call_with_fallback_uses_trait_dispatch_and_cascades_on_auth_error() {
     // Belt-and-braces: the override test sets this env var; if a prior
     // test panicked before restoring, ensure we start clean.
     unsafe {
-        std::env::remove_var("PHANTOM_RUNTIME_OVERRIDE");
+        std::env::remove_var("SPECTYN_RUNTIME_OVERRIDE");
     }
     // Primary (anthropic) returns 401 → call_with_fallback must SKIP it
     // (non-retriable auth error) and fall through to the secondary
@@ -423,7 +423,7 @@ async fn call_with_fallback_uses_trait_dispatch_and_cascades_on_auth_error() {
 
     // Drive call_with_fallback indirectly via AgentRuntime::run. We use a
     // minimal `master` agent with no tools.
-    let runtime = phantom_mesh::agent::AgentRuntime::new(cfg);
+    let runtime = spectyn_mesh::agent::AgentRuntime::new(cfg);
     let result = runtime.run("master", "hello", &[], None).await;
 
     // The run should succeed because the second provider (openai)
@@ -487,7 +487,7 @@ async fn call_with_fallback_uses_trait_dispatch_and_cascades_on_auth_error() {
 
 #[tokio::test]
 async fn call_with_streaming_honours_runtime_override_after_trait_migration() {
-    // PHANTOM_RUNTIME_OVERRIDE="openai" must reorder so openai is hit
+    // SPECTYN_RUNTIME_OVERRIDE="openai" must reorder so openai is hit
     // first, even though the agent's `provider`/`providers` list put
     // anth first. Verifies the trait migration didn't break the
     // override-prepend logic.
@@ -503,29 +503,29 @@ async fn call_with_streaming_honours_runtime_override_after_trait_migration() {
     // ENV_MUTEX so concurrent tokio tests don't see each other's state.
     let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
 
-    let old = std::env::var("PHANTOM_RUNTIME_OVERRIDE").ok();
-    // SAFETY: serialised via ENV_MUTEX above; other phantom-mesh tests
+    let old = std::env::var("SPECTYN_RUNTIME_OVERRIDE").ok();
+    // SAFETY: serialised via ENV_MUTEX above; other spectyn-mesh tests
     // touching this var are also expected to hold this style of lock
     // (Phase 3's tests rely on the same convention).
     unsafe {
-        std::env::set_var("PHANTOM_RUNTIME_OVERRIDE", "openai");
+        std::env::set_var("SPECTYN_RUNTIME_OVERRIDE", "openai");
     }
 
-    let runtime = phantom_mesh::agent::AgentRuntime::new(cfg);
+    let runtime = spectyn_mesh::agent::AgentRuntime::new(cfg);
     // Use streaming via run_with_callbacks would be ideal — but
     // call_with_streaming is internal. The public `run` path is the
     // canonical entry to `call_with_fallback`. To trigger the
     // streaming path we'd need run_with_callbacks; for the
     // override-honoured assertion the non-streaming dispatch is
     // sufficient because BOTH paths consult the same
-    // PHANTOM_RUNTIME_OVERRIDE logic and the same DefaultProviderResolver.
+    // SPECTYN_RUNTIME_OVERRIDE logic and the same DefaultProviderResolver.
     let result = runtime.run("master", "hello", &[], None).await;
 
     // Restore the env var before asserting (so failures don't leak it).
     unsafe {
         match old {
-            Some(v) => std::env::set_var("PHANTOM_RUNTIME_OVERRIDE", v),
-            None => std::env::remove_var("PHANTOM_RUNTIME_OVERRIDE"),
+            Some(v) => std::env::set_var("SPECTYN_RUNTIME_OVERRIDE", v),
+            None => std::env::remove_var("SPECTYN_RUNTIME_OVERRIDE"),
         }
     }
 
@@ -538,11 +538,11 @@ async fn call_with_streaming_honours_runtime_override_after_trait_migration() {
     let reqs = mock.requests.lock().await.clone();
     assert!(!reqs.is_empty(), "expected at least one provider hit");
     // The FIRST hit must be /v1/chat/completions (openai), proving
-    // PHANTOM_RUNTIME_OVERRIDE prepended openai ahead of the agent's
+    // SPECTYN_RUNTIME_OVERRIDE prepended openai ahead of the agent's
     // primary "anth".
     assert_eq!(
         reqs[0].0, "/v1/chat/completions",
-        "expected first hit to be openai's /v1/chat/completions due to PHANTOM_RUNTIME_OVERRIDE; got all hits: {:?}",
+        "expected first hit to be openai's /v1/chat/completions due to SPECTYN_RUNTIME_OVERRIDE; got all hits: {:?}",
         reqs.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
     );
 }

@@ -1,4 +1,4 @@
-# Phantom Mesh - Windows GUI installer build (.msi + .exe), sign + smoke.
+# Spectyn Mesh - Windows GUI installer build (.msi + .exe), sign + smoke.
 #
 # Wave H3.x (Windows half, parallels scripts/package-macos.sh + package-linux.sh).
 # Builds the Tauri desktop "AI terminal" into Windows installers:
@@ -28,7 +28,7 @@
 param(
     [switch]$Sign,
     [switch]$NoBuild,
-    [string]$TargetDir = 'D:\tmp\phantom-win-app-target',
+    [string]$TargetDir = 'D:\tmp\spectyn-win-app-target',
     [string]$OutDir = ''
 )
 
@@ -43,7 +43,7 @@ if (-not (Test-Path (Join-Path $AppDir 'src-tauri\tauri.conf.json'))) {
 }
 if (-not $OutDir) { $OutDir = Join-Path $RepoRoot 'dist' }
 
-Write-Host "=== Phantom Mesh Windows installer build ===" -ForegroundColor Cyan
+Write-Host "=== Spectyn Mesh Windows installer build ===" -ForegroundColor Cyan
 Write-Host "  repo        : $RepoRoot"
 Write-Host "  CARGO_TARGET: $TargetDir"
 Write-Host "  out         : $OutDir"
@@ -52,10 +52,10 @@ Write-Host ""
 
 # ---------- 1. build the Tauri Windows bundle ----------
 if (-not $NoBuild) {
-    # Stop any running phantom so the link/copy step does not hit os error 5.
-    $running = Get-Process phantom -ErrorAction SilentlyContinue
+    # Stop any running spectyn so the link/copy step does not hit os error 5.
+    $running = Get-Process spectyn -ErrorAction SilentlyContinue
     if ($running) {
-        Write-Host "[pre] stopping $($running.Count) running phantom process(es)" -ForegroundColor Yellow
+        Write-Host "[pre] stopping $($running.Count) running spectyn process(es)" -ForegroundColor Yellow
         $running | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }

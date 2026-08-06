@@ -1,7 +1,7 @@
 //! Node inbox — persistent coordination messages for dev sessions (S1).
 //!
 //! A peer POSTs a small JSON message to this node's `/rpc/inbox`; the serve
-//! daemon drops it as one file under `~/.phantom-mesh/inbox/`. The local dev
+//! daemon drops it as one file under `~/.spectyn-mesh/inbox/`. The local dev
 //! session (Claude Code / codex loop) reads the files on its next tick and
 //! acks them by moving them to `inbox/done/`. Transport is HTTP over the
 //! tailnet (HMAC-gated) — deliberately NOT SSH stdin (Windows OpenSSH
@@ -50,12 +50,12 @@ pub struct InboxMessage {
     pub received_at: u64,
 }
 
-/// `~/.phantom-mesh/inbox` under the given home.
+/// `~/.spectyn-mesh/inbox` under the given home.
 pub fn inbox_dir(home: &Path) -> PathBuf {
-    crate::cli_config::phantom_dir_under(home).join("inbox")
+    crate::cli_config::spectyn_dir_under(home).join("inbox")
 }
 
-/// `~/.phantom-mesh/inbox/done` — acked messages are moved, not deleted,
+/// `~/.spectyn-mesh/inbox/done` — acked messages are moved, not deleted,
 /// so a routine crash mid-handling never loses a directive silently.
 pub fn done_dir(home: &Path) -> PathBuf {
     inbox_dir(home).join("done")

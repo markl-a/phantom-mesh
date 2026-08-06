@@ -1,4 +1,4 @@
-# Phantom Mesh — 商業化策略
+# Spectyn Mesh — 商業化策略
 
 > **狀態：** 決策版建議。取代較早的 [`docs/design/COMMERCIAL-DESIGN.md`](design/COMMERCIAL-DESIGN.md)
 > （該文件假設 Apache 核心 / BSL broker / Tailscale 翻版的形狀）。本文件自 v0.6.0
@@ -21,7 +21,7 @@
 - **P1 — 跨裝置 mesh、local-first。** 產品必須能在你自己的硬體上、用本地模型、air-gapped
   地完整運作。→ *核心絕不能放在付費牆或登入之後。*
 - **P2 — 多模態理解。** → *大目標本身的反目標：核心多模態絕不鎖在付費層之後。*
-- **P3 — 進化網（「越用越懂你」）。** → *閘門讓 Phantom 學習的能力＝自殺；skill bank 與
+- **P3 — 進化網（「越用越懂你」）。** → *閘門讓 Spectyn 學習的能力＝自殺；skill bank 與
   evolve loop 維持免費。*
 - **P4 — 加密為先（「資料加密，只你能讀」）。** → *任何付費服務只能搬運它讀不到的加密位元組；
   對加密本身收費會摧毀整個產品立足的信任敘事。*
@@ -36,7 +36,7 @@ evolve 功能要付費。對齊是精準且刻意的。
 ## 1. 推薦模式——「Nabu Casa 模式」：免費開源核心永遠免費 ＋ 一個付費雲端便利層
 
 **唯一主模式：** 整個 mesh——引擎、agents、evolve loop、加密、所有平台 client *包含行動
-App*——**永遠免費開源**；唯一收費品是訂閱制的**託管便利服務「Phantom Relay」**：為 NAT
+App*——**永遠免費開源**；唯一收費品是訂閱制的**託管便利服務「Spectyn Relay」**：為 NAT
 後面的手機/筆電提供零知識中繼/會合點、推播通知橋、以及 E2E 加密的異地備份。
 
 ### 為何選這個模式而非其他（推理，全部來自研究證據）
@@ -80,7 +80,7 @@ Open WebUI 事後改授權）都源自**對「使用者認為理所當然的東�
 | 加密（at-rest、per-device key） | ✅ AGPL | — | 加密功能收費摧毀信任敘事 |
 | **行動 App（Android/iOS client）** | ✅ 免費 | — | Plex/Emby 教訓：對 mobile client 收費招來 fork |
 | Skills 市集 / SDK | ✅ MIT/Apache | 永遠免費、不抽成 | HACS/VS Code/Raycast 全免費市集＝採用護城河 [17] |
-| **Phantom Relay**（託管會合＋推播橋＋E2E 異地備份） | 協定開放；伺服器碼 FSL | 💰 ~$6/月 | 唯一收費品；自架 relay 永遠可行（Tailscale 對 Headscale 的善意 [18]） |
+| **Spectyn Relay**（託管會合＋推播橋＋E2E 異地備份） | 協定開放；伺服器碼 FSL | 💰 ~$6/月 | 唯一收費品；自架 relay 永遠可行（Tailscale 對 Headscale 的善意 [18]） |
 | 支持者終身授權 | — | 💰 自願、零閘門 | Immich 模式 |
 | 企業 SSO/RBAC/稽核（未來） | — | 💰 商業授權 | 「buyer-based open core」：經理買的東西才收費 [19] |
 
@@ -94,11 +94,11 @@ Personal（6 人/無限裝置免費 [20]）。
 
 | 元件 | 授權 | 理由 |
 |---|---|---|
-| 核心（engine/mesh/CLI/agents） | **AGPLv3** | 防雲端 strip-mining：Google 等 hyperscaler 對 AGPL 有全面內部禁令，根本不會做「Phantom Mesh Cloud」[21]；對自架終端使用者零義務，local-first 產品的 AGPL 成本/效益異常划算。Grafana/Bitwarden/Nextcloud 已驗證 AGPL＋商業雙授權。 |
+| 核心（engine/mesh/CLI/agents） | **AGPLv3** | 防雲端 strip-mining：Google 等 hyperscaler 對 AGPL 有全面內部禁令，根本不會做「Spectyn Mesh Cloud」[21]；對自架終端使用者零義務，local-first 產品的 AGPL 成本/效益異常划算。Grafana/Bitwarden/Nextcloud 已驗證 AGPL＋商業雙授權。 |
 | Skills SDK / 協定 lib / client 嵌入層 | **Apache-2.0 或 MIT** | 讓寫 skill、做整合的人不被傳染，市集才長得起來。 |
-| Relay 伺服器 | **FSL-1.1-Apache-2.0** | 2 年後自動轉 Apache（DOSP）＝可信承諾，又防「Phantom Relay 競品 SaaS」[22][23]；避開 BSL（HashiCorp 後信譽有毒）。 |
+| Relay 伺服器 | **FSL-1.1-Apache-2.0** | 2 年後自動轉 Apache（DOSP）＝可信承諾，又防「Spectyn Relay 競品 SaaS」[22][23]；避開 BSL（HashiCorp 後信譽有毒）。 |
 | 貢獻機制 | **CLA（用 cla-assistant），並在 CONTRIBUTING.md 誠實揭露用途** | 保留雙授權選項：iOS App Store 與 AGPL 衝突，唯一著作權人可自授商店例外；事後 DCO→CLA 才是信任事件，day one 就 CLA 並講明白則不是 [24]。 |
-| 商標 | **註冊「Phantom Mesh」字標（USPTO ~$350/類）＋公開商標政策**（fork 須改名、允許指名性使用） | 單人維護者買得起的最高槓桿保護；OpenTofu 被迫改名就是商標的力量 [25][26]。 |
+| 商標 | **註冊「Spectyn Mesh」字標（USPTO ~$350/類）＋公開商標政策**（fork 須改名、允許指名性使用） | 單人維護者買得起的最高槓桿保護；OpenTofu 被迫改名就是商標的力量 [25][26]。 |
 
 **最重要的一條：** *day one 就用保護性授權。* 2024–2026 所有社群反叛（HashiCorp/Redis/Elastic/
 Open WebUI）全是「先寬鬆、後收緊」造成的；從第一天就 AGPL 的專案沒有發生過等量反叛 [27][28]。
@@ -116,7 +116,7 @@ v0.6.0 公開前就把 `LICENSE` 定案，之後永不改。
 |---|---|---|---|
 | **Free** | $0 | 全功能：無限自有裝置、全 OS node、squad、evolve、加密、skills 市集 | Tailscale Personal（免費 6 人/無限裝置）、Ollama、Jellyfin |
 | **Supporter（終身，自願）** | **$29 個人 / $99 每 cluster** | 零功能差異；徽章＋CHANGELOG 鳴謝＋搶先測試 | Immich $24.99/人、$99.99/server；Obsidian Catalyst $25 |
-| **Phantom Relay** | **$6/月 或 $60/年** | 零知識中繼（NAT 穿透）、推播橋、E2E 異地加密備份、「支持開發」框架 | Nabu Casa $6.50/$65；Coolify $5；Obsidian Sync $4–10 帶 |
+| **Spectyn Relay** | **$6/月 或 $60/年** | 零知識中繼（NAT 穿透）、推播橋、E2E 異地加密備份、「支持開發」框架 | Nabu Casa $6.50/$65；Coolify $5；Obsidian Sync $4–10 帶 |
 | **Team / Compliance（v0.8.0+，僅有訊號才做）** | ~$15/人/月（席次制，**絕不按裝置計價**） | SSO、稽核日誌、優先支援、商業授權 | Tabby $19–24/人/月；Msty Teams $300/人/年；Tailscale Standard $8/人/月 |
 
 **計價單位教訓：按「人」不按「裝置」。** Tailscale 2026 v4 收掉裝置型 Personal Plus
@@ -133,7 +133,7 @@ v0.6.0 公開前就把 `LICENSE` 定案，之後永不改。
 > 由維護者在研究之上加上，並與大目標的 BYOM（自帶模型）反綁定立場、以及 P3「12+ provider
 > 同一 trait」一致。
 
-**方向：** 出貨一個免費、開放權重、自家蒸餾的模型作為 Phantom 的*預設大腦*——讓 air-gapped、
+**方向：** 出貨一個免費、開放權重、自家蒸餾的模型作為 Spectyn 的*預設大腦*——讓 air-gapped、
 無 API key 的體驗開箱即好用。然後**變現託管推理與個人化蒸餾，絕不變現權重本身。**
 
 如何與策略其餘部分契合：
@@ -143,11 +143,11 @@ v0.6.0 公開前就把 `LICENSE` 定案，之後永不改。
   仍可逐請求切換。
 - **付費的是便利與個人化，不是能力：**
   - *託管推理*——給沒有、或不想 24/7 跑 GPU 機的使用者。與 relay 同一個「自架者做得到但不想
-    維運」邏輯，乾淨地併入（或並列）Phantom Relay SKU。GPU 時間計價，非 token 計價——Ollama
+    維運」邏輯，乾淨地併入（或並列）Spectyn Relay SKU。GPU 時間計價，非 token 計價——Ollama
     Cloud 模式 [5]。
-  - *個人化蒸餾*——Phantom 整個論點就是「越用越懂你」（P3）。一個從使用者自己（加密、同意過的）
+  - *個人化蒸餾*——Spectyn 整個論點就是「越用越懂你」（P3）。一個從使用者自己（加密、同意過的）
     skill bank 與使用紀錄蒸餾出*個人化*小模型的付費服務，是疊在 evolve loop 上的便利，產出的
-    模型屬於使用者。其訓練管線由 [phantom-training](ECOSYSTEM.md) 衛星實作。
+    模型屬於使用者。其訓練管線由 [spectyn-training](ECOSYSTEM.md) 衛星實作。
 - **這*不是*：** 不是賣基礎權重，也不是閘門本地 evolve loop。你自己在自己硬體上跑的蒸餾維持
   免費。只有當你要*我們*替你跑 GPU 與管線時才付費。
 
@@ -212,7 +212,7 @@ Android + Mac mesh）。錄 2 分鐘影片：*「拍一張午餐照，手機上�
 
 | # | 風險 | 緩解 |
 |---|---|---|
-| 1 | **Strip-mining：** 有人推出「Phantom Mesh Cloud」搶走變現層 | AGPL 核心（hyperscaler 政策禁用）＋註冊商標（競品不能用你的名字）＋relay 伺服器 FSL（2 年內禁競爭性使用）。三層疊加正是研究結論的聯合威懾 [21][22]。 |
+| 1 | **Strip-mining：** 有人推出「Spectyn Mesh Cloud」搶走變現層 | AGPL 核心（hyperscaler 政策禁用）＋註冊商標（競品不能用你的名字）＋relay 伺服器 FSL（2 年內禁競爭性使用）。三層疊加正是研究結論的聯合威懾 [21][22]。 |
 | 2 | **單人 bus-factor：** 你倒下，專案與收入歸零，用戶因此不敢付費 | 短期：🤖release/triage 全自動化＋公開營運手冊。中期：從社群提拔 1–2 位 co-maintainer。寫死承諾：relay 碼有 FSL DOSP（公司死了碼自動變 Apache）——比口頭承諾可信 [23]。*誠實註記：這是本策略最無法完全消除的風險。* |
 | 3 | **OSS 社群反叛**（被解讀為 crippled-core 或怕你 rug-pull） | 唯一可靠解法是「永不事後收緊」：day one AGPL、公開分界線承諾、CLA 用途誠實揭露、Supporter 授權零閘門、行動 App 永遠免費。所有反叛案例都是事後改授權，沒有 day-one 保護性授權被反叛的前例 [28]。 |
 | 4 | **轉換率太低，養不活生計**（最存在性的風險） | 誠實面對：2–5% 是現實帶、捐贈 <1%；用槓桿 A（終身授權）前置現金、保留其他收入直到 MRR 穩定；90 天指標不達標就立刻轉槓桿 B（SMB 支援，$100–500/人/年）而非加碼燒 relay。隱私付費意願「嘴上說」遠高於「實際掏」（privacy paradox）——只信 waitlist 和刷卡數。 |
@@ -247,7 +247,7 @@ Android + Mac mesh）。錄 2 分鐘影片：*「拍一張午餐照，手機上�
 ## 一句話總結
 
 **用 day-one AGPL＋商標把「跑在你所有裝置上、加密只有你能讀」釘死為永遠免費，然後只賣一樣
-東西——~$6/月的零知識 Phantom Relay（NAT 穿透＋推播＋加密異地備份，可選搭配在免費自家蒸餾模型
+東西——~$6/月的零知識 Spectyn Relay（NAT 穿透＋推播＋加密異地備份，可選搭配在免費自家蒸餾模型
 上的託管/個人化推理）——這是 Nabu Casa 已證明能零融資養活整個團隊的路，輔以 $29/$99 終身支持者
 授權前置現金，90 天後用 relay waitlist 人數決定加碼或轉向。**
 
@@ -262,14 +262,14 @@ Android + Mac mesh）。錄 2 分鐘影片：*「拍一張午餐照，手機上�
 
 ## 內部備註（公開鏡像前移除）/ Internal notes (strip before public mirror)
 
-<!-- INTERNAL: 此行以下在本檔進入公開鏡像（markl-a/phantom-mesh）前必須移除或淨化。 -->
+<!-- INTERNAL: 此行以下在本檔進入公開鏡像（markl-a/spectyn-mesh）前必須移除或淨化。 -->
 
 - **與其他 track 的排序：** Phase-0 法務地基是 v0.6.0 公開推送前的 4 天窗口，獨立於功能 track，
   可在 agent 艦隊間平行扇出；只有商標申請（#16）卡在維護者＋外部律師。
 - **具體公開 repo 目標：** §3 的重新授權與 §6 的 README 重寫落在公開鏡像；推送前先做 public-leak
   淨化（E-epic/F-feature ID、內部節點名、fleet IP、內部絕對路徑）。本 repo root 的 dual
   `LICENSE-APACHE` + `LICENSE-MIT` 就是需被 AGPL 核心決策取代的檔案。
-- **衛星串接：** §5 的個人化蒸餾 SKU 由 `phantom-training` 衛星實作（見 `docs/ECOSYSTEM.md`）；
+- **衛星串接：** §5 的個人化蒸餾 SKU 由 `spectyn-training` 衛星實作（見 `docs/ECOSYSTEM.md`）；
   relay 會合伺服器複用既有 mesh RPC 碼；OAuth/login broker 是 `docs/commercial/CONTRIBUTOR-FUNNEL.md` 已述
   的 `phantommesh.io` Cloudflare Worker。
 - **決策成品：** 本文件是決策版內部策略備忘錄的潤飾形；底層研究成品（≈130 個來源含各記錄

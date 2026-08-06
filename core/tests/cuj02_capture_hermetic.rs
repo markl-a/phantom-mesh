@@ -6,7 +6,7 @@
 //! e2e in `core/tests/life_node_capture_e2e.rs`, which SKIPs on CI. This file
 //! adds always-on coverage with zero real network and zero developer-state
 //! pollution, following the cuj04 harness pattern (temp HOME + seeded
-//! agents.toml + deterministic EventKey + `PHANTOM_MESH_<SLUG>_BASE_URL` →
+//! agents.toml + deterministic EventKey + `SPECTYN_MESH_<SLUG>_BASE_URL` →
 //! wiremock).
 //!
 //! ## What is covered (the deepest layer that IS hermetic)
@@ -16,7 +16,7 @@
 //!     `inlineData`) → `write_food_event` (age-encrypted SPEC-16 EventStore)
 //!     → read BACK via the public `read_event` / `query_events` + a direct
 //!     `decrypt_raw_age_blob` round-trip, plus the P4 plaintext-PII boundary.
-//!   • FOC-001: the `phantom focus` CLI engine
+//!   • FOC-001: the `spectyn focus` CLI engine
 //!     `life_node::focus_session::{start, interrupt, stop}` with an injected
 //!     temp base dir — `stop` persists a `kind=focus` Life Node event whose
 //!     `meta.json` / `analysis.json` are age-encrypted at rest (identity.key
@@ -24,8 +24,8 @@
 //!
 //! ## What REMAINS un-hermetic (documented gap, not covered here)
 //!
-//!   • The `phantom food` / `phantom event capture` CLI surface POSTs
-//!     multipart to a live `phantom serve` daemon (`life_node::capture::run` →
+//!   • The `spectyn food` / `spectyn event capture` CLI surface POSTs
+//!     multipart to a live `spectyn serve` daemon (`life_node::capture::run` →
 //!     `/api/events`); serve-side capture is embargoed (parallel lineage) and
 //!     needs a built bin, so the daemon hop stays covered by the key-gated
 //!     `life_node_capture_e2e.rs` only. The CLI→daemon hop itself has a
@@ -34,15 +34,15 @@
 //!     (text summary event only) — ASR/audio capture has no hermetic seam yet.
 //!
 //! HOME redirection only works on unix (`dirs::home_dir()` ignores `$HOME` on
-//! Windows and would pollute the real `~/.phantom-mesh`), hence the file gate.
+//! Windows and would pollute the real `~/.spectyn-mesh`), hence the file gate.
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use phantom_mesh::capture_food_wire::{record_food, FoodCaptureRequest, FOOD_LOG_KIND};
-use phantom_mesh::event_storage_wire::{query_events, read_event, EventStoreQuery};
-use phantom_mesh::rpc_wire::EventKind;
+use spectyn_mesh::capture_food_wire::{record_food, FoodCaptureRequest, FOOD_LOG_KIND};
+use spectyn_mesh::event_storage_wire::{query_events, read_event, EventStoreQuery};
+use spectyn_mesh::rpc_wire::EventKind;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -62,7 +62,7 @@ fn nanos() -> u128 {
 
 fn unique_dir(tag: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-cuj02cap-{}-{}-{}",
+        "spectyn-cuj02cap-{}-{}-{}",
         tag,
         std::process::id(),
         nanos()
@@ -143,8 +143,8 @@ fn cuj02_food_001_record_food_persists_encrypted_event_readable_back() {
 
     // ── Isolated HOME + seeded agents.toml + deterministic EventKey ────────
     let home = unique_dir("food");
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
     std::fs::write(
         pm.join("agents.toml"),
         r#"
@@ -157,9 +157,9 @@ default_model = "gemini-2.5-flash"
     )
     .expect("write agents.toml");
     std::env::set_var("HOME", &home);
-    std::env::set_var("PHANTOM_MESH_GEMINI_API_KEY", "test-key");
-    std::env::set_var("PHANTOM_MESH_GEMINI_BASE_URL", server.uri());
-    phantom_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32])
+    std::env::set_var("SPECTYN_MESH_GEMINI_API_KEY", "test-key");
+    std::env::set_var("SPECTYN_MESH_GEMINI_BASE_URL", server.uri());
+    spectyn_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32])
         .expect("install deterministic test EventKey");
 
     // Source image: bytes are read + base64-inlined, never decoded, so a
@@ -240,7 +240,7 @@ default_model = "gemini-2.5-flash"
         raw.starts_with(b"age-encryption.org/v1"),
         "body.age must be an age v1 blob (SPEC-13)"
     );
-    let plain = phantom_mesh::encryption_wire::decrypt_raw_age_blob(&raw)
+    let plain = spectyn_mesh::encryption_wire::decrypt_raw_age_blob(&raw)
         .expect("body decrypts under the installed EventKey");
     let v: serde_json::Value = serde_json::from_slice(&plain).expect("decrypted body is JSON");
     assert_eq!(v["note"], note, "user note round-trips through encryption");
@@ -255,23 +255,23 @@ default_model = "gemini-2.5-flash"
         leaks
     );
 
-    std::env::remove_var("PHANTOM_MESH_GEMINI_BASE_URL");
-    std::env::remove_var("PHANTOM_MESH_GEMINI_API_KEY");
+    std::env::remove_var("SPECTYN_MESH_GEMINI_BASE_URL");
+    std::env::remove_var("SPECTYN_MESH_GEMINI_API_KEY");
     let _ = std::fs::remove_dir_all(&home);
 }
 
-/// MAC-CUJ02-FOC-001 — happy path: the `phantom focus` CLI engine persists a
+/// MAC-CUJ02-FOC-001 — happy path: the `spectyn focus` CLI engine persists a
 /// `kind=focus` event on `stop`, encrypted at rest, readable back decrypted.
 #[test]
 fn cuj02_foc_001_focus_stop_persists_encrypted_event_readable_back() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    use phantom_mesh::life_node::focus_session;
-    use phantom_mesh::life_node::storage::EventStore;
+    use spectyn_mesh::life_node::focus_session;
+    use spectyn_mesh::life_node::storage::EventStore;
 
     // Injected base dir (the CLI passes the user's home) — fully hermetic.
     let base = unique_dir("focus");
-    let pm = base.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = base.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
     // identity.key present → both the live session file and the completed
     // event must be age-encrypted at rest (SPEC-13 / P4).
     std::fs::write(pm.join("identity.key"), [0x42u8; 64]).expect("seed identity.key");

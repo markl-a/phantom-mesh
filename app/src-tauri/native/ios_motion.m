@@ -2,7 +2,7 @@
 //
 // Native iOS multi-sensor one-shot read (CoreMotion + UIDevice), compiled by
 // build.rs via the `cc` crate — same path as ios_location.m / ios_fetch.m — so
-// the `phantom_ios_sensors` symbol lives in our dylib. Exposed to Rust via
+// the `spectyn_ios_sensors` symbol lives in our dylib. Exposed to Rust via
 // extern "C"; see app/src-tauri/src/lib.rs (swift_get_sensors command).
 //
 // Returns a single JSON blob the AI consumes as "what the phone's sensors say
@@ -22,7 +22,7 @@
 #import <UIKit/UIKit.h>
 
 // Read battery via UIDevice (must enable monitoring; main thread).
-static void phantom_read_battery(NSMutableDictionary *out) {
+static void spectyn_read_battery(NSMutableDictionary *out) {
     dispatch_sync(dispatch_get_main_queue(), ^{
         UIDevice *dev = [UIDevice currentDevice];
         dev.batteryMonitoringEnabled = YES;
@@ -41,7 +41,7 @@ static void phantom_read_battery(NSMutableDictionary *out) {
 
 // One device-motion sample (attitude, userAcceleration, gravity, rotationRate,
 // magneticField). No permission needed. ~0.4s to get a stable sample.
-static void phantom_read_motion(NSMutableDictionary *out) {
+static void spectyn_read_motion(NSMutableDictionary *out) {
     CMMotionManager *mm = [[CMMotionManager alloc] init];
     if (!mm.deviceMotionAvailable) {
         out[@"motion"] = @"unavailable";
@@ -78,7 +78,7 @@ static void phantom_read_motion(NSMutableDictionary *out) {
 }
 
 // Pedometer steps since midnight (best-effort; needs Motion permission).
-static void phantom_read_pedometer(NSMutableDictionary *out) {
+static void spectyn_read_pedometer(NSMutableDictionary *out) {
     if (![CMPedometer isStepCountingAvailable]) return;
     CMPedometer *ped = [[CMPedometer alloc] init];
     NSCalendar *cal = [NSCalendar currentCalendar];
@@ -96,7 +96,7 @@ static void phantom_read_pedometer(NSMutableDictionary *out) {
 }
 
 // Latest motion-activity classification (best-effort; needs Motion permission).
-static void phantom_read_activity(NSMutableDictionary *out) {
+static void spectyn_read_activity(NSMutableDictionary *out) {
     if (![CMMotionActivityManager isActivityAvailable]) return;
     CMMotionActivityManager *am = [[CMMotionActivityManager alloc] init];
     NSDate *from = [NSDate dateWithTimeIntervalSinceNow:-3600]; // last hour
@@ -123,16 +123,16 @@ static void phantom_read_activity(NSMutableDictionary *out) {
 }
 
 // Public entry: fill json_buf with a UTF-8 JSON object of all sensor readings.
-void phantom_ios_sensors(char *json_buf, long *json_len, long max_len) {
+void spectyn_ios_sensors(char *json_buf, long *json_len, long max_len) {
     @autoreleasepool {
         NSMutableDictionary *out = [NSMutableDictionary dictionary];
         out[@"ts_unix"] = @((long)[[NSDate date] timeIntervalSince1970]);
         out[@"device"] = [[UIDevice currentDevice] model] ?: @"iPhone";
 
-        phantom_read_battery(out);
-        phantom_read_motion(out);
-        phantom_read_pedometer(out);   // best-effort (Motion permission)
-        phantom_read_activity(out);    // best-effort (Motion permission)
+        spectyn_read_battery(out);
+        spectyn_read_motion(out);
+        spectyn_read_pedometer(out);   // best-effort (Motion permission)
+        spectyn_read_activity(out);    // best-effort (Motion permission)
 
         NSError *jerr = nil;
         NSData *data = [NSJSONSerialization dataWithJSONObject:out options:0 error:&jerr];

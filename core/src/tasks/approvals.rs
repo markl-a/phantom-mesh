@@ -205,7 +205,7 @@ pub fn classify_tool(name: &str, args: &serde_json::Value) -> RiskLevel {
     // — those enable bypasses like `read_to_file` (a write) / `read_page` (egress), so
     // they are NOT innocuous and gate via the unknown-token rule.
     const SAFE_NOUNS: &[&str] = &[
-        "file", "files", "content", "git", "memory", "mcp", "phantom", "dir",
+        "file", "files", "content", "git", "memory", "mcp", "spectyn", "dir",
         "directory", "path", "paths", "project", "repo", "repository", "workspace",
         "cluster", "session", "sessions", "node", "nodes", "task", "tasks", "todo",
         "todos", "diag", "info", "meta", "metadata", "data", "all", "current", "local",
@@ -389,7 +389,7 @@ pub fn gate(state: ContractState) -> GateOutcome {
 
 /// All contracts on `task_id` whose latest recorded state is still `Pending`
 /// (i.e. awaiting an operator decision), in request order. Drives a
-/// `phantom task approvals <id>` / phone "what needs me?" view.
+/// `spectyn task approvals <id>` / phone "what needs me?" view.
 pub async fn pending_for(
     events: &EventStore,
     task_id: Uuid,
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn classify_tool_keeps_real_read_tools_auto_allowed() {
-        // Genuine read tools (phantom MCP + claude built-ins) STAY ReadOnly so a
+        // Genuine read tools (spectyn MCP + claude built-ins) STAY ReadOnly so a
         // governed run is not buried in approval prompts. `stat` is now safe as a
         // WHOLE token (the `stat` tool) without matching `mutate_state`.
         let v = serde_json::json!({});
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(tokenize_tool("WebFetch"), vec!["web", "fetch"]);
         assert_eq!(tokenize_tool("devastate"), vec!["devastate"]);
         assert_eq!(tokenize_tool("git.commit-now"), vec!["git", "commit", "now"]);
-        assert_eq!(tokenize_tool("mcp__phantom__file_read"), vec!["mcp", "phantom", "file", "read"]);
+        assert_eq!(tokenize_tool("mcp__spectyn__file_read"), vec!["mcp", "spectyn", "file", "read"]);
     }
 
     #[tokio::test]

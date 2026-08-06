@@ -52,27 +52,27 @@ export interface MobileApprovalsProps {
 function riskColor(risk: string): string {
   const r = (risk || '').toLowerCase();
   if (r.includes('high') || r.includes('critical') || r.includes('danger')) {
-    return 'text-phantom-danger';
+    return 'text-spectyn-danger';
   }
   if (r.includes('med') || r.includes('warn') || r.includes('moderate')) {
-    return 'text-phantom-warning';
+    return 'text-spectyn-warning';
   }
   if (r.includes('low') || r.includes('safe') || r.includes('read')) {
     return 'text-green-400';
   }
-  return 'text-phantom-muted';
+  return 'text-spectyn-muted';
 }
 
 /** Border tint for the card, derived from the same risk classification. */
 function riskBorder(risk: string): string {
   const r = (risk || '').toLowerCase();
   if (r.includes('high') || r.includes('critical') || r.includes('danger')) {
-    return 'border-phantom-danger/40';
+    return 'border-spectyn-danger/40';
   }
   if (r.includes('med') || r.includes('warn') || r.includes('moderate')) {
-    return 'border-phantom-warning/40';
+    return 'border-spectyn-warning/40';
   }
-  return 'border-phantom-border';
+  return 'border-spectyn-border';
 }
 
 /** "3m ago" style relative age from a unix-millis timestamp. */
@@ -247,9 +247,9 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
       className="flex flex-col h-full overflow-y-auto"
       data-testid="mobile-approvals-root"
     >
-      <div className="px-4 py-3 border-b border-phantom-border flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-phantom-text">
-          <ShieldCheck size={16} className="text-phantom-primary" />
+      <div className="px-4 py-3 border-b border-spectyn-border flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-spectyn-text">
+          <ShieldCheck size={16} className="text-spectyn-primary" />
           審核 · Approvals
         </div>
         <button
@@ -257,7 +257,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
           onClick={() => void refresh()}
           disabled={!configured || loading}
           data-testid="approvals-refresh"
-          className="text-phantom-muted hover:text-phantom-text disabled:opacity-40 p-1"
+          className="text-spectyn-muted hover:text-spectyn-text disabled:opacity-40 p-1"
           aria-label="重新整理"
           title="重新整理"
         >
@@ -269,10 +269,10 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
         {/* Not-configured banner */}
         {!configured && (
           <div
-            className="bg-phantom-card border border-phantom-warning/40 rounded-lg p-3 text-sm text-phantom-text"
+            className="bg-spectyn-card border border-spectyn-warning/40 rounded-lg p-3 text-sm text-spectyn-text"
             data-testid="approvals-not-configured"
           >
-            <div className="flex items-center gap-2 text-phantom-warning mb-1">
+            <div className="flex items-center gap-2 text-spectyn-warning mb-1">
               <AlertTriangle size={15} />
               <span className="text-xs font-medium uppercase tracking-wider">
                 尚未設定
@@ -285,7 +285,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
         {/* List-level error */}
         {configured && listError && (
           <div
-            className="text-xs text-phantom-danger px-1"
+            className="text-xs text-spectyn-danger px-1"
             data-testid="approvals-list-error"
             role="alert"
           >
@@ -296,7 +296,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
         {/* Confirmation toast */}
         {toast && (
           <div
-            className="bg-phantom-card border border-green-500/40 rounded-lg px-3 py-2 text-sm text-green-400"
+            className="bg-spectyn-card border border-green-500/40 rounded-lg px-3 py-2 text-sm text-green-400"
             data-testid="approvals-toast"
             role="status"
           >
@@ -307,7 +307,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
         {/* Empty state */}
         {configured && cards.length === 0 && !listError && (
           <div
-            className="text-center text-phantom-muted text-sm py-10"
+            className="text-center text-spectyn-muted text-sm py-10"
             data-testid="approvals-empty"
           >
             <ShieldCheck size={28} className="mx-auto mb-2 opacity-50" />
@@ -323,11 +323,11 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
             <div
               key={card.approval_id}
               data-testid={`approval-card-${card.approval_id}`}
-              className={`bg-phantom-card border ${riskBorder(card.risk)} rounded-lg p-3 space-y-2`}
+              className={`bg-spectyn-card border ${riskBorder(card.risk)} rounded-lg p-3 space-y-2`}
             >
               {/* Header: tool + risk + age */}
               <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium text-phantom-text truncate">
+                <div className="text-sm font-medium text-spectyn-text truncate">
                   {card.tool || '(unknown tool)'}
                 </div>
                 <div
@@ -340,13 +340,13 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
 
               {/* Reason */}
               {card.reason && (
-                <div className="text-xs text-phantom-muted whitespace-pre-wrap break-words">
+                <div className="text-xs text-spectyn-muted whitespace-pre-wrap break-words">
                   {card.reason}
                 </div>
               )}
 
               {/* Meta: task id + age */}
-              <div className="flex items-center gap-3 text-[10px] text-phantom-muted/80">
+              <div className="flex items-center gap-3 text-[10px] text-spectyn-muted/80">
                 {card.task_id && (
                   <span className="font-mono truncate" title={card.task_id}>
                     {card.task_id.slice(0, 12)}
@@ -363,7 +363,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
               {/* Per-card error */}
               {err && (
                 <div
-                  className="text-[11px] text-phantom-danger"
+                  className="text-[11px] text-spectyn-danger"
                   data-testid="approval-card-error"
                   role="alert"
                 >
@@ -378,7 +378,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
                   onClick={() => void decide(card, 'approve')}
                   disabled={!!inFlight}
                   data-testid="approval-approve"
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-phantom-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-spectyn-primary text-white rounded-lg py-2 text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Check size={15} />
                   {inFlight === 'approve' ? '送出中…' : '批准'}
@@ -388,7 +388,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
                   onClick={() => void decide(card, 'deny')}
                   disabled={!!inFlight}
                   data-testid="approval-deny"
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-phantom-card border border-phantom-border text-phantom-text rounded-lg py-2 text-sm hover:bg-phantom-bg disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-spectyn-card border border-spectyn-border text-spectyn-text rounded-lg py-2 text-sm hover:bg-spectyn-bg disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Ban size={15} />
                   {inFlight === 'deny' ? '送出中…' : '拒絕'}
@@ -398,7 +398,7 @@ export default function MobileApprovals(props: MobileApprovalsProps) {
                   onClick={() => void decide(card, 'stop')}
                   disabled={!!inFlight}
                   data-testid="approval-stop"
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-phantom-card border border-phantom-danger/50 text-phantom-danger rounded-lg py-2 text-sm hover:bg-phantom-danger/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="flex-1 flex items-center justify-center gap-1.5 bg-spectyn-card border border-spectyn-danger/50 text-spectyn-danger rounded-lg py-2 text-sm hover:bg-spectyn-danger/10 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <OctagonX size={15} />
                   {inFlight === 'stop' ? '送出中…' : '停止'}

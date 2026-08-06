@@ -7,7 +7,7 @@
 //! Slice-2d ports the in-memory `run()` brain (hermetically testable via
 //! `MockAdapter`). The repo-isolated `run_in_repo` / `run_many` entry points
 //! (which need a git worktree + a run journal) are a later slice and will reuse
-//! phantom's own worktree infra rather than ensemble's copy.
+//! spectyn's own worktree infra rather than ensemble's copy.
 
 use super::adapter::Adapter;
 use super::blackboard::Blackboard;

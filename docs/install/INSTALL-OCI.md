@@ -1,6 +1,6 @@
-# 在 Oracle Cloud（Linux VM）上安裝 Phantom Mesh
+# 在 Oracle Cloud（Linux VM）上安裝 Spectyn Mesh
 
-**目標讀者：** 要在 Oracle Cloud Infrastructure（OCI，甲骨文雲端基礎設施）Always-Free（永久免費）方案上部署 phantom-mesh coordinator（協調者）節點的 operator（操作者）。
+**目標讀者：** 要在 Oracle Cloud Infrastructure（OCI，甲骨文雲端基礎設施）Always-Free（永久免費）方案上部署 spectyn-mesh coordinator（協調者）節點的 operator（操作者）。
 
 **標準目標**（依 `docs/commercial/PORTFOLIO-SPEC-FREEZE-V1.md` §6.1）：**A1 ARM**
 （`VM.Standard.A1.Flex`，最多 4 OCPU / 24 GB RAM，`aarch64-unknown-linux-gnu`）。
@@ -44,7 +44,7 @@
 | `<your home IP>/32` | TCP | `22` | SSH 引導（替換成你實際的 IP） |
 | `0.0.0.0/0` | UDP | `41641` | Tailscale STUN — 直連路徑所需 |
 
-**不要**把 `7878/tcp` 加進公開清單。phantom daemon（常駐服務）只透過 Tailscale 連接；腳本的 `firewalld`/`ufw` 規則已經把它限制在 `tailscale0` 介面上。
+**不要**把 `7878/tcp` 加進公開清單。spectyn daemon（常駐服務）只透過 Tailscale 連接；腳本的 `firewalld`/`ufw` 規則已經把它限制在 `tailscale0` 介面上。
 
 ### 1.4 SSH 引導
 
@@ -62,12 +62,12 @@ Host oci-coord
 
 ## 2. Tailscale 預先授權金鑰（pre-auth key）
 
-phantom-mesh 假設這台 VM 會加入一個 Tailscale tailnet（私有網路）（依
+spectyn-mesh 假設這台 VM 會加入一個 Tailscale tailnet（私有網路）（依
 `docs/mesh/MULTI-DEVICE-COORDINATION.md` Rule 4 + `docs/SESSION-ONBOARDING.md`
 §3.2）。setup 腳本需要以非互動方式取得這把金鑰：
 
 1. 前往 <https://login.tailscale.com/admin/settings/keys>
-2. **Generate auth key**（產生授權金鑰）→ reusable=false、ephemeral=false、tag=`tag:phantom-mesh`
+2. **Generate auth key**（產生授權金鑰）→ reusable=false、ephemeral=false、tag=`tag:spectyn-mesh`
 3. 複製產生出來的 `tskey-auth-...`（只顯示一次）
 
 你會把它當作 `TAILSCALE_AUTH_KEY` 傳給 `setup-oci.sh`。
@@ -87,30 +87,30 @@ ssh oci-coord
 sudo dnf install -y gh git                  # Oracle Linux 9
 # OR: sudo apt-get install -y gh git        # Ubuntu / Debian
 gh auth login                                # GitHub.com → HTTPS → device code
-gh repo clone markl-a/phantom-mesh ~/repos/phantom-mesh
-cd ~/repos/phantom-mesh && git checkout platform/linux
+gh repo clone markl-a/spectyn-mesh ~/repos/spectyn-mesh
+cd ~/repos/spectyn-mesh && git checkout platform/linux
 ```
 
 **選項 B — SSH deploy key（部署金鑰）（最安全；可撤銷；`git pull` 可用）：**
 
 ```bash
 ssh oci-coord
-ssh-keygen -t ed25519 -f ~/.ssh/gh-phantom -C "oci-coord" -N ""
-cat ~/.ssh/gh-phantom.pub
+ssh-keygen -t ed25519 -f ~/.ssh/gh-spectyn -C "oci-coord" -N ""
+cat ~/.ssh/gh-spectyn.pub
 # Copy the printed line. In a browser:
-#   github.com/markl-a/phantom-mesh/settings/keys → Add deploy key
+#   github.com/markl-a/spectyn-mesh/settings/keys → Add deploy key
 #   Title: oci-coord    Allow write access: NO    Key: paste pubkey
 
 cat >> ~/.ssh/config <<'EOF'
-Host github-phantom
+Host github-spectyn
   HostName github.com
   User git
-  IdentityFile ~/.ssh/gh-phantom
+  IdentityFile ~/.ssh/gh-spectyn
 EOF
-chmod 600 ~/.ssh/config ~/.ssh/gh-phantom
+chmod 600 ~/.ssh/config ~/.ssh/gh-spectyn
 
-git clone git@github-phantom:markl-a/phantom-mesh.git ~/repos/phantom-mesh
-cd ~/repos/phantom-mesh && git checkout platform/linux
+git clone git@github-spectyn:markl-a/spectyn-mesh.git ~/repos/spectyn-mesh
+cd ~/repos/spectyn-mesh && git checkout platform/linux
 ```
 
 **選項 C — 從 operator 的機器 `scp` 一個 tarball（壓縮封存檔）過去（VM 上不需要 GitHub 認證）：**
@@ -120,12 +120,12 @@ cd ~/repos/phantom-mesh && git checkout platform/linux
 ```bash
 cd <repo-root>
 tar --exclude='target' --exclude='node_modules' --exclude='dist' \
-    --exclude='.worktrees' -czf /tmp/phantom-mesh.tar.gz .
-scp /tmp/phantom-mesh.tar.gz oci-coord:~/
+    --exclude='.worktrees' -czf /tmp/spectyn-mesh.tar.gz .
+scp /tmp/spectyn-mesh.tar.gz oci-coord:~/
 ssh oci-coord '
-  mkdir -p ~/repos/phantom-mesh &&
-  tar -xzf ~/phantom-mesh.tar.gz -C ~/repos/phantom-mesh &&
-  cd ~/repos/phantom-mesh && git checkout platform/linux
+  mkdir -p ~/repos/spectyn-mesh &&
+  tar -xzf ~/spectyn-mesh.tar.gz -C ~/repos/spectyn-mesh &&
+  cd ~/repos/spectyn-mesh && git checkout platform/linux
 '
 ```
 
@@ -148,7 +148,7 @@ sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl
 ./scripts/build-linux.sh
 ```
 
-這會把二進位檔放到 `dist/phantom-<host-triple>`。
+這會把二進位檔放到 `dist/spectyn-<host-triple>`。
 
 **在 E2.1.Micro（1 GB RAM）上**，建置會在連結（link）階段因 OOM（記憶體耗盡）被強制終止。有兩個選項：
 
@@ -161,7 +161,7 @@ sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl
   建置會成功，但約需 15–25 分鐘。
 
 - **或在別處建置後 scp**：在效能較強的 Linux host（主機）上交叉編譯（cross-compile），然後
-  `scp dist/phantom-x86_64-unknown-linux-gnu oci-coord:~/repos/phantom-mesh/dist/`。
+  `scp dist/spectyn-x86_64-unknown-linux-gnu oci-coord:~/repos/spectyn-mesh/dist/`。
   這不被 `build-linux.sh` 支援（依 spec §6.1，偏好在目標機上建置）。
 
 ### 3.2 執行 setup-oci.sh
@@ -178,11 +178,11 @@ NODE_NAME=oci-singapore-coord \
 2. 套件相依（package deps）
 3. Tailscale 安裝 + 非互動 `up`
 4. 防火牆：7878/tcp 僅限 `tailscale0`
-5. `~/.local/bin/phantom` 安裝 + SELinux context（安全脈絡）（RHEL）
-6. systemd **user**（使用者層級）unit（`~/.config/systemd/user/phantom-mesh.service`）
+5. `~/.local/bin/spectyn` 安裝 + SELinux context（安全脈絡）（RHEL）
+6. systemd **user**（使用者層級）unit（`~/.config/systemd/user/spectyn-mesh.service`）
 7. `loginctl enable-linger`（讓服務跨登出仍持續運作）
-8. 從 `configs/agents.cloud.toml` 產生 `~/.phantom-mesh/agents.toml`
-9. `~/.phantom-mesh/local.toml` 骨架 + `~/.phantom-mesh/env` 骨架
+8. 從 `configs/agents.cloud.toml` 產生 `~/.spectyn-mesh/agents.toml`
+9. `~/.spectyn-mesh/local.toml` 骨架 + `~/.spectyn-mesh/env` 骨架
 
 **它不會啟動 daemon** — 因為機密（secrets）還沒填入。
 
@@ -190,27 +190,27 @@ NODE_NAME=oci-singapore-coord \
 
 ```bash
 # 1. Cluster secret (must match every other node)
-$EDITOR ~/.phantom-mesh/local.toml
+$EDITOR ~/.spectyn-mesh/local.toml
 # Paste cluster_secret = "<32-byte hex from 1Password / Mac>"
 
 # 2. API keys
-$EDITOR ~/.phantom-mesh/env
+$EDITOR ~/.spectyn-mesh/env
 # Uncomment + fill:
 #   ANTHROPIC_API_KEY=sk-ant-...
 #   OPENROUTER_API_KEY=sk-or-...
 #   TELEGRAM_BOT_TOKEN=...      (optional, only if this node is the bot gateway)
-chmod 600 ~/.phantom-mesh/env ~/.phantom-mesh/local.toml
+chmod 600 ~/.spectyn-mesh/env ~/.spectyn-mesh/local.toml
 ```
 
 ### 3.4 啟動 + 驗證
 
 ```bash
-systemctl --user start phantom-mesh
-journalctl --user -fu phantom-mesh        # tail logs
+systemctl --user start spectyn-mesh
+journalctl --user -fu spectyn-mesh        # tail logs
 
 # In another shell:
 curl -s http://localhost:7878/rpc/ping
-# Expected JSON: {"core_sha": "...", "wire_version": 1, "phantom_version": "0.4.0", ...}
+# Expected JSON: {"core_sha": "...", "wire_version": 1, "spectyn_version": "0.4.0", ...}
 
 # From another tailnet device (Mac, phone, etc):
 curl -s http://oci-singapore-coord:7878/rpc/ping
@@ -226,7 +226,7 @@ curl -m 5 http://<PUBLIC_IP>:7878/rpc/ping
 ## 4. 每日驗證（依 Rule 6）
 
 ```bash
-phantom doctor --mesh
+spectyn doctor --mesh
 ```
 
 依 `docs/mesh/MULTI-DEVICE-COORDINATION.md` Rule 6 有三種 exit code（結束代碼）：
@@ -234,8 +234,8 @@ phantom doctor --mesh
 - `1` 降級（degraded，有部分警告）
 - `2` 損壞（broken，HMAC 不符 / schema 不符）
 
-若 `phantom doctor --mesh` 標示這個節點與 Mac reference impl（參考實作）之間有 `core_sha` 漂移（drift），請執行 `phantom upgrade`（或透過 `git
-pull && ./scripts/build-linux.sh && systemctl --user restart phantom-mesh` 重新建置）。
+若 `spectyn doctor --mesh` 標示這個節點與 Mac reference impl（參考實作）之間有 `core_sha` 漂移（drift），請執行 `spectyn upgrade`（或透過 `git
+pull && ./scripts/build-linux.sh && systemctl --user restart spectyn-mesh` 重新建置）。
 
 ---
 
@@ -246,24 +246,24 @@ pull && ./scripts/build-linux.sh && systemctl --user restart phantom-mesh` 重�
 systemd 使用者 unit 預設不會釘住（pin）記憶體上限。若 daemon 在 1 GB 機器上於負載中被 OOM 強制終止：
 
 ```ini
-# Add to ~/.config/systemd/user/phantom-mesh.service [Service] section:
+# Add to ~/.config/systemd/user/spectyn-mesh.service [Service] section:
 MemoryMax=600M
 MemoryHigh=500M
 ```
 
-接著執行 `systemctl --user daemon-reload && systemctl --user restart phantom-mesh`。
+接著執行 `systemctl --user daemon-reload && systemctl --user restart spectyn-mesh`。
 
 ### SELinux 拒絕（denials）（Oracle Linux）
 
 ```bash
-sudo ausearch -m avc -ts recent | grep phantom
-sudo audit2why -al | grep phantom
+sudo ausearch -m avc -ts recent | grep spectyn
+sudo audit2why -al | grep spectyn
 ```
 
 若 `bin_t` context 未被套用：
 ```bash
-sudo semanage fcontext -a -t bin_t "$HOME/.local/bin/phantom"
-sudo restorecon -v "$HOME/.local/bin/phantom"
+sudo semanage fcontext -a -t bin_t "$HOME/.local/bin/spectyn"
+sudo restorecon -v "$HOME/.local/bin/spectyn"
 ```
 
 最後手段（別讓它一直開著）：`sudo setenforce 0`。
@@ -307,11 +307,11 @@ Path C 交接：
 
 1. 依 §1.1 佈建新的 A1 instance
 2. SSH 到 A1，執行 `git clone ...`、`git checkout platform/linux`
-3. 執行 `./scripts/build-linux.sh` → 產生標準的 `dist/phantom-aarch64-unknown-linux-gnu`
-4. 從舊節點的 `~/.phantom-mesh/local.toml` 複製 `cluster_secret`
+3. 執行 `./scripts/build-linux.sh` → 產生標準的 `dist/spectyn-aarch64-unknown-linux-gnu`
+4. 從舊節點的 `~/.spectyn-mesh/local.toml` 複製 `cluster_secret`
 5. 在 A1 上以相同的 `NODE_NAME` 執行 `setup-oci.sh`
-6. 驗證 mesh（網狀網路）能連到它（在 Mac 上執行 `phantom doctor --mesh`）
-7. 停止舊的 E2.1.Micro 服務：`systemctl --user stop phantom-mesh`
+6. 驗證 mesh（網狀網路）能連到它（在 Mac 上執行 `spectyn doctor --mesh`）
+7. 停止舊的 E2.1.Micro 服務：`systemctl --user stop spectyn-mesh`
 8. 經過一段觀察期（soak period）後，可選擇終止該 E2.1.Micro VM
 
 A1 二進位檔是 spec 標準的成品（artefact，依 PORTFOLIO-SPEC-FREEZE-V1 §6.1）。
@@ -324,6 +324,6 @@ E2.1.Micro 二進位檔只是鷹架 — 並非發行目標。
 - `docs/SESSION-ONBOARDING.md` §3.2 — 當你開啟 Oracle Cloud session 進行開發時的任務清單
 - `docs/mesh/MULTI-DEVICE-COORDINATION.md` §Rule 4 — 設定拆分的理由
 - `docs/commercial/PORTFOLIO-SPEC-FREEZE-V1.md` §6.1 — 標準成品對照表
-- `templates/phantom-mesh.service.tmpl` — 此腳本渲染（render）所用的 systemd 範本
+- `templates/spectyn-mesh.service.tmpl` — 此腳本渲染（render）所用的 systemd 範本
 - `scripts/build-linux.sh` — 產生二進位檔
 - `scripts/setup-oci.sh` — VM 端建置後部署

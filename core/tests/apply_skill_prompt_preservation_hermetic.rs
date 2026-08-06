@@ -1,6 +1,6 @@
 //! Hermetic proof that skill application prepends recall context without rewriting the user's prompt.
 
-use phantom_mesh::skill_wire::{apply_skill_to_prompt, Skill};
+use spectyn_mesh::skill_wire::{apply_skill_to_prompt, Skill};
 
 #[test]
 fn apply_skill_to_prompt_preserves_prompt_under_repeated_application() {

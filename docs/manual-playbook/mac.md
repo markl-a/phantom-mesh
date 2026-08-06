@@ -18,16 +18,16 @@
 - [ ] Terminal 已給 Full Disk Access（系統設定 → 隱私權與安全性 → 完整磁碟取用權 → 加入 Terminal）
 - [ ] 網路通（`ping phantommesh.io` 回 200）
 - [ ] Disk space ≥ 2 GB
-- [ ] **設定資料根隔離 `PHANTOM_HOME`**（spec'd data-root override，讓本輪測試不污染真實家目錄）：
+- [ ] **設定資料根隔離 `SPECTYN_HOME`**（spec'd data-root override，讓本輪測試不污染真實家目錄）：
   ```bash
-  export PHANTOM_HOME="$(mktemp -d)/.phantom-mesh"   # 或固定一個 sandbox 路徑
-  echo "PHANTOM_HOME=$PHANTOM_HOME"
+  export SPECTYN_HOME="$(mktemp -d)/.spectyn-mesh"   # 或固定一個 sandbox 路徑
+  echo "SPECTYN_HOME=$SPECTYN_HOME"
   ```
-  > ⚠️ **drift 註**：`PHANTOM_HOME` 是 SPEC'd data-root override，但 **as-built 尚未被 home-resolver honor**（`core/src/config.rs:380-381` 仍走 `dirs::home_dir().join(".phantom-mesh")`；`core/src/tui.rs:8927/8930` 明標「needs PHANTOM_HOME resolver」為 tracked follow-up）。在 #322 home-resolver 統一前，本檔以 `${PHANTOM_HOME:-$HOME/.phantom-mesh}` 引用資料根：設了變數即用 sandbox，未設則 fallback 到實機現行路徑 `~/.phantom-mesh`。#322 落地後此 fallback 可移除。
-- [ ] 備份現有資料根（如果有，且未設 `PHANTOM_HOME`）：
+  > ⚠️ **drift 註**：`SPECTYN_HOME` 是 SPEC'd data-root override，但 **as-built 尚未被 home-resolver honor**（`core/src/config.rs:380-381` 仍走 `dirs::home_dir().join(".spectyn-mesh")`；`core/src/tui.rs:8927/8930` 明標「needs SPECTYN_HOME resolver」為 tracked follow-up）。在 #322 home-resolver 統一前，本檔以 `${SPECTYN_HOME:-$HOME/.spectyn-mesh}` 引用資料根：設了變數即用 sandbox，未設則 fallback 到實機現行路徑 `~/.spectyn-mesh`。#322 落地後此 fallback 可移除。
+- [ ] 備份現有資料根（如果有，且未設 `SPECTYN_HOME`）：
   ```bash
-  : "${PHANTOM_HOME:=$HOME/.phantom-mesh}"
-  mv "$PHANTOM_HOME" "$PHANTOM_HOME.bak-$(date +%s)" 2>/dev/null || true
+  : "${SPECTYN_HOME:=$HOME/.spectyn-mesh}"
+  mv "$SPECTYN_HOME" "$SPECTYN_HOME.bak-$(date +%s)" 2>/dev/null || true
   ```
 - [ ] 準備一個記事 app（Notes / TextEdit）紀錄問題
 
@@ -55,9 +55,9 @@
 |---|---|---|---|---|
 | 1.1.1 | 開 Terminal | prompt 顯示 `<user>@<host>` | | |
 | 1.1.2 | `curl -fsSL https://phantommesh.io/install.sh \| sh` | 看到 install banner + download URL + "=== installed ===" | | |
-| 1.1.3 | `which phantom` | 印 `~/.local/bin/phantom` | | |
-| 1.1.4 | `phantom --version` | 印 `phantom 0.6.0 ...`（容忍 `0.6.0[-rc.N]` 後綴） | | |
-| 1.1.5 | `ls -la "${PHANTOM_HOME:-$HOME/.phantom-mesh}/"` | 看到 `bin/` + `events.jsonl` + 可能其他 | | |
+| 1.1.3 | `which spectyn` | 印 `~/.local/bin/spectyn` | | |
+| 1.1.4 | `spectyn --version` | 印 `spectyn 0.6.0 ...`（容忍 `0.6.0[-rc.N]` 後綴） | | |
+| 1.1.5 | `ls -la "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/"` | 看到 `bin/` + `events.jsonl` + 可能其他 | | |
 
 **❌ 失敗時**：
 - 1.1.2 卡住 → 檢查網路 + phantommesh.io 是否 alive
@@ -67,22 +67,22 @@
 
 | Step | 命令 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 1.2.1 | `phantom habit water --qty 250` | exit 0、stdout 含 streak | |
-| 1.2.2 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 檔案存在、64 bytes | |
-| 1.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite"` | 檔案存在 | |
-| 1.2.4 | `find "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 1 個 event 目錄 | |
-| 1.2.5 | `sqlite3 "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite" ".tables"` | 含 `fts5_events` (FTS5 as-built；`events` 主表為 v0.7.0+ planned) | |
+| 1.2.1 | `spectyn habit water --qty 250` | exit 0、stdout 含 streak | |
+| 1.2.2 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/identity.key"` | 檔案存在、64 bytes | |
+| 1.2.3 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events.sqlite"` | 檔案存在 | |
+| 1.2.4 | `find "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 1 個 event 目錄 | |
+| 1.2.5 | `sqlite3 "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events.sqlite" ".tables"` | 含 `fts5_events` (FTS5 as-built；`events` 主表為 v0.7.0+ planned) | |
 
 ### 1.3 完整第一條 habit (5 min)
 
 | Step | 命令 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 1.3.1 | `phantom habit palette list` | 印 12 列 starter palette (預期含 "水" "咖啡") | |
-| 1.3.2 | `phantom habit coffee --qty 1` | exit 0、stdout 含 streak | |
-| 1.3.3 | `phantom habit streak --chip water` | 回 streak ≥ 1 | |
-| 1.3.4 | `phantom habit streak --chip coffee` | 回 streak ≥ 1 | |
-| 1.3.5 | `phantom habit "讀完 SICP ch3"` (freetext) | exit 0、event 寫入 | |
-| 1.3.6 | `find "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 3 個 event 目錄（1.2.1 + 1.3.2 + 1.3.5） | |
+| 1.3.1 | `spectyn habit palette list` | 印 12 列 starter palette (預期含 "水" "咖啡") | |
+| 1.3.2 | `spectyn habit coffee --qty 1` | exit 0、stdout 含 streak | |
+| 1.3.3 | `spectyn habit streak --chip water` | 回 streak ≥ 1 | |
+| 1.3.4 | `spectyn habit streak --chip coffee` | 回 streak ≥ 1 | |
+| 1.3.5 | `spectyn habit "讀完 SICP ch3"` (freetext) | exit 0、event 寫入 | |
+| 1.3.6 | `find "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events" -mindepth 1 -maxdepth 1 -type d -print` | 至少 3 個 event 目錄（1.2.1 + 1.3.2 + 1.3.5） | |
 
 ### 1.4 SLO 量測（manual）
 
@@ -103,28 +103,28 @@
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 2.1.1 | `cp <你的早餐照.jpg> /tmp/breakfast.jpg` | 檔案存在 | |
-| 2.1.2 | `phantom food --image /tmp/breakfast.jpg` | exit 0、印分析結果 | |
-| 2.1.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_image.json` | 至少 1 個檔 | |
-| 2.1.4 | `head -c 30 "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_image.json \| xxd \| head -1` | 開頭含 "age-encryption.org/v1" magic (P4 加密驗證) | |
+| 2.1.2 | `spectyn food --image /tmp/breakfast.jpg` | exit 0、印分析結果 | |
+| 2.1.3 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}"/events/*/modality_image.json` | 至少 1 個檔 | |
+| 2.1.4 | `head -c 30 "${SPECTYN_HOME:-$HOME/.spectyn-mesh}"/events/*/modality_image.json \| xxd \| head -1` | 開頭含 "age-encryption.org/v1" magic (P4 加密驗證) | |
 
 ### 2.2 Focus session (5 min)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 2.2.1 | `phantom focus start --duration 60` | 開始錄 audio | |
+| 2.2.1 | `spectyn focus start --duration 60` | 開始錄 audio | |
 | 2.2.2 | 等 60s 或 Ctrl+C 結束 | exit 0、印 takeaway | |
-| 2.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events/*/modality_audio.*` | 至少 1 個 (audio blob 加密) | |
+| 2.2.3 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}"/events/*/modality_audio.*` | 至少 1 個 (audio blob 加密) | |
 | 2.2.4 | 麥克風權限提示彈出（首次） | 系統權限對話框、選「允許」 | |
 
 ### 2.3 Habit 進階測試 (5 min)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 2.3.1 | `for i in $(seq 1 13); do phantom habit palette add --id "t$i" --zh t$i --en t$i; done` | 第 13 次 fail + "PALETTE-FULL" | |
-| 2.3.2 | `phantom habit palette list \| wc -l` | 12（不超） | |
-| 2.3.3 | `phantom habit palette remove --id t1; phantom habit palette add --id meditation --zh 冥想 --en Meditation` | 第 2 條 add 應成功 | |
-| 2.3.4 | `phantom habit palette reorder --id meditation --to 0` | exit 0、list 第 1 條是 meditation | |
-| 2.3.5 | `phantom habit grid --chip water --weeks 4` | ASCII grid 7×4 印出 | |
+| 2.3.1 | `for i in $(seq 1 13); do spectyn habit palette add --id "t$i" --zh t$i --en t$i; done` | 第 13 次 fail + "PALETTE-FULL" | |
+| 2.3.2 | `spectyn habit palette list \| wc -l` | 12（不超） | |
+| 2.3.3 | `spectyn habit palette remove --id t1; spectyn habit palette add --id meditation --zh 冥想 --en Meditation` | 第 2 條 add 應成功 | |
+| 2.3.4 | `spectyn habit palette reorder --id meditation --to 0` | exit 0、list 第 1 條是 meditation | |
+| 2.3.5 | `spectyn habit grid --chip water --weeks 4` | ASCII grid 7×4 印出 | |
 
 ### 2.4 Coach review (5 min)
 
@@ -132,10 +132,10 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 2.4.1 | `phantom coach review --date $(date -v-1d +%Y-%m-%d)` | exit 0、印 markdown | |
+| 2.4.1 | `spectyn coach review --date $(date -v-1d +%Y-%m-%d)` | exit 0、印 markdown | |
 | 2.4.2 | output 含「水」or「咖啡」or「冥想」 | 至少一個提到 | |
-| 2.4.3 | `phantom coach schedule install` | exit 0、`~/Library/LaunchAgents/ai.phantommesh.coach.plist` 存在 | |
-| 2.4.4 | （可選）等到隔天 7:00 看 launchd 是否自動跑 | `${PHANTOM_HOME:-$HOME/.phantom-mesh}/reviews/<date>.md` 自動產 | |
+| 2.4.3 | `spectyn coach schedule install` | exit 0、`~/Library/LaunchAgents/ai.spectynmesh.coach.plist` 存在 | |
+| 2.4.4 | （可選）等到隔天 7:00 看 launchd 是否自動跑 | `${SPECTYN_HOME:-$HOME/.spectyn-mesh}/reviews/<date>.md` 自動產 | |
 
 ---
 
@@ -147,10 +147,10 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 3.1.1 | `phantom login` | 開瀏覽器 OAuth | |
+| 3.1.1 | `spectyn login` | 開瀏覽器 OAuth | |
 | 3.1.2 | 登入 (Google / Apple) | 回 callback | |
-| 3.1.3 | `cat "${PHANTOM_HOME:-$HOME/.phantom-mesh}/broker.json" \| jq '.token \| length'` | token 長度 > 0 | |
-| 3.1.4 | `phantom cluster status` | 顯示節點列表 | |
+| 3.1.3 | `cat "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/broker.json" \| jq '.token \| length'` | token 長度 > 0 | |
+| 3.1.4 | `spectyn cluster status` | 顯示節點列表 | |
 
 ### 3.2 mac+mac sync (10 min)
 
@@ -158,17 +158,17 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 3.2.1 | mac A: `phantom habit water --qty 250` | exit 0 | |
-| 3.2.2 | mac B (同帳號): `phantom habit streak --chip water` (≤ 5s 後) | 看到 mac A 那筆 | _delay: ___ s_ |
+| 3.2.1 | mac A: `spectyn habit water --qty 250` | exit 0 | |
+| 3.2.2 | mac B (同帳號): `spectyn habit streak --chip water` (≤ 5s 後) | 看到 mac A 那筆 | _delay: ___ s_ |
 | 3.2.3 | SLO: 5s 內看得到 | ≤ 5s | |
 
 ### 3.3 mac+iPhone sync (5 min, optional)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 3.3.1 | iPhone phantom app 同帳號 login | 收 token | |
+| 3.3.1 | iPhone spectyn app 同帳號 login | 收 token | |
 | 3.3.2 | iPhone widget tap 「水」 | 顯示 logged | |
-| 3.3.3 | mac terminal `phantom habit streak --chip water` (≤ 30s 後) | 看到 iPhone 那筆 | |
+| 3.3.3 | mac terminal `spectyn habit streak --chip water` (≤ 30s 後) | 看到 iPhone 那筆 | |
 
 ---
 
@@ -179,41 +179,41 @@
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
 | 4.1.1 | 關 wifi (Cmd+Space → 控制中心 → wifi off) | 無網 | |
-| 4.1.2 | `phantom habit water --qty 250` | exit 0、event 仍寫本地 sqlite | |
-| 4.1.3 | `phantom coach review --date today` | 退化 stats-only 模式 (no LLM) | |
+| 4.1.2 | `spectyn habit water --qty 250` | exit 0、event 仍寫本地 sqlite | |
+| 4.1.3 | `spectyn coach review --date today` | 退化 stats-only 模式 (no LLM) | |
 | 4.1.4 | 開 wifi back on | 網回 | |
-| 4.1.5 | `phantom cluster status` | broker 接得到、queue drain | |
+| 4.1.5 | `spectyn cluster status` | broker 接得到、queue drain | |
 
 ### 4.2 沒 LLM key (5 min)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 4.2.1 | `mv "${PHANTOM_HOME:-$HOME/.phantom-mesh}/agents.toml" /tmp/agents.toml.bak` | 移開 config | |
-| 4.2.2 | `phantom habit water --qty 250` | exit 0 (capture 不靠 LLM) | |
-| 4.2.3 | `phantom coach review --date today` | 印「設定 → providers」hint | |
-| 4.2.4 | `mv /tmp/agents.toml.bak "${PHANTOM_HOME:-$HOME/.phantom-mesh}/agents.toml"` | 復原 | |
+| 4.2.1 | `mv "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/agents.toml" /tmp/agents.toml.bak` | 移開 config | |
+| 4.2.2 | `spectyn habit water --qty 250` | exit 0 (capture 不靠 LLM) | |
+| 4.2.3 | `spectyn coach review --date today` | 印「設定 → providers」hint | |
+| 4.2.4 | `mv /tmp/agents.toml.bak "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/agents.toml"` | 復原 | |
 
 ### 4.3 Identity.key 損毀 (5 min, ⚠ 會破壞 events)
 
-> 跑前先 `phantom backup --to /tmp/bak.tar.gz`，跑後 restore
+> 跑前先 `spectyn backup --to /tmp/bak.tar.gz`，跑後 restore
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 4.3.1 | `phantom backup --to /tmp/bak.tar.gz` | tar.gz 產出 | |
-| 4.3.2 | `echo "garbage" > "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 損毀 | |
-| 4.3.3 | `phantom habit water --qty 250` | exit 非 0 + "IdentityKeyMissing" 或同義 | |
-| 4.3.4 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/bak.tar.gz -C "$(dirname "$H")"` | 復原 | |
-| 4.3.5 | `phantom habit streak --chip water` | 之前 event 仍讀得到 | |
+| 4.3.1 | `spectyn backup --to /tmp/bak.tar.gz` | tar.gz 產出 | |
+| 4.3.2 | `echo "garbage" > "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/identity.key"` | 損毀 | |
+| 4.3.3 | `spectyn habit water --qty 250` | exit 非 0 + "IdentityKeyMissing" 或同義 | |
+| 4.3.4 | `H="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"; rm -rf "$H"; tar -xzf /tmp/bak.tar.gz -C "$(dirname "$H")"` | 復原 | |
+| 4.3.5 | `spectyn habit streak --chip water` | 之前 event 仍讀得到 | |
 
 ### 4.4 Sqlite 損毀 (5 min, ✅ Sip Recovery shipped)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 4.4.1 | `phantom backup --to /tmp/pre.tar.gz` | tar.gz 產出 | |
-| 4.4.2 | `echo "garbage" > "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events.sqlite"` | 損毀 | |
-| 4.4.3 | `phantom habit water --qty 250` | exit 0 + stderr 含 "rotated" + 新建 fresh sqlite | |
-| 4.4.4 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}"/events.sqlite.corrupt-*` | 損毀檔被搬到 .corrupt-<ts> | |
-| 4.4.5 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/pre.tar.gz -C "$(dirname "$H")"` | 復原 | |
+| 4.4.1 | `spectyn backup --to /tmp/pre.tar.gz` | tar.gz 產出 | |
+| 4.4.2 | `echo "garbage" > "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events.sqlite"` | 損毀 | |
+| 4.4.3 | `spectyn habit water --qty 250` | exit 0 + stderr 含 "rotated" + 新建 fresh sqlite | |
+| 4.4.4 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}"/events.sqlite.corrupt-*` | 損毀檔被搬到 .corrupt-<ts> | |
+| 4.4.5 | `H="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"; rm -rf "$H"; tar -xzf /tmp/pre.tar.gz -C "$(dirname "$H")"` | 復原 | |
 
 ---
 
@@ -223,11 +223,11 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 5.1.1 | `phantom data export --format json > /tmp/events.json; jq '.events \| length' /tmp/events.json` | ≥ 1 | |
-| 5.1.2 | `phantom data export --format md > /tmp/events.md; head /tmp/events.md` | markdown 起頭 | |
-| 5.1.3 | `phantom backup --to /tmp/full.tar.gz` | tar.gz 產出 | |
+| 5.1.1 | `spectyn data export --format json > /tmp/events.json; jq '.events \| length' /tmp/events.json` | ≥ 1 | |
+| 5.1.2 | `spectyn data export --format md > /tmp/events.md; head /tmp/events.md` | markdown 起頭 | |
+| 5.1.3 | `spectyn backup --to /tmp/full.tar.gz` | tar.gz 產出 | |
 | 5.1.4 | `tar tzf /tmp/full.tar.gz \| head -10` | 列檔含 identity.key + events.sqlite + events/ | |
-| 5.1.5 | restore test: `mkdir /tmp/restore-test; tar -xzf /tmp/full.tar.gz -C /tmp/restore-test; ls /tmp/restore-test/.phantom-mesh/` | 看到 identity.key + ... | |
+| 5.1.5 | restore test: `mkdir /tmp/restore-test; tar -xzf /tmp/full.tar.gz -C /tmp/restore-test; ls /tmp/restore-test/.spectyn-mesh/` | 看到 identity.key + ... | |
 
 ### 5.2 Delete (5 min, ⚠ 會刪 events)
 
@@ -235,11 +235,11 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 5.2.1 | `phantom data delete --all --yes` | exit 0、events_dir 清空 | |
-| 5.2.2 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/events/"` | 空 | |
-| 5.2.3 | `ls "${PHANTOM_HOME:-$HOME/.phantom-mesh}/identity.key"` | 仍存在（CUJ-05 DEL-001a 證明 scope 對） | |
+| 5.2.1 | `spectyn data delete --all --yes` | exit 0、events_dir 清空 | |
+| 5.2.2 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/events/"` | 空 | |
+| 5.2.3 | `ls "${SPECTYN_HOME:-$HOME/.spectyn-mesh}/identity.key"` | 仍存在（CUJ-05 DEL-001a 證明 scope 對） | |
 | 5.2.4 | （optional broker DELETE 等 task #140 ship）| skip | n/a |
-| 5.2.5 | `H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; rm -rf "$H"; tar -xzf /tmp/full.tar.gz -C "$(dirname "$H")"; phantom habit streak --chip water` | 從 backup 復原成功、看得到原 streak | |
+| 5.2.5 | `H="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"; rm -rf "$H"; tar -xzf /tmp/full.tar.gz -C "$(dirname "$H")"; spectyn habit streak --chip water` | 從 backup 復原成功、看得到原 streak | |
 
 ---
 
@@ -249,18 +249,18 @@
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 6.1.1 | `phantom service install` | LaunchAgent .plist 寫入 | |
-| 6.1.2 | `launchctl list ai.phantommesh.serve` | 顯示 service entry | |
-| 6.1.3 | `phantom service status` | 印 active | |
-| 6.1.4 | `phantom service uninstall` | .plist 刪、service 停 | |
+| 6.1.1 | `spectyn service install` | LaunchAgent .plist 寫入 | |
+| 6.1.2 | `launchctl list ai.spectynmesh.serve` | 顯示 service entry | |
+| 6.1.3 | `spectyn service status` | 印 active | |
+| 6.1.4 | `spectyn service uninstall` | .plist 刪、service 停 | |
 
 ### 6.2 macOS xattr / TCC (5 min)
 
 | Step | 動作 | 預期 | ✓/✗ |
 |---|---|---|---|
-| 6.2.1 | `ls -la@ ~/.local/bin/phantom` | 行尾可能有 @ (provenance xattr) 但執行 OK | |
-| 6.2.2 | `~/.local/bin/phantom --version` | 跑 + 不被 Gatekeeper 擋 | |
-| 6.2.3 | `xattr ~/.local/bin/phantom` | 印 xattr 列 | |
+| 6.2.1 | `ls -la@ ~/.local/bin/spectyn` | 行尾可能有 @ (provenance xattr) 但執行 OK | |
+| 6.2.2 | `~/.local/bin/spectyn --version` | 跑 + 不被 Gatekeeper 擋 | |
+| 6.2.3 | `xattr ~/.local/bin/spectyn` | 印 xattr 列 | |
 
 ### 6.3 Spotlight (5 min)
 
@@ -275,7 +275,7 @@
 
 | Step | 動作 | ✓/✗ |
 |---|---|---|
-| 7.1 | 回復原本資料根（未設 `PHANTOM_HOME` 時）：`H="${PHANTOM_HOME:-$HOME/.phantom-mesh}"; mv "$H".bak-* "$H" 2>/dev/null \|\| true`。若用 sandbox `PHANTOM_HOME`，改為 `rm -rf "$PHANTOM_HOME"`（真實家目錄全程未被污染） | |
+| 7.1 | 回復原本資料根（未設 `SPECTYN_HOME` 時）：`H="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"; mv "$H".bak-* "$H" 2>/dev/null \|\| true`。若用 sandbox `SPECTYN_HOME`，改為 `rm -rf "$SPECTYN_HOME"`（真實家目錄全程未被污染） | |
 | 7.2 | 砍掉 /tmp 測試檔：`rm -rf /tmp/{bak,pre,full,events,restore-test,breakfast}.* /tmp/{bak,pre,full,events,restore-test,breakfast}` | |
 | 7.3 | （可選）`brew install / cleanup` | |
 | 7.4 | 統計：填本檔總 ✓/✗ + 寫一行 summary | |
@@ -360,7 +360,7 @@
    §4 degraded 7 條中 ≥ 5 條 ✓
 
 🔴 ship-blocker 一條都不能 fail：
-   §1.1.4 phantom --version
+   §1.1.4 spectyn --version
    §1.2.1 第一條 habit 寫入
    §5.2.5 reinstall 可復原（沒備份 → 全雪盤）
    §4.4.3 sqlite recovery 不掉資料

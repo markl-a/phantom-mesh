@@ -7,7 +7,7 @@
 //! [`permission::Engine`] via [`Engine::from_lists`]. Users pick a profile in
 //! `agents.toml` (`[permissions] profile = "workspace-write"`); explicit
 //! deny/ask/allow rules, if present, take precedence over the profile (see the
-//! engine builder in `bin/phantom.rs`).
+//! engine builder in `bin/spectyn.rs`).
 //!
 //! The four profiles, least → most capable:
 //!   • **observe**         — read-only. Inspect files/git/memory; every write,

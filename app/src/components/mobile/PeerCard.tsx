@@ -56,22 +56,22 @@ export default function PeerCard({
       onClick={() => onSelect(peer.peer_id)}
       data-peer-id={peer.peer_id}
       data-selected={isSelected ? 'true' : 'false'}
-      className={`w-full text-left bg-phantom-card border rounded-lg px-3 py-2.5 transition-colors ${
+      className={`w-full text-left bg-spectyn-card border rounded-lg px-3 py-2.5 transition-colors ${
         isSelected
-          ? 'border-phantom-primary'
-          : 'border-phantom-border hover:border-phantom-primary/40'
+          ? 'border-spectyn-primary'
+          : 'border-spectyn-border hover:border-spectyn-primary/40'
       }`}
       aria-pressed={isSelected}
       aria-label={`peer ${peer.display_name}`}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-phantom-text truncate">
+          <span className="text-sm font-medium text-spectyn-text truncate">
             {peer.display_name}
           </span>
           {isThisDevice && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-phantom-primary/15 text-phantom-primary border border-phantom-primary/30"
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-spectyn-primary/15 text-spectyn-primary border border-spectyn-primary/30"
               data-testid="this-device-pill"
             >
               this device
@@ -86,7 +86,7 @@ export default function PeerCard({
           {visible.map((c) => (
             <span
               key={c}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-phantom-bg border border-phantom-border text-phantom-muted"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-spectyn-bg border border-spectyn-border text-spectyn-muted"
             >
               {c}
             </span>
@@ -94,7 +94,7 @@ export default function PeerCard({
           {overflow > 0 && (
             <span
               data-testid="caps-overflow"
-              className="text-[10px] px-1.5 py-0.5 rounded bg-phantom-bg border border-phantom-border text-phantom-muted"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-spectyn-bg border border-spectyn-border text-spectyn-muted"
             >
               +{overflow} more
             </span>

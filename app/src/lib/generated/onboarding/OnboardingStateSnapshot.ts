@@ -3,7 +3,7 @@ import type { OnboardingState } from "../tauri/OnboardingState";
 
 /**
  * Snapshot of the onboarding FSM at a single moment in time. Persisted to
- * `~/.phantom-mesh/onboarding.json` per §7.4 so that killing and re-opening
+ * `~/.spectyn-mesh/onboarding.json` per §7.4 so that killing and re-opening
  * the app resumes from the same step (per §8 "Resume guarantee").
  *
  * `entered_at_ms` is the wall-clock millisecond timestamp the FSM moved
@@ -17,7 +17,7 @@ import type { OnboardingState } from "../tauri/OnboardingState";
  * "30 advance/min/device".
  *
  * 中文: onboarding FSM 在某一刻的快照（snapshot），會被持久化（persist）到
- * `~/.phantom-mesh/onboarding.json`。`entered_at_ms` 是進入該 state 的牆鐘
+ * `~/.spectyn-mesh/onboarding.json`。`entered_at_ms` 是進入該 state 的牆鐘
  * 毫秒，配合 `OnboardingProgressEvent` 序列可算 step 耗時；`retry_count`
  * 記同一 state 上 `advance()` 失敗的次數，Stage 2 會接 §9.2 rate limit。
  */

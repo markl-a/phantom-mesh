@@ -3,7 +3,7 @@
 // Reality check (verified 2026-05-29): there is NO read-only "list vault
 // entries" Tauri command exposed to the frontend. The only registered
 // vault-touching command is `broker_sync_from_vault` (a *write/sync* action
-// that pulls sealed items + writes ~/.phantom-mesh/env — not a read-only
+// that pulls sealed items + writes ~/.spectyn-mesh/env — not a read-only
 // inventory). The broker's `GET /vault/get` list-mode returns
 // `{ items: [{ service, key, ts_ms, byte_len }, ...] }`, but that is reached
 // only from Rust inside the sync command; it is not surfaced as a list to the
@@ -93,15 +93,15 @@ export default function VaultInventory() {
   return (
     <div
       data-testid="vault-inventory"
-      className="min-h-screen flex flex-col bg-phantom-bg text-phantom-fg pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      className="min-h-screen flex flex-col bg-spectyn-bg text-spectyn-fg pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       {/* ── Header ── */}
       <header className="px-4 pt-3 pb-2">
         <h1 className="text-lg font-semibold flex items-center gap-2">
-          <KeyRound className="w-5 h-5 text-phantom-accent" aria-hidden="true" />
+          <KeyRound className="w-5 h-5 text-spectyn-accent" aria-hidden="true" />
           <span>保險庫 / Vault</span>
         </h1>
-        <p className="text-base text-phantom-muted mt-1">
+        <p className="text-base text-spectyn-muted mt-1">
           已加密項目清單（唯讀）/ Encrypted entries (read-only)
         </p>
       </header>
@@ -112,7 +112,7 @@ export default function VaultInventory() {
           <div
             role="status"
             aria-label="載入中 / Loading vault"
-            className="flex flex-col items-center justify-center gap-3 py-16 text-phantom-muted"
+            className="flex flex-col items-center justify-center gap-3 py-16 text-spectyn-muted"
           >
             <Loader2
               className="w-8 h-8 animate-spin motion-reduce:animate-none"
@@ -128,9 +128,9 @@ export default function VaultInventory() {
             aria-label="保險庫已鎖定 / Vault locked"
             className="flex flex-col items-center justify-center gap-3 py-16 text-center"
           >
-            <Lock className="w-10 h-10 text-phantom-muted" aria-hidden="true" />
+            <Lock className="w-10 h-10 text-spectyn-muted" aria-hidden="true" />
             <h2 className="text-lg font-medium">保險庫已鎖定 / Vault locked</h2>
-            <p className="text-base text-phantom-muted max-w-xs">
+            <p className="text-base text-spectyn-muted max-w-xs">
               尚未登入或找不到身分金鑰，無法列出已加密項目。請先完成登入。
               <br />
               No identity key / not logged in — entries can&apos;t be listed.
@@ -146,11 +146,11 @@ export default function VaultInventory() {
             className="flex flex-col items-center justify-center gap-3 py-16 text-center"
           >
             <ShieldOff
-              className="w-10 h-10 text-phantom-muted"
+              className="w-10 h-10 text-spectyn-muted"
               aria-hidden="true"
             />
             <h2 className="text-lg font-medium">尚無項目可顯示 / Nothing to show</h2>
-            <p className="text-base text-phantom-muted max-w-xs">
+            <p className="text-base text-spectyn-muted max-w-xs">
               唯讀清單功能尚未實作，因此沒有真實資料可呈現（不會偽造任何項目）。
               <br />
               The read-only list command isn&apos;t wired yet, so there is no
@@ -166,14 +166,14 @@ export default function VaultInventory() {
             className="flex flex-col items-center justify-center gap-3 py-16 text-center"
           >
             <ShieldOff
-              className="w-10 h-10 text-phantom-danger"
+              className="w-10 h-10 text-spectyn-danger"
               aria-hidden="true"
             />
-            <h2 className="text-lg font-medium text-phantom-danger">
+            <h2 className="text-lg font-medium text-spectyn-danger">
               讀取失敗 / Read failed
             </h2>
             {errorMsg && (
-              <p className="text-base text-phantom-muted max-w-xs break-words">
+              <p className="text-base text-spectyn-muted max-w-xs break-words">
                 {errorMsg}
               </p>
             )}
@@ -184,13 +184,13 @@ export default function VaultInventory() {
       {/* ── Sticky footer: reachability. Primary CTA = retry the read.
            No destructive actions in v0.6.0 — add/edit/wipe are disabled
            with a 尚未實作 note rather than faked. ── */}
-      <footer className="sticky bottom-0 bg-phantom-bg/95 backdrop-blur border-t border-phantom-border px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <footer className="sticky bottom-0 bg-spectyn-bg/95 backdrop-blur border-t border-spectyn-border px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <button
           type="button"
           onClick={handleRetry}
           disabled={state === "loading"}
           aria-label="重新讀取保險庫 / Reload vault"
-          className="w-full min-h-[48px] rounded-xl bg-phantom-accent text-phantom-bg font-medium flex items-center justify-center gap-2 transition-colors motion-reduce:transition-none disabled:opacity-50"
+          className="w-full min-h-[48px] rounded-xl bg-spectyn-accent text-spectyn-bg font-medium flex items-center justify-center gap-2 transition-colors motion-reduce:transition-none disabled:opacity-50"
         >
           <RefreshCw
             className={
@@ -208,7 +208,7 @@ export default function VaultInventory() {
           disabled
           aria-label="新增項目（尚未實作）/ Add entry (not yet implemented)"
           aria-disabled="true"
-          className="mt-2 w-full min-h-[44px] rounded-xl border border-phantom-border text-phantom-muted text-base flex items-center justify-center gap-2 opacity-60 transition-none"
+          className="mt-2 w-full min-h-[44px] rounded-xl border border-spectyn-border text-spectyn-muted text-base flex items-center justify-center gap-2 opacity-60 transition-none"
         >
           <span>新增項目（尚未實作）/ Add entry (not yet implemented)</span>
         </button>

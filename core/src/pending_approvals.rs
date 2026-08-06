@@ -37,9 +37,9 @@ pub struct PendingCard {
     pub created_ms: u64,
 }
 
-/// `~/.phantom-mesh/pending` under the given home.
+/// `~/.spectyn-mesh/pending` under the given home.
 pub fn pending_dir(home: &Path) -> PathBuf {
-    crate::cli_config::phantom_dir_under(home).join("pending")
+    crate::cli_config::spectyn_dir_under(home).join("pending")
 }
 
 /// Persist one pending card atomically (tmp + rename) as

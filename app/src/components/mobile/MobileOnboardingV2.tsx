@@ -120,30 +120,30 @@ export default function MobileOnboardingV2({ onReady }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-phantom-bg text-phantom-text flex flex-col items-center justify-center px-6 py-8">
-      <div className="text-7xl text-phantom-primary mb-4">◆</div>
-      <h1 className="text-2xl font-medium mb-2">Phantom Mesh</h1>
-      <p className="text-phantom-muted text-sm text-center mb-8 leading-relaxed max-w-sm">
+    <div className="min-h-screen bg-spectyn-bg text-spectyn-text flex flex-col items-center justify-center px-6 py-8">
+      <div className="text-7xl text-spectyn-primary mb-4">◆</div>
+      <h1 className="text-2xl font-medium mb-2">Spectyn Mesh</h1>
+      <p className="text-spectyn-muted text-sm text-center mb-8 leading-relaxed max-w-sm">
         登入後自動同步你 phantommesh.io 帳號裡的
         <br />LLM API keys + cluster peers + 設定到本機。
       </p>
 
       <div className="w-full max-w-sm space-y-3">
         {phase.kind === "checking" && (
-          <div className="text-center text-phantom-muted text-sm py-8">讀取登入狀態 …</div>
+          <div className="text-center text-spectyn-muted text-sm py-8">讀取登入狀態 …</div>
         )}
 
         {phase.kind === "needs-login" && (
           <>
             <button
               onClick={handleSignIn}
-              className="w-full bg-phantom-primary text-phantom-bg font-semibold px-6 py-4 rounded-xl active:opacity-80 text-base"
+              className="w-full bg-spectyn-primary text-spectyn-bg font-semibold px-6 py-4 rounded-xl active:opacity-80 text-base"
             >
               以 phantommesh.io 登入（Google / Apple）
             </button>
             <button
               onClick={() => { void completeOnboarding(); }}
-              className="w-full text-phantom-muted text-xs underline mt-2"
+              className="w-full text-spectyn-muted text-xs underline mt-2"
             >
               先不登入 — 稍後再從設定填 API key
             </button>
@@ -152,13 +152,13 @@ export default function MobileOnboardingV2({ onReady }: Props) {
 
         {phase.kind === "redirecting" && (
           <div className="space-y-3 text-center">
-            <div className="text-sm text-phantom-text">已開啟 Safari …</div>
-            <div className="text-xs text-phantom-muted leading-relaxed">
-              完成 Google 登入後 Safari 會自動跳「在 Phantom Mesh 中開啟？」對話框，按 Open 即可。
+            <div className="text-sm text-spectyn-text">已開啟 Safari …</div>
+            <div className="text-xs text-spectyn-muted leading-relaxed">
+              完成 Google 登入後 Safari 會自動跳「在 Spectyn Mesh 中開啟？」對話框，按 Open 即可。
             </div>
             <button
               onClick={() => setPhase({ kind: "needs-login" })}
-              className="text-xs text-phantom-muted underline"
+              className="text-xs text-spectyn-muted underline"
             >
               取消登入
             </button>
@@ -167,19 +167,19 @@ export default function MobileOnboardingV2({ onReady }: Props) {
 
         {phase.kind === "syncing" && (
           <div className="space-y-2 text-center">
-            <div className="text-sm text-phantom-text">登入成功：{phase.identity.email}</div>
-            <div className="text-xs text-phantom-muted">正在同步 LLM keys + cluster peers …</div>
+            <div className="text-sm text-spectyn-text">登入成功：{phase.identity.email}</div>
+            <div className="text-xs text-spectyn-muted">正在同步 LLM keys + cluster peers …</div>
           </div>
         )}
 
         {phase.kind === "complete" && (
           <div className="space-y-2 text-center">
             <div className="text-3xl text-emerald-400">✓</div>
-            <div className="text-sm text-phantom-text">已同步 {phase.sync.keys_written.length} 個 LLM key</div>
-            <div className="text-xs text-phantom-muted">
+            <div className="text-sm text-spectyn-text">已同步 {phase.sync.keys_written.length} 個 LLM key</div>
+            <div className="text-xs text-spectyn-muted">
               cluster peers: {phase.sync.peers_count}
             </div>
-            <div className="text-xs text-phantom-muted mt-2">即將進入對話 …</div>
+            <div className="text-xs text-spectyn-muted mt-2">即將進入對話 …</div>
           </div>
         )}
 
@@ -188,13 +188,13 @@ export default function MobileOnboardingV2({ onReady }: Props) {
             <div className="text-sm text-red-400 break-words">登入失敗：{phase.message}</div>
             <button
               onClick={() => setPhase({ kind: "needs-login" })}
-              className="w-full bg-phantom-card border border-phantom-border text-phantom-text px-4 py-2.5 rounded-lg active:opacity-80 text-sm"
+              className="w-full bg-spectyn-card border border-spectyn-border text-spectyn-text px-4 py-2.5 rounded-lg active:opacity-80 text-sm"
             >
               重試
             </button>
             <button
               onClick={() => { void completeOnboarding(); }}
-              className="text-xs text-phantom-muted underline"
+              className="text-xs text-spectyn-muted underline"
             >
               跳過登入，手動填 key
             </button>
@@ -208,8 +208,8 @@ export default function MobileOnboardingV2({ onReady }: Props) {
         </div>
       )}
 
-      <div className="text-[10px] text-phantom-muted mt-12 text-center max-w-sm">
-        ◆ phantom mesh — 你的多裝置 AI agent
+      <div className="text-[10px] text-spectyn-muted mt-12 text-center max-w-sm">
+        ◆ spectyn mesh — 你的多裝置 AI agent
       </div>
     </div>
   );
