@@ -1,4 +1,4 @@
-name: Deploy phantommesh.io
+name: Deploy phantommesh.io (Spectyn Mesh broker)
 
 # Single source of truth for CF Worker deploys. Without this workflow,
 # whoever last ran `wrangler deploy` from any local machine wins the

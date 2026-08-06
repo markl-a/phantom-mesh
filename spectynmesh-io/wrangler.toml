@@ -1,4 +1,4 @@
-name = "spectynmesh-io"
+name = "phantommesh-io"
 main = "src/index.ts"
 compatibility_date = "2026-04-28"
 compatibility_flags = ["nodejs_compat"]
@@ -18,7 +18,7 @@ routes = [
 # ── D1 (users / devices / oauth_sessions / broker_tokens) ─────────────────
 [[d1_databases]]
 binding       = "DB"
-database_name = "spectynmesh-prod"
+database_name = "phantommesh-prod"
 database_id   = "1d49ebb9-8a63-4116-a2de-f590e48d6a8b"
 
 # ── KV (short-lived OAuth state) ──────────────────────────────────────────
@@ -29,7 +29,7 @@ id      = "54738150373145229745d88f18a86a15"
 # ── R2 (signed binaries served by /dist/* and /install.ps1) ──────────────
 [[r2_buckets]]
 binding     = "BINARIES"
-bucket_name = "spectyn-binaries"
+bucket_name = "phantom-binaries"
 
 # ── Durable Objects ──────────────────────────────────────────────────────
 # F205: DispatchStream is one DO instance per dispatch job_id. It mirrors
@@ -105,7 +105,7 @@ CF_ANALYTICS_TOKEN     = ""
 # Initial setup needs the same 4 secrets the prod env has.
 
 [env.staging]
-name = "spectynmesh-io-staging"
+name = "phantommesh-io-staging"
 # Explicit empty routes [] — wrangler v4 inherits top-level routes
 # unless we override here, which would have staging fight prod for
 # phantommesh.io/*.
@@ -124,7 +124,7 @@ BROKER_VERSION         = "0.1.2-staging"
 # the placeholders below.
 [[env.staging.d1_databases]]
 binding       = "DB"
-database_name = "spectynmesh-staging"
+database_name = "phantommesh-staging"
 database_id   = "__D1_STAGING_ID__"
 
 [[env.staging.kv_namespaces]]
