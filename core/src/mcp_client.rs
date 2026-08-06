@@ -1,7 +1,7 @@
-//! `phantom mcp` — CLIENT mode.
+//! `spectyn mcp` — CLIENT mode.
 //!
 //! Spawns external MCP servers as child processes, performs the JSON-RPC
-//! handshake over stdio, and re-exposes their tools to phantom's own agent
+//! handshake over stdio, and re-exposes their tools to spectyn's own agent
 //! runtime so the LLM can call them just like built-in tools.
 //!
 //! Naming: external tools are surfaced with a `<server>_<tool>` prefix so they
@@ -109,7 +109,7 @@ impl McpClient {
             Arc::new(Mutex::new(HashMap::new()));
 
         // Background stderr drain task: read lines and forward at debug level
-        // so MCP server diagnostics still surface (via RUST_LOG=phantom=debug)
+        // so MCP server diagnostics still surface (via RUST_LOG=spectyn=debug)
         // without ever blocking the child on a full pipe buffer.
         if let Some(stderr) = stderr {
             let server_name = cfg.name.clone();
@@ -207,7 +207,7 @@ impl McpClient {
             "params":  json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities":    {},
-                "clientInfo":      { "name": "phantom-mesh", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo":      { "name": "spectyn-mesh", "version": env!("CARGO_PKG_VERSION") },
             }),
         });
         let mut init_line = init_req.to_string();
@@ -396,7 +396,7 @@ pub struct McpRegistry {
 
 impl McpRegistry {
     /// Spawn one client per config entry. Failures are logged and skipped so a
-    /// single broken server doesn't block phantom from starting.
+    /// single broken server doesn't block spectyn from starting.
     pub async fn build(servers: &[McpServerConfig]) -> Self {
         let mut clients = HashMap::new();
         for cfg in servers {
@@ -611,10 +611,10 @@ for line in sys.stdin:
     }
 
     #[tokio::test]
-    async fn dogfood_phantom_mcp_as_child() {
-        // Eat our own dog food: spawn `phantom mcp` as the MCP server and call
+    async fn dogfood_spectyn_mcp_as_child() {
+        // Eat our own dog food: spawn `spectyn mcp` as the MCP server and call
         // its `shell` tool. Skipped when the release binary hasn't been built.
-        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/release/phantom");
+        let bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/release/spectyn");
         if !bin.exists() {
             eprintln!(
                 "release binary missing — skipping dogfood test ({})",
@@ -628,7 +628,7 @@ for line in sys.stdin:
             args: vec!["mcp".into()],
             env: HashMap::new(),
         };
-        let client = McpClient::spawn(cfg).await.expect("spawn phantom mcp");
+        let client = McpClient::spawn(cfg).await.expect("spawn spectyn mcp");
         let tools = client.list_tools().await.expect("list");
         assert!(
             tools.len() >= 40,
@@ -639,13 +639,13 @@ for line in sys.stdin:
             .call_tool(
                 "shell",
                 &json!({
-                    "command": "echo OK from phantom mcp"
+                    "command": "echo OK from spectyn mcp"
                 }),
             )
             .await
             .expect("shell call");
         assert!(
-            out.contains("OK from phantom mcp"),
+            out.contains("OK from spectyn mcp"),
             "unexpected output: {}",
             out
         );

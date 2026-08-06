@@ -2,7 +2,7 @@
 name = "pm-types"
 version = "0.6.0"
 edition = "2021"
-description = "Shared type definitions for Phantom Mesh"
+description = "Shared type definitions for Spectyn Mesh"
 # Intentionally PERMISSIVE (not AGPL like core/ and app/): this is the shared
 # wire-protocol "SDK" layer that satellite repos + third parties import. Keeping
 # it MIT/Apache lets them depend on it without AGPL copyleft reaching their code

@@ -32,7 +32,7 @@ export default function MobileShell({ onLogout }: { onLogout?: () => void }) {
     "/review":   "教練回顧",
     "/settings": "設定",
   };
-  const title = titleByPath[location.pathname] ?? "Phantom Mesh";
+  const title = titleByPath[location.pathname] ?? "Spectyn Mesh";
 
   // Auto-redirect retired routes to home on mobile (節點/集群 merged into /cluster)
   useEffect(() => {
@@ -51,20 +51,20 @@ export default function MobileShell({ onLogout }: { onLogout?: () => void }) {
   }, [location.pathname]);
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-phantom-bg">
+    <div className="flex flex-col h-[100dvh] bg-spectyn-bg">
       {/* Top header (hidden on chat for max space). paddingTop carries the
           safe-area inset so the title clears the status bar / Dynamic Island
           now that the webview is edge-to-edge (viewport-fit=cover). */}
       {showHeader && (
         <header
-          className="flex items-center justify-between px-4 py-3 border-b border-phantom-border flex-shrink-0"
+          className="flex items-center justify-between px-4 py-3 border-b border-spectyn-border flex-shrink-0"
           style={{ paddingTop: "calc(env(safe-area-inset-top) + 0.75rem)" }}
         >
-          <h1 className="text-base font-semibold text-phantom-text">{title}</h1>
+          <h1 className="text-base font-semibold text-spectyn-text">{title}</h1>
           {onLogout && (
             <button
               onClick={onLogout}
-              className="text-phantom-muted hover:text-phantom-danger p-2 -m-2"
+              className="text-spectyn-muted hover:text-spectyn-danger p-2 -m-2"
               aria-label="登出"
             >
               <LogOut size={18} />
@@ -87,7 +87,7 @@ export default function MobileShell({ onLogout }: { onLogout?: () => void }) {
       {/* Bottom tab nav with safe area */}
       <nav
         aria-label="主要導覽"
-        className="flex-shrink-0 border-t border-phantom-border bg-phantom-bg flex"
+        className="flex-shrink-0 border-t border-spectyn-border bg-spectyn-bg flex"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         {TABS.map((tab) => (
@@ -99,8 +99,8 @@ export default function MobileShell({ onLogout }: { onLogout?: () => void }) {
             className={({ isActive }) =>
               `flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-colors ${
                 isActive
-                  ? "text-phantom-primary"
-                  : "text-phantom-muted hover:text-phantom-text"
+                  ? "text-spectyn-primary"
+                  : "text-spectyn-muted hover:text-spectyn-text"
               }`
             }
           >

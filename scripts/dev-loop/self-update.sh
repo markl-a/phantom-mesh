@@ -2,7 +2,7 @@
 # self-update.sh — a node auto-catches-up to the latest framework version (S7).
 #
 # When `origin/<base>` moves ahead of the commit this node last BUILT, this
-# rebuilds the phantom binary, swaps the running serve, and records the new
+# rebuilds the spectyn binary, swaps the running serve, and records the new
 # built commit — so a framework change pushed to the base branch propagates to
 # the whole fleet within a tick, no manual rebuild per machine.
 #
@@ -18,10 +18,10 @@
 #    (the integration branch the owner controls); it never pushes anything.
 #
 # Override hooks (defaults do the real thing; tests inject fakes):
-#   SELF_UPDATE_BUILD_CMD   build step       (default: cargo build --release --bin phantom in core/)
+#   SELF_UPDATE_BUILD_CMD   build step       (default: cargo build --release --bin spectyn in core/)
 #   SELF_UPDATE_INSTALL_CMD install the built binary to the serve's path
 #   SELF_UPDATE_RESTART_CMD restart the serve with the new binary
-#   PHANTOM_BUILT_COMMIT    marker file      (default: ~/.phantom-mesh/built-commit)
+#   SPECTYN_BUILT_COMMIT    marker file      (default: ~/.spectyn-mesh/built-commit)
 #
 # Usage: self-update.sh [--base <branch>]
 # Exit:  0 up-to-date · 1 updated+serve-healthy · 2 build/install failed (tree
@@ -31,8 +31,8 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 BASE="${BACKLOG_BASE:-step3-coach-install-schedule}"
-STATE_DIR="${PHANTOM_STATE_DIR:-$HOME/.phantom-mesh}"
-MARKER="${PHANTOM_BUILT_COMMIT:-$STATE_DIR/built-commit}"
+STATE_DIR="${SPECTYN_STATE_DIR:-$HOME/.spectyn-mesh}"
+MARKER="${SPECTYN_BUILT_COMMIT:-$STATE_DIR/built-commit}"
 while [ $# -gt 0 ]; do case "$1" in
   --base) BASE="${2:?--base needs a branch}"; shift;;
   -h|--help) sed -n '2,22p' "$0"; exit 0;;
@@ -43,13 +43,13 @@ cd "$ROOT" || { echo "self-update: no repo at $ROOT" >&2; exit 4; }
 mkdir -p "$STATE_DIR"
 
 # ── default real steps (overridable) ────────────────────────────────────────
-default_build() { ( cd "$ROOT/core" && cargo build --release --bin phantom ); }
+default_build() { ( cd "$ROOT/core" && cargo build --release --bin spectyn ); }
 
 default_install() {
   # Copy the fresh build to the path the serve actually launches from, if that
   # differs from the build output. macOS: a freshly-copied binary must be
   # re-signed or launchd SIGKILLs it on exec (codesigning) — fold that in.
-  local built="$ROOT/core/target/release/phantom" dest="$HOME/.local/bin/phantom"
+  local built="$ROOT/core/target/release/spectyn" dest="$HOME/.local/bin/spectyn"
   [ -x "$built" ] || { echo "self-update: build output missing: $built" >&2; return 1; }
   # SAME-FILE guard (not an unchanged-content optimization): if the serve runs
   # directly from the build output, `built` and `dest` are the literal same
@@ -67,11 +67,11 @@ default_install() {
   return 0
 }
 
-# Resolve the serve port: PHANTOM_PORT wins, else [core].port / port in
+# Resolve the serve port: SPECTYN_PORT wins, else [core].port / port in
 # agents.toml, else 7878 — so a node on a custom port isn't falsely judged
 # unhealthy and aborted (review: agy r3).
 resolve_port() {
-  if [ -n "${PHANTOM_PORT:-}" ]; then printf '%s' "$PHANTOM_PORT"; return; fi
+  if [ -n "${SPECTYN_PORT:-}" ]; then printf '%s' "$SPECTYN_PORT"; return; fi
   local p
   p="$(sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*\([0-9]\{2,5\}\).*/\1/p' \
         "$STATE_DIR/agents.toml" 2>/dev/null | head -1)"
@@ -91,11 +91,11 @@ default_restart() {
   # confirm it answers again (new up). launchd `kickstart -k` does the kill+start
   # atomically, but we still verify UP afterwards.
   local uid port i; uid="$(id -u)"; port="$(resolve_port)"
-  if launchctl print "gui/$uid/ai.phantommesh.serve" >/dev/null 2>&1; then
-    launchctl kickstart -k "gui/$uid/ai.phantommesh.serve" >/dev/null 2>&1
+  if launchctl print "gui/$uid/ai.spectynmesh.serve" >/dev/null 2>&1; then
+    launchctl kickstart -k "gui/$uid/ai.spectynmesh.serve" >/dev/null 2>&1
   else
-    local bin="$HOME/.local/bin/phantom"; [ -x "$bin" ] || bin="$ROOT/core/target/release/phantom"
-    pkill -f "phantom serve" 2>/dev/null || true
+    local bin="$HOME/.local/bin/spectyn"; [ -x "$bin" ] || bin="$ROOT/core/target/release/spectyn"
+    pkill -f "spectyn serve" 2>/dev/null || true
     # Wait for the OLD serve to actually let go of the port (≤10s): healthz must
     # stop returning 200. If it never goes quiet, the kill failed — abort the
     # swap rather than launch into an occupied port and trust a stale 200.

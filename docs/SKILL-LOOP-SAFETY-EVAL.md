@@ -110,13 +110,13 @@ experimental-skillbank = 傘狀 feature   # 組合 curator + memory + tools
 ### Phase 2 — 萃取前人類審核 gate(week 1,修 R3/R6)
 
 - `SkillCandidate` 加 `pending_review` 狀態;**未 approve 不寫 SkillMemory**。
-- CLI:`phantom skill list --pending` / `phantom skill approve <id>`。
+- CLI:`spectyn skill list --pending` / `spectyn skill approve <id>`。
 - Curator V2 **僅 unanimous(stddev==0)自動 approve**,其餘進人審佇列。
 - **退出條件:** 人審佇列可運作,且預設無人審不入庫。
 
 ### Phase 3 — Event store 一致性檢查(week 2,修 R5)
 
-- `phantom data rebuild-fts5`:重掃 `events/<uuid>/` 重建索引(recovery)。
+- `spectyn data rebuild-fts5`:重掃 `events/<uuid>/` 重建索引(recovery)。
 - `coach_wire` 每日 health check:比對 rows 數 vs dirs 數,**divergence > 5% 告警**。
 - **退出條件:** 跑一次 rebuild + 連續健康檢查無告警。
 
@@ -131,7 +131,7 @@ experimental-skillbank = 傘狀 feature   # 組合 curator + memory + tools
 
 ## 5. 與護城河誠實帳本的關係
 
-依競爭 gap 分析,phantom 的差異化護城河是 **「雙向技能 + 跨機 mesh + 真 eval 數字」**,其核心資產是 **「自己的軌跡」**。
+依競爭 gap 分析,spectyn 的差異化護城河是 **「雙向技能 + 跨機 mesh + 真 eval 數字」**,其核心資產是 **「自己的軌跡」**。
 
 > **這條 loop 若在 R1/R2 未修前啟用,等於親手汙染護城河。**
 

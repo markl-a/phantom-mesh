@@ -192,7 +192,7 @@ fn build_provider(key: &str, entry: &ProviderEntry) -> Arc<dyn LlmProvider> {
         // claude via the L0 cli_session substrate — the GOVERNED path (distinct from
         // `claude_agent` above, which is the ungoverned `claude -p` complete()).
         // A dispatched agent on this key runs under run_govern_folded when
-        // PHANTOM_GOVERN_CLI=1, where claude gets its true PreToolUse pre-action gate
+        // SPECTYN_GOVERN_CLI=1, where claude gets its true PreToolUse pre-action gate
         // (PreActionDelegated) — the only path that raises a pre-action approval, and
         // the one the dispatch↔approval correlation rides. apex-④ flagship loop.
         "claude_session" => Arc::new(
@@ -560,7 +560,7 @@ fn gemini_finish_notice(finish_reason: &str) -> Option<&'static str> {
         "MAX_TOKENS" => Some(
             "\n\n⚠ Response truncated by Gemini: output hit the max-tokens cap \
              (finishReason=MAX_TOKENS). The answer above is incomplete — raise \
-             `PHANTOM_MAX_TOKENS` or split the prompt and re-run.",
+             `SPECTYN_MAX_TOKENS` or split the prompt and re-run.",
         ),
         "SAFETY" => Some(
             "\n\n⚠ Response blocked by Gemini safety filter \

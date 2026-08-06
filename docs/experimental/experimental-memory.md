@@ -24,13 +24,13 @@
 ## 如何啟用
 
 ```toml
-phantom-mesh = { path = "core", features = ["experimental-memory"] }
+spectyn-mesh = { path = "core", features = ["experimental-memory"] }
 ```
 
 ## 快速體驗
 
 ```rust,ignore
-use phantom_mesh::skillbank::{SkillMemory, NewMemory, escape_fts5_query};
+use spectyn_mesh::skillbank::{SkillMemory, NewMemory, escape_fts5_query};
 
 let mem = SkillMemory::open_at("/tmp/skills.db".into())?;
 mem.insert(NewMemory {
@@ -52,7 +52,7 @@ let _ = mem.search(&safe, 10).await?;
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_memory_example \
     --features experimental-memory
 ```

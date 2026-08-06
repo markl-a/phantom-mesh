@@ -13,7 +13,7 @@
 //! the FIXTURE (never by weakening the lint); only a real shaming LEAK extends
 //! the lint pattern set (high-precision, with the clean battery re-proven).
 
-use phantom_mesh::life_node::coach_prompts::lint::check;
+use spectyn_mesh::life_node::coach_prompts::lint::check;
 
 /// Read a fixture file into trimmed, non-empty lines.
 fn lines(raw: &str) -> Vec<&str> {
@@ -91,8 +91,8 @@ fn locked_pattern_set_stays_rejected() {
 
 // ─── Task 4: below-threshold delivery GATE — gentle, never punitive ───────────
 
-use phantom_mesh::life_node::daily_review::{deviation_section, golden_review};
-use phantom_mesh::life_node::goals::Goal;
+use spectyn_mesh::life_node::daily_review::{deviation_section, golden_review};
+use spectyn_mesh::life_node::goals::Goal;
 
 /// A worst-case day for two goals: nothing logged, so both deviations are
 /// maximally negative (focus -180, reading -30).

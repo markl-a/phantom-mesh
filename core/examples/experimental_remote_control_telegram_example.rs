@@ -5,7 +5,7 @@
 //! skipped by the default build/`cargo test` and only compiled when the feature
 //! is enabled. Run it with:
 //!
-//!   cargo run -p phantom-mesh \
+//!   cargo run -p spectyn-mesh \
 //!       --example experimental_remote_control_telegram_example \
 //!       --features experimental-remote-control-telegram
 //!
@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use phantom_mesh::remote_control::telegram::{
+use spectyn_mesh::remote_control::telegram::{
     EchoDispatcher, RemoteTelegramBot, RemoteTelegramConfig,
 };
 
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // scopes conversation history (unused by EchoDispatcher), text is echoed.
     let bot = RemoteTelegramBot::new(cfg, Arc::new(EchoDispatcher));
     let reply = bot.handle_text(42, 1000, "hello".into()).await;
-    assert_eq!(reply.as_deref(), Some("phantom-mesh echo: hello"));
+    assert_eq!(reply.as_deref(), Some("spectyn-mesh echo: hello"));
     println!("[3] handle_text(42, chat 1000, \"hello\") -> {:?}", reply.unwrap());
 
     // (4) Non-allowlisted user is dropped (returns None) regardless of chat.

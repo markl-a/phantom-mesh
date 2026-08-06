@@ -1,5 +1,5 @@
 //! Plain-JSON event storage layout. Each event lives under
-//! `~/.phantom-mesh/events/<uuid>/` and contains:
+//! `~/.spectyn-mesh/events/<uuid>/` and contains:
 //!   - `meta.json` — on-disk event metadata (kind, ts, goal_tags,
 //!     source_node, modality_files, user_text). The on-disk shape is the
 //!     v0.5.x layout and is kept stable for backward compatibility, but
@@ -237,7 +237,7 @@ impl EventStore {
     /// unauthenticated `GET /api/events/:id/analysis`, where axum percent-
     /// decodes `..%2F..` into `../..` *after* routing) and is refused before
     /// it reaches the filesystem — `root.join("../../secret")` would otherwise
-    /// read outside `~/.phantom-mesh/events`.
+    /// read outside `~/.spectyn-mesh/events`.
     fn event_dir(&self, event_id: &str) -> std::io::Result<PathBuf> {
         if event_id.is_empty()
             || event_id.contains('/')
@@ -655,7 +655,7 @@ mod tests {
         assert_eq!(project_to_wire(mk("focus")).kind, EventKind::Focus);
         assert_eq!(project_to_wire(mk("habit_log")).kind, EventKind::Habit);
         assert_eq!(project_to_wire(mk("habit")).kind, EventKind::Habit);
-        // Cross-node dispatch events (written by `phantom dispatch`) project to
+        // Cross-node dispatch events (written by `spectyn dispatch`) project to
         // the first-class Dispatch kind so they're filterable via recall --kind.
         assert_eq!(project_to_wire(mk("dispatch")).kind, EventKind::Dispatch);
         // Unknown / empty → Text fallback per SPEC-16 §8 catch-all.

@@ -80,10 +80,10 @@ interface MoodPoint {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  active: "bg-phantom-primary/20 text-phantom-primary",
-  completed: "bg-phantom-success/20 text-phantom-success",
-  paused: "bg-phantom-warning/20 text-phantom-warning",
-  abandoned: "bg-phantom-muted/20 text-phantom-muted",
+  active: "bg-spectyn-primary/20 text-spectyn-primary",
+  completed: "bg-spectyn-success/20 text-spectyn-success",
+  paused: "bg-spectyn-warning/20 text-spectyn-warning",
+  abandoned: "bg-spectyn-muted/20 text-spectyn-muted",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -231,8 +231,8 @@ export default function Goals() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div className="w-6 h-6 border-2 border-phantom-primary border-t-transparent rounded-full animate-spin" />
-        <span className="ml-3 text-phantom-muted text-sm">載入目標資料...</span>
+        <div className="w-6 h-6 border-2 border-spectyn-primary border-t-transparent rounded-full animate-spin" />
+        <span className="ml-3 text-spectyn-muted text-sm">載入目標資料...</span>
       </div>
     );
   }
@@ -243,34 +243,34 @@ export default function Goals() {
       <div className="w-80 flex-shrink-0 space-y-4">
         {/* Weekly summary card */}
         {weeklySummary && weeklySummary.total_tasks > 0 && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-            <h3 className="text-sm font-medium text-phantom-text mb-3 flex items-center gap-2">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+            <h3 className="text-sm font-medium text-spectyn-text mb-3 flex items-center gap-2">
               <BarChart3 size={14} />
               本週概覽
             </h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center">
-                <p className="text-lg font-bold text-phantom-primary">
+                <p className="text-lg font-bold text-spectyn-primary">
                   {weeklySummary.completion_rate.toFixed(0)}%
                 </p>
-                <p className="text-[10px] text-phantom-muted">完成率</p>
+                <p className="text-[10px] text-spectyn-muted">完成率</p>
               </div>
               <div className="text-center">
-                <p className="text-lg font-bold text-phantom-warning">
+                <p className="text-lg font-bold text-spectyn-warning">
                   {weeklySummary.best_streak > 0 ? `${weeklySummary.best_streak}d` : "-"}
                 </p>
-                <p className="text-[10px] text-phantom-muted">最佳連續</p>
+                <p className="text-[10px] text-spectyn-muted">最佳連續</p>
               </div>
               {weeklySummary.avg_mood !== null && (
                 <div className="text-center">
                   <p className="text-lg">{MOOD_EMOJIS[Math.round(weeklySummary.avg_mood)] || "😐"}</p>
-                  <p className="text-[10px] text-phantom-muted">平均心情</p>
+                  <p className="text-[10px] text-spectyn-muted">平均心情</p>
                 </div>
               )}
               {weeklySummary.milestones_completed > 0 && (
                 <div className="text-center">
-                  <p className="text-lg font-bold text-phantom-success">{weeklySummary.milestones_completed}</p>
-                  <p className="text-[10px] text-phantom-muted">里程碑</p>
+                  <p className="text-lg font-bold text-spectyn-success">{weeklySummary.milestones_completed}</p>
+                  <p className="text-[10px] text-spectyn-muted">里程碑</p>
                 </div>
               )}
             </div>
@@ -279,11 +279,11 @@ export default function Goals() {
 
         {/* Today's tasks */}
         {todayTasks.length > 0 && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-            <h3 className="text-sm font-medium text-phantom-text mb-3 flex items-center gap-2">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+            <h3 className="text-sm font-medium text-spectyn-text mb-3 flex items-center gap-2">
               <Calendar size={14} />
               今日任務
-              <span className="text-xs text-phantom-muted ml-auto">
+              <span className="text-xs text-spectyn-muted ml-auto">
                 {todayTasks.filter(t => t.completed_today).length}/{todayTasks.length}
               </span>
             </h3>
@@ -298,17 +298,17 @@ export default function Goals() {
                   }}
                   className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded text-xs transition ${
                     tt.completed_today
-                      ? "bg-phantom-success/10 text-phantom-muted line-through"
-                      : "bg-phantom-bg border border-phantom-border hover:border-phantom-primary/50"
+                      ? "bg-spectyn-success/10 text-spectyn-muted line-through"
+                      : "bg-spectyn-bg border border-spectyn-border hover:border-spectyn-primary/50"
                   }`}
                 >
-                  {tt.completed_today ? <CheckCircle2 size={14} className="text-phantom-success" /> : <Circle size={14} />}
+                  {tt.completed_today ? <CheckCircle2 size={14} className="text-spectyn-success" /> : <Circle size={14} />}
                   <div className="flex-1 min-w-0">
                     <span className="block truncate">{tt.task.title}</span>
-                    <span className="block text-phantom-muted truncate">{tt.goal_title}</span>
+                    <span className="block text-spectyn-muted truncate">{tt.goal_title}</span>
                   </div>
                   {tt.task.streak_count > 0 && (
-                    <span className="flex items-center gap-0.5 text-phantom-warning">
+                    <span className="flex items-center gap-0.5 text-spectyn-warning">
                       <Flame size={12} />
                       {tt.task.streak_count}
                     </span>
@@ -320,15 +320,15 @@ export default function Goals() {
         )}
 
         {/* Goal list */}
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-phantom-text flex items-center gap-2">
+            <h3 className="text-sm font-medium text-spectyn-text flex items-center gap-2">
               <Target size={14} />
               我的目標
             </h3>
             <button
               onClick={() => setShowNewGoal(!showNewGoal)}
-              className="text-phantom-primary hover:text-phantom-primary/80 transition"
+              className="text-spectyn-primary hover:text-spectyn-primary/80 transition"
             >
               <Plus size={16} />
             </button>
@@ -336,43 +336,43 @@ export default function Goals() {
 
           {/* New goal form */}
           {showNewGoal && (
-            <div className="bg-phantom-bg border border-phantom-border rounded-lg p-3 mb-3 space-y-2">
+            <div className="bg-spectyn-bg border border-spectyn-border rounded-lg p-3 mb-3 space-y-2">
               <input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
                 placeholder="目標名稱"
-                className="w-full bg-phantom-card border border-phantom-border rounded px-3 py-1.5 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+                className="w-full bg-spectyn-card border border-spectyn-border rounded px-3 py-1.5 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
               />
               <input
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="分類（如：學業、健康、事業）"
-                className="w-full bg-phantom-card border border-phantom-border rounded px-3 py-1.5 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+                className="w-full bg-spectyn-card border border-spectyn-border rounded px-3 py-1.5 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
               />
               <textarea
                 value={newDescription}
                 onChange={(e) => setNewDescription(e.target.value)}
                 placeholder="描述（選填）"
                 rows={2}
-                className="w-full bg-phantom-card border border-phantom-border rounded px-3 py-1.5 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary resize-none"
+                className="w-full bg-spectyn-card border border-spectyn-border rounded px-3 py-1.5 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary resize-none"
               />
               <input
                 type="date"
                 value={newTargetDate}
                 onChange={(e) => setNewTargetDate(e.target.value)}
-                className="w-full bg-phantom-card border border-phantom-border rounded px-3 py-1.5 text-sm text-phantom-text focus:outline-none focus:border-phantom-primary"
+                className="w-full bg-spectyn-card border border-spectyn-border rounded px-3 py-1.5 text-sm text-spectyn-text focus:outline-none focus:border-spectyn-primary"
               />
               <div className="flex gap-2">
                 <button
                   onClick={createGoal}
                   disabled={!newTitle.trim()}
-                  className="flex-1 bg-phantom-primary text-phantom-bg py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
+                  className="flex-1 bg-spectyn-primary text-spectyn-bg py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
                 >
                   建立
                 </button>
                 <button
                   onClick={() => setShowNewGoal(false)}
-                  className="px-3 py-1.5 rounded text-sm text-phantom-muted hover:bg-phantom-bg"
+                  className="px-3 py-1.5 rounded text-sm text-spectyn-muted hover:bg-spectyn-bg"
                 >
                   取消
                 </button>
@@ -382,7 +382,7 @@ export default function Goals() {
 
           {/* Goal items */}
           {goals.length === 0 ? (
-            <p className="text-xs text-phantom-muted py-4 text-center">
+            <p className="text-xs text-spectyn-muted py-4 text-center">
               還沒有目標。從對話中說出你的目標，或點擊 + 新增。
             </p>
           ) : (
@@ -393,20 +393,20 @@ export default function Goals() {
                   onClick={() => void selectGoal(g.id)}
                   className={`w-full text-left px-3 py-2.5 rounded transition ${
                     selectedGoal === g.id
-                      ? "bg-phantom-primary/15 border border-phantom-primary/30"
-                      : "hover:bg-phantom-bg border border-transparent"
+                      ? "bg-spectyn-primary/15 border border-spectyn-primary/30"
+                      : "hover:bg-spectyn-bg border border-transparent"
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-phantom-text truncate">{g.title}</span>
-                    <ChevronRight size={14} className="text-phantom-muted flex-shrink-0" />
+                    <span className="text-sm text-spectyn-text truncate">{g.title}</span>
+                    <ChevronRight size={14} className="text-spectyn-muted flex-shrink-0" />
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[g.status] ?? STATUS_COLORS.active}`}>
                       {STATUS_LABELS[g.status] ?? g.status}
                     </span>
                     {g.category && (
-                      <span className="text-[10px] text-phantom-muted">{g.category}</span>
+                      <span className="text-[10px] text-spectyn-muted">{g.category}</span>
                     )}
                   </div>
                 </button>
@@ -419,16 +419,16 @@ export default function Goals() {
       {/* Right: Goal detail */}
       <div className="flex-1 min-w-0">
         {error && (
-          <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 text-sm">
+          <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-4 text-sm">
             {error}
           </div>
         )}
 
         {!selectedGoal ? (
-          <div className="flex flex-col items-center justify-center h-full text-phantom-muted">
+          <div className="flex flex-col items-center justify-center h-full text-spectyn-muted">
             <Target size={48} className="mb-4 opacity-30" />
             <p className="text-sm">選擇一個目標查看詳情</p>
-            <p className="text-xs mt-1">或在對話中告訴 Phantom 你的目標</p>
+            <p className="text-xs mt-1">或在對話中告訴 Spectyn 你的目標</p>
           </div>
         ) : progress ? (
           <div className="space-y-6">
@@ -436,14 +436,14 @@ export default function Goals() {
             <div>
               <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-phantom-text">{progress.goal.title}</h2>
+                  <h2 className="text-xl font-bold text-spectyn-text">{progress.goal.title}</h2>
                   {progress.goal.description && (
-                    <p className="text-sm text-phantom-muted mt-1">{progress.goal.description}</p>
+                    <p className="text-sm text-spectyn-muted mt-1">{progress.goal.description}</p>
                   )}
                 </div>
                 <button
                   onClick={() => setShowCheckIn(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-phantom-primary/15 text-phantom-primary rounded text-sm hover:bg-phantom-primary/25 transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-spectyn-primary/15 text-spectyn-primary rounded text-sm hover:bg-spectyn-primary/25 transition"
                 >
                   <SmilePlus size={14} />
                   記錄心情
@@ -454,13 +454,13 @@ export default function Goals() {
                   {STATUS_LABELS[progress.goal.status] ?? progress.goal.status}
                 </span>
                 {progress.days_remaining !== null && (
-                  <span className="text-xs text-phantom-muted flex items-center gap-1">
+                  <span className="text-xs text-spectyn-muted flex items-center gap-1">
                     <Calendar size={12} />
                     {progress.days_remaining > 0 ? `還有 ${progress.days_remaining} 天` : "已到期"}
                   </span>
                 )}
                 {progress.current_streak > 0 && (
-                  <span className="text-xs text-phantom-warning flex items-center gap-1">
+                  <span className="text-xs text-spectyn-warning flex items-center gap-1">
                     <Flame size={12} />
                     連續 {progress.current_streak} 天
                   </span>
@@ -470,8 +470,8 @@ export default function Goals() {
 
             {/* Check-in dialog */}
             {showCheckIn && (
-              <div className="bg-phantom-card border border-phantom-primary/30 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-phantom-text mb-3">今天這個目標進展如何？</h3>
+              <div className="bg-spectyn-card border border-spectyn-primary/30 rounded-lg p-4">
+                <h3 className="text-sm font-medium text-spectyn-text mb-3">今天這個目標進展如何？</h3>
                 <div className="flex items-center justify-center gap-3 mb-4">
                   {[1, 2, 3, 4, 5].map((m) => (
                     <button
@@ -479,12 +479,12 @@ export default function Goals() {
                       onClick={() => setCheckInMood(m)}
                       className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition ${
                         checkInMood === m
-                          ? "bg-phantom-primary/20 ring-2 ring-phantom-primary"
-                          : "hover:bg-phantom-bg"
+                          ? "bg-spectyn-primary/20 ring-2 ring-spectyn-primary"
+                          : "hover:bg-spectyn-bg"
                       }`}
                     >
                       <span className="text-2xl">{MOOD_EMOJIS[m]}</span>
-                      <span className="text-[10px] text-phantom-muted">{MOOD_LABELS[m]}</span>
+                      <span className="text-[10px] text-spectyn-muted">{MOOD_LABELS[m]}</span>
                     </button>
                   ))}
                 </div>
@@ -493,19 +493,19 @@ export default function Goals() {
                   onChange={(e) => setCheckInNote(e.target.value)}
                   placeholder="今天的心得或筆記（選填）"
                   rows={2}
-                  className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-2 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary resize-none mb-3"
+                  className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-2 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary resize-none mb-3"
                 />
                 <div className="flex gap-2">
                   <button
                     onClick={submitCheckIn}
                     disabled={submittingCheckIn}
-                    className="flex-1 bg-phantom-primary text-phantom-bg py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
+                    className="flex-1 bg-spectyn-primary text-spectyn-bg py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
                   >
                     {submittingCheckIn ? "送出中..." : "記錄"}
                   </button>
                   <button
                     onClick={() => setShowCheckIn(false)}
-                    className="px-3 py-1.5 rounded text-sm text-phantom-muted hover:bg-phantom-bg"
+                    className="px-3 py-1.5 rounded text-sm text-spectyn-muted hover:bg-spectyn-bg"
                   >
                     取消
                   </button>
@@ -514,31 +514,31 @@ export default function Goals() {
             )}
 
             {/* Progress bar */}
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-phantom-text flex items-center gap-2">
+                <span className="text-sm text-spectyn-text flex items-center gap-2">
                   <TrendingUp size={14} />
                   進度
                 </span>
-                <span className="text-sm font-medium text-phantom-primary">
+                <span className="text-sm font-medium text-spectyn-primary">
                   {progress.percentage.toFixed(0)}%
                 </span>
               </div>
-              <div className="w-full h-2 bg-phantom-bg rounded-full overflow-hidden">
+              <div className="w-full h-2 bg-spectyn-bg rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-phantom-primary rounded-full transition-all duration-500"
+                  className="h-full bg-spectyn-primary rounded-full transition-all duration-500"
                   style={{ width: `${Math.min(progress.percentage, 100)}%` }}
                 />
               </div>
-              <p className="text-xs text-phantom-muted mt-2">
+              <p className="text-xs text-spectyn-muted mt-2">
                 {progress.milestones_done} / {progress.milestones_total} 里程碑完成
               </p>
             </div>
 
             {/* Mood trend chart */}
             {moodTrend.length > 0 && (
-              <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-                <h3 className="text-sm font-medium text-phantom-text mb-3 flex items-center gap-2">
+              <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+                <h3 className="text-sm font-medium text-spectyn-text mb-3 flex items-center gap-2">
                   <BarChart3 size={14} />
                   心情趨勢（近 14 天）
                 </h3>
@@ -555,7 +555,7 @@ export default function Goals() {
                           className={`w-full rounded-t ${MOOD_COLORS[mood] || "bg-gray-400"} transition-all`}
                           style={{ height: `${h}%` }}
                         />
-                        <div className="hidden group-hover:block absolute -top-8 bg-phantom-bg border border-phantom-border rounded px-2 py-0.5 text-[10px] text-phantom-text whitespace-nowrap z-10">
+                        <div className="hidden group-hover:block absolute -top-8 bg-spectyn-bg border border-spectyn-border rounded px-2 py-0.5 text-[10px] text-spectyn-text whitespace-nowrap z-10">
                           {p.date} {MOOD_EMOJIS[mood]}
                         </div>
                       </div>
@@ -563,10 +563,10 @@ export default function Goals() {
                   })}
                 </div>
                 <div className="flex justify-between mt-1">
-                  <span className="text-[10px] text-phantom-muted">
+                  <span className="text-[10px] text-spectyn-muted">
                     {moodTrend[moodTrend.length - 1]?.date ?? ""}
                   </span>
-                  <span className="text-[10px] text-phantom-muted">
+                  <span className="text-[10px] text-spectyn-muted">
                     {moodTrend[0]?.date ?? ""}
                   </span>
                 </div>
@@ -574,28 +574,28 @@ export default function Goals() {
             )}
 
             {/* Milestones */}
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <h3 className="text-sm font-medium text-phantom-text mb-3">里程碑</h3>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <h3 className="text-sm font-medium text-spectyn-text mb-3">里程碑</h3>
               {milestones.length === 0 ? (
-                <p className="text-xs text-phantom-muted">尚未建立里程碑 — 在對話中請 Phantom 為你規劃</p>
+                <p className="text-xs text-spectyn-muted">尚未建立里程碑 — 在對話中請 Spectyn 為你規劃</p>
               ) : (
                 <div className="space-y-2">
                   {milestones.map((ms) => (
                     <button
                       key={ms.id}
                       onClick={() => void toggleMilestone(progress.goal.id, ms.id)}
-                      className="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-phantom-bg transition"
+                      className="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-spectyn-bg transition"
                     >
                       {ms.status === "done" ? (
-                        <CheckCircle2 size={16} className="text-phantom-success flex-shrink-0" />
+                        <CheckCircle2 size={16} className="text-spectyn-success flex-shrink-0" />
                       ) : (
-                        <Circle size={16} className="text-phantom-muted flex-shrink-0" />
+                        <Circle size={16} className="text-spectyn-muted flex-shrink-0" />
                       )}
-                      <span className={`text-sm ${ms.status === "done" ? "line-through text-phantom-muted" : "text-phantom-text"}`}>
+                      <span className={`text-sm ${ms.status === "done" ? "line-through text-spectyn-muted" : "text-spectyn-text"}`}>
                         {ms.title}
                       </span>
                       {ms.due_date && (
-                        <span className="text-[10px] text-phantom-muted ml-auto">{ms.due_date}</span>
+                        <span className="text-[10px] text-spectyn-muted ml-auto">{ms.due_date}</span>
                       )}
                     </button>
                   ))}
@@ -604,10 +604,10 @@ export default function Goals() {
             </div>
 
             {/* Recurring tasks */}
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-              <h3 className="text-sm font-medium text-phantom-text mb-3">每日任務</h3>
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+              <h3 className="text-sm font-medium text-spectyn-text mb-3">每日任務</h3>
               {recurringTasks.length === 0 ? (
-                <p className="text-xs text-phantom-muted">尚未建立每日任務 — 在對話中請 Phantom 為你安排</p>
+                <p className="text-xs text-spectyn-muted">尚未建立每日任務 — 在對話中請 Spectyn 為你安排</p>
               ) : (
                 <div className="space-y-2">
                   {recurringTasks.map((t) => {
@@ -620,19 +620,19 @@ export default function Goals() {
                           if (!doneToday) void completeRecurring(progress.goal.id, t.id);
                         }}
                         className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded transition ${
-                          doneToday ? "bg-phantom-success/10" : "hover:bg-phantom-bg"
+                          doneToday ? "bg-spectyn-success/10" : "hover:bg-spectyn-bg"
                         }`}
                       >
                         {doneToday ? (
-                          <CheckCircle2 size={16} className="text-phantom-success flex-shrink-0" />
+                          <CheckCircle2 size={16} className="text-spectyn-success flex-shrink-0" />
                         ) : (
-                          <Circle size={16} className="text-phantom-muted flex-shrink-0" />
+                          <Circle size={16} className="text-spectyn-muted flex-shrink-0" />
                         )}
-                        <span className={`text-sm flex-1 ${doneToday ? "line-through text-phantom-muted" : "text-phantom-text"}`}>
+                        <span className={`text-sm flex-1 ${doneToday ? "line-through text-spectyn-muted" : "text-spectyn-text"}`}>
                           {t.title}
                         </span>
                         {t.streak_count > 0 && (
-                          <span className="text-xs text-phantom-warning flex items-center gap-0.5">
+                          <span className="text-xs text-spectyn-warning flex items-center gap-0.5">
                             <Flame size={12} />
                             {t.streak_count}
                           </span>
@@ -646,8 +646,8 @@ export default function Goals() {
 
             {/* Recent check-ins */}
             {checkIns.length > 0 && (
-              <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-                <h3 className="text-sm font-medium text-phantom-text mb-3 flex items-center gap-2">
+              <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+                <h3 className="text-sm font-medium text-spectyn-text mb-3 flex items-center gap-2">
                   <MessageCircle size={14} />
                   最近 Check-in
                 </h3>
@@ -657,14 +657,14 @@ export default function Goals() {
                       <span className="text-lg flex-shrink-0">{MOOD_EMOJIS[ci.mood] || "😐"}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-phantom-muted">{ci.date}</span>
-                          <span className="text-[10px] text-phantom-muted">{MOOD_LABELS[ci.mood]}</span>
+                          <span className="text-xs text-spectyn-muted">{ci.date}</span>
+                          <span className="text-[10px] text-spectyn-muted">{MOOD_LABELS[ci.mood]}</span>
                         </div>
                         {ci.note && (
-                          <p className="text-xs text-phantom-text mt-0.5">{ci.note}</p>
+                          <p className="text-xs text-spectyn-text mt-0.5">{ci.note}</p>
                         )}
                         {ci.ai_feedback && (
-                          <p className="text-xs text-phantom-primary/80 mt-0.5 italic">{ci.ai_feedback}</p>
+                          <p className="text-xs text-spectyn-primary/80 mt-0.5 italic">{ci.ai_feedback}</p>
                         )}
                       </div>
                     </div>
@@ -675,7 +675,7 @@ export default function Goals() {
           </div>
         ) : (
           <div className="flex items-center justify-center py-16">
-            <div className="w-5 h-5 border-2 border-phantom-primary border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-spectyn-primary border-t-transparent rounded-full animate-spin" />
           </div>
         )}
       </div>

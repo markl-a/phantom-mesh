@@ -1,4 +1,4 @@
-//! APFS local snapshots — phantom's safety net on macOS.
+//! APFS local snapshots — spectyn's safety net on macOS.
 //!
 //! `tmutil localsnapshot` creates a volume-wide point-in-time snapshot in
 //! ~1 s and does **not** require sudo. We use it the way Time Machine does:
@@ -29,7 +29,7 @@ pub struct SnapshotInfo {
     pub id: String,
     /// Unix milliseconds — derived from the id, or 0 if parse fails.
     pub created_at_ms: i64,
-    /// Optional caller-supplied tag — phantom doesn't store this in the
+    /// Optional caller-supplied tag — spectyn doesn't store this in the
     /// system snapshot itself, only in our in-memory log when relevant.
     pub label: Option<String>,
 }
@@ -155,12 +155,12 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
     let snaps = list().await?;
     if !snaps.iter().any(|s| s.id == id) {
         return Err(anyhow!(
-            "snapshot {} not found — `phantom snapshot list` for ids",
+            "snapshot {} not found — `spectyn snapshot list` for ids",
             id
         ));
     }
 
-    let mount_pt = std::path::PathBuf::from("/tmp").join(format!("phantom-snapshot-{}", id));
+    let mount_pt = std::path::PathBuf::from("/tmp").join(format!("spectyn-snapshot-{}", id));
     let snap_name = format!("com.apple.TimeMachine.{}.local", id);
 
     // The snapshot is mounted at `mount_pt`; the target's content lives at
@@ -237,7 +237,7 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
         })?;
     if !s.success() {
         return Err(anyhow!(
-            "mount snapshot {id} failed — the snapshot may have been purged by macOS; run `phantom snapshot list` to confirm it still exists"
+            "mount snapshot {id} failed — the snapshot may have been purged by macOS; run `spectyn snapshot list` to confirm it still exists"
         ));
     }
 
@@ -298,26 +298,26 @@ pub async fn apply(id: &str, target: &std::path::Path, dry_run: bool) -> Result<
 }
 
 /// Print a copy-pasteable manual rollback procedure for the given snapshot
-/// id. Used by `phantom snapshot rollback <id>`.
+/// id. Used by `spectyn snapshot rollback <id>`.
 pub fn manual_rollback_hint(id: &str) -> String {
     format!(
         "\
 # To inspect the snapshot:
-sudo mkdir -p /tmp/phantom-snapshot-{id}
+sudo mkdir -p /tmp/spectyn-snapshot-{id}
 sudo mount_apfs -o nobrowse,rdonly \\
-  -s com.apple.TimeMachine.{id} / /tmp/phantom-snapshot-{id}
+  -s com.apple.TimeMachine.{id} / /tmp/spectyn-snapshot-{id}
 
 # Restore a single file (replace <relpath>, no leading slash):
-sudo cp /tmp/phantom-snapshot-{id}/<relpath> /<relpath>
+sudo cp /tmp/spectyn-snapshot-{id}/<relpath> /<relpath>
 
 # Restore everything under your current working dir:
 sudo rsync -aHAX --delete \\
-  /tmp/phantom-snapshot-{id}$(pwd)/ \\
+  /tmp/spectyn-snapshot-{id}$(pwd)/ \\
   $(pwd)/
 
 # When done:
-sudo umount /tmp/phantom-snapshot-{id}
-sudo rmdir /tmp/phantom-snapshot-{id}
+sudo umount /tmp/spectyn-snapshot-{id}
+sudo rmdir /tmp/spectyn-snapshot-{id}
 "
     )
 }
@@ -419,7 +419,7 @@ mod tests {
     /// (same as other snapshot tests, auto-pruned by macOS).
     #[tokio::test]
     async fn apply_with_cwd_path_succeeds() {
-        let snap = create(Some("phantom-tdd-apply-with-cwd-path-succeeds"))
+        let snap = create(Some("spectyn-tdd-apply-with-cwd-path-succeeds"))
             .await
             .expect("tmutil localsnapshot");
 
@@ -463,7 +463,7 @@ mod tests {
     /// `com.apple.TimeMachine.<id>.local`.
     #[tokio::test]
     async fn list_includes_newly_created() {
-        let snap = create(Some("phantom-tdd-list-includes-newly-created"))
+        let snap = create(Some("spectyn-tdd-list-includes-newly-created"))
             .await
             .expect("tmutil localsnapshot should succeed on a Mac dev host");
 
@@ -508,7 +508,7 @@ mod tests {
     /// recent epoch ms.
     #[tokio::test]
     async fn create_returns_unique_id() {
-        let snap = match create(Some("phantom-tdd-create-returns-unique-id")).await {
+        let snap = match create(Some("spectyn-tdd-create-returns-unique-id")).await {
             Ok(s) => s,
             // tmutil errors only on a non-APFS boot volume, sudo
             // denial (not applicable for `localsnapshot`), or a
@@ -553,7 +553,7 @@ mod tests {
         // SnapshotInfo callers rely on it being preserved).
         assert_eq!(
             snap.label.as_deref(),
-            Some("phantom-tdd-create-returns-unique-id")
+            Some("spectyn-tdd-create-returns-unique-id")
         );
     }
 }

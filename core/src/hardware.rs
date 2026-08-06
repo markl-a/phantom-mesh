@@ -54,7 +54,7 @@ pub struct HardwareScanResult {
     pub ollama_status: String,
     /// Model names reported by a reachable Ollama daemon (empty otherwise).
     pub ollama_models: Vec<String>,
-    /// Path to the phantom daemon binary, when known.
+    /// Path to the spectyn daemon binary, when known.
     pub daemon_binary_path: Option<String>,
     /// Default port the daemon should listen on.
     pub available_port: u16,

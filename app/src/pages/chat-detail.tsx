@@ -24,7 +24,7 @@ export default function ChatDetail() {
       // Root mobile frame: full viewport height + top/side safe-area insets.
       // Bottom inset is handled on the inner flex wrapper below (single source),
       // so it is intentionally NOT repeated here to avoid doubling.
-      className="flex h-dvh flex-col bg-phantom-bg text-phantom-text
+      className="flex h-dvh flex-col bg-spectyn-bg text-spectyn-text
                  pt-[env(safe-area-inset-top)]
                  pl-[env(safe-area-inset-left)]
                  pr-[env(safe-area-inset-right)]"

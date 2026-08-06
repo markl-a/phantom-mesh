@@ -1,6 +1,6 @@
 /// Integration tests for ConversationStore session management:
 /// disk persistence, markdown export, and session search.
-use phantom_mesh::{providers::traits::ChatMessage, session::ConversationStore};
+use spectyn_mesh::{providers::traits::ChatMessage, session::ConversationStore};
 
 // ---------------------------------------------------------------------------
 // Helper

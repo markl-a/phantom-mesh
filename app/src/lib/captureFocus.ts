@@ -22,7 +22,7 @@ import type { FocusSessionResult } from "./generated/capture_focus/FocusSessionR
 import type { InterruptionKind } from "./generated/capture_focus/InterruptionKind";
 import type { FocusMode } from "./generated/capture_focus/FocusMode";
 
-const RECENT_STORAGE_KEY = "phantom_mesh_capture_focus_recent_v1";
+const RECENT_STORAGE_KEY = "spectyn_mesh_capture_focus_recent_v1";
 const RECENT_CAP = 25;
 
 export interface RecentFocusEvent {
@@ -139,7 +139,7 @@ export interface ActiveFocus {
 }
 
 /** Read the shared disk-backed focus session so the app can surface a session
- *  started in another surface (CLI `phantom focus` / TUI `/focus`). */
+ *  started in another surface (CLI `spectyn focus` / TUI `/focus`). */
 export async function focusStatus(): Promise<ActiveFocus | null> {
   const res = await invoke<ActiveFocus | null>("focus_status", {});
   if (!res || typeof (res as ActiveFocus).sessionId !== "string") return null;

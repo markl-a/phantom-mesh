@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Mac release-build helper for phantom-mesh.
+# Mac release-build helper for spectyn-mesh.
 #
 # What it does, in order:
-#   1. cargo build --release --bin phantom (target = host arch by default;
+#   1. cargo build --release --bin spectyn (target = host arch by default;
 #      override via TARGET=<triple>)
 #   2. ad-hoc codesign the resulting binary — `cp` into dist/ would strip
 #      signature and amfid would silently SIGKILL on launch (commit 85c8377).
 #      Signing happens at the source path, so any later cp/mv carries a
 #      valid signature.
-#   3. smoke-verify by spawning `phantom --version` with a 5s timeout. If
+#   3. smoke-verify by spawning `spectyn --version` with a 5s timeout. If
 #      the kernel SIGKILLs (exit 137 / no output), we fail loud here, not
 #      after the user has scp'd the binary somewhere and wondered why
 #      launchd looks alive but no daemon answers.
-#   4. mirror into dist/phantom-<triple> so install-mac.sh + `phantom selftest`
+#   4. mirror into dist/spectyn-<triple> so install-mac.sh + `spectyn selftest`
 #      pick it up via the coordinator's /dist/ HTTP route.
 #
 # Usage:
@@ -41,16 +41,16 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
-echo "  ◆ phantom-mesh — Mac release build"
+echo "  ◆ spectyn-mesh — Mac release build"
 echo "    target : $TARGET"
 echo "    repo   : $REPO_ROOT"
 echo
 
 # ── 1. cargo build ──────────────────────────────────────────────────────
-echo "  [1/4] cargo build --release --bin phantom --target $TARGET"
-cargo build --release --bin phantom --target "$TARGET"
+echo "  [1/4] cargo build --release --bin spectyn --target $TARGET"
+cargo build --release --bin spectyn --target "$TARGET"
 
-OUT_BIN="$CARGO_DIR/target/$TARGET/release/phantom"
+OUT_BIN="$CARGO_DIR/target/$TARGET/release/spectyn"
 if [ ! -x "$OUT_BIN" ]; then
   echo "  ✗ binary missing at $OUT_BIN"
   exit 1
@@ -85,20 +85,20 @@ fi
 echo "    ✓ $RUN_OUT"
 
 # ── 4. mirror into dist/ for distribution ───────────────────────────────
-echo "  [4/4] mirror → dist/phantom-$TARGET"
+echo "  [4/4] mirror → dist/spectyn-$TARGET"
 mkdir -p "$REPO_ROOT/dist"
-cp "$OUT_BIN" "$REPO_ROOT/dist/phantom-$TARGET"
+cp "$OUT_BIN" "$REPO_ROOT/dist/spectyn-$TARGET"
 # cp into dist/ strips signature on macOS — re-sign in place so HTTP
 # distribution carries a valid signature. install-mac.sh ALSO re-signs
 # defensively because curl-download likewise breaks the signature.
-codesign --force --sign - "$REPO_ROOT/dist/phantom-$TARGET"
-echo "    ✓ dist/phantom-$TARGET ($(du -h "$REPO_ROOT/dist/phantom-$TARGET" | awk '{print $1}'))"
+codesign --force --sign - "$REPO_ROOT/dist/spectyn-$TARGET"
+echo "    ✓ dist/spectyn-$TARGET ($(du -h "$REPO_ROOT/dist/spectyn-$TARGET" | awk '{print $1}'))"
 
 echo
 echo "  ✓ Mac release build complete."
 echo "    Source : $OUT_BIN"
-echo "    Dist   : $REPO_ROOT/dist/phantom-$TARGET"
+echo "    Dist   : $REPO_ROOT/dist/spectyn-$TARGET"
 echo
 echo "  Next:"
-echo "    phantom selftest                          # full feature self-test (or scripts/selftest.sh)"
-echo "    cp dist/phantom-$TARGET ~/.cargo/bin/phantom   # adopt locally"
+echo "    spectyn selftest                          # full feature self-test (or scripts/selftest.sh)"
+echo "    cp dist/spectyn-$TARGET ~/.cargo/bin/spectyn   # adopt locally"

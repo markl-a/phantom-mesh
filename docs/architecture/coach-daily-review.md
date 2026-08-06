@@ -10,9 +10,9 @@ multimodal understanding（多模態理解））的 AI 教練介面。
 
 它以三種方式對外提供，且全部共用同一個後端，因此各介面永遠不會彼此漂移：
 
-- **CLI** — `phantom coach review --date YYYY-MM-DD [--save]`（含
+- **CLI** — `spectyn coach review --date YYYY-MM-DD [--save]`（含
   LLM 行動環節的完整回顧）。
-- **CLI** — `phantom review` / `phantom daily`（僅做確定性的離線彙整，
+- **CLI** — `spectyn review` / `spectyn daily`（僅做確定性的離線彙整，
   不用 LLM、不連網路）。
 - **App** — 一個 Tauri 桌面 / macOS 閱讀器畫面（「Coach Review Reader」），
   載入離線彙整結果，並可依需求生成完整回顧。
@@ -33,7 +33,7 @@ multimodal understanding（多模態理解））的 AI 教練介面。
 | `core/src/coach_wire.rs` | SPEC-23 教練引擎的 wire 型別：`DailyReviewRequest`、`DailyReviewOutcome`、`CoachReviewReadyPayload`、`ReviewStatus`、`MemoryInject`，外加排程的 `run_daily_review` / 分層記憶（tiered-memory）契約。 |
 | `core/src/coach_delivery_wire.rs` | 遞送層：`deliver`、`send_telegram`、`send_email`、`write_markdown_file`、`dedup_check`——把一份完成的回顧送往設定好的頻道。 |
 | `core/src/skillbank/skill_extractor/from_daily_review.rs` | `extract_from_review_markdown`——從已儲存的回顧中，每個 goal-tag（目標標籤）區段挖掘出一個 `SkillCandidate`（E005 技能管線）。 |
-| `core/src/bin/phantom.rs` | `phantom coach review`、`phantom review`、`phantom daily` 的 CLI 指令接線。 |
+| `core/src/bin/spectyn.rs` | `spectyn coach review`、`spectyn review`、`spectyn daily` 的 CLI 指令接線。 |
 | `app/src-tauri/src/commands/daily_review_wire.rs` | Tauri 指令 `daily_review_load` 與 `daily_review_generate`，註冊於 `app/src-tauri/src/lib.rs`。 |
 | `app/src/lib/dailyReview.ts` | 前端輔助函式：`loadDailyReview`、`generateReview`、`parseReview`、`extractTomorrowAction`。 |
 | `app/src/screens/macos/CoachReviewReader.tsx` | macOS 閱讀器畫面（SPEC-41 畫面 #3），負責渲染解析後的回顧。 |

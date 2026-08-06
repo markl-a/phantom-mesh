@@ -11,8 +11,8 @@ describe('badgeStyleFor', () => {
     for (const s of statuses) {
       const style = badgeStyleFor(s);
       expect(style.label).toBe(s);
-      expect(style.dot).toMatch(/^bg-phantom-/);
-      expect(style.text).toMatch(/^text-phantom-/);
+      expect(style.dot).toMatch(/^bg-spectyn-/);
+      expect(style.text).toMatch(/^text-spectyn-/);
     }
   });
 
@@ -23,18 +23,18 @@ describe('badgeStyleFor', () => {
     for (const bad of [undefined, null, 'Offline', 'Connecting', '']) {
       const style = badgeStyleFor(bad as unknown as PeerStatus);
       expect(style).toBeDefined();
-      expect(style.dot).toBe('bg-phantom-muted');
-      expect(style.text).toBe('text-phantom-muted');
+      expect(style.dot).toBe('bg-spectyn-muted');
+      expect(style.text).toBe('text-spectyn-muted');
     }
   });
 
   it('maps Online → success, Unhealthy → warning (no red — reserved for dispatch errors)', () => {
-    expect(badgeStyleFor('Online').dot).toBe('bg-phantom-success');
-    expect(badgeStyleFor('Unhealthy').dot).toBe('bg-phantom-warning');
-    expect(badgeStyleFor('Unknown').dot).toBe('bg-phantom-muted');
+    expect(badgeStyleFor('Online').dot).toBe('bg-spectyn-success');
+    expect(badgeStyleFor('Unhealthy').dot).toBe('bg-spectyn-warning');
+    expect(badgeStyleFor('Unknown').dot).toBe('bg-spectyn-muted');
     // No status should map to the danger colour.
     for (const s of ['Online', 'Unhealthy', 'Unknown'] as PeerStatus[]) {
-      expect(badgeStyleFor(s).dot).not.toBe('bg-phantom-danger');
+      expect(badgeStyleFor(s).dot).not.toBe('bg-spectyn-danger');
     }
   });
 });
@@ -48,6 +48,6 @@ describe('<PeerBadge />', () => {
   it('renders Unhealthy badge with the warning colour class', () => {
     const { container } = render(<PeerBadge status="Unhealthy" />);
     const dot = container.querySelector('span[aria-hidden="true"]');
-    expect(dot?.className).toContain('bg-phantom-warning');
+    expect(dot?.className).toContain('bg-spectyn-warning');
   });
 });

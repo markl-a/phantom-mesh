@@ -2,7 +2,7 @@
 # runner-loop.sh — persistent dev runner for a headless node (S4).
 #
 # The headless/codex form of the dev-node routine: a SUPERVISED while-loop that
-# each tick (1) heartbeats via `phantom status set`, (2) reads the node inbox
+# each tick (1) heartbeats via `spectyn status set`, (2) reads the node inbox
 # (a "stop" directive shuts it down cleanly), (3) claims ONE open spec from the
 # SHARED repo backlog (backlog.sh — atomic via git ref CAS), (4) lets the writer
 # AI implement it on the claim's work branch, (5) runs the same gates as
@@ -46,12 +46,12 @@ esac; shift; done
 
 cd "$ROOT" || exit 3
 
-# ── phantom binary resolution + watchdog ────────────────────────────────────
+# ── spectyn binary resolution + watchdog ────────────────────────────────────
 # Prefer the repo's OWN build (newest of debug/release — it matches the code
-# this script shipped with). A PATH phantom can be months old, and an old
+# this script shipped with). A PATH spectyn can be months old, and an old
 # binary treats unknown subcommands ("status set …") as an implicit LLM
 # prompt — a "heartbeat" that wedges the tick for minutes burning provider
-# calls (caught live on a remote mac node, 6/10: PID ran `phantom status set` as a
+# calls (caught live on a remote mac node, 6/10: PID ran `spectyn status set` as a
 # chat for 1+ min).
 newest_bin() {
   local best="" b
@@ -61,8 +61,8 @@ newest_bin() {
   done
   printf '%s' "$best"
 }
-PHANTOM="$(newest_bin "$ROOT/core/target/debug/phantom" "$ROOT/core/target/release/phantom")"
-[ -n "$PHANTOM" ] || PHANTOM="$(command -v phantom 2>/dev/null || true)"
+SPECTYN="$(newest_bin "$ROOT/core/target/debug/spectyn" "$ROOT/core/target/release/spectyn")"
+[ -n "$SPECTYN" ] || SPECTYN="$(command -v spectyn 2>/dev/null || true)"
 
 run_to() { # run_to <secs> <cmd…> — portable watchdog (macOS ships no `timeout`)
   local secs="$1"; shift
@@ -76,29 +76,29 @@ run_to() { # run_to <secs> <cmd…> — portable watchdog (macOS ships no `timeo
 # Heartbeats/inbox only when the binary really speaks them: the probe itself
 # is watchdogged because on an old binary `status help` IS the LLM-prompt
 # trap. Probe fails → run honestly without heartbeats instead of wedging.
-if [ -n "$PHANTOM" ] && run_to 5 "$PHANTOM" status help 2>&1 | grep -q "dev-session heartbeat"; then
-  PHANTOM_OK=1
+if [ -n "$SPECTYN" ] && run_to 5 "$SPECTYN" status help 2>&1 | grep -q "dev-session heartbeat"; then
+  SPECTYN_OK=1
 else
-  PHANTOM_OK=0
-  echo "note: no status-capable phantom binary on this node — running without heartbeats/inbox"
+  SPECTYN_OK=0
+  echo "note: no status-capable spectyn binary on this node — running without heartbeats/inbox"
 fi
 
 hb() { # heartbeat — best-effort + bounded; must never kill or wedge the loop
-  [ "$PHANTOM_OK" = 1 ] || return 0
-  run_to 10 "$PHANTOM" status set --state "$1" ${2:+--task "$2"} ${3:+--branch "$3"} ${4:+--verdict "$4"} >/dev/null 2>&1 || true
+  [ "$SPECTYN_OK" = 1 ] || return 0
+  run_to 10 "$SPECTYN" status set --state "$1" ${2:+--task "$2"} ${3:+--branch "$3"} ${4:+--verdict "$4"} >/dev/null 2>&1 || true
 }
 
 inbox_stop_requested() {
-  [ "$PHANTOM_OK" = 1 ] || return 1
+  [ "$SPECTYN_OK" = 1 ] || return 1
   local msgs ids
-  msgs="$(run_to 10 "$PHANTOM" inbox list --json 2>/dev/null)" || return 1
+  msgs="$(run_to 10 "$SPECTYN" inbox list --json 2>/dev/null)" || return 1
   [ -n "$msgs" ] && [ "$msgs" != "[]" ] || return 1
-  echo "── inbox has messages ──"; run_to 10 "$PHANTOM" inbox list 2>/dev/null || true
+  echo "── inbox has messages ──"; run_to 10 "$SPECTYN" inbox list 2>/dev/null || true
   # Stage-1 directive vocabulary: a message whose text starts with "stop"
   # (topic optional) shuts the runner down; everything else is surfaced only.
   ids="$(printf '%s' "$msgs" | sed -n 's/.*"id": *"\([^"]*\)".*/\1/p')"
   if printf '%s' "$msgs" | grep -qi '"text": *"stop'; then
-    for i in $ids; do run_to 10 "$PHANTOM" inbox ack "$i" >/dev/null 2>&1 || true; done
+    for i in $ids; do run_to 10 "$SPECTYN" inbox ack "$i" >/dev/null 2>&1 || true; done
     return 0
   fi
   return 1
@@ -174,7 +174,7 @@ process_claimed() { # on work branch dev/<id>, tree clean at origin/BASE
       echo "  [$id] ✅ PASS — dev/$id pushed, spec retired (verify=$vexit review=$rexit)"
       # §0.1 GUARDED auto-merge (owner 2026-06-10, "有護欄地開"): merge dev/<id> into
       # BASE ONLY when enabled + all-green + no R2 zone + clean; else stays branches-only
-      # (the safe default). Kill-switch / dry-run live in ~/.phantom-mesh — see auto-merge.sh.
+      # (the safe default). Kill-switch / dry-run live in ~/.spectyn-mesh — see auto-merge.sh.
       BACKLOG_BASE="$BASE" BACKLOG_NODE="$NODE" bash "$HERE/auto-merge.sh" "$id" \
         --verify-exit "$vexit" --review-exit "$rexit" --deviation "$dv"; amrc=$?
       case "$amrc" in
@@ -205,7 +205,7 @@ esac
 [ -x "$ASK" ] || { echo "✗ writer dispatcher missing/not executable: $ASK"; exit 3; }
 command -v "$WRITER" >/dev/null 2>&1 || {
   echo "✗ writer '$WRITER' not on PATH — start me from a login shell (bash -lc) or pass --writer <tool>"; exit 3; }
-git config user.email >/dev/null 2>&1 || git config user.email "runner-loop@phantom.local"
+git config user.email >/dev/null 2>&1 || git config user.email "runner-loop@spectyn.local"
 git config user.name  >/dev/null 2>&1 || git config user.name  "runner-loop ($NODE)"
 START="$(date +%s)"; DONE_TASKS=0
 while :; do

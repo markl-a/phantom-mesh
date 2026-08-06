@@ -23,18 +23,18 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
-use phantom_mesh::agent::AgentRuntime;
-use phantom_mesh::config::AgentsConfig;
-use phantom_mesh::providers::traits::{ChatMessage, ProviderError};
-use phantom_mesh::providers::LlmProvider;
-use phantom_mesh::streaming::ResolveProvider;
+use spectyn_mesh::agent::AgentRuntime;
+use spectyn_mesh::config::AgentsConfig;
+use spectyn_mesh::providers::traits::{ChatMessage, ProviderError};
+use spectyn_mesh::providers::LlmProvider;
+use spectyn_mesh::streaming::ResolveProvider;
 
 // ── MockProvider ─────────────────────────────────────────────────────────
 //
 // A `LlmProvider` that returns a fixed `provider_type()` string and a canned
 // "response" via its `complete` method. Stubbed `stream` is unused — DEMO-3
 // only asserts identity via `provider_type()`, which is what `agent.rs`'s
-// metrics + `PHANTOM_RUNTIME_OVERRIDE` matching consult.
+// metrics + `SPECTYN_RUNTIME_OVERRIDE` matching consult.
 
 struct MockProvider {
     type_id: &'static str,

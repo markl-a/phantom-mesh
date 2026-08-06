@@ -16,7 +16,7 @@
  * - `event_id`  — SPEC-16 events row id（向後相容 alias）
  * - `date`      — local-tz `"YYYY-MM-DD"`
  * - `takeaways_count` — `DailyReviewOutcome.takeaways.len()`（u32 wire-safe）
- * - `markdown_path` — `~/.phantom-mesh/coach/YYYY-MM-DD.md.age` 絕對路徑
+ * - `markdown_path` — `~/.spectyn-mesh/coach/YYYY-MM-DD.md.age` 絕對路徑
  */
 export type CoachReviewReadyPayload = { 
 /**
@@ -40,7 +40,7 @@ date: string,
 takeawaysCount: number, 
 /**
  * Absolute path to the age-encrypted markdown file
- * (`~/.phantom-mesh/coach/YYYY-MM-DD.md.age`). Delivery (SPEC-24)
+ * (`~/.spectyn-mesh/coach/YYYY-MM-DD.md.age`). Delivery (SPEC-24)
  * reads + decrypts; raw markdown is **never** put on the EventBus.
  */
 markdownPath: string, };

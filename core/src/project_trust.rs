@@ -1,10 +1,10 @@
 //! Project Trust — the "Project Trust" layer of the 4-layer onboarding model
 //! (identity / provider / **project-trust** / permission).
 //!
-//! The threat: phantom reads files and runs tools autonomously. If you `cd` into
+//! The threat: spectyn reads files and runs tools autonomously. If you `cd` into
 //! a directory you did NOT create — a fresh `git clone`, a downloaded project, a
 //! folder someone sent you — that directory can attack you two ways:
-//!   1. **Config hijack** — phantom resolves config cwd-first, so a malicious
+//!   1. **Config hijack** — spectyn resolves config cwd-first, so a malicious
 //!      `cwd/agents.toml` can set `profile = "developer-full"` and override your
 //!      safe defaults.
 //!   2. **Prompt injection** — repo files can carry "ignore previous
@@ -30,7 +30,7 @@
 //! and [`TrustPolicy`] (e.g. a future `Auto`) WITHOUT changing call sites.
 //!
 //! Hermetic: every function takes explicit paths, so it unit-tests against a
-//! temp HOME without touching the real `~/.phantom-mesh/trust.json`.
+//! temp HOME without touching the real `~/.spectyn-mesh/trust.json`.
 //!
 //! 中文: 專案信任層。陌生目錄可經 cwd-first config 或 prompt injection 攻擊你;
 //! trust 問「我背不背書這個目錄」(與 permission profile 的「能做哪類動作」正交)。
@@ -84,7 +84,7 @@ impl TrustPolicy {
 }
 
 /// WHY a directory is trusted. Today only `Explicit` (the user ran
-/// `phantom project trust add`). Reserved for the smarter ladder: `Provenance` (a dir
+/// `spectyn project trust add`). Reserved for the smarter ladder: `Provenance` (a dir
 /// you own / created), `Auto` (heuristic/agent-assisted), …
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -108,7 +108,7 @@ impl TrustVerdict {
     }
 }
 
-/// `~/.phantom-mesh/trust.json` — the persisted set of trusted project roots.
+/// `~/.spectyn-mesh/trust.json` — the persisted set of trusted project roots.
 /// A directory is trusted if it, or any ancestor, is in the set (so trusting a
 /// workspace root covers everything beneath it).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -125,9 +125,9 @@ impl Default for TrustStore {
 }
 
 impl TrustStore {
-    /// `<home>/.phantom-mesh/trust.json`.
+    /// `<home>/.spectyn-mesh/trust.json`.
     pub fn path(home: &Path) -> PathBuf {
-        home.join(".phantom-mesh").join("trust.json")
+        home.join(".spectyn-mesh").join("trust.json")
     }
 
     /// Load the store. A missing OR unreadable/corrupt file yields an EMPTY
@@ -218,7 +218,7 @@ pub fn apply_trust(
                     Decision::Deny(_) => base,
                     _ => Decision::Deny(format!(
                         "untrusted project (trust enforcement=observe): '{tool}' \
-                         blocked — run `phantom project trust add` to allow it here"
+                         blocked — run `spectyn project trust add` to allow it here"
                     )),
                 }
             }

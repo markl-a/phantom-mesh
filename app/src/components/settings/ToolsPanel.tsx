@@ -15,16 +15,16 @@ export default function ToolsPanel() {
     <div>
       <h1 className="text-2xl font-bold mb-4">工具管理</h1>
       {error && (
-        <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 text-sm">
+        <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-4 text-sm">
           {error}
         </div>
       )}
       {tools ? (
-        <pre className="bg-phantom-card border border-phantom-border rounded p-4 text-sm overflow-auto">
+        <pre className="bg-spectyn-card border border-spectyn-border rounded p-4 text-sm overflow-auto">
           {JSON.stringify(tools, null, 2)}
         </pre>
       ) : (
-        <p className="text-phantom-muted">載入中...</p>
+        <p className="text-spectyn-muted">載入中...</p>
       )}
     </div>
   );

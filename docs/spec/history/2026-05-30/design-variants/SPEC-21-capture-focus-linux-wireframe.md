@@ -24,9 +24,9 @@ hero wireframe 的 Linux 段只 ~25 行 best-effort 條列。實際 Linux：
 | Main window Focus tab（canonical surface） | ✅ | ✅ | SPEC-45 §10.2.6 main window |
 | Tray dropdown → "Focus 開始"（SNI item） | best-effort | ✅ | SPEC-45 §10.2.1（GNOME 需 `appindicatorsupport` extension） |
 | `.desktop` action（dock 右鍵 → "Focus 開始"） | ✅ | ✅ | SPEC-45 §10.3 `[Desktop Action FocusStart]` |
-| CLI `phantom-mesh-app --focus` | ✅ | ✅ | SPEC-45 §10.3 Exec flag |
+| CLI `spectyn-mesh-app --focus` | ✅ | ✅ | SPEC-45 §10.3 Exec flag |
 | **`⌘⇧F` global shortcut** | ❌ | best-effort | **SPEC-45 §3.2 NG3**：不承諾、user 自接 wmctrl/KWin shortcut |
-| `phantom://focus/start` deep link | ✅ | ✅ | SPEC-44 §8.3 `x-scheme-handler/phantom` |
+| `spectyn://focus/start` deep link | ✅ | ✅ | SPEC-44 §8.3 `x-scheme-handler/spectyn` |
 | Wear OS / mobile companion | ❌ | ❌ | n/a |
 
 **v0.6.0 ship 4 個可靠路徑**：main window + .desktop action + CLI + deep link。Tray 跟 global shortcut 是 best-effort（DE 相依）。
@@ -36,7 +36,7 @@ hero wireframe 的 Linux 段只 ~25 行 best-effort 條列。實際 Linux：
 hero 已定 ASCII（duration radio + goal tag input + trust badge + cancel/start）。Linux delta：
 
 - **視窗類型**：GTK CSD（client-side decorations）真窗，**不是 macOS sheet**（Linux 無 sheet 慣例）
-- **WM_CLASS**: `phantom-mesh`（per SPEC-45 §7.1 `LinuxScreenSpec`） — 讓 tiling WM rule 認得
+- **WM_CLASS**: `spectyn-mesh`（per SPEC-45 §7.1 `LinuxScreenSpec`） — 讓 tiling WM rule 認得
 - **預設大小**: 480×320px，min 400×280px
 - **decorations: true**（GTK CSD per SPEC-45 §3.2 NG4 — 不自家畫 titlebar）
 - **theme follow**: `prefers-color-scheme` media query（per SPEC-45 G4） — GTK 切深淺色 5s 內跟著切；webkit2gtk < 2.40 fallback light
@@ -65,11 +65,11 @@ Linux 跟 iOS / Android / macOS 都不同：**PulseAudio / PipeWire 不會 OS-le
        ▼
 [B'. No-mic error 卡（覆蓋 Start window 或主畫面）]
 ┌────────────────────────────┐
-│  [mic-off icon]            │  Lucide mic-off, phantom-danger
+│  [mic-off icon]            │  Lucide mic-off, spectyn-danger
 │                            │
 │  找不到麥克風裝置           │  title（取 `focus.err.no_mic`）
 │                            │
-│  請檢查系統音訊設定         │  body, phantom-muted
+│  請檢查系統音訊設定         │  body, spectyn-muted
 │                            │
 │ ┌────────────────────────┐ │  Open-settings btn → exec `pavucontrol` 或
 │ │  打開音訊設定           │ │  `kcmshell5 kcm_pulseaudio`（依 DE 偵測）
@@ -86,13 +86,13 @@ Linux 跟 iOS / Android / macOS 都不同：**PulseAudio / PipeWire 不會 OS-le
 版型同 hero（計時器 / waveform / pause-stop / chunk count / trust badge）。Delta：
 
 - **icon set**: Lucide（mic / pause / square stop / folder）
-- **theme**: 跟桌面 dark/light 走 — recording accent `phantom-warning` 不變
+- **theme**: 跟桌面 dark/light 走 — recording accent `spectyn-warning` 不變
 - **tray icon 同步狀態**（best-effort，DE 相依）：
-  - idle: Lucide `mic` 16×16 phantom-muted
-  - recording: Lucide `mic` 16×16 phantom-warning
-  - paused: Lucide `mic-off` 16×16 phantom-muted
+  - idle: Lucide `mic` 16×16 spectyn-muted
+  - recording: Lucide `mic` 16×16 spectyn-warning
+  - paused: Lucide `mic-off` 16×16 spectyn-muted
 - **沒有鎖屏卡**（per hero NG6 + SPEC-45 §12.1） — Linux 無「lock-screen now-playing」統一介面（loginctl 不對等 macOS MPRemote / Win SMTC）
-- **沒有 FG-service 通知對等品**（systemd `--user` phantom.service 在 background 跑、不是 Android FGS 概念）
+- **沒有 FG-service 通知對等品**（systemd `--user` spectyn.service 在 background 跑、不是 Android FGS 概念）
 
 ## 螢幕 C-tray — Tray right-click menu（best-effort，DE 相依）
 
@@ -104,13 +104,13 @@ Linux 跟 iOS / Android / macOS 都不同：**PulseAudio / PipeWire 不會 OS-le
 │ ⏹ 停止並收工              │  Recording 期間最高優先（取 `focus.btn.stop_finalize`）
 │ ⏸ 暫停                    │  取 `focus.btn.pause`
 │ ──                        │
-│ Open Phantom Mesh         │
+│ Open Spectyn Mesh         │
 └──────────────────────────┘
 ```
 
 - **跟 mac / Win tray 結構同**（per hero macOS C / Windows C ASCII，invariants 鎖 stop 在 pause 上方）
 - **GNOME 無預設 tray 情境**：tray menu 不存在 → user 從 main window Focus tab 內按鈕停（per SPEC-45 §6.4 onboarding step 4 已提示「請裝 appindicatorsupport」）
-- **Sway / i3wm 情境**：tray 行為依 swaybar / i3bar 配置，本檔不畫專屬 frame；CLI fallback `phantom-mesh-app --focus-stop`（v0.7+ 確認）
+- **Sway / i3wm 情境**：tray 行為依 swaybar / i3bar 配置，本檔不畫專屬 frame；CLI fallback `spectyn-mesh-app --focus-stop`（v0.7+ 確認）
 
 ## 螢幕 C' — Interrupted sub-state（desktop 無專屬 UI 變體）
 
@@ -126,7 +126,7 @@ Linux interrupt 觸發點（跟 mac / Win 不同）：
 ```
 [Linux libnotify (D-Bus org.freedesktop.Notifications) — interrupted]
 ┌─────────────────────────────────────┐
-│ [icon mono]  Phantom Mesh 焦點時段中斷│  summary 取 `focus.desktop.interrupt_notif_title`
+│ [icon mono]  Spectyn Mesh 焦點時段中斷│  summary 取 `focus.desktop.interrupt_notif_title`
 │                                     │
 │ 5:23 / 25:00 · mic 被佔用            │  body line 1（依 interrupt 來源動態填）
 │ 30 秒內回復將自動繼續                │  body line 2（取 `focus.interrupted.resume_hint`）
@@ -144,7 +144,7 @@ Linux interrupt 觸發點（跟 mac / Win 不同）：
 
 - **D（lock-screen）不存在**（per hero NG6） — Linux 無對等品
 - **E Finalizing** 同 hero E（spinner + progress + partial inline）— icon 用 Lucide
-- **F Done takeaway card** 同 hero F — 落在 main window Focus tab；libnotify 同時 fire「focus session done」通知（urgency=normal、timeout 默認），點通知 → `phantom://focus/done/<session_id>` deep link → 跳回 main window 該 session
+- **F Done takeaway card** 同 hero F — 落在 main window Focus tab；libnotify 同時 fire「focus session done」通知（urgency=normal、timeout 默認），點通知 → `spectyn://focus/done/<session_id>` deep link → 跳回 main window 該 session
 
 ### libnotify Done notification 結構（per SPEC-45 §10.2.13 + mockup §452）
 
@@ -195,8 +195,8 @@ per SPEC-45 §14 跨環境差異矩陣，capture-focus 子集：
 - **無 mic perm gate** — 但 **device-error 螢幕 B' 必須存在**（取代 perm denied）
 - **libnotify body 不含 PII**（per SPEC-45 §12.1 + STRIDE Information Disclosure 緩解）
 - **theme follow desktop dark/light**（5s 內切，per SPEC-45 G4）— webkit2gtk < 2.40 降級 light
-- **WM_CLASS / `StartupWMClass=phantom-mesh`** 必須設（tiling WM rule 認得）
-- **`phantom-mesh-chip` WM_CLASS 不適用 focus**（focus 走 main window，不浮動小視窗）
+- **WM_CLASS / `StartupWMClass=spectyn-mesh`** 必須設（tiling WM rule 認得）
+- **`spectyn-mesh-chip` WM_CLASS 不適用 focus**（focus 走 main window，不浮動小視窗）
 
 ## 6 大資料狀態 — Linux 對映表
 
@@ -221,9 +221,9 @@ per SPEC-45 §14 跨環境差異矩陣，capture-focus 子集：
 
 ## 開放問題（Linux 層面，剩餘）
 
-1. **Sway / i3wm tiling 下 main window 被 tile**：focus session 期間 main window 可能被 tile 化（被當作普通 window 排版）。是否在 `.desktop` 加 `StartupWMClass=phantom-mesh-focus` 子類別讓 user 寫 sway rule float？提案：暫不細分，沿用主 WM_CLASS。
+1. **Sway / i3wm tiling 下 main window 被 tile**：focus session 期間 main window 可能被 tile 化（被當作普通 window 排版）。是否在 `.desktop` 加 `StartupWMClass=spectyn-mesh-focus` 子類別讓 user 寫 sway rule float？提案：暫不細分，沿用主 WM_CLASS。
 2. **`gnome-control-center` deep link DE-specific 偵測 fallback**：B' device-error 卡上「打開音訊設定」按鈕在罕見 DE（如 LXQt / Budgie）測不到對應 binary 時，是否只顯示文字提示還是 fallback `xdg-open`？提案：fallback `xdg-open audio:///`（若 URI scheme handler 存在）→ 不存在則 disable 按鈕。
-3. **libnotify `critical` urgency 在 dunst / mako 不支援 actions** 時的二級救濟：點 body 是否可帶 D-Bus signal 回 phantom？目前仰賴 `default` action — 部分 compositor 不 fire。Mitigation：tray icon 同步切 attention 變體 + main window 加 prompt（v0.7+ 補完整鏈）。
+3. **libnotify `critical` urgency 在 dunst / mako 不支援 actions** 時的二級救濟：點 body 是否可帶 D-Bus signal 回 spectyn？目前仰賴 `default` action — 部分 compositor 不 fire。Mitigation：tray icon 同步切 attention 變體 + main window 加 prompt（v0.7+ 補完整鏈）。
 4. **whisper.cpp CPU-only fallback on old hardware**：若 user 機器無 AVX2 / GPU offload，whisper.cpp tiny model 跑 5min audio 可能 > 3min — 是否提示「ASR 比預期久」？提案：takes_longer hint 已在 `focus.finalizing.taking_longer` key，主鏈 reused 即可、不畫 Linux 專屬 frame。
 
 → 互動 timing / 手勢 / sway rule docs 細節歸 Linux prototype（待補）。

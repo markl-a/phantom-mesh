@@ -1,12 +1,12 @@
 // Tauri command for the Dashboard's life-log stats card — app counterpart of
-// the TUI `/stats` + CLI `phantom data stats` (BIG-GOAL P2 Life Track).
+// the TUI `/stats` + CLI `spectyn data stats` (BIG-GOAL P2 Life Track).
 // Wraps life_node::data_cli::compute_stats over the shared event store.
 // Read-only; encrypted events count only when the key is present.
 
 use serde::Serialize;
 
-use phantom_mesh::life_node::data_cli::{compute_stats, delete_event, run_export, ExportFormat};
-use phantom_mesh::life_node::recall::{RecallFilter, RecallMode};
+use spectyn_mesh::life_node::data_cli::{compute_stats, delete_event, run_export, ExportFormat};
+use spectyn_mesh::life_node::recall::{RecallFilter, RecallMode};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,9 +39,9 @@ pub async fn life_stats() -> Result<LifeStatsView, String> {
     })
 }
 
-/// Export Life Node events to `~/.phantom-mesh/exports/life-export-<ts>.<ext>`
+/// Export Life Node events to `~/.spectyn-mesh/exports/life-export-<ts>.<ext>`
 /// (JSON or Markdown) and return the written path + event count. App counterpart
-/// of `phantom data export`. Optional `kind` (food/focus/habit/text) and `since`
+/// of `spectyn data export`. Optional `kind` (food/focus/habit/text) and `since`
 /// (YYYY-MM-DD) narrow the export. Writes to a fixed dir (no save-dialog plugin).
 #[tauri::command]
 pub async fn data_export(
@@ -66,7 +66,7 @@ pub async fn data_export(
         mode: RecallMode::Keyword,
     };
     let res = run_export(&home, fmt, &filter).map_err(|e| format!("data_export.failed: {e}"))?;
-    let dir = home.join(".phantom-mesh").join("exports");
+    let dir = home.join(".spectyn-mesh").join("exports");
     std::fs::create_dir_all(&dir).map_err(|e| format!("data_export.mkdir: {e}"))?;
     let suffix = kind.as_deref().map(|k| format!("-{k}")).unwrap_or_default();
     let path = dir.join(format!(
@@ -81,7 +81,7 @@ pub async fn data_export(
 
 /// Delete a single Life Node event by id (or unambiguous prefix). Permanently
 /// removes the event directory from the store — BIG-GOAL reversibility: your
-/// data is yours to remove, one entry at a time. App counterpart of `phantom
+/// data is yours to remove, one entry at a time. App counterpart of `spectyn
 /// data delete <event-id>`. Returns the full id of the deleted event; errors on
 /// empty / no-match / ambiguous-prefix so the UI can surface why nothing went.
 #[tauri::command]
@@ -95,7 +95,7 @@ pub async fn event_delete(event_id: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn open_exports_folder() -> Result<String, String> {
     let home = dirs::home_dir().ok_or_else(|| "open_exports.no_home_dir".to_string())?;
-    let dir = home.join(".phantom-mesh").join("exports");
+    let dir = home.join(".spectyn-mesh").join("exports");
     std::fs::create_dir_all(&dir).map_err(|e| format!("open_exports.mkdir: {e}"))?;
     let opener = if cfg!(target_os = "macos") {
         "open"

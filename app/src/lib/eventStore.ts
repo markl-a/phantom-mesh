@@ -37,14 +37,14 @@ export async function searchEvents(query: string, limit = 20): Promise<string[]>
   return Array.isArray(res) ? res : [];
 }
 
-/** Quick text-note capture → new event id. App twin of `/note` + `phantom
+/** Quick text-note capture → new event id. App twin of `/note` + `spectyn
  *  note`; writes a kind="note" Life Node event to the shared store. */
 export async function captureNote(text: string, tags?: string[]): Promise<string | null> {
   const res = await invoke<string>("note_capture", { text, tags: tags ?? null });
   return typeof res === "string" && res ? res : null;
 }
 
-/** Delete a single event by id (BIG-GOAL reversibility). App twin of `phantom
+/** Delete a single event by id (BIG-GOAL reversibility). App twin of `spectyn
  *  data delete <event-id>`. Resolves to the deleted id, or throws the typed
  *  error string (event_delete.failed: …) for the UI to surface. */
 export async function deleteEvent(eventId: string): Promise<string> {
@@ -52,7 +52,7 @@ export async function deleteEvent(eventId: string): Promise<string> {
 }
 
 /** One event's full detail — metadata + decrypted LLM analysis. App twin of
- *  `phantom event show <id>`. Analysis fields are null when the event has no
+ *  `spectyn event show <id>`. Analysis fields are null when the event has no
  *  analysis.json (or it's locked without the identity key). */
 export interface EventDetail {
   eventId: string;

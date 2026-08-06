@@ -27,14 +27,14 @@ wireframe 鎖了版型 + shame-free 契約；本檔鎖會影響觀感的視覺�
 
 | Token | Hex | coach 用途 |
 |---|---|---|
-| `phantom-bg` | `#0f0f1a` | Coach tab 背景 |
-| `phantom-card` | `#1a1a2e` | 回顧卡背景 |
-| `phantom-card-warm` | `#221a2e`（card 偏紫暖 8%） | **tomorrow-action 區塊背景** — 跟事件摘要區（冷）區隔，給「建議」一點溫度 |
-| `phantom-primary` | `#8ab4f8` | tomorrow-action 強調字、retry 鈕 |
-| `phantom-success` | `#81c995` | 正向觀察（非必要、克制用） |
-| `phantom-muted` | `#6b6b80` | footnote、醫療免責、日期 |
+| `spectyn-bg` | `#0f0f1a` | Coach tab 背景 |
+| `spectyn-card` | `#1a1a2e` | 回顧卡背景 |
+| `spectyn-card-warm` | `#221a2e`（card 偏紫暖 8%） | **tomorrow-action 區塊背景** — 跟事件摘要區（冷）區隔，給「建議」一點溫度 |
+| `spectyn-primary` | `#8ab4f8` | tomorrow-action 強調字、retry 鈕 |
+| `spectyn-success` | `#81c995` | 正向觀察（非必要、克制用） |
+| `spectyn-muted` | `#6b6b80` | footnote、醫療免責、日期 |
 
-→ **不用 `phantom-danger` / `phantom-warning`**（紅 / 橘）任何地方 — coach 回顧沒有「錯誤」或「警告」語意，全程暖中性。
+→ **不用 `spectyn-danger` / `spectyn-warning`**（紅 / 橘）任何地方 — coach 回顧沒有「錯誤」或「警告」語意，全程暖中性。
 
 ## 文案 keys（per SPEC-05 i18n；shame-free 終值）
 
@@ -59,10 +59,10 @@ wireframe 鎖了版型 + shame-free 契約；本檔鎖會影響觀感的視覺�
 
 | 角色 | Lucide icon | 用途 |
 |---|---|---|
-| 醫療免責 | `info` | disclaimer 行首，14px phantom-muted |
-| 明日行動 | `sparkle` | action 區標頭，16px phantom-primary（「靈感」感，非「待辦」checkbox） |
+| 醫療免責 | `info` | disclaimer 行首，14px spectyn-muted |
+| 明日行動 | `sparkle` | action 區標頭，16px spectyn-primary（「靈感」感，非「待辦」checkbox） |
 | 歷史 | `history` | 歷史回顧鈕，16px |
-| 沒幫助 | `thumbs-down` | feedback，14px phantom-muted（小、不搶戲） |
+| 沒幫助 | `thumbs-down` | feedback，14px spectyn-muted（小、不搶戲） |
 | 再想一個 | `refresh-cw` | retry，14px |
 
 **刻意不用** `check-square` / `alert` — action 不是「待辦清單」（壓力），是「邀請嘗試」。
@@ -73,20 +73,20 @@ wireframe 鎖了版型 + shame-free 契約；本檔鎖會影響觀感的視覺�
 +--------------------------------------------------+
 |  5/27 (二) 的回顧                                |   date 16px text-primary
 |                                                  |
-|  昨天你：                                        |   events_header 13px phantom-muted
+|  昨天你：                                        |   events_header 13px spectyn-muted
 |   水 6 . 專注 45 分 . 冥想 1 . 午餐 ~540 kcal     |   events 14px text-secondary（事實、冷靜）
 |                                                  |
-|  觀察：                                          |   observations_header 13px phantom-muted
+|  觀察：                                          |   observations_header 13px spectyn-muted
 |   下午 3 點後沒再喝水 . 專注都在早上             |   14px text-primary
 |  ................................................|
-|  +----------------------------------------------+|   <- phantom-card-warm 暖塊
-|  | (sparkle) 今天試一個小動作：                 ||   action_header phantom-primary
+|  +----------------------------------------------+|   <- spectyn-card-warm 暖塊
+|  | (sparkle) 今天試一個小動作：                 ||   action_header spectyn-primary
 |  |   下午 3 點放一杯水在桌上                     ||   action 15px text-primary（最大、最暖）
 |  +----------------------------------------------+|
 |                                                  |
-|  [history] 看歷史回顧            [thumbs-down]   |   底列 phantom-muted 小鈕
-|  (info) 這是陪伴不是醫療建議                      |   disclaimer 12px phantom-muted
-|  ......... 21:03 由 Claude 產出 · $0.012 ........|   footnote 11px phantom-muted（最低調）
+|  [history] 看歷史回顧            [thumbs-down]   |   底列 spectyn-muted 小鈕
+|  (info) 這是陪伴不是醫療建議                      |   disclaimer 12px spectyn-muted
+|  ......... 21:03 由 Claude 產出 · $0.012 ........|   footnote 11px spectyn-muted（最低調）
 +--------------------------------------------------+
 ```
 
@@ -105,8 +105,8 @@ wireframe 鎖了版型 + shame-free 契約；本檔鎖會影響觀感的視覺�
 action 暖塊換成：
 ```
 |  +----------------------------------------------+|
-|  | 今天的回顧好了，建議還在想...                ||   coach.action_cooking，phantom-muted 斜體
-|  | [refresh-cw] 再想一個建議                    ||   retry 鈕 phantom-primary
+|  | 今天的回顧好了，建議還在想...                ||   coach.action_cooking，spectyn-muted 斜體
+|  | [refresh-cw] 再想一個建議                    ||   retry 鈕 spectyn-primary
 |  +----------------------------------------------+|
 ```
 - events + observations 仍正常顯示（只 action 區降級）
@@ -117,8 +117,8 @@ action 暖塊換成：
 
 ```
 |  昨天沒有記錄                                    |   empty.title 16px，中性
-|  記一餐 / 一段專注 / 一個習慣，明天就有回顧了     |   empty.body 14px phantom-muted
-|  [ 記一餐 ]  [ 開始專注 ]  [ 打卡習慣 ]          |   3 個 phantom-primary outline 鈕 → 深連結
+|  記一餐 / 一段專注 / 一個習慣，明天就有回顧了     |   empty.body 14px spectyn-muted
+|  [ 記一餐 ]  [ 開始專注 ]  [ 打卡習慣 ]          |   3 個 spectyn-primary outline 鈕 → 深連結
 ```
 - 空狀態插畫（可選）：一個淡色 `sparkle` outline，**不畫哭臉 / 空盤子**（避自責暗示）
 
@@ -126,7 +126,7 @@ action 暖塊換成：
 
 ```xml
 <toast scenario="reminder" activationType="protocol"
-       launch="phantom-mesh://coach/review?id={review_id}">
+       launch="spectyn-mesh://coach/review?id={review_id}">
   <visual><binding template="ToastGeneric">
     <text>今天的回顧好了</text>
     <text>{one_line_action} . 點開看看</text>

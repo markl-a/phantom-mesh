@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate that `phantom mcp` (the stdio MCP server) is healthy enough to be
+# Validate that `spectyn mcp` (the stdio MCP server) is healthy enough to be
 # used as a subagent provider by Claude Code and Codex CLI.
 #
 # Checks (in order):
@@ -10,13 +10,13 @@
 #      (this is the regression check for init_global() in the mcp path)
 #
 # Usage:
-#   ./scripts/validate-mcp.sh                       # uses ~/.cargo/bin/phantom
-#   PHANTOM_BIN=/path/to/phantom ./scripts/validate-mcp.sh
+#   ./scripts/validate-mcp.sh                       # uses ~/.cargo/bin/spectyn
+#   SPECTYN_BIN=/path/to/spectyn ./scripts/validate-mcp.sh
 #
 # Exit codes: 0 = healthy, 1 = any check failed.
 
 set -u
-BIN="${PHANTOM_BIN:-$HOME/.cargo/bin/phantom}"
+BIN="${SPECTYN_BIN:-$HOME/.cargo/bin/spectyn}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -24,7 +24,7 @@ ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; }
 fail() { printf "  \033[31m✗\033[0m %s\n" "$1"; FAILED=1; }
 FAILED=0
 
-echo "phantom mcp validate — $(date '+%Y-%m-%d %H:%M:%S')"
+echo "spectyn mcp validate — $(date '+%Y-%m-%d %H:%M:%S')"
 echo "binary: $BIN"
 
 # 1. Binary
@@ -72,20 +72,20 @@ fi
 # 5. Show registration in Claude Code + Codex (informational)
 echo ""
 echo "registration status:"
-if grep -q '"phantom"' "$HOME/.claude.json" 2>/dev/null; then
-  ok "Claude Code: phantom present in ~/.claude.json"
+if grep -q '"spectyn"' "$HOME/.claude.json" 2>/dev/null; then
+  ok "Claude Code: spectyn present in ~/.claude.json"
 else
-  fail "Claude Code: phantom NOT in ~/.claude.json — run: claude mcp add phantom $BIN mcp"
+  fail "Claude Code: spectyn NOT in ~/.claude.json — run: claude mcp add spectyn $BIN mcp"
 fi
-if grep -q '\[mcp_servers.phantom\]' "$HOME/.codex/config.toml" 2>/dev/null; then
-  ok "Codex: [mcp_servers.phantom] present in ~/.codex/config.toml"
+if grep -q '\[mcp_servers.spectyn\]' "$HOME/.codex/config.toml" 2>/dev/null; then
+  ok "Codex: [mcp_servers.spectyn] present in ~/.codex/config.toml"
 else
-  fail "Codex: [mcp_servers.phantom] NOT in ~/.codex/config.toml — run: codex mcp add phantom -- $BIN mcp"
+  fail "Codex: [mcp_servers.spectyn] NOT in ~/.codex/config.toml — run: codex mcp add spectyn -- $BIN mcp"
 fi
 
 echo ""
 if [ "$FAILED" = 0 ]; then
-  echo "✅ all checks passed — phantom is callable as a subagent from Claude Code and Codex."
+  echo "✅ all checks passed — spectyn is callable as a subagent from Claude Code and Codex."
   exit 0
 else
   echo "❌ some checks failed — see messages above."

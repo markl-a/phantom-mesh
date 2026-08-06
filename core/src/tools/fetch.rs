@@ -43,7 +43,7 @@ pub async fn fetch_url(args: &Value) -> String {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .redirect(reqwest::redirect::Policy::limited(5))
-        .user_agent("Mozilla/5.0 (compatible; phantom-mesh/0.1)")
+        .user_agent("Mozilla/5.0 (compatible; spectyn-mesh/0.1)")
         .build()
     {
         Ok(c) => c,

@@ -30,7 +30,7 @@
 #      met (e.g. daemon running) or non-zero with a one-line reason on stderr
 #      to skip the whole feature.
 #
-# Globals provided by the orchestrator: PHANTOM, COORD, TMP, SELFTEST_LOG,
+# Globals provided by the orchestrator: SPECTYN, COORD, TMP, SELFTEST_LOG,
 # SELFTEST_FEATURE, SELFTEST_ARTIFACTS (per-feature dir, already created).
 
 # ── log writer ────────────────────────────────────────────────────────────────

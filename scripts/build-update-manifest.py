@@ -18,7 +18,7 @@ shape Tauri's plugin-updater expects:
 
 Required env vars:
   TAG     — git tag, e.g. "v0.1.0"
-  REPO    — owner/repo, e.g. "markl-a/phantom-mesh"
+  REPO    — owner/repo, e.g. "markl-a/spectyn-mesh"
   GH_TOKEN — passed to `gh` CLI (set by GitHub Actions automatically)
 
 Optional:
@@ -90,7 +90,7 @@ def read_sig(tag: str, sig_name: str) -> str:
 
 
 def encode_url_path(name: str) -> str:
-    # Bundle filenames may contain spaces ("Phantom Mesh_..."), encode them.
+    # Bundle filenames may contain spaces ("Spectyn Mesh_..."), encode them.
     return name.replace(" ", "%20")
 
 

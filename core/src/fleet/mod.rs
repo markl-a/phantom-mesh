@@ -49,9 +49,9 @@ pub struct FleetConfig {
 }
 
 impl FleetConfig {
-    /// Load from `~/.phantom-mesh/fleet.toml`, or an empty config if absent.
+    /// Load from `~/.spectyn-mesh/fleet.toml`, or an empty config if absent.
     pub fn load() -> anyhow::Result<Self> {
-        let dir = crate::cli_config::phantom_data_dir()?;
+        let dir = crate::cli_config::spectyn_data_dir()?;
         let p = dir.join("fleet.toml");
         if !p.exists() {
             return Ok(FleetConfig { repo: vec![] });
@@ -80,8 +80,8 @@ mod tests {
 
     #[test]
     fn fleet_config_parses_repo_roots() {
-        let toml = "[[repo]]\nname = \"phantom-quant\"\npath = \"D:/Projects/phantom-quant\"\n";
+        let toml = "[[repo]]\nname = \"spectyn-quant\"\npath = \"D:/Projects/spectyn-quant\"\n";
         let cfg: FleetConfig = toml::from_str(toml).unwrap();
-        assert_eq!(cfg.repo[0].name, "phantom-quant");
+        assert_eq!(cfg.repo[0].name, "spectyn-quant");
     }
 }

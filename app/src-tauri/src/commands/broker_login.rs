@@ -1,28 +1,28 @@
-// Broker login — phantom-mesh iOS / Tauri equivalent of `phantom login`.
+// Broker login — spectyn-mesh iOS / Tauri equivalent of `spectyn login`.
 //
-// Desktop CLI's login_broker() at core/src/bin/phantom.rs:5540 starts a
+// Desktop CLI's login_broker() at core/src/bin/spectyn.rs:5540 starts a
 // localhost HTTP server on :48181 to catch the OAuth callback, but iOS
 // sandbox blocks loopback. Instead the iOS app:
 //
 //   1. broker_login_start(broker_url) generates a device_id + a
-//      `phantom://oauth/callback` redirect URI, returns the Safari URL
+//      `spectyn://oauth/callback` redirect URI, returns the Safari URL
 //      to navigate to (`<broker>/auth/cli/start?...`).
 //   2. JS layer opens it via tauri-plugin-shell::open() — that hands off
 //      to Mobile Safari / system browser.
 //   3. User completes Google / Apple / email login on phantommesh.io.
-//      Broker meta-refreshes browser to phantom://oauth/callback?p=<b64>.
+//      Broker meta-refreshes browser to spectyn://oauth/callback?p=<b64>.
 //   4. iOS routes that URL to the app via tauri-plugin-deep-link's
 //      onOpenUrl handler (registered in lib.rs setup()), which emits a
 //      `deep-link://oauth-callback` event.
 //   5. JS layer's listener extracts the `p=<b64>` query, calls
 //      broker_login_finish(b64) which decodes UTF-8 base64 → identity
-//      JSON → AuthState → phantom_mesh::auth::save().
+//      JSON → AuthState → spectyn_mesh::auth::save().
 //
-// Server side accepts `phantom://oauth/callback` thanks to PR #15
-// (REDIRECT_RE extension on phantommesh-io/src/routes/oauth.ts:15).
+// Server side accepts `spectyn://oauth/callback` thanks to PR #15
+// (REDIRECT_RE extension on spectynmesh-io/src/routes/oauth.ts:15).
 
 use base64::Engine;
-use phantom_mesh::auth;
+use spectyn_mesh::auth;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -31,14 +31,14 @@ use subtle::ConstantTimeEq;
 // ── Client-side OAuth state binding (V8 C-2 fix) ─────────────────────────
 //
 // Background: the broker correctly issues + verifies an HMAC-bound nonce
-// cookie on its own side (see phantommesh-io/src/routes/oauth.ts:54-65),
+// cookie on its own side (see spectynmesh-io/src/routes/oauth.ts:54-65),
 // so the OAuth dance from `accounts.google.com` back into `phantommesh.io`
-// is CSRF-safe. But the final hop — broker → `phantom://oauth/callback?p=…`
+// is CSRF-safe. But the final hop — broker → `spectyn://oauth/callback?p=…`
 // → Tauri deep-link handler → `broker_login_finish` — has no such binding.
-// Any process or webpage that can deliver a `phantom://oauth/callback?p=…`
-// URL to the OS (another installed iOS app, an HTML `<a href="phantom://…">`,
+// Any process or webpage that can deliver a `spectyn://oauth/callback?p=…`
+// URL to the OS (another installed iOS app, an HTML `<a href="spectyn://…">`,
 // a malicious Slack/email link) used to be enough to make the running app
-// silently overwrite `~/.phantom-mesh/auth.json` with an attacker payload
+// silently overwrite `~/.spectyn-mesh/auth.json` with an attacker payload
 // and then immediately sync the attacker's vault keys.
 //
 // Fix: `broker_login_start` generates a 32-byte random `client_state`,
@@ -53,7 +53,7 @@ use subtle::ConstantTimeEq;
 // pending state is cleared so a stale handle can't be replayed.
 //
 // Note on cold-start deep-links: if iOS / Android cold-launches the app
-// because the user tapped a `phantom://oauth/callback?p=…` link, there's
+// because the user tapped a `spectyn://oauth/callback?p=…` link, there's
 // no in-memory pending state, so `broker_login_finish` rejects it. That
 // is the correct security posture — the broker session is 5-min TTL on
 // the server side anyway, so a "click email link tomorrow" flow was never
@@ -63,16 +63,16 @@ const PENDING_TTL: Duration = Duration::from_secs(600); // 10 min
 
 // ── Deep-link URL validation (V8-HIGH-5) ─────────────────────────────────
 //
-// Background: tauri-plugin-deep-link registers the broad `phantom://`
+// Background: tauri-plugin-deep-link registers the broad `spectyn://`
 // scheme at the OS layer (see `tauri.conf.json` "plugins.deep-link" and
-// `Info.plist` CFBundleURLSchemes). The OS routes EVERY `phantom://*` URL
+// `Info.plist` CFBundleURLSchemes). The OS routes EVERY `spectyn://*` URL
 // to our `on_open_url` handler regardless of path. The previous handler
 // in `lib.rs:127-133` emitted every received URL to the JS layer
 // unconditionally, expanding the "deep-link API surface" to whatever
 // front-end listeners happened to be attached.
 //
 // Fix: filter URLs at the Rust layer to the single legitimate shape we
-// know about — `phantom://oauth/callback?p=<base64url>[&state=<b64url>]`
+// know about — `spectyn://oauth/callback?p=<base64url>[&state=<b64url>]`
 // — and reject (a) any other path, (b) any query key other than `p`/`state`,
 // (c) any `p` value longer than `MAX_PAYLOAD_B64_LEN` (real broker
 // payloads are ~1 KB; we cap at 16 KiB so a hostile peer can't try to
@@ -88,7 +88,7 @@ const PENDING_TTL: Duration = Duration::from_secs(600); // 10 min
 /// can't burn IPC bandwidth + JSON parsing time on multi-MB blobs.
 const MAX_PAYLOAD_B64_LEN: usize = 16 * 1024;
 
-/// Whether a key is allowed in the `phantom://oauth/callback` query
+/// Whether a key is allowed in the `spectyn://oauth/callback` query
 /// string. Anything else triggers a reject — both for defense-in-depth
 /// (the broker never adds keys other than these) and to make the
 /// callback URL surface fully enumerable from one place.
@@ -106,11 +106,11 @@ pub struct ParsedCallback {
     pub state: Option<String>,
 }
 
-/// Validate an inbound `phantom://oauth/callback` URL string. Returns
+/// Validate an inbound `spectyn://oauth/callback` URL string. Returns
 /// `Ok(ParsedCallback)` only when ALL of the following hold:
-///   - scheme is `phantom://` (case-insensitive — RFC 3986 schemes are)
+///   - scheme is `spectyn://` (case-insensitive — RFC 3986 schemes are)
 ///   - authority + path normalizes to `oauth/callback` (we accept both
-///     `phantom://oauth/callback` and `phantom:oauth/callback` — the
+///     `spectyn://oauth/callback` and `spectyn:oauth/callback` — the
 ///     RFC distinguishes them but the OS deep-link layers across
 ///     iOS/Android/desktop don't, and an attacker controls neither)
 ///   - the query string contains a non-empty `p=<value>`
@@ -124,24 +124,24 @@ pub struct ParsedCallback {
 /// assertions, but it does NOT include the offending URL (avoid leaking
 /// attacker-controlled bytes into trace logs).
 pub fn validate_oauth_callback_url(url: &str) -> Result<ParsedCallback, &'static str> {
-    // 1. Scheme check. Accept both `phantom://oauth/callback?…` (host-form)
-    // and the unlikely-but-spec-legal `phantom:oauth/callback?…`. We do
+    // 1. Scheme check. Accept both `spectyn://oauth/callback?…` (host-form)
+    // and the unlikely-but-spec-legal `spectyn:oauth/callback?…`. We do
     // case-insensitive matching on just the scheme portion.
     let after_scheme = url
-        .strip_prefix("phantom://")
-        .or_else(|| url.strip_prefix("phantom:"))
+        .strip_prefix("spectyn://")
+        .or_else(|| url.strip_prefix("spectyn:"))
         .or_else(|| {
             // Case-insensitive fallback for the scheme only.
             let lower = url.to_ascii_lowercase();
-            if lower.starts_with("phantom://") {
+            if lower.starts_with("spectyn://") {
                 Some(&url[10..])
-            } else if lower.starts_with("phantom:") {
+            } else if lower.starts_with("spectyn:") {
                 Some(&url[8..])
             } else {
                 None
             }
         })
-        .ok_or("scheme must be phantom://")?;
+        .ok_or("scheme must be spectyn://")?;
 
     // 2. Split off the query (everything after the first `?`). A URL
     // with no `?` cannot be the OAuth callback (which always carries
@@ -153,13 +153,13 @@ pub fn validate_oauth_callback_url(url: &str) -> Result<ParsedCallback, &'static
 
     // Strip a trailing `/` so `oauth/callback/` and `oauth/callback`
     // both normalize. Also strip a leading `/` so the host-form
-    // (`phantom://oauth/callback`) and the path-only form
-    // (`phantom:/oauth/callback`) normalize the same way.
+    // (`spectyn://oauth/callback`) and the path-only form
+    // (`spectyn:/oauth/callback`) normalize the same way.
     let normalized_path = path_part.trim_end_matches('/').trim_start_matches('/');
 
     // 3. Path must be exactly `oauth/callback`. This rejects all other
-    // phantom://… URLs (phantom://anything, phantom://oauth/something-else,
-    // phantom://oauth/callback/extra/segments).
+    // spectyn://… URLs (spectyn://anything, spectyn://oauth/something-else,
+    // spectyn://oauth/callback/extra/segments).
     if normalized_path != "oauth/callback" {
         return Err("path must be /oauth/callback");
     }
@@ -281,12 +281,12 @@ fn clear_pending_for_tests() {
 pub struct BrokerLoginStartResponse {
     /// URL the front-end should open in the system browser. The user
     /// completes OAuth there; the broker meta-refreshes back to
-    /// phantom://oauth/callback when done.
+    /// spectyn://oauth/callback when done.
     pub auth_url: String,
     /// Persisted in case the front-end wants to display "linking
     /// device <X>…" or for diagnostics.
     pub device_id: String,
-    /// The redirect URI we registered with the broker (`phantom://...`)
+    /// The redirect URI we registered with the broker (`spectyn://...`)
     /// — informational; the broker validates it against REDIRECT_RE.
     pub redirect: String,
     /// URL-safe-base64-encoded 32-byte random state we just stashed in
@@ -333,7 +333,7 @@ fn broker_login_start_inner(
     let state: [u8; 32] = rand::random();
     let client_state = b64url_no_pad(&state);
 
-    let redirect = "phantom://oauth/callback".to_string();
+    let redirect = "spectyn://oauth/callback".to_string();
     let auth_url = format!(
         "{}/auth/cli/start?device_id={}&port=0&redirect={}&cs={}",
         broker_url,
@@ -365,12 +365,12 @@ fn broker_login_start_inner(
 }
 
 /// Decode the broker's `?p=<base64-payload>` query, build an AuthState,
-/// persist via phantom_mesh::auth::save(). Front-end should call this
-/// after extracting the `p` value from the `phantom://oauth/callback`
+/// persist via spectyn_mesh::auth::save(). Front-end should call this
+/// after extracting the `p` value from the `spectyn://oauth/callback`
 /// URL the deep-link handler emitted.
 ///
 /// Format of the decoded JSON is the CliPayload defined on
-/// phantommesh-io/src/types.ts:CliPayload.
+/// spectynmesh-io/src/types.ts:CliPayload.
 #[derive(Deserialize)]
 struct BrokerPayload {
     provider: String,
@@ -486,7 +486,7 @@ fn broker_login_finish_inner(
         // device_id matches the device_id we used to start this dance.
         // This binds the callback to our originator at least as far as
         // the broker's JWT-minting step (which IS bound to device_id;
-        // see phantommesh-io/src/lib/oauth.ts:mintBrokerJwt). The JWT
+        // see spectynmesh-io/src/lib/oauth.ts:mintBrokerJwt). The JWT
         // is HMAC-signed by the broker, so an attacker can't forge a
         // token with our device_id without the broker secret.
         let token_device_id = jwt_device_id(&payload.broker_token)
@@ -595,7 +595,7 @@ pub fn broker_login_logout() -> Result<(), String> {
 
 // ── Post-login: pull LLM keys + cluster peers from the broker vault ──────
 //
-// Mirrors the desktop CLI's `phantom config pull` step (which lives in
+// Mirrors the desktop CLI's `spectyn config pull` step (which lives in
 // core/src/cli_config.rs::config_pull_lines on platform/macos but isn't
 // in iOS's branch yet — inlined here so the iOS app has feature parity
 // without needing a deeper merge).
@@ -621,18 +621,18 @@ pub struct BrokerSyncResponse {
     pub peers: Vec<ClusterPeer>,
 }
 
-fn phantom_dir() -> std::path::PathBuf {
+fn spectyn_dir() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
 }
 
 fn env_file_path() -> std::path::PathBuf {
-    phantom_dir().join("env")
+    spectyn_dir().join("env")
 }
 
 fn peers_json_path() -> std::path::PathBuf {
-    phantom_dir().join("peers.json")
+    spectyn_dir().join("peers.json")
 }
 
 fn read_env_file(path: &std::path::Path) -> std::collections::BTreeMap<String, String> {
@@ -685,7 +685,7 @@ fn write_env_file(
 ///
 /// TODO(spec15-e2ee, blocking — do NOT remove this guard to "make it work"):
 /// the two core primitives this needs are not yet public in
-/// `phantom_mesh::broker_vault_wire`:
+/// `spectyn_mesh::broker_vault_wire`:
 ///   (a) `unseal_vault_value(...)` — read-path inverse of `seal_vault_value`
 ///       (contract §9: currently "DOES NOT EXIST — must be added").
 ///   (b) a public loader returning the locally-persisted `VaultSealKey`
@@ -731,23 +731,23 @@ fn unseal_vault_value_local(
         return Err("missing server_hmac_hex — refusing to apply unverified vault item".into());
     }
     // Load the device-held VaultSealKey (never uploaded). Fail closed if absent.
-    let seal_key = phantom_mesh::broker_vault_wire::load_vault_seal_key()?;
+    let seal_key = spectyn_mesh::broker_vault_wire::load_vault_seal_key()?;
     // Recompute the client HMAC over service‖key‖sealed‖ts_ms and require it to
     // match the broker's echoed value — CONSTANT-TIME compare to deny a timing
     // oracle that would let an attacker forge `server_hmac_hex` byte-by-byte.
-    if !phantom_mesh::broker_vault_wire::verify_client_hmac(
+    if !spectyn_mesh::broker_vault_wire::verify_client_hmac(
         &seal_key, service, key, value_sealed, ts_ms, server_hmac_hex,
     ) {
         return Err("vault item HMAC mismatch — refusing to apply (tamper or key mismatch)".into());
     }
     // Verified — unseal locally with the real read-path primitive.
-    let plaintext = phantom_mesh::broker_vault_wire::unseal_vault_value(value_sealed, &seal_key)
+    let plaintext = spectyn_mesh::broker_vault_wire::unseal_vault_value(value_sealed, &seal_key)
         .map_err(|e| format!("unseal failed: {e}"))?;
     String::from_utf8(plaintext).map_err(|e| format!("unsealed value is not UTF-8: {e}"))
 }
 
 /// SPEC-15 E2EE vault pull + GET /api/me/cluster-peers using the
-/// broker_token from saved AuthState; merge keys into ~/.phantom-mesh/env
+/// broker_token from saved AuthState; merge keys into ~/.spectyn-mesh/env
 /// (broker wins for keys it provides; locals untouched for keys it
 /// doesn't), and write peers.json. Best-effort: peers fetch failure
 /// doesn't break the keys sync.
@@ -959,7 +959,7 @@ pub async fn broker_sync_from_vault(
 }
 
 /// Diagnostic / picker UI helper — returns the cluster peer list cached
-/// in ~/.phantom-mesh/peers.json. Empty Vec when the file is missing or
+/// in ~/.spectyn-mesh/peers.json. Empty Vec when the file is missing or
 /// unparseable. Front-end calls this on app boot to decide whether to
 /// show "Pick a coordinator" before triggering thin-shell redirect.
 #[tauri::command]
@@ -1024,7 +1024,7 @@ pub async fn broker_register_self_peer(
 // These tests exercise the start → finish state binding without going
 // through Tauri's #[tauri::command] machinery. They use a private temp
 // HOME so `auth::save()` writes into the tempdir rather than the real
-// `~/.phantom-mesh/auth.json`. The tests run serially under a Mutex
+// `~/.spectyn-mesh/auth.json`. The tests run serially under a Mutex
 // because they share the process-global $HOME env var AND the
 // pending_slot() static.
 #[cfg(test)]
@@ -1040,7 +1040,7 @@ mod tests {
     static TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     /// Build a synthetic broker payload (the same shape `redirectToLoopback`
-    /// in phantommesh-io produces) and base64url-encode it. `device_id` is
+    /// in spectynmesh-io produces) and base64url-encode it. `device_id` is
     /// baked into a fake-but-shape-correct JWT in the broker_token field
     /// so the device-binding fallback can read it back out. Only used by
     /// the unix-gated tests (see `sandbox_home`).
@@ -1054,7 +1054,7 @@ mod tests {
             "sub": "42",
             "device_id": device_id,
             "iss": "phantommesh.io",
-            "aud": "phantom-cli",
+            "aud": "spectyn-cli",
         });
         let payload_seg = b64url_no_pad(claims.to_string().as_bytes());
         let sig = b64url_no_pad(b"not-a-real-signature");
@@ -1081,7 +1081,7 @@ mod tests {
     /// `$HOME` and `$USERPROFILE` — meaning a test sandbox cannot
     /// intercept `auth::save()`, and any test that calls into the
     /// real flow would clobber the developer's real
-    /// `~/.phantom-mesh/auth.json`. We therefore gate `sandbox_home`
+    /// `~/.spectyn-mesh/auth.json`. We therefore gate `sandbox_home`
     /// and every test that depends on it behind `#[cfg(unix)]`. The
     /// Windows path is exercised in higher-level integration tests
     /// (or skipped — see PR #116 func-test findings).
@@ -1101,7 +1101,7 @@ mod tests {
     }
     #[cfg(unix)]
     fn sandbox_home() -> HomeGuard {
-        let tmp = tempdir_lite::TempDir::new("phantom-broker-login-test")
+        let tmp = tempdir_lite::TempDir::new("spectyn-broker-login-test")
             .expect("tempdir create");
         let prev = std::env::var_os("HOME");
         std::env::set_var("HOME", tmp.path());
@@ -1236,7 +1236,7 @@ mod tests {
             "broker_token": "h.p.s",
         });
         let p = b64url_no_pad(body.to_string().as_bytes());
-        format!("phantom://oauth/callback?p={p}")
+        format!("spectyn://oauth/callback?p={p}")
     }
 
     #[test]
@@ -1253,18 +1253,18 @@ mod tests {
         let body = serde_json::json!({"provider": "google", "email": "x@y.z"});
         let p = b64url_no_pad(body.to_string().as_bytes());
         let s = b64url_no_pad(&[7u8; 32]);
-        let url = format!("phantom://oauth/callback?p={p}&state={s}");
+        let url = format!("spectyn://oauth/callback?p={p}&state={s}");
         let parsed = validate_oauth_callback_url(&url).expect("with state");
         assert_eq!(parsed.state.as_deref(), Some(s.as_str()));
     }
 
     #[test]
-    fn validate_rejects_non_phantom_scheme() {
+    fn validate_rejects_non_spectyn_scheme() {
         for url in [
             "https://oauth/callback?p=abc",
             "javascript://oauth/callback?p=abc",
             "file:///etc/passwd?p=abc",
-            "phantomx://oauth/callback?p=abc",
+            "spectynx://oauth/callback?p=abc",
         ] {
             let r = validate_oauth_callback_url(url);
             assert!(r.is_err(), "must reject scheme in {url:?}");
@@ -1277,11 +1277,11 @@ mod tests {
         // the whole point of the V8-HIGH-5 fix (preventing the deep-link
         // surface from expanding implicitly when new handlers attach).
         for url in [
-            "phantom://oauth/start?p=abc",
-            "phantom://settings/import?p=abc",
-            "phantom://oauth/callback/extra?p=abc",
-            "phantom://?p=abc",
-            "phantom://evil?p=abc",
+            "spectyn://oauth/start?p=abc",
+            "spectyn://settings/import?p=abc",
+            "spectyn://oauth/callback/extra?p=abc",
+            "spectyn://?p=abc",
+            "spectyn://evil?p=abc",
         ] {
             let r = validate_oauth_callback_url(url);
             assert!(r.is_err(), "must reject path in {url:?}: got {r:?}");
@@ -1293,7 +1293,7 @@ mod tests {
         // Build a `p=` value that exceeds MAX_PAYLOAD_B64_LEN by 1 byte
         // and confirm we bail BEFORE attempting to decode.
         let big = "A".repeat(MAX_PAYLOAD_B64_LEN + 1);
-        let url = format!("phantom://oauth/callback?p={big}");
+        let url = format!("spectyn://oauth/callback?p={big}");
         let r = validate_oauth_callback_url(&url);
         assert!(r.is_err(), "oversize payload must be rejected");
         assert!(
@@ -1310,7 +1310,7 @@ mod tests {
         // stays enumerable from one place.
         let body = serde_json::json!({"provider": "google", "email": "x@y.z"});
         let p = b64url_no_pad(body.to_string().as_bytes());
-        let url = format!("phantom://oauth/callback?p={p}&admin=1");
+        let url = format!("spectyn://oauth/callback?p={p}&admin=1");
         let r = validate_oauth_callback_url(&url);
         assert!(r.is_err(), "unknown query key must be rejected");
         assert!(
@@ -1322,10 +1322,10 @@ mod tests {
     #[test]
     fn validate_rejects_missing_payload() {
         // No `?p=` at all → reject; bare flag → reject; empty `?p=` → reject.
-        assert!(validate_oauth_callback_url("phantom://oauth/callback").is_err());
-        assert!(validate_oauth_callback_url("phantom://oauth/callback?").is_err());
-        assert!(validate_oauth_callback_url("phantom://oauth/callback?p=").is_err());
-        assert!(validate_oauth_callback_url("phantom://oauth/callback?p").is_err());
+        assert!(validate_oauth_callback_url("spectyn://oauth/callback").is_err());
+        assert!(validate_oauth_callback_url("spectyn://oauth/callback?").is_err());
+        assert!(validate_oauth_callback_url("spectyn://oauth/callback?p=").is_err());
+        assert!(validate_oauth_callback_url("spectyn://oauth/callback?p").is_err());
     }
 
     #[test]
@@ -1333,7 +1333,7 @@ mod tests {
         // The base64url decoder accepts a fairly broad alphabet (any of
         // A-Z, a-z, 0-9, `-`, `_`, optional `=` padding). Real garbage
         // — e.g. embedded `!` or `*` — must fail.
-        let url = "phantom://oauth/callback?p=not!valid*base64";
+        let url = "spectyn://oauth/callback?p=not!valid*base64";
         let r = validate_oauth_callback_url(url);
         assert!(r.is_err(), "garbage payload must be rejected: {r:?}");
     }

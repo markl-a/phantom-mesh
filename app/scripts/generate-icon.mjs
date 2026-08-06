@@ -1,12 +1,12 @@
 /**
- * Generate Phantom Mesh icon — Dark mechanical mask v2
+ * Generate Spectyn Mesh icon — Dark mechanical mask v2
  * Sharp angular mask, tall pointed horns, bright cyan eyes, visible mesh/circuit below
  */
 import sharp from 'sharp';
 
 const SIZE = 1024;
 
-function generatePhantomMaskSVG() {
+function generateSpectynMaskSVG() {
   let seed = 77;
   function rand() {
     seed = (seed * 1664525 + 1013904223) & 0x7fffffff;
@@ -286,7 +286,7 @@ function generatePhantomMaskSVG() {
   return svg;
 }
 
-const svg = generatePhantomMaskSVG();
+const svg = generateSpectynMaskSVG();
 
 async function main() {
   const iconDir = new URL('../src-tauri/icons/', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
@@ -298,7 +298,7 @@ async function main() {
   await writeFile(`${iconDir}/icon-source.png`, masterPng);
   await writeFile(`${iconDir}/app-icon.png`, masterPng);
   await writeFile(`${iconDir}/icon.png`, masterPng);
-  console.log('✅ Phantom Mesh mask icon v2 generated');
+  console.log('✅ Spectyn Mesh mask icon v2 generated');
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

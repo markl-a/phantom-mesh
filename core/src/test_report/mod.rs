@@ -531,7 +531,7 @@ fn collect_rs(dir: &Path, f: &mut dyn FnMut(&Path)) {
     }
 }
 
-/// `phantom test gate map --check` backing: collect every non-manual check whose
+/// `spectyn test gate map --check` backing: collect every non-manual check whose
 /// target is `Unresolved`. Empty result ⇒ the gate-map does not rot. (Used by CLI
 /// in Task 9 + the `T-testing-gate-map-resolves` meta-test.)
 pub fn lint_gate_map(map: &GateMap, repo_root: &Path) -> Vec<String> {
@@ -726,7 +726,7 @@ fn status_label(s: GateStatus) -> &'static str {
     }
 }
 
-/// Render the human `phantom test report` table (ASCII, OSS-safe — gate names +
+/// Render the human `spectyn test report` table (ASCII, OSS-safe — gate names +
 /// repo-relative ids only, no host/IP/path leak).
 pub fn render_table(report: &ShipGateReport) -> String {
     let mut out = String::new();

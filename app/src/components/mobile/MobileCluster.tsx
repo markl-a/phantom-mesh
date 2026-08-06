@@ -29,10 +29,10 @@ function Skeleton() {
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 animate-pulse"
+          className="bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5 animate-pulse"
         >
-          <div className="h-3 w-24 bg-phantom-border rounded" />
-          <div className="mt-2 h-2 w-40 bg-phantom-border/60 rounded" />
+          <div className="h-3 w-24 bg-spectyn-border rounded" />
+          <div className="mt-2 h-2 w-40 bg-spectyn-border/60 rounded" />
         </div>
       ))}
     </div>
@@ -42,10 +42,10 @@ function Skeleton() {
 function EmptyState() {
   return (
     <div
-      className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-sm text-phantom-muted text-center"
+      className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-sm text-spectyn-muted text-center"
       data-testid="peers-empty"
     >
-      <p className="mb-1 text-phantom-text">No peers discovered yet</p>
+      <p className="mb-1 text-spectyn-text">No peers discovered yet</p>
       <p>
         No peers configured — see Settings → Cluster to sign in to a broker, or
         make sure your other devices are on the same network.
@@ -62,12 +62,12 @@ function ErrorState({ message }: { message: string }) {
       : message;
   return (
     <div
-      className="bg-phantom-card border border-phantom-danger/40 rounded-lg p-4 text-sm text-phantom-text"
+      className="bg-spectyn-card border border-spectyn-danger/40 rounded-lg p-4 text-sm text-spectyn-text"
       data-testid="peers-error"
       role="alert"
     >
       <p className="font-medium mb-1">Couldn't load peers</p>
-      <p className="text-phantom-muted">{friendly}</p>
+      <p className="text-spectyn-muted">{friendly}</p>
     </div>
   );
 }
@@ -127,10 +127,10 @@ export default function MobileCluster() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      <div className="px-4 py-3 flex items-center justify-between border-b border-phantom-border">
+      <div className="px-4 py-3 flex items-center justify-between border-b border-spectyn-border">
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-phantom-text">Cluster</span>
-          <span className="text-phantom-muted">
+          <span className="text-spectyn-text">Cluster</span>
+          <span className="text-spectyn-muted">
             {onlineCount}/{peers.length} online
           </span>
         </div>
@@ -139,7 +139,7 @@ export default function MobileCluster() {
           onClick={() => {
             void refresh();
           }}
-          className="text-phantom-muted hover:text-phantom-text p-2 -m-2"
+          className="text-spectyn-muted hover:text-spectyn-text p-2 -m-2"
           aria-label="refresh peers"
         >
           <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />

@@ -17,7 +17,7 @@ fn main() {
 #[cfg(feature = "experimental-tools")]
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 #[cfg(feature = "experimental-tools")]
-use phantom_mesh::skillbank::tools::{catalog, SkillTool};
+use spectyn_mesh::skillbank::tools::{catalog, SkillTool};
 
 /// Linear-scan lookup — the only API the catalog currently exposes.
 /// Returns the tool's index in the Vec, or None.

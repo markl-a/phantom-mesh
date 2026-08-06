@@ -4,7 +4,7 @@
 //! file is gated so it's a no-op on default-feature CI builds.
 #![cfg(feature = "experimental-remote-control")]
 
-use phantom_mesh::remote_control::{Channel, ChannelError};
+use spectyn_mesh::remote_control::{Channel, ChannelError};
 
 /// Compile-time assertion that the `Channel` trait surface exists with the
 /// expected async methods. If this stops compiling, the trait shape changed
@@ -32,7 +32,7 @@ fn channel_error_variants_exist() {
 #[cfg(feature = "experimental-remote-control-whatsapp")]
 #[tokio::test]
 async fn whatsapp_stub_returns_not_implemented() {
-    use phantom_mesh::remote_control::whatsapp::WhatsappStub;
+    use spectyn_mesh::remote_control::whatsapp::WhatsappStub;
 
     let stub = WhatsappStub::new();
     assert_eq!(stub.name(), "whatsapp");
@@ -57,7 +57,7 @@ async fn whatsapp_stub_returns_not_implemented() {
 #[cfg(feature = "experimental-remote-control-slack")]
 #[tokio::test]
 async fn slack_stub_returns_not_implemented() {
-    use phantom_mesh::remote_control::slack::SlackStub;
+    use spectyn_mesh::remote_control::slack::SlackStub;
 
     let stub = SlackStub::with_allowed_users(vec![42]);
     assert_eq!(stub.name(), "slack");
@@ -90,7 +90,7 @@ async fn slack_stub_returns_not_implemented() {
 mod telegram_through_trait {
     use super::{Channel, ChannelError};
     use async_trait::async_trait;
-    use phantom_mesh::channels::telegram::TelegramBot;
+    use spectyn_mesh::channels::telegram::TelegramBot;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

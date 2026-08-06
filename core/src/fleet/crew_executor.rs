@@ -1,7 +1,7 @@
-//! CrewExecutor — the fleet Executor that runs the crew conductor (`phantom crew`)
+//! CrewExecutor — the fleet Executor that runs the crew conductor (`spectyn crew`)
 //! per task in the task's isolated worktree, capturing the resulting diff + a build
 //! check into an ExecOutcome the fleet gate/landing consume. The crew does the
-//! per-task multi-AI implement+review (codex/claude/agy + the phantom member); the
+//! per-task multi-AI implement+review (codex/claude/agy + the spectyn member); the
 //! FLEET gate then independently reviews the diff and lands it (the double gate).
 
 use crate::fleet::types::{BacklogTask, ExecOutcome};
@@ -37,13 +37,13 @@ impl crate::fleet::executor::Executor for CrewExecutor {
         // current driver processes tasks sequentially); a `tokio::process`/`spawn_blocking`
         // refactor is a documented follow-up.
 
-        // 1. Run the crew round (governed by default; default crew incl. the phantom member
+        // 1. Run the crew round (governed by default; default crew incl. the spectyn member
         //    when the crew.toml names it). Exits 0 on LAND, 1 on escalate.
-        let crew = Command::new("phantom")
+        let crew = Command::new("spectyn")
             .arg("crew")
             .arg(&task.acceptance)
             .current_dir(worktree)
-            .env("PHANTOM_CREW_TIMEOUT_SECS", self.timeout_secs.to_string())
+            .env("SPECTYN_CREW_TIMEOUT_SECS", self.timeout_secs.to_string())
             .output()?;
         let landed = crew.status.success();
         let mut logs = format!(

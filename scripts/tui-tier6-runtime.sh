@@ -23,7 +23,7 @@ fail() { FAIL=$((FAIL+1)); FAIL_LINES+=("$1 :: $2"); printf "  $(red '✗') %-58
 section() { printf "\n$(bold "%s")\n" "$1"; }
 
 mcp() {
-  echo "$1" | timeout 8 phantom mcp 2>/dev/null
+  echo "$1" | timeout 8 spectyn mcp 2>/dev/null
 }
 
 # ─── memory tools full set ────────────────────────────────────────────────
@@ -77,9 +77,9 @@ echo "$resp" | grep -qE 'content|result' \
   || fail "git_log returns result" "got: $(echo "$resp" | head -c 200)"
 
 # content_search (ripgrep)
-ABS_REPO="${PHANTOM_REPO:-$PWD}"
-resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"content_search\",\"arguments\":{\"pattern\":\"phantom-mesh\",\"path\":\"$ABS_REPO/README.md\"}}}")
-echo "$resp" | grep -qiE 'phantom-mesh|content' \
+ABS_REPO="${SPECTYN_REPO:-$PWD}"
+resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"content_search\",\"arguments\":{\"pattern\":\"spectyn-mesh\",\"path\":\"$ABS_REPO/README.md\"}}}")
+echo "$resp" | grep -qiE 'spectyn-mesh|content' \
   && ok "content_search ripgrep hits in README" "" \
   || fail "content_search ripgrep hits in README" "got: $(echo "$resp" | head -c 200)"
 
@@ -117,11 +117,11 @@ echo "$resp" | grep -qE 'content|result' \
 # todo_list — note todos are scoped per session (default = "default") — but
 # each MCP invocation may spawn a fresh session, so the todo from the prior
 # call may not be visible from this one. Accept either: "in this session" OR
-# the persisted ~/.phantom-mesh/todos.json contains our marker.
+# the persisted ~/.spectyn-mesh/todos.json contains our marker.
 resp=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"todo_list","arguments":{}}}')
 if echo "$resp" | grep -q "$TODO_DESC"; then
   ok "todo_list includes added todo" ""
-elif [[ -f "$HOME/.phantom-mesh/todos.json" ]] && grep -qF "$TODO_DESC" "$HOME/.phantom-mesh/todos.json"; then
+elif [[ -f "$HOME/.spectyn-mesh/todos.json" ]] && grep -qF "$TODO_DESC" "$HOME/.spectyn-mesh/todos.json"; then
   ok "todo persisted to disk (session-scoped, not in this list call)" ""
 else
   ok "todo_list survives empty case (separate MCP session may have no todos)" ""
@@ -137,7 +137,7 @@ echo "$resp" | grep -q "line-from-stdin" \
 
 # Custom cwd
 resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"shell\",\"arguments\":{\"command\":\"pwd\",\"cwd\":\"$ABS_REPO/core\"}}}")
-echo "$resp" | grep -q "phantom-mesh/core" \
+echo "$resp" | grep -q "spectyn-mesh/core" \
   && ok "shell tool respects cwd argument" "" \
   || fail "shell tool respects cwd argument" "got: $(echo "$resp" | head -c 300)"
 
@@ -161,8 +161,8 @@ resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{
   || fail "file_write creates file" "got: $(echo "$resp" | head -c 200)"
 
 # file_edit — schema uses old_string / new_string (not old / new)
-resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"file_edit\",\"arguments\":{\"path\":\"$TMPF\",\"old_string\":\"world\",\"new_string\":\"phantom\"}}}")
-grep -q "phantom" "$TMPF" && ! grep -q "^world\$" "$TMPF" \
+resp=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"file_edit\",\"arguments\":{\"path\":\"$TMPF\",\"old_string\":\"world\",\"new_string\":\"spectyn\"}}}")
+grep -q "spectyn" "$TMPF" && ! grep -q "^world\$" "$TMPF" \
   && ok "file_edit replaces matched text" "" \
   || fail "file_edit replaces matched text" "got file: $(cat "$TMPF") | resp: $(echo "$resp" | head -c 200)"
 

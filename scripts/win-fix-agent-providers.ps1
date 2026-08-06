@@ -1,10 +1,10 @@
 # win-fix-agent-providers.ps1
-# Patch [agent.master] in $HOME\.phantom-mesh\agents.toml to use the
+# Patch [agent.master] in $HOME\.spectyn-mesh\agents.toml to use the
 # `provider:model` syntax in its `providers = [...]` priority list so each
 # provider gets its own model (instead of inheriting the agent's `model =`
 # field which is one Gemini name being sent to every provider).
 #
-# WHY: phantom v0.4.0 call_with_fallback reads `agent.master.model` BEFORE
+# WHY: spectyn v0.4.0 call_with_fallback reads `agent.master.model` BEFORE
 # the per-provider default_model — so [providers.groq] default_model is
 # ignored when agent.master.model is non-empty (which it is on Win peers,
 # set to "gemini-2.5-flash"). Solution: set providers list to explicit
@@ -13,7 +13,7 @@
 # Idempotent — safe to re-run.
 
 $ErrorActionPreference = "Stop"
-$toml = "$env:USERPROFILE\.phantom-mesh\agents.toml"
+$toml = "$env:USERPROFILE\.spectyn-mesh\agents.toml"
 if (-not (Test-Path $toml)) { Write-Error "no agents.toml at $toml"; exit 1 }
 
 # Rollback to pristine pre-patch state if .bak exists (created by the v1
@@ -119,25 +119,25 @@ if ($check) {
   $check.Context.PostContext | ForEach-Object { Write-Host "  $_" }
 }
 
-# Restart phantom serve
+# Restart spectyn serve
 Write-Host ""
-Write-Host "Restarting phantom serve..."
-$proc = Get-Process -Name "phantom" -ErrorAction SilentlyContinue
+Write-Host "Restarting spectyn serve..."
+$proc = Get-Process -Name "spectyn" -ErrorAction SilentlyContinue
 if ($proc) {
   $proc | ForEach-Object { Stop-Process -Id $_.Id -Force }
   Start-Sleep -Seconds 2
 }
-schtasks /Run /TN PhantomMeshServe 2>&1 | Out-Null
+schtasks /Run /TN SpectynMeshServe 2>&1 | Out-Null
 Start-Sleep -Seconds 4
 
-$alive = Get-Process -Name "phantom" -ErrorAction SilentlyContinue | Select-Object -First 1
+$alive = Get-Process -Name "spectyn" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($alive) {
-  Write-Host "phantom serve up (pid=$($alive.Id))"
+  Write-Host "spectyn serve up (pid=$($alive.Id))"
   try {
     $r = Invoke-WebRequest -Uri "http://127.0.0.1:7878/healthz" -UseBasicParsing -TimeoutSec 5
     Write-Host "healthz: $($r.StatusCode) $($r.Content)"
   } catch { Write-Warning "healthz: $_" }
 } else {
-  Write-Error "phantom did not start"; exit 3
+  Write-Error "spectyn did not start"; exit 3
 }
 Write-Host "DONE"

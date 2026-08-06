@@ -85,7 +85,7 @@ run_node() {
   ssh -M -S "$sock" -fN -o ControlPersist=5m -o StrictHostKeyChecking=no "$target" 2>/dev/null
   # shellcheck disable=SC2029  # we WANT remote-side expansion of args
   ssh -S "$sock" "$target" \
-    "cd phantom-mesh 2>/dev/null && COORD=http://127.0.0.1:$port $SELFTEST_REMOTE_PATH --json ${SELFTEST_ARGS[*]}" \
+    "cd spectyn-mesh 2>/dev/null && COORD=http://127.0.0.1:$port $SELFTEST_REMOTE_PATH --json ${SELFTEST_ARGS[*]}" \
     > "$out" 2>"$TMP/$label.err"
   echo "$?" > "$rc"
   ssh -S "$sock" -O exit "$target" 2>/dev/null

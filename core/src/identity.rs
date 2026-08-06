@@ -1,10 +1,10 @@
 //! Per-user ed25519 identity for the CONTRIBUTOR-FUNNEL
 //! (`docs/CONTRIBUTOR-FUNNEL.md` §5).
 //!
-//! - `phantom keys init` generates a keypair at
-//!   `~/.phantom-mesh/keys/{ed25519.priv, ed25519.pub}`.
+//! - `spectyn keys init` generates a keypair at
+//!   `~/.spectyn-mesh/keys/{ed25519.priv, ed25519.pub}`.
 //! - Recipes (Tier 2 / 3 of CO-EVOLUTION) are signed with the
-//!   private key; `phantom evolve adopt` verifies against the
+//!   private key; `spectyn evolve adopt` verifies against the
 //!   broker-published public key.
 //! - The private key NEVER leaves the user's machine. Public key is
 //!   broadcast to the broker on first sync (post-v0.2 once broker
@@ -12,7 +12,7 @@
 //!
 //! This module ships in v0.1.0 as the down-payment on
 //! CONTRIBUTOR-FUNNEL §5 (CO-EVO Phase 3 trust chain). Broker
-//! integration + `phantom keys link --github` OAuth land in v0.2.
+//! integration + `spectyn keys link --github` OAuth land in v0.2.
 
 use anyhow::{anyhow, Context, Result};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey, SECRET_KEY_LENGTH};
@@ -26,20 +26,20 @@ use std::path::{Path, PathBuf};
 /// encryption key.
 const ROOT_IDENTITY_KEY_LEN: usize = 64;
 
-/// Path to `~/.phantom-mesh/` (the parent of `keys/`).
-pub fn phantom_mesh_dir() -> PathBuf {
+/// Path to `~/.spectyn-mesh/` (the parent of `keys/`).
+pub fn spectyn_mesh_dir() -> PathBuf {
     keys_dir()
         .parent()
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(".phantom-mesh"))
+        .unwrap_or_else(|| PathBuf::from(".spectyn-mesh"))
 }
 
-/// Path to the per-device root identity key, `~/.phantom-mesh/identity.key`.
+/// Path to the per-device root identity key, `~/.spectyn-mesh/identity.key`.
 pub fn root_identity_key_path() -> PathBuf {
-    phantom_mesh_dir().join("identity.key")
+    spectyn_mesh_dir().join("identity.key")
 }
 
-/// Ensure `~/.phantom-mesh/identity.key` exists, generating a fresh 64-byte
+/// Ensure `~/.spectyn-mesh/identity.key` exists, generating a fresh 64-byte
 /// CSPRNG key (mode 0600) if it is absent. Idempotent: an existing key is
 /// never overwritten (overwriting would make every event encrypted under the
 /// old key undecryptable). Returns `Ok(true)` if a new key was created.
@@ -50,11 +50,11 @@ pub fn root_identity_key_path() -> PathBuf {
 /// (from `init()` and the daemon startup) is what makes SPEC-16 encryption
 /// actually happen for real users.
 pub fn ensure_root_identity_key() -> Result<bool> {
-    ensure_root_identity_key_in(&phantom_mesh_dir())
+    ensure_root_identity_key_in(&spectyn_mesh_dir())
 }
 
 /// Path-injectable core of [`ensure_root_identity_key`] — `dir` is the
-/// `.phantom-mesh` directory. Kept separate so tests can target a tempdir
+/// `.spectyn-mesh` directory. Kept separate so tests can target a tempdir
 /// without mutating the process-global `$HOME`.
 pub fn ensure_root_identity_key_in(dir: &Path) -> Result<bool> {
     let path = dir.join("identity.key");
@@ -81,15 +81,15 @@ pub fn ensure_root_identity_key_in(dir: &Path) -> Result<bool> {
     }
 }
 
-/// CUJ-05 reinstall path: replace `~/.phantom-mesh/identity.key` with the
+/// CUJ-05 reinstall path: replace `~/.spectyn-mesh/identity.key` with the
 /// bytes the user is restoring (e.g. extracted from a prior
-/// `phantom backup` tar.gz, or carried over from another device).
+/// `spectyn backup` tar.gz, or carried over from another device).
 ///
 /// Validates the input is exactly `ROOT_IDENTITY_KEY_LEN` (64) bytes — the
 /// HKDF IKM length — so a corrupt or wrong-length file fails fast instead
 /// of producing an unreadable EventStore on first read.
 ///
-/// `force=false` refuses if `~/.phantom-mesh/identity.key` already exists,
+/// `force=false` refuses if `~/.spectyn-mesh/identity.key` already exists,
 /// because clobbering would orphan every event encrypted under the old
 /// key. `force=true` writes a `.bak-<ts>` of the existing file aside first
 /// so the operator can recover if they imported the wrong file.
@@ -97,17 +97,17 @@ pub fn ensure_root_identity_key_in(dir: &Path) -> Result<bool> {
 /// Returns the fingerprint (lowercase hex of `sha256(bytes)[0..8]`) of the
 /// newly-installed key so the caller can show the user a stable handle
 /// they can compare against the backup source (e.g. "abc123ef" matches the
-/// fingerprint printed at `phantom backup` time).
+/// fingerprint printed at `spectyn backup` time).
 pub fn import_root_identity_key(bytes: &[u8], force: bool) -> Result<String> {
     if bytes.len() != ROOT_IDENTITY_KEY_LEN {
         return Err(anyhow!(
             "imported identity.key is {} bytes; expected exactly {} (per-device root IKM length). \
-             Source may be corrupt, a different file, or for a different phantom version.",
+             Source may be corrupt, a different file, or for a different spectyn version.",
             bytes.len(),
             ROOT_IDENTITY_KEY_LEN
         ));
     }
-    import_root_identity_key_in(&phantom_mesh_dir(), bytes, force)
+    import_root_identity_key_in(&spectyn_mesh_dir(), bytes, force)
 }
 
 /// Path-injectable core of [`import_root_identity_key`]. Tests target a
@@ -151,8 +151,8 @@ pub fn import_root_identity_key_in(
 }
 
 /// Short stable handle for an identity.key byte stream — lowercase hex of
-/// the first 8 bytes of `sha256(bytes)`. Used by `phantom identity import`
-/// + `phantom backup` so the user can compare "this is the same key" at a
+/// the first 8 bytes of `sha256(bytes)`. Used by `spectyn identity import`
+/// + `spectyn backup` so the user can compare "this is the same key" at a
 /// glance without exposing the secret.
 pub fn fingerprint_identity(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -166,16 +166,16 @@ pub fn fingerprint_identity(bytes: &[u8]) -> String {
     s
 }
 
-/// Path to `~/.phantom-mesh/keys/`.
+/// Path to `~/.spectyn-mesh/keys/`.
 ///
-/// Routed through the canonical `phantom_data_dir()` (I6/#322) so the identity
-/// keys, `identity.key`, and every other phantom state file share ONE data root
-/// — honoring `PHANTOM_HOME` / `$HOME` on Windows. This keeps the W3 DPAPI
+/// Routed through the canonical `spectyn_data_dir()` (I6/#322) so the identity
+/// keys, `identity.key`, and every other spectyn state file share ONE data root
+/// — honoring `SPECTYN_HOME` / `$HOME` on Windows. This keeps the W3 DPAPI
 /// write/read paths from splitting off onto a different root than the rest of
-/// the codebase. Falls back to `./.phantom-mesh` exactly as before.
+/// the codebase. Falls back to `./.spectyn-mesh` exactly as before.
 pub fn keys_dir() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("keys")
 }
 
@@ -187,10 +187,10 @@ pub fn pub_key_path() -> PathBuf {
     keys_dir().join("ed25519.pub")
 }
 
-/// Result of `phantom keys init` (legacy v0.x CLI-display shape).
+/// Result of `spectyn keys init` (legacy v0.x CLI-display shape).
 ///
 /// **Status (Phase G, 2026-05-26)**: still the sole shape the CLI consumer
-/// in `core/src/bin/phantom.rs` reads — it prints `priv_path` / `pub_path`
+/// in `core/src/bin/spectyn.rs` reads — it prints `priv_path` / `pub_path`
 /// / `pub_hex` directly. The SPEC-12 wire shape
 /// (`crate::identity_wire::InitOutcome`) deliberately omits filesystem paths
 /// because Stage 4 hides on-disk material behind per-OS keystores
@@ -222,8 +222,8 @@ pub struct InitOutcome {
 
 /// Generate a fresh ed25519 keypair and write it to disk.
 ///
-/// - `~/.phantom-mesh/keys/ed25519.priv` (raw 32-byte seed; mode 0600)
-/// - `~/.phantom-mesh/keys/ed25519.pub` (hex-encoded 32-byte verifying key)
+/// - `~/.spectyn-mesh/keys/ed25519.priv` (raw 32-byte seed; mode 0600)
+/// - `~/.spectyn-mesh/keys/ed25519.pub` (hex-encoded 32-byte verifying key)
 ///
 /// If `force=false` and either file already exists, returns
 /// `created=false` so the caller can surface "already initialised"
@@ -285,7 +285,7 @@ pub fn init(force: bool) -> Result<InitOutcome> {
     })
 }
 
-/// Outcome of `phantom keys reset` — which of the three identity files were
+/// Outcome of `spectyn keys reset` — which of the three identity files were
 /// present and removed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResetOutcome {
@@ -305,9 +305,9 @@ impl ResetOutcome {
     }
 }
 
-/// SYS-D (operator-locked 2026-06-13) symmetric undo of `phantom keys init`:
+/// SYS-D (operator-locked 2026-06-13) symmetric undo of `spectyn keys init`:
 /// delete this machine's ed25519 keypair (`keys/ed25519.{priv,pub}`) and the
-/// per-device root identity key (`identity.key`), returning `~/.phantom-mesh`
+/// per-device root identity key (`identity.key`), returning `~/.spectyn-mesh`
 /// to its pre-`keys init` baseline so a fresh init can re-mint cleanly. Minting
 /// an identity must NOT be a one-way street (the SYS-D gap this closes).
 ///
@@ -319,12 +319,12 @@ impl ResetOutcome {
 /// this behind an explicit `--yes` confirmation; this function assumes the
 /// caller already confirmed.
 pub fn reset() -> Result<ResetOutcome> {
-    reset_in(&phantom_mesh_dir())
+    reset_in(&spectyn_mesh_dir())
 }
 
-/// Path-injectable core of [`reset`] — `dir` is the `.phantom-mesh` directory.
+/// Path-injectable core of [`reset`] — `dir` is the `.spectyn-mesh` directory.
 /// Kept separate so tests target a tempdir without mutating process-global
-/// `$HOME` / `PHANTOM_HOME` (mirrors [`ensure_root_identity_key_in`]).
+/// `$HOME` / `SPECTYN_HOME` (mirrors [`ensure_root_identity_key_in`]).
 pub fn reset_in(dir: &Path) -> Result<ResetOutcome> {
     let keys_dir = dir.join("keys");
     let removed_priv = remove_if_present(&keys_dir.join("ed25519.priv"))?;
@@ -354,11 +354,11 @@ fn remove_if_present(path: &Path) -> Result<bool> {
 }
 
 /// Load this machine's signing key from disk. Errors if the keypair
-/// hasn't been initialised yet (`phantom keys init` first).
+/// hasn't been initialised yet (`spectyn keys init` first).
 pub fn load_signing_key() -> Result<SigningKey> {
     let path = priv_key_path();
     let bytes = fs::read(&path)
-        .with_context(|| format!("reading {} — run `phantom keys init` first", path.display()))?;
+        .with_context(|| format!("reading {} — run `spectyn keys init` first", path.display()))?;
     // W3: on Windows the seed is DPAPI-wrapped at rest; unwrap it back to the
     // raw 32-byte seed. `Ok(None)` = legacy plaintext (use bytes as-is).
     let bytes = match crate::identity_wire::unprotect_at_rest(&bytes)
@@ -384,7 +384,7 @@ pub fn load_signing_key() -> Result<SigningKey> {
 pub fn load_pub_hex() -> Result<String> {
     let path = pub_key_path();
     let s = fs::read_to_string(&path)
-        .with_context(|| format!("reading {} — run `phantom keys init` first", path.display()))?;
+        .with_context(|| format!("reading {} — run `spectyn keys init` first", path.display()))?;
     Ok(s.trim().to_string())
 }
 
@@ -400,7 +400,7 @@ pub fn sign_hex(body: &[u8]) -> Result<String> {
 /// Returns `Ok(true)` on valid, `Ok(false)` on invalid (not an error).
 /// Errors only when the inputs are malformed (bad hex / wrong length).
 ///
-/// Used by `phantom evolve adopt <recipe>` to verify the recipe's
+/// Used by `spectyn evolve adopt <recipe>` to verify the recipe's
 /// author signature against a known pubkey (from MAINTAINERS.md or
 /// a trusted broker response).
 pub fn verify(pub_hex: &str, body: &[u8], sig_hex: &str) -> Result<bool> {
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn ensure_root_identity_key_creates_64_byte_key_when_absent() {
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         let created = ensure_root_identity_key_in(&dir).unwrap();
         assert!(created, "should report a freshly-created key");
         let key_path = dir.join("identity.key");
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn ensure_root_identity_key_is_idempotent_and_never_overwrites() {
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         assert!(ensure_root_identity_key_in(&dir).unwrap());
         let first = fs::read(dir.join("identity.key")).unwrap();
         // Second call must be a no-op (returns false) and leave bytes untouched —
@@ -523,7 +523,7 @@ mod tests {
     fn ensure_root_identity_key_is_mode_0600() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         ensure_root_identity_key_in(&dir).unwrap();
         let mode = fs::metadata(dir.join("identity.key"))
             .unwrap()
@@ -539,7 +539,7 @@ mod tests {
         // EventStore encryption-key derivation (the whole point of the fix).
         use crate::life_node::key_derivation::load_event_key;
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         ensure_root_identity_key_in(&dir).unwrap();
         let key = load_event_key(&dir.join("identity.key"));
         assert!(key.is_ok(), "load_event_key must succeed on the provisioned key");
@@ -614,23 +614,23 @@ mod tests {
     #[test]
     #[allow(deprecated)] // exercises the real (legacy) init() public path
     fn keys_init_then_reset_returns_to_baseline() {
-        // SYS-D round-trip: `phantom keys init` mints the keypair + root IKM;
-        // `phantom keys reset` is the symmetric undo that returns the home to
+        // SYS-D round-trip: `spectyn keys init` mints the keypair + root IKM;
+        // `spectyn keys reset` is the symmetric undo that returns the home to
         // its pre-init baseline so a fresh init can re-mint cleanly. Hermetic
-        // via PHANTOM_HOME (the verbatim data-root) under env_lock.
+        // via SPECTYN_HOME (the verbatim data-root) under env_lock.
         let _env = crate::env_lock::acquire();
         let tmp = tempdir().unwrap();
         struct HomeGuard(Option<std::ffi::OsString>);
         impl Drop for HomeGuard {
             fn drop(&mut self) {
                 match &self.0 {
-                    Some(v) => std::env::set_var("PHANTOM_HOME", v),
-                    None => std::env::remove_var("PHANTOM_HOME"),
+                    Some(v) => std::env::set_var("SPECTYN_HOME", v),
+                    None => std::env::remove_var("SPECTYN_HOME"),
                 }
             }
         }
-        let prev = std::env::var_os("PHANTOM_HOME");
-        std::env::set_var("PHANTOM_HOME", tmp.path());
+        let prev = std::env::var_os("SPECTYN_HOME");
+        std::env::set_var("SPECTYN_HOME", tmp.path());
         let _guard = HomeGuard(prev);
 
         // Baseline: nothing minted yet.
@@ -677,7 +677,7 @@ mod tests {
         // Path-injected core: hermetic, no env mutation (mirrors the
         // ensure_root_identity_key_in tests).
         let tmp = tempdir().unwrap();
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         fs::create_dir_all(dir.join("keys")).unwrap();
         fs::write(dir.join("keys").join("ed25519.priv"), b"seed").unwrap();
         fs::write(dir.join("keys").join("ed25519.pub"), b"pub\n").unwrap();

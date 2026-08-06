@@ -9,15 +9,15 @@
 //!   * T13-N6 — tools/web_fetch + tools/http_client SSRF block (HIGH)
 //!   * T13-N7 — tools/fs::rename_file dst safe_path enforcement (HIGH)
 //!
-//! NOTE: tests that mutate PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET or
-//! PHANTOM_FETCH_ALLOW_LOCAL set + unset them inside the test body. The
+//! NOTE: tests that mutate SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET or
+//! SPECTYN_FETCH_ALLOW_LOCAL set + unset them inside the test body. The
 //! SSRF tests serialize through a Mutex to dodge cargo's parallel runner;
 //! run with `cargo test -- --test-threads=1` for repeatable diagnostics.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use phantom_mesh::mesh::{ClusterConfig, ClusterManager};
-use phantom_mesh::AppState;
+use spectyn_mesh::mesh::{ClusterConfig, ClusterManager};
+use spectyn_mesh::AppState;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;
@@ -42,9 +42,9 @@ fn app_state_with_secret(secret: &str) -> Arc<AppState> {
 #[tokio::test]
 async fn mcp_http_rejects_without_hmac_when_secret_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let body = r#"{"jsonrpc":"2.0","method":"tools/call","params":{"name":"shell","arguments":{"command":"id"}},"id":1}"#;
     let req = Request::builder()
         .method("POST")
@@ -63,9 +63,9 @@ async fn mcp_http_rejects_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn mcp_http_rejects_when_secret_empty_no_override() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let body = r#"{"jsonrpc":"2.0","method":"tools/list","id":1}"#;
     let req = Request::builder()
         .method("POST")
@@ -84,10 +84,10 @@ async fn mcp_http_rejects_when_secret_empty_no_override() {
 #[tokio::test]
 async fn mcp_http_accepts_valid_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
     let cm = state.cluster_manager.clone();
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let body = r#"{"jsonrpc":"2.0","method":"tools/list","id":1}"#;
     let token = cm.make_auth_token(body);
@@ -110,9 +110,9 @@ async fn mcp_http_accepts_valid_hmac() {
 #[tokio::test]
 async fn ws_upgrade_rejects_without_hmac_when_secret_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let req = Request::builder()
         .method("GET")
         .uri("/ws")
@@ -133,9 +133,9 @@ async fn ws_upgrade_rejects_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn ws_upgrade_rejects_when_secret_empty_no_override() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let req = Request::builder()
         .method("GET")
         .uri("/ws")
@@ -154,9 +154,9 @@ async fn ws_upgrade_rejects_when_secret_empty_no_override() {
 #[tokio::test]
 async fn api_onboarding_rejects_without_hmac_when_secret_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let body = r#"{"groq_api_key":"sk-evil","gemini_api_key":"","anthropic_api_key":"","cluster_secret":""}"#;
     let req = Request::builder()
         .method("POST")
@@ -175,9 +175,9 @@ async fn api_onboarding_rejects_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn api_onboarding_rejects_when_secret_empty_no_override() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let body = r#"{"groq_api_key":"sk-evil","gemini_api_key":"","anthropic_api_key":"","cluster_secret":""}"#;
     let req = Request::builder()
         .method("POST")
@@ -192,9 +192,9 @@ async fn api_onboarding_rejects_when_secret_empty_no_override() {
 #[tokio::test]
 async fn api_onboarding_accepts_when_first_install_override_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+    std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let body =
         r#"{"groq_api_key":"","gemini_api_key":"","anthropic_api_key":"","cluster_secret":""}"#;
     let req = Request::builder()
@@ -204,7 +204,7 @@ async fn api_onboarding_accepts_when_first_install_override_set() {
         .body(Body::from(body))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     // Override accepts the call; the body validator then rejects an all-empty
     // payload with 400 — we just confirm we got past the auth gate.
     assert_ne!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -216,9 +216,9 @@ async fn api_onboarding_accepts_when_first_install_override_set() {
 #[tokio::test]
 async fn onboarding_token_rejects_without_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let req = Request::builder()
         .method("GET")
         .uri("/onboarding/token")
@@ -235,9 +235,9 @@ async fn onboarding_token_rejects_without_hmac() {
 #[tokio::test]
 async fn onboarding_config_rejects_without_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let req = Request::builder()
         .method("GET")
         .uri("/onboarding/config?token=deadbeef&node_name=phone")
@@ -254,10 +254,10 @@ async fn onboarding_config_rejects_without_hmac() {
 #[tokio::test]
 async fn onboarding_token_accepts_valid_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
     let cm = state.cluster_manager.clone();
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let token = cm.make_auth_token("");
     let req = Request::builder()
@@ -286,7 +286,7 @@ async fn shim_handler(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
     if let Err((code, json)) =
-        phantom_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
+        spectyn_mesh::auth_gate::require_cluster_auth(&state.cluster_manager, &headers, &body)
     {
         return (code, json).into_response();
     }
@@ -310,7 +310,7 @@ fn main_shim_router(secret: &str) -> axum::Router {
 #[tokio::test]
 async fn main_agent_run_rejects_without_hmac_when_secret_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let app = main_shim_router("topsecret");
     let req = Request::builder()
         .method("POST")
@@ -329,7 +329,7 @@ async fn main_agent_run_rejects_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn main_agent_run_rejects_when_secret_empty_no_override() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let app = main_shim_router("");
     let req = Request::builder()
         .method("POST")
@@ -348,7 +348,7 @@ async fn main_agent_run_rejects_when_secret_empty_no_override() {
 #[tokio::test]
 async fn main_agent_run_async_rejects_without_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let app = main_shim_router("topsecret");
     let req = Request::builder()
         .method("POST")
@@ -363,7 +363,7 @@ async fn main_agent_run_async_rejects_without_hmac() {
 #[tokio::test]
 async fn main_agent_run_accepts_valid_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let app = main_shim_router("topsecret");
     let cm = ClusterManager::new(ClusterConfig {
         cluster_secret: Some("topsecret".into()),
@@ -386,7 +386,7 @@ async fn main_agent_run_accepts_valid_hmac() {
 #[tokio::test]
 async fn main_mutations_reject_without_hmac() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let endpoints: &[(&str, &str, &str)] = &[
         ("POST", "/conversations/abc/reset", r#"{}"#),
         ("POST", "/workspaces/abc/name", r#"{"name":"x"}"#),
@@ -427,9 +427,9 @@ async fn main_mutations_reject_without_hmac() {
 #[tokio::test]
 async fn web_fetch_blocks_loopback() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
     let out =
-        phantom_mesh::tools::web_fetch::fetch(&json!({"url": "http://127.0.0.1/admin"})).await;
+        spectyn_mesh::tools::web_fetch::fetch(&json!({"url": "http://127.0.0.1/admin"})).await;
     assert!(
         out.starts_with("ERROR:"),
         "web_fetch must reject loopback (T13-N6 HIGH); got: {out}"
@@ -443,8 +443,8 @@ async fn web_fetch_blocks_loopback() {
 #[tokio::test]
 async fn web_fetch_blocks_link_local_metadata_service() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
-    let out = phantom_mesh::tools::web_fetch::fetch(
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
+    let out = spectyn_mesh::tools::web_fetch::fetch(
         &json!({"url": "http://169.254.169.254/latest/meta-data/"}),
     )
     .await;
@@ -461,8 +461,8 @@ async fn web_fetch_blocks_link_local_metadata_service() {
 #[tokio::test]
 async fn web_fetch_blocks_private_ipv4() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
-    let out = phantom_mesh::tools::web_fetch::fetch(&json!({"url": "http://192.168.1.1/"})).await;
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
+    let out = spectyn_mesh::tools::web_fetch::fetch(&json!({"url": "http://192.168.1.1/"})).await;
     assert!(out.starts_with("ERROR:"), "got: {out}");
     assert!(
         out.contains("blocked"),
@@ -473,8 +473,8 @@ async fn web_fetch_blocks_private_ipv4() {
 #[tokio::test]
 async fn http_get_blocks_loopback() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
-    let out = phantom_mesh::tools::http_client::get(&json!({"url": "http://127.0.0.1/"})).await;
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
+    let out = spectyn_mesh::tools::http_client::get(&json!({"url": "http://127.0.0.1/"})).await;
     assert!(
         out.starts_with("ERROR:"),
         "http_get must reject loopback (T13-N6); got: {out}"
@@ -488,9 +488,9 @@ async fn http_get_blocks_loopback() {
 #[tokio::test]
 async fn http_post_blocks_private_ipv4() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
     let out =
-        phantom_mesh::tools::http_client::post(&json!({"url": "http://10.0.0.5/", "body": {}}))
+        spectyn_mesh::tools::http_client::post(&json!({"url": "http://10.0.0.5/", "body": {}}))
             .await;
     assert!(out.starts_with("ERROR:"), "got: {out}");
     assert!(
@@ -502,9 +502,9 @@ async fn http_post_blocks_private_ipv4() {
 #[tokio::test]
 async fn web_fetch_allows_loopback_when_override_set() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("PHANTOM_FETCH_ALLOW_LOCAL", "1");
-    let out = phantom_mesh::tools::web_fetch::fetch(&json!({"url": "http://127.0.0.1:1/"})).await;
-    std::env::remove_var("PHANTOM_FETCH_ALLOW_LOCAL");
+    std::env::set_var("SPECTYN_FETCH_ALLOW_LOCAL", "1");
+    let out = spectyn_mesh::tools::web_fetch::fetch(&json!({"url": "http://127.0.0.1:1/"})).await;
+    std::env::remove_var("SPECTYN_FETCH_ALLOW_LOCAL");
     // Override permits the call; nothing's listening on :1 so we get a
     // "request failed" error, NOT a "blocked" error. The presence of
     // "blocked" in the message would mean the override didn't take effect.
@@ -520,16 +520,16 @@ async fn web_fetch_allows_loopback_when_override_set() {
 #[tokio::test]
 async fn rename_file_rejects_dst_with_parent_traversal() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
     let tmp = tempfile::tempdir().unwrap();
     let src = tmp.path().join("src.txt");
     std::fs::write(&src, "hello").unwrap();
-    let out = phantom_mesh::tools::fs::rename_file(&json!({
+    let out = spectyn_mesh::tools::fs::rename_file(&json!({
         "src": src.to_string_lossy(),
         "dst": "../../etc/passwd",
     }))
     .await;
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
     assert!(
         out.starts_with("Error:"),
         "rename_file must reject dst with `..` traversal (T13-N7); got: {out}"
@@ -539,7 +539,7 @@ async fn rename_file_rejects_dst_with_parent_traversal() {
 #[tokio::test]
 async fn rename_file_succeeds_within_workspace() {
     let _g = T7B_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
     let tmp = tempfile::tempdir().unwrap();
     let prev_cwd = std::env::current_dir().unwrap();
     std::env::set_current_dir(tmp.path()).unwrap();
@@ -555,14 +555,14 @@ async fn rename_file_succeeds_within_workspace() {
     // (it covers move-and-overwrite).
     std::fs::write(tmp.path().join("a.txt"), "hello").unwrap();
     std::fs::write(tmp.path().join("b.txt"), "placeholder").unwrap();
-    let out = phantom_mesh::tools::fs::rename_file(&json!({
+    let out = spectyn_mesh::tools::fs::rename_file(&json!({
         "src": "a.txt",
         "dst": "b.txt",
     }))
     .await;
 
     std::env::set_current_dir(prev_cwd).unwrap();
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     assert!(
         out.starts_with("Renamed:"),

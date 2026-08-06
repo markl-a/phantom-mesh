@@ -14,20 +14,20 @@ param(
 
     # Skip individual installer steps (for re-run / partial recovery).
     [switch]$SkipDevTools,
-    [switch]$SkipPhantom,
+    [switch]$SkipSpectyn,
     [switch]$SkipSsh
 )
 
 # -----------------------------------------------------------------------------
-# Phantom Mesh - Windows dev-machine onboarding (node-b / node-a / new box)
+# Spectyn Mesh - Windows dev-machine onboarding (node-b / node-a / new box)
 # -----------------------------------------------------------------------------
 #
 # What it does (in order, each step idempotent + safe to re-run):
 #
 #   1. Dev tools  - winget node.js LTS + Google.Antigravity; npm -g claude+codex
-#   2. Phantom    - pull binary from $CoordUrl/dist/, pull live agents.toml
+#   2. Spectyn    - pull binary from $CoordUrl/dist/, pull live agents.toml
 #                   from $CoordUrl/onboarding/config (with real provider keys),
-#                   register PhantomMeshServe scheduled task ONLOGON HIGHEST,
+#                   register SpectynMeshServe scheduled task ONLOGON HIGHEST,
 #                   open firewall for tailnet inbound :7878
 #   3. SSH (opt)  - if -AddSshKey given AND running as admin:
 #                     enable OpenSSH server, install pubkey, open :22 inbound.
@@ -59,7 +59,7 @@ $IsAdmin = ([Security.Principal.WindowsPrincipal] `
 
 Write-Host ""
 Write-Host "==============================================================="
-Write-Host "  Phantom Mesh - Windows dev-machine onboarding"
+Write-Host "  Spectyn Mesh - Windows dev-machine onboarding"
 Write-Host "==============================================================="
 Write-Host "  Coordinator:  $CoordUrl"
 Write-Host "  Node name:    $NodeName"
@@ -89,7 +89,7 @@ if (-not $SkipDevTools) {
     # npm globals - claude + codex
     $npm = (Get-Command npm -ErrorAction SilentlyContinue)
     if (-not $npm) {
-        Write-Err "npm not on PATH after node install - open a NEW PowerShell and re-run with -SkipPhantom -SkipSsh, or run npm manually."
+        Write-Err "npm not on PATH after node install - open a NEW PowerShell and re-run with -SkipSpectyn -SkipSsh, or run npm manually."
     } else {
         Write-Host "  npm install -g @anthropic-ai/claude-code @openai/codex ..."
         & npm install -g '@anthropic-ai/claude-code' '@openai/codex' 2>&1 | Out-Null
@@ -110,30 +110,30 @@ if (-not $SkipDevTools) {
     }
 }
 
-# -- 2. Phantom mesh ---------------------------------------------------------
-if (-not $SkipPhantom) {
-    Write-Section "2/3 Phantom mesh (binary + agents.toml + schtasks)"
+# -- 2. Spectyn mesh ---------------------------------------------------------
+if (-not $SkipSpectyn) {
+    Write-Section "2/3 Spectyn mesh (binary + agents.toml + schtasks)"
 
-    $CFG_DIR     = Join-Path $env:USERPROFILE '.phantom-mesh'
+    $CFG_DIR     = Join-Path $env:USERPROFILE '.spectyn-mesh'
     $INSTALL_DIR = Join-Path $CFG_DIR         'bin'
     $LOG_DIR     = Join-Path $CFG_DIR         'logs'
-    $BIN         = Join-Path $INSTALL_DIR     'phantom.exe'
+    $BIN         = Join-Path $INSTALL_DIR     'spectyn.exe'
     $CFG         = Join-Path $CFG_DIR         'agents.toml'
 
     New-Item -ItemType Directory -Force $INSTALL_DIR | Out-Null
     New-Item -ItemType Directory -Force $LOG_DIR     | Out-Null
 
-    # Stop running phantom so binary can be replaced
-    Get-Process phantom -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    # Stop running spectyn so binary can be replaced
+    Get-Process spectyn -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
 
     # Download binary
-    $exeUrl = "$CoordUrl/dist/phantom-x86_64-pc-windows.exe"
+    $exeUrl = "$CoordUrl/dist/spectyn-x86_64-pc-windows.exe"
     Write-Host "  downloading $exeUrl ..."
     Invoke-WebRequest -Uri $exeUrl -OutFile $BIN -UseBasicParsing -TimeoutSec 30
     Unblock-File -Path $BIN -ErrorAction SilentlyContinue
     $size = [math]::Round((Get-Item $BIN).Length/1MB, 1)
-    Write-OK "phantom.exe ($size MB) -> $BIN"
+    Write-OK "spectyn.exe ($size MB) -> $BIN"
 
     # Backup existing agents.toml then pull fresh from /onboarding/config
     if (Test-Path $CFG) {
@@ -153,9 +153,9 @@ if (-not $SkipPhantom) {
     # Firewall (tailnet only) - admin needed; skip cleanly without
     if ($IsAdmin) {
         try {
-            Get-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' -ErrorAction SilentlyContinue |
+            Get-NetFirewallRule -DisplayName 'SpectynMesh-Inbound' -ErrorAction SilentlyContinue |
                 Remove-NetFirewallRule -ErrorAction SilentlyContinue
-            New-NetFirewallRule -DisplayName 'PhantomMesh-Inbound' `
+            New-NetFirewallRule -DisplayName 'SpectynMesh-Inbound' `
                 -Direction Inbound -Action Allow -Protocol TCP `
                 -LocalPort 7878 -RemoteAddress '100.64.0.0/10' `
                 -Profile Any -ErrorAction Stop | Out-Null
@@ -168,18 +168,18 @@ if (-not $SkipPhantom) {
     }
 
     # Scheduled task - ONLOGON, HIGHEST priv
-    Write-Host "  registering scheduled task 'PhantomMeshServe' ..."
+    Write-Host "  registering scheduled task 'SpectynMeshServe' ..."
     $trCmd = "cmd /c `"$BIN`" serve >> `"$LOG_DIR\serve.out`" 2>&1"
     & schtasks /Create /F /SC ONLOGON /RL HIGHEST `
-        /TN 'PhantomMeshServe' `
+        /TN 'SpectynMeshServe' `
         /TR $trCmd 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-OK "schtasks created"
-        & schtasks /Run /TN 'PhantomMeshServe' 2>&1 | Out-Null
+        & schtasks /Run /TN 'SpectynMeshServe' 2>&1 | Out-Null
         Start-Sleep -Seconds 8
         try {
             $st = Invoke-RestMethod -Uri 'http://127.0.0.1:7878/api/status' -TimeoutSec 3
-            Write-OK "phantom serve responding: node_name=$($st.cluster.node_name) peers=$($st.cluster.peers) providers=$($st.providers -join ',')"
+            Write-OK "spectyn serve responding: node_name=$($st.cluster.node_name) peers=$($st.cluster.peers) providers=$($st.providers -join ',')"
         } catch {
             Write-Warn "healthz check failed: $_"
             Write-Host "    tail of serve log:"
@@ -233,9 +233,9 @@ if (-not $SkipSsh -and $AddSshKey) {
 
         # Firewall :22
         try {
-            Get-NetFirewallRule -DisplayName 'PhantomMesh-SSH' -ErrorAction SilentlyContinue |
+            Get-NetFirewallRule -DisplayName 'SpectynMesh-SSH' -ErrorAction SilentlyContinue |
                 Remove-NetFirewallRule -ErrorAction SilentlyContinue
-            New-NetFirewallRule -DisplayName 'PhantomMesh-SSH' `
+            New-NetFirewallRule -DisplayName 'SpectynMesh-SSH' `
                 -Direction Inbound -Action Allow -Protocol TCP `
                 -LocalPort 22 -RemoteAddress '100.64.0.0/10' `
                 -Profile Any -ErrorAction Stop | Out-Null
@@ -255,8 +255,8 @@ $tsIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
         Where-Object { $_.IPAddress -like '100.*' } |
         Select-Object -First 1 -ExpandProperty IPAddress)
 Write-Host "  Tailscale IP: $tsIp"
-Write-Host "  Phantom dir:  $env:USERPROFILE\.phantom-mesh\"
-Write-Host "  Log:          $env:USERPROFILE\.phantom-mesh\logs\serve.out"
+Write-Host "  Spectyn dir:  $env:USERPROFILE\.spectyn-mesh\"
+Write-Host "  Log:          $env:USERPROFILE\.spectyn-mesh\logs\serve.out"
 Write-Host "  Manual test:  curl http://127.0.0.1:7878/api/status"
 Write-Host "  From mac:     curl http://${tsIp}:7878/api/status"
 Write-Host ""

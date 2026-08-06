@@ -1,6 +1,6 @@
 # SPEC-80-INFRA · Mode B 3-機協作開發管線（3-machine collaborative dev pipeline）
 
-> **INFRA（infrastructure，基礎設施）spec — 不是 v0.6.0 user-facing contract（使用者面合約）。** 這是 INFRA 系列第一份；它規範 phantom-mesh 自身**開發流程**所依賴的基礎設施（dev-tooling = 開發工具鏈），不是產品功能。讀者應把它當作「**phantom-mesh 怎麼被開發出來的契約**」，不是「**phantom 對使用者承諾什麼**」。
+> **INFRA（infrastructure，基礎設施）spec — 不是 v0.6.0 user-facing contract（使用者面合約）。** 這是 INFRA 系列第一份；它規範 spectyn-mesh 自身**開發流程**所依賴的基礎設施（dev-tooling = 開發工具鏈），不是產品功能。讀者應把它當作「**spectyn-mesh 怎麼被開發出來的契約**」，不是「**spectyn 對使用者承諾什麼**」。
 >
 > **Status note**：本 spec v0.1 行為已於 2026-05-26 上線（operator 用、3 機跑通）；v0.2 把今天踩到的 5 個 race condition（競爭條件）/ 同步 bug 規則化成 §11，目標 v0.7.0 cycle 完成 codify。
 
@@ -22,9 +22,9 @@
 | Pillar(s) served | `cross-pillar（X.infra — dev-tooling）`；supports all 4 pillars indirectly（讓 P1/P2/P3/P4 都被開發出來的腳手架 = scaffolding） |
 | Track | `infra`（純內部開發流程，不對應 Life / Work track） |
 | Epic | `v0.7.0+ INFRA01 mode-b-collab-dev` |
-| BIG-GOAL phrase served | 「Cluster = first-class. Handsets, laptops, tablets are mesh peers — not server/clients.」（[BIG-GOAL.md](../../BIG-GOAL.md) §Four pillars · P1 line 25）— 本檔讓 phantom-mesh 自己的開發過程就是 cluster-as-first-class（叢集第一公民）的展示：3 台 dev 機器 = 3 個 peer，operator 是叢集擁有者，git + `.ai-shared/` 是替代 mesh transport（中介傳輸層）的 fallback substrate（替補底層） |
+| BIG-GOAL phrase served | 「Cluster = first-class. Handsets, laptops, tablets are mesh peers — not server/clients.」（[BIG-GOAL.md](../../BIG-GOAL.md) §Four pillars · P1 line 25）— 本檔讓 spectyn-mesh 自己的開發過程就是 cluster-as-first-class（叢集第一公民）的展示：3 台 dev 機器 = 3 個 peer，operator 是叢集擁有者，git + `.ai-shared/` 是替代 mesh transport（中介傳輸層）的 fallback substrate（替補底層） |
 | Depends on | `none`（process spec，不引 Cargo dep；只 cite 既有 file infra） |
-| Blocks | `v0.8.0+ INFRA02 cluster-dispatch-eat-own-dogfood`（將來 SPEC-26 `cluster_dispatch_wire` 完整 Stage 4 後，本檔的 git-based queue 會被 phantom 自家 mesh dispatch 取代 — 那份 spec 接手） |
+| Blocks | `v0.8.0+ INFRA02 cluster-dispatch-eat-own-dogfood`（將來 SPEC-26 `cluster_dispatch_wire` 完整 Stage 4 後，本檔的 git-based queue 會被 spectyn 自家 mesh dispatch 取代 — 那份 spec 接手） |
 | Template deviation | 這是 **process spec**（流程規格）非 **product spec**（產品規格）；§7 data model = queue file / heartbeat / claim lock 真實 schema（不是 OoS）、§8 invariants 真實、§9 = bash CLI interface（既有檔案 grep 得到），§12-§14 簡化或標 N/A；§11 新增 `v2 lessons learned`（今天踩坑 codify） |
 
 ---
@@ -37,11 +37,11 @@
 
 **方案**：Mode B = interactive（互動式）3-機協作開發管線。每台機器跑一個 `claude` CLI 當 **gateway（閘道協調者）**；operator 用 `/dev-start` slash command（斜線指令 = Claude Code 預先註冊的 ritual = 啟動儀式）觸發；ritual 自動讀 4 個 git-tracked（git 追蹤的）queue file（佇列檔）：`mac.todo.md` / `node-b.todo.md` / `node-a.todo.md` / `SHARED.todo.md`，挑出該機可做的 task，operator 確認後 claude orchestrate 4-stage spec→code dispatch 派給 5 個 subscription tool（訂閱式工具）— opencode / codex / agy / gemini / claude subagent — 透過 fallback chain（後備鏈）逐一試。Task 完成後 commit + push 到 `wip/<host>/<task-uuid>` branch（進行中分支），由 operator 在 mac 上 review + merge to main。
 
-**代價**：明確不做 full automation（完全自動化 = Mode A cron 模式）— 留 v0.8.0；明確不做 phantom 自家 cluster_dispatch eat-own-dogfood（吃自己狗食 = 自己用自家產品做派工）— 留到 SPEC-26 Stage 4 完成；明確要求 operator 每天 ≤ 30 min review 介入；明確接受 race condition 風險（首版 v0.1 已踩到 H1.3 重複工作 30% 浪費，v0.2 §11 codify 5 條規則防範）；明確不提供跨機 live collaboration（即時協作 = 同檔同時改）。
+**代價**：明確不做 full automation（完全自動化 = Mode A cron 模式）— 留 v0.8.0；明確不做 spectyn 自家 cluster_dispatch eat-own-dogfood（吃自己狗食 = 自己用自家產品做派工）— 留到 SPEC-26 Stage 4 完成；明確要求 operator 每天 ≤ 30 min review 介入；明確接受 race condition 風險（首版 v0.1 已踩到 H1.3 重複工作 30% 浪費，v0.2 §11 codify 5 條規則防範）；明確不提供跨機 live collaboration（即時協作 = 同檔同時改）。
 
 ### 1.2 English abstract
 
-Mode B is the interactive 3-machine collaborative development pipeline for phantom-mesh, operational since 2026-05-26 evening. Three dev machines (mac / node-b / node-a) each run Claude Code CLI as a gateway orchestrator; operator triggers the `/dev-start` slash command on whichever machine they want to use; the ritual reads four git-tracked queue files (per-host `mac.todo.md` / `node-b.todo.md` / `node-a.todo.md` plus a shared `SHARED.todo.md`), proposes the next task fit for that machine's platform capability, and on operator confirmation dispatches to a fallback chain of five subscription-based AI worker tools (opencode → codex → agy → gemini → claude subagent) via `scripts/ai/dispatch-with-fallback.sh`. Each task is executed on a `wip/<host>/<task-uuid>` branch (never main) and merged back from the mac authority. The architecture treats git as the substrate, the four queue files as the source of truth, and atomic git push as the claim primitive. v0.1 (morning of 2026-05-26) shipped without strict partitioning rules; v0.2 (this spec) codifies five rules learned from a same-day race condition where wave H1.3 (capture_focus_wire) ended up duplicated across mac and node-a queues with roughly 30% wasted re-work. Mode A (cron-unattended overnight) and SPEC-26 mesh-native dispatch are explicitly deferred.
+Mode B is the interactive 3-machine collaborative development pipeline for spectyn-mesh, operational since 2026-05-26 evening. Three dev machines (mac / node-b / node-a) each run Claude Code CLI as a gateway orchestrator; operator triggers the `/dev-start` slash command on whichever machine they want to use; the ritual reads four git-tracked queue files (per-host `mac.todo.md` / `node-b.todo.md` / `node-a.todo.md` plus a shared `SHARED.todo.md`), proposes the next task fit for that machine's platform capability, and on operator confirmation dispatches to a fallback chain of five subscription-based AI worker tools (opencode → codex → agy → gemini → claude subagent) via `scripts/ai/dispatch-with-fallback.sh`. Each task is executed on a `wip/<host>/<task-uuid>` branch (never main) and merged back from the mac authority. The architecture treats git as the substrate, the four queue files as the source of truth, and atomic git push as the claim primitive. v0.1 (morning of 2026-05-26) shipped without strict partitioning rules; v0.2 (this spec) codifies five rules learned from a same-day race condition where wave H1.3 (capture_focus_wire) ended up duplicated across mac and node-a queues with roughly 30% wasted re-work. Mode A (cron-unattended overnight) and SPEC-26 mesh-native dispatch are explicitly deferred.
 
 ### 1.3 Glossary
 
@@ -57,8 +57,8 @@ Mode B is the interactive 3-machine collaborative development pipeline for phant
 > - **wip branch（進行中分支）** — `wip/<host>/<task-uuid>` 每 task 獨立 git branch；merge 前過 operator review
 > - **fallback chain（後備鏈）** — opencode → codex → agy → gemini → claude subagent 順序；前一個 quota 用完或失敗就試下一個
 > - **slash command（斜線指令）** — Claude Code 由 `.claude/commands/<name>.md` 註冊的命名 ritual；本檔指 `/dev-start`
-> - **dogfood（自食其力）** — 自己用自家產品；本 spec v0.1 是 mesh 開發者的 dogfood，v2 升級為 phantom 自己 dispatch 的 dogfood
-> - **substrate（底層基板）** — 上層流程靠它運作的底層；本 spec v0.1 substrate = git + GitHub origin，v2 substrate 才是 phantom mesh 自己
+> - **dogfood（自食其力）** — 自己用自家產品；本 spec v0.1 是 mesh 開發者的 dogfood，v2 升級為 spectyn 自己 dispatch 的 dogfood
+> - **substrate（底層基板）** — 上層流程靠它運作的底層；本 spec v0.1 substrate = git + GitHub origin，v2 substrate 才是 spectyn mesh 自己
 > - **OS-bound vs agnostic（OS 綁定 vs 跨平台）** — task 需特定 OS toolchain（如 iOS build → mac only）= OS-bound；任一 OS 可跑 = agnostic
 > - **ritual（啟動儀式）** — `.claude/commands/dev-start.md` 定義的固定 8 步流程，每次 operator 開新 session 跑一次
 > - **ship gate（上線門檻）** — `.ai-shared/progress.md` §1 的 V1-V12 12 條檢核項，全綠才能 cut GA tag
@@ -90,7 +90,7 @@ v0.6.0 cycle 進入 Phase H frontend wire-up 之後，剩餘工作分成 4 類�
 ### 2.3 在 BIG-GOAL 哪裡
 
 - **BIG-GOAL §Four pillars P1（line 25）**：「Cluster = first-class. Handsets, laptops, tablets are mesh peers — not server/clients.」本 spec 把這句話套到開發過程本身 — 3 台 dev 機器（一台 laptop = mac + 一台 laptop = node-b + 一台 mini-PC = node-a）就是一個 dev-cluster（開發叢集），git + `.ai-shared/` 是 fallback substrate 直到 mesh 自己（SPEC-26 cluster_dispatch_wire）成熟到能取代。
-- **BIG-GOAL §3 line 49**：「Phantom is a peer-to-peer mesh, not server/client.」— 本 spec 的 v2 演化路徑就是把 mac authority 模式（mac 當 merge gatekeeper）逐步淡化到任何機都能 merge（peer-to-peer dev），雖然 v0.2 仍保留 mac 為 merge authority（簡化模型）。
+- **BIG-GOAL §3 line 49**：「Spectyn is a peer-to-peer mesh, not server/client.」— 本 spec 的 v2 演化路徑就是把 mac authority 模式（mac 當 merge gatekeeper）逐步淡化到任何機都能 merge（peer-to-peer dev），雖然 v0.2 仍保留 mac 為 merge authority（簡化模型）。
 
 ### 2.4 在此之前嘗試過什麼
 
@@ -126,7 +126,7 @@ v0.6.0 cycle 進入 Phase H frontend wire-up 之後，剩餘工作分成 4 類�
 ### 3.2 Non-Goals
 
 - `[NG1]` **不做 full automation（cron / unattended）** — 留給 Mode A（SPEC-80 v0.3 或獨立 INFRA02），本 spec 強制 operator-attended（必須有人在）。
-- `[NG2]` **不做 phantom 自家 cluster_dispatch eat-own-dogfood** — 留給 INFRA02（基於 SPEC-26 Stage 4 完成），本 spec 用 git substrate。
+- `[NG2]` **不做 spectyn 自家 cluster_dispatch eat-own-dogfood** — 留給 INFRA02（基於 SPEC-26 Stage 4 完成），本 spec 用 git substrate。
 - `[NG3]` **不做 live collaborative editing**（即時協作編輯 = 兩機同時改同一行）— file-area ownership 規則（§8.2）保證不會發生；衝突就是 bug。
 - `[NG4]` **不做 cross-machine debugger / repl** — 每機自己跑 cargo test / repl，stdout 各自；不嘗試 live mirror。
 - `[NG5]` **不做 GPU 分擔** — 每機跑自己的 task；ML 推論（如 ort 模型）只在有對應硬體的 host 跑。
@@ -160,11 +160,11 @@ v0.6.0 cycle 進入 Phase H frontend wire-up 之後，剩餘工作分成 4 類�
 
 ### 5.1 Sole-maintainer operator（單人維護者 = 現在的 Mark）
 
-擁有 3-5 台 dev 機器、自己一人開發 phantom-mesh 趕 GA deadline。期待：自己每天 ≤ 30 min 介入時間，其餘時間 3 機自動推進。
+擁有 3-5 台 dev 機器、自己一人開發 spectyn-mesh 趕 GA deadline。期待：自己每天 ≤ 30 min 介入時間，其餘時間 3 機自動推進。
 
 ### 5.2 Future contributor（未來協作者 = 開源後加入的人）
 
-phantom-mesh 開源後第一個 PR contributor。期待：能讀懂 `/dev-start` ritual 就知道自己機器要怎麼接到既有 queue（也許就只 fork + 修自己 queue）。本 spec 對他們的承諾：規則寫死 + 不靠 oral tradition（口傳）。
+spectyn-mesh 開源後第一個 PR contributor。期待：能讀懂 `/dev-start` ritual 就知道自己機器要怎麼接到既有 queue（也許就只 fork + 修自己 queue）。本 spec 對他們的承諾：規則寫死 + 不靠 oral tradition（口傳）。
 
 ### 5.3 CI bot persona（自動化代理人 — Mode A 之後）
 
@@ -564,7 +564,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 1. 依序 try 每個 tool（`bash scripts/ai/dispatch.sh <tool> <prompt-file>`）
 2. 成功（exit 0）→ stdout 印 result，exit 0
 3. 失敗 → 看 stderr pattern match 是否 quota exhausted（per tool 不同正則 — 見 `dispatch-with-fallback.sh:45-64`）；log alert；跳下一個
-4. 全部失敗 → log `ALL-EXHAUSTED`、Telegram notify（若 `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env 或 `~/.phantom-mesh/notify-config.json` 設定）、exit 1
+4. 全部失敗 → log `ALL-EXHAUSTED`、Telegram notify（若 `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` env 或 `~/.spectyn-mesh/notify-config.json` 設定）、exit 1
 
 ### 9.3 `/dev-start` slash command
 
@@ -600,7 +600,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 
 ### 10.1 Morning（mac，~10 min）
 
-1. Operator 開 mac → 開 Claude Code 在 phantom-mesh repo
+1. Operator 開 mac → 開 Claude Code 在 spectyn-mesh repo
 2. 輸入 `/dev-start`
 3. Claude 跑完 §9.3 step 1-5，顯示：
    ```
@@ -735,8 +735,8 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 
 - 本 spec 範例一律用 `mac` / `node-b` / `node-a` 三個 generic label，不出現實機 hostname（per memory `feedback_oss_safe_test_data`）
 - queue file / done file / heartbeat file 不寫真實 IP / Tailscale name / 私人 email
-- `.ai-shared/notify-config.json`（Telegram bot token）放 `~/.phantom-mesh/` 不放 repo
-- 任何 task brief 範例用 placeholder：`user42@example.com` / `127.0.0.1` / `~/.phantom-mesh/<file>`
+- `.ai-shared/notify-config.json`（Telegram bot token）放 `~/.spectyn-mesh/` 不放 repo
+- 任何 task brief 範例用 placeholder：`user42@example.com` / `127.0.0.1` / `~/.spectyn-mesh/<file>`
 
 ### 13.2 Subscription credential 隔離
 
@@ -762,7 +762,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 ## §15 OoS / 暫不做（彙整）
 
 - Mode A cron-unattended — Out of scope（留 v0.8.0 INFRA01 v0.3 或獨立 spec）
-- phantom 自家 cluster_dispatch eat-own-dogfood — OoS（留 INFRA02，基於 SPEC-26 Stage 4）
+- spectyn 自家 cluster_dispatch eat-own-dogfood — OoS（留 INFRA02，基於 SPEC-26 Stage 4）
 - Live collaborative editing — OoS（永久 Non-Goal）
 - Per-machine cost dashboard — OoS（subscription model 不需要）
 - iPad / 手機 operator interface — OoS（未來看需求）
@@ -807,13 +807,13 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 
 ### 17.2 SPEC-26 cluster_dispatch eat-own-dogfood now（跳過 git substrate）
 
-**方案**：直接讓 phantom 自己的 `cluster_dispatch_wire` 跑 dev task 派工 — operator 寫 task 給 phantom CLI，phantom 透過 mDNS + Tailscale 路由到對應 capability host 的 phantom serve，phantom serve spawn claude 跑。完全 P2P，無 git substrate。
+**方案**：直接讓 spectyn 自己的 `cluster_dispatch_wire` 跑 dev task 派工 — operator 寫 task 給 spectyn CLI，spectyn 透過 mDNS + Tailscale 路由到對應 capability host 的 spectyn serve，spectyn serve spawn claude 跑。完全 P2P，無 git substrate。
 
 **為何沒選**：
 1. **SPEC-26 cluster_dispatch_wire 還在 Stage 3 partial**（per memory `project_v060_stage_state`：8/18 wires 含 SPEC-26 deferred deps to v0.7.0+）— wire 自己都沒 ship-ready，先拿來跑 production dev workload = 自殺
 2. **Eat-own-dogfood 的前提是被吃的功能可靠**；cluster_dispatch 沒被 1 個外部 production scenario 驗證過，直接拿來扛 GA-blocking dev workload 風險太大
-3. git substrate 雖然 wire 級慢（每 commit 一次 round-trip），但**有 100% 可觀察性**（每個 claim / commit 都在 git log）— phantom mesh 級則需要新的 observability stack（SPEC-07）才看得清楚
-4. operator daily review 的 surface 還是 `gh pr` — 用 git substrate 直接接 gh，用 phantom mesh 要額外做 dashboard
+3. git substrate 雖然 wire 級慢（每 commit 一次 round-trip），但**有 100% 可觀察性**（每個 claim / commit 都在 git log）— spectyn mesh 級則需要新的 observability stack（SPEC-07）才看得清楚
+4. operator daily review 的 surface 還是 `gh pr` — 用 git substrate 直接接 gh，用 spectyn mesh 要額外做 dashboard
 
 **什麼條件會回來**：SPEC-26 完整 Stage 4 + SPEC-07 observability 端對端整合 + 至少 3 個外部 production scenario 跑過 1 個月零事故 → 升 INFRA02。本 spec `Blocks` 欄位列了這個關係。
 
@@ -825,7 +825,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 1. v0.6.0 GA 在 6/15，從 5/26 算還剩 20 天；Phase H 剩餘 task 估算 50-80 工時，mac 一機序列跑 12 h/day × 20 day = 240 h budget 看似夠，但 operator 不可能 12 h/day 都坐 mac
 2. **node-a always-on 浪費** — 那台機 24/7 開機只跑 build verify 太浪費
 3. **node-b Android-bound 不可替代** — Android APK build / sign 只 node-b 能做；mac 一機就是缺料
-4. **dogfood mesh philosophy 違背** — phantom-mesh 的 BIG-GOAL.md §P1 「Cluster = first-class」，自己開發過程不用 cluster 那 spec 寫起來沒說服力
+4. **dogfood mesh philosophy 違背** — spectyn-mesh 的 BIG-GOAL.md §P1 「Cluster = first-class」，自己開發過程不用 cluster 那 spec 寫起來沒說服力
 
 **什麼條件會回來**：3 機協作 race 失控（連續 2 週每天踩新 race）→ 暫退 single-machine 直到 INFRA02 ship-ready。
 
@@ -843,9 +843,9 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 
 ---
 
-## §SM Swarm-Migration 計畫（phantom-coord → `/rpc/swarm`）
+## §SM Swarm-Migration 計畫（spectyn-coord → `/rpc/swarm`）
 
-> task-2026052704。把 dev 派工從 **git push race（用 git 推送競賽搶任務）** 逐步搬到 phantom-mesh 自己的 **`/rpc/swarm`（叢集扇出 RPC，cluster fan-out 遠端呼叫）**，讓 phantom-mesh dogfood（自食其力、用自己跑自己）開發流程。
+> task-2026052704。把 dev 派工從 **git push race（用 git 推送競賽搶任務）** 逐步搬到 spectyn-mesh 自己的 **`/rpc/swarm`（叢集扇出 RPC，cluster fan-out 遠端呼叫）**，讓 spectyn-mesh dogfood（自食其力、用自己跑自己）開發流程。
 
 ### SM.1 動機（Why）
 
@@ -853,7 +853,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 
 - 派工統一一條路（git → swarm RPC）
 - claim（認領任務）開銷從 ~30s（一次 git pull+commit+push round-trip）降到 <100ms（一次 HTTP POST）
-- 對外故事：「phantom 用自己的叢集跑自己的開發」
+- 對外故事：「spectyn 用自己的叢集跑自己的開發」
 
 不一次切換的原因：git substrate（git 作為底層儲存）目前是唯一可審計、可 `git revert` 回滾的真相來源；swarm 還沒驗證能扛 dev 派工語意。故分 5 phase 漸進。
 
@@ -910,7 +910,7 @@ bash scripts/ai/dispatch-with-fallback.sh <prompt-file> [tool1 tool2 ... toolN]
 | Q5 | `.ai-shared/quota-alerts.md` weekly reset 是 automatic 還是 manual？ | **manual**（operator 一週看一次，順便檢視趨勢） | 目前 OK |
 | Q6 | 新 contributor 加入 mesh（未來開源後）要新增 queue file 還是用 SHARED？ | **新增 queue file**（owner = contributor name 短碼），SHARED 仍存在 | future |
 | Q7 | mac merge authority 是否有 backup（mac 整週 travel 時 node-a 暫接）？ | **不接**（wip branch 累積，operator 回家批次 merge） | future |
-| Q8 | 是否該寫 `phantom dev-status` CLI subcommand 暴露當前 mesh 狀態？（雞生蛋蛋生雞 — phantom 自己用 phantom）  | **v0.7.0 後再議**（先 ship GA） | v0.7.0+ |
+| Q8 | 是否該寫 `spectyn dev-status` CLI subcommand 暴露當前 mesh 狀態？（雞生蛋蛋生雞 — spectyn 自己用 spectyn）  | **v0.7.0 後再議**（先 ship GA） | v0.7.0+ |
 
 ---
 
@@ -1022,7 +1022,7 @@ wip/mac/task-2026052701
 - **squash merge（壓縮合併）** — 把 wip branch 的 N 個 commit 合成 1 個 commit merge 進 main
 - **rebase autostash（變基自動暫存）** — `git pull --rebase --autostash` 自動把 dirty changes stash → rebase → 還原
 - **lockfile（鎖檔）** — 表示資源被占用的 marker file，本 spec 指 `.ai-shared/claimed/*.lock`
-- **substrate（底層基板）** — 上層系統依賴的底層；本 spec v1 substrate = git，v2 substrate 將為 phantom mesh
+- **substrate（底層基板）** — 上層系統依賴的底層；本 spec v1 substrate = git，v2 substrate 將為 spectyn mesh
 - **eat-own-dogfood（吃自己狗食）** — 用自家產品開發自家產品；本 spec 是「半 dogfood」（用 mesh-philosophy 但 substrate 還是 git）
 
 ### D. Changelog

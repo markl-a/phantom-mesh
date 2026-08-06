@@ -2,12 +2,12 @@
 //!
 //! The dev session running on a node (Claude Code / codex loop) writes one
 //! small JSON file each routine tick: what it is doing, on which branch,
-//! and how its last gate went. `phantom serve` exposes the file at
+//! and how its last gate went. `spectyn serve` exposes the file at
 //! `GET /rpc/session-status` (HMAC-gated) so any machine can roll up the
-//! whole cluster's sessions with `phantom status mesh` — without SSH.
+//! whole cluster's sessions with `spectyn status mesh` — without SSH.
 //!
 //! 中文: dev session 心跳檔 — routine 每 tick 寫一次,serve 對 tailnet 曝光,
-//! 任一台 `phantom status mesh` 彙總全艦。
+//! 任一台 `spectyn status mesh` 彙總全艦。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,7 +45,7 @@ pub struct SessionStatus {
 const MAX_FIELD_BYTES: usize = 512;
 
 pub fn status_path(home: &Path) -> PathBuf {
-    crate::cli_config::phantom_dir_under(home).join("session-status.json")
+    crate::cli_config::spectyn_dir_under(home).join("session-status.json")
 }
 
 fn now_unix() -> u64 {
@@ -78,7 +78,7 @@ pub fn write_status(
     if state.trim().is_empty() {
         anyhow::bail!("session status state is empty");
     }
-    let dir = crate::cli_config::phantom_dir_under(home);
+    let dir = crate::cli_config::spectyn_dir_under(home);
     fs::create_dir_all(&dir)?;
     let status = SessionStatus {
         node: clamp(node),
@@ -185,7 +185,7 @@ mod tests {
     fn missing_or_garbled_file_reads_none() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(read_status(tmp.path()).is_none());
-        let dir = tmp.path().join(".phantom-mesh");
+        let dir = tmp.path().join(".spectyn-mesh");
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("session-status.json"), b"{garbage").unwrap();
         assert!(read_status(tmp.path()).is_none());

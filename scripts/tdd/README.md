@@ -73,7 +73,7 @@ Claude Code / Gemini CLI / Codex CLI / Antigravity（任何具備 bash 工具的
 
 - **唯一可信來源式的鷹架（scaffolding）** — INDEX.md 目前是由
   `goal_plan/docs/31 §6` 手動產生。自動同步是 v0.7.0 的功能。
-- **無 flaky（不穩定）測試重試機制** — 若某測試不穩定（例如 `PHANTOM_AUTO_APPROVE`
+- **無 flaky（不穩定）測試重試機制** — 若某測試不穩定（例如 `SPECTYN_AUTO_APPROVE`
   環境變數競態），請使用 `--test-threads=1`（`tdd-run.sh` 中已內建）。
 - **僅支援 Bash** — Windows 使用者需要 Git Bash 或 WSL。PowerShell 移植版
   是後續工作（優先度低，因為多數 agent 本來就是跑 bash）。

@@ -40,12 +40,12 @@
 //   - `FocusInterruption` = 一次中斷觀察事件 → Stage 2 record_interruption
 //     會把這條 append 到 active session（活動中時段）的 interruption list。
 //
-// Reader 門檻（CLAUDE.md §1 Step 2.5）— 把讀者當第一次接觸 phantom-mesh 的
+// Reader 門檻（CLAUDE.md §1 Step 2.5）— 把讀者當第一次接觸 spectyn-mesh 的
 // 研究生 / 大學生，所有縮寫 / 英文名詞第一次出現都加中文意譯。詳見下方
 // quote block 縮寫對照表。
 //
 // > **縮寫對照表（acronym table，縮寫對照）**
-// > - **SPEC（Specification，規格）** — phantom-mesh 的功能規格書
+// > - **SPEC（Specification，規格）** — spectyn-mesh 的功能規格書
 // > - **TS（TypeScript，網頁腳本語言）** — UI 端用的型別語言
 // > - **FFI（Foreign Function Interface，跨語言介面）** — Rust ↔ TS 的橋
 // > - **LLM（Large Language Model，大型語言模型）** — 如 Claude / GPT
@@ -61,7 +61,7 @@
 //     per SPEC-21 §8.1 state machine — second `start_session` returns
 //     `FocusCaptureError::SessionAlreadyActive`).
 //   - wire `complete_session` to emit a Coach（教練）event via SPEC-22 so the
-//     review pipeline picks up the takeaway next time `phantom coach review`
+//     review pipeline picks up the takeaway next time `spectyn coach review`
 //     runs.
 //   - wire `analyze_focus_session` to SPEC-14 (LLM analyzer) reusing the
 //     `AnalysisResult` shape from SPEC-16 (`event_storage_wire`).
@@ -229,7 +229,7 @@ fn default_focus_tag() -> Vec<String> {
 /// `FocusSessionResult.interruptions`（中斷次數）欄位回傳 count（總數）。
 ///
 /// **Telemetry**: `kind.slug()` is used as the label value for the
-/// `phantom_focus_interruptions_total{kind="..."}` Prometheus counter
+/// `spectyn_focus_interruptions_total{kind="..."}` Prometheus counter
 /// (mapped from SPEC-21 §12.4 observability section).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/capture_focus/")]
@@ -335,7 +335,7 @@ pub enum FocusCaptureError {
 /// already registered (SPEC-21 §8.1 state machine: only one Recording state
 /// per process at a time).
 ///
-/// 中文: `phantom focus start` 主邏輯。註冊 active session（活動中時段） +
+/// 中文: `spectyn focus start` 主邏輯。註冊 active session（活動中時段） +
 /// 開錄音 + 啟動計時器 + 回 UUIDv7 字串。已有 active session 則回
 /// `SessionAlreadyActive`（時段已在進行中）。
 pub fn start_session(req: &FocusSessionRequest) -> Result<String, FocusCaptureError> {
@@ -463,7 +463,7 @@ pub fn record_interruption(
         duration_ms: 0,
     };
     append_interruption(session_id, &_interruption)?;
-    // Step 3: bump the per-kind counters used by `phantom_focus_interruptions_total`.
+    // Step 3: bump the per-kind counters used by `spectyn_focus_interruptions_total`.
     bump_counter_pseudo(kind);
     Ok(())
 }
@@ -516,7 +516,7 @@ fn append_interruption(
     }
 }
 
-/// Bump the `phantom_focus_interruptions_total{kind="..."}` counter. The
+/// Bump the `spectyn_focus_interruptions_total{kind="..."}` counter. The
 /// interruption itself is already persisted (append_interruption, above); this
 /// is the metrics-export side-effect only. There is still no metrics crate
 /// (`metrics`/`prometheus`/`opentelemetry`) in core, so exporting is a no-op —
@@ -527,14 +527,14 @@ fn bump_counter_pseudo(_kind: InterruptionKind) {
 
 /// Stop the session, compute the `FocusSessionResult` (actual duration,
 /// interruption count, completion %, LLM summary, LLM suggestion), emit a
-/// Coach（教練）event so the next `phantom coach review` picks up the
+/// Coach（教練）event so the next `spectyn coach review` picks up the
 /// takeaway, and de-register the active session from the process-wide table.
 ///
 /// Returns `FocusCaptureError::SessionNotFound` if `session_id` is not in the
 /// active-session table.
 ///
 /// 中文: 收工 — 算實際時長 / 中斷次數 / 完成百分比 + LLM 摘要 + LLM 建議 +
-/// 發 Coach event 給下次 `phantom coach review` 收割 + 從 active 表移除。
+/// 發 Coach event 給下次 `spectyn coach review` 收割 + 從 active 表移除。
 pub fn complete_session(session_id: &str) -> Result<FocusSessionResult, FocusCaptureError> {
     // Step 1: look up the active session by id; bail with SessionNotFound if
     // the session is unknown / already completed.
@@ -563,7 +563,7 @@ pub fn complete_session(session_id: &str) -> Result<FocusSessionResult, FocusCap
         suggestion,
     };
     // Step 6: emit a Tauri event so the UI / coach review pipeline (SPEC-22)
-    // picks up the takeaway on the next `phantom coach review` run, then
+    // picks up the takeaway on the next `spectyn coach review` run, then
     // de-register the active session from the process-wide map.
     emit_event_pseudo(session_id, &result)?;
     Ok(result)
@@ -918,12 +918,12 @@ impl ActiveAppSampler {
     }
 }
 
-/// Default sampling interval (seconds) when `PHANTOM_CAPTURE_ACTIVE_APP_INTERVAL_SECS`
+/// Default sampling interval (seconds) when `SPECTYN_CAPTURE_ACTIVE_APP_INTERVAL_SECS`
 /// is unset or unparseable. 60s keeps disk churn and `lsappinfo` shell-outs low
 /// while still capturing app-switching at a useful granularity.
 pub const DEFAULT_ACTIVE_APP_INTERVAL_SECS: u64 = 60;
 
-/// The goal-tag that marks an active-app focus event so `phantom recall --kind
+/// The goal-tag that marks an active-app focus event so `spectyn recall --kind
 /// focus` groups it with the rest of the focus capability. The bundle id is
 /// pushed as an ADDITIONAL tag (see [`focus_event_tags`]) so recall-by-bundle-id
 /// works WITHOUT an LLM (recall's no-provider haystack is `meta.tags`, per the
@@ -931,7 +931,7 @@ pub const DEFAULT_ACTIVE_APP_INTERVAL_SECS: u64 = 60;
 pub const ACTIVE_APP_FOCUS_TAG: &str = "focus";
 
 /// Build the goal-tags for one emitted active-app focus event. The bundle id
-/// rides in `meta.tags` so `phantom recall <bundle-id> --kind focus --json`
+/// rides in `meta.tags` so `spectyn recall <bundle-id> --kind focus --json`
 /// surfaces it even on the no-LLM-provider path.
 pub fn focus_event_tags(focus: &ActiveAppFocus) -> Vec<String> {
     vec![
@@ -1015,7 +1015,7 @@ pub fn write_focus_event(
         source_node,
     )?;
     // Write a sibling `analysis.json` so the event is VISIBLE via
-    // `phantom recall <bundle-id> --kind focus` — `recall::search_events` SKIPS
+    // `spectyn recall <bundle-id> --kind focus` — `recall::search_events` SKIPS
     // any event whose `read_analysis` fails (`let Ok(analysis) = … else continue`),
     // exactly like the daily-review loader. There's no LLM here: mirror
     // `life_node::note_capture` and synthesize a DETERMINISTIC `AnalysisResult`
@@ -1046,18 +1046,18 @@ pub fn write_focus_event(
 /// and for each emitted [`ActiveAppFocus`] write an age-encrypted
 /// `EventKind::Focus` event via [`write_focus_event`].
 ///
-/// * `home` — the `~/.phantom-mesh` PARENT (events go to `home/.phantom-mesh/
-///   events`, key from `home/.phantom-mesh/identity.key`).
+/// * `home` — the `~/.spectyn-mesh` PARENT (events go to `home/.spectyn-mesh/
+///   events`, key from `home/.spectyn-mesh/identity.key`).
 /// * `interval_secs` — tick period (the opt-in env can override the default).
 /// * `shutdown` — cancellation token; the loop exits promptly when cancelled,
 ///   flushing the in-flight app's interval first (so a quit doesn't silently
 ///   drop the currently-focused app's accumulated time). This flush is REACHABLE
-///   in production: `phantom serve` retains a clone of this token and cancels it
-///   on its Ctrl-C graceful-shutdown path (see `bin/phantom.rs`, the serve
+///   in production: `spectyn serve` retains a clone of this token and cancels it
+///   on its Ctrl-C graceful-shutdown path (see `bin/spectyn.rs`, the serve
 ///   `tokio::select!` over `serve_http` vs `tokio::signal::ctrl_c()`).
 ///
 /// ARMED ONLY AFTER A CONFIRMED BIND (replaces the old HTTP readiness gate):
-/// `phantom serve` now calls `bind_http_listener` FIRST and only spawns this
+/// `spectyn serve` now calls `bind_http_listener` FIRST and only spawns this
 /// sampler once THIS process has confirmed it owns the port. On a bind failure
 /// the `?` returns before the sampler is ever started, so there is NO window in
 /// which focus events could be written for a daemon that never served. The old
@@ -1084,10 +1084,10 @@ pub async fn run_active_app_sampler(
     interval_secs: u64,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
-    let phantom_dir = crate::cli_config::phantom_dir_under(&home);
-    let events_dir = phantom_dir.join("events");
-    let identity_path = phantom_dir.join("identity.key");
-    let source_node = std::env::var("PHANTOM_NODE_NAME").unwrap_or_else(|_| "unknown".into());
+    let spectyn_dir = crate::cli_config::spectyn_dir_under(&home);
+    let events_dir = spectyn_dir.join("events");
+    let identity_path = spectyn_dir.join("identity.key");
+    let source_node = std::env::var("SPECTYN_NODE_NAME").unwrap_or_else(|_| "unknown".into());
 
     // No HTTP readiness gate: this task is spawned ONLY after the caller's
     // `bind_http_listener` confirmed THIS process owns the port, so we sample
@@ -1504,20 +1504,20 @@ mod tests {
         // The provider chain is now wired to
         // `providers_wire::complete_with_fallback`, which reads
         // `agents.toml`. Point the loader at a guaranteed-missing path via the
-        // documented `PHANTOM_MESH_AGENTS_TOML` override so this stays
+        // documented `SPECTYN_MESH_AGENTS_TOML` override so this stays
         // network-free and deterministic: a missing config can only surface as
         // a `ProviderError`, which `providers_complete_pseudo` MUST collapse to
         // `FocusCaptureError::TakeawayFailed` (SPEC-21 §11 FOCUS-004) — never a
         // panic (the old `unimplemented!()`) and never a silent success.
         let missing = std::env::temp_dir()
-            .join("phantom-focus-no-such-agents-9f3c1a7e.toml");
+            .join("spectyn-focus-no-such-agents-9f3c1a7e.toml");
         // Ensure it really does not exist.
         let _ = std::fs::remove_file(&missing);
         // SAFETY note: this is a process-global mutation; no other test in this
         // module reads agents.toml, and we restore immediately after the call.
-        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &missing);
+        std::env::set_var("SPECTYN_MESH_AGENTS_TOML", &missing);
         let result = providers_complete_pseudo("any focus prompt");
-        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+        std::env::remove_var("SPECTYN_MESH_AGENTS_TOML");
 
         match result {
             Err(FocusCaptureError::TakeawayFailed { detail }) => {
@@ -1538,9 +1538,9 @@ mod tests {
         // config the LLM pass cannot succeed, so we assert it returns an Err
         // (mapped to TakeawayFailed) rather than aborting the process.
         let missing = std::env::temp_dir()
-            .join("phantom-focus-no-such-agents-analyze-2b6d.toml");
+            .join("spectyn-focus-no-such-agents-analyze-2b6d.toml");
         let _ = std::fs::remove_file(&missing);
-        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &missing);
+        std::env::set_var("SPECTYN_MESH_AGENTS_TOML", &missing);
         let session = FocusSessionResult {
             actual_duration_ms: 25 * 60 * 1000,
             interruptions: 1,
@@ -1549,7 +1549,7 @@ mod tests {
             suggestion: "review next".to_string(),
         };
         let out = analyze_focus_session(&session);
-        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+        std::env::remove_var("SPECTYN_MESH_AGENTS_TOML");
         assert!(
             matches!(out, Err(FocusCaptureError::TakeawayFailed { .. })),
             "expected TakeawayFailed without a provider config, got {:?}",

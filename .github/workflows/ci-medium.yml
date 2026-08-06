@@ -78,7 +78,7 @@ jobs:
         working-directory: core
       - name: Run integration tests
         run: |
-          cp core/target/release/phantom-mesh .
+          cp core/target/release/spectyn-mesh .
           bash scripts/integration-test.sh
         env:
-          BINARY: ./phantom-mesh
+          BINARY: ./spectyn-mesh

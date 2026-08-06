@@ -1,7 +1,7 @@
 // Tauri command surface for the life-partner brain (NORTH-STAR Q2, partner MVP).
 //
 // `partner_latest_reflection` reads the most recent `kind:"reflection"` record
-// out of the human-usage ledger (`~/.phantom-mesh/partner-signals.jsonl`, the
+// out of the human-usage ledger (`~/.spectyn-mesh/partner-signals.jsonl`, the
 // same file `core/src/partner.rs::daily_reflection` appends to once a day via
 // the coach daemon). It's read-only and offline — no LLM / network — so the
 // desktop "每日對齊反思" panel can surface the last reflection the proactive
@@ -10,7 +10,7 @@
 
 use std::fs;
 
-use phantom_mesh::partner::signals_path;
+use spectyn_mesh::partner::signals_path;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -77,11 +77,11 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// `signals_path` honours `PHANTOM_PARTNER_SIGNALS`; point it at a temp file
+    /// `signals_path` honours `SPECTYN_PARTNER_SIGNALS`; point it at a temp file
     /// so the test reads a known ledger and never touches the real one.
     #[tokio::test]
     async fn reads_latest_reflection_and_skips_other_kinds() {
-        let dir = std::env::temp_dir().join(format!("phantom-reflect-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("spectyn-reflect-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("partner-signals.jsonl");
         let mut f = std::fs::File::create(&path).unwrap();
@@ -99,9 +99,9 @@ mod tests {
         .unwrap();
         drop(f);
 
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let got = partner_latest_reflection().await.unwrap().unwrap();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
 
         assert_eq!(got.text, "newest", "scans from the end for the latest");
         assert_eq!(got.summary, "s2");
@@ -111,11 +111,11 @@ mod tests {
 
     #[tokio::test]
     async fn missing_ledger_is_none_not_error() {
-        let path = std::env::temp_dir().join(format!("phantom-reflect-absent-{}.jsonl", std::process::id()));
+        let path = std::env::temp_dir().join(format!("spectyn-reflect-absent-{}.jsonl", std::process::id()));
         let _ = std::fs::remove_file(&path);
-        std::env::set_var("PHANTOM_PARTNER_SIGNALS", &path);
+        std::env::set_var("SPECTYN_PARTNER_SIGNALS", &path);
         let got = partner_latest_reflection().await.unwrap();
-        std::env::remove_var("PHANTOM_PARTNER_SIGNALS");
+        std::env::remove_var("SPECTYN_PARTNER_SIGNALS");
         assert!(got.is_none(), "absent ledger → Ok(None), never an error");
     }
 }

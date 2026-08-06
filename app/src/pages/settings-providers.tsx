@@ -163,7 +163,7 @@ export default function SettingsProviders() {
   return (
     <div
       data-testid="settings-providers"
-      className="flex min-h-screen flex-col bg-phantom-bg text-phantom-text
+      className="flex min-h-screen flex-col bg-spectyn-bg text-spectyn-text
                  pt-[env(safe-area-inset-top)]
                  pl-[env(safe-area-inset-left)]
                  pr-[env(safe-area-inset-right)]"
@@ -172,7 +172,7 @@ export default function SettingsProviders() {
       <header className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <h1 className="text-lg font-semibold leading-tight">供應商 / Providers</h1>
-          <p className="text-base text-phantom-muted">
+          <p className="text-base text-spectyn-muted">
             管理 LLM 供應商 / Manage LLM providers
           </p>
         </div>
@@ -182,10 +182,10 @@ export default function SettingsProviders() {
           disabled={state.phase === "loading"}
           aria-label="重新整理 / Refresh"
           className="flex min-h-[44px] min-w-[44px] items-center justify-center
-                     rounded-xl border border-phantom-border bg-phantom-card
-                     text-phantom-text transition-colors
+                     rounded-xl border border-spectyn-border bg-spectyn-card
+                     text-spectyn-text transition-colors
                      motion-reduce:transition-none
-                     disabled:opacity-50 active:bg-phantom-bg"
+                     disabled:opacity-50 active:bg-spectyn-bg"
         >
           <RefreshCw
             aria-hidden="true"
@@ -206,7 +206,7 @@ export default function SettingsProviders() {
             role="status"
             aria-label="載入中 / Loading"
             className="flex flex-col items-center justify-center gap-3 py-16
-                       text-phantom-muted"
+                       text-spectyn-muted"
           >
             <RefreshCw
               aria-hidden="true"
@@ -220,25 +220,25 @@ export default function SettingsProviders() {
           <div
             role="alert"
             className="mt-4 flex flex-col items-start gap-3 rounded-xl border
-                       border-phantom-danger/40 bg-phantom-card p-4"
+                       border-spectyn-danger/40 bg-spectyn-card p-4"
           >
-            <div className="flex items-center gap-2 text-phantom-danger">
+            <div className="flex items-center gap-2 text-spectyn-danger">
               <AlertTriangle aria-hidden="true" className="h-5 w-5 shrink-0" />
               <span className="text-base font-medium">
                 載入失敗 / Failed to load
               </span>
             </div>
-            <p className="break-words text-base text-phantom-text">
+            <p className="break-words text-base text-spectyn-text">
               {state.message}
             </p>
             <button
               type="button"
               onClick={onRefresh}
               aria-label="重試 / Retry"
-              className="min-h-[44px] rounded-xl border border-phantom-border
-                         bg-phantom-bg px-4 text-base text-phantom-text
+              className="min-h-[44px] rounded-xl border border-spectyn-border
+                         bg-spectyn-bg px-4 text-base text-spectyn-text
                          transition-colors motion-reduce:transition-none
-                         active:bg-phantom-card"
+                         active:bg-spectyn-card"
             >
               重試 / Retry
             </button>
@@ -249,13 +249,13 @@ export default function SettingsProviders() {
           <div
             role="status"
             className="flex flex-col items-center justify-center gap-3 py-16
-                       text-center text-phantom-muted"
+                       text-center text-spectyn-muted"
           >
             <ServerOff aria-hidden="true" className="h-8 w-8" />
             <p className="text-base">
               尚未設定任何供應商 / No providers configured yet
             </p>
-            <p className="max-w-xs text-base text-phantom-muted">
+            <p className="max-w-xs text-base text-spectyn-muted">
               新增供應商功能尚未實作（後端未接線）。 / Adding providers is not
               implemented yet (backend not wired).
             </p>
@@ -267,39 +267,39 @@ export default function SettingsProviders() {
             {state.rows.map((row) => (
               <li
                 key={row.id}
-                className="rounded-xl border border-phantom-border bg-phantom-card p-4"
+                className="rounded-xl border border-spectyn-border bg-spectyn-card p-4"
               >
                 {/* Name + status */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-lg font-medium text-phantom-text">
+                    <p className="truncate text-lg font-medium text-spectyn-text">
                       {row.name}
                     </p>
                     <div className="mt-1 flex items-center gap-1.5">
                       {row.status === "healthy" ? (
                         <CircleCheck
                           aria-hidden="true"
-                          className="h-4 w-4 text-phantom-success"
+                          className="h-4 w-4 text-spectyn-success"
                         />
                       ) : row.status === "unhealthy" ? (
                         <AlertTriangle
                           aria-hidden="true"
-                          className="h-4 w-4 text-phantom-danger"
+                          className="h-4 w-4 text-spectyn-danger"
                         />
                       ) : (
                         <CircleDot
                           aria-hidden="true"
-                          className="h-4 w-4 text-phantom-warning"
+                          className="h-4 w-4 text-spectyn-warning"
                         />
                       )}
                       <span
                         className={
                           "text-base " +
                           (row.status === "healthy"
-                            ? "text-phantom-success"
+                            ? "text-spectyn-success"
                             : row.status === "unhealthy"
-                              ? "text-phantom-danger"
-                              : "text-phantom-warning")
+                              ? "text-spectyn-danger"
+                              : "text-spectyn-warning")
                         }
                       >
                         {row.statusLabel.zh} / {row.statusLabel.en}
@@ -309,10 +309,10 @@ export default function SettingsProviders() {
                 </div>
 
                 {/* Masked key last-4 (honestly not exposed by the health route) */}
-                <p className="mt-2 text-base text-phantom-muted">
+                <p className="mt-2 text-base text-spectyn-muted">
                   API key:{" "}
                   {row.keyLast4 ? (
-                    <span className="font-mono text-phantom-text">
+                    <span className="font-mono text-spectyn-text">
                       ···· {row.keyLast4}
                     </span>
                   ) : (
@@ -328,8 +328,8 @@ export default function SettingsProviders() {
                     title={notImplementedTitle}
                     aria-label={`編輯 ${row.name}（尚未實作）/ Edit ${row.name} (not implemented)`}
                     className="flex min-h-[44px] items-center gap-1.5 rounded-xl
-                               border border-phantom-border bg-phantom-bg px-3
-                               text-base text-phantom-muted opacity-50"
+                               border border-spectyn-border bg-spectyn-bg px-3
+                               text-base text-spectyn-muted opacity-50"
                   >
                     <Pencil aria-hidden="true" className="h-4 w-4" />
                     編輯 / Edit
@@ -340,8 +340,8 @@ export default function SettingsProviders() {
                     title={notImplementedTitle}
                     aria-label={`測試 ${row.name}（尚未實作）/ Test ${row.name} (not implemented)`}
                     className="flex min-h-[44px] items-center gap-1.5 rounded-xl
-                               border border-phantom-border bg-phantom-bg px-3
-                               text-base text-phantom-muted opacity-50"
+                               border border-spectyn-border bg-spectyn-bg px-3
+                               text-base text-spectyn-muted opacity-50"
                   >
                     <Activity aria-hidden="true" className="h-4 w-4" />
                     測試 / Test
@@ -352,14 +352,14 @@ export default function SettingsProviders() {
                     title={notImplementedTitle}
                     aria-label={`移除 ${row.name}（尚未實作）/ Remove ${row.name} (not implemented)`}
                     className="flex min-h-[44px] items-center gap-1.5 rounded-xl
-                               border border-phantom-border bg-phantom-bg px-3
-                               text-base text-phantom-muted opacity-50"
+                               border border-spectyn-border bg-spectyn-bg px-3
+                               text-base text-spectyn-muted opacity-50"
                   >
                     <Trash2 aria-hidden="true" className="h-4 w-4" />
                     移除 / Remove
                   </button>
                 </div>
-                <p className="mt-2 text-base text-phantom-muted">
+                <p className="mt-2 text-base text-spectyn-muted">
                   編輯／測試／移除尚未實作（後端未接線）。 / Edit / Test / Remove
                   not implemented yet (backend not wired).
                 </p>
@@ -372,7 +372,7 @@ export default function SettingsProviders() {
       {/* Sticky-bottom CTA — reachability + safe-area bottom inset lives HERE
           (not on the root, to avoid doubling the inset). */}
       <footer
-        className="sticky bottom-0 border-t border-phantom-border bg-phantom-bg
+        className="sticky bottom-0 border-t border-spectyn-border bg-spectyn-bg
                    px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       >
         <button
@@ -387,14 +387,14 @@ export default function SettingsProviders() {
           }}
           aria-label="新增供應商（尚未實作）/ Add provider (not implemented)"
           className="flex min-h-[48px] w-full items-center justify-center gap-2
-                     rounded-xl bg-phantom-primary text-base font-semibold
-                     text-phantom-bg transition-opacity
+                     rounded-xl bg-spectyn-primary text-base font-semibold
+                     text-spectyn-bg transition-opacity
                      motion-reduce:transition-none opacity-50"
         >
           <Plus aria-hidden="true" className="h-5 w-5" />
           新增供應商 / Add provider
         </button>
-        <p className="mt-2 text-center text-base text-phantom-muted">
+        <p className="mt-2 text-center text-base text-spectyn-muted">
           尚未實作（後端未接線） / Not implemented (backend not wired)
         </p>
       </footer>

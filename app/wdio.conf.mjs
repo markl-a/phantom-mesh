@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Absolute path to the debug app binary (tauri-wd spawns this).
-const APP_BINARY = resolve(__dirname, 'src-tauri/target/debug/phantom-mesh-app');
+const APP_BINARY = resolve(__dirname, 'src-tauri/target/debug/spectyn-mesh-app');
 
 export const config = {
   runner: 'local',

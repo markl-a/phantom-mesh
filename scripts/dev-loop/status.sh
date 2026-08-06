@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# status.sh — Stage-1 stand-in for `phantom dev status`: show pending governance
+# status.sh — Stage-1 stand-in for `spectyn dev status`: show pending governance
 # escalations (needs-human proposals) + recent deviation-handler outcomes, so an
 # owner-notified escalation isn't a silent line in a file.
 #
 # Usage: status.sh [--all]
 set -uo pipefail
-STATE_DIR="${PHANTOM_STATE_DIR:-${HOME}/.phantom-mesh}"
+STATE_DIR="${SPECTYN_STATE_DIR:-${HOME}/.spectyn-mesh}"
 PROPOSALS="${STATE_DIR}/deviation-proposals.jsonl"
 LEDGER="${STATE_DIR}/dev-loop-log.jsonl"
 N="${1:-}"; [ "$N" = "--all" ] && LIMIT=100000 || LIMIT=10
 
-echo "=== phantom dev status (governance) — ${STATE_DIR} ==="
+echo "=== spectyn dev status (governance) — ${STATE_DIR} ==="
 if [ -s "$PROPOSALS" ]; then
   c="$(grep -c . "$PROPOSALS" 2>/dev/null || echo 0)"
   echo "🚩 ${c} needs-human proposal(s) — resolve, then: deviation-handler.sh --spec <f> --reset"

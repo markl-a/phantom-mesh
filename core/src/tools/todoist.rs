@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::config::ToolsConfig;
 
 const NO_TOKEN_HINT: &str = "ERROR: no Todoist token configured. Set `[tools] todoist_api_token = \"…\"` \
-    in ~/.phantom-mesh/agents.toml or the TODOIST_API_TOKEN env var \
+    in ~/.spectyn-mesh/agents.toml or the TODOIST_API_TOKEN env var \
     (get one at Todoist → Settings → Integrations → Developer).";
 
 /// Create a Todoist task. Args: `content` (required), optional `due_string`

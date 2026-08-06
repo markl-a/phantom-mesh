@@ -8,7 +8,7 @@ server，中繼伺服器）全程看不到明文。它分為兩層：
 
 1. **本地 vault（保險庫）**（`core/src/vault/`）— 一個泛用、受作業系統保護的憑證
    儲存區，位於本機。目前會把 JSON 內容持久化到
-   `~/.phantom-mesh/<key>.json`，並套用 Unix 權限模式 `0600`（Windows NTFS ACL／macOS
+   `~/.spectyn-mesh/<key>.json`，並套用 Unix 權限模式 `0600`（Windows NTFS ACL／macOS
    Keychain／Linux Secret Service 是規劃中的各作業系統實作，皆置於
    同一個 trait 之後）。
 
@@ -30,7 +30,7 @@ server，中繼伺服器）全程看不到明文。它分為兩層：
 | `core/src/vault/file.rs` | `FileVault` — 以檔案為後端的 `Vault` 實作；採「先寫入暫存檔再改名」的原子寫入、`0600` 權限、可防路徑穿越（path-traversal）的 key 淨化。 |
 | `core/src/broker_vault_wire.rs` | broker REST 契約的單一真實來源：`BrokerEndpoint` enum、request/response 結構、`VaultSealKey`、`WrappedVaultSealKey`、`BrokerJwt`、`WipeStatus`、`BrokerError`，加上 seal／HMAC／JWT-verify 輔助函式。透過 ts-rs 匯出到前端。 |
 | `app/src/lib/generated/broker_vault/` | 自動產生的 TypeScript 綁定（每個匯出的 wire 型別各一個 `.ts`）。切勿手動編輯。 |
-| `app/src-tauri/src/commands/broker_login.rs` | Tauri 指令 `broker_login_start` / `broker_login_finish` — iOS/桌面的 OAuth 流程，搭配客戶端 state nonce（一次性隨機值）來綁定 `phantom://oauth/callback` 這段 deep-link（深層連結）跳轉。 |
+| `app/src-tauri/src/commands/broker_login.rs` | Tauri 指令 `broker_login_start` / `broker_login_finish` — iOS/桌面的 OAuth 流程，搭配客戶端 state nonce（一次性隨機值）來綁定 `spectyn://oauth/callback` 這段 deep-link（深層連結）跳轉。 |
 | `app/src/lib/brokerLogin.ts` | 登入橋接的 JS 端；安裝 deep-link 監聽器並呼叫 Rust 指令。 |
 | `app/src/components/mobile/MobileBrokerLogin.tsx` | 用於發起 broker 登入的行動裝置 UI。 |
 

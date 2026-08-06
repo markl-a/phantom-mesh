@@ -20,11 +20,11 @@
 //! NOTE: using a ChatGPT subscription token from a non-Codex client is NOT
 //! publicly sanctioned by OpenAI and MAY get the account flagged. This module is
 //! detection-only — it *reads* whatever the official CLI cached. There is a
-//! SEPARATE, OPT-IN, disclosed path (`providers::openai_oauth` + `phantom auth
+//! SEPARATE, OPT-IN, disclosed path (`providers::openai_oauth` + `spectyn auth
 //! chatgpt`) that mints a token via the public Codex OAuth client and writes it
-//! to a phantom-owned `~/.phantom-mesh/openai_oauth.json` (added to
+//! to a spectyn-owned `~/.spectyn-mesh/openai_oauth.json` (added to
 //! `codex_paths()`); that path carries the account-flag risk and is never a
-//! default. The official `~/.codex/auth.json` is never written by phantom.
+//! default. The official `~/.codex/auth.json` is never written by spectyn.
 
 use serde_json::Value;
 

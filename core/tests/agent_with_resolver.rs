@@ -22,11 +22,11 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 
-use phantom_mesh::agent::AgentRuntime;
-use phantom_mesh::config::{AgentsConfig, ProviderEntry};
-use phantom_mesh::providers::traits::{ChatMessage, ProviderError};
-use phantom_mesh::providers::LlmProvider;
-use phantom_mesh::streaming::ResolveProvider;
+use spectyn_mesh::agent::AgentRuntime;
+use spectyn_mesh::config::{AgentsConfig, ProviderEntry};
+use spectyn_mesh::providers::traits::{ChatMessage, ProviderError};
+use spectyn_mesh::providers::LlmProvider;
+use spectyn_mesh::streaming::ResolveProvider;
 
 // ── Test fixtures ────────────────────────────────────────────────────────
 

@@ -34,11 +34,11 @@ const SETTINGS_GROUPS = [
 
 export default function SettingsSidebar() {
   return (
-    <aside className="w-full md:w-48 flex-shrink-0 border-b md:border-b-0 md:border-r border-phantom-border overflow-x-auto md:overflow-y-auto">
+    <aside className="w-full md:w-48 flex-shrink-0 border-b md:border-b-0 md:border-r border-spectyn-border overflow-x-auto md:overflow-y-auto">
       <nav className="flex md:flex-col md:px-2 md:py-4 px-2 py-2 gap-1 md:gap-0 overflow-x-auto">
         {SETTINGS_GROUPS.map((group) => (
           <div key={group.title} className="mb-0 md:mb-4 flex md:flex-col gap-1">
-            <p className="hidden md:block px-3 py-1 text-[10px] uppercase tracking-wider text-phantom-muted">
+            <p className="hidden md:block px-3 py-1 text-[10px] uppercase tracking-wider text-spectyn-muted">
               {group.title}
             </p>
             {group.items.map((item) => (
@@ -48,8 +48,8 @@ export default function SettingsSidebar() {
                 className={({ isActive }) =>
                   `flex items-center gap-2 px-3 py-1.5 rounded text-sm transition-colors ${
                     isActive
-                      ? "bg-phantom-primary/15 text-phantom-primary"
-                      : "text-phantom-text hover:bg-phantom-card"
+                      ? "bg-spectyn-primary/15 text-spectyn-primary"
+                      : "text-spectyn-text hover:bg-spectyn-card"
                   }`
                 }
               >

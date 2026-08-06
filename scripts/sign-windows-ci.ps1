@@ -1,4 +1,4 @@
-# Phantom Mesh - Windows production Authenticode signing for CI.
+# Spectyn Mesh - Windows production Authenticode signing for CI.
 #
 # Unlike scripts/codesign-windows.ps1 (dev SELF-SIGNED smoke, Trusted-Root
 # warnings expected), this script attaches a REAL Authenticode signature using
@@ -24,11 +24,11 @@
 #   # sign one or more files (CI):
 #   $env:WINDOWS_CODESIGN_PFX_BASE64 = '<base64 of cert.pfx>'
 #   $env:WINDOWS_CODESIGN_PFX_PASSWORD = '<pfx password>'
-#   .\scripts\sign-windows-ci.ps1 -Path .\phantom.exe
+#   .\scripts\sign-windows-ci.ps1 -Path .\spectyn.exe
 #   .\scripts\sign-windows-ci.ps1 -Path file1.exe,file2.msi
 #
 #   # verify only (no secret needed):
-#   .\scripts\sign-windows-ci.ps1 -Verify -Path .\phantom.exe
+#   .\scripts\sign-windows-ci.ps1 -Verify -Path .\spectyn.exe
 #
 # Exit codes:
 #   0  signed OK, OR skipped because no cert secret (by design), OR verify pass
@@ -147,7 +147,7 @@ Write-Host "  signtool: $signtool"
 
 # ---------- materialize PFX from secret (temp, cleaned in finally) ----------
 
-$pfxPath = Join-Path ([System.IO.Path]::GetTempPath()) ("phantom-codesign-" + [System.IO.Path]::GetRandomFileName() + ".pfx")
+$pfxPath = Join-Path ([System.IO.Path]::GetTempPath()) ("spectyn-codesign-" + [System.IO.Path]::GetRandomFileName() + ".pfx")
 $exitCode = 0
 try {
     try {

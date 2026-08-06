@@ -1,6 +1,6 @@
 // Tauri command surface for SPEC-22 habit chip / text capture.
 //
-// Wraps `phantom_mesh::capture_habit_wire` so the React habit chip surfaces
+// Wraps `spectyn_mesh::capture_habit_wire` so the React habit chip surfaces
 // (SPEC-41 §10.3 ChipPopover / iOS widget / dashboard habit cards) can drive
 // the habit lifecycle (create chip → check-in → list → streak) through Tauri's
 // invoke channel. Mirrors commands/capture_focus_wire.rs.
@@ -12,7 +12,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::capture_habit_wire::{
+use spectyn_mesh::capture_habit_wire::{
     self, HabitCaptureError, HabitCheckin, HabitDefinition, HabitStreak, HabitSummary,
 };
 
@@ -54,7 +54,7 @@ pub async fn habit_streak(habit_slug: String) -> Result<HabitStreak, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phantom_mesh::capture_habit_wire::{HabitCheckinSource, HabitFrequency};
+    use spectyn_mesh::capture_habit_wire::{HabitCheckinSource, HabitFrequency};
 
     fn make_def() -> HabitDefinition {
         HabitDefinition {

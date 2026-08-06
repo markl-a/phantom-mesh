@@ -11,7 +11,7 @@
 1. **Curator（策展器，H1）** — 呼叫一個小型 Claude 模型（「haiku」），依照一份凍結的評分準則（rubric，評分量表）對某個
    `EvolveCheckpoint`（演化檢查點）的 transcript（對話記錄）打分（0–10），
    然後把這個裁決（verdict）持久化（persist）寫回該檢查點。已接線到
-   `phantom evolve --judge`。
+   `spectyn evolve --judge`。
 
 2. **Skill Document parser（技能文件解析器，H2）** — 針對技能檔案（YAML frontmatter（前置設定區塊）+ Markdown 內文）提供帶型別（typed）的解析與可往返（round-trip）的序列化器（serializer），讓
    Curator 與未來的 agent（代理）可以讀取、修改、再重新輸出技能，
@@ -24,7 +24,7 @@
 ```toml
 # Cargo.toml
 [dependencies]
-phantom-mesh = { path = "core", features = ["experimental-curator"] }
+spectyn-mesh = { path = "core", features = ["experimental-curator"] }
 ```
 
 或透過 CLI：
@@ -36,9 +36,9 @@ cargo build --features experimental-curator
 ## 快速體驗
 
 ```rust,ignore
-use phantom_mesh::skillbank::{build_judge_user_prompt, parse_judge_reply, RUBRIC_VERSION};
-use phantom_mesh::skillbank::skill::{parse_str, serialize};
-use phantom_mesh::evolve_checkpoint::EvolveCheckpoint;
+use spectyn_mesh::skillbank::{build_judge_user_prompt, parse_judge_reply, RUBRIC_VERSION};
+use spectyn_mesh::skillbank::skill::{parse_str, serialize};
+use spectyn_mesh::evolve_checkpoint::EvolveCheckpoint;
 
 // Curator: build the prompt the judge sees
 let cp = EvolveCheckpoint::new("fix the lint", "check", "test-node");
@@ -60,7 +60,7 @@ assert_eq!(parse_str(&back).unwrap(), doc);
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_curator_example \
     --features experimental-curator
 ```
@@ -81,7 +81,7 @@ CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
 
 ## V2：多裁判集成（multi-judge ensemble，T28）
 
-`phantom evolve --judge --ensemble N`（N >= 2）會把同一個 `EvolveCheckpoint`
+`spectyn evolve --judge --ensemble N`（N >= 2）會把同一個 `EvolveCheckpoint`
 並行送給 N 個獨立的 LLM 裁判（透過 `tokio::task::JoinSet`），
 以母體中位數（population median）彙整各裁決，並對結果分類：
 

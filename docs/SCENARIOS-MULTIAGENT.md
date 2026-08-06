@@ -1,33 +1,33 @@
 > ⚠️ pre-pivot — 方向已被現行 4-pillar Life/Work(superpowers/BIG-GOAL.md)取代;戰術細節或許仍可用。
 
-# 場景 → phantom 多代理（multi-agent，多重 AI 代理）指令
+# 場景 → spectyn 多代理（multi-agent，多重 AI 代理）指令
 
-> **目前在 phantom 0.4.0 上可運作的前 10 名**位於本檔案
+> **目前在 spectyn 0.4.0 上可運作的前 10 名**位於本檔案
 > 最上方（下一節）。完整的 95 個場景腦力激盪緊接其後，作為一份
 > 前瞻性藍圖（roadmap）——這些場景還需要額外的代理設定（agent config）、
 > 事件鉤子（event hook）或尚未隨產品出貨的領域專屬工具。
 
 ---
 
-## 🎯 前 10 名 — 已在 phantom 0.4.0 上驗證可運作（2026-05-11）
+## 🎯 前 10 名 — 已在 spectyn 0.4.0 上驗證可運作（2026-05-11）
 
 每個場景都是一條可直接貼上執行的指令。在全新安裝的環境上皆可乾淨地
-結束、無需進一步設定（前提是你已執行過 `phantom onboarding`，
+結束、無需進一步設定（前提是你已執行過 `spectyn onboarding`，
 且環境變數中至少有一組供應商金鑰（provider key））。
 
 ### T1. 早會（morning standup）—— 看看一夜之間出了什麼貨
 ```bash
-phantom autoevolve digest --since-hours 24
+spectyn autoevolve digest --since-hours 24
 ```
 **模式（pattern）**：D（排程／事件驅動，由你閱讀結果）。
-phantom autoevolve 透過 launchd 每小時執行一次；這條指令會讀取
+spectyn autoevolve 透過 launchd 每小時執行一次；這條指令會讀取
 過去 24 小時的提交（commit）＋排隊任務（queued task）＋失敗紀錄。
 **實際輸出**：依狀態分類的計數（綠燈／已修復／失敗）、提交雜湊（commit sha）、
 佇列深度（queue depth）。約 50 行。
 
 ### T2. 6 個專案的儀表板（dashboard），可從任何裝置存取
 ```bash
-phantom serve &
+spectyn serve &
 open http://127.0.0.1:7878/projects
 ```
 **模式**：A（單一節點主機；Tailscale 上每台裝置皆可連線）。
@@ -36,7 +36,7 @@ open http://127.0.0.1:7878/projects
 
 ### T3. 跨整個程式碼庫（codebase）的唯讀（read-only）調查
 ```bash
-phantom run --agent researcher "Find all callers of phantom_mesh::permission::Engine::evaluate. Cite files."
+spectyn run --agent researcher "Find all callers of spectyn_mesh::permission::Engine::evaluate. Cite files."
 ```
 **模式**：A（單一唯讀子代理（sub-agent），無共享歷史）。
 使用 content_search ＋ file_read 工具。回傳 markdown 條列。
@@ -44,7 +44,7 @@ phantom run --agent researcher "Find all callers of phantom_mesh::permission::En
 
 ### T4. 多步驟的編碼任務（重構／修 bug）
 ```bash
-phantom run --agent coder "Add a unit test for permission::wildcard_match covering CJK whitespace edge case."
+spectyn run --agent coder "Add a unit test for permission::wildcard_match covering CJK whitespace edge case."
 ```
 **模式**：A（搭配 file_edit ＋ cargo_check 工具的單一代理）。
 寫出測試、執行 cargo、回報綠燈或失敗。首次執行（cargo 編譯）
@@ -52,21 +52,21 @@ phantom run --agent coder "Add a unit test for permission::wildcard_match coveri
 
 ### T5. 對當前差異（diff）做程式碼審查（code review）
 ```bash
-phantom run --agent reviewer "Review HEAD. Flag security issues, panic risks, dead code."
+spectyn run --agent reviewer "Review HEAD. Flag security issues, panic risks, dead code."
 ```
 **模式**：A。審查者（reviewer）依設計即為唯讀——不會修改程式碼。
 回傳一份帶有 line:column 參照的結構化 markdown 審查報告。
 
 ### T6. 平行研究扇出（fan-out，單機）
 ```bash
-phantom run --agent master 'Run parallel_tasks for: [{agent:"researcher", prompt:"What does tokio CancellationToken actually do under the hood?"}, {agent:"coder", prompt:"Show a 10-line example of CancellationToken in select! with timeout"}]'
+spectyn run --agent master 'Run parallel_tasks for: [{agent:"researcher", prompt:"What does tokio CancellationToken actually do under the hood?"}, {agent:"coder", prompt:"Show a 10-line example of CancellationToken in select! with timeout"}]'
 ```
 **模式**：B（透過 `parallel_tasks` 工具的單機扇出）。
 兩個子代理並行執行；結果合併為單一回應。
 
 ### T7. 跨機派發（dispatch，Tailscale 叢集）
 ```bash
-phantom run --node node-a --agent coder "Build the project here and report the binary size"
+spectyn run --node node-a --agent coder "Build the project here and report the binary size"
 ```
 **模式**：C（透過 `subagent({node})` 的單一對等節點（peer）派發）。
 從 `agents.toml` 的 `[cluster] peers` 挑選 `node-a`，透過 HMAC 驗證的
@@ -75,24 +75,24 @@ phantom run --node node-a --agent coder "Build the project here and report the b
 
 ### T8. 權限政策（permission policy）強制執行
 ```bash
-# Add to ~/.phantom-mesh/agents.toml:
+# Add to ~/.spectyn-mesh/agents.toml:
 #   [permissions]
 #   deny  = ["Read(./.env)", "Bash(rm -rf *)"]
 #   ask   = ["Bash"]
 #   allow = ["Bash(git status)", "Bash(cargo check)"]
-phantom doctor              # verify rules parsed
-phantom run --agent coder "What's in ./.env?"     # → denied
+spectyn doctor              # verify rules parsed
+spectyn run --agent coder "What's in ./.env?"     # → denied
 ```
 **模式**：A，前方加上權限引擎（permission engine）。
-招募人員可即時看到拒絕鏈（deny chain）被觸發。`phantom doctor`
+招募人員可即時看到拒絕鏈（deny chain）被觸發。`spectyn doctor`
 會顯示「4 rules parsed (2 deny, 1 ask, 1 allow); statically denied:
 web_fetch (will be hidden from LLM tool list)」。
 
 ### T9. 背景自我改善迴圈（self-improvement loop）
 ```bash
 echo "Add a docstring to permission::wildcard_match explaining the glob semantics" \
-  >> ~/.phantom-mesh/autoevolve.queue.txt
-phantom autoevolve schedule status     # confirm hourly cadence
+  >> ~/.spectyn-mesh/autoevolve.queue.txt
+spectyn autoevolve schedule status     # confirm hourly cadence
 # (then walk away — checks back in via T1 tomorrow)
 ```
 **模式**：D。當 cargo 為綠燈時，Autoevolve 會撿起排隊任務，
@@ -100,25 +100,25 @@ phantom autoevolve schedule status     # confirm hourly cadence
 
 ### T10. 透過 MCP 橋接（MCP-bridged）從 Claude Code 使用
 ```bash
-claude mcp add phantom $(which phantom) mcp
+claude mcp add spectyn $(which spectyn) mcp
 # Then in a Claude Code session in any repo:
-#   "Use mcp__phantom__subagent to dispatch this PR review to the
+#   "Use mcp__spectyn__subagent to dispatch this PR review to the
 #    `reviewer` agent."
 ```
-**模式**：從 Claude Code 的角度看是 A；phantom 的 50+ 個工具
-會以 `mcp__phantom__*` 的形式，與 Claude Code 的內建工具並列出現。
+**模式**：從 Claude Code 的角度看是 A；spectyn 的 50+ 個工具
+會以 `mcp__spectyn__*` 的形式，與 Claude Code 的內建工具並列出現。
 
 ---
 
 ## 📌 驗證方式
 
 ```bash
-phantom selftest --feature mcp           # T10 path
-phantom selftest --feature projects-dashboard  # T2 path
-phantom selftest --feature cluster-rpc   # T7 path
-phantom selftest --feature permission-dsl  # T8 path
-phantom selftest --feature autoevolve-queue  # T9 path
-phantom selftest --feature digest        # T1 path
+spectyn selftest --feature mcp           # T10 path
+spectyn selftest --feature projects-dashboard  # T2 path
+spectyn selftest --feature cluster-rpc   # T7 path
+spectyn selftest --feature permission-dsl  # T8 path
+spectyn selftest --feature autoevolve-queue  # T9 path
+spectyn selftest --feature digest        # T1 path
 ./scripts/test-mcp-tools.sh              # T3-T6 paths
 ```
 
@@ -131,29 +131,29 @@ phantom selftest --feature digest        # T1 path
 
 本線以下的一切皆為**未來工作＋設計空間（design space）**——
 上方 10 個場景所代表的種子案例（seed-case）背後更廣大的願景。它們皆未
-被 phantom 0.4.0 的基礎能力所阻擋；它們需要：
+被 spectyn 0.4.0 的基礎能力所阻擋；它們需要：
 - 8 個額外的代理角色（fetcher、synthesizer、standup、triage、
   digestor、reporter、coach、local）——直接了當的設定
 - 用於「當 X 發生時觸發」的事件鉤子（下方的 [TODO: events]
-  標記）——phantom-mesh 藍圖項目
+  標記）——spectyn-mesh 藍圖項目
 
 請把這份文件當作藍圖來讀，而非功能清單。
 
 ---
 
 > 與 `_planning-audit/archived/misc-strategy/USE-SCENARIOS.md` 為姊妹篇。
-> 該腦力激盪中的每個場景都會得到一條確定性（deterministic）的 phantom
+> 該腦力激盪中的每個場景都會得到一條確定性（deterministic）的 spectyn
 > 命令列與一個多代理拓樸（topology）。請把本檔案當作各場景的
 > 實作規格（implementation spec）。
 
 下方引用的四種執行模式：
 
-| 模式 | 何時使用 | phantom 指令形態 |
+| 模式 | 何時使用 | spectyn 指令形態 |
 |---|---|---|
-| **A** 單一代理 | 問答／摘要，無需平行處理 | `mcp__phantom__subagent({agent: "X", prompt: "..."})` |
-| **B** 單機平行 | 同一節點上多個獨立的子任務 | `mcp__phantom__parallel_tasks([{agent, prompt}, ...])` |
-| **C** 跨網格（cross-mesh）分散式 | 不同硬體／隱私區（privacy zone）／地點 | `mcp__phantom__subagent({node: "host:port", agent, prompt})`，扇出時再加 `parallel_tasks` |
-| **D** 排程／事件驅動 | 週期性或由外部事件觸發 | `phantom autoevolve schedule install --interval N --agent X`（單發週期性）；標記 `[TODO: events]` 的事件鉤子尚未出貨 |
+| **A** 單一代理 | 問答／摘要，無需平行處理 | `mcp__spectyn__subagent({agent: "X", prompt: "..."})` |
+| **B** 單機平行 | 同一節點上多個獨立的子任務 | `mcp__spectyn__parallel_tasks([{agent, prompt}, ...])` |
+| **C** 跨網格（cross-mesh）分散式 | 不同硬體／隱私區（privacy zone）／地點 | `mcp__spectyn__subagent({node: "host:port", agent, prompt})`，扇出時再加 `parallel_tasks` |
+| **D** 排程／事件驅動 | 週期性或由外部事件觸發 | `spectyn autoevolve schedule install --interval N --agent X`（單發週期性）；標記 `[TODO: events]` 的事件鉤子尚未出貨 |
 
 一個場景可使用多種模式——例如 S3（夜間重構）即為
 **D + C**：午夜排程，扇出至各 GPU 機器。
@@ -185,7 +185,7 @@ local        on-device MLX agent (privacy-locked)
 
 | ID | 場景 | 模式 | 指令 | 缺少項目 |
 |---|---|---|---|---|
-| S1 | 當前 repo 小 bug fix | A | `subagent({agent:"coder", prompt:"<bug>"})` | —（Claude Code 已涵蓋；phantom 不應重複） |
+| S1 | 當前 repo 小 bug fix | A | `subagent({agent:"coder", prompt:"<bug>"})` | —（Claude Code 已涵蓋；spectyn 不應重複） |
 | **S2** | 跨 3–5 repo 改動 | **C** | `parallel_tasks([{node:"laptop", agent:"coder", prompt:"repo A: …"}, {node:"node-a", agent:"coder", prompt:"repo B: …"}, …])` | repo 探索 ＋ 每節點 git_clone 啟動引導（bootstrap） |
 | **S3** | Overnight 重構（500+ 檔） | **D + C** | `autoevolve schedule install --interval 3600 --target test --agent coder --distributed` | 已出貨 |
 | S4 | PR review 1000+ 行 | **B** | `parallel_tasks([{agent:"reviewer", prompt:"chunk 1: lines 1-200"}, …, {agent:"synthesizer", prompt:"merge findings"}])` | gh PR 擷取工具（或沿用既有的 `git_diff`） |
@@ -199,7 +199,7 @@ local        on-device MLX agent (privacy-locked)
 | S12 | 壓力測試／效能分析 | C | `subagent({node:"perf-box", agent:"coder", prompt:"run k6 / criterion / iperf"})` | bench harness 腳本 |
 | S13 | 寫 RFC／設計文件 | A + memory | `subagent({agent:"master", ctx: memory_recall + git_diff})` | — |
 | S14 | Regex／shell 單行指令 | A | `subagent({agent:"master"})` | —（不與 ChatGPT 做區隔） |
-| **S15** | 多分支並行實驗 | **B + worktree** | `parallel_tasks([{agent:"coder", prompt:"impl approach A in worktree-A"}, {agent:"coder", prompt:"impl approach B in worktree-B"}, {agent:"reviewer", prompt:"compare both"}])` | worktree 生成輔助（`phantom worktree create`）；已透過 Claude Code 代理隔離部分完成 |
+| **S15** | 多分支並行實驗 | **B + worktree** | `parallel_tasks([{agent:"coder", prompt:"impl approach A in worktree-A"}, {agent:"coder", prompt:"impl approach B in worktree-B"}, {agent:"reviewer", prompt:"compare both"}])` | worktree 生成輔助（`spectyn worktree create`）；已透過 Claude Code 代理隔離部分完成 |
 
 ---
 
@@ -254,7 +254,7 @@ local        on-device MLX agent (privacy-locked)
 | X1 | 長跑斷線續跑 | D | 透過 `bash_run_background` 建立檢查點（checkpoint）＋ 透過 job_id 輪詢恢復 | 已出貨 |
 | X2 | 手機監看／下指令 | C | 行動 UI → `subagent({node, ...})` | 已出貨 |
 | X3 | 多機協作 | C | `parallel_tasks`，每個任務帶 `node:` | 已出貨 |
-| X4 | 會話跨裝置 | A + 持久化（persistence） | `[session.*]` ＋ `~/.phantom-mesh/conversations/` 已透過 iCloud／叢集共享 | iCloud 同步串接（規劃中） |
+| X4 | 會話跨裝置 | A + 持久化（persistence） | `[session.*]` ＋ `~/.spectyn-mesh/conversations/` 已透過 iCloud／叢集共享 | iCloud 同步串接（規劃中） |
 | X5 | 每日／每週排程 | D | `autoevolve schedule install --interval N` | 已出貨 |
 | X6 | 敏感資料 local-only | C | 路由至 `agent.local`（mlx-local 供應商） | 已出貨 |
 | X7 | 多 agent 並行實驗 | B | `parallel_tasks` + worktree | worktree 輔助（與 S15 相同缺口） |
@@ -431,12 +431,12 @@ local        on-device MLX agent (privacy-locked)
 僅在領域上有所不同：
 
 ```
-phantom autoevolve schedule install --interval 2592000 \
+spectyn autoevolve schedule install --interval 2592000 \
     --agent reporter \
     --target test  # or a custom 'review-goal' target
 ```
 
-並在 `~/.phantom-mesh/goals.toml` 中搭配一個 `[goal.<name>]` 區塊：
+並在 `~/.spectyn-mesh/goals.toml` 中搭配一個 `[goal.<name>]` 區塊：
 
 ```toml
 [goal.fire]
@@ -540,11 +540,11 @@ LaunchAgent（每個目標一個）。落地全部 L4/L5（約 30 個場景）�
 
 1. 依 ID（S2, dP1, …）**挑一個場景**
 2. 閱讀其**模式**欄——那就是多代理拓樸
-3. 執行／客製其**指令**欄——那就是 phantom 的單行指令
+3. 執行／客製其**指令**欄——那就是 spectyn 的單行指令
 4. 若**缺少項目**欄有寫東西，那就是在該工具／角色加入前的硬阻擋；
    上方藍圖列出了每個缺口何時補上。
-5. 執行後，將結果附加到 `~/.phantom-mesh/scenarios.log`，
-   讓未來的你（與未來的 phantom autoevolve）能從中學習。
+5. 執行後，將結果附加到 `~/.spectyn-mesh/scenarios.log`，
+   讓未來的你（與未來的 spectyn autoevolve）能從中學習。
 
-本文件是 phantom 的 CLI 介面與 95 個場景腦力激盪之間的契約。
+本文件是 spectyn 的 CLI 介面與 95 個場景腦力激盪之間的契約。
 隨兩者演進，請保持兩邊同步。

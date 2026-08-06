@@ -1,11 +1,11 @@
- phantom-mesh 代碼改進優先區域（基於 clippy 警告）：
+ spectyn-mesh 代碼改進優先區域（基於 clippy 警告）：
 
  1. src/context.rs 模組
     - 警告類型：可合併的if語句（4處）、手動字符串前綴 stripping（2處）、低效的雙端迭代器 last 調用（2處）
     - 建議：重構條件邏輯以合併嵌套if，使用標準庫方法如 strip_prefix、next_back 替換手動實現
 
  2. 函數參數過多問題
-   - 位置：src/agent.rs:169 (run_inner 函數)、src/bin/phantom.rs:1059 (repl 函數)
+   - 位置：src/agent.rs:169 (run_inner 函數)、src/bin/spectyn.rs:1059 (repl 函數)
    - 警告：函數參數數量超過閾值（8/7）
    - 建議：將相關參數封裝為結構體以改善 API 設計和可讀性
 

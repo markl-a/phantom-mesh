@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize a Terminal-Bench run for the phantom agent.
+"""Summarize a Terminal-Bench run for the spectyn agent.
 
 Reads a run's results.json and prints accuracy + per-task pass/fail, and—because
 free-tier quota errors (413/429/503) masquerade as task failures—scans each

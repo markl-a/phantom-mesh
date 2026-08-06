@@ -83,18 +83,18 @@ export default function SettingsIdentity() {
   return (
     <div
       data-testid="settings-identity"
-      className="min-h-screen flex flex-col bg-phantom-bg text-phantom-text
+      className="min-h-screen flex flex-col bg-spectyn-bg text-spectyn-text
         pt-[env(safe-area-inset-top)]
         pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       {/* Header */}
-      <header className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-phantom-border">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-          <Fingerprint size={20} className="text-phantom-primary" aria-hidden="true" />
+      <header className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-spectyn-border">
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+          <Fingerprint size={20} className="text-spectyn-primary" aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-bold text-phantom-text">裝置識別碼 Device identity</h1>
-          <p className="text-sm text-phantom-muted mt-0.5 truncate">
+          <h1 className="text-lg font-bold text-spectyn-text">裝置識別碼 Device identity</h1>
+          <p className="text-sm text-spectyn-muted mt-0.5 truncate">
             本機加密身分 This device&apos;s cryptographic identity
           </p>
         </div>
@@ -104,8 +104,8 @@ export default function SettingsIdentity() {
           disabled={state === "loading"}
           aria-label="重新整理識別碼 Refresh identity"
           className="flex items-center gap-1.5 min-h-[44px] px-3 rounded-lg text-base
-            bg-phantom-card border border-phantom-border text-phantom-text
-            hover:border-phantom-primary/40 transition motion-reduce:transition-none
+            bg-spectyn-card border border-spectyn-border text-spectyn-text
+            hover:border-spectyn-primary/40 transition motion-reduce:transition-none
             disabled:opacity-60 flex-shrink-0"
         >
           <RefreshCw
@@ -123,7 +123,7 @@ export default function SettingsIdentity() {
         {state === "error" && (
           <div
             role="alert"
-            className="bg-phantom-danger/10 border border-phantom-danger/40 rounded-lg p-3 text-base text-phantom-danger"
+            className="bg-spectyn-danger/10 border border-spectyn-danger/40 rounded-lg p-3 text-base text-spectyn-danger"
           >
             無法讀取識別碼：{error}
             <span className="block text-sm opacity-80 mt-1">Failed to read identity.</span>
@@ -134,7 +134,7 @@ export default function SettingsIdentity() {
         {state === "loading" && (
           <div
             role="status"
-            className="flex items-center justify-center gap-2 min-h-[44px] text-base text-phantom-muted py-8"
+            className="flex items-center justify-center gap-2 min-h-[44px] text-base text-spectyn-muted py-8"
           >
             <RefreshCw
               size={18}
@@ -147,9 +147,9 @@ export default function SettingsIdentity() {
 
         {/* Honest empty state: backend unavailable (null) */}
         {state === "ready" && identity == null && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-            <p className="text-base text-phantom-text">無法取得識別碼 Identity unavailable</p>
-            <p className="text-sm text-phantom-muted mt-1.5">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+            <p className="text-base text-spectyn-text">無法取得識別碼 Identity unavailable</p>
+            <p className="text-sm text-spectyn-muted mt-1.5">
               此環境沒有可用的裝置後端（例如純瀏覽器模式）。
               <span className="block mt-0.5">
                 No device backend available here (e.g. browser-only mode).
@@ -160,9 +160,9 @@ export default function SettingsIdentity() {
 
         {/* Honest empty state: backend present but no key yet */}
         {state === "ready" && identity != null && !hasKey && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-            <p className="text-base text-phantom-text">尚未建立識別碼 No identity yet</p>
-            <p className="text-sm text-phantom-muted mt-1.5">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+            <p className="text-base text-spectyn-text">尚未建立識別碼 No identity yet</p>
+            <p className="text-sm text-spectyn-muted mt-1.5">
               這台裝置還沒有加密身分金鑰。
               <span className="block mt-0.5">This device has no cryptographic key yet.</span>
             </p>
@@ -173,20 +173,20 @@ export default function SettingsIdentity() {
         {state === "ready" && identity != null && hasKey && (
           <section
             aria-label="識別碼詳情 Identity details"
-            className="bg-phantom-card border border-phantom-border rounded-lg p-4 space-y-4"
+            className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 space-y-4"
           >
             {/* Display name / identity line */}
             <div>
-              <p className="text-sm text-phantom-muted">顯示名稱 Display name</p>
-              <p className="text-base text-phantom-text mt-1 break-words">
+              <p className="text-sm text-spectyn-muted">顯示名稱 Display name</p>
+              <p className="text-base text-spectyn-text mt-1 break-words">
                 {identity.identityLine ?? "（未命名 Unnamed）"}
               </p>
             </div>
 
             {/* Fingerprint (monospace) */}
             <div>
-              <p className="text-sm text-phantom-muted">公鑰指紋 Public-key fingerprint</p>
-              <p className="text-base font-mono text-phantom-text mt-1 break-all leading-relaxed">
+              <p className="text-sm text-spectyn-muted">公鑰指紋 Public-key fingerprint</p>
+              <p className="text-base font-mono text-spectyn-text mt-1 break-all leading-relaxed">
                 {identity.fingerprint}
               </p>
             </div>
@@ -194,14 +194,14 @@ export default function SettingsIdentity() {
             {/* Keystore + created */}
             <div className="grid grid-cols-1 gap-3">
               <div>
-                <p className="text-sm text-phantom-muted">金鑰庫 Keystore</p>
-                <p className="text-base font-mono text-phantom-text mt-1 break-all">
+                <p className="text-sm text-spectyn-muted">金鑰庫 Keystore</p>
+                <p className="text-base font-mono text-spectyn-text mt-1 break-all">
                   {identity.keystore || "—"}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-phantom-muted">建立時間 Created</p>
-                <p className="text-base text-phantom-text mt-1 break-words">
+                <p className="text-sm text-spectyn-muted">建立時間 Created</p>
+                <p className="text-base text-spectyn-text mt-1 break-words">
                   {identity.createdAt || "—"}
                 </p>
               </div>
@@ -211,8 +211,8 @@ export default function SettingsIdentity() {
 
         {/* Sensitive-action warning before destructive import/export */}
         <div
-          className="flex items-start gap-2 bg-phantom-warning/10 border border-phantom-warning/40
-            rounded-lg p-3 text-sm text-phantom-warning"
+          className="flex items-start gap-2 bg-spectyn-warning/10 border border-spectyn-warning/40
+            rounded-lg p-3 text-sm text-spectyn-warning"
         >
           <AlertTriangle size={18} aria-hidden="true" className="flex-shrink-0 mt-0.5" />
           <p>
@@ -231,26 +231,26 @@ export default function SettingsIdentity() {
             disabled
             aria-label="匯入識別碼（尚未實作）Import identity (not implemented)"
             className="w-full flex items-center gap-2 min-h-[44px] px-3 rounded-lg text-base
-              bg-phantom-card border border-phantom-border text-phantom-muted
+              bg-spectyn-card border border-spectyn-border text-spectyn-muted
               opacity-60 cursor-not-allowed"
           >
             <Upload size={18} aria-hidden="true" className="flex-shrink-0" />
             <span className="flex-1 text-left">匯入識別碼 / Import</span>
-            <span className="text-xs text-phantom-muted flex-shrink-0">尚未實作 N/A</span>
+            <span className="text-xs text-spectyn-muted flex-shrink-0">尚未實作 N/A</span>
           </button>
           <button
             type="button"
             disabled
             aria-label="匯出識別碼（尚未實作）Export identity (not implemented)"
             className="w-full flex items-center gap-2 min-h-[44px] px-3 rounded-lg text-base
-              bg-phantom-card border border-phantom-border text-phantom-muted
+              bg-spectyn-card border border-spectyn-border text-spectyn-muted
               opacity-60 cursor-not-allowed"
           >
             <Download size={18} aria-hidden="true" className="flex-shrink-0" />
             <span className="flex-1 text-left">匯出識別碼 / Export</span>
-            <span className="text-xs text-phantom-muted flex-shrink-0">尚未實作 N/A</span>
+            <span className="text-xs text-spectyn-muted flex-shrink-0">尚未實作 N/A</span>
           </button>
-          <p className="text-sm text-phantom-muted px-1">
+          <p className="text-sm text-spectyn-muted px-1">
             目前版本尚未提供識別碼匯入／匯出。
             <span className="block">Import / export is not available in this build yet.</span>
           </p>
@@ -258,14 +258,14 @@ export default function SettingsIdentity() {
       </main>
 
       {/* Sticky bottom CTA (reachability) — reload identity */}
-      <footer className="sticky bottom-0 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-phantom-border bg-phantom-bg">
+      <footer className="sticky bottom-0 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-spectyn-border bg-spectyn-bg">
         <button
           type="button"
           onClick={handleReload}
           disabled={state === "loading"}
           aria-label="重新載入識別碼 Reload identity"
           className="w-full min-h-[48px] flex items-center justify-center gap-2 rounded-xl
-            bg-phantom-primary text-phantom-bg text-base font-semibold
+            bg-spectyn-primary text-spectyn-bg text-base font-semibold
             hover:opacity-90 transition motion-reduce:transition-none disabled:opacity-60"
         >
           <ShieldAlert size={18} aria-hidden="true" />

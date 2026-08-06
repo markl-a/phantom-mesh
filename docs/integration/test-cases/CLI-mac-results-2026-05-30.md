@@ -2,12 +2,12 @@
 
 > Actual run of the CLI-automatable, **read-only / non-mutating** cases from
 > `2026-05-30-mac-app-cli-test-playbook.md`, on the M-series Mac (mac-coordinator,
-> phantom 0.6.0-rc.1, serve up on :7878).
+> spectyn 0.6.0-rc.1, serve up on :7878).
 > Mutating cases (note/event capture, focus start/stop, evolve run, self-update,
 > swarm/LLM-cost) and GUI/playwright cases were **not** run here.
 >
 > ⚠️ **PII NOTE for whoever extends this:** several commands print real secrets in
-> their output — `phantom doctor` shows API-key prefixes, `/api/nodes` + `phantom
+> their output — `spectyn doctor` shows API-key prefixes, `/api/nodes` + `spectyn
 > peer list` return real tailnet IPs. **Scrub key prefixes + tailnet IPs before
 > committing any raw capture.** This file records pass/fail + sanitized notes only.
 
@@ -15,10 +15,10 @@
 
 | ☑ | 編號 | 功能 | 結果 | 備註(已 scrub) |
 |---|------|------|------|------|
-| ☑ | ONB-002 | phantom init (/tmp) | PASS | PHANTOM.md created |
-| ☑ | ONB-003 | phantom whoami | PASS | prints state = **尚未登入**(playbook note said "logged in via Google" — login state drifted) |
-| ☑ | ONB-004 | phantom keys show | PASS | prints ed25519 pubkey + path |
-| ☑ | ONB-005 | phantom lang show | PASS | zh-TW |
+| ☑ | ONB-002 | spectyn init (/tmp) | PASS | SPECTYN.md created |
+| ☑ | ONB-003 | spectyn whoami | PASS | prints state = **尚未登入**(playbook note said "logged in via Google" — login state drifted) |
+| ☑ | ONB-004 | spectyn keys show | PASS | prints ed25519 pubkey + path |
+| ☑ | ONB-005 | spectyn lang show | PASS | zh-TW |
 | ☑ | CHA-006 | evolve goals/list --json | PASS | valid JSON (`{"pending":[],"done":[]}` + active checkpoint) |
 | ☑ | CHA-007 | autoevolve log / schedule status | PASS | registered=yes, 463 runs, recent all green |
 | ☑ | CHA-015 | autoevolve digest --json | PASS | |
@@ -36,7 +36,7 @@
 | ☑ | SEC-004 | mlx status | PASS | |
 | △ | SEC-005 | sessions | NEEDS-LOGIN | prints "not logged in" (consistent w/ whoami). Minor: prints `Error:` but exit 0 — slightly inconsistent. |
 | ☑ | SVI-002 | service status | PASS | |
-| △ | SVI-004 | selftest --list | PASS-from-repo | fails from /tmp ("could not locate scripts/selftest.sh" — helpful error); works + lists P0/P1 registry from repo root. UX note: needs repo cwd or `$PHANTOM_SELFTEST_SCRIPT`. |
+| △ | SVI-004 | selftest --list | PASS-from-repo | fails from /tmp ("could not locate scripts/selftest.sh" — helpful error); works + lists P0/P1 registry from repo root. UX note: needs repo cwd or `$SPECTYN_SELFTEST_SCRIPT`. |
 | ☑ | SVI-005 | doctor / doctor --json | PASS | all-green; (shows key prefixes — PII) |
 | ☑ | SVI-009 | / (web shell) | PASS | 200 |
 | ☑ | SVI-011 | /version, /api/version | PASS | 0.6.0-rc.1 |

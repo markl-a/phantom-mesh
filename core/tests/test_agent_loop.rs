@@ -15,7 +15,7 @@ use axum::Router;
 use serde_json::json;
 use tokio::net::TcpListener;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     AgentRuntime, CostTracker,
 };

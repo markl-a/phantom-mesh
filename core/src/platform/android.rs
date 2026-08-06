@@ -47,15 +47,15 @@ impl PlatformAdapter for Platform {
     }
 
     fn dist_binary_name(&self) -> &'static str {
-        "phantom-aarch64-linux-android"
+        "spectyn-aarch64-linux-android"
     }
 
     // Pre-extraction: `config_dir()` had no Android cfg branch and
-    // fell through to `~/.phantom-mesh`. Preserved — P-AND-2 will
+    // fell through to `~/.spectyn-mesh`. Preserved — P-AND-2 will
     // switch this to the Termux app-container path when running
     // under Termux.
     fn config_dir(&self) -> std::path::PathBuf {
-        crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
     }
 }

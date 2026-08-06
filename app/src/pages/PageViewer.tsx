@@ -58,7 +58,7 @@ export default function PageViewer() {
         <h1 className="text-2xl font-bold">頁面</h1>
         <button
           onClick={() => void fetchPages()}
-          className="flex items-center gap-2 border border-phantom-border text-phantom-muted px-3 py-1.5 rounded text-sm hover:text-phantom-text"
+          className="flex items-center gap-2 border border-spectyn-border text-spectyn-muted px-3 py-1.5 rounded text-sm hover:text-spectyn-text"
         >
           <RefreshCw size={14} />
           重新整理
@@ -74,10 +74,10 @@ export default function PageViewer() {
             onDelete={deletePage}
           />
         </div>
-        <div className="flex-1 min-w-0 bg-phantom-card border border-phantom-border rounded-lg overflow-hidden">
+        <div className="flex-1 min-w-0 bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden">
           {loading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="w-6 h-6 border-2 border-phantom-primary border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-spectyn-primary border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
             <PageFrame html={html} />

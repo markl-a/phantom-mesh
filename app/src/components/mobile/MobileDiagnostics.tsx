@@ -103,7 +103,7 @@ export default function MobileDiagnostics() {
   };
 
   if (!state.loaded) {
-    return <div className="text-sm text-phantom-muted">讀取中 …</div>;
+    return <div className="text-sm text-spectyn-muted">讀取中 …</div>;
   }
 
   const now = Date.now();
@@ -150,12 +150,12 @@ export default function MobileDiagnostics() {
 
   return (
     <div className="space-y-3">
-      <div className="text-xs text-phantom-muted leading-relaxed">
+      <div className="text-xs text-spectyn-muted leading-relaxed">
         每行是 iPhone 上 LLM call 能跑的一個前提。從上往下看，第一個
         紅 ✗ 就是要修的地方。
       </div>
 
-      <div className="bg-phantom-card border border-phantom-border rounded-lg divide-y divide-phantom-border">
+      <div className="bg-spectyn-card border border-spectyn-border rounded-lg divide-y divide-spectyn-border">
         {rows.map((r, i) => (
           <div key={i} className="p-3">
             <div className="flex items-start gap-2">
@@ -167,10 +167,10 @@ export default function MobileDiagnostics() {
                 {r.ok ? "✓" : "✗"}
               </span>
               <div className="flex-1 min-w-0">
-                <div className="text-phantom-text text-sm font-medium">
+                <div className="text-spectyn-text text-sm font-medium">
                   {r.label}
                 </div>
-                <div className="text-phantom-muted text-[11px] mt-0.5 break-words">
+                <div className="text-spectyn-muted text-[11px] mt-0.5 break-words">
                   {r.detail}
                 </div>
               </div>
@@ -182,7 +182,7 @@ export default function MobileDiagnostics() {
       <button
         onClick={trySync}
         disabled={busy || !state.auth}
-        className="w-full bg-phantom-primary text-phantom-bg font-medium px-4 py-3 rounded-lg active:opacity-80 disabled:opacity-50"
+        className="w-full bg-spectyn-primary text-spectyn-bg font-medium px-4 py-3 rounded-lg active:opacity-80 disabled:opacity-50"
       >
         {busy ? "同步中 …" : "立刻試 sync（從 vault 拉 keys）"}
       </button>
@@ -190,14 +190,14 @@ export default function MobileDiagnostics() {
       <button
         onClick={trySelfChat}
         disabled={chatBusy}
-        className="w-full bg-phantom-card border border-phantom-primary text-phantom-primary font-medium px-4 py-3 rounded-lg active:opacity-80 disabled:opacity-50"
+        className="w-full bg-spectyn-card border border-spectyn-primary text-spectyn-primary font-medium px-4 py-3 rounded-lg active:opacity-80 disabled:opacity-50"
       >
         {chatBusy ? "LLM 呼叫中 …" : "🧪 自我測試 chat（一鍵打 send_message）"}
       </button>
       {chatResult && chatResult.ok && (
         <div className="bg-emerald-900/30 border border-emerald-500/40 rounded-lg p-3 text-xs text-emerald-300 space-y-1">
           <div>✓ chat OK ({chatResult.elapsed?.toFixed(1)}s)</div>
-          <div className="text-phantom-text bg-phantom-bg/40 rounded p-2 mt-1 font-mono break-words whitespace-pre-wrap">
+          <div className="text-spectyn-text bg-spectyn-bg/40 rounded p-2 mt-1 font-mono break-words whitespace-pre-wrap">
             {chatResult.output}
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function MobileDiagnostics() {
         </div>
       )}
       {!state.auth && (
-        <div className="text-[11px] text-phantom-muted text-center">
+        <div className="text-[11px] text-spectyn-muted text-center">
           還沒登入，按鈕暫無作用 — 請先到「登入 phantommesh.io」完成 OAuth
         </div>
       )}
@@ -237,7 +237,7 @@ export default function MobileDiagnostics() {
         </div>
       )}
 
-      <div className="text-[10px] text-phantom-muted leading-relaxed mt-4">
+      <div className="text-[10px] text-spectyn-muted leading-relaxed mt-4">
         什麼都試了還不行？
         <br />
         a. 直接到「手動填 LLM API key」貼一個 OPENAI_API_KEY 試 chat

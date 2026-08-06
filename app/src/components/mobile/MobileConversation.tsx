@@ -201,7 +201,7 @@ export default function MobileConversation() {
     if (!text || loading) return;
 
     // Local mode (cluster toggle off) is now usable — broker login +
-    // vault sync seeds ~/.phantom-mesh/{env, agents.toml} on the device,
+    // vault sync seeds ~/.spectyn-mesh/{env, agents.toml} on the device,
     // and lib.rs setup() loads env vars into the running process. Only
     // require the cluster setup when the user explicitly turned the
     // cluster toggle ON but hasn't filled coordinator URL + secret.
@@ -370,24 +370,24 @@ export default function MobileConversation() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-phantom-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-spectyn-border flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-phantom-bg ${
+          <div className={`w-7 h-7 rounded-full flex items-center justify-center text-spectyn-bg ${
             cluster.enabled
-              ? "bg-gradient-to-br from-phantom-success to-phantom-primary"
-              : "bg-gradient-to-br from-phantom-primary to-phantom-secondary"
+              ? "bg-gradient-to-br from-spectyn-success to-spectyn-primary"
+              : "bg-gradient-to-br from-spectyn-primary to-spectyn-secondary"
           }`}>
             {cluster.enabled ? <Network size={14} /> : <Sparkles size={14} />}
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-phantom-text leading-tight">
+            <h1 className="text-sm font-semibold text-spectyn-text leading-tight">
               {providerMode
-                ? "Phantom Provider"
+                ? "Spectyn Provider"
                 : cluster.enabled
-                ? "Phantom Cluster"
-                : "Phantom"}
+                ? "Spectyn Cluster"
+                : "Spectyn"}
             </h1>
-            <p className="text-[10px] text-phantom-muted leading-tight">
+            <p className="text-[10px] text-spectyn-muted leading-tight">
               {providerMode
                 ? `Provider 直連 · ${activeProvider ?? "解析中…"}`
                 : cluster.enabled
@@ -406,7 +406,7 @@ export default function MobileConversation() {
               ? `Provider 直連（${activeProvider ?? "解析中"}）`
               : "Provider 直連模式（跳過 agent loop）"}
             className={`p-1.5 -m-1 rounded transition disabled:opacity-40 ${
-              providerMode ? "text-phantom-primary" : "text-phantom-muted hover:text-phantom-text"
+              providerMode ? "text-spectyn-primary" : "text-spectyn-muted hover:text-spectyn-text"
             }`}
           >
             <Zap size={16} />
@@ -416,7 +416,7 @@ export default function MobileConversation() {
             onClick={() => cluster.setEnabled(!cluster.enabled)}
             disabled={!cluster.isConfigured() || providerMode}
             className={`relative w-11 h-6 rounded-full transition flex-shrink-0 ${
-              cluster.enabled ? "bg-phantom-success" : "bg-phantom-card border border-phantom-border"
+              cluster.enabled ? "bg-spectyn-success" : "bg-spectyn-card border border-spectyn-border"
             } ${!cluster.isConfigured() || providerMode ? "opacity-40" : ""}`}
             aria-label={cluster.enabled ? "關閉 cluster 模式" : "開啟 cluster 模式"}
             title={providerMode
@@ -432,7 +432,7 @@ export default function MobileConversation() {
           {messages.length > 0 && (
             <button
               onClick={reset}
-              className="text-phantom-muted hover:text-phantom-danger p-2 -m-1"
+              className="text-spectyn-muted hover:text-spectyn-danger p-2 -m-1"
               aria-label="清除"
             >
               <Trash2 size={18} />
@@ -445,18 +445,18 @@ export default function MobileConversation() {
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {showWelcome && (
           <div className="flex flex-col items-center justify-center min-h-full px-2 text-center pb-8">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-phantom-primary to-phantom-secondary flex items-center justify-center mb-3 text-phantom-bg">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-spectyn-primary to-spectyn-secondary flex items-center justify-center mb-3 text-spectyn-bg">
               <Sparkles size={26} />
             </div>
-            <h2 className="text-xl font-semibold text-phantom-text mb-1">嗨，我是 Phantom</h2>
-            <p className="text-sm text-phantom-muted mb-6">問什麼都可以</p>
+            <h2 className="text-xl font-semibold text-spectyn-text mb-1">嗨，我是 Spectyn</h2>
+            <p className="text-sm text-spectyn-muted mb-6">問什麼都可以</p>
 
             <div className="w-full space-y-3">
               {PROMPT_CATEGORIES.map((cat) => (
                 <div key={cat.title}>
                   <div className="flex items-center gap-1.5 px-1 mb-1.5">
                     <span className="text-base">{cat.icon}</span>
-                    <span className="text-xs font-semibold text-phantom-muted uppercase tracking-wide">
+                    <span className="text-xs font-semibold text-spectyn-muted uppercase tracking-wide">
                       {cat.title}
                     </span>
                   </div>
@@ -465,7 +465,7 @@ export default function MobileConversation() {
                       <button
                         key={p}
                         onClick={() => send(p)}
-                        className="w-full text-left px-3.5 py-2.5 bg-phantom-card border border-phantom-border rounded-xl text-[13.5px] text-phantom-text hover:border-phantom-primary/60 transition active:scale-[0.99]"
+                        className="w-full text-left px-3.5 py-2.5 bg-spectyn-card border border-spectyn-border rounded-xl text-[13.5px] text-spectyn-text hover:border-spectyn-primary/60 transition active:scale-[0.99]"
                       >
                         {p}
                       </button>
@@ -489,7 +489,7 @@ export default function MobileConversation() {
           if (msg.role === "user") {
             return (
               <div key={i} className="flex justify-end mb-3">
-                <div className="max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-phantom-primary text-phantom-bg">
+                <div className="max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md bg-spectyn-primary text-spectyn-bg">
                   <p className="text-[14px] whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 </div>
               </div>
@@ -498,12 +498,12 @@ export default function MobileConversation() {
 
           return (
             <div key={i} className="flex gap-2 mb-3">
-              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-phantom-primary to-phantom-secondary flex items-center justify-center text-phantom-bg mt-0.5">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-spectyn-primary to-spectyn-secondary flex items-center justify-center text-spectyn-bg mt-0.5">
                 <Sparkles size={13} />
               </div>
               <div className="flex-1 min-w-0">
                 {msg.content && (
-                  <div className="text-phantom-text text-[14px]">
+                  <div className="text-spectyn-text text-[14px]">
                     <Markdown>{msg.content}</Markdown>
                   </div>
                 )}
@@ -511,7 +511,7 @@ export default function MobileConversation() {
                   <ToolCallDisplay toolCalls={msg.tool_calls} />
                 )}
                 {(msg.provider || msg.model) && (
-                  <p className="mt-1 text-[10px] text-phantom-muted font-mono select-none">
+                  <p className="mt-1 text-[10px] text-spectyn-muted font-mono select-none">
                     {msg.provider}
                     {msg.provider && msg.model ? " · " : ""}
                     {msg.model}
@@ -523,7 +523,7 @@ export default function MobileConversation() {
                     {i === messages.length - 1 && (
                       <button
                         onClick={regenerate}
-                        className="text-phantom-muted hover:text-phantom-text transition flex items-center gap-1 text-[11px]"
+                        className="text-spectyn-muted hover:text-spectyn-text transition flex items-center gap-1 text-[11px]"
                       >
                         <RotateCcw size={13} />
                         重新回答
@@ -538,16 +538,16 @@ export default function MobileConversation() {
 
         {loading && (
           <div className="flex gap-2 mb-3">
-            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-phantom-primary to-phantom-secondary flex items-center justify-center text-phantom-bg mt-0.5">
+            <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-spectyn-primary to-spectyn-secondary flex items-center justify-center text-spectyn-bg mt-0.5">
               <Sparkles size={13} />
             </div>
             <div className="flex-1">
-              <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-phantom-card border border-phantom-border">
-                <span className="text-sm text-phantom-muted">Thinking</span>
+              <div className="inline-flex items-center gap-1.5 px-3 py-2 rounded-2xl bg-spectyn-card border border-spectyn-border">
+                <span className="text-sm text-spectyn-muted">Thinking</span>
                 {[0, 1, 2].map(i => (
                   <span
                     key={i}
-                    className="inline-block w-1.5 h-1.5 bg-phantom-primary rounded-full animate-bounce"
+                    className="inline-block w-1.5 h-1.5 bg-spectyn-primary rounded-full animate-bounce"
                     style={{ animationDelay: `${i * 0.18}s`, animationDuration: "0.9s" }}
                   />
                 ))}
@@ -565,7 +565,7 @@ export default function MobileConversation() {
                 setError(null);
               }
             }}
-            className="w-full bg-phantom-danger/15 border border-phantom-danger/40 text-phantom-danger px-3 py-2 rounded-lg text-sm mb-2 text-left active:bg-phantom-danger/25 transition"
+            className="w-full bg-spectyn-danger/15 border border-spectyn-danger/40 text-spectyn-danger px-3 py-2 rounded-lg text-sm mb-2 text-left active:bg-spectyn-danger/25 transition"
           >
             {error}
           </button>
@@ -576,7 +576,7 @@ export default function MobileConversation() {
 
       {/* Input bar */}
       <div
-        className="flex-shrink-0 border-t border-phantom-border p-2.5 bg-phantom-bg"
+        className="flex-shrink-0 border-t border-spectyn-border p-2.5 bg-spectyn-bg"
         style={{ paddingBottom: "calc(0.625rem + env(safe-area-inset-bottom))" }}
       >
         <div className="flex gap-2 items-end">
@@ -593,12 +593,12 @@ export default function MobileConversation() {
             rows={1}
             disabled={loading}
             style={{ fontSize: "16px", maxHeight: "120px" }}
-            className="flex-1 bg-phantom-card border border-phantom-border rounded-2xl px-4 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary transition resize-none disabled:opacity-60"
+            className="flex-1 bg-spectyn-card border border-spectyn-border rounded-2xl px-4 py-2.5 text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary transition resize-none disabled:opacity-60"
           />
           {loading ? (
             <button
               onClick={stop}
-              className="bg-phantom-danger text-white w-11 h-11 rounded-full flex items-center justify-center transition flex-shrink-0 active:scale-95"
+              className="bg-spectyn-danger text-white w-11 h-11 rounded-full flex items-center justify-center transition flex-shrink-0 active:scale-95"
               aria-label="停止"
             >
               <Square size={16} fill="currentColor" />
@@ -607,7 +607,7 @@ export default function MobileConversation() {
             <button
               onClick={() => send()}
               disabled={input.trim() === ""}
-              className="bg-phantom-primary text-phantom-bg w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 transition flex-shrink-0 active:scale-95"
+              className="bg-spectyn-primary text-spectyn-bg w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-40 transition flex-shrink-0 active:scale-95"
               aria-label="發送"
             >
               <Send size={18} />
@@ -616,7 +616,7 @@ export default function MobileConversation() {
         </div>
         {/* Regenerate hint when last message is assistant */}
         {lastIsAssistant && messages.length > 0 && !showWelcome && (
-          <div className="text-[10.5px] text-phantom-muted text-center mt-1.5">
+          <div className="text-[10.5px] text-spectyn-muted text-center mt-1.5">
             按 Enter 送出 · Shift+Enter 換行
           </div>
         )}

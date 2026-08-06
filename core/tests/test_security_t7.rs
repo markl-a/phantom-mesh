@@ -6,23 +6,23 @@
 //!   * /rpc/task/assign — fail-closed when cluster_secret empty (HIGH)
 //!   * tools::file::safe_path — workspace boundary check (HIGH)
 //!   * tools::patch::apply — workspace boundary check (HIGH)
-//!   * bin/phantom redact_argv — credential elision (MEDIUM)
+//!   * bin/spectyn redact_argv — credential elision (MEDIUM)
 //!
-//! NOTE: tests that mutate `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET` /
-//! `PHANTOM_EXTRA_ALLOWED_ROOTS` serialise on `env_guard()`. Env vars are
+//! NOTE: tests that mutate `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET` /
+//! `SPECTYN_EXTRA_ALLOWED_ROOTS` serialise on `env_guard()`. Env vars are
 //! process-global, so any test that reads or writes them must take the lock.
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use phantom_mesh::mesh::{ClusterConfig, ClusterManager};
-use phantom_mesh::AppState;
+use spectyn_mesh::mesh::{ClusterConfig, ClusterManager};
+use spectyn_mesh::AppState;
 use serde_json::json;
 use std::sync::{Arc, Mutex, OnceLock};
 use tower::ServiceExt;
 
 /// Serialise env-mutating tests in this file. Cargo test runs threads in
 /// parallel by default; env vars are process-global so any test that reads
-/// or sets `PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET` / `PHANTOM_EXTRA_ALLOWED_ROOTS`
+/// or sets `SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET` / `SPECTYN_EXTRA_ALLOWED_ROOTS`
 /// must hold this lock.
 fn env_guard() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -48,9 +48,9 @@ fn app_state_with_secret(secret: &str) -> Arc<AppState> {
 #[tokio::test]
 async fn rpc_message_rejects_request_without_hmac_when_secret_set() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("POST")
@@ -70,9 +70,9 @@ async fn rpc_message_rejects_request_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn rpc_message_rejects_when_secret_empty_and_no_override() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("POST")
@@ -92,9 +92,9 @@ async fn rpc_message_rejects_when_secret_empty_and_no_override() {
 #[tokio::test]
 async fn rpc_message_accepts_valid_hmac() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let body = r#"{"message":"hello","agent":"master"}"#;
     let token = state.cluster_manager.make_auth_token(body);
@@ -120,9 +120,9 @@ async fn rpc_message_accepts_valid_hmac() {
 #[tokio::test]
 async fn api_chat_rejects_request_without_hmac_when_secret_set() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let mut req = Request::builder()
         .method("POST")
@@ -150,9 +150,9 @@ async fn api_chat_rejects_request_without_hmac_when_secret_set() {
 #[tokio::test]
 async fn api_chat_rejects_when_secret_empty_and_no_override() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let mut req = Request::builder()
         .method("POST")
         .uri("/api/chat")
@@ -175,9 +175,9 @@ async fn api_chat_rejects_when_secret_empty_and_no_override() {
 #[tokio::test]
 async fn api_chat_accepts_loopback_when_override_set() {
     let _g = env_guard();
-    std::env::set_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET", "1");
+    std::env::set_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET", "1");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
     let mut req = Request::builder()
         .method("POST")
         .uri("/api/chat")
@@ -191,7 +191,7 @@ async fn api_chat_accepts_loopback_when_override_set() {
         std::net::SocketAddr::from(([127, 0, 0, 1], 0)),
     ));
     let resp = app.oneshot(req).await.unwrap();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     assert_ne!(
         resp.status(),
         StatusCode::FORBIDDEN,
@@ -205,9 +205,9 @@ async fn api_chat_accepts_loopback_when_override_set() {
 #[tokio::test]
 async fn rpc_task_assign_rejects_when_secret_empty() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("POST")
@@ -227,9 +227,9 @@ async fn rpc_task_assign_rejects_when_secret_empty() {
 #[tokio::test]
 async fn rpc_task_assign_rejects_bad_hmac_when_secret_set() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("POST")
@@ -246,19 +246,19 @@ async fn rpc_task_assign_rejects_bad_hmac_when_secret_set() {
 #[tokio::test]
 async fn rpc_task_assign_accepts_valid_hmac() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET");
     // Hermetic isolation (sprint6): `/rpc/task/assign` runs a file-backed
-    // at-most-once dedup (default `~/.phantom-mesh/idempotency.jsonl`) BEFORE the
+    // at-most-once dedup (default `~/.spectyn-mesh/idempotency.jsonl`) BEFORE the
     // 202 spawn. Without a fresh ledger this test passes the first time, then
     // every re-run sees `(master, hello)` as a Duplicate and gets 200 (deduped)
     // instead of 202 — which made it fail under the SPEC-60 V8 ship-gate collector
     // (the collector re-runs it). Point the ledger at a unique temp file so a
-    // valid-HMAC NEW task always takes the 202 path. (`PHANTOM_IDEMPOTENCY_STORE`
+    // valid-HMAC NEW task always takes the 202 path. (`SPECTYN_IDEMPOTENCY_STORE`
     // is the documented test override; env mutation is serialised by env_guard.)
     let idem_dir = tempfile::tempdir().unwrap();
-    std::env::set_var("PHANTOM_IDEMPOTENCY_STORE", idem_dir.path().join("idempotency.jsonl"));
+    std::env::set_var("SPECTYN_IDEMPOTENCY_STORE", idem_dir.path().join("idempotency.jsonl"));
     let state = app_state_with_secret("topsecret");
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let body = r#"{"agent":"master","prompt":"hello"}"#;
     let token = state.cluster_manager.make_auth_token(body);
@@ -274,20 +274,20 @@ async fn rpc_task_assign_accepts_valid_hmac() {
     let resp = app.oneshot(req).await.unwrap();
     // 202 ACCEPTED is the documented success code (handler spawns task).
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    std::env::remove_var("PHANTOM_IDEMPOTENCY_STORE");
+    std::env::remove_var("SPECTYN_IDEMPOTENCY_STORE");
 }
 
 // ── tools::file::safe_path workspace boundary ───────────────────────────────
 
-use phantom_mesh::tools::file as ph_file;
+use spectyn_mesh::tools::file as ph_file;
 use tempfile::tempdir;
 
 #[test]
 fn safe_path_rejects_etc_passwd_when_outside_allowed_roots() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     // Use an OS-specific outside path that is guaranteed not to be inside CWD
-    // or $HOME/.phantom-mesh on a normal dev box.
+    // or $HOME/.spectyn-mesh on a normal dev box.
     let outside = if cfg!(windows) {
         "C:\\Windows\\System32\\drivers\\etc\\hosts"
     } else {
@@ -305,7 +305,7 @@ fn safe_path_rejects_etc_passwd_when_outside_allowed_roots() {
 #[test]
 fn safe_path_rejects_dotdot_escape() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     // `../../../../../../etc/passwd` from any reasonable CWD lands at /etc/passwd.
     let r = ph_file::safe_path("../../../../../../etc/passwd");
     if let Ok(p) = &r {
@@ -321,7 +321,7 @@ fn safe_path_rejects_dotdot_escape() {
 #[test]
 fn safe_path_accepts_path_inside_cwd() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     // Cargo.toml exists in the crate root which IS the CWD during cargo test.
     let r = ph_file::safe_path("Cargo.toml");
     assert!(
@@ -338,16 +338,16 @@ fn safe_path_accepts_path_inside_tempdir_when_listed_as_extra_root() {
     std::fs::write(&target, "ok").unwrap();
 
     // Add the tempdir as an extra allowed root.
-    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
+    let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").ok();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         tmp.path().to_string_lossy().to_string(),
     );
     let r = ph_file::safe_path(target.to_str().unwrap());
     if let Some(v) = prev {
-        std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v);
+        std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", v);
     } else {
-        std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+        std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     }
 
     assert!(
@@ -361,9 +361,9 @@ fn safe_path_rejects_absolute_outside_tempdir() {
     let _g = env_guard();
     let tmp = tempdir().unwrap();
     // Allow only tmp; then ask for something definitively outside CWD,
-    // ~/.phantom-mesh, AND that tempdir.
+    // ~/.spectyn-mesh, AND that tempdir.
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         tmp.path().to_string_lossy().to_string(),
     );
     let outside = if cfg!(windows) {
@@ -372,7 +372,7 @@ fn safe_path_rejects_absolute_outside_tempdir() {
         "/etc/hostname"
     };
     let r = ph_file::safe_path(outside);
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     assert!(
         r.is_err(),
         "{outside} must be rejected with only tempdir allowed"
@@ -381,12 +381,12 @@ fn safe_path_rejects_absolute_outside_tempdir() {
 
 // ── tools::patch::apply workspace boundary ──────────────────────────────────
 
-use phantom_mesh::tools::patch as ph_patch;
+use spectyn_mesh::tools::patch as ph_patch;
 
 #[tokio::test]
 async fn patch_apply_rejects_absolute_path_outside_workspace() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     let bad_target = if cfg!(windows) {
         "C:/Windows/System32/drivers/etc/hosts"
     } else {
@@ -417,7 +417,7 @@ async fn patch_apply_rejects_absolute_path_outside_workspace() {
 #[tokio::test]
 async fn patch_apply_rejects_dotdot_traversal() {
     let _g = env_guard();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     let bad_patch = "\
 --- a/../../../../../../etc/hostname
 +++ b/../../../../../../etc/hostname
@@ -441,9 +441,9 @@ async fn patch_apply_accepts_path_inside_workspace() {
     std::fs::write(&path, "foo\n").unwrap();
 
     // Allow this tempdir for the duration of the test.
-    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").ok();
+    let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").ok();
     std::env::set_var(
-        "PHANTOM_EXTRA_ALLOWED_ROOTS",
+        "SPECTYN_EXTRA_ALLOWED_ROOTS",
         dir.path().to_string_lossy().to_string(),
     );
 
@@ -462,9 +462,9 @@ async fn patch_apply_accepts_path_inside_workspace() {
     .await;
 
     if let Some(v) = prev {
-        std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", v);
+        std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", v);
     } else {
-        std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+        std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     }
 
     assert!(

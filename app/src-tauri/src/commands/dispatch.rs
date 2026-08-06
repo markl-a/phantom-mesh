@@ -20,17 +20,17 @@
 //   - prompt: 1..=8000 bytes UTF-8, no NUL byte, non-whitespace
 //   - required_caps: each ^[a-z][a-z0-9_-]{0,31}$, max 3 entries
 //   - provider_override: must be in the allow-list (built from
-//     phantom_mesh::config::AgentsConfig::find_and_load().ok_or(()) at command time)
+//     spectyn_mesh::config::AgentsConfig::find_and_load().ok_or(()) at command time)
 //   - broker_url: validated via the daemon-allowlist validator from
 //     cluster_peers.rs::validate_daemon_url (re-used so the surface
 //     stays enumerable from one place)
-//   - broker token: pulled from phantom_mesh::auth::load(); missing
+//   - broker token: pulled from spectyn_mesh::auth::load(); missing
 //     token → E_DISPATCH_AUTH_REQUIRED (E002 security gate).
 //
 // Stable error code prefix is `E_DISPATCH_` so the JS layer can pattern-
 // match on the leading token (mirrors `E_CLUSTER_*` from cluster_peers.rs).
 
-use phantom_mesh::auth;
+use spectyn_mesh::auth;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
@@ -75,7 +75,7 @@ pub struct DispatchRequest {
     #[serde(default)]
     pub provider_override: Option<String>,
     /// Optional broker URL override. Defaults to the user's saved
-    /// `state.broker_url` from `phantom_mesh::auth::load()`, then to
+    /// `state.broker_url` from `spectyn_mesh::auth::load()`, then to
     /// `https://phantommesh.io`. The validator runs on whichever value
     /// is finally selected.
     #[serde(default)]
@@ -329,7 +329,7 @@ pub fn _test_cancel_registry_len() -> usize {
 /// yield an empty list — caller treats that as "no provider override
 /// allowed", which is the safe default for a fresh install.
 fn load_provider_allowlist() -> Vec<String> {
-    let Ok(cfg) = phantom_mesh::config::AgentsConfig::find_and_load().ok_or(()) else {
+    let Ok(cfg) = spectyn_mesh::config::AgentsConfig::find_and_load().ok_or(()) else {
         return Vec::new();
     };
     let mut names: Vec<String> = cfg.providers.keys().cloned().collect();
@@ -339,7 +339,7 @@ fn load_provider_allowlist() -> Vec<String> {
 
 #[tauri::command]
 pub fn list_dispatch_providers() -> Vec<ProviderSummary> {
-    let Ok(cfg) = phantom_mesh::config::AgentsConfig::find_and_load().ok_or(()) else {
+    let Ok(cfg) = spectyn_mesh::config::AgentsConfig::find_and_load().ok_or(()) else {
         return Vec::new();
     };
     let mut out: Vec<ProviderSummary> = cfg

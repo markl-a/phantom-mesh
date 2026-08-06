@@ -7,14 +7,14 @@
 //!     Enter without typing
 //!
 //! Returns the user's input as a plain string. If stdin is not a TTY (e.g.
-//! the agent is running headless via `phantom serve` or a piped job), the
+//! the agent is running headless via `spectyn serve` or a piped job), the
 //! tool returns `default` if set, otherwise the literal string
 //! `"[ask_user unavailable: not running interactively]"` so the model knows
 //! to choose a different approach.
 //!
 //! UX note: the prompt is rendered to stderr so it doesn't interleave with
 //! tool stdout being captured by the model. The same convention as the
-//! REPL's permission gate (see bin/phantom.rs).
+//! REPL's permission gate (see bin/spectyn.rs).
 
 use serde_json::Value;
 use std::io::{IsTerminal, Write};
@@ -38,7 +38,7 @@ pub async fn ask(args: &Value) -> String {
     }
 
     // Render the prompt. Use ANSI manually here (this tool isn't tied to
-    // bin/phantom.rs's `colored()` helper).
+    // bin/spectyn.rs's `colored()` helper).
     let dim = "\x1b[2m";
     let yellow = "\x1b[33m";
     let cyan = "\x1b[36m";

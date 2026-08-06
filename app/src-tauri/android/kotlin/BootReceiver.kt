@@ -1,11 +1,11 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 
 /**
- * Revives the Phantom Mesh node after a device reboot.
+ * Revives the Spectyn Mesh node after a device reboot.
  *
  * On reboot the OS tears down [MeshNodeService] (the persistent specialUse
  * foreground service) and any in-flight WorkManager jobs need re-evaluation.

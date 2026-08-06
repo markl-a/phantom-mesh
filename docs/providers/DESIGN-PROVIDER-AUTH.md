@@ -2,15 +2,15 @@
 
 Status: **proposal / evaluation** (2026-06-15). Not yet implemented.
 Scope: improve how the CLI signs in to LLM **subscriptions**, borrowing OpenClaw's
-sanctioned approach where it's genuinely better. Account login (phantom's own
+sanctioned approach where it's genuinely better. Account login (spectyn's own
 Google/Apple/email via the broker) is OUT of scope — it already works.
 
-## 1. Current state (what phantom does today)
+## 1. Current state (what spectyn does today)
 
-All subscription sign-in is **detection-only** — phantom reuses tokens the
+All subscription sign-in is **detection-only** — spectyn reuses tokens the
 official CLIs cached; it does NOT run its own OAuth and does NOT refresh:
 
-| provider | what phantom reads | file | requires |
+| provider | what spectyn reads | file | requires |
 |---|---|---|---|
 | Claude | `~/.claude/credentials.json` → `accessToken`/`access_token`/`sk-ant-*` | `core/src/providers/claude_cli.rs` | user ran `claude` login first |
 | ChatGPT (Codex) | codex auth.json → `tokens.{access_token,refresh_token,account_id}` | `core/src/providers/codex_cli.rs` (`CodexAuth`) | user ran `codex` login first |
@@ -28,18 +28,18 @@ are present it falls to the free plugin / paste-key / Ollama.
   file lock. **OpenAI explicitly sanctions** subscription OAuth in external tools
   (so this is NOT impersonation). `openclaw models auth login --provider openai`.
 - **Claude**: two paths — (a) paste a setup-token, (b) reuse the local Claude CLI
-  login (== phantom today). Anthropic stance: "allowed again", conditional.
+  login (== spectyn today). Anthropic stance: "allowed again", conditional.
 - **Gemini**: OpenClaw does not implement subscription OAuth → no reference.
 
 Sources: docs.openclaw.ai/concepts/oauth, /providers/openai.
 
-## 3. What phantom already has to reuse
+## 3. What spectyn already has to reuse
 
 - `core/src/oauth.rs` — **core-side PKCE OAuth**: `gen_random_b64` + SHA-256 S256
   challenge, `google_start_url(daemon_port)` / `apple_start_url(...)` (build the
   authorize URL), `handle_callback(code, state)` (token exchange with
   `code_verifier`), `get_result()`. Callback is served by the running daemon
-  (`phantom serve`) at its port. → directly adaptable to OpenAI endpoints.
+  (`spectyn serve`) at its port. → directly adaptable to OpenAI endpoints.
 - `core/src/providers/codex_cli.rs::CodexAuth` — already models
   `{access_token, refresh_token, account_id}` (just reads them today).
 - `core/src/keys.rs::set_api_key` — escaped, never-string-built secret persistence.
@@ -63,8 +63,8 @@ first" requirement; OpenAI sanctions it.
   with a **paste-the-redirect-URL fallback** (OpenClaw offers both; the paste
   fallback covers headless / no-browser).
 - Persist tokens where `codex_cli::find_codex_auth` reads them (so the runtime
-  path is unchanged) — i.e. write a phantom-owned `codex`-shaped auth.json, or a
-  new `~/.phantom-mesh/openai_oauth.json` that `codex_cli` also checks.
+  path is unchanged) — i.e. write a spectyn-owned `codex`-shaped auth.json, or a
+  new `~/.spectyn-mesh/openai_oauth.json` that `codex_cli` also checks.
 - Onboarding Step 2/4: add a "Sign in with ChatGPT" option next to detect/paste.
 
 ### #2 — Claude: add a paste-setup-token path  (low effort)
@@ -73,7 +73,7 @@ first" requirement; OpenAI sanctions it.
 - Detection stays the default when the official CLI login is present.
 
 ### #3 — Subscription token auto-refresh  (correctness)
-- Today phantom reads a cached token and never refreshes → long sessions can 401
+- Today spectyn reads a cached token and never refreshes → long sessions can 401
   mid-run. Add a refresh helper: on use, if `expires` is past, POST the
   `refresh_token` to the provider token endpoint under a file lock, rewrite the
   stored creds. `CodexAuth` already carries `refresh_token`.

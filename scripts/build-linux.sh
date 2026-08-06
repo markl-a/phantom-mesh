@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Linux release-build helper for phantom-mesh.
+# Linux release-build helper for spectyn-mesh.
 #
 # Per SPEC-FREEZE-V1 §6.1, the canonical Linux artefact is built on the
 # target machine itself (option C: target = self) — no cross-toolchain.
@@ -7,9 +7,9 @@
 #
 # What this does, in order:
 #   1. Detect host arch from `uname -m` (override via TARGET=<triple>)
-#   2. cargo build --release --bin phantom (using the system toolchain)
-#   3. Smoke-verify by running `phantom --version` with a 5s timeout
-#   4. Mirror into dist/phantom-<triple> for setup-oci.sh / phantom upgrade
+#   2. cargo build --release --bin spectyn (using the system toolchain)
+#   3. Smoke-verify by running `spectyn --version` with a 5s timeout
+#   4. Mirror into dist/spectyn-<triple> for setup-oci.sh / spectyn upgrade
 #
 # Usage:
 #   ./scripts/build-linux.sh                 # builds for host arch
@@ -67,7 +67,7 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "  ◆ phantom-mesh — Linux release build"
+echo "  ◆ spectyn-mesh — Linux release build"
 echo "    target : $TARGET"
 echo "    repo   : $REPO_ROOT"
 echo "    ram    : ${RAM_MB} MB"
@@ -76,10 +76,10 @@ echo
 
 # ── 4. cargo build ──────────────────────────────────────────────────────
 # Use the system toolchain (target=host); no rustup target install needed.
-echo "  [1/3] cargo build --release --bin phantom"
-cargo build --release --bin phantom
+echo "  [1/3] cargo build --release --bin spectyn"
+cargo build --release --bin spectyn
 
-OUT_BIN="$CARGO_DIR/target/release/phantom"
+OUT_BIN="$CARGO_DIR/target/release/spectyn"
 if [ ! -x "$OUT_BIN" ]; then
   echo "  ✗ binary missing at $OUT_BIN"
   exit 1
@@ -101,16 +101,16 @@ fi
 echo "    ✓ $RUN_OUT"
 
 # ── 6. mirror into dist/ ────────────────────────────────────────────────
-echo "  [3/3] mirror → dist/phantom-$TARGET"
+echo "  [3/3] mirror → dist/spectyn-$TARGET"
 mkdir -p "$REPO_ROOT/dist"
-cp "$OUT_BIN" "$REPO_ROOT/dist/phantom-$TARGET"
-echo "    ✓ dist/phantom-$TARGET ($(du -h "$REPO_ROOT/dist/phantom-$TARGET" | awk '{print $1}'))"
+cp "$OUT_BIN" "$REPO_ROOT/dist/spectyn-$TARGET"
+echo "    ✓ dist/spectyn-$TARGET ($(du -h "$REPO_ROOT/dist/spectyn-$TARGET" | awk '{print $1}'))"
 
 echo
 echo "  ✓ Linux release build complete."
 echo "    Source : $OUT_BIN"
-echo "    Dist   : $REPO_ROOT/dist/phantom-$TARGET"
+echo "    Dist   : $REPO_ROOT/dist/spectyn-$TARGET"
 echo
 echo "  Next:"
 echo "    ./scripts/setup-oci.sh                  # configure VM (Tailscale, systemd, firewall)"
-echo "    cp dist/phantom-$TARGET ~/.local/bin/phantom   # adopt locally"
+echo "    cp dist/spectyn-$TARGET ~/.local/bin/spectyn   # adopt locally"

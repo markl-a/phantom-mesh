@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
-use phantom_mesh::encryption_wire::install_event_key_from_seed;
-use phantom_mesh::vault::conversation_seal::{
+use spectyn_mesh::encryption_wire::install_event_key_from_seed;
+use spectyn_mesh::vault::conversation_seal::{
     conversations_e2ee_enabled, open_line, seal_line,
 };
 
@@ -51,6 +51,6 @@ fn wrong_key_fails_closed() {
 
 // No dedicated `SealError::NoKey` assertion here: in integration tests the
 // library is compiled without `cfg(test)`, so `lookup_or_derive_event_key` may
-// derive from a real on-disk `~/.phantom-mesh/identity.key` after
+// derive from a real on-disk `~/.spectyn-mesh/identity.key` after
 // `clear_event_key_cache()`. Tests above cover round-trip, legacy plaintext
 // passthrough, and wrong-key fail-closed behavior without depending on HOME.

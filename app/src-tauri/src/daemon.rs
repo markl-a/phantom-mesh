@@ -39,7 +39,7 @@ impl DaemonState {
         }
     }
 
-    /// Try to locate the phantom-mesh binary in several well-known locations.
+    /// Try to locate the spectyn-mesh binary in several well-known locations.
     /// Search order:
     ///   1. Explicit path stored in state (from config)
     ///   2. Tauri sidecar location (same dir as running exe — where bundle puts externalBin)
@@ -56,22 +56,22 @@ impl DaemonState {
         }
 
         let exe_name = if cfg!(windows) {
-            "phantom-mesh.exe"
+            "spectyn-mesh.exe"
         } else {
-            "phantom-mesh"
+            "spectyn-mesh"
         };
 
         // Tauri sidecar name includes target triple
         let sidecar_name = if cfg!(windows) {
-            "phantom-mesh-x86_64-pc-windows-msvc.exe"
+            "spectyn-mesh-x86_64-pc-windows-msvc.exe"
         } else if cfg!(target_os = "macos") {
             if cfg!(target_arch = "aarch64") {
-                "phantom-mesh-aarch64-apple-darwin"
+                "spectyn-mesh-aarch64-apple-darwin"
             } else {
-                "phantom-mesh-x86_64-apple-darwin"
+                "spectyn-mesh-x86_64-apple-darwin"
             }
         } else {
-            "phantom-mesh-x86_64-unknown-linux-gnu"
+            "spectyn-mesh-x86_64-unknown-linux-gnu"
         };
 
         // 2. Tauri sidecar: same directory as running executable
@@ -210,7 +210,7 @@ mod tests {
         let binary = state.find_binary();
         // Should always return something (at minimum the bare name fallback)
         let name = binary.file_name().unwrap().to_str().unwrap();
-        assert!(name.starts_with("phantom-mesh"));
+        assert!(name.starts_with("spectyn-mesh"));
     }
 
     #[test]
@@ -219,7 +219,7 @@ mod tests {
             running: true,
             pid: Some(12345),
             port: 7878,
-            binary_path: Some("/usr/bin/phantom-mesh".to_string()),
+            binary_path: Some("/usr/bin/spectyn-mesh".to_string()),
             healthy: true,
             restart_count: 3,
             watchdog_enabled: true,
@@ -236,7 +236,7 @@ mod tests {
         let state = DaemonState::new(7878);
         {
             let mut guard = state.binary_path.lock().unwrap();
-            *guard = Some(PathBuf::from("/tmp/phantom-mesh"));
+            *guard = Some(PathBuf::from("/tmp/spectyn-mesh"));
         }
         // find_binary should check explicit path first (but it won't exist, so fallback)
         let binary = state.find_binary();
@@ -262,7 +262,7 @@ mod tests {
 
 // ─── Internal spawn helper (used by start_daemon and watchdog) ──────────────
 
-/// Spawn the phantom-mesh process. Returns the Child on success.
+/// Spawn the spectyn-mesh process. Returns the Child on success.
 fn spawn_daemon(binary: &PathBuf, port: u16, config_path: Option<&PathBuf>) -> Result<Child, String> {
     let mut args = vec![
         "--host".to_string(), "0.0.0.0".to_string(),
@@ -279,7 +279,7 @@ fn spawn_daemon(binary: &PathBuf, port: u16, config_path: Option<&PathBuf>) -> R
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .map_err(|e| format!("Failed to spawn phantom-mesh at {:?}: {}", binary, e))
+        .map_err(|e| format!("Failed to spawn spectyn-mesh at {:?}: {}", binary, e))
 }
 
 // ─── Watchdog — crash auto-restart ──────────────────────────────────────────
@@ -426,7 +426,7 @@ pub async fn start_daemon(
         .map(|d| d.join("agents.toml"));
 
     tracing::info!(
-        "Starting phantom-mesh daemon: {:?} --host 0.0.0.0 --port {} --config {:?} daemon",
+        "Starting spectyn-mesh daemon: {:?} --host 0.0.0.0 --port {} --config {:?} daemon",
         binary,
         port,
         config_path,

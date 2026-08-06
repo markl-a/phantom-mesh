@@ -103,7 +103,7 @@ pub const INFO: ProviderInfo = ProviderInfo {
     display_name: "NVIDIA NIM",
     default_base_url: DEFAULT_BASE_URL,
     default_model: DEFAULT_MODEL,
-    // doctor in core/src/bin/phantom.rs already references this exact env name
+    // doctor in core/src/bin/spectyn.rs already references this exact env name
     // ("NVIDIA_NIM_API_KEY", "NVIDIA NIM", "nvidia") — keep them in sync if
     // either side moves.
     api_key_env: "NVIDIA_NIM_API_KEY",

@@ -1,8 +1,8 @@
 // core/src/vault/mod.rs
 //
-// Secret-storage abstraction for the phantom-mesh auth + identity layer.
+// Secret-storage abstraction for the spectyn-mesh auth + identity layer.
 //
-// Today `auth.json` lives in `~/.phantom-mesh/auth.json` mode 0600
+// Today `auth.json` lives in `~/.spectyn-mesh/auth.json` mode 0600
 // (Unix) / NTFS ACL (Windows). The `Vault` trait abstracts that storage
 // so future per-OS implementations can swap in:
 //
@@ -27,7 +27,7 @@ use serde::{de::DeserializeOwned, Serialize};
 /// for v0.6.0 B3 binding state).
 ///
 /// Implementations MUST:
-///   - persist the payload across phantom restarts
+///   - persist the payload across spectyn restarts
 ///   - protect against other-user reads where the OS allows
 ///     (Unix 0600 / Win NTFS ACL / macOS Keychain ACL / etc.)
 ///   - serialize as JSON (for FileVault + cross-impl debuggability)

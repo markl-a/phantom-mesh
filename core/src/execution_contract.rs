@@ -1,6 +1,6 @@
 //! Execution contracts + deny-until-approved approval ledger (sprint MVP T7/T8).
 //!
-//! The differentiator of phantom's "safe unattended runs" (apex ④) is that you
+//! The differentiator of spectyn's "safe unattended runs" (apex ④) is that you
 //! approve an **exact execution contract** — *this* command, in *this* cwd, at
 //! *this* risk level — not a blank cheque for an agent to improvise. This module
 //! is the pure type + state-machine layer:
@@ -138,7 +138,7 @@ impl ExecutionContract {
         };
         let mins_left = ((self.expires_ms - now).max(0) + 59_000) / 60_000;
         format!(
-            "[phantom-mesh approval]\n\
+            "[spectyn-mesh approval]\n\
              Task: {id}\n\
              Node: {node}\n\
              Agent: {agent}\n\
@@ -361,7 +361,7 @@ mod tests {
             "Claude Code",
             "shell.run",
             "cargo test --workspace",
-            "~/projects/phantom-mesh/core",
+            "~/projects/spectyn-mesh/core",
             vec![],
             risk,
             "verify FlightRecorder patch",
@@ -465,7 +465,7 @@ mod tests {
         let c = contract(RiskLevel::ExecuteLow, 600);
         let card = c.render(c.created_ms);
         for needle in [
-            "[phantom-mesh approval]",
+            "[spectyn-mesh approval]",
             "Node: z13-heavy",
             "Agent: Claude Code",
             "Action: shell.run",

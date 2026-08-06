@@ -122,7 +122,7 @@ Idle → Requesting(perm) → Recording ──┬→ Chunking      (sub-state, �
 
 ## 螢幕 B — Perm Prompt（iOS system dialog）
 
-不可自訂。phantom 唯一能控的是 `Info.plist` 的 `NSMicrophoneUsageDescription` 文字：
+不可自訂。spectyn 唯一能控的是 `Info.plist` 的 `NSMicrophoneUsageDescription` 文字：
 
 ```
 NSMicrophoneUsageDescription = "錄製焦點時段音訊；音訊只儲存在本機並加密。"
@@ -219,14 +219,14 @@ NSMicrophoneUsageDescription = "錄製焦點時段音訊；音訊只儲存在本
 
 ## 螢幕 D — Lock-screen（iOS MPNowPlayingInfoCenter）
 
-OS 渲染，phantom 無法控版面。只能設：
+OS 渲染，spectyn 無法控版面。只能設：
 
 ```swift
 MPNowPlayingInfoCenter.default().nowPlayingInfo = [
-  MPMediaItemPropertyTitle: "Phantom Mesh",
+  MPMediaItemPropertyTitle: "Spectyn Mesh",
   MPMediaItemPropertyArtist: "Focus · \(elapsed_mm_ss)",
   MPMediaItemPropertyArtwork: MPMediaItemArtwork(boundsSize: CGSize(width: 512, height: 512)) { _ in
-    UIImage(named: "phantom-icon-mono-512")!
+    UIImage(named: "spectyn-icon-mono-512")!
   },
   MPNowPlayingInfoPropertyPlaybackRate: isPaused ? 0.0 : 1.0,
 ]
@@ -247,11 +247,11 @@ center.stopCommand.addTarget { _ in handleStop(); return .success }
 | `pause` icon | 等同 app 內 `⏸ 暫停`（透過 remote command） |
 | `play` icon（暫停狀態） | 等同 `▶ 繼續` |
 | `stop` icon | 等同 `⏹ 停止`；觸發 finalize；haptic 不可控（OS 自己處理） |
-| 唱片封面 tap | 解鎖跳回 phantom Recording screen |
+| 唱片封面 tap | 解鎖跳回 spectyn Recording screen |
 
 ### 失敗路徑
 
-- iOS 18 lock-screen 對 `MPNowPlayingInfoCenter` 限制收緊：若 30 min 內無 user 互動，OS 可能 evict info → lock-screen 控制消失（app 仍在錄）；user 解鎖回 phantom 仍見計時器
+- iOS 18 lock-screen 對 `MPNowPlayingInfoCenter` 限制收緊：若 30 min 內無 user 互動，OS 可能 evict info → lock-screen 控制消失（app 仍在錄）；user 解鎖回 spectyn 仍見計時器
 - AirPods 中鍵 pause → 觸發 `pauseCommand` → 等同 app 內按
 
 ---
@@ -295,7 +295,7 @@ center.stopCommand.addTarget { _ in handleStop(); return .success }
 
 - 所有 ASR 都掛：顯示 FOCUS-003 + 兩按鈕；若 user 選「先用空白 transcript」→ LLM 仍跑（拿空字串）→ takeaway = "(無 audio 可分析)" → 寫 row（保留 audio 以後可 re-asr）
 - LLM 失敗：FOCUS-004 + 留 transcript + takeaway = "(摘要失敗，可手動重跑)" + 寫 row
-- 取消 LLM：transcript 仍 stitch、row 仍寫；takeaway 為空字串 + `phantom focus reasr <id>` 可後補
+- 取消 LLM：transcript 仍 stitch、row 仍寫；takeaway 為空字串 + `spectyn focus reasr <id>` 可後補
 
 ---
 
@@ -387,7 +387,7 @@ Recording ──[AVAudioSession Interrupt .began]──> Interrupted sub-state
 
 ## 通用 Empty / Maximum / Error — 互動補充（視覺 spec 全在 mockup）
 
-> **越界修正（R1）**：本節原版含 ASCII frame + token (`phantom-muted` / `phantom-danger` / `192×192pt SVG` 等) 屬 mockup 範圍，全部移除。Prototype 只記**互動行為**，視覺請見 mockup「6 大資料狀態 — Mockup 視覺對映表」。
+> **越界修正（R1）**：本節原版含 ASCII frame + token (`spectyn-muted` / `spectyn-danger` / `192×192pt SVG` 等) 屬 mockup 範圍，全部移除。Prototype 只記**互動行為**，視覺請見 mockup「6 大資料狀態 — Mockup 視覺對映表」。
 
 ### Empty state（History tab 首次進入）
 

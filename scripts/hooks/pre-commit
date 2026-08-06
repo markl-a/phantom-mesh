@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# phantom-mesh pre-commit hook — anti-fake-green gate (Phase 0).
+# spectyn-mesh pre-commit hook — anti-fake-green gate (Phase 0).
 #
 # Deterministic guard so "all tests pass" can't be silently faked. Currently:
 #   1. check-test-citations.sh — every ✅ row in docs/test-cases/*.md must cite

@@ -26,12 +26,12 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 
 | Token | Hex | delivery 用途 |
 |---|---|---|
-| `phantom-bg` | `#0f0f1a` | Settings delivery 分頁背景 |
-| `phantom-card` | `#1a1a2e` | 通道區塊 / 憑證欄 bg |
-| `phantom-primary` | `#8ab4f8` | toggle ON 軌道、「測試」鈕 |
-| `phantom-success` | `#81c995` | receipt 「已送達」、測試成功 |
-| `phantom-danger` | `#f28b82` | receipt 「失敗」（**唯一**用 danger 處） |
-| `phantom-muted` | `#6b6b80` | suppressed「重複已略過」、token **** 遮罩、vault badge |
+| `spectyn-bg` | `#0f0f1a` | Settings delivery 分頁背景 |
+| `spectyn-card` | `#1a1a2e` | 通道區塊 / 憑證欄 bg |
+| `spectyn-primary` | `#8ab4f8` | toggle ON 軌道、「測試」鈕 |
+| `spectyn-success` | `#81c995` | receipt 「已送達」、測試成功 |
+| `spectyn-danger` | `#f28b82` | receipt 「失敗」（**唯一**用 danger 處） |
+| `spectyn-muted` | `#6b6b80` | suppressed「重複已略過」、token **** 遮罩、vault badge |
 
 ## 文案 keys（per SPEC-05 i18n）
 
@@ -54,24 +54,24 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 
 ```xml
 <toast scenario="reminder" activationType="protocol"
-       launch="phantom-mesh://coach/review?id={review_id}">
+       launch="spectyn-mesh://coach/review?id={review_id}">
   <visual>
     <binding template="ToastGeneric">
       <text>今天的回顧好了</text>
       <text>{one_line_action} . 點開看看</text>
       <image placement="appLogoOverride" hint-crop="circle"
-             src="phantom-tray-idle.png"/>
+             src="spectyn-tray-idle.png"/>
     </binding>
   </visual>
   <actions>
     <action content="開啟回顧" activationType="protocol"
-            arguments="phantom-mesh://coach/review?id={review_id}"/>
+            arguments="spectyn-mesh://coach/review?id={review_id}"/>
   </actions>
 </toast>
 ```
 - `scenario="reminder"` → persist 到 dismiss（不自動消）
 - **無 `<audio>`**（21:00 溫和；shame-free + P4）
-- AppLogo `hint-crop="circle"` 圓形 phantom logo
+- AppLogo `hint-crop="circle"` 圓形 spectyn logo
 - launch + action 同 deep-link（點 body 或鈕都進 Coach tab）
 
 ## 螢幕 B — Settings delivery（toggle + 憑證欄視覺）
@@ -80,10 +80,10 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 +--------------------------------------------------+
 | Settings . Coach . Delivery                      |
 +--------------------------------------------------+
-|  桌面通知（ActionCenter）            [===O]  ON  |   toggle ON：軌道 phantom-primary
-|    回顧好了在右下角提醒你                         |   說明 13px phantom-muted
+|  桌面通知（ActionCenter）            [===O]  ON  |   toggle ON：軌道 spectyn-primary
+|    回顧好了在右下角提醒你                         |   說明 13px spectyn-muted
 |  ................................................|
-|  Telegram                            [O===] OFF  |   toggle OFF：軌道 phantom-card
+|  Telegram                            [O===] OFF  |   toggle OFF：軌道 spectyn-card
 |    bot token  [****************] (lock)  [測試]   |   token 欄 **** + lock icon + 測試鈕
 |    chat id    [____________]                     |
 |  ................................................|
@@ -92,14 +92,14 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 |    帳號 [_________] 密碼 [********] (lock) [測試] |
 |    收件 [_________]                              |
 |                                                  |
-|  (lock) 金鑰 / 密碼都本地加密封存，broker 看不到 |   vault badge 12px phantom-muted
+|  (lock) 金鑰 / 密碼都本地加密封存，broker 看不到 |   vault badge 12px spectyn-muted
 +--------------------------------------------------+
 ```
 
 **設計重點**：
-- **toggle**：ON 軌道 phantom-primary + 圓鈕右；OFF 軌道 phantom-card + 圓鈕左（Fluent ToggleSwitch）
+- **toggle**：ON 軌道 spectyn-primary + 圓鈕右；OFF 軌道 spectyn-card + 圓鈕左（Fluent ToggleSwitch）
 - **token / 密碼欄**：輸入後存 vault → 顯 `****`（固定長度遮罩、不回顯真值、不洩長度）；旁 `lock` icon 表已封存
-- **「測試」鈕**：點 → spinner →「已送達」phantom-success / 「失敗：{reason}」phantom-danger inline
+- **「測試」鈕**：點 → spinner →「已送達」spectyn-success / 「失敗：{reason}」spectyn-danger inline
 - OFF 通道的憑證欄灰階 disabled（toggle 開才可填）
 - vault badge 常駐底部（P4 信任溝通）
 
@@ -112,21 +112,21 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 
 ```
 |  最近派送                                        |
-|  5/27 桌面通知  (check) 已送達 21:03             |   phantom-success check
+|  5/27 桌面通知  (check) 已送達 21:03             |   spectyn-success check
 |  5/27 Telegram  (check) 已送達 21:03             |
-|  5/27 Email     (x) 失敗：SMTP 認證錯誤 [重試]   |   phantom-danger x（唯一 danger）
-|  5/26 桌面通知  已送達（重複已略過）             |   phantom-muted（suppressed 不搶眼）
+|  5/27 Email     (x) 失敗：SMTP 認證錯誤 [重試]   |   spectyn-danger x（唯一 danger）
+|  5/26 桌面通知  已送達（重複已略過）             |   spectyn-muted（suppressed 不搶眼）
 ```
-- **sent** = phantom-success `check`；**failed** = phantom-danger `x` + 「重試」+「設定」；**suppressed** = phantom-muted 灰字（dedup 正常、不是錯）
+- **sent** = spectyn-success `check`；**failed** = spectyn-danger `x` + 「重試」+「設定」；**suppressed** = spectyn-muted 灰字（dedup 正常、不是錯）
 - 視覺克制：只 failed 用紅；sent 綠小 icon；suppressed 灰（不讓「重複略過」看起來像問題）
 
 ## Lucide icon 對映
 
 | 角色 | Lucide icon | 用途 |
 |---|---|---|
-| 已封存 | `lock` | token/密碼欄 + vault badge，14px phantom-muted |
-| 測試成功 / sent | `check` | receipt + 測試結果，14px phantom-success |
-| 失敗 | `x` | receipt failed，14px phantom-danger |
+| 已封存 | `lock` | token/密碼欄 + vault badge，14px spectyn-muted |
+| 測試成功 / sent | `check` | receipt + 測試結果，14px spectyn-success |
+| 失敗 | `x` | receipt failed，14px spectyn-danger |
 | 重試 | `refresh-cw` | failed receipt 行動，14px |
 | 通道 icon | `bell`(OS) / `send`(TG) / `mail`(Email) | Settings 通道標頭，16px |
 
@@ -134,7 +134,7 @@ wireframe 鎖了通道結構；本檔鎖實作視覺：
 
 下次開 app → Coach tab 頂插一條 banner：
 ```
-| (info) 上次回顧已備好 . 點開看                   |   phantom-card bg, info icon, 不染紅
+| (info) 上次回顧已備好 . 點開看                   |   spectyn-card bg, info icon, 不染紅
 ```
 - 3 路全失敗不是 user 的錯 → 用 info（非 danger）語氣；review 仍在 file，不丟
 

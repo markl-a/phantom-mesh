@@ -1,6 +1,6 @@
-# 為 Phantom Mesh 做出貢獻
+# 為 Spectyn Mesh 做出貢獻
 
-感謝你有意願為 Phantom Mesh 做出貢獻！
+感謝你有意願為 Spectyn Mesh 做出貢獻！
 
 在進行架構（architecture）或產品定調（product-shaping）的變更之前，請先閱讀：
 
@@ -42,9 +42,9 @@ cargo run -- daemon              # Start daemon on port 7878
 cargo run -- run "hello world"   # Single prompt execution
 ```
 
-### 自我測試（`phantom selftest`）
+### 自我測試（`spectyn selftest`）
 
-`phantom selftest` 會執行內建的端對端（end-to-end）冒煙檢查（smoke checks）。每項功能
+`spectyn selftest` 會執行內建的端對端（end-to-end）冒煙檢查（smoke checks）。每項功能
 都在 `scripts/selftest.d/` 之下隨附自己的檢查檔，因此在開啟 PR（Pull Request，拉取請求）之前，
 這是確認全新建置行為正確的最快方式。
 
@@ -53,7 +53,7 @@ cd core
 cargo run -- selftest            # Run the full self-test suite
 
 # Or, with an installed binary on your PATH:
-phantom selftest
+spectyn selftest
 ```
 
 當你新增一項功能時，請在 `scripts/selftest.d/` 加入一個對應的檢查檔
@@ -92,12 +92,12 @@ cargo run -- selftest
 ## 專案結構
 
 ```
-phantom-mesh/
+spectyn-mesh/
 ├── core/                  # Rust daemon (main codebase)
 │   ├── src/
 │   │   ├── lib.rs         # Library entry point
 │   │   ├── main.rs        # CLI wrapper
-│   │   ├── runtime.rs     # PhantomMesh::init() API
+│   │   ├── runtime.rs     # SpectynMesh::init() API
 │   │   ├── agent_runtime.rs  # Multi-round tool-calling loop
 │   │   ├── events/        # DomainEvent spine + persistence
 │   │   ├── providers/     # LLM providers (Ollama, Claude, OpenAI, etc.)

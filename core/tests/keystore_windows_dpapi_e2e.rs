@@ -1,6 +1,6 @@
 #![cfg(target_os = "windows")]
 
-use phantom_mesh::identity_wire::{
+use spectyn_mesh::identity_wire::{
     build_init_outcome, delete_from_keystore, derive_subkey, fingerprint_short,
     read_from_keystore, write_to_keystore, KeyDerivationError, KeyPurpose, KeystoreBackend,
 };
@@ -15,7 +15,7 @@ fn fingerprint_for_seed(seed: &[u8; 32]) -> String {
 #[test]
 fn windows_dpapi_credman_round_trip_throwaway_account() {
     let account = format!(
-        "phantom-test-dpapi-{}-{}",
+        "spectyn-test-dpapi-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     );
@@ -63,7 +63,7 @@ fn windows_dpapi_credman_round_trip_throwaway_account() {
 #[test]
 #[ignore]
 fn windows_identity_bootstrap_uses_credman_and_preserves_event_key() {
-    let _ = phantom_mesh::identity_wire::logout_clear_keystore();
+    let _ = spectyn_mesh::identity_wire::logout_clear_keystore();
 
     let first = build_init_outcome(false).expect("initial Windows identity bootstrap");
     assert!(first.created, "first bootstrap should create identity: {first:?}");

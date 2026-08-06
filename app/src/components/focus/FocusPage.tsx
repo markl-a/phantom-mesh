@@ -82,7 +82,7 @@ export default function FocusPage() {
 
   useEffect(() => { setRecent(listRecent()); }, []);
 
-  // Adopt a focus session started in another surface (CLI `phantom focus` /
+  // Adopt a focus session started in another surface (CLI `spectyn focus` /
   // TUI `/focus`) — they share the disk-backed session. On mount, if one is
   // active and the app is idle, hydrate into recording so the app shows it.
   useEffect(() => {
@@ -232,21 +232,21 @@ export default function FocusPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6" data-testid="focus-page">
       <header className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center">
-          <Mic size={20} className="text-phantom-primary" />
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center">
+          <Mic size={20} className="text-spectyn-primary" />
         </div>
         <div>
-          <h1 className="text-xl font-bold text-phantom-text">專注時段</h1>
-          <p className="text-xs text-phantom-muted">Focus · SPEC-21 capture_focus</p>
+          <h1 className="text-xl font-bold text-spectyn-text">專注時段</h1>
+          <p className="text-xs text-spectyn-muted">Focus · SPEC-21 capture_focus</p>
         </div>
-        <span className="ml-auto text-[10px] uppercase tracking-wider text-phantom-muted">
+        <span className="ml-auto text-[10px] uppercase tracking-wider text-spectyn-muted">
           {state}
         </span>
       </header>
 
       {/* ── Idle: pick a mode and start ───────────────────────────────── */}
       {state === "idle" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-5 space-y-4" data-testid="focus-idle">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-5 space-y-4" data-testid="focus-idle">
           <div className="grid grid-cols-2 gap-2">
             {FOCUS_PRESETS.map((p) => (
               <button
@@ -256,8 +256,8 @@ export default function FocusPage() {
                 aria-label={`${p.label}${p.minutes ? `，${p.minutes} 分鐘 focus session` : ""}`}
                 className={`px-3 py-3 rounded-lg text-sm transition border ${
                   presetKey === p.key
-                    ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                    : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"
+                    ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                    : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"
                 }`}
               >
                 {p.label}
@@ -266,7 +266,7 @@ export default function FocusPage() {
           </div>
 
           {presetKey === "custom" && (
-            <label className="flex items-center gap-2 text-sm text-phantom-text">
+            <label className="flex items-center gap-2 text-sm text-spectyn-text">
               自訂分鐘
               <input
                 type="number"
@@ -274,7 +274,7 @@ export default function FocusPage() {
                 max={240}
                 value={customMin}
                 onChange={(e) => setCustomMin(Number(e.target.value) || 1)}
-                className="w-20 bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-sm focus:outline-none focus:border-phantom-primary"
+                className="w-20 bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-sm focus:outline-none focus:border-spectyn-primary"
               />
             </label>
           )}
@@ -283,23 +283,23 @@ export default function FocusPage() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="這段時間要做什麼？（選填）"
-            className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-2 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+            className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-2 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
           />
 
           {/* SPEC-33 §15.2 rationale (shown before the OS dialog). Lets the
               user grant RECORD_AUDIO ahead of time, or learn why it's asked. */}
           {mic.status !== "granted" && mic.status !== "unsupported" && mic.status !== "unknown" && (
-            <div className="bg-phantom-bg border border-phantom-border rounded-lg p-3 flex gap-2" data-testid="focus-mic-rationale">
-              <Mic size={15} className="text-phantom-primary flex-shrink-0 mt-0.5" />
+            <div className="bg-spectyn-bg border border-spectyn-border rounded-lg p-3 flex gap-2" data-testid="focus-mic-rationale">
+              <Mic size={15} className="text-spectyn-primary flex-shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-phantom-text leading-relaxed">{PERMISSION_META.microphone.rationaleZh}</p>
+                <p className="text-xs text-spectyn-text leading-relaxed">{PERMISSION_META.microphone.rationaleZh}</p>
                 {mic.status === "denied" ? (
-                  <p className="text-[11px] text-phantom-warning mt-1">已拒絕麥克風 — 仍可純計時，或開始時再次授權。</p>
+                  <p className="text-[11px] text-spectyn-warning mt-1">已拒絕麥克風 — 仍可純計時，或開始時再次授權。</p>
                 ) : (
                   <button
                     onClick={() => void mic.request()}
                     disabled={mic.requesting}
-                    className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-phantom-primary hover:underline disabled:opacity-60"
+                    className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-spectyn-primary hover:underline disabled:opacity-60"
                   >
                     {mic.requesting ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={12} />}
                     允許使用麥克風
@@ -311,7 +311,7 @@ export default function FocusPage() {
 
           <button
             onClick={() => void start()}
-            className="w-full flex items-center justify-center gap-2 bg-phantom-primary text-phantom-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
+            className="w-full flex items-center justify-center gap-2 bg-spectyn-primary text-spectyn-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
           >
             <Play size={16} />
             開始 {MODE_LABEL[planMode]}（{fmtClock(plannedMs)}）
@@ -321,40 +321,40 @@ export default function FocusPage() {
 
       {/* ── Requesting ────────────────────────────────────────────────── */}
       {state === "requesting" && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-8 flex flex-col items-center gap-3">
-          <Loader2 size={28} className="text-phantom-primary animate-spin" />
-          <p className="text-sm text-phantom-muted">建立 session 中…</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-8 flex flex-col items-center gap-3">
+          <Loader2 size={28} className="text-spectyn-primary animate-spin" />
+          <p className="text-sm text-spectyn-muted">建立 session 中…</p>
         </div>
       )}
 
       {/* ── Recording / Interrupted ───────────────────────────────────── */}
       {(state === "recording" || state === "interrupted") && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 space-y-5">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 space-y-5">
           <div className="text-center">
-            <p className="text-5xl font-mono font-bold text-phantom-text tabular-nums">
+            <p className="text-5xl font-mono font-bold text-spectyn-text tabular-nums">
               {fmtClock(remainingMs)}
             </p>
-            <p className="text-xs text-phantom-muted mt-1 inline-flex items-center gap-1">
+            <p className="text-xs text-spectyn-muted mt-1 inline-flex items-center gap-1">
               {MODE_LABEL[planMode]}{label.trim() ? ` · ${label.trim()}` : ""}
               {localOnly && " · 本地計時"}
               {noAudio && (
-                <span className="inline-flex items-center gap-0.5 text-phantom-warning">
+                <span className="inline-flex items-center gap-0.5 text-spectyn-warning">
                   · <MicOff size={11} /> 無錄音
                 </span>
               )}
             </p>
           </div>
 
-          <div className="w-full h-1.5 bg-phantom-bg rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-spectyn-bg rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-300 ${
-                state === "interrupted" ? "bg-phantom-warning" : "bg-phantom-primary"
+                state === "interrupted" ? "bg-spectyn-warning" : "bg-spectyn-primary"
               }`}
               style={{ width: `${progressPct}%` }}
             />
           </div>
 
-          <div className="flex items-center justify-center gap-3 text-xs text-phantom-muted">
+          <div className="flex items-center justify-center gap-3 text-xs text-spectyn-muted">
             <span>已過 {fmtClock(elapsedMs)}</span>
             <span>·</span>
             <span>中斷 {interruptions} 次</span>
@@ -363,7 +363,7 @@ export default function FocusPage() {
           {state === "interrupted" ? (
             <button
               onClick={resume}
-              className="w-full flex items-center justify-center gap-2 bg-phantom-warning text-phantom-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
+              className="w-full flex items-center justify-center gap-2 bg-spectyn-warning text-spectyn-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
             >
               <Play size={16} /> 繼續
             </button>
@@ -373,7 +373,7 @@ export default function FocusPage() {
                 <button
                   key={kind}
                   onClick={() => void interrupt(kind)}
-                  className="flex flex-col items-center gap-1 py-2 rounded-lg bg-phantom-bg border border-phantom-border text-phantom-muted hover:text-phantom-warning hover:border-phantom-warning/40 transition text-[10px]"
+                  className="flex flex-col items-center gap-1 py-2 rounded-lg bg-spectyn-bg border border-spectyn-border text-spectyn-muted hover:text-spectyn-warning hover:border-spectyn-warning/40 transition text-[10px]"
                 >
                   <Icon size={16} />
                   {l}
@@ -384,7 +384,7 @@ export default function FocusPage() {
 
           <button
             onClick={() => void stop()}
-            className="w-full flex items-center justify-center gap-2 bg-phantom-danger/15 text-phantom-danger py-2.5 rounded-lg text-sm font-medium hover:bg-phantom-danger/25 transition"
+            className="w-full flex items-center justify-center gap-2 bg-spectyn-danger/15 text-spectyn-danger py-2.5 rounded-lg text-sm font-medium hover:bg-spectyn-danger/25 transition"
           >
             <Square size={15} /> 結束時段
           </button>
@@ -393,58 +393,58 @@ export default function FocusPage() {
 
       {/* ── Finalizing / Transcribing / SummaryGen ────────────────────── */}
       {(state === "finalizing" || state === "transcribing" || state === "summaryGen") && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-8 flex flex-col items-center gap-3">
-          <Loader2 size={28} className="text-phantom-primary animate-spin" />
-          <p className="text-sm text-phantom-text">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-8 flex flex-col items-center gap-3">
+          <Loader2 size={28} className="text-spectyn-primary animate-spin" />
+          <p className="text-sm text-spectyn-text">
             {state === "finalizing" && "收尾中…"}
             {state === "transcribing" && "轉錄中…"}
             {state === "summaryGen" && "產生摘要中…"}
           </p>
-          <p className="text-[10px] text-phantom-muted">請稍候，正在整理這段時段</p>
+          <p className="text-[10px] text-spectyn-muted">請稍候，正在整理這段時段</p>
         </div>
       )}
 
       {/* ── Done ──────────────────────────────────────────────────────── */}
       {state === "done" && result && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 space-y-4">
-          <div className="flex items-center gap-2 text-phantom-success">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 space-y-4">
+          <div className="flex items-center gap-2 text-spectyn-success">
             <CheckCircle2 size={20} />
             <h2 className="text-base font-semibold">時段完成</h2>
           </div>
 
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
-              <p className="text-lg font-bold text-phantom-text tabular-nums">
+              <p className="text-lg font-bold text-spectyn-text tabular-nums">
                 {fmtClock(Number(result.actualDurationMs ?? 0))}
               </p>
-              <p className="text-[10px] text-phantom-muted">實際時長</p>
+              <p className="text-[10px] text-spectyn-muted">實際時長</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-phantom-primary">{(result.completionPct ?? 0).toFixed(0)}%</p>
-              <p className="text-[10px] text-phantom-muted">完成度</p>
+              <p className="text-lg font-bold text-spectyn-primary">{(result.completionPct ?? 0).toFixed(0)}%</p>
+              <p className="text-[10px] text-spectyn-muted">完成度</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-phantom-warning">{result.interruptions ?? 0}</p>
-              <p className="text-[10px] text-phantom-muted">中斷次數</p>
+              <p className="text-lg font-bold text-spectyn-warning">{result.interruptions ?? 0}</p>
+              <p className="text-[10px] text-spectyn-muted">中斷次數</p>
             </div>
           </div>
 
           {result.summary && (
-            <div className="bg-phantom-bg border border-phantom-border rounded p-3">
-              <p className="text-[10px] uppercase tracking-wider text-phantom-muted mb-1">摘要</p>
-              <p className="text-sm text-phantom-text">{result.summary}</p>
+            <div className="bg-spectyn-bg border border-spectyn-border rounded p-3">
+              <p className="text-[10px] uppercase tracking-wider text-spectyn-muted mb-1">摘要</p>
+              <p className="text-sm text-spectyn-text">{result.summary}</p>
             </div>
           )}
           {result.suggestion && (
-            <div className="bg-phantom-primary/10 border border-phantom-primary/30 rounded p-3 flex gap-2">
-              <Sparkles size={14} className="text-phantom-primary flex-shrink-0 mt-0.5" />
-              <p className="text-sm text-phantom-text">{result.suggestion}</p>
+            <div className="bg-spectyn-primary/10 border border-spectyn-primary/30 rounded p-3 flex gap-2">
+              <Sparkles size={14} className="text-spectyn-primary flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-spectyn-text">{result.suggestion}</p>
             </div>
           )}
 
           <button
             onClick={reset}
-            className="w-full flex items-center justify-center gap-2 bg-phantom-primary text-phantom-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
+            className="w-full flex items-center justify-center gap-2 bg-spectyn-primary text-spectyn-bg py-2.5 rounded-lg text-sm font-medium hover:brightness-110 transition"
           >
             <RotateCcw size={15} /> 開始新時段
           </button>
@@ -453,15 +453,15 @@ export default function FocusPage() {
 
       {/* ── Error ─────────────────────────────────────────────────────── */}
       {state === "error" && (
-        <div className="bg-phantom-danger/10 border border-phantom-danger/40 rounded-lg p-6 space-y-3">
-          <div className="flex items-center gap-2 text-phantom-danger">
+        <div className="bg-spectyn-danger/10 border border-spectyn-danger/40 rounded-lg p-6 space-y-3">
+          <div className="flex items-center gap-2 text-spectyn-danger">
             <AlertTriangle size={20} />
             <h2 className="text-base font-semibold">無法完成</h2>
           </div>
-          <p className="text-sm text-phantom-text">{error}</p>
+          <p className="text-sm text-spectyn-text">{error}</p>
           <button
             onClick={reset}
-            className="flex items-center gap-2 bg-phantom-card border border-phantom-border text-phantom-text px-4 py-2 rounded-lg text-sm hover:border-phantom-primary/40 transition"
+            className="flex items-center gap-2 bg-spectyn-card border border-spectyn-border text-spectyn-text px-4 py-2 rounded-lg text-sm hover:border-spectyn-primary/40 transition"
           >
             <RotateCcw size={15} /> 重試
           </button>
@@ -470,20 +470,20 @@ export default function FocusPage() {
 
       {/* ── Recent sessions ───────────────────────────────────────────── */}
       {recent.length > 0 && (state === "idle" || state === "done") && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <h3 className="text-sm font-medium text-phantom-text mb-3 flex items-center gap-2">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <h3 className="text-sm font-medium text-spectyn-text mb-3 flex items-center gap-2">
             <Timer size={14} /> 最近時段
           </h3>
           <div className="space-y-2">
             {recent.slice(0, 5).map((ev) => (
               <div key={ev.sessionId} className="flex items-center gap-3 text-xs">
-                <span className="text-phantom-muted w-16 flex-shrink-0">
+                <span className="text-spectyn-muted w-16 flex-shrink-0">
                   {MODE_LABEL[ev.mode]}
                 </span>
-                <span className="flex-1 truncate text-phantom-text">
+                <span className="flex-1 truncate text-spectyn-text">
                   {ev.label || ev.result.summary || "(無標籤)"}
                 </span>
-                <span className="text-phantom-primary tabular-nums">
+                <span className="text-spectyn-primary tabular-nums">
                   {(ev.result.completionPct ?? 0).toFixed(0)}%
                 </span>
               </div>

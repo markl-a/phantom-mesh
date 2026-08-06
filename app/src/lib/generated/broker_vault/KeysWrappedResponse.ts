@@ -20,7 +20,7 @@ export type KeysWrappedResponse = { wrapped_vault_seal_key: string, key_version:
  * field. Mirrors `WrappedVaultSealKey.source_device_pubkey_hex`.
  *
  * `Option` + `#[serde(default)]`: the CURRENT broker
- * (`phantommesh-io/routes/vault.ts`, schema `0010`) does NOT yet store/return
+ * (`spectynmesh-io/routes/vault.ts`, schema `0010`) does NOT yet store/return
  * this, so a legacy response deserializes with `None` rather than failing.
  * `None` ⇒ the new device cannot verify ⇒ `into_wrapped_vault_seal_key`
  * fails closed (see there). Carrying it E2E needs a broker sig column +

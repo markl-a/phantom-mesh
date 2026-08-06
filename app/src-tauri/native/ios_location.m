@@ -1,7 +1,7 @@
 // ios_location.m
 //
 // Native iOS CoreLocation one-shot GPS read, compiled by build.rs via the
-// `cc` crate (same path as native/ios_fetch.m) so the `phantom_ios_location`
+// `cc` crate (same path as native/ios_fetch.m) so the `spectyn_ios_location`
 // symbol lives in our dylib. Exposed to Rust via extern "C" — see
 // app/src-tauri/src/lib.rs (swift_get_location command).
 //
@@ -17,7 +17,7 @@
 #import <Foundation/Foundation.h>
 #import <CoreLocation/CoreLocation.h>
 
-@interface PhantomLocDelegate : NSObject <CLLocationManagerDelegate>
+@interface SpectynLocDelegate : NSObject <CLLocationManagerDelegate>
 @property (nonatomic, strong) CLLocationManager *mgr;
 @property (nonatomic, strong) dispatch_semaphore_t sem;
 @property (nonatomic, assign) double lat;
@@ -27,7 +27,7 @@
 @property (nonatomic, strong) NSString *err;
 @end
 
-@implementation PhantomLocDelegate
+@implementation SpectynLocDelegate
 
 - (void)finishWithError:(NSString *)msg {
     if (self.done) return;
@@ -52,13 +52,13 @@
 
 - (void)locationManager:(CLLocationManager *)manager
        didFailWithError:(NSError *)error {
-    NSLog(@"[PhantomLoc] didFailWithError: %@", error.localizedDescription);
+    NSLog(@"[SpectynLoc] didFailWithError: %@", error.localizedDescription);
     [self finishWithError:error.localizedDescription];
 }
 
 - (void)locationManagerDidChangeAuthorization:(CLLocationManager *)manager {
     CLAuthorizationStatus st = manager.authorizationStatus;
-    NSLog(@"[PhantomLoc] auth changed: %d", (int)st);
+    NSLog(@"[SpectynLoc] auth changed: %d", (int)st);
     if (st == kCLAuthorizationStatusAuthorizedWhenInUse ||
         st == kCLAuthorizationStatusAuthorizedAlways) {
         [manager startUpdatingLocation];
@@ -71,7 +71,7 @@
 
 @end
 
-void phantom_ios_location(
+void spectyn_ios_location(
     double *lat_out,
     double *lon_out,
     double *acc_out,
@@ -80,7 +80,7 @@ void phantom_ios_location(
     long max_err
 ) {
     @autoreleasepool {
-        PhantomLocDelegate *del = [[PhantomLocDelegate alloc] init];
+        SpectynLocDelegate *del = [[SpectynLocDelegate alloc] init];
         del.sem = dispatch_semaphore_create(0);
         del.done = NO;
         del.acc = -1;
@@ -90,7 +90,7 @@ void phantom_ios_location(
             del.mgr.delegate = del;
             del.mgr.desiredAccuracy = kCLLocationAccuracyHundredMeters;
             CLAuthorizationStatus st = del.mgr.authorizationStatus;
-            NSLog(@"[PhantomLoc] initial auth: %d", (int)st);
+            NSLog(@"[SpectynLoc] initial auth: %d", (int)st);
             if (st == kCLAuthorizationStatusNotDetermined) {
                 [del.mgr requestWhenInUseAuthorization];
             } else if (st == kCLAuthorizationStatusAuthorizedWhenInUse ||

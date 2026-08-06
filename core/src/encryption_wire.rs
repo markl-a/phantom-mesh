@@ -22,11 +22,11 @@
 // blob column 為 envelope 而非裸 age binary（per SPEC-13 §7.1.1）。
 //
 // 參考來源:
-//   - SPEC-13 §6.2 — HKDF info string `phantom-mesh.v1.event-encrypt`
+//   - SPEC-13 §6.2 — HKDF info string `spectyn-mesh.v1.event-encrypt`
 //   - SPEC-13 §7.1.1 — age v1 wire format (magic line + recipient stanza + body)
 //   - SPEC-13 §7.1.2/§7.1.3 — EventKey + EventKeyHandle 對照
 //   - SPEC-13 §11 — Error catalog (Decrypt / Encrypt / Bech32 / IdentityParse / Io)
-//   - SPEC-12 §7.2 — KeyPurpose `phantom-mesh.v1.<purpose>` info-string 規範
+//   - SPEC-12 §7.2 — KeyPurpose `spectyn-mesh.v1.<purpose>` info-string 規範
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -75,7 +75,7 @@ pub struct X25519Recipient(pub String);
 // ─── §7.1 EncryptionEnvelope (TS-facing wire shape) ───────────────────────────
 
 /// At-rest encryption envelope written to sqlite `events.blob` column and
-/// `~/.phantom-mesh/blobs/<sha256>.age` files.
+/// `~/.spectyn-mesh/blobs/<sha256>.age` files.
 ///
 /// Per SPEC-13 §7.1.1 the inner `ciphertext` field carries the raw age v1
 /// binary blob (magic line `age-encryption.org/v1\n` + recipient stanza +
@@ -178,7 +178,7 @@ pub enum DecryptError {
 // ─── §6.2 / §7.1.2 EventKey + X25519Identity (Rust-private) ──────────────────
 
 /// 32-byte symmetric event key derived from `identity.key` IKM via HKDF-SHA256
-/// with info string `phantom-mesh.v1.event-encrypt` (per SPEC-13 §6.2).
+/// with info string `spectyn-mesh.v1.event-encrypt` (per SPEC-13 §6.2).
 ///
 /// **Rust-private** — NOT exported via ts-rs. The raw bytes must never reach
 /// JS / TS; the front-end only sees `EventKeyHandle` (fingerprint).
@@ -230,22 +230,22 @@ pub struct X25519Identity {
 //   `_pseudo` helpers for real hkdf/sha2/age/bech32/base64 calls (added then).
 
 /// Derive the per-device `EventKey` from a 32-byte `identity.key` seed using
-/// HKDF-SHA256 with the info string `phantom-mesh.v1.event-encrypt` (per
+/// HKDF-SHA256 with the info string `spectyn-mesh.v1.event-encrypt` (per
 /// SPEC-13 §6.2 + SPEC-12 §7.2 `KeyPurpose::EventEncrypt`).
 ///
 /// 中文: 從 identity.key 的 32 byte IKM 透過 HKDF-SHA256（info 字串
-/// `phantom-mesh.v1.event-encrypt`）派出 EventKey。
+/// `spectyn-mesh.v1.event-encrypt`）派出 EventKey。
 pub fn derive_event_key_from_identity(
     identity_seed_bytes: &[u8; 32],
 ) -> Result<EventKey, EncryptError> {
     // Step 1: HKDF-SHA256(IKM=identity_seed_bytes, salt=None, info=
-    //         "phantom-mesh.v1.event-encrypt") → 32 raw output bytes. The
+    //         "spectyn-mesh.v1.event-encrypt") → 32 raw output bytes. The
     //         info string is the canonical KeyPurpose tag per SPEC-12 §7.2
     //         so different purposes produce independent subkeys from the
     //         same IKM (domain separation).
     let okm: [u8; 32] = hkdf_pseudo(
         identity_seed_bytes,
-        b"phantom-mesh.v1.event-encrypt",
+        b"spectyn-mesh.v1.event-encrypt",
     )?;
 
     // Step 2: wrap the 32 bytes as the typed `EventKey` newtype so downstream
@@ -465,7 +465,7 @@ fn age_decrypt_pseudo(raw_blob: &[u8], secret_bech32: &str) -> Result<Vec<u8>, D
 // blob from `body.age`". The keystore handle described in SPEC-13 §G3 is
 // still async + token-scoped, but the v0.6.0 GA storage path only ever runs
 // on a single device per process — so a process-local cache populated from
-// `~/.phantom-mesh/identity.key` is sufficient for the bridge.
+// `~/.spectyn-mesh/identity.key` is sufficient for the bridge.
 //
 // The cache is `Option<EventKey>` so callers can distinguish "never tried to
 // load" (`None`) from "loaded successfully" (`Some(_)`). A failed load leaves
@@ -473,7 +473,7 @@ fn age_decrypt_pseudo(raw_blob: &[u8], secret_bech32: &str) -> Result<Vec<u8>, D
 // `identity.key`) still succeeds without restarting the process.
 //
 // 中文: 為了讓 `event_storage_wire::read_event` 能拿到 EventKey 解 `body.age`，
-// 這裡放一個 per-process cache，由 `~/.phantom-mesh/identity.key` 派生。
+// 這裡放一個 per-process cache，由 `~/.spectyn-mesh/identity.key` 派生。
 // 未來 SPEC-13 §G3 的 async keystore 上線後再換成它；現在 v0.6.0 GA 走同步即可。
 
 static EVENT_KEY_CACHE: OnceLock<RwLock<Option<EventKey>>> = OnceLock::new();
@@ -494,7 +494,7 @@ pub fn event_key_loaded() -> bool {
 }
 
 /// Populate the per-process `EventKey` cache from a 32-byte IKM (typically
-/// the first 32 bytes of `~/.phantom-mesh/identity.key`). Idempotent: a second
+/// the first 32 bytes of `~/.spectyn-mesh/identity.key`). Idempotent: a second
 /// call with the same seed leaves the cache holding a freshly-derived key
 /// (semantically identical because HKDF is a pure function).
 ///
@@ -513,7 +513,7 @@ pub fn install_event_key_from_seed(seed: &[u8; 32]) -> Result<EventKey, EncryptE
 
 /// WORKAROUND (operator-authorized 2026-05-30, z13-android): make encrypted
 /// capture work for a NOT-logged-in LOCAL consumer. A fresh mobile install with
-/// no broker login has no `<phantom_dir>/identity.key` (it is normally
+/// no broker login has no `<spectyn_dir>/identity.key` (it is normally
 /// broker-provisioned), so the post-P4 encrypted habit write fails with
 /// `habit.store` (UI 「寫入失敗」). This generates a device-local 64-byte root key
 /// if none exists, then installs the per-process `EventKey` — the design intends
@@ -527,19 +527,19 @@ pub fn install_event_key_from_seed(seed: &[u8; 32]) -> Result<EventKey, EncryptE
 /// on first broker login is a separate task — same caveat as any local-first
 /// encrypted data. For an offline-only consumer (BIG-GOAL P1 "mobile is a
 /// self-sufficient peer") generating a local key is the correct behaviour.
-pub fn ensure_local_event_key(phantom_dir: &std::path::Path) -> Result<(), EncryptError> {
+pub fn ensure_local_event_key(spectyn_dir: &std::path::Path) -> Result<(), EncryptError> {
     if event_key_loaded() {
         return Ok(());
     }
-    let key_path = phantom_dir.join("identity.key");
+    let key_path = spectyn_dir.join("identity.key");
     let bytes = match std::fs::read(&key_path) {
         Ok(b) if b.len() >= 32 => b,
         _ => {
             use rand::RngCore;
             let mut seed = [0u8; 64];
             rand::rngs::OsRng.fill_bytes(&mut seed);
-            std::fs::create_dir_all(phantom_dir).map_err(|e| {
-                EncryptError::Io(format!("mkdir {}: {}", phantom_dir.display(), e))
+            std::fs::create_dir_all(spectyn_dir).map_err(|e| {
+                EncryptError::Io(format!("mkdir {}: {}", spectyn_dir.display(), e))
             })?;
             std::fs::write(&key_path, &seed)
                 .map_err(|e| EncryptError::Io(format!("write identity.key: {}", e)))?;
@@ -573,22 +573,22 @@ pub fn lookup_or_derive_event_key() -> Option<EventKey> {
         return Some(k);
     }
     // D29/D30: derive-on-miss. Nothing in production ever called
-    // `install_event_key_from_seed`, so a CLI one-shot (`phantom habit checkin`,
-    // `phantom food …`) found an empty cache and failed with "vault locked"
-    // even though `~/.phantom-mesh/identity.key` existed — while `note`/`focus`
+    // `install_event_key_from_seed`, so a CLI one-shot (`spectyn habit checkin`,
+    // `spectyn food …`) found an empty cache and failed with "vault locked"
+    // even though `~/.spectyn-mesh/identity.key` existed — while `note`/`focus`
     // (which read identity.key directly) worked. Honour this function's NAME:
     // on a cache miss, load the identity seed and install, so every entry point
     // (CLI one-shot or long-running daemon) resolves the same key.
     derive_and_cache_from_identity_file()
 }
 
-/// Read `~/.phantom-mesh/identity.key`, derive the `EventKey` from its first 32
+/// Read `~/.spectyn-mesh/identity.key`, derive the `EventKey` from its first 32
 /// bytes (the documented IKM for `install_event_key_from_seed`) and install it
 /// into the per-process cache. Returns `None` when no usable identity file
 /// exists yet (pre-encryption machine) — callers then surface the normal
 /// "key not loaded" path rather than crashing.
 fn derive_and_cache_from_identity_file() -> Option<EventKey> {
-    // In unit-test builds, NEVER read the real `~/.phantom-mesh/identity.key`:
+    // In unit-test builds, NEVER read the real `~/.spectyn-mesh/identity.key`:
     // tests install their key explicitly via `install_event_key_from_seed`, and
     // the process-global cache is shared across parallel tests — reading the
     // operator's real key here would non-deterministically clobber an installed
@@ -601,7 +601,7 @@ fn derive_and_cache_from_identity_file() -> Option<EventKey> {
     #[cfg(not(test))]
     {
         use zeroize::Zeroize;
-        let path = crate::cli_config::phantom_data_dir().ok()?.join("identity.key");
+        let path = crate::cli_config::spectyn_data_dir().ok()?.join("identity.key");
         let mut bytes = std::fs::read(&path).ok()?;
         if bytes.len() < 32 {
             bytes.zeroize();
@@ -617,7 +617,7 @@ fn derive_and_cache_from_identity_file() -> Option<EventKey> {
 }
 
 /// Drop the cached `EventKey`. Used by the kill-switch path
-/// (`phantom data delete --all` per SPEC-16 §16) so a subsequent `read_event`
+/// (`spectyn data delete --all` per SPEC-16 §16) so a subsequent `read_event`
 /// returns `DecryptionUnavailable` even before the on-disk identity is wiped.
 ///
 /// 中文: 清空 EventKey 快取；給 kill-switch 用，立刻讓後續 read_event 回不解密。
@@ -729,19 +729,19 @@ mod tests {
 
     #[test]
     fn derive_event_key_zero_seed_kat() {
-        // KAT — HKDF-SHA256(IKM=[0u8;32], salt=None, info="phantom-mesh.v1.
+        // KAT — HKDF-SHA256(IKM=[0u8;32], salt=None, info="spectyn-mesh.v1.
         // event-encrypt", L=32). Locked in so any hkdf crate drift or info
         // string mutation surfaces as a loud test diff. The expected bytes
         // are the deterministic output of the current `hkdf 0.12` + `sha2 0.10`
         // pinned in core/Cargo.toml; they form the live oracle for the
-        // `phantom-mesh.v1.event-encrypt` domain-separation label.
+        // `spectyn-mesh.v1.event-encrypt` domain-separation label.
         let seed = [0u8; 32];
         let k = derive_event_key_from_identity(&seed).expect("hkdf");
         // Cross-check via direct HKDF call so the test still passes if hkdf
         // crate bumps a minor without changing output (which would be a bug).
         let mut expected = [0u8; 32];
         hkdf::Hkdf::<sha2::Sha256>::new(None, &seed)
-            .expand(b"phantom-mesh.v1.event-encrypt", &mut expected)
+            .expand(b"spectyn-mesh.v1.event-encrypt", &mut expected)
             .expect("hkdf");
         assert_eq!(k.bytes, expected, "HKDF output must match direct call");
     }
@@ -761,7 +761,7 @@ mod tests {
             recipient.0
         );
 
-        let plaintext = b"hello, phantom-mesh life node!";
+        let plaintext = b"hello, spectyn-mesh life node!";
         let envelope = encrypt_event(plaintext, &recipient).expect("encrypt");
         assert_eq!(envelope.algorithm, EncryptionAlgorithm::AgeV1);
 
@@ -829,7 +829,7 @@ mod tests {
         let identity = event_key_to_age_identity(&key).expect("identity");
         let recipient = derive_recipient_from_identity(&identity);
 
-        let plaintext = b"phantom-mesh stage4 bridge ok";
+        let plaintext = b"spectyn-mesh stage4 bridge ok";
         // Build the raw age v1 blob the same way `body.age` would store it.
         let raw_blob = age_encrypt_pseudo(plaintext, &recipient.0).expect("encrypt");
 

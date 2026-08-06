@@ -95,16 +95,16 @@ export default function MobileDailyReview() {
       data-testid="mobile-daily-review"
     >
       {/* Header bar — matches the Settings sub-panel pattern (back + title) */}
-      <div className="flex items-center px-2 py-2.5 border-b border-phantom-border flex-shrink-0">
+      <div className="flex items-center px-2 py-2.5 border-b border-spectyn-border flex-shrink-0">
         <button
           onClick={() => navigate("/settings")}
-          className="text-phantom-text p-2 -m-2 flex items-center gap-1"
+          className="text-spectyn-text p-2 -m-2 flex items-center gap-1"
           aria-label="返回設定"
         >
           <ChevronLeft size={20} />
           <span className="text-sm">設定</span>
         </button>
-        <span className="text-sm font-medium text-phantom-text mx-auto pr-8">
+        <span className="text-sm font-medium text-spectyn-text mx-auto pr-8">
           每日回顧
         </span>
       </div>
@@ -112,19 +112,19 @@ export default function MobileDailyReview() {
       <div className="p-3 space-y-3">
         {/* Date strip */}
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-            <CalendarDays size={18} className="text-phantom-primary" />
+          <div className="w-9 h-9 rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+            <CalendarDays size={18} className="text-spectyn-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-phantom-text">{date}</div>
-            <div className="text-[11px] text-phantom-muted">
+            <div className="text-sm font-semibold text-spectyn-text">{date}</div>
+            <div className="text-[11px] text-spectyn-muted">
               Daily review{view ? ` · ${view.eventCount} 筆事件` : ""}
             </div>
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0">
             <button
               onClick={() => setDate(shiftDate(date, -1))}
-              className="text-phantom-muted hover:text-phantom-text p-1.5"
+              className="text-spectyn-muted hover:text-spectyn-text p-1.5"
               aria-label="前一天"
             >
               <ChevronLeft size={18} />
@@ -132,14 +132,14 @@ export default function MobileDailyReview() {
             <button
               onClick={() => setDate(shiftDate(date, 1))}
               disabled={isToday}
-              className="text-phantom-muted hover:text-phantom-text disabled:opacity-30 p-1.5"
+              className="text-spectyn-muted hover:text-spectyn-text disabled:opacity-30 p-1.5"
               aria-label="後一天"
             >
               <ChevronRight size={18} />
             </button>
             <button
               onClick={() => void refresh(date)}
-              className="text-phantom-muted hover:text-phantom-text p-1.5"
+              className="text-spectyn-muted hover:text-spectyn-text p-1.5"
               aria-label="重新整理"
             >
               <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
@@ -150,43 +150,43 @@ export default function MobileDailyReview() {
         {!isToday && (
           <button
             onClick={() => setDate(todayIso())}
-            className="text-xs text-phantom-primary hover:underline"
+            className="text-xs text-spectyn-primary hover:underline"
           >
             ↩ 回到今天
           </button>
         )}
 
         {error && (
-          <div className="bg-phantom-warning/10 border border-phantom-warning/40 rounded-lg p-3 text-sm text-phantom-warning">
+          <div className="bg-spectyn-warning/10 border border-spectyn-warning/40 rounded-lg p-3 text-sm text-spectyn-warning">
             {error}
           </div>
         )}
 
         {view?.flagged && (
-          <div className="bg-phantom-warning/10 border border-phantom-warning/30 rounded-lg p-3 text-xs text-phantom-muted">
+          <div className="bg-spectyn-warning/10 border border-spectyn-warning/30 rounded-lg p-3 text-xs text-spectyn-muted">
             部分內容被標記 — 顯示原始紀錄(shame-free 防護)。
           </div>
         )}
 
         {!error && view?.locked && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-            <Lock size={22} className="text-phantom-muted mx-auto mb-2" />
-            <p className="text-sm text-phantom-text">事件已加密(age v1)</p>
-            <p className="text-xs text-phantom-muted mt-1">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+            <Lock size={22} className="text-spectyn-muted mx-auto mb-2" />
+            <p className="text-sm text-spectyn-text">事件已加密(age v1)</p>
+            <p className="text-xs text-spectyn-muted mt-1">
               尚未載入身分金鑰 — 執行{" "}
-              <code className="text-phantom-primary">phantom init</code>{" "}
+              <code className="text-spectyn-primary">spectyn init</code>{" "}
               後重新整理。
             </p>
           </div>
         )}
 
         {!error && view && !view.locked && view.eventCount === 0 && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-            <p className="text-sm text-phantom-text">{date} 沒有 Life Node 事件。</p>
-            <p className="text-xs text-phantom-muted mt-1">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+            <p className="text-sm text-spectyn-text">{date} 沒有 Life Node 事件。</p>
+            <p className="text-xs text-spectyn-muted mt-1">
               用專注 / 習慣 / 飲食頁記錄一筆後,會在這裡按目標標籤分組。
             </p>
-            <p className="text-[11px] text-phantom-muted/70 mt-2">
+            <p className="text-[11px] text-spectyn-muted/70 mt-2">
               空白的一天沒關係 — 這是紀錄,不是評分表。
             </p>
           </div>
@@ -203,10 +203,10 @@ export default function MobileDailyReview() {
                       key={`g-${i}`}
                       className="flex items-baseline gap-2 pt-2 first:pt-0"
                     >
-                      <span className="text-sm font-semibold text-phantom-primary">
+                      <span className="text-sm font-semibold text-spectyn-primary">
                         {r.tag}
                       </span>
-                      <span className="text-[11px] text-phantom-muted">
+                      <span className="text-[11px] text-spectyn-muted">
                         ({r.n})
                       </span>
                     </div>
@@ -215,16 +215,16 @@ export default function MobileDailyReview() {
                 return (
                   <div
                     key={`b-${i}`}
-                    className="flex items-start gap-3 px-3 py-2 rounded bg-phantom-card border border-phantom-border ml-1"
+                    className="flex items-start gap-3 px-3 py-2 rounded bg-spectyn-card border border-spectyn-border ml-1"
                   >
                     <span className="text-base w-6 text-center flex-shrink-0">
                       {KIND_EMOJI[r.eventKind] ?? "•"}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <span className="text-xs text-phantom-muted mr-2">
+                      <span className="text-xs text-spectyn-muted mr-2">
                         {r.time}
                       </span>
-                      <span className="text-sm text-phantom-text break-words">
+                      <span className="text-sm text-spectyn-text break-words">
                         {r.summary}
                       </span>
                     </div>

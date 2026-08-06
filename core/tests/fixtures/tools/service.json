@@ -20,7 +20,7 @@
       "expected": {
         "ok": true,
         "subset_match": {
-          "task_name": "PhantomMesh",
+          "task_name": "SpectynMesh",
           "platform": "windows"
         }
       },

@@ -9,7 +9,7 @@
 //! `anti-hallucination: N unbacked claim(s) — ...`).
 //!
 //! The end-to-end agent-loop probe (real LLM provider, real tool
-//! dispatch) lives in scripts/phantom-test/scenarios/25-agent-anti-hallucination.sh
+//! dispatch) lives in scripts/spectyn-test/scenarios/25-agent-anti-hallucination.sh
 //! which is the more authoritative gate. The wiremock-driven full
 //! `run_inner` Rust integration test is V2 work (depends on a small
 //! `AgentsConfig` test-fixture helper that doesn't exist yet).
@@ -21,7 +21,7 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-use phantom_mesh::hallucination::{scan, UnbackedClaim};
+use spectyn_mesh::hallucination::{scan, UnbackedClaim};
 use serde_json::{json, Value};
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -106,7 +106,7 @@ fn shape1_warn_fires_for_file_claim_with_no_tool_calls() {
     let captured = writer.snapshot();
     // Surface the captured warn line under `cargo test -- --nocapture`
     // so operators can eyeball the exact format that lands in their
-    // diag stream / phantom serve log. Harmless when captured: noop.
+    // diag stream / spectyn serve log. Harmless when captured: noop.
     eprintln!("[sample tracing::warn output]\n{}", captured);
     assert!(
         captured.contains("anti-hallucination: 1 unbacked claim(s)"),

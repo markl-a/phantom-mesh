@@ -1,18 +1,18 @@
 //! P0-6 — deterministic, shame-free daily loop: golden-fixture review,
 //! capture→store→recall round-trip, and clock-pinned daily transition.
 //!
-//! These are cross-crate integration tests (import via `phantom_mesh::`). The
+//! These are cross-crate integration tests (import via `spectyn_mesh::`). The
 //! golden review is asserted byte-for-byte against a committed `.golden.md`
-//! artifact built from a fixed `events.json`, with a `PHANTOM_UPDATE_GOLDEN=1`
+//! artifact built from a fixed `events.json`, with a `SPECTYN_UPDATE_GOLDEN=1`
 //! escape hatch to regenerate it intentionally. The review surface
 //! (`golden_review`) reads no clock and no filesystem, so the bytes are stable
 //! across platforms and timezones (SPEC-23 §G5 parity) — proven in Task 5 by
 //! running this test under `TZ=UTC` / `Asia/Taipei` / `America/Los_Angeles`.
 
-use phantom_mesh::event_storage_wire::EventMeta;
-use phantom_mesh::life_node::daily_review::golden_review;
-use phantom_mesh::life_node::goals::Goal;
-use phantom_mesh::life_node::multimodal::AnalysisResult;
+use spectyn_mesh::event_storage_wire::EventMeta;
+use spectyn_mesh::life_node::daily_review::golden_review;
+use spectyn_mesh::life_node::goals::Goal;
+use spectyn_mesh::life_node::multimodal::AnalysisResult;
 
 /// One `{meta, analysis}` row of the fixture. `EventMeta` is `camelCase` on the
 /// wire (`eventId`), `AnalysisResult` is plain `snake_case` — the fixture JSON
@@ -62,20 +62,20 @@ fn golden_review_is_byte_stable() {
     );
 
     // (b) byte-exact vs the committed artifact, with an explicit update escape
-    // hatch. CI never sets PHANTOM_UPDATE_GOLDEN; a developer regenerates the
+    // hatch. CI never sets SPECTYN_UPDATE_GOLDEN; a developer regenerates the
     // golden intentionally and reviews the diff.
     let golden_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/fixtures/daily_review/2026-05-22.golden.md"
     );
-    if std::env::var("PHANTOM_UPDATE_GOLDEN").as_deref() == Ok("1") {
+    if std::env::var("SPECTYN_UPDATE_GOLDEN").as_deref() == Ok("1") {
         std::fs::write(golden_path, &out).expect("write golden artifact");
     } else {
         let expected = std::fs::read_to_string(golden_path)
-            .expect("golden artifact must exist — generate it with PHANTOM_UPDATE_GOLDEN=1");
+            .expect("golden artifact must exist — generate it with SPECTYN_UPDATE_GOLDEN=1");
         assert_eq!(
             out, expected,
-            "review drifted from golden; rerun with PHANTOM_UPDATE_GOLDEN=1 and review the diff"
+            "review drifted from golden; rerun with SPECTYN_UPDATE_GOLDEN=1 and review the diff"
         );
     }
 }
@@ -83,19 +83,19 @@ fn golden_review_is_byte_stable() {
 #[test]
 fn capture_then_recall_hits_the_event() {
     let tmp = tempfile::tempdir().unwrap();
-    let phantom = tmp.path().join(".phantom-mesh");
-    std::fs::create_dir_all(&phantom).unwrap();
-    phantom_mesh::life_node::note_capture::capture_note(
-        &phantom,
+    let spectyn = tmp.path().join(".spectyn-mesh");
+    std::fs::create_dir_all(&spectyn).unwrap();
+    spectyn_mesh::life_node::note_capture::capture_note(
+        &spectyn,
         "rebased the daily loop onto the mockable clock",
         &["dev".into()],
     )
     .unwrap();
 
-    let hits = phantom_mesh::life_node::recall::search_events(
-        &phantom.join("events"),
+    let hits = spectyn_mesh::life_node::recall::search_events(
+        &spectyn.join("events"),
         None,
-        &phantom_mesh::life_node::recall::RecallFilter::text("clock"),
+        &spectyn_mesh::life_node::recall::RecallFilter::text("clock"),
         15,
     )
     .unwrap();
@@ -107,10 +107,10 @@ fn capture_then_recall_hits_the_event() {
 #[test]
 fn capture_round_trips_through_daily_review_loader() {
     let tmp = tempfile::tempdir().unwrap();
-    let phantom = tmp.path().join(".phantom-mesh");
-    std::fs::create_dir_all(&phantom).unwrap();
-    let out = phantom_mesh::life_node::note_capture::capture_note(
-        &phantom,
+    let spectyn = tmp.path().join(".spectyn-mesh");
+    std::fs::create_dir_all(&spectyn).unwrap();
+    let out = spectyn_mesh::life_node::note_capture::capture_note(
+        &spectyn,
         "shipped the golden fixture",
         &["note".into()],
     )
@@ -119,13 +119,13 @@ fn capture_round_trips_through_daily_review_loader() {
     // Resolve "today" the way load_events_for_date does (LOCAL date of the
     // just-written event's UTC timestamp) so this is tz-correct, not
     // wall-clock-flaky.
-    let meta = phantom_mesh::life_node::storage::EventStore::new(&phantom.join("events"))
+    let meta = spectyn_mesh::life_node::storage::EventStore::new(&spectyn.join("events"))
         .read_meta(&out.event_id)
         .unwrap();
-    let today = phantom_mesh::event_storage_wire::ts_local_date(&meta.timestamp);
+    let today = spectyn_mesh::event_storage_wire::ts_local_date(&meta.timestamp);
 
-    let pairs = phantom_mesh::life_node::daily_review::load_events_for_date(
-        &phantom.join("events"),
+    let pairs = spectyn_mesh::life_node::daily_review::load_events_for_date(
+        &spectyn.join("events"),
         &today,
         None,
     )
@@ -142,8 +142,8 @@ fn capture_round_trips_through_daily_review_loader() {
 /// roll and assert the OBSERVABLE contract — the two days key differently.
 #[test]
 fn daily_transition_resolves_distinct_dedup_keys_across_midnight() {
-    use phantom_mesh::clock::{Clock, MockClock};
-    use phantom_mesh::life_node::coach_scheduler_daemon::dedup_key;
+    use spectyn_mesh::clock::{Clock, MockClock};
+    use spectyn_mesh::life_node::coach_scheduler_daemon::dedup_key;
 
     let clock = MockClock::at_utc_date(2026, 5, 22);
     clock.advance_ms(13 * 3600 * 1000); // 13:00 UTC on 2026-05-22

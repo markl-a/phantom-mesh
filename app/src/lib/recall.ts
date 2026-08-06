@@ -1,5 +1,5 @@
 // Helper for the Recall (content search) surface — app counterpart of the TUI
-// `/recall` + CLI `phantom recall` (BIG-GOAL P2 Life Track). Wraps the
+// `/recall` + CLI `spectyn recall` (BIG-GOAL P2 Life Track). Wraps the
 // read-only `recall_search` Tauri command over the shared file event store.
 
 import { safeInvoke as invoke } from "./tauri-compat";

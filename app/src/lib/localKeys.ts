@@ -1,6 +1,6 @@
 // Manual LLM-provider key management — fallback for users who can't /
 // don't want to go through the broker (Google login). Reads / writes
-// the same ~/.phantom-mesh/env file the broker_sync_from_vault uses.
+// the same ~/.spectyn-mesh/env file the broker_sync_from_vault uses.
 
 import { invoke } from "@tauri-apps/api/core";
 

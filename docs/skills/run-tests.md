@@ -22,7 +22,7 @@ tags:
   - rust
   - ci
 created_at: "2026-05-15T00:00:00Z"
-author: phantom-mesh weekend push T32
+author: spectyn-mesh weekend push T32
 ---
 
 # run-tests
@@ -46,14 +46,14 @@ git status --short
 的那一個來呈現。
 
 ```bash
-cargo test --workspace --no-fail-fast 2>&1 | tee /tmp/phantom-skill-run-tests.log
+cargo test --workspace --no-fail-fast 2>&1 | tee /tmp/spectyn-skill-run-tests.log
 ```
 
 現在擷取摘要行。Cargo 會為每個 crate 印出 `test result: ok. N passed; M failed`，
 所以我們用 grep 抓它。
 
 ```bash
-grep -E "^test result:" /tmp/phantom-skill-run-tests.log | tail -20
+grep -E "^test result:" /tmp/spectyn-skill-run-tests.log | tail -20
 ```
 
 一旦日誌寫到磁碟上，呼叫方就能決定要向 LLM（大型語言模型）索取一份人類可讀的
@@ -61,7 +61,7 @@ grep -E "^test result:" /tmp/phantom-skill-run-tests.log | tail -20
 
 ## Prompt：摘要測試結果
 
-根據擷取於 `/tmp/phantom-skill-run-tests.log` 的 cargo test 日誌，
+根據擷取於 `/tmp/spectyn-skill-run-tests.log` 的 cargo test 日誌，
 產出一份 3 行報告：
 
 1. 整個 workspace（工作區）所有 crate 的總通過/失敗計數。

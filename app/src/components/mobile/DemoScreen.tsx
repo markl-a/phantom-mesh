@@ -21,7 +21,7 @@ import { clusterPost } from "../../lib/clusterDispatch";
 
 // No hardcoded backend IP: user enters the backend URL; persisted in
 // localStorage (shared with AppTemplate) so it survives relaunch.
-const BASE_URL_KEY = "phantom.baseUrl";
+const BASE_URL_KEY = "spectyn.baseUrl";
 const DEFAULT_BASE_URL = "";
 // Never hardcode the cluster secret — enter it in the Settings field.
 const DEFAULT_SECRET = "";
@@ -167,7 +167,7 @@ export default function DemoScreen() {
   return (
     <div style={S.root}>
       <div style={S.scroll}>
-        <h1 style={S.h1}>Phantom Demo</h1>
+        <h1 style={S.h1}>Spectyn Demo</h1>
 
         {/* ── Connection row ─────────────────────────────────────────────── */}
         <section style={S.card}>

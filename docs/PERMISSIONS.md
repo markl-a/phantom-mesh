@@ -1,6 +1,6 @@
 # 權限 DSL（領域特定語言）
 
-phantom-mesh 內建一套 Claude-Code 風格的 **Tool(specifier)**（工具（指定符））規則語法，
+spectyn-mesh 內建一套 Claude-Code 風格的 **Tool(specifier)**（工具（指定符））規則語法，
 用來把關工具執行。透過 `agents.toml` 裡的 `[permissions]` 設定；
 由代理執行期（agent runtime）的工具派發路徑強制執行。
 
@@ -42,7 +42,7 @@ SPECIFIER   := tool-specific glob/string (see below)
 
 ### 工具名稱別名（與 Claude Code 對齊）
 
-| 你寫的 | phantom 命中的 |
+| 你寫的 | spectyn 命中的 |
 |---|---|
 | `Bash` 或 `Shell` | `shell` |
 | `Read` | `file_read` |
@@ -78,12 +78,12 @@ SPECIFIER   := tool-specific glob/string (see below)
    產生決策。
 4. **無命中** ⇒ 若引擎含有任何規則，則落入
    `Decision::Ask`。若引擎為空，則落入
-   `Decision::Allow`（保留舊版 `PHANTOM_PERM=allow` 行為）。
+   `Decision::Allow`（保留舊版 `SPECTYN_PERM=allow` 行為）。
 
 這與 Claude Code 文件記載的順序一致（deny → ask → allow，
 首次命中者勝出），**外加**透過優先級欄位提供的逃生口（escape-hatch）。
 沒有優先級你就無法在允許 `git status` 的同時封鎖其他每一個
-shell 呼叫——phantom 的引擎特別為此案例加入了優先級。
+shell 呼叫——spectyn 的引擎特別為此案例加入了優先級。
 
 ---
 
@@ -91,7 +91,7 @@ shell 呼叫——phantom 的引擎特別為此案例加入了優先級。
 
 Bash 是最危險的工具介面——單一個重導向（`>`、
 `>>`、`|`、`<`）或串接運算子（`;`、`&&`、`||`）就能把一個「已允許」的
-命令變成可能洩漏檔案的東西。phantom 的引擎
+命令變成可能洩漏檔案的東西。spectyn 的引擎
 在命中的命令含有上述任一運算子時，會**自動把** `Allow` 決策
 降級為 `Ask`。
 
@@ -184,7 +184,7 @@ allow = ["Read(./*)", "Edit(./src/**)"]
 
 ## 診斷
 
-`phantom doctor` 包含一個 `[permissions]` 區段，顯示：
+`spectyn doctor` 包含一個 `[permissions]` 區段，顯示：
 - 已解析的規則數量
 - 靜態封鎖的工具清單（那些 LLM 看不到的工具）
 - 每條規則的解析錯誤（若有）
@@ -195,13 +195,13 @@ permissions
   ✓ statically denied: web_fetch (will be hidden from LLM tool list)
 ```
 
-若 `phantom doctor` 顯示 `parse error: unterminated specifier in rule
+若 `spectyn doctor` 顯示 `parse error: unterminated specifier in rule
 "Bash(unclosed"` 之類訊息，問題的那一行會被原樣指名，讓你能
 修正 `agents.toml` 後重跑。
 
 ---
 
-## 舊版 `PHANTOM_PERM` 環境變數
+## 舊版 `SPECTYN_PERM` 環境變數
 
 當引擎回傳 `Decision::Ask`（無規則命中，預設狀態）時，
 DSL 之前的行為被保留為後備（fallback）：
@@ -214,7 +214,7 @@ DSL 之前的行為被保留為後備（fallback）：
 | `diff` | 引擎 `Ask` ⇒ 對 file_edit 渲染統一差異（unified diff），然後提示 |
 
 一旦你的 `[permissions]` 規則涵蓋了真實案例，就把
-`PHANTOM_PERM=ask` 設好，讓未命中的呼叫跳出提示而非
+`SPECTYN_PERM=ask` 設好，讓未命中的呼叫跳出提示而非
 靜默允許——那正是新策略漏洞浮現之處。
 
 ---

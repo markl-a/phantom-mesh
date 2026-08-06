@@ -1,4 +1,4 @@
-# Phantom Mesh — 架構（依實作現況）
+# Spectyn Mesh — 架構（依實作現況）
 
 [English version](ARCHITECTURE.md)
 
@@ -10,16 +10,16 @@
 
 ## 1. 總覽
 
-Phantom Mesh 是**單一 Rust 執行檔**（`phantom`），同時是個人 AI runtime 的三種形態：
+Spectyn Mesh 是**單一 Rust 執行檔**（`spectyn`），同時是個人 AI runtime 的三種形態：
 互動式 CLI/TUI、常駐 daemon、mesh 對等節點——全在同一顆 binary 裡。
 你自己的多台機器（Windows / macOS / Linux / Android / iOS 客戶端）透過 Tailscale
 或任何共享網路組成私有 **mesh**；任務以共享的 HMAC cluster secret 驗證，
 並路由到最適合的節點執行。
 
 ```
-┌────────────────────────────── phantom 節點 ──────────────────────────────┐
+┌────────────────────────────── spectyn 節點 ──────────────────────────────┐
 │                                                                          │
-│  入口           phantom (TUI) · repl · exec · serve · mcp · evolve ·     │
+│  入口           spectyn (TUI) · repl · exec · serve · mcp · evolve ·     │
 │                 swarm · service · status · inbox …                       │
 │                                                                          │
 │  serve (Axum)   /ws  /api/*  /rpc/*  /mcp  ·  /m = 行動戰情室 PWA        │
@@ -88,7 +88,7 @@ Phantom Mesh 是**單一 Rust 執行檔**（`phantom`），同時是個人 AI ru
   Together、NVIDIA、Perplexity、xAI、AI21…）鎖在 `experimental-extra-providers`
   🧪 之後。金鑰只來自環境變數或內建 vault，絕不進 repo。
 - **訂閱制 CLI 後端**（`claude_agent`、`codex_agent`、`opencode_agent`…）——
-  phantom 透過 **L0 `cli_session` 底座**（PTY 橋）驅動本機已登入的 coding-agent
+  spectyn 透過 **L0 `cli_session` 底座**（PTY 橋）驅動本機已登入的 coding-agent
   CLI。完全不儲存 API key；吃到飽訂閱的邊際成本 = $0。
 
 `resolver.rs` 建立明確的失效轉移順序，含 429/5xx 重試退避與熔斷器。`credential_scanner.rs` 偵測主機上已登入的訂閱 CLI
@@ -106,7 +106,7 @@ Phantom Mesh 是**單一 Rust 執行檔**（`phantom`），同時是個人 AI ru
 
 ## 5. Serve daemon 與客戶端 — `serve.rs`、`web/` 🟢
 
-`phantom serve` 啟動 Axum 伺服器：WebSocket（`/ws`）、REST（`/api/*`）、叢集 RPC
+`spectyn serve` 啟動 Axum 伺服器：WebSocket（`/ws`）、REST（`/api/*`）、叢集 RPC
 （`/rpc/*`）、MCP 端點，以及 **`/m` 行動戰情室**——真正可安裝的 PWA（standalone
 顯示、service worker），呈現節點網格、編排方案、即時成本、MCP 工具曝露與治理
 飛行紀錄器。原生客戶端：Tauri 桌面 App（`app/`）、生成的 iOS Xcode 專案、Telegram。
@@ -117,7 +117,7 @@ Phantom Mesh 是**單一 Rust 執行檔**（`phantom`），同時是個人 AI ru
 對等管理器追蹤健康度，依負載與能力路由任務。`swarm` 把一個提示扇出到所有在線
 節點並綜整答案。`crew` 組合多 CLI 管線（不同廠牌 CLI 擔任 writer / reviewer）。
 `fleet` 實作共享待辦開發迴圈（原子認領 → 實作 → 驗證交付 → 交叉審查）——
-phantom 自己的開發就跑在這上面。
+spectyn 自己的開發就跑在這上面。
 
 ## 7. 治理 — `approval.rs`、`governed_run/` 🟢
 
@@ -137,13 +137,13 @@ macOS/iOS Keychain 與 Windows DPAPI 已落地，Android Keystore 進行中—�
 ## 9. 記憶 — FTS5 自有記憶 🟢
 
 分兩層。簡單的 agent 工具（`memory_store` / `memory_recall`）把 JSON key-value
-存到 `~/.phantom-mesh/` 底下。**自有記憶（owned-memory）**層則把事件、capture
+存到 `~/.spectyn-mesh/` 底下。**自有記憶（owned-memory）**層則把事件、capture
 與技能索引進 SQLite FTS5（event storage / skill / capture 各管線），供跨 session
 回想——預設開啟、有 kill switch。這就是「越用越懂你」的那一層。
 
 ## 10. MCP — `mcp.rs` / `mcp_client.rs` 🟢
 
-Phantom 同時是 **MCP server**（stdio 供 Claude Desktop / Cursor，另有 HTTP `/mcp`
+Spectyn 同時是 **MCP server**（stdio 供 Claude Desktop / Cursor，另有 HTTP `/mcp`
 ——曝露工具、記憶與叢集派送）與 **MCP client**（外部 MCP server 變成 agent 迴圈
 裡的工具）。衛星生態（secops、finance、quant、tutor…）就是經由這個介面接入。
 
@@ -156,7 +156,7 @@ HMAC 驗證的入站 webhook）；WhatsApp 仍是編譯檢查的樁，鎖在自�
 
 ## 12. 自我改進 — `evolve*`、`autoevolve` 🟡
 
-`phantom evolve` 跑測試驅動的修復迴圈（可跨 mesh 分散執行，含 LLM 評審團與技能
+`spectyn evolve` 跑測試驅動的修復迴圈（可跨 mesh 分散執行，含 LLM 評審團與技能
 萃取）。`autoevolve` 是常駐形態：監看 → 修復 → 測試轉綠自動 commit，整合 OS
 排程器並留 JSONL 紀錄。檢查點可列出、重播、交接給其他節點。
 

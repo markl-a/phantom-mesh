@@ -84,7 +84,7 @@ impl TaskQueue {
     }
 
     /// Durably raise every contract the gate blocked during the run — call AFTER
-    /// the agent loop so `phantom task approvals` shows what needs the operator.
+    /// the agent loop so `spectyn task approvals` shows what needs the operator.
     /// Returns the number newly raised.
     pub async fn flush_gate_pending(&self, task_id: Uuid) -> Result<usize> {
         crate::contract_gate::flush_pending(&self.events, task_id).await

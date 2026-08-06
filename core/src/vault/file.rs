@@ -1,7 +1,7 @@
 // core/src/vault/file.rs
 //
 // File-based `Vault` impl: payloads land in
-// `<dir>/<key>.json` (e.g. `~/.phantom-mesh/auth.json`). Permissions
+// `<dir>/<key>.json` (e.g. `~/.spectyn-mesh/auth.json`). Permissions
 // are 0600 on Unix; NTFS ACL hardening on Windows is P-WIN-4 (v0.6.0
 // follow-up) and DPAPI encryption is P-WIN-3 (v0.7.0).
 //
@@ -21,10 +21,10 @@ pub struct FileVault {
 }
 
 impl FileVault {
-    /// Construct a FileVault rooted at `~/.phantom-mesh/`.
+    /// Construct a FileVault rooted at `~/.spectyn-mesh/`.
     /// Returns an error if `$HOME` is unset (rare).
     pub fn new() -> anyhow::Result<Self> {
-        let data = crate::cli_config::phantom_data_dir()?;
+        let data = crate::cli_config::spectyn_data_dir()?;
         Self::new_in_dir(data)
     }
 
@@ -38,7 +38,7 @@ impl FileVault {
     }
 
     /// Path for a given key. Public so callers that need to point
-    /// external tools (e.g. `phantom doctor`) at the file can.
+    /// external tools (e.g. `spectyn doctor`) at the file can.
     pub fn path_for(&self, key: &str) -> PathBuf {
         // Sanitize key the same way the tracer does — prevent
         // path traversal if `key` ever comes from untrusted source
@@ -58,7 +58,7 @@ impl FileVault {
 
     /// Apply Unix mode 0600 to a freshly-written file. Best-effort: a
     /// failure here doesn't abort save (file is at least written), but
-    /// `phantom doctor` should warn.
+    /// `spectyn doctor` should warn.
     #[cfg(unix)]
     fn restrict_perms(path: &Path) {
         use std::os::unix::fs::PermissionsExt;
@@ -93,7 +93,7 @@ impl Vault for FileVault {
     fn save<T: Serialize>(&self, key: &str, value: &T) -> anyhow::Result<()> {
         let path = self.path_for(key);
         // Atomic write: write to <path>.tmp then rename. This way
-        // a phantom crash mid-write can't leave a corrupt file
+        // a spectyn crash mid-write can't leave a corrupt file
         // (rename is atomic on the same filesystem).
         let tmp = path.with_extension("json.tmp");
         let body = serde_json::to_vec_pretty(value).context("serialize vault payload")?;

@@ -2,7 +2,7 @@
 // login entirely. iOS users who can't / don't want to go through Google
 // OAuth on phantommesh.io can paste API keys directly here.
 //
-// Same target file as broker_sync_from_vault: ~/.phantom-mesh/env, KEY=
+// Same target file as broker_sync_from_vault: ~/.spectyn-mesh/env, KEY=
 // VALUE per line. Each set is followed by std::env::set_var() so the
 // running process picks it up immediately.
 //
@@ -36,7 +36,7 @@ pub const ALLOWED_KEYS: &[&str] = &[
 fn env_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("env")
 }
 
@@ -179,7 +179,7 @@ pub fn set_provider_keys_bulk(
 // gemini / opencode) with the keys vault sync ships, pinned to a master
 // agent that prefers groq → gemini → opencode (3-way failover).
 //
-// Sized to be useful out of the box; a power user can edit ~/.phantom-
+// Sized to be useful out of the box; a power user can edit ~/.spectyn-
 // mesh/agents.toml later without re-running this seed.
 
 // Schema: AgentEntry supports a `providers: Vec<String>` failover list of
@@ -188,7 +188,7 @@ pub fn set_provider_keys_bulk(
 // provider.default_model (core/src/agent.rs). Provider-block `type` strings
 // must match core/src/providers/mod.rs ("opencode" / "groq" / "gemini" /
 // "openai" / "anthropic").
-const DEFAULT_AGENTS_TOML: &str = r#"# phantom-mesh — auto-seeded on iOS first launch.
+const DEFAULT_AGENTS_TOML: &str = r#"# spectyn-mesh — auto-seeded on iOS first launch.
 # Edit freely; this file won't be regenerated unless you delete it.
 
 [core]
@@ -222,17 +222,17 @@ default_model = "gemini-2.0-flash"
 # pasted in Settings → 手動填 LLM API key (or synced from a broker login).
 [agent.master]
 providers = ["groq:llama-3.3-70b-versatile", "gemini:gemini-2.0-flash", "opencode:minimax-m2.5-free"]
-instructions = "You are phantom, a helpful AI agent. Be concise and direct."
+instructions = "You are spectyn, a helpful AI agent. Be concise and direct."
 "#;
 
 fn agents_toml_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("agents.toml")
 }
 
-/// Idempotent — writes DEFAULT_AGENTS_TOML to ~/.phantom-mesh/agents.toml
+/// Idempotent — writes DEFAULT_AGENTS_TOML to ~/.spectyn-mesh/agents.toml
 /// only when the file is missing. Returns true if it created a new file.
 /// Called from lib.rs setup() at app launch and from broker_sync_from_
 /// vault after the env file is written, so a fresh user lands with both

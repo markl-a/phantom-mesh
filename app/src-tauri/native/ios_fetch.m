@@ -17,7 +17,7 @@
 
 #import <Foundation/Foundation.h>
 
-void phantom_ios_fetch(
+void spectyn_ios_fetch(
     const char *url_cstr,
     const char *method_cstr,
     const unsigned char *body_bytes,
@@ -33,7 +33,7 @@ void phantom_ios_fetch(
         NSString *methodStr = [NSString stringWithUTF8String:method_cstr];
         NSString *authHeader = [NSString stringWithUTF8String:auth_header_cstr];
 
-        NSLog(@"[PhantomFetch] entry method=%@ url=%@ body_len=%ld auth_len=%lu",
+        NSLog(@"[SpectynFetch] entry method=%@ url=%@ body_len=%ld auth_len=%lu",
               methodStr, urlStr, body_len, (unsigned long)authHeader.length);
 
         NSURL *url = [NSURL URLWithString:urlStr];
@@ -83,7 +83,7 @@ void phantom_ios_fetch(
         [task resume];
         long waitResult = dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 35 * NSEC_PER_SEC));
 
-        NSLog(@"[PhantomFetch] complete waitResult=%ld status=%ld dataLen=%lu err=%@",
+        NSLog(@"[SpectynFetch] complete waitResult=%ld status=%ld dataLen=%lu err=%@",
               waitResult, (long)respStatus, (unsigned long)(respData ? respData.length : 0), errMsg);
 
         *status_out = (long)respStatus;

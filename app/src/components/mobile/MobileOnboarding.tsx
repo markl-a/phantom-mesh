@@ -40,44 +40,44 @@ export default function MobileOnboarding() {
   return (
     <div className="space-y-4 max-w-md mx-auto">
       <div>
-        <p className="text-sm text-phantom-text mb-1">用 Mac 端的 token 把 cluster + provider 設定一次拉到手機。</p>
-        <p className="text-xs text-phantom-muted">在 Mac 跑 <code className="bg-phantom-card px-1 rounded">phantom onboarding-token</code> 取得 token，或從 phantom-mesh app 設定頁複製。</p>
+        <p className="text-sm text-spectyn-text mb-1">用 Mac 端的 token 把 cluster + provider 設定一次拉到手機。</p>
+        <p className="text-xs text-spectyn-muted">在 Mac 跑 <code className="bg-spectyn-card px-1 rounded">spectyn onboarding-token</code> 取得 token，或從 spectyn-mesh app 設定頁複製。</p>
       </div>
 
       <div className="space-y-3">
         <label className="block">
-          <span className="text-xs text-phantom-muted mb-1 block">Mac Tailscale IP</span>
+          <span className="text-xs text-spectyn-muted mb-1 block">Mac Tailscale IP</span>
           <input
             type="text"
             value={host}
             onChange={(e) => setHost(e.target.value)}
             placeholder="100.x.x.x"
             style={{ fontSize: "16px" }}
-            className="w-full bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+            className="w-full bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5 text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
           />
         </label>
 
         <label className="block">
-          <span className="text-xs text-phantom-muted mb-1 block">Token</span>
+          <span className="text-xs text-spectyn-muted mb-1 block">Token</span>
           <input
             type="text"
             value={token}
             onChange={(e) => setToken(e.target.value)}
             placeholder="貼上 token..."
             style={{ fontSize: "16px" }}
-            className="w-full bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary font-mono"
+            className="w-full bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5 text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary font-mono"
           />
         </label>
 
         <label className="block">
-          <span className="text-xs text-phantom-muted mb-1 block">這台節點名稱</span>
+          <span className="text-xs text-spectyn-muted mb-1 block">這台節點名稱</span>
           <input
             type="text"
             value={nodeName}
             onChange={(e) => setNodeName(e.target.value)}
             placeholder="例: android-phone"
             style={{ fontSize: "16px" }}
-            className="w-full bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5 text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+            className="w-full bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5 text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
           />
         </label>
       </div>
@@ -85,7 +85,7 @@ export default function MobileOnboarding() {
       <button
         onClick={importConfig}
         disabled={status === "fetching" || status === "writing" || !token || !host}
-        className="w-full bg-phantom-primary text-phantom-bg py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-40 transition"
+        className="w-full bg-spectyn-primary text-spectyn-bg py-3 rounded-lg font-medium flex items-center justify-center gap-2 disabled:opacity-40 transition"
       >
         <Download size={18} />
         {status === "fetching" ? "下載中…"
@@ -94,21 +94,21 @@ export default function MobileOnboarding() {
       </button>
 
       {status === "ok" && (
-        <div className="bg-phantom-success/15 border border-phantom-success/40 rounded-lg p-3 flex items-start gap-2">
-          <CheckCircle size={18} className="text-phantom-success flex-shrink-0 mt-0.5" />
+        <div className="bg-spectyn-success/15 border border-spectyn-success/40 rounded-lg p-3 flex items-start gap-2">
+          <CheckCircle size={18} className="text-spectyn-success flex-shrink-0 mt-0.5" />
           <div className="text-sm">
-            <div className="text-phantom-success font-medium">匯入成功</div>
-            <div className="text-phantom-muted text-xs mt-1">關閉 app 重開即可生效</div>
+            <div className="text-spectyn-success font-medium">匯入成功</div>
+            <div className="text-spectyn-muted text-xs mt-1">關閉 app 重開即可生效</div>
           </div>
         </div>
       )}
 
       {status === "error" && (
-        <div className="bg-phantom-danger/15 border border-phantom-danger/40 rounded-lg p-3 flex items-start gap-2">
-          <AlertCircle size={18} className="text-phantom-danger flex-shrink-0 mt-0.5" />
+        <div className="bg-spectyn-danger/15 border border-spectyn-danger/40 rounded-lg p-3 flex items-start gap-2">
+          <AlertCircle size={18} className="text-spectyn-danger flex-shrink-0 mt-0.5" />
           <div className="text-sm">
-            <div className="text-phantom-danger font-medium">失敗</div>
-            <div className="text-phantom-muted text-xs mt-1 break-all">{errMsg}</div>
+            <div className="text-spectyn-danger font-medium">失敗</div>
+            <div className="text-spectyn-muted text-xs mt-1 break-all">{errMsg}</div>
           </div>
         </div>
       )}

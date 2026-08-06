@@ -92,10 +92,10 @@ function OnboardingWizard({
   return (
     <div
       data-testid="onboarding-wizard"
-      className="flex min-h-screen items-center justify-center bg-phantom-bg p-6 text-phantom-text"
+      className="flex min-h-screen items-center justify-center bg-spectyn-bg p-6 text-spectyn-text"
     >
-      <section className="w-[560px] max-w-full rounded-xl border border-phantom-border bg-phantom-card shadow-2xl">
-        <div className="border-b border-phantom-border px-8 py-6">
+      <section className="w-[560px] max-w-full rounded-xl border border-spectyn-border bg-spectyn-card shadow-2xl">
+        <div className="border-b border-spectyn-border px-8 py-6">
           <div className="mb-6 flex items-center justify-center gap-3">
             {[1, 2, 3, 4].map((dot) => (
               <div
@@ -103,32 +103,32 @@ function OnboardingWizard({
                 className={[
                   "h-2.5 w-2.5 rounded-full transition-colors",
                   dot === step
-                    ? "bg-phantom-primary"
+                    ? "bg-spectyn-primary"
                     : dot < step
-                      ? "bg-phantom-primary/50"
-                      : "bg-phantom-border",
+                      ? "bg-spectyn-primary/50"
+                      : "bg-spectyn-border",
                 ].join(" ")}
               />
             ))}
           </div>
 
-          <div className="text-center text-sm text-phantom-muted">
+          <div className="text-center text-sm text-spectyn-muted">
             {step} / 4
           </div>
         </div>
 
         <div className="min-h-[360px] px-8 py-7">{renderStep()}</div>
 
-        <footer className="flex items-center justify-between border-t border-phantom-border px-8 py-5">
+        <footer className="flex items-center justify-between border-t border-spectyn-border px-8 py-5">
           <button
             type="button"
             onClick={goBack}
             disabled={step === 1}
             className={[
-              "inline-flex items-center gap-2 rounded-lg border border-phantom-border px-4 py-2 text-sm transition",
+              "inline-flex items-center gap-2 rounded-lg border border-spectyn-border px-4 py-2 text-sm transition",
               step === 1
-                ? "invisible cursor-default text-phantom-muted"
-                : "text-phantom-text hover:border-phantom-primary hover:text-phantom-primary",
+                ? "invisible cursor-default text-spectyn-muted"
+                : "text-spectyn-text hover:border-spectyn-primary hover:text-spectyn-primary",
             ].join(" ")}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -142,8 +142,8 @@ function OnboardingWizard({
             className={[
               "inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition",
               canContinue
-                ? "bg-phantom-primary text-white hover:bg-phantom-primary/90"
-                : "cursor-not-allowed bg-phantom-border text-phantom-muted",
+                ? "bg-spectyn-primary text-white hover:bg-spectyn-primary/90"
+                : "cursor-not-allowed bg-spectyn-border text-spectyn-muted",
             ].join(" ")}
           >
             {step === 4 ? "完成" : "繼續"}
@@ -166,8 +166,8 @@ function OnboardingWizard({
             icon={<KeyRound className="h-7 w-7" />}
             title="步驟 1 — 身分金鑰"
           />
-          <p className="leading-7 text-phantom-muted">
-            Phantom Mesh 用本機產生的 32-byte ed25519
+          <p className="leading-7 text-spectyn-muted">
+            Spectyn Mesh 用本機產生的 32-byte ed25519
             金鑰當你的身分；金鑰只存在這台 Mac 的 Keychain，永不上雲。
           </p>
         </div>
@@ -193,8 +193,8 @@ function OnboardingWizard({
                   className={[
                     "w-full rounded-lg border p-4 text-left transition",
                     selected
-                      ? "border-phantom-primary bg-phantom-primary/10"
-                      : "border-phantom-border bg-phantom-bg hover:border-phantom-primary",
+                      ? "border-spectyn-primary bg-spectyn-primary/10"
+                      : "border-spectyn-border bg-spectyn-bg hover:border-spectyn-primary",
                   ].join(" ")}
                 >
                   <div className="flex items-start gap-3">
@@ -202,15 +202,15 @@ function OnboardingWizard({
                       className={[
                         "mt-1 h-3.5 w-3.5 rounded-full border",
                         selected
-                          ? "border-phantom-primary bg-phantom-primary"
-                          : "border-phantom-muted",
+                          ? "border-spectyn-primary bg-spectyn-primary"
+                          : "border-spectyn-muted",
                       ].join(" ")}
                     />
                     <span>
-                      <span className="block font-medium text-phantom-text">
+                      <span className="block font-medium text-spectyn-text">
                         {option.label}
                       </span>
-                      <span className="mt-1 block text-sm text-phantom-muted">
+                      <span className="mt-1 block text-sm text-spectyn-muted">
                         {option.note}
                       </span>
                     </span>
@@ -230,7 +230,7 @@ function OnboardingWizard({
             icon={<Plus className="h-7 w-7" />}
             title="步驟 3 — 供應商"
           />
-          <p className="leading-7 text-phantom-muted">
+          <p className="leading-7 text-spectyn-muted">
             至少設定一個模型供應商（demo-relay 不算）才能繼續。
           </p>
           <div className="flex flex-col gap-3">
@@ -240,7 +240,7 @@ function OnboardingWizard({
                 onAddProvider?.();
                 setProviderReady(true);
               }}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-phantom-primary px-4 py-3 text-sm font-medium text-white hover:bg-phantom-primary/90"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-spectyn-primary px-4 py-3 text-sm font-medium text-white hover:bg-spectyn-primary/90"
             >
               <Plus className="h-4 w-4" />
               新增供應商
@@ -248,14 +248,14 @@ function OnboardingWizard({
             <button
               type="button"
               onClick={() => onUseDemoRelay?.()}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-phantom-border px-4 py-3 text-sm text-phantom-text hover:border-phantom-primary hover:text-phantom-primary"
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-spectyn-border px-4 py-3 text-sm text-spectyn-text hover:border-spectyn-primary hover:text-spectyn-primary"
             >
               <Zap className="h-4 w-4" />
               使用 demo-relay（30 秒免設定）
             </button>
           </div>
           {providerReady ? (
-            <div className="inline-flex items-center gap-2 rounded-lg border border-phantom-primary bg-phantom-primary/10 px-3 py-2 text-sm text-phantom-primary">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-spectyn-primary bg-spectyn-primary/10 px-3 py-2 text-sm text-spectyn-primary">
               <Check className="h-4 w-4" />
               已設定供應商 ✓
             </div>
@@ -273,7 +273,7 @@ function OnboardingWizard({
         <textarea
           value={chatText}
           onChange={(event) => setChatText(event.target.value)}
-          className="min-h-32 w-full resize-none rounded-lg border border-phantom-border bg-phantom-bg p-4 text-sm text-phantom-text outline-none focus:border-phantom-primary"
+          className="min-h-32 w-full resize-none rounded-lg border border-spectyn-border bg-spectyn-bg p-4 text-sm text-spectyn-text outline-none focus:border-spectyn-primary"
         />
         <button
           type="button"
@@ -281,12 +281,12 @@ function OnboardingWizard({
             onSendFirstMessage?.(chatText);
             setFirstMessageSent(true);
           }}
-          className="inline-flex items-center gap-2 rounded-lg bg-phantom-primary px-4 py-2 text-sm font-medium text-white hover:bg-phantom-primary/90"
+          className="inline-flex items-center gap-2 rounded-lg bg-spectyn-primary px-4 py-2 text-sm font-medium text-white hover:bg-spectyn-primary/90"
         >
           <Send className="h-4 w-4" />
           傳送
         </button>
-        <p className="text-sm text-phantom-muted">
+        <p className="text-sm text-spectyn-muted">
           {firstMessageSent
             ? "已傳送 ✓ — 回覆會串流顯示於主對話視窗"
             : "傳送後即可完成設定；回覆會串流顯示於主對話視窗"}
@@ -305,10 +305,10 @@ function StepHeader({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-phantom-primary/10 text-phantom-primary">
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-spectyn-primary/10 text-spectyn-primary">
         {icon}
       </div>
-      <h1 className="text-xl font-semibold text-phantom-text">{title}</h1>
+      <h1 className="text-xl font-semibold text-spectyn-text">{title}</h1>
     </div>
   );
 }

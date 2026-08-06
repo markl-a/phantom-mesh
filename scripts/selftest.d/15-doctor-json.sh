@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate `phantom doctor --json` emits a parseable object with
+# Validate `spectyn doctor --json` emits a parseable object with
 # the documented top-level schema. Schema drift here breaks CI gates,
 # dashboard health probes, and monitoring scrapers downstream.
 
@@ -7,8 +7,8 @@ selftest_feature_meta() {
   echo "name=doctor-json"
   echo "priority=P1"
   echo "requires=python3"
-  echo "description=phantom doctor --json schema regression gate"
-  echo "hints=core/src/bin/phantom.rs run_doctor_json"
+  echo "description=spectyn doctor --json schema regression gate"
+  echo "hints=core/src/bin/spectyn.rs run_doctor_json"
 }
 
 selftest_requires() {
@@ -18,9 +18,9 @@ selftest_requires() {
 selftest_run() {
   local out="$SELFTEST_ARTIFACTS/doctor.json"
   T_ARTIFACT="$out"
-  T_REPRO="$PHANTOM doctor --json"
+  T_REPRO="$SPECTYN doctor --json"
 
-  "$PHANTOM" doctor --json > "$out" 2>/dev/null
+  "$SPECTYN" doctor --json > "$out" 2>/dev/null
 
   # 1. Output is valid JSON.
   if python3 -c 'import json,sys; json.load(open(sys.argv[1])); print("OK")' "$out" 2>/dev/null | grep -q "^OK$"; then

@@ -1,6 +1,6 @@
 // Manual API-key entry — fallback for users who can't / don't want to
 // use the broker login flow. Lets them paste OPENAI_API_KEY etc directly
-// and the chat starts working immediately (writes to ~/.phantom-mesh/env
+// and the chat starts working immediately (writes to ~/.spectyn-mesh/env
 // + std::env::set_var inside the same process).
 
 import { useEffect, useState } from "react";
@@ -79,7 +79,7 @@ export default function MobileLocalKeys() {
 
   return (
     <div className="space-y-3">
-      <div className="text-xs text-phantom-muted leading-relaxed">
+      <div className="text-xs text-spectyn-muted leading-relaxed">
         直接貼 LLM API key 進這台 iPhone 的沙盒 — 不需要 phantommesh.io
         登入。Key 馬上載進 process env，下一句 chat 就會用到。
       </div>
@@ -96,7 +96,7 @@ export default function MobileLocalKeys() {
       )}
 
       <details>
-        <summary className="cursor-pointer text-sm text-phantom-text">
+        <summary className="cursor-pointer text-sm text-spectyn-text">
           一次貼一塊（多行 KEY=VALUE）
         </summary>
         <div className="mt-2 space-y-2">
@@ -105,36 +105,36 @@ export default function MobileLocalKeys() {
             onChange={(e) => setBulkText(e.target.value)}
             rows={6}
             placeholder={"OPENAI_API_KEY=sk-...\nGROQ_API_KEY=gsk_...\n# unknown keys are silently skipped"}
-            className="w-full bg-phantom-bg border border-phantom-border rounded-md px-3 py-2 text-xs text-phantom-text font-mono"
+            className="w-full bg-spectyn-bg border border-spectyn-border rounded-md px-3 py-2 text-xs text-spectyn-text font-mono"
           />
           <button
             onClick={saveBulk}
             disabled={busy === "__bulk__" || !bulkText.trim()}
-            className="w-full bg-phantom-primary text-phantom-bg font-medium px-4 py-2.5 rounded-lg active:opacity-80 text-sm disabled:opacity-50"
+            className="w-full bg-spectyn-primary text-spectyn-bg font-medium px-4 py-2.5 rounded-lg active:opacity-80 text-sm disabled:opacity-50"
           >
             {busy === "__bulk__" ? "儲存中…" : "解析 + 存"}
           </button>
         </div>
       </details>
 
-      <div className="text-xs text-phantom-muted">逐個 key</div>
+      <div className="text-xs text-spectyn-muted">逐個 key</div>
 
       {snapshot === null ? (
-        <div className="text-sm text-phantom-muted">讀取中 …</div>
+        <div className="text-sm text-spectyn-muted">讀取中 …</div>
       ) : (
         <div className="space-y-2">
           {snapshot.map((k) => (
             <div
               key={k.name}
-              className="bg-phantom-card border border-phantom-border rounded-md p-2"
+              className="bg-spectyn-card border border-spectyn-border rounded-md p-2"
             >
               <div className="flex items-center justify-between">
-                <span className="text-phantom-text text-xs font-medium">
+                <span className="text-spectyn-text text-xs font-medium">
                   {k.name}
                 </span>
                 <span
                   className={`text-[10px] ${
-                    k.set ? "text-emerald-400" : "text-phantom-muted"
+                    k.set ? "text-emerald-400" : "text-spectyn-muted"
                   }`}
                 >
                   {k.set ? `已設 (${k.preview ?? "set"})` : "未設"}
@@ -148,7 +148,7 @@ export default function MobileLocalKeys() {
                     setEditing((s) => ({ ...s, [k.name]: e.target.value }))
                   }
                   placeholder={k.set ? "貼新值取代…（清空則刪除）" : "貼 key 進來…"}
-                  className="flex-1 bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-[11px] text-phantom-text font-mono"
+                  className="flex-1 bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-[11px] text-spectyn-text font-mono"
                   autoCapitalize="off"
                   autoCorrect="off"
                   spellCheck={false}
@@ -156,7 +156,7 @@ export default function MobileLocalKeys() {
                 <button
                   onClick={() => saveOne(k.name)}
                   disabled={busy === k.name}
-                  className="bg-phantom-primary text-phantom-bg px-3 rounded text-xs disabled:opacity-50"
+                  className="bg-spectyn-primary text-spectyn-bg px-3 rounded text-xs disabled:opacity-50"
                 >
                   {busy === k.name ? "…" : "存"}
                 </button>
@@ -166,7 +166,7 @@ export default function MobileLocalKeys() {
         </div>
       )}
 
-      <div className="text-[10px] text-phantom-muted break-all">
+      <div className="text-[10px] text-spectyn-muted break-all">
         檔案位置：{envPath || "(未知)"}
       </div>
     </div>

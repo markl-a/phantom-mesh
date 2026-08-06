@@ -59,7 +59,7 @@
 //     STARTTLS / TLS 雙模式；5xx auth → `DeliveryError::EmailSmtpFailed`；
 //     5.7.x recipient reject → `DeliveryError::EmailRecipientRejected`。
 //   - `write_markdown_file()` 走 SPEC-13 age encrypt → 寫
-//     `~/.phantom-mesh/coach/YYYY-MM-DD.md.age`；同時觸發 OS notification
+//     `~/.spectyn-mesh/coach/YYYY-MM-DD.md.age`；同時觸發 OS notification
 //     (per §10.2)。
 //   - `dedup_check()` 查 `coach_delivery_ledger` PK `(review_id, channel,
 //     attempted_at_ms)`，24 小時內已有 `status='sent'` row → 回 `true`。
@@ -86,7 +86,7 @@ use ts_rs::TS;
 #[ts(export, export_to = "../../app/src/lib/generated/coach_delivery/")]
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryChannel {
-    /// Write age-encrypted `.md.age` to `~/.phantom-mesh/coach/` and fire
+    /// Write age-encrypted `.md.age` to `~/.spectyn-mesh/coach/` and fire
     /// an OS notification with a 80-char snippet. Always-on default.
     Markdown,
     /// Telegram Bot API `sendMessage` to user-configured `chat_id`. Bot
@@ -180,13 +180,13 @@ pub struct TelegramConfig {
 
 // ─── §7.1 EmailConfig — SMTP channel config ──────────────────────────────────
 
-/// Email channel configuration (user-owned SMTP — phantom does NOT relay
-/// through any phantom-operated mail server). **`smtp_password_ref` is a
+/// Email channel configuration (user-owned SMTP — spectyn does NOT relay
+/// through any spectyn-operated mail server). **`smtp_password_ref` is a
 /// vault reference, NEVER plaintext password**. `use_tls = true` → port 465
 /// implicit TLS; `use_tls = false` + port 587 → STARTTLS (default
 /// recommendation per SPEC-24 §7).
 ///
-/// 中文: Email 通道設定（使用者自帶 SMTP — phantom 自己不營運郵件伺服器）。
+/// 中文: Email 通道設定（使用者自帶 SMTP — spectyn 自己不營運郵件伺服器）。
 /// **`smtp_password_ref` 是 vault 引用字串，絕對 NOT 明文密碼**。
 /// `use_tls = true` 走 port 465 implicit TLS；`false` + port 587 走 STARTTLS
 /// (預設推薦，相容性最高)。
@@ -215,11 +215,11 @@ pub struct EmailConfig {
 // ─── §7.1 DeliveryConfig — top-level user config ─────────────────────────────
 
 /// Top-level delivery configuration stored under `[coach.delivery]` in
-/// `~/.phantom-mesh/config.toml`. Each channel is opt-in — `markdown_enabled`
+/// `~/.spectyn-mesh/config.toml`. Each channel is opt-in — `markdown_enabled`
 /// defaults `true` (offline-safe baseline), Telegram + Email default disabled
 /// (require explicit user setup), Push is reserved for v0.6.x and `false`.
 ///
-/// 中文: 教練派送的最上層使用者設定，存在 `~/.phantom-mesh/config.toml` 的
+/// 中文: 教練派送的最上層使用者設定，存在 `~/.spectyn-mesh/config.toml` 的
 /// `[coach.delivery]` section。每個通道都 opt-in — `markdown_enabled` 預
 /// 設 `true`（離線安全 baseline），Telegram / Email 預設關閉（要 user 自己
 /// 設定才開），`push_enabled` 預留 v0.6.x 用、本版固定 `false`。
@@ -299,7 +299,7 @@ pub struct DeliveryAttempt {
 /// Wire-facing error variants for the coach delivery subsystem. Mirrors the
 /// SPEC-24 §11.1 error catalog one-to-one (subset focused on per-channel
 /// failure modes the UI + CLI dispatch on). Sent back via Tauri command
-/// failure path; CLI maps via `phantom_error::Error::user_message`.
+/// failure path; CLI maps via `spectyn_error::Error::user_message`.
 ///
 /// 中文: SPEC-24 §11.1 error catalog 的 wire-facing 鏡像（聚焦在 per-channel
 /// 失敗模式，UI + CLI 用機器可讀 code 做 dispatch）。`#[serde(tag = "code")]`
@@ -323,7 +323,7 @@ pub enum DeliveryError {
     EmailRecipientRejected { address: String },
     /// OS denied notification permission (macOS UserNotifications, iOS
     /// UNUserNotificationCenter, Android POST_NOTIFICATIONS). Recovery:
-    /// user opens system Settings → allow phantom notifications.
+    /// user opens system Settings → allow spectyn notifications.
     #[error("delivery.os_notification_denied: {os}")]
     OsNotificationDenied { os: String },
     /// Channel selected but its config is missing (`None`) or required
@@ -405,7 +405,7 @@ pub fn deliver(
             }
             DeliveryChannel::Email => {
                 let cfg: EmailConfig = load_email_config_pseudo()?;
-                send_email(&cfg, "Phantom coach review", &plaintext)
+                send_email(&cfg, "Spectyn coach review", &plaintext)
             }
             DeliveryChannel::Push => Err(DeliveryError::ConfigMissing {
                 channel: "push".to_string(),
@@ -575,7 +575,7 @@ pub fn write_markdown_file(
     _review_id: &str,
     markdown_path: &Path,
 ) -> Result<(), DeliveryError> {
-    // Step 1: ensure the parent directory exists (~/.phantom-mesh/coach/ by
+    // Step 1: ensure the parent directory exists (~/.spectyn-mesh/coach/ by
     //         default). Creating it idempotently means the very first review
     //         on a fresh install still lands somewhere — no panic on missing dir.
     ensure_parent_dir_pseudo(markdown_path)?;
@@ -795,12 +795,12 @@ pub fn deliver_and_persist(
 //
 // Phase F-2 Stage 4 promotions (this wire is now self-contained for ledger
 // + settings I/O — no NotificationDispatcher field plumbing required):
-//   • `sqlite_query_pseudo` — lazy-opens `~/.phantom-mesh/coach_delivery.sqlite`,
+//   • `sqlite_query_pseudo` — lazy-opens `~/.spectyn-mesh/coach_delivery.sqlite`,
 //     runs `CREATE TABLE IF NOT EXISTS coach_delivery_ledger`, then executes
 //     the count query (positional `?` params). Mirrors the pattern in
 //     `capture_habit_wire::open_habits_db`.
 //   • `load_telegram_config_pseudo` / `load_email_config_pseudo` — read
-//     `~/.phantom-mesh/coach/delivery_config.toml` (camelCase keys to match
+//     `~/.spectyn-mesh/coach/delivery_config.toml` (camelCase keys to match
 //     the wire `DeliveryConfig` shape), return the per-channel sub-config
 //     or `DeliveryError::ConfigMissing` when the file / channel is absent.
 
@@ -942,9 +942,9 @@ fn vault_get_unseal(
 
 /// Stage 4 real impl — resolve a `"vault://service/key"` reference to its
 /// plaintext secret via the SPEC-15 broker vault. Loads the broker URL + token
-/// from `auth.json` (`phantom login broker`) and the device seal key, then
+/// from `auth.json` (`spectyn login broker`) and the device seal key, then
 /// delegates to [`vault_get_unseal`]. A missing login / seal key / ref maps to
-/// `ConfigMissing` (the channel surfaces a clean "run phantom login" style
+/// `ConfigMissing` (the channel surfaces a clean "run spectyn login" style
 /// error) — the plaintext secret never touches disk, config, or logs.
 fn vault_read_pseudo(ref_str: &str) -> Result<String, DeliveryError> {
     let (service, key) = parse_vault_ref(ref_str)?;
@@ -1197,14 +1197,14 @@ fn confirm_age_ciphertext_pseudo(bytes: &[u8]) -> Result<(), DeliveryError> {
 }
 
 /// Stage 4 real impl — run a single-row `count(*)` query against the
-/// `coach_delivery_ledger` sqlite table at `~/.phantom-mesh/coach_delivery.sqlite`.
+/// `coach_delivery_ledger` sqlite table at `~/.spectyn-mesh/coach_delivery.sqlite`.
 /// Lazy-opens the connection (creating the file + schema on first call) so the
 /// wire stays self-contained — no external connection handle is plumbed through
 /// the call chain. Mirrors the pattern in `capture_habit_wire::open_habits_db`.
 ///
-/// The `$PHANTOM_MESH_COACH_LEDGER_DIR` environment variable is honoured as a
+/// The `$SPECTYN_MESH_COACH_LEDGER_DIR` environment variable is honoured as a
 /// test override (the integration tests point it at a `tempdir` so the
-/// production ledger at `~/.phantom-mesh/` is never touched).
+/// production ledger at `~/.spectyn-mesh/` is never touched).
 ///
 /// Any rusqlite / I/O failure maps to `DeliveryError::ConfigMissing { channel:
 /// "ledger" }` — never panic — so `dedup_check`'s caller surfaces a clean
@@ -1227,8 +1227,8 @@ fn sqlite_query_pseudo(
 }
 
 /// Lazy-open the coach delivery ledger sqlite database. Resolves the parent
-/// directory from `$PHANTOM_MESH_COACH_LEDGER_DIR` (test hook) or
-/// `dirs::home_dir()/.phantom-mesh/` (production), creates the directory tree
+/// directory from `$SPECTYN_MESH_COACH_LEDGER_DIR` (test hook) or
+/// `dirs::home_dir()/.spectyn-mesh/` (production), creates the directory tree
 /// idempotently, opens / creates `coach_delivery.sqlite`, and ensures the
 /// `coach_delivery_ledger` table exists (SPEC-24 §7.4 DDL).
 fn open_delivery_ledger_db() -> Result<rusqlite::Connection, DeliveryError> {
@@ -1262,19 +1262,19 @@ fn open_delivery_ledger_db() -> Result<rusqlite::Connection, DeliveryError> {
 }
 
 /// Resolve the directory that holds `coach_delivery.sqlite` +
-/// `coach/delivery_config.toml`. Honours `$PHANTOM_MESH_COACH_LEDGER_DIR` for
-/// test isolation; otherwise falls back to `~/.phantom-mesh/`.
+/// `coach/delivery_config.toml`. Honours `$SPECTYN_MESH_COACH_LEDGER_DIR` for
+/// test isolation; otherwise falls back to `~/.spectyn-mesh/`.
 fn ledger_parent_dir() -> Option<std::path::PathBuf> {
-    if let Ok(override_dir) = std::env::var("PHANTOM_MESH_COACH_LEDGER_DIR") {
+    if let Ok(override_dir) = std::env::var("SPECTYN_MESH_COACH_LEDGER_DIR") {
         if !override_dir.is_empty() {
             return Some(std::path::PathBuf::from(override_dir));
         }
     }
-    crate::cli_config::phantom_data_dir().ok()
+    crate::cli_config::spectyn_data_dir().ok()
 }
 
 /// Stage 4 real impl — load `DeliveryConfig.telegram_config` from
-/// `~/.phantom-mesh/coach/delivery_config.toml`. Returns `ConfigMissing` when
+/// `~/.spectyn-mesh/coach/delivery_config.toml`. Returns `ConfigMissing` when
 /// either (a) the settings file is absent / unreadable / malformed or
 /// (b) the file parses but `telegramConfig` is `null` (channel disabled).
 fn load_telegram_config_pseudo() -> Result<TelegramConfig, DeliveryError> {
@@ -1285,7 +1285,7 @@ fn load_telegram_config_pseudo() -> Result<TelegramConfig, DeliveryError> {
 }
 
 /// Stage 4 real impl — load `DeliveryConfig.email_config` from
-/// `~/.phantom-mesh/coach/delivery_config.toml`. Same error contract as
+/// `~/.spectyn-mesh/coach/delivery_config.toml`. Same error contract as
 /// `load_telegram_config_pseudo` above.
 fn load_email_config_pseudo() -> Result<EmailConfig, DeliveryError> {
     let cfg = read_delivery_config_file()?;
@@ -1294,8 +1294,8 @@ fn load_email_config_pseudo() -> Result<EmailConfig, DeliveryError> {
     })
 }
 
-/// Read + parse `~/.phantom-mesh/coach/delivery_config.toml` (or the
-/// `$PHANTOM_MESH_COACH_LEDGER_DIR/coach/delivery_config.toml` test override)
+/// Read + parse `~/.spectyn-mesh/coach/delivery_config.toml` (or the
+/// `$SPECTYN_MESH_COACH_LEDGER_DIR/coach/delivery_config.toml` test override)
 /// into a `DeliveryConfig`. The file uses camelCase keys to match the wire
 /// (`markdownEnabled` / `telegramConfig` / `emailConfig` / `pushEnabled`).
 fn read_delivery_config_file() -> Result<DeliveryConfig, DeliveryError> {
@@ -1585,15 +1585,15 @@ mod tests {
     // ─── Stage 4 KAT — sqlite ledger + TOML settings reader ──────────────
 
     /// Process-wide mutex serialising the ledger + settings tests. Each test
-    /// mutates `$PHANTOM_MESH_COACH_LEDGER_DIR`, and `std::env::set_var` is a
+    /// mutates `$SPECTYN_MESH_COACH_LEDGER_DIR`, and `std::env::set_var` is a
     /// global on the process — cargo's default parallel test runner would
     /// race without this guard. Helpers return the held lock so callers keep
     /// it for the entire test body.
     static LEDGER_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    /// Per-test scratch directory used as the `$PHANTOM_MESH_COACH_LEDGER_DIR`
+    /// Per-test scratch directory used as the `$SPECTYN_MESH_COACH_LEDGER_DIR`
     /// override so the ledger + settings tests never touch the real
-    /// `~/.phantom-mesh/` tree. Returns the held env-lock guard alongside
+    /// `~/.spectyn-mesh/` tree. Returns the held env-lock guard alongside
     /// the path; the guard must live for the rest of the test body so other
     /// parallel tests can't flip the env var underneath.
     fn fresh_ledger_dir(
@@ -1603,14 +1603,14 @@ mod tests {
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let dir = std::env::temp_dir().join(format!(
-            "phantom-coach-{}-{}-{}",
+            "spectyn-coach-{}-{}-{}",
             tag,
             std::process::id(),
             now_ms_pseudo()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create scratch ledger dir");
-        std::env::set_var("PHANTOM_MESH_COACH_LEDGER_DIR", &dir);
+        std::env::set_var("SPECTYN_MESH_COACH_LEDGER_DIR", &dir);
         (guard, dir)
     }
 
@@ -1846,7 +1846,7 @@ useTls = false
         // Idempotent mkdir -p so a fresh install survives the very first
         // review write. Uses a tmpdir under cargo's target/test scratch.
         let tmp_root = std::env::temp_dir().join(format!(
-            "phantom-coach-test-{}",
+            "spectyn-coach-test-{}",
             now_ms_pseudo()
         ));
         let nested = tmp_root.join("a").join("b").join("c").join("review.md.age");
@@ -1890,7 +1890,7 @@ useTls = false
         let env = lettre_envelope_pseudo(
             "sender@example.com",
             "recipient@example.com",
-            "phantom coach review",
+            "spectyn coach review",
             "hello body",
         )
         .expect("valid addresses must produce a Message");
@@ -1901,7 +1901,7 @@ useTls = false
         let wire = String::from_utf8_lossy(&bytes);
         assert!(wire.contains("From: sender@example.com"), "From missing: {wire}");
         assert!(wire.contains("To: recipient@example.com"), "To missing: {wire}");
-        assert!(wire.contains("Subject: phantom coach review"), "Subject missing: {wire}");
+        assert!(wire.contains("Subject: spectyn coach review"), "Subject missing: {wire}");
         assert!(wire.contains("hello body"), "body missing: {wire}");
         assert!(
             wire.to_ascii_lowercase().contains("text/plain"),

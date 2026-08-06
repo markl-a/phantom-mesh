@@ -8,14 +8,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 // ── Default OAuth Client IDs ──
 const DEFAULT_GOOGLE_CLIENT_ID: &str =
     "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
-const DEFAULT_APPLE_CLIENT_ID: &str = "ai.phantommesh.auth";
+const DEFAULT_APPLE_CLIENT_ID: &str = "ai.spectynmesh.auth";
 
 /// Get OAuth client ID, preferring env var override
 fn get_client_id(provider: &str) -> Result<String, String> {
     match provider {
-        "google" => Ok(std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_ID")
+        "google" => Ok(std::env::var("SPECTYN_MESH_GOOGLE_CLIENT_ID")
             .unwrap_or_else(|_| DEFAULT_GOOGLE_CLIENT_ID.to_string())),
-        "apple" => Ok(std::env::var("PHANTOM_MESH_APPLE_CLIENT_ID")
+        "apple" => Ok(std::env::var("SPECTYN_MESH_APPLE_CLIENT_ID")
             .unwrap_or_else(|_| DEFAULT_APPLE_CLIENT_ID.to_string())),
         _ => Err(format!("Unknown provider: {}", provider)),
     }
@@ -25,7 +25,7 @@ fn get_client_id(provider: &str) -> Result<String, String> {
 fn get_apple_client_id() -> Result<String, String> {
     // Try reading from apple-auth.json config
     if let Some(config_dir) = dirs::config_dir() {
-        let path = config_dir.join("phantom-mesh").join("apple-auth.json");
+        let path = config_dir.join("spectyn-mesh").join("apple-auth.json");
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -43,7 +43,7 @@ fn get_apple_client_id() -> Result<String, String> {
 
 /// apple-auth.json structure:
 /// {
-///   "client_id": "com.example.phantommesh",
+///   "client_id": "com.example.spectynmesh",
 ///   "team_id": "XXXXXXXXXX",
 ///   "key_id": "YYYYYYYYYY",
 ///   "p8_path": "C:/path/to/AuthKey_YYYYYYYYYY.p8"
@@ -56,11 +56,11 @@ struct AppleAuthConfig {
     p8_path: String,
 }
 
-/// Load Apple auth config from %APPDATA%/phantom-mesh/apple-auth.json
+/// Load Apple auth config from %APPDATA%/spectyn-mesh/apple-auth.json
 fn load_apple_config() -> Result<AppleAuthConfig, String> {
     let config_dir = dirs::config_dir()
         .ok_or("Cannot determine config directory")?;
-    let path = config_dir.join("phantom-mesh").join("apple-auth.json");
+    let path = config_dir.join("spectyn-mesh").join("apple-auth.json");
     let content = std::fs::read_to_string(&path)
         .map_err(|_| format!(
             "找不到 Apple Sign-In 設定檔: {}。請建立此檔案。",
@@ -196,7 +196,7 @@ fn start_callback_server() -> Result<(u16, std::sync::mpsc::Receiver<(String, St
 
         // Respond with success page
         let response = tiny_http::Response::from_string(
-            "<html><body><h1>登入成功！</h1><p>你可以關閉此頁面，回到 Phantom Mesh。</p></body></html>",
+            "<html><body><h1>登入成功！</h1><p>你可以關閉此頁面，回到 Spectyn Mesh。</p></body></html>",
         )
         .with_header(
             "Content-Type: text/html; charset=utf-8"
@@ -360,8 +360,8 @@ async fn exchange_and_verify(
 
     // Both Google (web type) and Apple require client_secret
     let client_secret = match provider {
-        "google" => std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET")
-            .map_err(|_| "PHANTOM_MESH_GOOGLE_CLIENT_SECRET env var not set".to_string())?,
+        "google" => std::env::var("SPECTYN_MESH_GOOGLE_CLIENT_SECRET")
+            .map_err(|_| "SPECTYN_MESH_GOOGLE_CLIENT_SECRET env var not set".to_string())?,
         "apple" => generate_apple_client_secret(&client_id)?,
         _ => String::new(),
     };
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn test_get_client_id_apple() {
         let id = get_client_id("apple").unwrap();
-        assert_eq!(id, "ai.phantommesh.auth");
+        assert_eq!(id, "ai.spectynmesh.auth");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 // Inject git commit + build date into the binary as compile-time env vars
-// so `phantom --version` can show provenance, not just "0.1.0".
+// so `spectyn --version` can show provenance, not just "0.1.0".
 
 use std::process::Command;
 
@@ -28,8 +28,8 @@ fn main() {
     // empty, so the `--version` printer always shows a well-formed YYYY-MM-DD.
     let build_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
 
-    println!("cargo:rustc-env=PHANTOM_GIT_HASH={}{}", git_hash, git_dirty);
-    println!("cargo:rustc-env=PHANTOM_BUILD_DATE={}", build_date);
+    println!("cargo:rustc-env=SPECTYN_GIT_HASH={}{}", git_hash, git_dirty);
+    println!("cargo:rustc-env=SPECTYN_BUILD_DATE={}", build_date);
 
     // Re-run when HEAD moves (covers commits + checkouts).
     println!("cargo:rerun-if-changed=.git/HEAD");

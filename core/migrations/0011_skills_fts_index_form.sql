@@ -1,7 +1,7 @@
 -- 0011_skills_fts_index_form.sql — P0-2: skills FTS index fed from Rust, not raw text.
 --
 -- This is the `skills`-table analogue of 0010_hermes_fts_index_form.sql (which
--- did the same for hermes_memory). When PHANTOM_ENCRYPT_MEMORY is ON, the
+-- did the same for hermes_memory). When SPECTYN_ENCRYPT_MEMORY is ON, the
 -- searchable `skills.name`/`skills.trigger_pattern` columns hold a sealed age
 -- blob (see core/src/hermes/memory_seal.rs). The skills_fts external-content
 -- FTS5 index must NOT index that ciphertext (BM25 over base64 noise is useless)

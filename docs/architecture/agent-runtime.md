@@ -26,7 +26,7 @@
 | File | Role |
 | --- | --- |
 | `agent.rs` | `AgentRuntime` 結構 + 執行迴圈（`run`、`run_with_callbacks`、`run_with_callbacks_gated`、內部的 `run_inner`）。發送 `AgentEvent`、套用 `ToolGateDecision`、管理回合／重試上限。 |
-| `runtime.rs` | `PhantomMeshRuntime` / `RuntimeConfig` — 頂層啟動程序（bootstrap），載入 `agents.toml` 設定並持有共用的 `AppState`。 |
+| `runtime.rs` | `SpectynMeshRuntime` / `RuntimeConfig` — 頂層啟動程序（bootstrap），載入 `agents.toml` 設定並持有共用的 `AppState`。 |
 | `streaming.rs` | `StreamEvent`、`StreamAccumulator`、`ResolveProvider` trait、SSE 序列化（`event_to_sse`），以及每次呼叫的串流分派（dispatch）。 |
 | `context.rs` | 對話壓縮（compaction）（`compact_conversation`）、專案／工作區（workspace）情境擷取、相依性 + 框架偵測。 |
 | `session.rs` | `ConversationStore` — 記憶體內 + 磁碟上的每段聊天歷史、fork（分支）、搜尋、重新命名、以 LLM 為基礎的壓縮。 |

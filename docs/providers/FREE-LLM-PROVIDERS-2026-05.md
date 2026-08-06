@@ -1,13 +1,13 @@
-# 免費 LLM API 供應商 — Phantom 直接相容（drop-in），2026 年 5 月
+# 免費 LLM API 供應商 — Spectyn 直接相容（drop-in），2026 年 5 月
 
 > **狀態**：研究快照；額度（quota）會變動，依賴前請重新查證。
 > **產生時間**：2026-05-02（多代理人研究工作階段，起因為
 > OpenCode `hy3-preview-free` 在測試套件中途觸發速率限制（rate-limiting））。
 >
 > 除非另有明確標註，所有列出的服務皆支援 OpenAI 相容（OpenAI-compatible）的
-> `/v1/chat/completions`，因此可直接套用 phantom 現有的
+> `/v1/chat/completions`，因此可直接套用 spectyn 現有的
 > `[providers.openai_compat]` 區塊，設定 `type = "openai_compat"` 即可——
-> phantom 端零程式碼改動。
+> spectyn 端零程式碼改動。
 
 ## 比較表
 
@@ -29,7 +29,7 @@
 - **OpenAI**：截至 2026 年 5 月無免費層；$5 試用已於 2025 年中停止。
 - **Anthropic**：無免費 API 層；僅 Claude.ai 網頁版或付費 API。
 
-## 為 phantom 推薦的前三名
+## 為 spectyn 推薦的前三名
 
 排序依據：(a) 額度寬鬆且支援工具呼叫（tool calling）、(b) 可靠度、(c) OpenAI 相容即插即用。
 
@@ -71,23 +71,23 @@ default_model = "nemotron-3-super"
 
 ## 容錯切換（failover）順序建議
 
-針對 phantom 的測試套件（避免套件中途的速率限制抖動）：
+針對 spectyn 的測試套件（避免套件中途的速率限制抖動）：
 
 1. **主要**：Cerebras（token 量最多，但 context 僅 8K）
 2. **次要**：Groq（可靠、快速、RPD 上限可預期）
 3. **第三**：NVIDIA NIM（模型多樣性）
 4. **最後手段**：DeepSeek（無速率限制，但較不穩定）
 
-四者皆為 `type = "openai_compat"`——phantom 零程式碼改動。
+四者皆為 `type = "openai_compat"`——spectyn 零程式碼改動。
 
-## 如何在 phantom 中使用（現行做法）
+## 如何在 spectyn 中使用（現行做法）
 
 1. 註冊 Groq（5 分鐘，不需信用卡）→ 取得 `GROQ_API_KEY`
 2. `[Environment]::SetEnvironmentVariable('GROQ_API_KEY', '<key>', 'User')`
-3. 編輯 `~/.phantom-mesh/agents.toml`，加入上方的 `[providers.groq]` 區塊
+3. 編輯 `~/.spectyn-mesh/agents.toml`，加入上方的 `[providers.groq]` 區塊
 4. 切換 `[agent.master].provider = "groq"` 與 `model = "llama-3.3-70b-versatile"`
-5. `phantom doctor` → 確認顯示 `✓ Groq: env`
-6. `phantom repl --agent master -c "ping"` → 應在 2 秒內回應
+5. `spectyn doctor` → 確認顯示 `✓ Groq: env`
+6. `spectyn repl --agent master -c "ping"` → 應在 2 秒內回應
 
 ## 429 處理（適用任何供應商）
 
@@ -96,9 +96,9 @@ OpenAI 相容服務會回傳類似的 429 與 JSON：
 {"error": {"message": "...", "type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}}
 ```
 
-當某個供應商出錯時，phantom 現有的後備鏈（fallback chain）已會跨供應商重試；
+當某個供應商出錯時，spectyn 現有的後備鏈（fallback chain）已會跨供應商重試；
 針對 429 的退避（backoff-on-429）邏輯，請參見 `core/src/streaming.rs` 的重試
-邏輯。測試框架情境 `scripts/phantom-test/scenarios/25-agent-anti-hallucination.sh`
+邏輯。測試框架情境 `scripts/spectyn-test/scenarios/25-agent-anti-hallucination.sh`
 會偵測 stdout 中的 429 並以 77（跳過）退出——這是測試平台（testbed）的慣用模式。
 
 ## 來源

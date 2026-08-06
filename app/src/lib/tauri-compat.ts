@@ -134,7 +134,7 @@ async function httpFallback(cmd: string, args?: Record<string, unknown>): Promis
     case "validate_api_key":
       return { ok: false, models: [], error: "Browser mode" };
     case "generate_qr_data":
-      return { type: "phantom-mesh-hub", version: 1, hub_url: "", auth_key: "", node_id: "" };
+      return { type: "spectyn-mesh-hub", version: 1, hub_url: "", auth_key: "", node_id: "" };
     case "get_local_ip":
       return "127.0.0.1";
     case "open_external_url":

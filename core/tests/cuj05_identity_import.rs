@@ -1,21 +1,21 @@
 // CUJ-05 · reinstall identity import — integration test.
 //
 // 對應 [`docs/cuj/05-export-and-uninstall.md`] Happy path C (re-install
-// with identity recovery). Verifies `phantom identity import --from PATH`:
+// with identity recovery). Verifies `spectyn identity import --from PATH`:
 //   1. Validates the source is exactly 64 bytes (per-device IKM length).
 //      Wrong-length sources fail-loud rather than producing an unreadable
 //      EventStore.
-//   2. Writes ~/.phantom-mesh/identity.key with mode 0600 (Unix).
+//   2. Writes ~/.spectyn-mesh/identity.key with mode 0600 (Unix).
 //   3. Refuses to clobber an existing identity.key without --force.
 //   4. With --force, backs up the existing key as identity.key.bak-<ts>
 //      so the operator can recover from "imported the wrong file".
 //   5. Returns a stable fingerprint (sha256[0..8]) so the user can match
-//      against the value printed at `phantom backup` time.
+//      against the value printed at `spectyn backup` time.
 //
 // VERIFIES (CUJ-05 Happy path C):
 //   - MAC-CUJ05-REI-001 from docs/test-cases/mac.md v2
 
-use phantom_mesh::identity::{fingerprint_identity, import_root_identity_key_in};
+use spectyn_mesh::identity::{fingerprint_identity, import_root_identity_key_in};
 use std::fs;
 use tempfile::TempDir;
 
@@ -31,8 +31,8 @@ const SAMPLE_64: [u8; 64] = [
 #[test]
 fn cuj05_identity_import_happy_path_writes_key_and_returns_fingerprint() {
     let home = TempDir::new().expect("tempdir");
-    let dir = home.path().join(".phantom-mesh");
-    fs::create_dir_all(&dir).expect("mkdir .phantom-mesh");
+    let dir = home.path().join(".spectyn-mesh");
+    fs::create_dir_all(&dir).expect("mkdir .spectyn-mesh");
 
     let fp = import_root_identity_key_in(&dir, &SAMPLE_64, false)
         .expect("first import on a fresh tempdir should succeed");
@@ -70,7 +70,7 @@ fn cuj05_identity_import_happy_path_writes_key_and_returns_fingerprint() {
 #[test]
 fn cuj05_identity_import_wrong_length_errors() {
     let home = TempDir::new().expect("tempdir");
-    let dir = home.path().join(".phantom-mesh");
+    let dir = home.path().join(".spectyn-mesh");
     fs::create_dir_all(&dir).expect("mkdir");
 
     let too_short = [0u8; 32];
@@ -101,10 +101,10 @@ fn cuj05_identity_import_wrong_length_errors() {
 #[test]
 fn cuj05_identity_import_refuses_clobber_without_force() {
     let home = TempDir::new().expect("tempdir");
-    let dir = home.path().join(".phantom-mesh");
+    let dir = home.path().join(".spectyn-mesh");
     fs::create_dir_all(&dir).expect("mkdir");
 
-    // Pre-existing key (e.g. a fresh `phantom habit ...` already created one).
+    // Pre-existing key (e.g. a fresh `spectyn habit ...` already created one).
     let existing = [0xAAu8; 64];
     fs::write(dir.join("identity.key"), existing).expect("write existing");
 
@@ -129,7 +129,7 @@ fn cuj05_identity_import_refuses_clobber_without_force() {
 #[test]
 fn cuj05_identity_import_force_backs_up_old_then_writes_new() {
     let home = TempDir::new().expect("tempdir");
-    let dir = home.path().join(".phantom-mesh");
+    let dir = home.path().join(".spectyn-mesh");
     fs::create_dir_all(&dir).expect("mkdir");
 
     let existing = [0xAAu8; 64];

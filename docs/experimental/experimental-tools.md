@@ -28,13 +28,13 @@
 ## 如何啟用
 
 ```toml
-phantom-mesh = { path = "core", features = ["experimental-tools"] }
+spectyn-mesh = { path = "core", features = ["experimental-tools"] }
 ```
 
 ## 快速體驗
 
 ```rust,ignore
-use phantom_mesh::skillbank::tools::catalog;
+use spectyn_mesh::skillbank::tools::catalog;
 use serde_json::json;
 
 let cat = catalog();
@@ -49,7 +49,7 @@ assert_eq!(out["result"], 14.0);
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_tools_example \
     --features experimental-tools
 ```

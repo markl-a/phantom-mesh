@@ -27,7 +27,7 @@ tags:
   - composite
   - gating
 created_at: "2026-05-16T00:00:00Z"
-author: phantom-mesh weekend push T32
+author: spectyn-mesh weekend push T32
 ---
 
 # pre-release-check

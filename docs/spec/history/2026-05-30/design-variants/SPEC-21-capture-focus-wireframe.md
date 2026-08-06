@@ -328,7 +328,7 @@ flowchart LR
 **Wireframe 重點**:
 - Caveat banner 全程可見（tab 切走會掛）
 - 沒有 D（鎖屏）— browser 不給
-- Chunks 上傳到 phantom-serve（不存 browser）
+- Chunks 上傳到 spectyn-serve（不存 browser）
 - ASR 在 host（serve UI 那台 Mac/PC），不在 browser 內
 - C' 處理 host 不可達（網路斷 / serve 重啟）— 暫存策略 / 重試次數 / queue 儲存格式留 SPEC-17 tauri-bridge 決定，本檔只畫 frame
 - **Breakpoint 切換**：`< 768px` 或 `pointer: coarse` 用 mobile-PTT 為主版型（hero PTT 大鈕 + Timer 副選）；`≥ 768px` 且 `pointer: fine` 用 desktop Timer-only 版型（沒有 PTT — 桌機鍵盤情境不合）；切點走 CSS media query `@media (min-width: 768px) and (pointer: fine)`。pointer 條件解 iPad 盲區（>768px 但純觸控應走 mobile 版）

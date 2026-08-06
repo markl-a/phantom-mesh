@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Workspace identifier — 16-char hex string derived from `fnv1a_64(canonical_cwd)`.
-/// Acts as the scope for all phantom-mesh data (tasks, memory, sessions, config).
+/// Acts as the scope for all spectyn-mesh data (tasks, memory, sessions, config).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct WorkspaceId(pub String);
 

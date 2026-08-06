@@ -1,7 +1,7 @@
-//! `phantom event capture` CLI subcommand handler.
+//! `spectyn event capture` CLI subcommand handler.
 //!
 //! Reads files from disk (image/audio) and command-line text, then
-//! POSTs them as multipart to the local phantom serve daemon's
+//! POSTs them as multipart to the local spectyn serve daemon's
 //! `/api/events` endpoint. Prints the resulting AnalysisResult.
 
 use crate::life_node::multimodal::Modality;
@@ -68,16 +68,16 @@ pub async fn run(args: CaptureArgs) -> Result<()> {
     let url = format!("{}/api/events", args.coord_url.trim_end_matches('/'));
     let resp = match client.post(&url).multipart(form).send().await {
         Ok(r) => r,
-        // The capture pipeline lives inside `phantom serve`. A new user running
-        // `phantom food ...` before starting the daemon would otherwise see a raw
+        // The capture pipeline lives inside `spectyn serve`. A new user running
+        // `spectyn food ...` before starting the daemon would otherwise see a raw
         // "connection refused" — surface an actionable hint instead (E006 path).
         Err(e) if e.is_connect() => {
             use crate::i18n::tr;
             return Err(anyhow!(
-                "{}\n\n    phantom serve\n\n{} {}",
+                "{}\n\n    spectyn serve\n\n{} {}",
                 tr(
-                    "Could not reach the phantom daemon — the capture pipeline runs inside `phantom serve`. Start it first (in another terminal):",
-                    "連不到 phantom daemon（常駐服務）——擷取管線跑在 `phantom serve` 裡。請先在另一個終端機啟動："
+                    "Could not reach the spectyn daemon — the capture pipeline runs inside `spectyn serve`. Start it first (in another terminal):",
+                    "連不到 spectyn daemon（常駐服務）——擷取管線跑在 `spectyn serve` 裡。請先在另一個終端機啟動："
                 ),
                 tr(
                     "then re-run this command. Underlying error:",
@@ -209,7 +209,7 @@ mod tests {
     #[tokio::test]
     async fn capture_gives_actionable_hint_when_daemon_down() {
         // No daemon listening (port 1 refuses) → the error must point the user at
-        // `phantom serve` rather than surfacing a raw connection-refused. Guards
+        // `spectyn serve` rather than surfacing a raw connection-refused. Guards
         // the E006 "30-second Life Hello" first-run ergonomics.
         let err = run(CaptureArgs {
             kind: "food_log".into(),
@@ -224,8 +224,8 @@ mod tests {
         .expect_err("must fail when no daemon is listening");
         let msg = format!("{err}");
         assert!(
-            msg.contains("phantom serve"),
-            "hint should mention `phantom serve`, got: {msg}"
+            msg.contains("spectyn serve"),
+            "hint should mention `spectyn serve`, got: {msg}"
         );
     }
 }

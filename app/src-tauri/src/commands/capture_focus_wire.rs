@@ -1,6 +1,6 @@
 // Wave H1.3 — Tauri command surface for SPEC-21 focus-session capture.
 //
-// Wraps `phantom_mesh::capture_focus_wire` so the H2.3 React Dashboard
+// Wraps `spectyn_mesh::capture_focus_wire` so the H2.3 React Dashboard
 // capture surface can drive the focus-session lifecycle (start → record
 // interruption → complete → analyze) through Tauri's invoke channel.
 //
@@ -12,7 +12,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::capture_focus_wire::{
+use spectyn_mesh::capture_focus_wire::{
     self, AnalysisResult, FocusCaptureError, FocusSessionRequest, FocusSessionResult,
     InterruptionKind,
 };
@@ -52,9 +52,9 @@ pub fn parse_interruption_kind(slug: &str) -> Option<InterruptionKind> {
 
 // ── Focus session lifecycle — delegated to the disk-backed
 // `life_node::focus_session` so the app shares ONE source of truth with the
-// CLI (`phantom focus`) and the TUI `/focus` pane. A session started in any
+// CLI (`spectyn focus`) and the TUI `/focus` pane. A session started in any
 // surface is visible to the others (single active session, persisted to
-// ~/.phantom-mesh/focus-session.json). Command signatures are unchanged so the
+// ~/.spectyn-mesh/focus-session.json). Command signatures are unchanged so the
 // React frontend is unaffected; `session_id` is accepted for API compatibility
 // but the disk model is single-active (the app only runs one timer at a time).
 
@@ -64,7 +64,7 @@ fn focus_home() -> Result<std::path::PathBuf, String> {
 
 #[tauri::command]
 pub async fn focus_start_session(req: FocusSessionRequest) -> Result<String, String> {
-    use phantom_mesh::life_node::focus_session;
+    use spectyn_mesh::life_node::focus_session;
     let base = focus_home()?;
     let minutes = (req.planned_duration_ms / 60_000).max(1);
     focus_session::start(&base, minutes, req.label.clone(), req.tag.clone())
@@ -77,7 +77,7 @@ pub async fn focus_record_interruption(
     session_id: String,
     kind: InterruptionKind,
 ) -> Result<(), String> {
-    use phantom_mesh::life_node::focus_session;
+    use spectyn_mesh::life_node::focus_session;
     let base = focus_home()?;
     let _ = session_id; // single-active disk session; id kept for API compat
     focus_session::interrupt(&base, kind.slug())
@@ -87,7 +87,7 @@ pub async fn focus_record_interruption(
 
 #[tauri::command]
 pub async fn focus_complete_session(session_id: String) -> Result<FocusSessionResult, String> {
-    use phantom_mesh::life_node::focus_session;
+    use spectyn_mesh::life_node::focus_session;
     let base = focus_home()?;
     let _ = session_id;
     let r = focus_session::stop(&base).map_err(|e| e.to_string())?;
@@ -109,7 +109,7 @@ pub async fn focus_analyze_session(result: FocusSessionResult) -> Result<Analysi
 }
 
 /// Active focus session as seen on disk — lets the app surface a session that
-/// was started in ANY surface (CLI `phantom focus`, TUI `/focus`, or the app).
+/// was started in ANY surface (CLI `spectyn focus`, TUI `/focus`, or the app).
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveFocus {
@@ -124,7 +124,7 @@ pub struct ActiveFocus {
 /// app's FocusPage calls this on mount so a CLI/TUI-started session shows up.
 #[tauri::command]
 pub async fn focus_status() -> Result<Option<ActiveFocus>, String> {
-    use phantom_mesh::life_node::focus_session;
+    use spectyn_mesh::life_node::focus_session;
     let base = focus_home()?;
     Ok(focus_session::status(&base).map(|s| ActiveFocus {
         session_id: s.session_id,
@@ -138,7 +138,7 @@ pub async fn focus_status() -> Result<Option<ActiveFocus>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phantom_mesh::capture_focus_wire::FocusMode;
+    use spectyn_mesh::capture_focus_wire::FocusMode;
 
     fn make_request() -> FocusSessionRequest {
         FocusSessionRequest {

@@ -1,23 +1,23 @@
 //! V4 ship-gate e2e — desktop macOS happy-path coverage for SPEC-61 S3
-//! (macOS onboarding via `phantom hello` / `phantom onboarding`).
+//! (macOS onboarding via `spectyn hello` / `spectyn onboarding`).
 //!
 //! **Scope today**: Skeleton + binary smoke. Verifies the test infrastructure
-//! itself is sound (`phantom` binary builds + reports a version + exposes the
+//! itself is sound (`spectyn` binary builds + reports a version + exposes the
 //! `onboarding` subcommand). The full S3 happy-path verification (< 10s wizard
-//! to Done + 30s TTFR via `phantom dispatch hello`) is blocked on SPEC-28
+//! to Done + 30s TTFR via `spectyn dispatch hello`) is blocked on SPEC-28
 //! Stage 3 (`onboarding_wire::advance` + `compute_ttfr` + `start_demo_relay_handoff`
 //! all still `unimplemented!()`). Each S3-flow test below is structured to
 //! become real once SPEC-28 lands — for now it skips with a TODO marker so
 //! `cargo test --test v4_e2e_desktop_macos` stays green on CI.
 //!
-//! **Build pre-req**: `cargo build --release --bin phantom` before running.
+//! **Build pre-req**: `cargo build --release --bin spectyn` before running.
 //! `cargo test --test ...` does NOT build BIN targets. Tests SKIP gracefully
-//! when the binary is missing so CI without a pre-built phantom still passes.
+//! when the binary is missing so CI without a pre-built spectyn still passes.
 //!
 //! **Source of truth**: SPEC-60 §8.4 V4 e2e gate + SPEC-61 S3 row at
 //! `docs/superpowers/specs/v060-deep-spec/SPEC-61-TESTING-scenarios.md:672`.
 //!
-//! Override the binary path with `PHANTOM_TEST_BIN=/path/to/phantom`.
+//! Override the binary path with `SPECTYN_TEST_BIN=/path/to/spectyn`.
 
 #![cfg(target_os = "macos")]
 
@@ -25,19 +25,19 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Resolve the prebuilt `phantom` binary path. Override with
-/// `PHANTOM_TEST_BIN`; otherwise fall back to `target/release/phantom`
+/// Resolve the prebuilt `spectyn` binary path. Override with
+/// `SPECTYN_TEST_BIN`; otherwise fall back to `target/release/spectyn`
 /// relative to the workspace root (the conventional `cargo build --release`
 /// output location). Returns `None` when the binary is missing so tests can
 /// skip gracefully.
-fn phantom_bin_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("PHANTOM_TEST_BIN") {
+fn spectyn_bin_path() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("SPECTYN_TEST_BIN") {
         let path = PathBuf::from(p);
         return path.exists().then_some(path);
     }
     let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .map(|root| root.join("target").join("release").join("phantom"))?;
+        .map(|root| root.join("target").join("release").join("spectyn"))?;
     candidate.exists().then_some(candidate)
 }
 
@@ -47,16 +47,16 @@ fn phantom_bin_path() -> Option<PathBuf> {
 const S3_WIZARD_BUDGET: Duration = Duration::from_secs(10);
 
 /// SPEC-28 §1 TTFR (Time To First Response) p95 budget — 30s on the desktop
-/// happy path. The S3 row uses this for the `phantom dispatch hello` follow-up
+/// happy path. The S3 row uses this for the `spectyn dispatch hello` follow-up
 /// step.
 const TTFR_P95_BUDGET: Duration = Duration::from_secs(30);
 
 #[test]
-fn phantom_binary_exists_and_reports_version() {
-    let Some(bin) = phantom_bin_path() else {
+fn spectyn_binary_exists_and_reports_version() {
+    let Some(bin) = spectyn_bin_path() else {
         eprintln!(
-            "SKIPPED: phantom_binary_exists_and_reports_version — prebuilt phantom \
-             binary not found (run `cargo build --release --bin phantom` first)"
+            "SKIPPED: spectyn_binary_exists_and_reports_version — prebuilt spectyn \
+             binary not found (run `cargo build --release --bin spectyn` first)"
         );
         return;
     };
@@ -68,38 +68,38 @@ fn phantom_binary_exists_and_reports_version() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn phantom --version");
+        .expect("spawn spectyn --version");
     let elapsed = start.elapsed();
 
     assert!(
         output.status.success(),
-        "phantom --version exited non-zero: status={:?} stderr={}",
+        "spectyn --version exited non-zero: status={:?} stderr={}",
         output.status,
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.to_lowercase().contains("phantom") || stdout.contains('.'),
-        "phantom --version stdout should contain version-like text, got: {stdout:?}"
+        stdout.to_lowercase().contains("spectyn") || stdout.contains('.'),
+        "spectyn --version stdout should contain version-like text, got: {stdout:?}"
     );
     assert!(
         elapsed < Duration::from_secs(5),
-        "phantom --version should return within 5s (cold start budget); took {elapsed:?}"
+        "spectyn --version should return within 5s (cold start budget); took {elapsed:?}"
     );
 }
 
 #[test]
-fn phantom_onboarding_subcommand_discoverable() {
-    let Some(bin) = phantom_bin_path() else {
+fn spectyn_onboarding_subcommand_discoverable() {
+    let Some(bin) = spectyn_bin_path() else {
         eprintln!(
-            "SKIPPED: phantom_onboarding_subcommand_discoverable — prebuilt phantom \
+            "SKIPPED: spectyn_onboarding_subcommand_discoverable — prebuilt spectyn \
              binary not found"
         );
         return;
     };
 
-    // `phantom help` should advertise the `onboarding` entry point per
-    // core/src/bin/phantom.rs:3173 (CLI help text inlined). If this fails
+    // `spectyn help` should advertise the `onboarding` entry point per
+    // core/src/bin/spectyn.rs:3173 (CLI help text inlined). If this fails
     // the SPEC-61 S3 scenario lost its primary entry point and the V4 gate
     // is genuinely broken — not a SPEC-28-unimplemented skip.
     let output = Command::new(&bin)
@@ -108,7 +108,7 @@ fn phantom_onboarding_subcommand_discoverable() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .expect("spawn phantom help");
+        .expect("spawn spectyn help");
 
     let combined = format!(
         "{}{}",
@@ -117,7 +117,7 @@ fn phantom_onboarding_subcommand_discoverable() {
     );
     assert!(
         combined.contains("onboarding"),
-        "phantom help should advertise the onboarding subcommand, got: {combined:?}"
+        "spectyn help should advertise the onboarding subcommand, got: {combined:?}"
     );
 }
 
@@ -130,7 +130,7 @@ fn s3_macos_onboarding_happy_path_wizard_under_10s() {
     // SPEC-28 Stage 3 lands, replace this skip with:
     //
     //   1. Point HOME at a tempdir so no agents.toml exists
-    //   2. Spawn `phantom onboarding --noninteractive --provider demo-relay`
+    //   2. Spawn `spectyn onboarding --noninteractive --provider demo-relay`
     //   3. Assert exit 0 within S3_WIZARD_BUDGET
     //   4. Assert stdout contains "Done" / equivalent
     //   5. Assert agents.toml was created in the tempdir
@@ -173,14 +173,14 @@ fn test_focus_page_renders_idle_state() {
 
 #[test]
 fn s3_macos_dispatch_hello_ttfr_under_30s() {
-    // SPEC-61 S3 follow-up: after wizard, `phantom dispatch hello` returns
+    // SPEC-61 S3 follow-up: after wizard, `spectyn dispatch hello` returns
     // first token within 30s. Blocked on the same SPEC-28 Stage 3 work —
     // demo-relay handshake (`onboarding_wire::start_demo_relay_handoff`) and
     // TTFR measurement (`onboarding_wire::compute_ttfr`) are still
     // `unimplemented!()`. When SPEC-28 lands, this becomes:
     //
     //   1. Pre-run the S3 wizard above to populate agents.toml + identity.key
-    //   2. Spawn `phantom dispatch hello` with stdout piped
+    //   2. Spawn `spectyn dispatch hello` with stdout piped
     //   3. Read first token line; record `start.elapsed()`
     //   4. Assert elapsed < TTFR_P95_BUDGET
     //   5. Drain remaining output and assert exit 0

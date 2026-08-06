@@ -12,7 +12,7 @@ pub async fn search(args: &Value, config: &ToolsConfig) -> String {
         .unwrap_or(5);
 
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (compatible; phantom-mesh/0.1)")
+        .user_agent("Mozilla/5.0 (compatible; spectyn-mesh/0.1)")
         .build()
         .unwrap_or_default();
 

@@ -3,8 +3,8 @@
 // Surfaces the once-a-day gentle alignment reflection the partner core produces
 // ("what I said I wanted vs what actually happened", ally-tone). There's no HTTP
 // endpoint for it — the reflection is fired daily by the coach daemon
-// (`ai.phantommesh.coach`, 21:00 via launchd → `phantom coach review` →
-// partner::daily_reflection) and appended to ~/.phantom-mesh/partner-signals.jsonl.
+// (`ai.spectynmesh.coach`, 21:00 via launchd → `spectyn coach review` →
+// partner::daily_reflection) and appended to ~/.spectyn-mesh/partner-signals.jsonl.
 // This panel reads the latest such record (offline) and explains the daily cadence.
 
 import { useCallback, useEffect, useState } from "react";
@@ -38,16 +38,16 @@ export default function DailyReflection() {
   return (
     <div className="max-w-2xl mx-auto space-y-5" data-testid="daily-reflection">
       <header className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center">
-          <HeartHandshake size={20} className="text-phantom-primary" />
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center">
+          <HeartHandshake size={20} className="text-spectyn-primary" />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-phantom-text">每日對齊反思</h1>
-          <p className="text-xs text-phantom-muted">Daily alignment · 夥伴每天的一段溫和回顧</p>
+          <h1 className="text-xl font-bold text-spectyn-text">每日對齊反思</h1>
+          <p className="text-xs text-spectyn-muted">Daily alignment · 夥伴每天的一段溫和回顧</p>
         </div>
         <button
           onClick={() => void refresh()}
-          className="text-phantom-muted hover:text-phantom-text p-1.5 min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
+          className="text-spectyn-muted hover:text-spectyn-text p-1.5 min-w-[44px] min-h-[44px] inline-flex items-center justify-center"
           title="重新整理"
           aria-label="重新整理"
         >
@@ -56,11 +56,11 @@ export default function DailyReflection() {
       </header>
 
       {/* How it works — the daily cadence (no HTTP endpoint; coach daemon fires it). */}
-      <div className="bg-phantom-card border border-phantom-border rounded-lg p-3 flex items-start gap-2.5">
-        <Clock size={15} className="text-phantom-muted mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-phantom-muted leading-relaxed">
-          反思由教練守護程式每天 <span className="text-phantom-text">21:00</span> 自動產生
-          （<code className="text-phantom-primary">ai.phantommesh.coach</code>），
+      <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-3 flex items-start gap-2.5">
+        <Clock size={15} className="text-spectyn-muted mt-0.5 flex-shrink-0" />
+        <p className="text-xs text-spectyn-muted leading-relaxed">
+          反思由教練守護程式每天 <span className="text-spectyn-text">21:00</span> 自動產生
+          （<code className="text-spectyn-primary">ai.spectynmesh.coach</code>），
           讀過去 24 小時的訊號與你的目標，給一段對齊「我說我想要的」與「今天實際發生的」的溫和觀察 —
           當盟友，不當保姆。這裡顯示最近一次的反思。
         </p>
@@ -69,34 +69,34 @@ export default function DailyReflection() {
       {loading && !reflection && (
         <div className="space-y-2" aria-busy="true">
           {[0, 1].map((i) => (
-            <div key={i} className="h-12 rounded bg-phantom-card border border-phantom-border animate-pulse" />
+            <div key={i} className="h-12 rounded bg-spectyn-card border border-spectyn-border animate-pulse" />
           ))}
         </div>
       )}
 
       {!loading && !reflection && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-          <p className="text-sm text-phantom-text">還沒有反思紀錄。</p>
-          <p className="text-xs text-phantom-muted mt-1">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+          <p className="text-sm text-spectyn-text">還沒有反思紀錄。</p>
+          <p className="text-xs text-spectyn-muted mt-1">
             教練守護程式第一次跑（每天 21:00）後，最近一次的反思會顯示在這裡。
           </p>
-          <p className="text-[11px] text-phantom-muted/70 mt-2">
-            想立刻產生一筆：在終端機跑 <code className="text-phantom-primary">phantom coach review</code>。
+          <p className="text-[11px] text-spectyn-muted/70 mt-2">
+            想立刻產生一筆：在終端機跑 <code className="text-spectyn-primary">spectyn coach review</code>。
           </p>
         </div>
       )}
 
       {reflection && (
-        <div className="bg-phantom-primary/10 border border-phantom-primary/30 rounded-lg p-4 space-y-2">
+        <div className="bg-spectyn-primary/10 border border-spectyn-primary/30 rounded-lg p-4 space-y-2">
           {reflection.ts > 0 && (
-            <p className="text-[11px] text-phantom-muted">{formatTs(reflection.ts)}</p>
+            <p className="text-[11px] text-spectyn-muted">{formatTs(reflection.ts)}</p>
           )}
-          <p className="text-sm text-phantom-text whitespace-pre-wrap break-words leading-relaxed">
+          <p className="text-sm text-spectyn-text whitespace-pre-wrap break-words leading-relaxed">
             {reflection.text}
           </p>
           {reflection.summary && (
-            <p className="text-xs text-phantom-muted border-t border-phantom-primary/20 pt-2 mt-1">
-              <span className="text-phantom-muted/80">當天摘要：</span>{reflection.summary}
+            <p className="text-xs text-spectyn-muted border-t border-spectyn-primary/20 pt-2 mt-1">
+              <span className="text-spectyn-muted/80">當天摘要：</span>{reflection.summary}
             </p>
           )}
         </div>

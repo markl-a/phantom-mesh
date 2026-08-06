@@ -13,7 +13,7 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh --example anthropic_streaming_upgrades_example
+//!     cargo run -p spectyn-mesh --example anthropic_streaming_upgrades_example
 //!
 //! Expected last line: `anthropic-streaming-upgrades OK`. Exit code 0.
 

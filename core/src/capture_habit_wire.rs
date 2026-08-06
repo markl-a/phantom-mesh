@@ -54,7 +54,7 @@ use ts_rs::TS;
 // ─── SPEC-16 EventStore routing (drift-guard #01 fix) ────────────────────────
 //
 // 中文: 把 check-in（打卡）寫入路徑導向 SPEC-16 加密 EventStore（事件儲存），
-// 不再寫明文 `~/.phantom-mesh/habits.sqlite`（會洩漏 note 自由備註 PII，違反
+// 不再寫明文 `~/.spectyn-mesh/habits.sqlite`（會洩漏 note 自由備註 PII，違反
 // P4 加密邊界）。所有含 PII 的欄位（`note` / `qty` / `source`）都封進 age v1
 // 加密 body；plaintext meta（`tags` / `timestamp`）只放非 PII。
 //
@@ -249,7 +249,7 @@ pub struct HabitStreak {
 // ─── §7.1.5 HabitSummary — dashboard rollup（儀表板聚合） ─────────────────────
 
 /// Multi-window summary for the dashboard's "habit cards" — one row per chip.
-/// Returned by `list_habits()`; intended for `phantom habit streak` (CLI) +
+/// Returned by `list_habits()`; intended for `spectyn habit streak` (CLI) +
 /// the macOS menu-bar dropdown + the iOS main app "habits" tab.
 ///
 /// 中文: 儀表板用的多窗格 rollup（聚合）。`last_7d_count` 是過去 7 天內
@@ -486,27 +486,27 @@ pub fn compute_streak(habit_slug: &str) -> Result<HabitStreak, HabitCaptureError
 // follow-up).
 //
 // Schema is provisioned lazily inside `open_habits_db` via `CREATE TABLE IF
-// NOT EXISTS`, so the first call on a fresh `~/.phantom-mesh/habits.sqlite`
+// NOT EXISTS`, so the first call on a fresh `~/.spectyn-mesh/habits.sqlite`
 // is the migration. Keeps SPEC-22 §7.1.1 single-file DDL.
 
-/// Resolve `~/.phantom-mesh/habits.sqlite`, open (or create) the sqlite file,
+/// Resolve `~/.spectyn-mesh/habits.sqlite`, open (or create) the sqlite file,
 /// and ensure both schema tables exist. Centralised so every helper sees the
 /// same connection-handle shape + the same lazy-migration behaviour.
 fn open_habits_db() -> Result<rusqlite::Connection, HabitCaptureError> {
-    let path = home_dir_join(".phantom-mesh/habits.sqlite")
+    let path = home_dir_join(".spectyn-mesh/habits.sqlite")
         .ok_or_else(|| {
-            eprintln!("[phantom-habit] home dir unavailable (HOME unset + no home_dir)");
+            eprintln!("[spectyn-habit] home dir unavailable (HOME unset + no home_dir)");
             HabitCaptureError::Store { detail: "home dir unavailable".to_string() }
         })?;
-    eprintln!("[phantom-habit] habits.sqlite -> {}", path.display());
+    eprintln!("[spectyn-habit] habits.sqlite -> {}", path.display());
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
-            eprintln!("[phantom-habit] mkdir {} failed: {}", parent.display(), e);
+            eprintln!("[spectyn-habit] mkdir {} failed: {}", parent.display(), e);
             HabitCaptureError::Store { detail: format!("mkdir {}: {}", parent.display(), e) }
         })?;
     }
     let conn = rusqlite::Connection::open(&path).map_err(|e| {
-        eprintln!("[phantom-habit] open {} failed: {}", path.display(), e);
+        eprintln!("[spectyn-habit] open {} failed: {}", path.display(), e);
         HabitCaptureError::Store { detail: format!("open habits.sqlite: {}", e) }
     })?;
     // DRIFT-GUARD #01: only the `chip_palette` config table lives in this
@@ -532,7 +532,7 @@ fn open_habits_db() -> Result<rusqlite::Connection, HabitCaptureError> {
 /// `~/<rel>` resolver. Prefer the `$HOME` env var DIRECTLY (the Tauri app sets
 /// it to the Android app-sandbox dir at startup — see app/src-tauri/src/lib.rs;
 /// `dirs::home_dir()` does NOT reliably honour a runtime-set `$HOME` on Android,
-/// which left `~/.phantom-mesh/habits.sqlite` unresolvable → `habit.store`
+/// which left `~/.spectyn-mesh/habits.sqlite` unresolvable → `habit.store`
 /// "寫入失敗"). Fall back to `dirs::home_dir()` on desktop where `$HOME` may be
 /// unset. Returns `None` only when neither yields a non-empty path.
 fn home_dir_join(rel: &str) -> Option<std::path::PathBuf> {
@@ -623,7 +623,7 @@ fn habit_insert_pseudo(def: &HabitDefinition) -> Result<(), HabitCaptureError> {
 /// Append a `kind=Habit` check-in to the SPEC-16 encrypted EventStore.
 ///
 /// DRIFT-GUARD #01 FIX: the previous Stage 3 implementation wrote a PLAINTEXT
-/// `~/.phantom-mesh/habits.sqlite` row (including the `note` free-text PII),
+/// `~/.spectyn-mesh/habits.sqlite` row (including the `note` free-text PII),
 /// bypassing the SPEC-16 encrypted EventStore — a P4-perimeter leak. This now
 /// routes through `event_storage_wire::write_event` so the PII-bearing
 /// `HabitMetadata` body is age-encrypted at rest (SPEC-13), while only non-PII
@@ -1201,7 +1201,7 @@ mod tests {
     static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Shared RAII guard so every test isolates `$HOME` to a tempdir and
-    /// restores it on drop. `open_habits_db` resolves `~/.phantom-mesh/`
+    /// restores it on drop. `open_habits_db` resolves `~/.spectyn-mesh/`
     /// through `dirs::home_dir()` which honours `$HOME` on unix. Carries the
     /// `HOME_LOCK` guard so the exclusive window spans the whole test body.
     struct HomeGuard {
@@ -1412,7 +1412,7 @@ mod tests {
     /// encrypted EventStore (kind=Habit) and reappears via the EventStore read
     /// path, AND the sensitive `note` free-text NEVER lands in plaintext on
     /// disk. This is the regression test for the P4-perimeter leak: the old
-    /// code wrote `~/.phantom-mesh/habits.sqlite` with the note in plaintext.
+    /// code wrote `~/.spectyn-mesh/habits.sqlite` with the note in plaintext.
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn checkin_routes_through_encrypted_event_store_no_plaintext_pii() {
@@ -1446,7 +1446,7 @@ mod tests {
 
         // Assertion A: the legacy plaintext check-in store must NOT exist (the
         // habits.sqlite, if present, only holds non-PII chip_palette config).
-        let events_dir = tmp.path().join(".phantom-mesh/events");
+        let events_dir = tmp.path().join(".spectyn-mesh/events");
         assert!(events_dir.is_dir(), "EventStore events/ dir was created");
 
         // Assertion B: grep the entire data dir for the secret note — it must

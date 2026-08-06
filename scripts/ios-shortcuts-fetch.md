@@ -6,7 +6,7 @@ iPhone/iPad 無法常駐 HTTP server（HTTP 伺服器），但可以用 **Shortc
 ## 設定方式
 
 ### 1. 在 iPhone 建立 Shortcut（捷徑）
-名稱：`PhantomFetch`
+名稱：`SpectynFetch`
 
 步驟（Steps）：
 1. **Receive input from**（接收輸入來源）Quick Actions / Shortcuts app
@@ -16,10 +16,10 @@ iPhone/iPad 無法常駐 HTTP server（HTTP 伺服器），但可以用 **Shortc
 
 ### 2. 用 Shortcuts URL Scheme（捷徑 URL 協定）觸發
 ```
-shortcuts://run-shortcut?name=PhantomFetch&input=https://example.com
+shortcuts://run-shortcut?name=SpectynFetch&input=https://example.com
 ```
 
-### 3. phantom 呼叫方式（從 Mac/Windows）
+### 3. spectyn 呼叫方式（從 Mac/Windows）
 ```bash
 # 透過 Tailscale 呼叫 iPhone 上的 Shortcuts
 # 需要 iPhone 安裝 shortcuts-server 之類的 app

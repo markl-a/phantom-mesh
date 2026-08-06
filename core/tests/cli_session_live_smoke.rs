@@ -1,7 +1,7 @@
 //! Live smoke: drive each REAL CLI once. #[ignore] (costs quota + needs the CLI
 //! installed + authed). Run on z13:
 //!   cd core && cargo test --test cli_session_live_smoke -- --ignored --nocapture
-use phantom_mesh::cli_session::{self, event::EventKind, CliKind, SessionSpec, TurnInput};
+use spectyn_mesh::cli_session::{self, event::EventKind, CliKind, SessionSpec, TurnInput};
 
 fn smoke(cli: CliKind) {
     let spec = SessionSpec::new(cli, std::env::temp_dir(), 120, None);

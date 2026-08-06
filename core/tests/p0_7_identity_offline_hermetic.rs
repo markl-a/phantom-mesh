@@ -1,8 +1,8 @@
 //! P0-7 S1 — local ed25519 identity is created OFFLINE and never leaves the device.
 //!
-//! Hermetic: runs the REAL `phantom` binary with `keys init` under a temp data
-//! root (HOME + USERPROFILE + PHANTOM_HOME redirected) so it cannot touch the
-//! developer's real ~/.phantom-mesh, and proves the keypair lands with no
+//! Hermetic: runs the REAL `spectyn` binary with `keys init` under a temp data
+//! root (HOME + USERPROFILE + SPECTYN_HOME redirected) so it cannot touch the
+//! developer's real ~/.spectyn-mesh, and proves the keypair lands with no
 //! outbound network. Unix-gated for the same reason as
 //! cli_exec_jsonl_schema_hermetic.rs (the child's dirs::home_dir() ignores the
 //! HOME redirect on Windows). On Windows this file compiles to an empty test
@@ -11,13 +11,13 @@
 
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn temp_root() -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-p07-id-{}-{}",
+        "spectyn-p07-id-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -29,17 +29,17 @@ fn temp_root() -> std::path::PathBuf {
 #[test]
 fn keys_init_creates_ed25519_identity_offline() {
     let root = temp_root();
-    let pm = root.join(".phantom-mesh");
+    let pm = root.join(".spectyn-mesh");
     std::fs::create_dir_all(&pm).unwrap();
 
     // No provider keys, no broker token, no network env in scope. The child
     // must complete `keys init` purely with the OS CSPRNG + filesystem.
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .arg("keys")
         .arg("init")
         .env("HOME", &root)
         .env("USERPROFILE", &root)
-        .env("PHANTOM_HOME", &pm)
+        .env("SPECTYN_HOME", &pm)
         // Route any accidental HTTP through a black-hole proxy: if some code path
         // tried to reach the network, the call would fail fast against 127.0.0.1:1
         // rather than silently succeeding against the real internet.
@@ -47,7 +47,7 @@ fn keys_init_creates_ed25519_identity_offline() {
         .env("HTTPS_PROXY", "http://127.0.0.1:1")
         .env("ALL_PROXY", "http://127.0.0.1:1")
         .output()
-        .expect("run phantom keys init");
+        .expect("run spectyn keys init");
 
     assert!(
         out.status.success(),
@@ -83,15 +83,15 @@ fn keys_init_creates_ed25519_identity_offline() {
 #[test]
 fn keys_init_is_idempotent_offline() {
     let root = temp_root();
-    let pm = root.join(".phantom-mesh");
+    let pm = root.join(".spectyn-mesh");
     std::fs::create_dir_all(&pm).unwrap();
     let run = || {
-        Command::new(phantom_bin())
+        Command::new(spectyn_bin())
             .arg("keys")
             .arg("init")
             .env("HOME", &root)
             .env("USERPROFILE", &root)
-            .env("PHANTOM_HOME", &pm)
+            .env("SPECTYN_HOME", &pm)
             .output()
             .unwrap()
     };

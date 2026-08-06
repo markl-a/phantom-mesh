@@ -1,4 +1,4 @@
-# Phantom-mesh ecosystem roadmap (2026-06-17)
+# Spectyn-mesh ecosystem roadmap (2026-06-17)
 
 Pipeline: **codex draft → agy review → Claude finalize**, per project.
 

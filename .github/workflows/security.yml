@@ -59,7 +59,7 @@ jobs:
       #
       # --ignore RUSTSEC-2023-0071 (rsa "Marvin Attack" timing side-channel, medium
       # 5.9, NO fixed upgrade available as of 2026-06): rsa is a transitive dep of
-      # jsonwebtoken (rsa <- jsonwebtoken <- phantom-mesh). phantom-mesh signs its
+      # jsonwebtoken (rsa <- jsonwebtoken <- spectyn-mesh). spectyn-mesh signs its
       # only JWT (the Apple Sign-In client secret, core/src/oauth.rs) with ES256
       # (elliptic curve), never an RSA algorithm, so the vulnerable RSA private-key
       # timing path is not exercised. Remove this ignore when rsa ships a fix or

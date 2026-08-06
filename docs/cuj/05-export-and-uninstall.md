@@ -21,12 +21,12 @@
 ## Happy path A: data export (準備離開但不刪)
 
 1. user 開 app → 設定 → 「導出我的所有資料」
-2. 系統產生 `phantom-mesh-export-<ts>.tar.gz`、內含:
+2. 系統產生 `spectyn-mesh-export-<ts>.tar.gz`、內含:
    - `identity.key` (P4 加密身分)
    - `events.sqlite` (所有 capture event, 加密原樣)
    - `chip_palette.sqlite` (habit chip 設定)
    - `coach-reviews/` (markdown daily review)
-   - `README.txt` 說明如何用 phantom CLI 再 import 或自己解 age
+   - `README.txt` 說明如何用 spectyn CLI 再 import 或自己解 age
 3. 下載到 user 選的位置 (Downloads / 隨身碟)
 4. UI 顯示「✓ 導出完成、N events、X MB」
 5. user 可以離開或選擇繼續 happy path B (真實刪除)
@@ -34,11 +34,11 @@
 ## Happy path B: uninstall (要真實刪除)
 
 1. user 從 export 完之後 (or 直接) → 「永久刪除我的資料」
-2. UI 顯示「這會 (a) 刪除本機 ~/.phantom-mesh/ (b) 從 phantommesh.io broker 刪除所有 sealed blob (c) 撤銷 broker token、無法復原」+ 二次確認
+2. UI 顯示「這會 (a) 刪除本機 ~/.spectyn-mesh/ (b) 從 phantommesh.io broker 刪除所有 sealed blob (c) 撤銷 broker token、無法復原」+ 二次確認
 3. user 二確 → 系統:
    - DELETE all broker vault entries via SPEC-50 API
    - DELETE broker session (token 失效)
-   - DELETE ~/.phantom-mesh/ 整個目錄
+   - DELETE ~/.spectyn-mesh/ 整個目錄
 4. UI 顯示「✓ 完成、N events 已刪、broker 24h 內完成 GC、可放心 uninstall app」
 5. user uninstall app
 6. (24h 內) broker 後台 confirm hard-delete + tombstone log
@@ -47,7 +47,7 @@
 ## Happy path C: re-install with identity recovery
 
 1. user 之前有跑 happy path A export、保留 `identity.key`
-2. 重新 install phantom + 開啟 → 「我有 identity.key」選項
+2. 重新 install spectyn + 開啟 → 「我有 identity.key」選項
 3. user 載入 .key → 系統 verify 合法、繼續恢復流程
 4. (若 broker 還在) 用 identity 驗證後 sync 所有舊 events 下來
 5. (若 broker 已刪) export 中的 events.sqlite 自帶 → import → 恢復完成
@@ -89,8 +89,8 @@
 
 ## 立刻可做的最小子集 (v0.6.0 MVP)
 
-1. CLI `phantom export --to <path>` ── 產 tar.gz、不需 UI
-2. CLI `phantom delete-all --confirm` ── 刪本機 + 呼 broker DELETE
+1. CLI `spectyn export --to <path>` ── 產 tar.gz、不需 UI
+2. CLI `spectyn delete-all --confirm` ── 刪本機 + 呼 broker DELETE
 3. broker 端 `DELETE /vault/all` endpoint + 24h GC
 4. README 說明 user 怎麼自己 import 個別 events (用 age + sqlite3)
 

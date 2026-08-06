@@ -11,17 +11,17 @@ interface LogEntry {
 }
 
 const LEVEL_COLOR: Record<LogLevel, string> = {
-  INFO: "text-phantom-text",
-  WARN: "text-phantom-warning",
-  ERROR: "text-phantom-danger",
-  DEBUG: "text-phantom-muted",
+  INFO: "text-spectyn-text",
+  WARN: "text-spectyn-warning",
+  ERROR: "text-spectyn-danger",
+  DEBUG: "text-spectyn-muted",
 };
 
 const LEVEL_BADGE: Record<LogLevel, string> = {
-  INFO: "bg-phantom-primary/20 text-phantom-primary",
-  WARN: "bg-phantom-warning/20 text-phantom-warning",
-  ERROR: "bg-phantom-danger/20 text-phantom-danger",
-  DEBUG: "bg-phantom-muted/20 text-phantom-muted",
+  INFO: "bg-spectyn-primary/20 text-spectyn-primary",
+  WARN: "bg-spectyn-warning/20 text-spectyn-warning",
+  ERROR: "bg-spectyn-danger/20 text-spectyn-danger",
+  DEBUG: "bg-spectyn-muted/20 text-spectyn-muted",
 };
 
 const MOCK_LOGS: LogEntry[] = [
@@ -98,20 +98,20 @@ export default function LogsPanel() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">總日誌數</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">總日誌數</p>
           <p className="text-2xl font-bold mt-1">{stats.total.toLocaleString()}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">錯誤</p>
-          <p className="text-2xl font-bold mt-1 text-phantom-danger">{stats.errors}</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">錯誤</p>
+          <p className="text-2xl font-bold mt-1 text-spectyn-danger">{stats.errors}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">警告</p>
-          <p className="text-2xl font-bold mt-1 text-phantom-warning">{stats.warnings}</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">警告</p>
+          <p className="text-2xl font-bold mt-1 text-spectyn-warning">{stats.warnings}</p>
         </div>
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <p className="text-phantom-muted text-xs">最近 1 小時</p>
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <p className="text-spectyn-muted text-xs">最近 1 小時</p>
           <p className="text-2xl font-bold mt-1">{stats.recentHour}</p>
         </div>
       </div>
@@ -119,7 +119,7 @@ export default function LogsPanel() {
       {/* Filter Bar */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-sm text-phantom-muted">等級:</span>
+          <span className="text-sm text-spectyn-muted">等級:</span>
           {(["ALL", "INFO", "WARN", "ERROR", "DEBUG"] as const).map((level) => (
             <button
               key={level}
@@ -127,9 +127,9 @@ export default function LogsPanel() {
               className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
                 levelFilter === level
                   ? level === "ALL"
-                    ? "bg-phantom-primary text-phantom-bg"
+                    ? "bg-spectyn-primary text-spectyn-bg"
                     : LEVEL_BADGE[level]
-                  : "bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text"
+                  : "bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
               }`}
             >
               {level}
@@ -138,11 +138,11 @@ export default function LogsPanel() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-phantom-muted">模組:</span>
+          <span className="text-sm text-spectyn-muted">模組:</span>
           <select
             value={moduleFilter}
             onChange={(e) => setModuleFilter(e.target.value)}
-            className="bg-phantom-card border border-phantom-border rounded px-3 py-1 text-xs text-phantom-text focus:outline-none focus:border-phantom-primary"
+            className="bg-spectyn-card border border-spectyn-border rounded px-3 py-1 text-xs text-spectyn-text focus:outline-none focus:border-spectyn-primary"
           >
             <option value="ALL">全部</option>
             {ALL_MODULES.map((mod) => (
@@ -158,21 +158,21 @@ export default function LogsPanel() {
             onClick={() => setAutoScroll(!autoScroll)}
             className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
               autoScroll
-                ? "bg-phantom-success/20 text-phantom-success"
-                : "bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text"
+                ? "bg-spectyn-success/20 text-spectyn-success"
+                : "bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text"
             }`}
           >
             自動捲動 {autoScroll ? "ON" : "OFF"}
           </button>
           <button
             onClick={handleClear}
-            className="px-3 py-1 rounded text-xs font-medium bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-danger transition-colors"
+            className="px-3 py-1 rounded text-xs font-medium bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-danger transition-colors"
           >
             清除
           </button>
           <button
             onClick={handleExport}
-            className="px-3 py-1 rounded text-xs font-medium bg-phantom-card border border-phantom-border text-phantom-muted hover:text-phantom-text transition-colors"
+            className="px-3 py-1 rounded text-xs font-medium bg-spectyn-card border border-spectyn-border text-spectyn-muted hover:text-spectyn-text transition-colors"
           >
             匯出
           </button>
@@ -180,20 +180,20 @@ export default function LogsPanel() {
       </div>
 
       {/* Log Viewer */}
-      <div className="bg-phantom-card border border-phantom-border rounded-lg overflow-hidden flex-1 min-h-0">
+      <div className="bg-spectyn-card border border-spectyn-border rounded-lg overflow-hidden flex-1 min-h-0">
         <div className="overflow-auto max-h-[calc(100vh-420px)] p-4 font-mono text-xs leading-relaxed">
           {filtered.length === 0 ? (
-            <p className="text-phantom-muted text-center py-8">沒有符合條件的日誌</p>
+            <p className="text-spectyn-muted text-center py-8">沒有符合條件的日誌</p>
           ) : (
             filtered.map((entry, i) => (
               <div key={i} className={`py-0.5 ${LEVEL_COLOR[entry.level]}`}>
-                <span className="text-phantom-muted">[{entry.timestamp}]</span>{" "}
+                <span className="text-spectyn-muted">[{entry.timestamp}]</span>{" "}
                 <span
                   className={`inline-block w-14 text-center font-medium ${LEVEL_COLOR[entry.level]}`}
                 >
                   [{entry.level}]
                 </span>{" "}
-                <span className="text-phantom-primary">[{entry.module}]</span>{" "}
+                <span className="text-spectyn-primary">[{entry.module}]</span>{" "}
                 <span>{entry.message}</span>
               </div>
             ))

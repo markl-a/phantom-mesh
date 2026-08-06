@@ -42,7 +42,7 @@
 
 solo dev 真的建得起來、非功能的護城河只有三種：**社群/distribution**、**速度/觀點**（永遠早 6 個月、對特定用戶更有主見）、**它「不願」做的事**（不是不能——打穿其雲端 lock-in 的 local-first，或太小/太怪/受監管的 niche）。
 
-## 4. 結論：moat 是錯的問題——對的問題是「phantom 為了什麼」
+## 4. 結論：moat 是錯的問題——對的問題是「spectyn 為了什麼」
 
 **Owner 拍板：1 + 2（不是 3）。**
 1. **個人工具 + 職涯 portfolio**：你天天用的工具 + 一個能證明你會建難系統（agent 編排 / 跨機 / 加密安全 / full-stack）的作品。
@@ -56,7 +56,7 @@ solo dev 真的建得起來、非功能的護城河只有三種：**社群/distr
 > **一個 local-first、跑在你自己機器上、你完全擁有的個人 AI——把最強的 agent 當可替換引擎編排，並跨工具/跨機器記得你。**
 
 - 這正是 niche(2) 的價值，也正是 portfolio(1) 會亮的系統（比「又一個 chat app」難太多、好說故事）。
-- 「不要競爭、要包住」：agents 是引擎，phantom 是它們全插進去的記憶 + context 層。定位＝**「繼續用你的 Claude Code。phantom 是它沒有的長期記憶，跑在 Anthropic 不擁有的硬體上。」**（routing 是 table stakes，永遠當水管別當賣點。）
+- 「不要競爭、要包住」：agents 是引擎，spectyn 是它們全插進去的記憶 + context 層。定位＝**「繼續用你的 Claude Code。spectyn 是它沒有的長期記憶，跑在 Anthropic 不擁有的硬體上。」**（routing 是 table stakes，永遠當水管別當賣點。）
 
 ## 6. 該聚焦 / 該停
 

@@ -30,7 +30,7 @@
 //     joined AND no BYOM (Bring Your Own Model) key configured
 //   - implement `start_demo_relay_handoff()` calling SPEC-52 GET
 //     `demo.phantommesh.io/quota` per §9.7 wire contract
-//   - persist `OnboardingStateSnapshot` to `~/.phantom-mesh/onboarding.json`
+//   - persist `OnboardingStateSnapshot` to `~/.spectyn-mesh/onboarding.json`
 //     per §7.4 / §7.5 (out of scope for this wire file — lives in
 //     `core/src/wizard.rs` Stage 2)
 
@@ -53,7 +53,7 @@ pub use crate::tauri_wire::{OnboardingState, OnboardingTransition};
 // ─── §7.1 / §8 OnboardingStateSnapshot — runtime FSM snapshot ────────────────
 
 /// Snapshot of the onboarding FSM at a single moment in time. Persisted to
-/// `~/.phantom-mesh/onboarding.json` per §7.4 so that killing and re-opening
+/// `~/.spectyn-mesh/onboarding.json` per §7.4 so that killing and re-opening
 /// the app resumes from the same step (per §8 "Resume guarantee").
 ///
 /// `entered_at_ms` is the wall-clock millisecond timestamp the FSM moved
@@ -67,7 +67,7 @@ pub use crate::tauri_wire::{OnboardingState, OnboardingTransition};
 /// "30 advance/min/device".
 ///
 /// 中文: onboarding FSM 在某一刻的快照（snapshot），會被持久化（persist）到
-/// `~/.phantom-mesh/onboarding.json`。`entered_at_ms` 是進入該 state 的牆鐘
+/// `~/.spectyn-mesh/onboarding.json`。`entered_at_ms` 是進入該 state 的牆鐘
 /// 毫秒，配合 `OnboardingProgressEvent` 序列可算 step 耗時；`retry_count`
 /// 記同一 state 上 `advance()` 失敗的次數，Stage 2 會接 §9.2 rate limit。
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -91,7 +91,7 @@ pub struct OnboardingStateSnapshot {
 
 /// Side-effect summary the FSM accumulates as the user moves through steps.
 /// Every field is **derived / sanitised** so it can be persisted to
-/// `~/.phantom-mesh/onboarding.json` plaintext per §7.5 without leaking any
+/// `~/.spectyn-mesh/onboarding.json` plaintext per §7.5 without leaking any
 /// secret material. Specifically:
 ///
 /// - `cluster_id_hash` is the SHA-256 hash slug, never the raw cluster name
@@ -356,7 +356,7 @@ pub fn advance(
 // `advance_with_effects()` instead. It runs the transition's side-effect, folds
 // the derived results back into `ctx`, then defers to the pure `advance()` for
 // the FSM move. This is the standard pure-core / effectful-shell split and
-// reuses the exact functions the shipped `phantom` CLI onboarding uses.
+// reuses the exact functions the shipped `spectyn` CLI onboarding uses.
 
 /// Result of running the side-effect for one forward edge: the (possibly)
 /// mutated context plus the resulting next state. The caller persists both.
@@ -377,7 +377,7 @@ pub struct AdvanceOutcome {
 /// - `FreshInstall → CreatedIdentity` (D1): fold in `login` (provider/sub),
 ///   then `identity::init` → ed25519 keystore mint → `identity_fingerprint`.
 /// - `CreatedIdentity → JoinedCluster` (D4 staged): spawn detached
-///   `phantom serve` (binds 127.0.0.1:7878 + mDNS-advertises this node) and
+///   `spectyn serve` (binds 127.0.0.1:7878 + mDNS-advertises this node) and
 ///   record a single-node `cluster_id_hash`. Peer-join / vault sync = Stage 2.
 /// - `JoinedCluster → SetProvider` (D5): detect subscription CLIs + local
 ///   Ollama, rank them, set `provider_slug` to the best available.
@@ -442,7 +442,7 @@ pub struct OnboardingLogin {
 // `advance_with_effects`, and the no-login identity mint lives in
 // `perform_identity_and_serve_background`.)
 
-/// D4 (Stage 1) side-effect — spawn a detached `phantom serve`, which binds
+/// D4 (Stage 1) side-effect — spawn a detached `spectyn serve`, which binds
 /// 127.0.0.1:7878 and mDNS-advertises this machine as a mesh node, then record
 /// a single-node `cluster_id_hash`. This matches the CLI wizard's Step 2: a
 /// node is discoverable on the LAN. Full peer-join (pairing with an existing
@@ -451,7 +451,7 @@ pub struct OnboardingLogin {
 /// TODO(stage 2): interactive peer-join (SPEC-11 mDNS pair + SPEC-10
 /// `/rpc/cluster/pair`) and pull shared provider keys from the broker vault.
 fn perform_serve_advertise(ctx: &mut OnboardingContext) -> Result<(), OnboardingError> {
-    // Platform split: on DESKTOP the node hosts its own `phantom serve` (the
+    // Platform split: on DESKTOP the node hosts its own `spectyn serve` (the
     // mesh "home"), spawned detached. On MOBILE (iOS/Android) the OS sandbox
     // forbids spawning child processes (EPERM / "Operation not permitted"), AND
     // by design a phone is NOT a serve home — it is a client that reaches the
@@ -463,10 +463,10 @@ fn perform_serve_advertise(ctx: &mut OnboardingContext) -> Result<(), Onboarding
     {
         let self_exe =
             std::env::current_exe().map_err(|e| OnboardingError::ClusterJoinFailed {
-                detail: format!("could not locate phantom binary: {e}"),
+                detail: format!("could not locate spectyn binary: {e}"),
             })?;
         // Detached spawn — serve owns the daemon lifecycle + the mDNS advertise.
-        // Redirect its output to ~/.phantom-mesh/serve.log (and detach stdin) so
+        // Redirect its output to ~/.spectyn-mesh/serve.log (and detach stdin) so
         // the daemon's startup/tracing lines don't bleed into the talk-first
         // wizard's terminal.
         let (out, errout) = crate::cli_config::serve_log_stdio();
@@ -477,7 +477,7 @@ fn perform_serve_advertise(ctx: &mut OnboardingContext) -> Result<(), Onboarding
             .stderr(errout)
             .spawn()
             .map_err(|e| OnboardingError::ClusterJoinFailed {
-                detail: format!("could not start `phantom serve`: {e}"),
+                detail: format!("could not start `spectyn serve`: {e}"),
             })?;
     }
 
@@ -495,9 +495,9 @@ fn perform_serve_advertise(ctx: &mut OnboardingContext) -> Result<(), Onboarding
 
 /// TALK-FIRST background side-effect — mint the device identity + bring up the
 /// mesh node WITHOUT requiring login and WITHOUT being able to fail the flow.
-/// Identity (a fast local keystore op) and `phantom serve` (already detached)
+/// Identity (a fast local keystore op) and `spectyn serve` (already detached)
 /// must never block or break the path to a first reply; any error is swallowed
-/// (the user can retry via `phantom auth keys init` / `phantom serve`). Account
+/// (the user can retry via `spectyn auth keys init` / `spectyn serve`). Account
 /// login is deliberately NOT done here — it is a later soft-prompt.
 #[allow(deprecated)] // legacy file-based InitOutcome — same as the CLI wizard
 fn perform_identity_and_serve_background(ctx: &mut OnboardingContext) {
@@ -524,7 +524,7 @@ pub enum OnboardingLoginChoice {
 pub const SUBSCRIPTION_CLI_SIGNIN_COMMANDS: [&str; 3] = ["claude", "codex", "gemini"];
 
 pub fn parse_onboarding_login_choice(input: &str) -> OnboardingLoginChoice {
-    // SYS-B local-first (operator-locked 2026-06-13): a phantom account is an
+    // SYS-B local-first (operator-locked 2026-06-13): a spectyn account is an
     // OPT-IN add-on, not the default path. Only an explicit affirmative signs
     // in; blank/Enter and anything ambiguous keep the node local-only so the
     // first run can never dead-end on a broker that's offline or unwanted.
@@ -956,7 +956,7 @@ fn otel_emit_pseudo(_metric_name: &'static str, _value: u64) {
 /// `true` iff **both**:
 ///
 /// - `ctx.cluster_id_hash.is_none()` (user has not joined any cluster, so
-///   no other phantom-mesh peer can serve LLM inference for them)
+///   no other spectyn-mesh peer can serve LLM inference for them)
 /// - `ctx.provider_slug.is_none()` (user has not configured a BYOM key
 ///   either, so local inference is also unavailable)
 ///

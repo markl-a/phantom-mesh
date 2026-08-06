@@ -22,7 +22,7 @@
 3. 填寫細節（見下方檢查清單）。
 
 若你無法使用 GitHub 安全公告，可改為寄信給維護者的
-安全別名信箱（security alias）：`security@phantom-mesh.dev`（若專案另有
+安全別名信箱（security alias）：`security@spectyn-mesh.dev`（若專案另有
 公布的聯絡方式，請以該方式為準）。
 
 請包含以下內容：
@@ -46,11 +46,11 @@
 - L2 LLM-as-Judge（以大型語言模型作為裁判，評估工具輸出的安全性）
 - 注入防護（injection guard，偵測多語言覆寫、ChatML、base64、混淆手法）
 - 叢集（cluster）通訊採用共享密鑰（shared-secret）Bearer token 驗證
-- 無遙測（telemetry）—— Phantom Mesh 不會回傳資料（phone home）
+- 無遙測（telemetry）—— Spectyn Mesh 不會回傳資料（phone home）
 
 ## 安全模型（Security Model）
 
-Phantom Mesh 採用**本地優先（local-first）**架構，搭配縱深防禦（defense-in-depth）。
+Spectyn Mesh 採用**本地優先（local-first）**架構，搭配縱深防禦（defense-in-depth）。
 
 ### 節點身分與驗證（Node Identity & Authentication）
 
@@ -72,13 +72,13 @@ Phantom Mesh 採用**本地優先（local-first）**架構，搭配縱深防禦�
 
 ### 網路安全（Network Security）
 
-- **無遙測**：Phantom Mesh 不會回傳資料或蒐集使用情形
+- **無遙測**：Spectyn Mesh 不會回傳資料或蒐集使用情形
 - **叢集通訊**：節點之間採用具 Bearer token 驗證的 HTTP
 - **WireGuard/Tailscale**：建議用於跨網路的叢集節點
 
 ## 資料處理（Data Handling）
 
-所有資料皆儲存在本地的 `~/.phantom-mesh/`：
+所有資料皆儲存在本地的 `~/.spectyn-mesh/`：
 
 | 儲存區 | 檔案 | 內容 |
 |-------|------|------|
@@ -99,7 +99,7 @@ SQLite 資料庫使用 **WAL 模式（WAL mode，預寫式記錄）**以確保�
 
 ## 威脅模型（Threat Model）
 
-Phantom Mesh 信任本地環境。它**不**防範以下情況：
+Spectyn Mesh 信任本地環境。它**不**防範以下情況：
 - 已遭入侵的作業系統
 - 具有本地檔案系統存取權的惡意使用者
 - 已攻破你 VPN 的網路攻擊者

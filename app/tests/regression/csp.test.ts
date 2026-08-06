@@ -74,11 +74,11 @@ describe('Tauri CSP (V8 C-1 / F-CRIT-1)', () => {
       expect(sources).toContain("'self'");
     });
 
-    it('allows http://localhost:* (local phantom daemon)', () => {
+    it('allows http://localhost:* (local spectyn daemon)', () => {
       expect(sources).toContain('http://localhost:*');
     });
 
-    it('allows http://127.0.0.1:* (local phantom daemon)', () => {
+    it('allows http://127.0.0.1:* (local spectyn daemon)', () => {
       expect(sources).toContain('http://127.0.0.1:*');
     });
 

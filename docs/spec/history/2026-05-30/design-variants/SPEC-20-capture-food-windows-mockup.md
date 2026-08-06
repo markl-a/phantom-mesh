@@ -29,35 +29,35 @@ wireframe 鎖了版型骨架，本檔鎖會影響實作的視覺終值：
 
 | Token | Hex | food capture 用途 |
 |---|---|---|
-| `phantom-bg` | `#0f0f1a` | Capture window 內容區背景（OS title bar 不染） |
-| `phantom-card` | `#1a1a2e` | 3 來源磚 / 結果卡 item row 背景 |
-| `phantom-primary` | `#8ab4f8` | 主按鈕（拍照 / 完成）+ toast action 鈕 |
-| `phantom-success` | `#81c995` | **analyzing tray icon（綠，working）** + 高信心 confidence 點 |
-| `phantom-warning` | `#ff9800` | 「看不準」低信心標記 + in-window analyzing spinner（非 tray） |
-| `phantom-danger` | `#f28b82` | FOOD_CAMERA_DISABLED / analysis-failed 卡 icon |
-| `phantom-muted` | `#6b6b80` | drag-drop hint、disabled 磚、confidence 空格點 |
+| `spectyn-bg` | `#0f0f1a` | Capture window 內容區背景（OS title bar 不染） |
+| `spectyn-card` | `#1a1a2e` | 3 來源磚 / 結果卡 item row 背景 |
+| `spectyn-primary` | `#8ab4f8` | 主按鈕（拍照 / 完成）+ toast action 鈕 |
+| `spectyn-success` | `#81c995` | **analyzing tray icon（綠，working）** + 高信心 confidence 點 |
+| `spectyn-warning` | `#ff9800` | 「看不準」低信心標記 + in-window analyzing spinner（非 tray） |
+| `spectyn-danger` | `#f28b82` | FOOD_CAMERA_DISABLED / analysis-failed 卡 icon |
+| `spectyn-muted` | `#6b6b80` | drag-drop hint、disabled 磚、confidence 空格點 |
 
 ### confidence 4 格點配色（食物特有，本檔拍板）
 
 | 信心區間 | 實心點數 | 點配色 | 語意 |
 |---|---|---|---|
-| `>= 0.8` | ●●●● / ●●●○ | `phantom-success #81c995` | 高信心，直接採用 |
-| `0.5 - 0.8` | ●●○○ | `phantom-primary #8ab4f8` | 中信心，建議檢視 |
-| `< 0.5`（含 `unknown`） | ●○○○ | `phantom-warning #ff9800` | 低信心，row 標「看不清楚，請手動補」（per SPEC-20 §3 G5 不 hallucinate 紀律） |
+| `>= 0.8` | ●●●● / ●●●○ | `spectyn-success #81c995` | 高信心，直接採用 |
+| `0.5 - 0.8` | ●●○○ | `spectyn-primary #8ab4f8` | 中信心，建議檢視 |
+| `< 0.5`（含 `unknown`） | ●○○○ | `spectyn-warning #ff9800` | 低信心，row 標「看不清楚，請手動補」（per SPEC-20 §3 G5 不 hallucinate 紀律） |
 
-空格點一律 `phantom-muted`。**不得**用紅色（`phantom-danger`）表低信心 — 紅是 error 系，低信心不是錯誤。
+空格點一律 `spectyn-muted`。**不得**用紅色（`spectyn-danger`）表低信心 — 紅是 error 系，低信心不是錯誤。
 
 ## Lucide icon 對映（per SPEC-21 mockup §63 同源，food 特化）
 
 | 角色 | Lucide icon | 用途 / 尺寸 |
 |---|---|---|
-| Webcam 來源 | `camera` | 來源磚 1，32×32 phantom-primary |
+| Webcam 來源 | `camera` | 來源磚 1，32×32 spectyn-primary |
 | 檔案來源 | `folder-open` | 來源磚 2，32×32 |
 | 剪貼簿來源 | `clipboard-paste` | 來源磚 3，32×32 |
-| 拖放提示 | `image-plus` | drag-drop 區 hint，24×24 phantom-muted |
-| 分析中 | `loader`（旋轉） | analyzing spinner，20×20 phantom-warning |
+| 拖放提示 | `image-plus` | drag-drop 區 hint，24×24 spectyn-muted |
+| 分析中 | `loader`（旋轉） | analyzing spinner，20×20 spectyn-warning |
 | 完成 | `check-circle` | result 卡 header + toast AppLogo overlay，24×24 |
-| 低信心 / 警告 | `triangle-alert` | 低信心 item row + analysis-failed 卡，16×16 phantom-warning |
+| 低信心 / 警告 | `triangle-alert` | 低信心 item row + analysis-failed 卡，16×16 spectyn-warning |
 | 加密 | `lock` | trust badge，14×14 |
 
 Icon 全 bundled（`app/src/icons/lucide/*.svg`），不依賴系統 icon font。tray icon `.ico` 由 Lucide SVG 預 render 16×16 + 32×32 多 frame（DPI scaling per SPEC-43）。
@@ -84,25 +84,25 @@ Icon 全 bundled（`app/src/icons/lucide/*.svg`），不依賴系統 icon font�
 
 ```
 +------------------------------------------------+
-| Quick Log Meal               [_][o][X]         |   title bar：phantom-bg 不染，OS 預設 chrome
+| Quick Log Meal               [_][o][X]         |   title bar：spectyn-bg 不染，OS 預設 chrome
 +------------------------------------------------+
 |  選擇餐點照片來源：                            |   text-secondary 14px
 |                                                |
-|  +-----------+  +-----------+  +-----------+    |   3 磚：phantom-card bg, radius 8, 120x96
-|  | (camera)  |  |(folder-o) |  | (clip)    |    |   icon 32px phantom-primary 置中
+|  +-----------+  +-----------+  +-----------+    |   3 磚：spectyn-card bg, radius 8, 120x96
+|  | (camera)  |  |(folder-o) |  | (clip)    |    |   icon 32px spectyn-primary 置中
 |  |  拍一張   |  |  選檔案   |  | 貼上 ^V    |    |   label 13px text-primary
 |  +-----------+  +-----------+  +-----------+    |
 |                                                |
-|  (image-plus) ...或把圖片拖放到視窗任一處      |   phantom-muted 13px
+|  (image-plus) ...或把圖片拖放到視窗任一處      |   spectyn-muted 13px
 |                                                |
-|  (lock) 本地加密 · 雲端 vision 為 BYOM 選用     |   trust badge phantom-muted 12px
+|  (lock) 本地加密 · 雲端 vision 為 BYOM 選用     |   trust badge spectyn-muted 12px
 +------------------------------------------------+
 ```
 
 **磚狀態**：
-- enabled：phantom-card bg；hover → border 1px phantom-primary + bg lighten 6%
-- disabled（無 webcam）：opacity 0.4、icon/label phantom-muted、tooltip `food.tooltip.no_webcam`、不可聚焦
-- focus（Tab）：2px phantom-primary outline（per SPEC-43 §14 focus ring）
+- enabled：spectyn-card bg；hover → border 1px spectyn-primary + bg lighten 6%
+- disabled（無 webcam）：opacity 0.4、icon/label spectyn-muted、tooltip `food.tooltip.no_webcam`、不可聚焦
+- focus（Tab）：2px spectyn-primary outline（per SPEC-43 §14 focus ring）
 
 **Narrator AutomationName**：
 - 視窗：「記一餐視窗。選擇餐點照片來源。」
@@ -118,9 +118,9 @@ Icon 全 bundled（`app/src/icons/lucide/*.svg`），不依賴系統 icon font�
 |        +------------------------+              |   已壓縮縮圖 720p（已加密落地）radius 8
 |        |   (compressed thumb)   |              |
 |        +------------------------+              |
-|  (loader spin) 分析中... 估計食物與熱量        |   spinner phantom-warning 20px + text 14px
+|  (loader spin) 分析中... 估計食物與熱量        |   spinner spectyn-warning 20px + text 14px
 |  [============------------]  約 8 秒           |   不精確進度（CSS 動畫掃動，非 % 數字）
-|  (lock) 已本地加密落地（你關掉也會記錄）       |   phantom-success 12px 安心文案
+|  (lock) 已本地加密落地（你關掉也會記錄）       |   spectyn-success 12px 安心文案
 +------------------------------------------------+
 ```
 - **進度條不可顯示假百分比** — 用 indeterminate 掃動動畫（Fluent ProgressBar indeterminate），因 LLM 回應時間不可預測；標「約 8 秒」是 budget 提示非保證
@@ -132,15 +132,15 @@ Icon 全 bundled（`app/src/icons/lucide/*.svg`），不依賴系統 icon font�
 +------------------------------------------------+
 | (check-circle) Meal logged . 12:34  [_][o][X]  |
 +------------------------------------------------+
-|  +------+  雞胸肉沙拉                           |   item row：phantom-card, radius 6
-|  |thumb |  ~ 320 kcal          (****) ●●●●     |   confidence 高 → phantom-success
+|  +------+  雞胸肉沙拉                           |   item row：spectyn-card, radius 6
+|  |thumb |  ~ 320 kcal          (****) ●●●●     |   confidence 高 → spectyn-success
 |  +------+  糙米飯 1 碗                          |
-|            ~ 220 kcal          (**--) ●●○○     |   中 → phantom-primary
-|            (triangle-alert) 看不清楚，請手動補  |   低/unknown → phantom-warning row
+|            ~ 220 kcal          (**--) ●●○○     |   中 → spectyn-primary
+|            (triangle-alert) 看不清楚，請手動補  |   低/unknown → spectyn-warning row
 |            -------------------                 |
 |            合計 ~ 540 kcal                      |   total 16px bold
 |                                                |
-|  [ 修正清單 ]    [ 重分析 ]    [ 完成 ]         |   完成 = phantom-primary 主鈕
+|  [ 修正清單 ]    [ 重分析 ]    [ 完成 ]         |   完成 = spectyn-primary 主鈕
 |  (lock) 只有你的 identity.key 能解開這張照片    |   trust badge
 +------------------------------------------------+
 ```
@@ -153,21 +153,21 @@ Meal-logged toast（user 已關窗、analyze 完成時才發）：
 
 ```xml
 <toast scenario="reminder" activationType="protocol"
-       launch="phantom-mesh://food/result?id={event_id}">
+       launch="spectyn-mesh://food/result?id={event_id}">
   <visual>
     <binding template="ToastGeneric">
       <text>已記錄一餐 ~ {kcal} kcal</text>
       <text>雞胸肉沙拉、糙米飯 . 點開看明細</text>
-      <image placement="appLogoOverride" src="phantom-tray-idle.png"/>
+      <image placement="appLogoOverride" src="spectyn-tray-idle.png"/>
     </binding>
   </visual>
   <actions>
-    <action content="開啟明細" arguments="phantom-mesh://food/result?id={event_id}"/>
+    <action content="開啟明細" arguments="spectyn-mesh://food/result?id={event_id}"/>
   </actions>
 </toast>
 ```
 
-analysis-failed 變體：`scenario="reminder"`、text 換 `food.result.analysis_failed`、action 換「手動輸入」→ `phantom-mesh://food/correct?id={event_id}`。
+analysis-failed 變體：`scenario="reminder"`、text 換 `food.result.analysis_failed`、action 換「手動輸入」→ `spectyn-mesh://food/correct?id={event_id}`。
 
 - **toast 持續到 user dismiss**（per SPEC-43 — Win 用戶常 miss 一閃即逝通知）
 - **不加 `<audio>`**（食物記錄非急事；避免打擾，對齊 P4「shame-free」操作原則）
@@ -177,10 +177,10 @@ analysis-failed 變體：`scenario="reminder"`、text 換 `food.result.analysis_
 
 | State | icon | 配色 | 說明 |
 |---|---|---|---|
-| Idle | `phantom-tray-idle.ico` | phantom-muted | 無 capture |
-| **Analyzing** | `phantom-tray-working.ico` | **phantom-success 綠**（瞬時 ~8s） | per SPEC-43 §8.1 working semantics：food analyze 是**非 user-blocking 的瞬時背景 task**（不像 SPEC-21 focus 錄音是 user 主動長時 mic 採集，那才用橘 warning）。本檔與 wireframe 一致採綠，**不沿用 SPEC-21 橘**（兩者 task 性質不同）。 |
+| Idle | `spectyn-tray-idle.ico` | spectyn-muted | 無 capture |
+| **Analyzing** | `spectyn-tray-working.ico` | **spectyn-success 綠**（瞬時 ~8s） | per SPEC-43 §8.1 working semantics：food analyze 是**非 user-blocking 的瞬時背景 task**（不像 SPEC-21 focus 錄音是 user 主動長時 mic 採集，那才用橘 warning）。本檔與 wireframe 一致採綠，**不沿用 SPEC-21 橘**（兩者 task 性質不同）。 |
 | Done | 回 idle（debounce 1s） | — | toast 已發 |
-| Error | `phantom-tray-error.ico` | phantom-danger | camera disabled / 4-provider fail |
+| Error | `spectyn-tray-error.ico` | spectyn-danger | camera disabled / 4-provider fail |
 
 food capture 是**瞬時 task**（非 SPEC-21 錄音的 long-running session），所以 tray menu **不 rebuild**（不需把 Stop 提首項）。
 
@@ -194,7 +194,7 @@ food capture 是**瞬時 task**（非 SPEC-21 錄音的 long-running session）�
 
 - capture 來源 = webcam / file / paste / drag-drop 四路徑（wireframe）
 - confidence 配色三段（本檔）；analyzing 用 indeterminate 進度（本檔）
-- analyzing tray = phantom-success 綠（本檔；per SPEC-43 §8.1 working=綠，food analyze 是非 blocking 瞬時背景 task，**不沿用** SPEC-21 focus 錄音的橘）
+- analyzing tray = spectyn-success 綠（本檔；per SPEC-43 §8.1 working=綠，food analyze 是非 blocking 瞬時背景 task，**不沿用** SPEC-21 focus 錄音的橘）
 - toast 無 audio、持續到 dismiss（本檔）
 
 ## 開放問題（留 prototype / 後續）

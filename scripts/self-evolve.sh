@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
 # ⛔ GATED (2026-06-07): 閘門前禁跑(ACCEL doc §③)。
-if [ "${PHANTOM_GATE_PASSED:-0}" != "1" ] && [ "${1:-}" != "--break-glass" ]; then
-  echo "GATED: partner app 未過 7 天真用閘門 (docs/ACCEL-FRAMEWORK-AS-PHANTOM-FEATURE.md §③)。" >&2
-  echo "解法: 過閘後 PHANTOM_GATE_PASSED=1;或 --break-glass(手動逃生,輸出只准寫 ~/.phantom-mesh/dev-loop-log.jsonl)。" >&2
+if [ "${SPECTYN_GATE_PASSED:-0}" != "1" ] && [ "${1:-}" != "--break-glass" ]; then
+  echo "GATED: partner app 未過 7 天真用閘門 (docs/ACCEL-FRAMEWORK-AS-SPECTYN-FEATURE.md §③)。" >&2
+  echo "解法: 過閘後 SPECTYN_GATE_PASSED=1;或 --break-glass(手動逃生,輸出只准寫 ~/.spectyn-mesh/dev-loop-log.jsonl)。" >&2
   exit 2
 fi
 
-# phantom self-evolve: run phantom evolve on its own codebase
+# spectyn self-evolve: run spectyn evolve on its own codebase
 # Usage: ./scripts/self-evolve.sh [rounds]
 #
 # Uses single-node evolve (not --distributed) because cargo/Rust only
@@ -15,8 +15,8 @@ fi
 # run cargo tasks.
 set -euo pipefail
 
-REPO="${PHANTOM_MESH_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
-BINARY="$REPO/core/target/release/phantom"
+REPO="${SPECTYN_MESH_REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
+BINARY="$REPO/core/target/release/spectyn"
 ROUNDS="${1:-3}"
 LOG="$REPO/scripts/evolve.log"
 
@@ -32,7 +32,7 @@ CONTEXT=$(
   git log --oneline -5 || true
 )
 
-GOAL="You are working on the phantom-mesh Rust codebase at $REPO/core.
+GOAL="You are working on the spectyn-mesh Rust codebase at $REPO/core.
 
 Context (test failures, clippy warnings, TODOs):
 $CONTEXT

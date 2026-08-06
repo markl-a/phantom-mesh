@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copy to /home/phantom/.phantom-mesh/env and fill in your keys
+# Copy to /home/spectyn/.spectyn-mesh/env and fill in your keys
 # This file is loaded by systemd EnvironmentFile=
 
 # LLM Provider Keys (at least one required)

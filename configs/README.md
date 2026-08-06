@@ -7,16 +7,16 @@
 
 | 機器 | 用這個範本 | 拷貝到 |
 |---|---|---|
-| **node-a** (macOS, Apple primary + leader) | `agents.coordinator.toml` | `~/Library/Application Support/ai.phantommesh.app/agents.toml` |
-| **node-b** (Windows 11 + WSL2 主力) | `agents.coordinator.toml` | `%APPDATA%\ai.phantommesh.app\agents.toml` |
-| **node-c** (Windows, Android 主力 + Win 副手) | `agents.worker.toml` | `%APPDATA%\ai.phantommesh.app\agents.toml` |
-| **node-d** (Windows handheld, 第 3 線) | `agents.worker.toml` | `%APPDATA%\ai.phantommesh.app\agents.toml` |
-| **cloud** (always-on Linux server) | `agents.cloud.toml` | `~/.config/phantom-mesh/agents.toml` |
+| **node-a** (macOS, Apple primary + leader) | `agents.coordinator.toml` | `~/Library/Application Support/ai.spectynmesh.app/agents.toml` |
+| **node-b** (Windows 11 + WSL2 主力) | `agents.coordinator.toml` | `%APPDATA%\ai.spectynmesh.app\agents.toml` |
+| **node-c** (Windows, Android 主力 + Win 副手) | `agents.worker.toml` | `%APPDATA%\ai.spectynmesh.app\agents.toml` |
+| **node-d** (Windows handheld, 第 3 線) | `agents.worker.toml` | `%APPDATA%\ai.spectynmesh.app\agents.toml` |
+| **cloud** (always-on Linux server) | `agents.cloud.toml` | `~/.config/spectyn-mesh/agents.toml` |
 | **iPhone 13 mini** | `agents.iphone13mini.toml` | (Tauri iOS app embedded — see SPEC-30) |
 | **iPad Pro 2018** | `agents.ipadpro2018.toml` | 同上 |
 | **Xiaomi Pad** | `agents.mipad.toml` | 同上 |
 | **ROG Phone 6** | `agents.rog6.toml` | 同上 |
-| **Raspberry Pi 4** | `agents.raspberrypi.toml` | `~/.config/phantom-mesh/agents.toml` |
+| **Raspberry Pi 4** | `agents.raspberrypi.toml` | `~/.config/spectyn-mesh/agents.toml` |
 
 ## 共通必填項
 
@@ -47,29 +47,29 @@
 
 ```bash
 # 1. 從 configs/ 拷貝合適範本
-cp configs/agents.coordinator.toml ~/.config/phantom-mesh/agents.toml
+cp configs/agents.coordinator.toml ~/.config/spectyn-mesh/agents.toml
 
 # 2. 編輯 cluster_secret + peers
-$EDITOR ~/.config/phantom-mesh/agents.toml
+$EDITOR ~/.config/spectyn-mesh/agents.toml
 
 # 3. 設 env vars
-cp .env.example ~/.config/phantom-mesh/.env  # or your shell profile
-$EDITOR ~/.config/phantom-mesh/.env
+cp .env.example ~/.config/spectyn-mesh/.env  # or your shell profile
+$EDITOR ~/.config/spectyn-mesh/.env
 
 # 4. 啟動 daemon
-phantom serve
+spectyn serve
 
 # 5. 看 cluster 看到別的 peer 沒
-phantom cluster status
+spectyn cluster status
 ```
 
-## 加入 phantom-coord dev workflow
+## 加入 spectyn-coord dev workflow
 
 如果這台機器要參與分布式開發（node-a / node-b / node-c / node-d 之一）：
 
 ```bash
 # 一行 bootstrap
-curl -sSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/ai/coord/bootstrap-remote.sh | bash -s -- --host <name>
+curl -sSL https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/ai/coord/bootstrap-remote.sh | bash -s -- --host <name>
 ```
 
 詳見 [`docs/mesh/MULTI-DEVICE-COORDINATION.md`](../docs/mesh/MULTI-DEVICE-COORDINATION.md) §4 bootstrap 章節。

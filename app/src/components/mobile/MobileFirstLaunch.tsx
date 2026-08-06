@@ -1,5 +1,5 @@
 // MobileFirstLaunch — 3-button mode picker shown on cold install.
-// Replaces the unconditional `localStorage.setItem('phantom_mesh_v2_onboarded', true)`
+// Replaces the unconditional `localStorage.setItem('spectyn_mesh_v2_onboarded', true)`
 // hack from the v1 redesign. See spec/2026-05-23-mobile-redesign-v2.md §4.1.
 //
 // Modes:
@@ -7,8 +7,8 @@
 //   [B] Join      — has a coordinator (mDNS auto-discovered or pasted URL).
 //   [C] Sign in   — phantommesh.io OAuth → vault sync.
 //
-// Persisted decision: localStorage key `phantom_mesh_v2_onboarded_mode` ∈ {demo,join,broker}.
-// Old `phantom_mesh_v2_onboarded=true` is set for back-compat with App.tsx gates.
+// Persisted decision: localStorage key `spectyn_mesh_v2_onboarded_mode` ∈ {demo,join,broker}.
+// Old `spectyn_mesh_v2_onboarded=true` is set for back-compat with App.tsx gates.
 
 import { useEffect, useState } from "react";
 import { Cloud, Wifi, LogIn, Loader2 } from "lucide-react";
@@ -18,7 +18,7 @@ import { advanceOnboarding } from "../../lib/onboardingFsm";
 import { requestPermission, permissionsGateApplies } from "../../lib/permissions";
 
 // One-time guard so we only ever fire the OS notification prompt once.
-const NOTIF_PROMPTED_KEY = "phantom_notif_prompted";
+const NOTIF_PROMPTED_KEY = "spectyn_notif_prompted";
 
 // Fire a single, non-blocking notification-permission request the moment the
 // user first engages with onboarding. On Android 13+ POST_NOTIFICATIONS is a
@@ -65,7 +65,7 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
   const [pickError, setPickError] = useState<string | null>(null);
 
   // Listen for mDNS hits from the Rust side (main.mm's NSNetServiceBrowser
-  // forwards via Tauri event `deep-link://mdns-peer` when a `_phantom-mesh._tcp`
+  // forwards via Tauri event `deep-link://mdns-peer` when a `_spectyn-mesh._tcp`
   // service is resolved). 3-second window; whichever fires first wins.
   useEffect(() => {
     let cancelled = false;
@@ -128,13 +128,13 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
   const handleSignIn = () => runPick("signin", {}, onPickedSignIn);
 
   return (
-    <div className="h-[100dvh] bg-phantom-bg flex flex-col items-center justify-center px-6">
+    <div className="h-[100dvh] bg-spectyn-bg flex flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center mb-12">
-        <div className="w-20 h-20 bg-phantom-primary/20 rounded-full flex items-center justify-center mb-4">
+        <div className="w-20 h-20 bg-spectyn-primary/20 rounded-full flex items-center justify-center mb-4">
           <span className="text-3xl">◆</span>
         </div>
-        <h1 className="text-2xl font-bold text-phantom-text mb-2">Phantom Mesh</h1>
-        <p className="text-sm text-phantom-muted text-center">
+        <h1 className="text-2xl font-bold text-spectyn-text mb-2">Spectyn Mesh</h1>
+        <p className="text-sm text-spectyn-muted text-center">
           你的多裝置 AI agent · 私人加密 · 隨選 LLM
         </p>
       </div>
@@ -145,17 +145,17 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
         <button
           onClick={handleDemo}
           disabled={inFlight !== null}
-          className="w-full p-4 bg-phantom-bg-elevated border border-phantom-border rounded-xl text-left hover:border-phantom-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full p-4 bg-spectyn-bg-elevated border border-spectyn-border rounded-xl text-left hover:border-spectyn-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex items-center gap-3">
             {inFlight === "demo" ? (
-              <Loader2 size={22} className="text-phantom-muted shrink-0 animate-spin" />
+              <Loader2 size={22} className="text-spectyn-muted shrink-0 animate-spin" />
             ) : (
-              <Cloud size={22} className="text-phantom-muted shrink-0" />
+              <Cloud size={22} className="text-spectyn-muted shrink-0" />
             )}
             <div className="flex-1">
-              <div className="font-semibold text-phantom-text">立即試用</div>
-              <div className="text-xs text-phantom-muted mt-0.5">
+              <div className="font-semibold text-spectyn-text">立即試用</div>
+              <div className="text-xs text-spectyn-muted mt-0.5">
                 免費共用 LLM · 不需設定 · 30 秒看到回應
               </div>
             </div>
@@ -166,27 +166,27 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
         <button
           onClick={handleJoin}
           disabled={inFlight !== null}
-          className="w-full p-4 bg-phantom-bg-elevated border border-phantom-border rounded-xl text-left hover:border-phantom-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full p-4 bg-spectyn-bg-elevated border border-spectyn-border rounded-xl text-left hover:border-spectyn-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex items-center gap-3">
             {inFlight === "join" ? (
-              <Loader2 size={22} className="text-phantom-muted shrink-0 animate-spin" />
+              <Loader2 size={22} className="text-spectyn-muted shrink-0 animate-spin" />
             ) : (
-              <Wifi size={22} className="text-phantom-muted shrink-0" />
+              <Wifi size={22} className="text-spectyn-muted shrink-0" />
             )}
             <div className="flex-1">
-              <div className="font-semibold text-phantom-text">加入既有 cluster</div>
+              <div className="font-semibold text-spectyn-text">加入既有 cluster</div>
               {scanning ? (
-                <div className="text-xs text-phantom-muted mt-0.5 flex items-center gap-1">
+                <div className="text-xs text-spectyn-muted mt-0.5 flex items-center gap-1">
                   <Loader2 size={12} className="animate-spin" />
                   本機網路搜尋中...
                 </div>
               ) : discovered ? (
-                <div className="text-xs text-phantom-primary mt-0.5 truncate">
+                <div className="text-xs text-spectyn-primary mt-0.5 truncate">
                   發現: {discovered.host}
                 </div>
               ) : (
-                <div className="text-xs text-phantom-muted mt-0.5">
+                <div className="text-xs text-spectyn-muted mt-0.5">
                   手動輸入 coordinator URL + secret
                 </div>
               )}
@@ -198,17 +198,17 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
         <button
           onClick={handleSignIn}
           disabled={inFlight !== null}
-          className="w-full p-4 bg-phantom-bg-elevated border border-phantom-border rounded-xl text-left hover:border-phantom-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full p-4 bg-spectyn-bg-elevated border border-spectyn-border rounded-xl text-left hover:border-spectyn-primary transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <div className="flex items-center gap-3">
             {inFlight === "signin" ? (
-              <Loader2 size={22} className="text-phantom-muted shrink-0 animate-spin" />
+              <Loader2 size={22} className="text-spectyn-muted shrink-0 animate-spin" />
             ) : (
-              <LogIn size={22} className="text-phantom-muted shrink-0" />
+              <LogIn size={22} className="text-spectyn-muted shrink-0" />
             )}
             <div className="flex-1">
-              <div className="font-semibold text-phantom-text">使用 phantommesh.io 登入</div>
-              <div className="text-xs text-phantom-muted mt-0.5">
+              <div className="font-semibold text-spectyn-text">使用 phantommesh.io 登入</div>
+              <div className="text-xs text-spectyn-muted mt-0.5">
                 跨裝置同步設定、cluster、LLM keys
               </div>
             </div>
@@ -222,7 +222,7 @@ export default function MobileFirstLaunch({ onPickedDemo, onPickedJoin, onPicked
         </div>
       )}
 
-      <div className="mt-12 text-xs text-phantom-muted text-center max-w-xs">
+      <div className="mt-12 text-xs text-spectyn-muted text-center max-w-xs">
         資料加密儲存於本機 · 不需要登入也能使用
       </div>
     </div>

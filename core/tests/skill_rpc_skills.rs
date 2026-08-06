@@ -2,7 +2,7 @@
 //!
 //! Exercises the three new GET routes (`/api/skills`,
 //! `/api/skills/:id`, `/api/skill-timeline`) end-to-end
-//! through `phantom_mesh::serve::router`, using `tower::ServiceExt::oneshot`
+//! through `spectyn_mesh::serve::router`, using `tower::ServiceExt::oneshot`
 //! exactly like `core/tests/test_security_t7.rs` does.
 //!
 //! Coverage (≥ 8 tests as required by the spec):
@@ -28,9 +28,9 @@
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use phantom_mesh::skillbank::memory::{SkillMemory, NewMemory};
-use phantom_mesh::mesh::{ClusterConfig, ClusterManager};
-use phantom_mesh::AppState;
+use spectyn_mesh::skillbank::memory::{SkillMemory, NewMemory};
+use spectyn_mesh::mesh::{ClusterConfig, ClusterManager};
+use spectyn_mesh::AppState;
 use serde_json::Value;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -140,7 +140,7 @@ async fn get_signed_json(app: axum::Router, state: &AppState, uri: &str) -> (Sta
 async fn list_endpoint_returns_all_seeded_skills() {
     let (state, mem) = make_state_with_memory().await;
     seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skills").await;
     assert_eq!(status, StatusCode::OK, "got body={body}");
@@ -173,7 +173,7 @@ async fn list_endpoint_returns_all_seeded_skills() {
 async fn list_endpoint_paginates_with_limit_and_offset() {
     let (state, mem) = make_state_with_memory().await;
     seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skills?limit=2&offset=1").await;
     assert_eq!(status, StatusCode::OK);
@@ -191,7 +191,7 @@ async fn list_endpoint_paginates_with_limit_and_offset() {
 async fn list_endpoint_supports_fts5_search() {
     let (state, mem) = make_state_with_memory().await;
     seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skills?q=rebase").await;
     assert_eq!(status, StatusCode::OK, "body={body}");
@@ -207,7 +207,7 @@ async fn list_endpoint_supports_fts5_search() {
 async fn detail_endpoint_returns_full_provenance() {
     let (state, mem) = make_state_with_memory().await;
     let ids = seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let id = ids[1]; // handle-rate-limit (frontmatter-style)
     let uri = format!("/api/skills/{id}");
@@ -230,7 +230,7 @@ async fn detail_endpoint_returns_full_provenance() {
 async fn detail_endpoint_returns_404_for_unknown_id() {
     let (state, mem) = make_state_with_memory().await;
     seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skills/99999").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "body={body}");
@@ -243,7 +243,7 @@ async fn detail_endpoint_returns_404_for_unknown_id() {
 async fn timeline_endpoint_orders_chronologically() {
     let (state, mem) = make_state_with_memory().await;
     let ids = seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skill-timeline").await;
     assert_eq!(status, StatusCode::OK, "body={body}");
@@ -268,7 +268,7 @@ async fn timeline_endpoint_orders_chronologically() {
 async fn timeline_endpoint_respects_since_cutoff() {
     let (state, mem) = make_state_with_memory().await;
     seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     // Future timestamp ⇒ zero matches.
     let (status, body) =
@@ -284,7 +284,7 @@ async fn timeline_endpoint_respects_since_cutoff() {
 #[tokio::test]
 async fn list_endpoint_rejects_missing_auth_token() {
     let (state, _mem) = make_state_with_memory().await;
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let req = Request::builder()
         .method("GET")
@@ -299,7 +299,7 @@ async fn list_endpoint_rejects_missing_auth_token() {
 async fn detail_endpoint_rejects_missing_auth_token() {
     let (state, mem) = make_state_with_memory().await;
     let ids = seed_varied(&mem).await;
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("GET")
@@ -313,7 +313,7 @@ async fn detail_endpoint_rejects_missing_auth_token() {
 #[tokio::test]
 async fn timeline_endpoint_rejects_missing_auth_token() {
     let (state, _mem) = make_state_with_memory().await;
-    let app = phantom_mesh::serve::router(state);
+    let app = spectyn_mesh::serve::router(state);
 
     let req = Request::builder()
         .method("GET")
@@ -334,7 +334,7 @@ async fn list_endpoint_returns_503_when_skill_memory_not_wired() {
     st.cluster_manager = ClusterManager::new(cfg);
     // skill_memory deliberately left as None
     let state = Arc::new(st);
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let (status, body) = get_signed_json(app, &state, "/api/skills").await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "body={body}");
@@ -355,7 +355,7 @@ async fn list_endpoint_meets_500ms_perf_gate_for_1000_skills() {
         .await
         .unwrap();
     }
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     let start = std::time::Instant::now();
     let (status, body) = get_signed_json(app, &state, "/api/skills?limit=200").await;
@@ -395,7 +395,7 @@ async fn search_fts5_p99_latency_under_200ms_with_1000_rows() {
         .await
         .unwrap();
     }
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     // Selectivity spread: token42 → 1 row, beta3 → ~77, alpha1 → ~143,
     // Description/skill → all 1000 rows (bm25 over the full bank).
@@ -458,7 +458,7 @@ async fn search_cjk_query_behaviour_documented_probe() {
     })
     .await
     .unwrap();
-    let app = phantom_mesh::serve::router(state.clone());
+    let app = spectyn_mesh::serve::router(state.clone());
 
     // q=焦點, percent-encoded (UTF-8 bytes E7 84 A6 E9 BB 9E).
     let (status, body) =

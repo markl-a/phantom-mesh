@@ -55,24 +55,24 @@ export default function NotifLockCard() {
       aria-label="無通知權限"
       className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-4"
     >
-      <div className="w-full max-w-sm bg-phantom-card border border-phantom-border rounded-xl p-5 mb-[env(safe-area-inset-bottom)]">
+      <div className="w-full max-w-sm bg-spectyn-card border border-spectyn-border rounded-xl p-5 mb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center gap-2">
-          <BellOff size={20} className="text-phantom-muted" aria-label="通知關閉圖示" />
-          <h2 className="text-sm font-semibold text-phantom-text">無通知權限</h2>
+          <BellOff size={20} className="text-spectyn-muted" aria-label="通知關閉圖示" />
+          <h2 className="text-sm font-semibold text-spectyn-text">無通知權限</h2>
         </div>
-        <p className="text-xs text-phantom-muted mt-2 leading-relaxed">
-          Phantom 無法發送通知;改以 app 內卡片顯示。可在設定隨時恢復。
+        <p className="text-xs text-spectyn-muted mt-2 leading-relaxed">
+          Spectyn 無法發送通知;改以 app 內卡片顯示。可在設定隨時恢復。
         </p>
         <div className="flex gap-2 mt-4">
           <button
             onClick={() => void goSettings()}
-            className="flex-1 bg-phantom-primary/15 text-phantom-primary py-2.5 rounded-lg text-sm font-medium hover:bg-phantom-primary/25 transition"
+            className="flex-1 bg-spectyn-primary/15 text-spectyn-primary py-2.5 rounded-lg text-sm font-medium hover:bg-spectyn-primary/25 transition"
           >
             去設定
           </button>
           <button
             onClick={useInAppCards}
-            className="flex-1 bg-phantom-bg border border-phantom-border text-phantom-text py-2.5 rounded-lg text-sm hover:border-phantom-primary transition"
+            className="flex-1 bg-spectyn-bg border border-spectyn-border text-spectyn-text py-2.5 rounded-lg text-sm hover:border-spectyn-primary transition"
           >
             先用 app 內卡片
           </button>

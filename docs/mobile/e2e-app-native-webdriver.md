@@ -1,8 +1,8 @@
 # Mac app 原生視窗 E2E（in-app WebDriver）— ✅ 跑通
 
 > **2026-05-31 ✅ 真跑通**（user 機器 MarkdeAir）：`bash scripts/run-native-e2e.sh`
-> → 真的開了 Phantom Mesh **原生 WKWebView 視窗**、WebDriver session 驅動它、
-> 4 個斷言全過：`✓ native window has a <body>`、`✓ onboarding shows "Phantom
+> → 真的開了 Spectyn Mesh **原生 WKWebView 視窗**、WebDriver session 驅動它、
+> 4 個斷言全過：`✓ native window has a <body>`、`✓ onboarding shows "Spectyn
 > Mesh"`、`✓ provider list shows "OpenRouter"`、`✓ "Anthropic"` →
 > `NATIVE-WDIO: PASS (0 failed)` / `NATIVE-E2E RESULT: PASS (rc=0)`。
 > 這是 macOS 上「官方說做不到」的原生視窗 E2E（無系統 WKWebView WebDriver），
@@ -24,11 +24,11 @@
 
 1. **plugin dep**：`app/src-tauri/Cargo.toml` → `tauri-plugin-webdriver-automation = "0.1.3"`（commit 2a7241cf）。Cargo.lock 已 commit（05444ffa，+4 crates）。
 2. **plugin init**：`app/src-tauri/src/lib.rs` 在 `#[cfg(all(debug_assertions, desktop))]` 下 `builder.plugin(tauri_plugin_webdriver_automation::init())`（commit 32426f59）。release 不含。
-3. **debug app 已重 build 並含 plugin**：`cargo build --bin phantom-mesh-app` → BUILD_RC=0、0 errors；binary 105MB、2026-05-31 20:25；`strings` 抓到 **56 個 "webdriver"**（plugin 真的編進去）。
+3. **debug app 已重 build 並含 plugin**：`cargo build --bin spectyn-mesh-app` → BUILD_RC=0、0 errors；binary 105MB、2026-05-31 20:25；`strings` 抓到 **56 個 "webdriver"**（plugin 真的編進去）。
 4. **tauri-wd CLI 已裝**：`~/.cargo/bin/tauri-wd` present（user 跑 `cargo install tauri-webdriver-automation`）；`tauri-wd --help` → W3C server，`--port` 預設 4444。
 5. **harness 已寫 + syntax-check 過**（commit 3cef81fa）：
    - `app/wdio.conf.mjs` — 連 tauri-wd :4444，capabilities `[{ 'tauri:options': { binary: <abs debug binary> } }]`（tauri-wd README 文件的確切 key）。
-   - `app/tests/wdio/native-window.e2e.mjs` — 斷言原生視窗 render onboarding（"Phantom Mesh"）+ 真 provider 列表（OpenRouter / Anthropic）。
+   - `app/tests/wdio/native-window.e2e.mjs` — 斷言原生視窗 render onboarding（"Spectyn Mesh"）+ 真 provider 列表（OpenRouter / Anthropic）。
    - `app/scripts/run-native-e2e.sh` — orchestrate vite :5173 + tauri-wd :4444 + wdio，每步硬 gate、失敗 exit≠0。
 
 ## 🔴 唯一卡點：webdriverio 裝不起來（環境 network/proxy 擋）

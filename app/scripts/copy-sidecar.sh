@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy phantom-mesh binary into src-tauri/binaries/ for Tauri sidecar bundling.
+# Copy spectyn-mesh binary into src-tauri/binaries/ for Tauri sidecar bundling.
 # Usage: ./scripts/copy-sidecar.sh [release|debug]
 #
 # Searches exFAT-workaround target dirs first (target2, target3), then standard target/.
@@ -21,8 +21,8 @@ case "$(uname -s)-$(uname -m)" in
   *)                     echo "Unsupported platform"; exit 1 ;;
 esac
 
-SRC_NAME="phantom-mesh${EXT}"
-DEST_NAME="phantom-mesh-${TRIPLE}${EXT}"
+SRC_NAME="spectyn-mesh${EXT}"
+DEST_NAME="spectyn-mesh-${TRIPLE}${EXT}"
 
 # Search order: exFAT workaround dirs, then standard
 for DIR in "$CORE_DIR/target2/$PROFILE" "$CORE_DIR/target3/$PROFILE" "$CORE_DIR/target/$PROFILE"; do
@@ -34,6 +34,6 @@ for DIR in "$CORE_DIR/target2/$PROFILE" "$CORE_DIR/target3/$PROFILE" "$CORE_DIR/
   fi
 done
 
-echo "ERROR: phantom-mesh binary not found in any target dir for profile=$PROFILE"
+echo "ERROR: spectyn-mesh binary not found in any target dir for profile=$PROFILE"
 echo "Build it first: cd core && CARGO_TARGET_DIR=target2 cargo build --release"
 exit 1

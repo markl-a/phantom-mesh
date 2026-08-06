@@ -31,7 +31,7 @@ fn ts_file_exists(spec_dir: &str, type_name: &str) -> bool {
 
 #[test]
 fn v1_rpc_wire_round_trip() {
-    use phantom_mesh::rpc_wire::{ClientOs, PingResponse};
+    use spectyn_mesh::rpc_wire::{ClientOs, PingResponse};
     let req = PingResponse {
         peer_name: "test-peer".to_string(),
         os: ClientOs::Mac,
@@ -51,7 +51,7 @@ fn v1_rpc_wire_round_trip() {
 
 #[test]
 fn v1_identity_wire_round_trip() {
-    use phantom_mesh::identity_wire::IdentityPublic;
+    use spectyn_mesh::identity_wire::IdentityPublic;
     let req = IdentityPublic {
         public_key: "00".repeat(32),
         fingerprint: "abc123def456".to_string(),
@@ -68,7 +68,7 @@ fn v1_identity_wire_round_trip() {
 
 #[test]
 fn v1_mdns_wire_round_trip() {
-    use phantom_mesh::mdns_wire::{PeerAdvertisement, PeerOs};
+    use spectyn_mesh::mdns_wire::{PeerAdvertisement, PeerOs};
     use std::net::{IpAddr, Ipv4Addr};
     let req = PeerAdvertisement {
         v: 1,
@@ -92,7 +92,7 @@ fn v1_mdns_wire_round_trip() {
 
 #[test]
 fn v1_encryption_wire_round_trip() {
-    use phantom_mesh::encryption_wire::{
+    use spectyn_mesh::encryption_wire::{
         EncryptionAlgorithm, EncryptionEnvelope, X25519Recipient,
     };
     let req = EncryptionEnvelope {
@@ -113,7 +113,7 @@ fn v1_encryption_wire_round_trip() {
 
 #[test]
 fn v1_providers_wire_round_trip() {
-    use phantom_mesh::providers_wire::ProviderConfig;
+    use spectyn_mesh::providers_wire::ProviderConfig;
     let req = ProviderConfig {
         slug: "groq".to_string(),
         api_key_ref: "secrets.age#providers.groq.api_key".to_string(),
@@ -132,7 +132,7 @@ fn v1_providers_wire_round_trip() {
 
 #[test]
 fn v1_broker_vault_wire_round_trip() {
-    use phantom_mesh::broker_vault_wire::BrokerJwt;
+    use spectyn_mesh::broker_vault_wire::BrokerJwt;
     let req = BrokerJwt {
         token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.sig".to_string(),
         expires_at_ts: 1_700_000_000_000,
@@ -148,7 +148,7 @@ fn v1_broker_vault_wire_round_trip() {
 
 #[test]
 fn v1_event_storage_wire_round_trip() {
-    use phantom_mesh::event_storage_wire::{EventKind, EventMeta};
+    use spectyn_mesh::event_storage_wire::{EventKind, EventMeta};
     let req = EventMeta {
         event_id: "01890000-0000-7000-8000-000000000000".to_string(),
         timestamp: "2026-05-25T00:00:00Z".to_string(),
@@ -166,7 +166,7 @@ fn v1_event_storage_wire_round_trip() {
 
 #[test]
 fn v1_tauri_wire_round_trip() {
-    use phantom_mesh::tauri_wire::ClusterStatusResponse;
+    use spectyn_mesh::tauri_wire::ClusterStatusResponse;
     let req = ClusterStatusResponse {
         state: "healthy".to_string(),
         peer_count: 3,
@@ -185,7 +185,7 @@ fn v1_tauri_wire_round_trip() {
 
 #[test]
 fn v1_capture_food_wire_round_trip() {
-    use phantom_mesh::capture_food_wire::MacroEstimate;
+    use spectyn_mesh::capture_food_wire::MacroEstimate;
     let req = MacroEstimate {
         calories: 520,
         protein_g: 32,
@@ -204,7 +204,7 @@ fn v1_capture_food_wire_round_trip() {
 
 #[test]
 fn v1_capture_focus_wire_round_trip() {
-    use phantom_mesh::capture_focus_wire::{FocusInterruption, InterruptionKind};
+    use spectyn_mesh::capture_focus_wire::{FocusInterruption, InterruptionKind};
     let req = FocusInterruption {
         timestamp_ms: 1_700_000_000_000,
         kind: InterruptionKind::Notification,
@@ -222,7 +222,7 @@ fn v1_capture_focus_wire_round_trip() {
 
 #[test]
 fn v1_capture_habit_wire_round_trip() {
-    use phantom_mesh::capture_habit_wire::HabitStreak;
+    use spectyn_mesh::capture_habit_wire::HabitStreak;
     let req = HabitStreak {
         habit_slug: "drink_water".to_string(),
         current_streak: 7,
@@ -241,13 +241,13 @@ fn v1_capture_habit_wire_round_trip() {
 
 #[test]
 fn v1_coach_wire_round_trip() {
-    use phantom_mesh::coach_wire::CoachReviewReadyPayload;
+    use spectyn_mesh::coach_wire::CoachReviewReadyPayload;
     let req = CoachReviewReadyPayload {
         review_id: "01890000-0000-7000-8000-000000000001".to_string(),
         event_id: "01890000-0000-7000-8000-000000000001".to_string(),
         date: "2026-05-25".to_string(),
         takeaways_count: 4,
-        markdown_path: "/home/user/.phantom-mesh/coach/2026-05-25.md.age".to_string(),
+        markdown_path: "/home/user/.spectyn-mesh/coach/2026-05-25.md.age".to_string(),
     };
     let json = serde_json::to_string(&req).expect("serialize CoachReviewReadyPayload");
     let back: CoachReviewReadyPayload =
@@ -262,7 +262,7 @@ fn v1_coach_wire_round_trip() {
 
 #[test]
 fn v1_coach_delivery_wire_round_trip() {
-    use phantom_mesh::coach_delivery_wire::{DeliveryChannel, DeliveryReceipt, DeliveryStatus};
+    use spectyn_mesh::coach_delivery_wire::{DeliveryChannel, DeliveryReceipt, DeliveryStatus};
     let req = DeliveryReceipt {
         review_id: "01890000-0000-7000-8000-000000000002".to_string(),
         channel: DeliveryChannel::Markdown,
@@ -282,7 +282,7 @@ fn v1_coach_delivery_wire_round_trip() {
 
 #[test]
 fn v1_skill_wire_round_trip() {
-    use phantom_mesh::skill_wire::SkillExample;
+    use spectyn_mesh::skill_wire::SkillExample;
     let req = SkillExample {
         event_id_hash: "abcdef0123456789".to_string(),
         redacted_snippet: "[redacted] morning routine started".to_string(),
@@ -298,7 +298,7 @@ fn v1_skill_wire_round_trip() {
 
 #[test]
 fn v1_cluster_dispatch_wire_round_trip() {
-    use phantom_mesh::cluster_dispatch_wire::CapabilityTag;
+    use spectyn_mesh::cluster_dispatch_wire::CapabilityTag;
     let req = CapabilityTag {
         slug: "role-coder".to_string(),
         value: Some("rust".to_string()),
@@ -314,7 +314,7 @@ fn v1_cluster_dispatch_wire_round_trip() {
 
 #[test]
 fn v1_smart_decompose_wire_round_trip() {
-    use phantom_mesh::smart_decompose_wire::{DecomposeStatus, ExecutionProgress};
+    use spectyn_mesh::smart_decompose_wire::{DecomposeStatus, ExecutionProgress};
     let req = ExecutionProgress {
         parent_task_id: "01890000-0000-7000-8000-000000000003".to_string(),
         completed_subtasks: 2,
@@ -335,7 +335,7 @@ fn v1_smart_decompose_wire_round_trip() {
 
 #[test]
 fn v1_onboarding_wire_round_trip() {
-    use phantom_mesh::onboarding_wire::TTFRMetric;
+    use spectyn_mesh::onboarding_wire::TTFRMetric;
     let req = TTFRMetric {
         install_complete_at_ms: 1_700_000_000_000,
         first_reply_at_ms: 1_700_000_012_500,
@@ -357,15 +357,15 @@ fn v1_onboarding_wire_round_trip() {
 
 #[test]
 fn v1_release_pipeline_wire_round_trip() {
-    use phantom_mesh::release_pipeline_wire::{ArtifactArch, ArtifactOs, ReleaseArtifact};
+    use spectyn_mesh::release_pipeline_wire::{ArtifactArch, ArtifactOs, ReleaseArtifact};
     let req = ReleaseArtifact {
         os: ArtifactOs::Macos,
         arch: ArtifactArch::Aarch64,
-        file_name: "phantom-mesh-0.6.0-darwin-aarch64.dmg".to_string(),
+        file_name: "spectyn-mesh-0.6.0-darwin-aarch64.dmg".to_string(),
         sha256_hex: "0".repeat(64),
         size_bytes: 50_000_000,
         signature_url: None,
-        download_url: "https://example.invalid/phantom-mesh.dmg".to_string(),
+        download_url: "https://example.invalid/spectyn-mesh.dmg".to_string(),
     };
     let json = serde_json::to_string(&req).expect("serialize ReleaseArtifact");
     let back: ReleaseArtifact =

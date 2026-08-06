@@ -10,11 +10,11 @@
 #   scripts/demos/multi-model-compare.sh --no-synthesis "your prompt"
 #   scripts/demos/multi-model-compare.sh --cost-cap 0.50 "your prompt"
 #
-# Implementation: thin wrapper over `phantom swarm`, with cost guard.
+# Implementation: thin wrapper over `spectyn swarm`, with cost guard.
 
 set -euo pipefail
 
-PHANTOM="${PHANTOM:-$HOME/.local/bin/phantom}"
+SPECTYN="${SPECTYN:-$HOME/.local/bin/spectyn}"
 COST_CAP="${COST_CAP:-1.0}"  # USD; abort if estimated cost will exceed this
 SYNTHESIZE=1
 
@@ -45,13 +45,13 @@ echo "────────────────────────�
 echo ""
 
 if [[ $SYNTHESIZE -eq 1 ]]; then
-  "$PHANTOM" swarm "$PROMPT" | tee "$OUT"
+  "$SPECTYN" swarm "$PROMPT" | tee "$OUT"
 else
   # raw mode — strip the synthesis section
-  "$PHANTOM" swarm "$PROMPT" | awk '/^── Synthesis ──$/{exit}1' | tee "$OUT"
+  "$SPECTYN" swarm "$PROMPT" | awk '/^── Synthesis ──$/{exit}1' | tee "$OUT"
 fi
 
-# Cost guard (post-hoc — phantom swarm doesn't expose pre-flight cost)
+# Cost guard (post-hoc — spectyn swarm doesn't expose pre-flight cost)
 COST=$(grep -oE 'cost: \$[0-9]+\.[0-9]+' "$OUT" | grep -oE '[0-9]+\.[0-9]+' | tail -1)
 if [[ -n "$COST" ]]; then
   if (( $(echo "$COST > $COST_CAP" | bc -l) )); then

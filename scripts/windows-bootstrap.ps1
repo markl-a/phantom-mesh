@@ -11,7 +11,7 @@ param(
     [string]$TailscaleCidr = '100.64.0.0/10'
 )
 # -----------------------------------------------------------------------------
-# Phantom Mesh -- Windows worker bootstrap (Z13 / Acer / AYANEO)
+# Spectyn Mesh -- Windows worker bootstrap (Z13 / Acer / AYANEO)
 # -----------------------------------------------------------------------------
 #
 # Run this on EACH Windows worker (need admin PowerShell).
@@ -21,7 +21,7 @@ param(
 #   2. (OPT-IN) If -AddSshKey is supplied, add that pubkey to authorized_keys
 #      / administrators_authorized_keys. WITHOUT THE FLAG, NO KEY IS INSTALLED.
 #   3. Open Windows Defender Firewall for inbound TCP 22 + 7878 from Tailscale
-#   4. Print info for the operator: user@host, Tailscale IP, phantom-mesh status
+#   4. Print info for the operator: user@host, Tailscale IP, spectyn-mesh status
 #
 # SECURITY NOTE (C9 / T78 / V10 HIGH-5):
 #   Previous versions of this script shipped with a HARDCODED ed25519 pubkey
@@ -38,15 +38,15 @@ param(
 #   .\scripts\windows-bootstrap.ps1 -AddSshKey "ssh-ed25519 AAAA... me@host"
 #
 #   # Remote (no key installed):
-#   irm https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/windows-bootstrap.ps1 | iex
+#   irm https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/windows-bootstrap.ps1 | iex
 #
 #   # Remote with explicit key (download first, then run with arg -- `iex` cannot
 #   # accept script parameters):
-#   irm https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/windows-bootstrap.ps1 -OutFile bootstrap.ps1
+#   irm https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/windows-bootstrap.ps1 -OutFile bootstrap.ps1
 #   .\bootstrap.ps1 -AddSshKey "ssh-ed25519 AAAA... me@host"
 #
 # Removal:
-#   To revoke an installed key, run `phantom uninstall --remove-ssh-key`
+#   To revoke an installed key, run `spectyn uninstall --remove-ssh-key`
 #   or manually edit:
 #     C:\ProgramData\ssh\administrators_authorized_keys
 #     $env:USERPROFILE\.ssh\authorized_keys
@@ -54,7 +54,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host "??? Phantom Mesh Windows bootstrap ???" -ForegroundColor Cyan
+Write-Host "??? Spectyn Mesh Windows bootstrap ???" -ForegroundColor Cyan
 Write-Host ""
 
 # -- 1. Install + start OpenSSH server ----------------------------------------
@@ -93,7 +93,7 @@ if ([string]::IsNullOrWhiteSpace($AddSshKey)) {
         throw "-AddSshKey does not look like a valid OpenSSH public key line: '$trimmedKey'"
     }
 
-    Write-Warning "ADDING SSH PUBLIC KEY TO administrators_authorized_keys -- REMOVE WITH 'phantom uninstall --remove-ssh-key' OR EDIT MANUALLY"
+    Write-Warning "ADDING SSH PUBLIC KEY TO administrators_authorized_keys -- REMOVE WITH 'spectyn uninstall --remove-ssh-key' OR EDIT MANUALLY"
     Write-Warning "  key: $trimmedKey"
 
     if ($PSCmdlet.ShouldProcess('authorized_keys files', "install pubkey")) {
@@ -154,8 +154,8 @@ function Add-FwRule {
     }
 }
 
-Add-FwRule "Phantom Mesh - Tailscale SSH"     22
-Add-FwRule "Phantom Mesh - Tailscale phantom" 7878
+Add-FwRule "Spectyn Mesh - Tailscale SSH"     22
+Add-FwRule "Spectyn Mesh - Tailscale spectyn" 7878
 
 # -- 4. Report info for operator ----------------------------------------------
 Write-Host ""
@@ -168,15 +168,15 @@ try {
     if ($LASTEXITCODE -eq 0) { $tailscaleIp = ($ts -split "`n")[0].Trim() }
 } catch {}
 
-$phantomRunning = Get-Process -Name 'phantom-mesh' -ErrorAction SilentlyContinue
-$phantomStatus = if ($phantomRunning) { "[OK] pid=$($phantomRunning.Id)" } else { "[X] not running" }
+$spectynRunning = Get-Process -Name 'spectyn-mesh' -ErrorAction SilentlyContinue
+$spectynStatus = if ($spectynRunning) { "[OK] pid=$($spectynRunning.Id)" } else { "[X] not running" }
 
 Write-Host ""
 Write-Host "??? ????? ???" -ForegroundColor Cyan
 Write-Host "Hostname:      $hostname"
 Write-Host "User:          $currentUser"
 Write-Host "Tailscale IP:  $tailscaleIp"
-Write-Host "phantom-mesh:  $phantomStatus"
+Write-Host "spectyn-mesh:  $spectynStatus"
 Write-Host ""
 if ([string]::IsNullOrWhiteSpace($AddSshKey)) {
     Write-Host "(no SSH pubkey installed; re-run with -AddSshKey to grant access)"

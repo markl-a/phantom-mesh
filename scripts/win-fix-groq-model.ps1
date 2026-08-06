@@ -1,9 +1,9 @@
 # win-fix-groq-model.ps1
 # Inject `default_model = "llama-3.1-8b-instant"` into the [providers.groq]
-# section of $HOME\.phantom-mesh\agents.toml on a Windows phantom-mesh peer,
-# then restart phantom serve via schtasks so the new model takes effect.
+# section of $HOME\.spectyn-mesh\agents.toml on a Windows spectyn-mesh peer,
+# then restart spectyn serve via schtasks so the new model takes effect.
 #
-# WHY: Win v0.4.0 phantom's [providers.groq] section silently inherits the
+# WHY: Win v0.4.0 spectyn's [providers.groq] section silently inherits the
 # global default_model = "gemini-2.5-flash", which Groq returns 404 for. Adding
 # an explicit default_model line under [providers.groq] overrides the global.
 #
@@ -11,7 +11,7 @@
 #        (idempotent — safe to re-run)
 
 $ErrorActionPreference = "Stop"
-$toml = "$env:USERPROFILE\.phantom-mesh\agents.toml"
+$toml = "$env:USERPROFILE\.spectyn-mesh\agents.toml"
 if (-not (Test-Path $toml)) {
   Write-Error "no agents.toml at $toml"; exit 1
 }
@@ -89,11 +89,11 @@ if ($check) {
   $check.Context.PostContext | ForEach-Object { Write-Host "  $_" }
 }
 
-# Restart phantom serve via schtasks so the new agents.toml is picked up.
+# Restart spectyn serve via schtasks so the new agents.toml is picked up.
 Write-Host ""
-Write-Host "Restarting phantom serve..."
+Write-Host "Restarting spectyn serve..."
 
-$proc = Get-Process -Name "phantom" -ErrorAction SilentlyContinue
+$proc = Get-Process -Name "spectyn" -ErrorAction SilentlyContinue
 if ($proc) {
   $proc | ForEach-Object {
     Write-Host "  killing pid $($_.Id)"
@@ -102,19 +102,19 @@ if ($proc) {
   Start-Sleep -Seconds 2
 }
 
-$taskName = "PhantomMeshServe"
+$taskName = "SpectynMeshServe"
 schtasks /Run /TN $taskName 2>&1 | Out-Null
 
 Start-Sleep -Seconds 4
-$alive = Get-Process -Name "phantom" -ErrorAction SilentlyContinue | Select-Object -First 1
+$alive = Get-Process -Name "spectyn" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($alive) {
-  Write-Host "phantom serve up (pid=$($alive.Id))"
+  Write-Host "spectyn serve up (pid=$($alive.Id))"
   try {
     $r = Invoke-WebRequest -Uri "http://127.0.0.1:7878/healthz" -UseBasicParsing -TimeoutSec 5
     Write-Host "healthz: $($r.StatusCode) $($r.Content)"
   } catch { Write-Warning "healthz: $_" }
 } else {
-  Write-Error "phantom did not start after schtasks /Run"
+  Write-Error "spectyn did not start after schtasks /Run"
   exit 2
 }
 

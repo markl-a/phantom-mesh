@@ -186,7 +186,7 @@ mod tests {
     fn task() -> BacklogTask {
         BacklogTask {
             task_id: "id".into(),
-            repo: "phantom-quant".into(),
+            repo: "spectyn-quant".into(),
             slug: "x".into(),
             component: "c".into(),
             acceptance: "a".into(),

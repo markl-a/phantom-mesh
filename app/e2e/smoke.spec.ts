@@ -2,12 +2,12 @@ import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:5173';
 const API_URL = 'http://localhost:7878';
-// Dev daemon bearer token (loopback only). Override with PHANTOM_E2E_TOKEN.
-const TOKEN = process.env.PHANTOM_E2E_TOKEN || 'e9723eea85484da6b39d5abdcdcef6bf';
+// Dev daemon bearer token (loopback only). Override with SPECTYN_E2E_TOKEN.
+const TOKEN = process.env.SPECTYN_E2E_TOKEN || 'e9723eea85484da6b39d5abdcdcef6bf';
 const AUTH = { Authorization: `Bearer ${TOKEN}` };
 
-// Is a phantom daemon actually listening on :7878? The daemon-API tests below
-// require `phantom serve` to be running; when it is NOT (the common case in a
+// Is a spectyn daemon actually listening on :7878? The daemon-API tests below
+// require `spectyn serve` to be running; when it is NOT (the common case in a
 // plain checkout / CI without a daemon), they SKIP honestly instead of
 // hard-failing. Resolved once and cached.
 let daemonUp: boolean | null = null;
@@ -22,12 +22,12 @@ async function daemonReachable(request: APIRequestContext): Promise<boolean> {
   return daemonUp;
 }
 
-test.describe('Phantom Mesh E2E Smoke — GUI (web shell)', () => {
+test.describe('Spectyn Mesh E2E Smoke — GUI (web shell)', () => {
   test('GUI loads successfully', async ({ page }) => {
     const errors: string[] = [];
     page.on('pageerror', (err) => errors.push(err.message));
     await page.goto(BASE_URL);
-    await expect(page).toHaveTitle(/phantom/i);
+    await expect(page).toHaveTitle(/spectyn/i);
     await page.waitForTimeout(2000);
     // In a bare browser (no Tauri runtime) the frontend throws expected,
     // benign errors: ResizeObserver noise, and "transformCallback" — the Tauri
@@ -49,11 +49,11 @@ test.describe('Phantom Mesh E2E Smoke — GUI (web shell)', () => {
   });
 });
 
-test.describe('Phantom Mesh E2E Smoke — daemon API (needs `phantom serve`)', () => {
+test.describe('Spectyn Mesh E2E Smoke — daemon API (needs `spectyn serve`)', () => {
   // Skip the whole group when no daemon is listening — these are integration
   // checks against a live daemon, not part of the always-on web-shell suite.
   test.beforeEach(async ({ request }) => {
-    test.skip(!(await daemonReachable(request)), 'no phantom daemon on :7878 — run `phantom serve`');
+    test.skip(!(await daemonReachable(request)), 'no spectyn daemon on :7878 — run `spectyn serve`');
   });
 
   test('health check reports ok + a version', async ({ request }) => {
@@ -95,8 +95,8 @@ test.describe('Phantom Mesh E2E Smoke — daemon API (needs `phantom serve`)', (
     const resp = await request.get(`${API_URL}/metrics`, { headers: AUTH });
     expect(resp.ok()).toBeTruthy();
     const text = await resp.text();
-    expect(text).toContain('phantom_mesh_uptime_seconds');
-    expect(text).toContain('phantom_mesh_tools_registered');
+    expect(text).toContain('spectyn_mesh_uptime_seconds');
+    expect(text).toContain('spectyn_mesh_tools_registered');
   });
 
   test('401 without auth', async ({ request }) => {

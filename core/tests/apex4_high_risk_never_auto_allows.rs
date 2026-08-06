@@ -2,11 +2,11 @@
 //! never be configured to auto-allow. This complements the policy-predicate lib
 //! test `high_risk_can_never_be_configured_to_auto_allow`.
 
-use phantom_mesh::cli_session::CliKind;
-use phantom_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
-use phantom_mesh::governed_run::escalation::MockEscalator;
-use phantom_mesh::governed_run::recorder::{MemRecorder, RunRecord};
-use phantom_mesh::governed_run::{GovernPolicy, RunOutcome, drive};
+use spectyn_mesh::cli_session::CliKind;
+use spectyn_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
+use spectyn_mesh::governed_run::escalation::MockEscalator;
+use spectyn_mesh::governed_run::recorder::{MemRecorder, RunRecord};
+use spectyn_mesh::governed_run::{GovernPolicy, RunOutcome, drive};
 use serde_json::json;
 
 fn stream(events: Vec<CliEvent>) -> std::sync::mpsc::Receiver<CliEvent> {

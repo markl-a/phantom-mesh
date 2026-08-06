@@ -22,7 +22,7 @@ fn main() {
 #[cfg(feature = "experimental-tools")]
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 #[cfg(feature = "experimental-tools")]
-use phantom_mesh::skillbank::tools::{catalog, SkillTool};
+use spectyn_mesh::skillbank::tools::{catalog, SkillTool};
 #[cfg(feature = "experimental-tools")]
 use serde_json::{json, Value};
 #[cfg(feature = "experimental-tools")]

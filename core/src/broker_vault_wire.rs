@@ -1,7 +1,7 @@
 // SPEC-15 §7 + §9 — Broker-vault-sync wire types (single source of truth for
 // the 7 REST endpoints + per-account vault_seal_key envelope + age-wrap key
 // handoff + HS256 broker JWT envelope that every broker client / future
-// `phantommesh-io` server impl must agree on).
+// `spectynmesh-io` server impl must agree on).
 //
 // Stage 1 (spec → interface): types + ts-rs exports + `unimplemented!()` stub
 // helpers only. No business logic — Stage 2 wires age v1 sealing / HMAC-SHA256
@@ -28,7 +28,7 @@
 //   - `generate_vault_seal_key` → `OsRng.fill_bytes(&mut [0u8; 32])`.
 //   - `wrap_vault_seal_key_for_recipient` → age v1 recipient-mode wrap → base64url.
 //   - hook the per-endpoint request/response structs into the existing
-//     `core/src/http_client.rs` so `phantom broker {set,get,wipe}` CLI verbs
+//     `core/src/http_client.rs` so `spectyn broker {set,get,wipe}` CLI verbs
 //     use a single typed surface.
 
 use base64::Engine as _;
@@ -126,16 +126,16 @@ impl std::fmt::Debug for VaultSealKey {
     }
 }
 
-/// Load the per-account `VaultSealKey` from `~/.phantom-mesh/vault-seal.key`
+/// Load the per-account `VaultSealKey` from `~/.spectyn-mesh/vault-seal.key`
 /// (base64url no-pad of the 32-byte key). Public so the separate Tauri/app
 /// crate can unseal vault items without touching the `pub(crate)` field.
 /// Returns `Err` if the file is missing or malformed — callers MUST fail
 /// closed (never fall back to broker plaintext) on error.
 ///
-/// 中文: 從 `~/.phantom-mesh/vault-seal.key` 載入 per-account seal key（base64url
+/// 中文: 從 `~/.spectyn-mesh/vault-seal.key` 載入 per-account seal key（base64url
 /// 32 byte）。公開給 app crate 用；檔案缺失/損毀回 Err,呼叫端必須 fail closed。
 pub fn load_vault_seal_key() -> Result<VaultSealKey, String> {
-    let path = crate::cli_config::phantom_data_dir()
+    let path = crate::cli_config::spectyn_data_dir()
         .ok()
         .map(|d| d.join("vault-seal.key"))
         .ok_or_else(|| "no home dir for vault-seal.key".to_string())?;
@@ -517,7 +517,7 @@ pub struct KeysWrappedResponse {
     /// field. Mirrors `WrappedVaultSealKey.source_device_pubkey_hex`.
     ///
     /// `Option` + `#[serde(default)]`: the CURRENT broker
-    /// (`phantommesh-io/routes/vault.ts`, schema `0010`) does NOT yet store/return
+    /// (`spectynmesh-io/routes/vault.ts`, schema `0010`) does NOT yet store/return
     /// this, so a legacy response deserializes with `None` rather than failing.
     /// `None` ⇒ the new device cannot verify ⇒ `into_wrapped_vault_seal_key`
     /// fails closed (see there). Carrying it E2E needs a broker sig column +
@@ -635,7 +635,7 @@ pub fn seal_vault_value(
 
 /// HKDF label for the per-device X25519 vault-wrap keypair (must stay stable;
 /// changing it rotates every device's wrap recipient).
-const WRAP_X25519_HKDF_LABEL: &[u8] = b"phantom-mesh.vault-wrap-x25519-v1";
+const WRAP_X25519_HKDF_LABEL: &[u8] = b"spectyn-mesh.vault-wrap-x25519-v1";
 
 /// Derive this device's X25519 vault-wrap `age::x25519::Identity` (the SECRET,
 /// used to UNWRAP an incoming seal_key) deterministically from its `identity.key`
@@ -971,7 +971,7 @@ fn os_random_bytes_pseudo() -> [u8; 32] {
 
 /// Domain-separation prefix for the ed25519 signature over a wrap envelope.
 /// Bumping it invalidates every previously-issued signature (a full re-wrap).
-const WRAP_ENVELOPE_SIG_DOMAIN: &[u8] = b"phantom-mesh.vault-wrap-envelope-v1";
+const WRAP_ENVELOPE_SIG_DOMAIN: &[u8] = b"spectyn-mesh.vault-wrap-envelope-v1";
 
 /// Canonical byte string the source device ed25519-signs over a wrap envelope
 /// (T-SEC-01 / SPEC-15 DECISION 2). Binds the ciphertext to ALL of its routing
@@ -1260,7 +1260,7 @@ mod tests {
             ts_ms: 1_700_000_000_000,
         };
         let j = serde_json::to_string(&req).unwrap();
-        // snake_case invariant — MUST match the broker server (phantommesh-io
+        // snake_case invariant — MUST match the broker server (spectynmesh-io
         // routes/vault.ts reads value_sealed / client_hmac_hex / ts_ms). A
         // camelCase regression here silently breaks every /vault/set write.
         assert!(j.contains("\"value_sealed\""), "snake_case wire required: {}", j);

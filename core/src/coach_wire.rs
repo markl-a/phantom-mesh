@@ -88,7 +88,7 @@ fn default_recall_k() -> u8 {
 /// Aggregated outcome of a single daily-review run. Mirrors SPEC-23 §7.1
 /// `CoachDailyReview` + `ReviewOutcome` collapsed into the wire-facing shape
 /// the UI + CLI actually consume. Returned by both the Tauri `coach_run_now`
-/// command and the `phantom coach review` CLI.
+/// command and the `spectyn coach review` CLI.
 ///
 /// 中文: 一次 daily review 跑完的結果。對應 SPEC-23 §7.1 的
 /// `CoachDailyReview` 與 `ReviewOutcome`，但合併成 UI / CLI 真正吃的扁平
@@ -146,7 +146,7 @@ pub struct DailyReviewOutcome {
 /// - `event_id`  — SPEC-16 events row id（向後相容 alias）
 /// - `date`      — local-tz `"YYYY-MM-DD"`
 /// - `takeaways_count` — `DailyReviewOutcome.takeaways.len()`（u32 wire-safe）
-/// - `markdown_path` — `~/.phantom-mesh/coach/YYYY-MM-DD.md.age` 絕對路徑
+/// - `markdown_path` — `~/.spectyn-mesh/coach/YYYY-MM-DD.md.age` 絕對路徑
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "../../app/src/lib/generated/coach/")]
 #[serde(rename_all = "camelCase")]
@@ -163,7 +163,7 @@ pub struct CoachReviewReadyPayload {
     /// wire shape stable across 32 / 64-bit targets.
     pub takeaways_count: u32,
     /// Absolute path to the age-encrypted markdown file
-    /// (`~/.phantom-mesh/coach/YYYY-MM-DD.md.age`). Delivery (SPEC-24)
+    /// (`~/.spectyn-mesh/coach/YYYY-MM-DD.md.age`). Delivery (SPEC-24)
     /// reads + decrypts; raw markdown is **never** put on the EventBus.
     pub markdown_path: String,
 }
@@ -289,7 +289,7 @@ pub enum ReviewStatus {
 
 /// Wire-facing error variants for the coach engine subsystem. Mirrors the
 /// SPEC-23 §11.1 error catalog one-to-one. Sent back to the UI via Tauri
-/// command failure path; CLI maps via `phantom_error::Error::user_message`.
+/// command failure path; CLI maps via `spectyn_error::Error::user_message`.
 ///
 /// 中文: SPEC-23 §11.1 error catalog 的 wire-facing 鏡像。每個 variant 對
 /// 應一個 user-facing recovery hint（見 §11.1 表）。`#[serde(tag = "code")]`
@@ -312,7 +312,7 @@ pub enum CoachError {
     DbFull,
     /// Scheduler registration failed because mobile OS denied background
     /// permission (iOS BGTask / Android background restricted).
-    /// Recovery: user opens Settings → allow phantom background refresh.
+    /// Recovery: user opens Settings → allow spectyn background refresh.
     #[error("coach.scheduler_permission_denied: {os}")]
     SchedulerPermissionDenied { os: String },
     /// Schedule input failed validation (`hour ∉ [0,23]` / `minute ∉
@@ -320,7 +320,7 @@ pub enum CoachError {
     #[error("coach.schedule_invalid: {field}")]
     ScheduleInvalid { field: String },
     /// Review row read decrypted to gibberish (identity.key corruption).
-    /// Recovery: `phantom keys restore` from backup.
+    /// Recovery: `spectyn keys restore` from backup.
     #[error("coach.decrypt_failed")]
     DecryptFailed,
     /// SPEC-25 skill recall errored. Stage 2 may downgrade this to a
@@ -871,7 +871,7 @@ mod tests {
             event_id: "01923f8e-7a4c-7000-8c2d-2b9f0e1d4a55".to_string(),
             date: "2026-05-24".to_string(),
             takeaways_count: 3,
-            markdown_path: "/home/u/.phantom-mesh/coach/2026-05-24.md.age".to_string(),
+            markdown_path: "/home/u/.spectyn-mesh/coach/2026-05-24.md.age".to_string(),
         };
         let j = serde_json::to_string(&p).unwrap();
         let back: CoachReviewReadyPayload = serde_json::from_str(&j).unwrap();
@@ -1152,11 +1152,11 @@ fallback_chain = []
 "#,
         )
         .expect("write agents.toml");
-        std::env::set_var("PHANTOM_MESH_AGENTS_TOML", &toml_path);
+        std::env::set_var("SPECTYN_MESH_AGENTS_TOML", &toml_path);
 
         let result = propose_tomorrow_action("brief: had a productive day", "groq:llama-3.1-8b-instant");
 
-        std::env::remove_var("PHANTOM_MESH_AGENTS_TOML");
+        std::env::remove_var("SPECTYN_MESH_AGENTS_TOML");
 
         assert!(
             matches!(result, Err(CoachError::LlmAllProvidersFailed)),

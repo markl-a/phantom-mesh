@@ -1,11 +1,11 @@
-# ── phantom-mesh agents.toml ──────────────────────────────────────────────────
+# ── spectyn-mesh agents.toml ──────────────────────────────────────────────────
 # Copy this file to the appropriate location and fill in your API keys.
 #
 # Config file locations (in order of precedence):
 #   1. Path given via --config flag to the daemon
 #   2. ./agents.toml  (current working directory)
-#   3. macOS: ~/Library/Application Support/com.phantommesh.app/agents.toml
-#   4. Linux: ~/.config/phantom-mesh/agents.toml
+#   3. macOS: ~/Library/Application Support/com.spectynmesh.app/agents.toml
+#   4. Linux: ~/.config/spectyn-mesh/agents.toml
 #
 # NEVER put real API keys in this file.
 # Always use api_key_env to reference an environment variable instead:
@@ -127,10 +127,10 @@ api_key_env = "NVIDIA_NIM_API_KEY"
 default_model = "nemotron-3-super"
 
 # ── Local agent-CLI backends (shell out to an installed coding-agent CLI) ────────
-# These route through phantom's L0 cli_session substrate instead of an HTTP API:
-# phantom drives the official local CLI as a one-shot agent. The model is chosen
+# These route through spectyn's L0 cli_session substrate instead of an HTTP API:
+# spectyn drives the official local CLI as a one-shot agent. The model is chosen
 # INSIDE that CLI's own config, not here. Use as an agent's provider, or per call:
-#     phantom exec --provider hermes "summarize this repo"
+#     spectyn exec --provider hermes "summarize this repo"
 #
 #   type = "claude_agent"     -> claude -p                          (Anthropic Agent SDK)
 #   type = "codex_agent"      -> codex exec                         (OpenAI Codex CLI)
@@ -282,7 +282,7 @@ provider = "groq"                    # free tier, fast token rate
 model    = "llama-3.3-70b-versatile" # JSON-output capable, cheap
 # No tools — dispatcher only reasons over peer inventory + emits text/JSON.
 tools = []
-instructions = """You are a Squad Pipeline dispatcher running on a phantom-mesh coordinator. Your sole job is to convert a user's natural-language goal into a structured dispatch plan that fans out to peer nodes.
+instructions = """You are a Squad Pipeline dispatcher running on a spectyn-mesh coordinator. Your sole job is to convert a user's natural-language goal into a structured dispatch plan that fans out to peer nodes.
 
 INPUT YOU WILL RECEIVE:
 - The user's goal (one or more sentences in any language)
@@ -316,7 +316,7 @@ Output ONLY the JSON. No prose, no markdown fence, no commentary. Parsing failur
 provider = "groq"
 model    = "llama-3.3-70b-versatile"
 tools = []
-instructions = """You are a Squad Pipeline synthesizer running on a phantom-mesh coordinator. After the dispatcher's plan has fanned out to N peers and each returned its agent's output, you receive the bundle and produce a unified report.
+instructions = """You are a Squad Pipeline synthesizer running on a spectyn-mesh coordinator. After the dispatcher's plan has fanned out to N peers and each returned its agent's output, you receive the bundle and produce a unified report.
 
 INPUT YOU WILL RECEIVE:
 - The original user goal
@@ -346,7 +346,7 @@ CRITICAL:
 """
 
 # ── Tool permissions (Tool(specifier) DSL) ────────────────────────────────────
-# Phantom's permission engine gates tool execution per call. Three lists —
+# Spectyn's permission engine gates tool execution per call. Three lists —
 # deny / ask / allow — composed with first-match-wins, deny > ask > allow.
 #
 # Tool names:                      Specifier shapes:
@@ -391,8 +391,8 @@ CRITICAL:
 # deny  = ["Bash"]
 # allow = ["Read(./*)", "Edit(./src/**)"]
 #
-# Verify with: phantom doctor                      (human-readable)
-#              phantom doctor --json | jq .permissions   (machine-readable)
+# Verify with: spectyn doctor                      (human-readable)
+#              spectyn doctor --json | jq .permissions   (machine-readable)
 
 
 # ── Tools configuration ────────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ CRITICAL:
 #                                    # Note: this is a plain string value, not an env var name.
 
 # ── P2P Cluster / multi-node mesh (optional) ──────────────────────────────────
-# Connect multiple phantom-mesh nodes over Tailscale to share work across machines.
+# Connect multiple spectyn-mesh nodes over Tailscale to share work across machines.
 # All nodes in a cluster must use the same cluster_secret value.
 #
 # Steps:
@@ -438,7 +438,7 @@ CRITICAL:
 #
 # worker_caps: this node's worker capabilities — advertises what kinds of
 # tasks this node is willing to accept. Other peers can target this node via
-# `phantom peer assign --required-caps android,camera ...`; the dispatcher
+# `spectyn peer assign --required-caps android,camera ...`; the dispatcher
 # (see `core/src/mesh.rs::select_best_peer_with_caps`) filters peers whose
 # advertised `worker_caps` is a superset of the task's `required_caps`. A
 # mismatch surfaces as `DispatchError::NoPeerSatisfiesCaps`.
@@ -462,9 +462,9 @@ CRITICAL:
 # heartbeat_failure_threshold = 3
 
 # ── External MCP servers (optional) ───────────────────────────────────────────
-# Phantom can spawn external Model-Context-Protocol (stdio) servers and surface
+# Spectyn can spawn external Model-Context-Protocol (stdio) servers and surface
 # their tools to every agent under a `<server_name>_<tool_name>` prefix. The
-# child process is started on phantom-mesh startup and kept alive; it is killed
+# child process is started on spectyn-mesh startup and kept alive; it is killed
 # when the daemon exits.
 #
 # Each `[[mcp_servers]]` block accepts:
@@ -479,39 +479,39 @@ CRITICAL:
 # you do NOT have to enumerate them under `[agent.X].tools = [...]` (though
 # you can mention them in `instructions` to nudge the model).
 #
-# ── Example: wire in phantom-secops's three MCP servers (red-team recon, ───
+# ── Example: wire in spectyn-secops's three MCP servers (red-team recon, ───
 # ──          blue-team log scanner, and config self-audit) ────────────────
-# Prereq: clone https://github.com/<your-org>/phantom-secops, then either
+# Prereq: clone https://github.com/<your-org>/spectyn-secops, then either
 #   (a) run `make mesh-mcp-config` over there and paste its output here, or
-#   (b) uncomment the blocks below and `export PHANTOM_SECOPS_ROOT=/abs/path`
-#       before starting phantom (the `cwd` field is silently ignored by
-#       phantom today, so the child inherits this process's CWD — set
+#   (b) uncomment the blocks below and `export SPECTYN_SECOPS_ROOT=/abs/path`
+#       before starting spectyn (the `cwd` field is silently ignored by
+#       spectyn today, so the child inherits this process's CWD — set
 #       PYTHONPATH explicitly to make imports resolve).
 #
 # After the daemon starts, verify with the line REPL:
-#   phantom repl -c "/tools"            # shows external (mcp) section
-#   phantom repl -c "/mcp test secops_recon"   # re-pings the server
+#   spectyn repl -c "/tools"            # shows external (mcp) section
+#   spectyn repl -c "/mcp test secops_recon"   # re-pings the server
 #
 # Run a one-shot from the master agent:
-#   phantom exec --agent master "use secops_recon_scan_target to probe 127.0.0.1"
+#   spectyn exec --agent master "use secops_recon_scan_target to probe 127.0.0.1"
 #
 # [[mcp_servers]]
 # name    = "secops_recon"
 # command = "python3"
-# args    = ["-m", "phantom_secops.mcp.secops_recon_server"]
-# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+# args    = ["-m", "spectyn_secops.mcp.secops_recon_server"]
+# env     = { PYTHONPATH = "/abs/path/to/spectyn-secops" }
 #
 # [[mcp_servers]]
 # name    = "secops_log"
 # command = "python3"
-# args    = ["-m", "phantom_secops.mcp.secops_log_server"]
-# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+# args    = ["-m", "spectyn_secops.mcp.secops_log_server"]
+# env     = { PYTHONPATH = "/abs/path/to/spectyn-secops" }
 #
 # [[mcp_servers]]
 # name    = "secops_self_audit"
 # command = "python3"
-# args    = ["-m", "phantom_secops.mcp.secops_self_audit_server"]
-# env     = { PYTHONPATH = "/abs/path/to/phantom-secops" }
+# args    = ["-m", "spectyn_secops.mcp.secops_self_audit_server"]
+# env     = { PYTHONPATH = "/abs/path/to/spectyn-secops" }
 
 # ── Telegram Remote Control (optional) ───────────────────────────────────────
 # Turns Telegram into a remote for this cluster (BIG-GOAL §P3 / OpenClaw

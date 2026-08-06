@@ -2,7 +2,7 @@
 //!
 //! `/review` is date-scoped; this is content-scoped: a case-insensitive
 //! substring match over every event's analysis `summary` + `tags`, newest
-//! first. Reads the **file** store (`~/.phantom-mesh/events/<id>/`) that
+//! first. Reads the **file** store (`~/.spectyn-mesh/events/<id>/`) that
 //! `/note`, focus, and `/review` populate, AND merges hits from the SPEC-16
 //! `events.sqlite` FTS5 index that the wire capture path (food/habit via
 //! `event_storage_wire::write_event` + `index_fts5`) populates — those events
@@ -372,12 +372,12 @@ mod tests {
     #[test]
     fn search_finds_by_substring_case_insensitive_newest_first() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
 
-        capture_note(&phantom, "remember to call the Dentist", &["note".into()]).unwrap();
-        capture_note(&phantom, "buy milk and eggs", &["note".into()]).unwrap();
+        capture_note(&spectyn, "remember to call the Dentist", &["note".into()]).unwrap();
+        capture_note(&spectyn, "buy milk and eggs", &["note".into()]).unwrap();
 
         // case-insensitive substring match
         let hits = search_events(&events, None, &RecallFilter::text("dentist"), 15).unwrap();
@@ -403,13 +403,13 @@ mod tests {
     #[test]
     fn search_multi_term_requires_all_terms_any_order() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
 
-        capture_note(&phantom, "morning coffee with the team", &["note".into()]).unwrap();
-        capture_note(&phantom, "afternoon coffee run", &["note".into()]).unwrap();
-        capture_note(&phantom, "morning standup", &["note".into()]).unwrap();
+        capture_note(&spectyn, "morning coffee with the team", &["note".into()]).unwrap();
+        capture_note(&spectyn, "afternoon coffee run", &["note".into()]).unwrap();
+        capture_note(&spectyn, "morning standup", &["note".into()]).unwrap();
 
         // Both terms must appear → only the note with BOTH "coffee" + "morning".
         let hits = search_events(&events, None, &RecallFilter::text("coffee morning"), 15).unwrap();
@@ -434,12 +434,12 @@ mod tests {
     #[test]
     fn search_multi_term_spans_summary_and_tags() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
         // One term in the summary, the other only in a tag → still matches (the
         // haystack is summary + tags joined).
-        capture_note(&phantom, "quarterly planning", &["work".into()]).unwrap();
-        let hits = search_events(&phantom.join("events"), None, &RecallFilter::text("planning work"), 15)
+        capture_note(&spectyn, "quarterly planning", &["work".into()]).unwrap();
+        let hits = search_events(&spectyn.join("events"), None, &RecallFilter::text("planning work"), 15)
             .unwrap();
         assert_eq!(hits.len(), 1, "terms may match across summary and tags");
     }
@@ -447,10 +447,10 @@ mod tests {
     #[test]
     fn search_matches_on_tags_too() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        capture_note(&phantom, "standup notes", &["work".into(), "meeting".into()]).unwrap();
-        let hits = search_events(&phantom.join("events"), None, &RecallFilter::text("meeting"), 15)
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        capture_note(&spectyn, "standup notes", &["work".into(), "meeting".into()]).unwrap();
+        let hits = search_events(&spectyn.join("events"), None, &RecallFilter::text("meeting"), 15)
             .unwrap();
         assert_eq!(hits.len(), 1, "tag match counts");
     }
@@ -458,12 +458,12 @@ mod tests {
     #[test]
     fn kind_filter_restricts_to_one_kind() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
         // Two text notes (capture_note writes kind="note" → projects to Text).
-        capture_note(&phantom, "alpha", &["note".into()]).unwrap();
-        capture_note(&phantom, "beta", &["note".into()]).unwrap();
+        capture_note(&spectyn, "alpha", &["note".into()]).unwrap();
+        capture_note(&spectyn, "beta", &["note".into()]).unwrap();
 
         let text_hits = search_events(
             &events,
@@ -489,14 +489,14 @@ mod tests {
         use crate::life_node::multimodal::{AnalysisResult, Modality};
         use crate::life_node::storage::EventStore;
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
 
         // One ordinary note (kind=note→text) plus a cross-node dispatch event
         // written the way `persist_dispatch_event` writes them (kind "dispatch"
         // + an analysis.json so recall's file-walk doesn't skip it).
-        capture_note(&phantom, "ordinary note", &["note".into()]).unwrap();
+        capture_note(&spectyn, "ordinary note", &["note".into()]).unwrap();
         let store = EventStore::new(&events);
         let m = store
             .write_event("dispatch", &[Modality::Text("ran echo on peer".into())], &[], "n")
@@ -517,7 +517,7 @@ mod tests {
             )
             .unwrap();
 
-        // `phantom recall --kind dispatch` surfaces the dispatch event…
+        // `spectyn recall --kind dispatch` surfaces the dispatch event…
         let disp = search_events(
             &events,
             None,
@@ -542,10 +542,10 @@ mod tests {
     #[test]
     fn since_filter_keeps_on_or_after_date() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
-        capture_note(&phantom, "today note", &["note".into()]).unwrap();
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
+        capture_note(&spectyn, "today note", &["note".into()]).unwrap();
 
         // A far-future floor excludes today's note; the epoch floor keeps it.
         let none = search_events(
@@ -578,7 +578,7 @@ mod tests {
     //
     // `capture_note` writes the file-store (`events/<id>/` with analysis.json),
     // which the file-walk above covers. But the SPEC-16 *wire* capture path
-    // (`phantom habit` → `capture_habit_wire::record_checkin`) writes a
+    // (`spectyn habit` → `capture_habit_wire::record_checkin`) writes a
     // PLAINTEXT `meta.json` in the wire `EventMeta` shape + indexes a PII-scrubbed
     // summary into the `events.sqlite` FTS5 index, and NO `analysis.json`. Those
     // events are invisible to the file walk and only surface through the FTS5
@@ -642,7 +642,7 @@ mod tests {
     }
 
     /// End-to-end: register a habit + record a check-in through the real wire
-    /// chain, then `phantom recall` (search_events) must surface it via the FTS5
+    /// chain, then `spectyn recall` (search_events) must surface it via the FTS5
     /// merge branch. The indexed summary is `"habit <slug> <source>"`, so a
     /// search for the slug finds the check-in even though it has no analysis.json
     /// and is invisible to the file-store walk.
@@ -651,7 +651,7 @@ mod tests {
     fn habit_checkin_is_recallable_via_fts5_merge() {
         let _env = isolate_wire_env();
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap();
-        let events = home.join(".phantom-mesh/events");
+        let events = home.join(".spectyn-mesh/events");
 
         create_habit(&HabitDefinition {
             slug: "water".to_string(),
@@ -695,11 +695,11 @@ mod tests {
     fn recall_kind_habit_filter_excludes_notes_includes_checkins() {
         let _env = isolate_wire_env();
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap();
-        let phantom = home.join(".phantom-mesh");
-        let events = phantom.join("events");
+        let spectyn = home.join(".spectyn-mesh");
+        let events = spectyn.join("events");
 
         // A plain note (file store, projects to kind=text).
-        capture_note(&phantom, "buy more water filters", &["note".into()]).expect("note");
+        capture_note(&spectyn, "buy more water filters", &["note".into()]).expect("note");
         // A real habit check-in (wire store, kind=habit).
         create_habit(&HabitDefinition {
             slug: "water".to_string(),
@@ -810,18 +810,18 @@ mod tests {
     #[test]
     fn semantic_recall_ranks_by_cosine_through_real_recall_entry() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
-        let sqlite = phantom.join("events.sqlite");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
+        let sqlite = spectyn.join("events.sqlite");
 
         // Capture near→mid→far so the NEWEST event ("far") is the LEAST similar:
         // a naive newest-first ordering would put "far" FIRST — the exact OPPOSITE
         // of the cosine order — so this test passes ONLY if cosine drives the rank
         // (relevances are all distinct, so the timestamp tiebreak is never hit).
-        let near = capture_note(&phantom, "alpha zznear tokens", &["note".into()]).unwrap();
-        let mid = capture_note(&phantom, "beta zzmid tokens", &["note".into()]).unwrap();
-        let far = capture_note(&phantom, "gamma zzfar tokens", &["note".into()]).unwrap();
+        let near = capture_note(&spectyn, "alpha zznear tokens", &["note".into()]).unwrap();
+        let mid = capture_note(&spectyn, "beta zzmid tokens", &["note".into()]).unwrap();
+        let far = capture_note(&spectyn, "gamma zzfar tokens", &["note".into()]).unwrap();
 
         let _g = EmbedderGuard;
         crate::event_storage_wire::set_test_embedder(Box::new(OrderStub));
@@ -870,12 +870,12 @@ mod tests {
     #[test]
     fn semantic_recall_degrades_to_fts5_when_embedder_unavailable() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
 
-        capture_note(&phantom, "tokio runtime panic in scheduler", &["note".into()]).unwrap();
-        capture_note(&phantom, "bought groceries today", &["note".into()]).unwrap();
+        capture_note(&spectyn, "tokio runtime panic in scheduler", &["note".into()]).unwrap();
+        capture_note(&spectyn, "bought groceries today", &["note".into()]).unwrap();
 
         let _g = EmbedderGuard;
         // Embedder reports unavailable → the semantic leg yields nothing.
@@ -926,12 +926,12 @@ mod tests {
     #[test]
     fn keyword_mode_ignores_the_embedder() {
         let tmp = tempfile::tempdir().unwrap();
-        let phantom = tmp.path().join(".phantom-mesh");
-        std::fs::create_dir_all(&phantom).unwrap();
-        let events = phantom.join("events");
-        let sqlite = phantom.join("events.sqlite");
+        let spectyn = tmp.path().join(".spectyn-mesh");
+        std::fs::create_dir_all(&spectyn).unwrap();
+        let events = spectyn.join("events");
+        let sqlite = spectyn.join("events.sqlite");
 
-        let n = capture_note(&phantom, "alpha zznear tokens", &["note".into()]).unwrap();
+        let n = capture_note(&spectyn, "alpha zznear tokens", &["note".into()]).unwrap();
 
         let _g = EmbedderGuard;
         crate::event_storage_wire::set_test_embedder(Box::new(OrderStub));

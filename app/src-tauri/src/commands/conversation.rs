@@ -1,4 +1,4 @@
-//! Conversation IPC commands — proxy the in-process PhantomMesh runtime's
+//! Conversation IPC commands — proxy the in-process SpectynMesh runtime's
 //! session store so the desktop app's ConversationView / ConversationSelector
 //! work without a separate daemon. The browser `httpFallback` in
 //! `app/src/lib/tauri-compat.ts` mirrors these against the standalone daemon's

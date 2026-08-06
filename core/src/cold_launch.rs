@@ -9,7 +9,7 @@
 //!
 //! SYS-B (operator-locked 2026-06-13, `design-decisions-2026-06-13.md`): being
 //! chat-capable is a LOCAL property. The fully-provisioned state reaches `chat`
-//! on a **local cluster with no broker / phantom account**. The decision tree
+//! on a **local cluster with no broker / spectyn account**. The decision tree
 //! deliberately takes NO "broker"/"account" input, so a broker can never become
 //! a precondition for reaching chat (the login-first dead-end SYS-B removes).
 //!
@@ -23,7 +23,7 @@
 
 /// The three cold-launch state flags (SPEC-03 §8). All are derived from on-disk
 /// state at launch time:
-/// - `identity_exists`: `~/.phantom-mesh/keys/ed25519.{priv,pub}` present.
+/// - `identity_exists`: `~/.spectyn-mesh/keys/ed25519.{priv,pub}` present.
 /// - `cluster_paired`: a `[cluster]` membership is configured (local or broker).
 /// - `onboarded`: the first-run wizard reached its terminal state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

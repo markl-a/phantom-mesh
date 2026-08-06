@@ -1,7 +1,7 @@
 //! External coding-agent delegation: adapter trait + unified result schema +
 //! probe (sprint MVP T10).
 //!
-//! phantom is a *control tower* — it can route a unit of work to an external
+//! spectyn is a *control tower* — it can route a unit of work to an external
 //! coding agent (Claude Code, Codex, Gemini CLI) and get a comparable result
 //! back, rather than being just another model wrapper. This module is the
 //! contract layer:

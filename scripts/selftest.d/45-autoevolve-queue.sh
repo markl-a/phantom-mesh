@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Autoevolve task queue self-test — verifies the pop / dispatch /
 # log-write semantics of the FIFO queue file consumed by
-# `phantom autoevolve --once`.
+# `spectyn autoevolve --once`.
 #
 # We don't validate LLM behaviour (that would need a real provider key
 # and wouldn't be deterministic). What we DO validate is the queue
@@ -11,20 +11,20 @@
 selftest_feature_meta() {
   echo "name=autoevolve-queue"
   echo "priority=P2"
-  echo "requires=phantom-autoevolve"
+  echo "requires=spectyn-autoevolve"
   echo "description=autoevolve.queue.txt FIFO pop + log entry semantics"
-  echo "hints=core/src/bin/phantom.rs autoevolve_pop_queue run_autoevolve"
+  echo "hints=core/src/bin/spectyn.rs autoevolve_pop_queue run_autoevolve"
 }
 
 selftest_run() {
   local td qf log
   td=$(mktemp -d)
-  qf="$td/.phantom-mesh/autoevolve.queue.txt"
-  log="$td/.phantom-mesh/autoevolve.log"
-  mkdir -p "$td/.phantom-mesh"
+  qf="$td/.spectyn-mesh/autoevolve.queue.txt"
+  log="$td/.spectyn-mesh/autoevolve.log"
+  mkdir -p "$td/.spectyn-mesh"
 
-  # Minimal agents.toml so phantom can boot.
-  cat > "$td/.phantom-mesh/agents.toml" <<'EOF'
+  # Minimal agents.toml so spectyn can boot.
+  cat > "$td/.spectyn-mesh/agents.toml" <<'EOF'
 [core]
 host = "127.0.0.1"
 port = 7878
@@ -50,7 +50,7 @@ EOF
   local before_count
   before_count=$(grep -cvE '^[[:space:]]*$|^[[:space:]]*#' "$qf")
   T_ARTIFACT="$qf"
-  T_REPRO="HOME=$td $PHANTOM autoevolve --once --no-commit --target check --max-rounds 1"
+  T_REPRO="HOME=$td $SPECTYN autoevolve --once --no-commit --target check --max-rounds 1"
 
   if [ "$before_count" = "1" ]; then
     t_pass "queue starts with 1 real task" ""
@@ -63,7 +63,7 @@ EOF
   # fail with a fake API key, OR it may succeed if a real key is set
   # via env. Either way, the queue should be popped (task consumed)
   # and a log entry written.
-  HOME="$td" timeout 90 "$PHANTOM" autoevolve --once --no-commit --target check --max-rounds 1 \
+  HOME="$td" timeout 90 "$SPECTYN" autoevolve --once --no-commit --target check --max-rounds 1 \
     > "$SELFTEST_ARTIFACTS/autoevolve-run.txt" 2>&1 || true
 
   local after_count

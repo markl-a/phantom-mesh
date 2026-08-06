@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — run the OFFLINE phantom-mesh promptfoo eval suite for CI.
+# run.sh — run the OFFLINE spectyn-mesh promptfoo eval suite for CI.
 #
 # Exits non-zero if any offline case fails. Fully offline by default:
 #   - no result sharing/upload (sharing:false in config)
@@ -21,13 +21,13 @@ export NO_COLOR="${NO_COLOR:-1}"
 # Default offline: do NOT opt into the gated LLM case unless caller already set it.
 export PROMPTFOO_LLM="${PROMPTFOO_LLM:-0}"
 
-# Ensure the phantom binary is reachable (cargo installs land in ~/.cargo/bin).
-if ! command -v phantom >/dev/null 2>&1; then
-  if [ -x "$HOME/.cargo/bin/phantom" ]; then
+# Ensure the spectyn binary is reachable (cargo installs land in ~/.cargo/bin).
+if ! command -v spectyn >/dev/null 2>&1; then
+  if [ -x "$HOME/.cargo/bin/spectyn" ]; then
     export PATH="$HOME/.cargo/bin:$PATH"
   else
-    echo "WARNING: 'phantom' not found on PATH; CLI-driven cases (1-3) will error." >&2
-    echo "         Install the phantom CLI or set PHANTOM_BIN to its path." >&2
+    echo "WARNING: 'spectyn' not found on PATH; CLI-driven cases (1-3) will error." >&2
+    echo "         Install the spectyn CLI or set SPECTYN_BIN to its path." >&2
   fi
 fi
 
@@ -80,7 +80,7 @@ if [ "${1:-}" = "--watch" ]; then
   WATCH="--watch"
 fi
 
-echo "==> running offline phantom eval suite: ${PF[*]} $MODE -c $CONFIG $WATCH"
+echo "==> running offline spectyn eval suite: ${PF[*]} $MODE -c $CONFIG $WATCH"
 if [ -n "$WATCH" ]; then
   exec "${PF[@]}" "$MODE" -c "$CONFIG" "$WATCH"
 else

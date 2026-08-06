@@ -9,8 +9,8 @@
 # debug bundle (G-DBG-4).
 #
 # Usage:
-#   scripts/e2e/full-lifecycle-mac.sh                # uses ~/.cargo/bin/phantom
-#   PHANTOM_BIN=/path/to/phantom scripts/e2e/full-lifecycle-mac.sh
+#   scripts/e2e/full-lifecycle-mac.sh                # uses ~/.cargo/bin/spectyn
+#   SPECTYN_BIN=/path/to/spectyn scripts/e2e/full-lifecycle-mac.sh
 #   KEEP_HOME=1 scripts/e2e/...                      # don't delete the temp HOME
 #
 # Honesty: a step that the binary does not yet implement is reported FAIL, not
@@ -19,11 +19,11 @@
 
 set -uo pipefail
 
-BIN="${PHANTOM_BIN:-$HOME/.cargo/bin/phantom}"
+BIN="${SPECTYN_BIN:-$HOME/.cargo/bin/spectyn}"
 TS="$(date +%Y%m%d-%H%M%S)"
-RUN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/phantom-e2e-$TS.XXXXXX")"
-LOG="${TMPDIR:-/tmp}/phantom-e2e-$TS.log"
-SHOTS_DIR="${TMPDIR:-/tmp}/phantom-e2e-$TS.shots"
+RUN_HOME="$(mktemp -d "${TMPDIR:-/tmp}/spectyn-e2e-$TS.XXXXXX")"
+LOG="${TMPDIR:-/tmp}/spectyn-e2e-$TS.log"
+SHOTS_DIR="${TMPDIR:-/tmp}/spectyn-e2e-$TS.shots"
 mkdir -p "$SHOTS_DIR"
 
 steps=0; passed=0; failed=0
@@ -38,8 +38,8 @@ step() {
   steps=$((steps+1))
   note "▶ STEP $steps: $name"
   note "  \$ $*"
-  # PHANTOM_LOG=debug for verbose logs; HOME isolated; merge stderr→stdout→log.
-  if HOME="$RUN_HOME" PHANTOM_LOG=debug "$@" >>"$LOG" 2>&1; then
+  # SPECTYN_LOG=debug for verbose logs; HOME isolated; merge stderr→stdout→log.
+  if HOME="$RUN_HOME" SPECTYN_LOG=debug "$@" >>"$LOG" 2>&1; then
     note "  ✓ PASS (exit 0)"
     passed=$((passed+1))
     return 0
@@ -59,7 +59,7 @@ step_expect() {
   steps=$((steps+1))
   note "▶ STEP $steps: $name  (expect: /$pat/)"
   note "  \$ $*"
-  local out; out="$(HOME="$RUN_HOME" PHANTOM_LOG=debug "$@" 2>>"$LOG")"
+  local out; out="$(HOME="$RUN_HOME" SPECTYN_LOG=debug "$@" 2>>"$LOG")"
   local rc=$?
   printf '%s\n' "$out" >>"$LOG"
   if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q "$pat"; then
@@ -72,17 +72,17 @@ step_expect() {
   return 1
 }
 
-note "=== phantom Mac CLI full-lifecycle E2E ==="
+note "=== spectyn Mac CLI full-lifecycle E2E ==="
 note "bin:  $BIN"
 note "HOME: $RUN_HOME"
 note "log:  $LOG"
 note ""
 
-[ -x "$BIN" ] || { note "✗ phantom binary not found/executable at $BIN"; exit 2; }
+[ -x "$BIN" ] || { note "✗ spectyn binary not found/executable at $BIN"; exit 2; }
 
 # ── The user's lifecycle, in order ──────────────────────────────────────────
 # CUJ-01 activation
-step_expect "phantom --version"            "0\.6\.0"          "$BIN" --version
+step_expect "spectyn --version"            "0\.6\.0"          "$BIN" --version
 step        "identity init (keys init)"                       "$BIN" keys init
 step        "habit create water"                              "$BIN" habit create water --label "水"
 step        "habit checkin water"                             "$BIN" habit checkin water "morning glass"

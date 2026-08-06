@@ -2,10 +2,10 @@
 //! is unset — CI without keys still passes; dev box with the key
 //! catches API contract drift.
 
-use phantom_mesh::life_node::multimodal::{
+use spectyn_mesh::life_node::multimodal::{
     AnalysisInput, Modality, MultimodalProvider, ResponseFormat,
 };
-use phantom_mesh::life_node::providers::gemini::GeminiMultimodalProvider;
+use spectyn_mesh::life_node::providers::gemini::GeminiMultimodalProvider;
 
 // Valid 8x8 solid-red JPEG generated via Pillow at quality=80.
 // Embedded so the test has no fixture-file dependency. Gemini 2.5

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# validate-mac.sh — one-shot macOS smoke gate for the phantom CLI.
+# validate-mac.sh — one-shot macOS smoke gate for the spectyn CLI.
 #
-# Quickly checks that phantom's macOS-specific surface works and that the
+# Quickly checks that spectyn's macOS-specific surface works and that the
 # system tooling the CLI relies on is present. Designed to be a usable gate:
 #   exit 0  = all required checks passed
 #   exit !0 = at least one required check failed
@@ -11,12 +11,12 @@
 # keys are required.
 #
 # Usage:
-#   ./scripts/validate-mac.sh                          # uses ~/.cargo/bin/phantom
-#   PHANTOM_BIN=/path/to/phantom ./scripts/validate-mac.sh
+#   ./scripts/validate-mac.sh                          # uses ~/.cargo/bin/spectyn
+#   SPECTYN_BIN=/path/to/spectyn ./scripts/validate-mac.sh
 #
 set -euo pipefail
 
-BIN="${PHANTOM_BIN:-$HOME/.cargo/bin/phantom}"
+BIN="${SPECTYN_BIN:-$HOME/.cargo/bin/spectyn}"
 
 PASS=0 FAIL=0 WARN=0
 ok()   { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
@@ -36,7 +36,7 @@ else
   warn "no 'timeout'/'gtimeout' found — running without hang protection"
 fi
 
-echo "phantom mac validate — $(date '+%Y-%m-%d %H:%M:%S')"
+echo "spectyn mac validate — $(date '+%Y-%m-%d %H:%M:%S')"
 echo "platform: $(uname -s) $(uname -m)"
 echo "binary:   $BIN"
 
@@ -49,26 +49,26 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-hdr "1. phantom binary"
+hdr "1. spectyn binary"
 if [ ! -x "$BIN" ]; then
-  bad "binary not found / not executable at $BIN (set PHANTOM_BIN to override)"
+  bad "binary not found / not executable at $BIN (set SPECTYN_BIN to override)"
   echo; echo "== result: $PASS passed, $FAIL failed, $WARN warn =="
   exit 1
 fi
 ok "binary executable at $BIN"
 
 VER="$(TO 20 "$BIN" --version 2>&1 | head -1 | tr -d '\r')" && [ -n "$VER" ] \
-  && ok "phantom --version → ${VER}" \
-  || bad "phantom --version failed"
+  && ok "spectyn --version → ${VER}" \
+  || bad "spectyn --version failed"
 
 # ---------------------------------------------------------------------------
-hdr "2. phantom doctor"
+hdr "2. spectyn doctor"
 # doctor is the CLI's own self-check. We only require it to exit 0; its
 # internal warnings (missing provider keys etc.) are not our concern here.
 if TO 60 "$BIN" doctor >/dev/null 2>&1; then
-  ok "phantom doctor exited 0"
+  ok "spectyn doctor exited 0"
 else
-  bad "phantom doctor exited nonzero (run '$BIN doctor' to see why)"
+  bad "spectyn doctor exited nonzero (run '$BIN doctor' to see why)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ chk_tool() {  # chk_tool <required|optional> <label> <cmd> [args...]
 
 chk_tool required "launchctl (launchd / service install)" launchctl help
 chk_tool required "tmutil (Time Machine backups)"          tmutil version
-chk_tool required "mdfind (Spotlight search)"              mdfind -onlyin / -count "phantom_no_such_query_xyz"
+chk_tool required "mdfind (Spotlight search)"              mdfind -onlyin / -count "spectyn_no_such_query_xyz"
 
 # xcrun + simctl: xcrun may exist but simctl needs Xcode/CLT to be selected.
 if command -v xcrun >/dev/null 2>&1; then
@@ -112,7 +112,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-hdr "4. phantom mcp stdio server (tools/list)"
+hdr "4. spectyn mcp stdio server (tools/list)"
 # Non-hanging: feed initialize + tools/list on stdin, hard timeout, then parse.
 # Skipped (warn, not fail) if it hangs or python3 is missing.
 if ! command -v python3 >/dev/null 2>&1; then

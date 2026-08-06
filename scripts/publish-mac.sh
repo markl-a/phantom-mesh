@@ -3,9 +3,9 @@
 #
 # What it does, in order:
 #   1. Build (delegates to scripts/build-mac.sh — codesigns + mirrors to dist/)
-#   2. Upload dist/phantom-aarch64-apple-darwin → R2 phantom-binaries/phantom-darwin-arm64
-#   3. Deploy phantommesh-io Worker (registers /install.sh + Mac entry in /dist/*)
-#   4. Verify via curl that /install.sh + /dist/phantom-darwin-arm64 are live
+#   2. Upload dist/spectyn-aarch64-apple-darwin → R2 spectyn-binaries/spectyn-darwin-arm64
+#   3. Deploy spectynmesh-io Worker (registers /install.sh + Mac entry in /dist/*)
+#   4. Verify via curl that /install.sh + /dist/spectyn-darwin-arm64 are live
 #
 # After step 4, anyone on macOS (M-series) can:
 #   curl -fsSL https://phantommesh.io/install.sh | sh
@@ -24,9 +24,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-BIN_LOCAL="dist/phantom-aarch64-apple-darwin"
-BIN_R2_KEY="phantom-darwin-arm64"
-PMIO_DIR="phantommesh-io"
+BIN_LOCAL="dist/spectyn-aarch64-apple-darwin"
+BIN_R2_KEY="spectyn-darwin-arm64"
+PMIO_DIR="spectynmesh-io"
 PUBLIC_HOST="https://phantommesh.io"
 
 step() { printf "\n\033[35m── %s ──\033[0m\n" "$1"; }
@@ -45,9 +45,9 @@ SIZE_MB=$(( $(wc -c < "$BIN_LOCAL") / 1024 / 1024 ))
 ok "$BIN_LOCAL ($SIZE_MB MB)"
 
 # ── 2. Upload to R2 ───────────────────────────────────────────────────────
-step "2. upload to R2 (phantom-binaries/$BIN_R2_KEY)"
+step "2. upload to R2 (spectyn-binaries/$BIN_R2_KEY)"
 npx --prefix "$PMIO_DIR" wrangler r2 object put \
-  "phantom-binaries/$BIN_R2_KEY" \
+  "spectyn-binaries/$BIN_R2_KEY" \
   --file "$BIN_LOCAL" \
   --content-type application/octet-stream
 ok "uploaded"

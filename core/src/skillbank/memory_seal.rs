@@ -1,6 +1,6 @@
 //! At-rest sealing for the owned-memory store (`hermes_memory` rows).
 //!
-//! Closes the P0-8 gap: the FTS5 owned-memory DB (`~/.phantom-mesh/hermes-runtime.db`)
+//! Closes the P0-8 gap: the FTS5 owned-memory DB (`~/.spectyn-mesh/hermes-runtime.db`)
 //! historically stored `text`/`source` in the clear. This module seals those
 //! columns with the SAME age v1 / `EventKey` primitive the conversation seal
 //! (`crate::vault::conversation_seal`) and the SPEC-16 event store already use,
@@ -12,9 +12,9 @@
 //!     `list_by_kind`/`list_since` and tag-based verdict recall keep working.
 //!     The FTS5 index is fed a de-PII'd TOKEN form (`fts_index_form`) so keyword
 //!     recall survives while the verbatim sentence never enters the index pages.
-//!   * Opt-in kill-switch `PHANTOM_ENCRYPT_MEMORY` — DEFAULT OFF. Off ⇒ callers
+//!   * Opt-in kill-switch `SPECTYN_ENCRYPT_MEMORY` — DEFAULT OFF. Off ⇒ callers
 //!     write plaintext exactly as before (byte-identical, ships safe). Dedicated
-//!     flag (not the conversation flag `PHANTOM_ENCRYPT_CONVERSATIONS`) so the
+//!     flag (not the conversation flag `SPECTYN_ENCRYPT_CONVERSATIONS`) so the
 //!     two stores ship independently.
 //!   * Auto-detecting reads: a stored value is treated as plaintext (legacy /
 //!     flag-off) UNLESS the flag is ON *and* it base64-decodes to bytes that
@@ -55,10 +55,10 @@ pub enum MemSealError {
     Open,
 }
 
-/// Opt-in kill-switch. **Default OFF.** Only `PHANTOM_ENCRYPT_MEMORY` = `1`/`true`
+/// Opt-in kill-switch. **Default OFF.** Only `SPECTYN_ENCRYPT_MEMORY` = `1`/`true`
 /// (case-insensitive) enables at-rest sealing of new owned-memory writes.
 pub fn memory_e2ee_enabled() -> bool {
-    std::env::var("PHANTOM_ENCRYPT_MEMORY")
+    std::env::var("SPECTYN_ENCRYPT_MEMORY")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
@@ -149,7 +149,7 @@ mod tests {
     use super::*;
     use crate::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
 
-    // EVENT_KEY_CACHE + PHANTOM_ENCRYPT_MEMORY are process-global; serialize
+    // EVENT_KEY_CACHE + SPECTYN_ENCRYPT_MEMORY are process-global; serialize
     // every key/env-touching test on this mutex.
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -157,15 +157,15 @@ mod tests {
     fn enabled_reads_env_default_off() {
         let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Ensure unset → default OFF.
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         assert!(!memory_e2ee_enabled());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         assert!(memory_e2ee_enabled());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "TRUE");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "TRUE");
         assert!(memory_e2ee_enabled());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "0");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "0");
         assert!(!memory_e2ee_enabled());
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
     }
 
     #[test]

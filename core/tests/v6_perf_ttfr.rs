@@ -26,10 +26,10 @@
 
 use std::time::{Duration, Instant};
 
-use phantom_mesh::capture_food_wire::{FoodCaptureRequest, FOOD_LOG_KIND};
-use phantom_mesh::coach_wire::aggregate;
-use phantom_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
-use phantom_mesh::onboarding_wire::{compute_ttfr, OnboardingError};
+use spectyn_mesh::capture_food_wire::{FoodCaptureRequest, FOOD_LOG_KIND};
+use spectyn_mesh::coach_wire::aggregate;
+use spectyn_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
+use spectyn_mesh::onboarding_wire::{compute_ttfr, OnboardingError};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

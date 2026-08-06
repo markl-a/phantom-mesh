@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-command Terminal-Bench baseline for the phantom agent.
+# One-command Terminal-Bench baseline for the spectyn agent.
 #
 # Encapsulates the fiddly bits the harness needs on macOS + this adapter:
 #   - hosts the linux binary over http for the task containers to fetch
@@ -69,8 +69,8 @@ fi
 # Pick the linux binary matching the docker arch and host it over http.
 arch="$(docker info --format '{{.Architecture}}' 2>/dev/null || uname -m)"
 case "$arch" in
-  aarch64|arm64) bin="phantom-aarch64-linux" ;;
-  *)             bin="phantom-x86_64-linux" ;;
+  aarch64|arm64) bin="spectyn-aarch64-linux" ;;
+  *)             bin="spectyn-x86_64-linux" ;;
 esac
 if [ ! -f "$here/$bin" ]; then
   echo "[run-baseline] ERROR: $bin not found — build it with ./build-linux-binary.sh" >&2
@@ -80,7 +80,7 @@ if ! pgrep -f "http.server $PORT" >/dev/null 2>&1; then
   ( cd "$here" && python3 -m http.server "$PORT" --bind 0.0.0.0 >/tmp/tb-httpd.log 2>&1 & )
   echo "[run-baseline] started binary host on :$PORT"
 fi
-export PHANTOM_TB_BINARY_URL="http://host.docker.internal:$PORT/$bin"
+export SPECTYN_TB_BINARY_URL="http://host.docker.internal:$PORT/$bin"
 
 echo "[run-baseline] model=$MODEL tasks=${#TASKS[@]} concurrent=$N_CONCURRENT"
 echo "[run-baseline] tasks: ${TASKS[*]}"
@@ -91,7 +91,7 @@ for t in "${TASKS[@]}"; do args+=(-t "$t"); done
 tb run \
   --dataset-path "$DATASET" \
   "${args[@]}" \
-  --agent-import-path phantom_agent:PhantomAgent \
+  --agent-import-path spectyn_agent:SpectynAgent \
   --model "$MODEL" \
   --n-concurrent "$N_CONCURRENT" \
   --output-path ./runs

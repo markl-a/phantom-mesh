@@ -3,7 +3,7 @@
 # =============================================================================
 # Purpose:
 #   Cuts a *production-signed* Android APK on `v*` tag pushes and attaches it
-#   as a GitHub Release asset, alongside the matching `phantom-aarch64-linux-android`
+#   as a GitHub Release asset, alongside the matching `spectyn-aarch64-linux-android`
 #   coordinator binary from release-daemon.yml.
 #
 # Hard gate (V4):
@@ -199,7 +199,7 @@ jobs:
             exit 1
           }
 
-          APK_NAME="phantom-mesh-${REF_SAFE}-signed.apk"
+          APK_NAME="spectyn-mesh-${REF_SAFE}-signed.apk"
           # apksigner reads passwords from env via the `pass:env:` prefix,
           # which keeps the secrets out of `ps` output and the run log.
           "$ANDROID_SDK_ROOT/build-tools/35.0.0/apksigner" sign \
@@ -245,7 +245,7 @@ jobs:
   # so this workflow is self-contained for V4 cuts.
   # ──────────────────────────────────────────────────────────────────────────
   build-coordinator-android:
-    name: Build phantom-aarch64-linux-android
+    name: Build spectyn-aarch64-linux-android
     needs: verify-secrets
     runs-on: ubuntu-latest
     permissions:
@@ -291,22 +291,22 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --locked
 
-      - name: Build phantom binary
+      - name: Build spectyn binary
         working-directory: core
-        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin spectyn
 
       - name: Strip and rename binary
         run: |
           set -e
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          BIN="core/target/aarch64-linux-android/release/phantom"
-          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-aarch64-linux-android
-          ls -lh phantom-aarch64-linux-android
+          BIN="core/target/aarch64-linux-android/release/spectyn"
+          "$NDK_BIN/llvm-strip" "$BIN" -o spectyn-aarch64-linux-android
+          ls -lh spectyn-aarch64-linux-android
 
       - name: Upload binary to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          files: phantom-aarch64-linux-android
+          files: spectyn-aarch64-linux-android
           draft: false
           prerelease: true
           fail_on_unmatched_files: true

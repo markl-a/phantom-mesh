@@ -1,7 +1,7 @@
 // MAC-CUJ01-INST-004: install.sh HTTPS-only enforcement (F-CRIT-3 security invariant).
 //
 // scripts/install.sh has a require_https() guard that refuses any non-HTTPS
-// PHANTOM_INSTALL_BASE. This hermetic test shells out to `sh scripts/install.sh`
+// SPECTYN_INSTALL_BASE. This hermetic test shells out to `sh scripts/install.sh`
 // with an http:// base URL and asserts the installer aborts (exit != 0) with an
 // error mentioning HTTPS. This is a security invariant: an attacker must not be
 // able to point the installer at a plaintext URL for MITM during download.
@@ -35,7 +35,7 @@ fn install_sh_rejects_non_https_base_url() {
     // Isolate HOME to a unique temp dir so the installer cannot touch the real
     // user environment even if the guard were to fail.
     let home = std::env::temp_dir().join(format!(
-        "phantom-install-https-{}-{}",
+        "spectyn-install-https-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -47,7 +47,7 @@ fn install_sh_rejects_non_https_base_url() {
     let output = Command::new("sh")
         .arg(&script)
         .env("HOME", &home)
-        .env("PHANTOM_INSTALL_BASE", "http://insecure.example")
+        .env("SPECTYN_INSTALL_BASE", "http://insecure.example")
         .output()
         .expect("failed to invoke sh scripts/install.sh");
 

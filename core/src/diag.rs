@@ -2,17 +2,17 @@
 //!
 //! Two artefacts:
 //!
-//! 1. **Crash log** — `~/.phantom-mesh/crashes/crash-<ts>.log` written by
+//! 1. **Crash log** — `~/.spectyn-mesh/crashes/crash-<ts>.log` written by
 //!    a panic hook. Contains the panic message, location, and the last 32
 //!    in-memory events so post-mortems aren't blind.
 //!
-//! 2. **Event log** — `~/.phantom-mesh/events.jsonl` rolling append.
+//! 2. **Event log** — `~/.spectyn-mesh/events.jsonl` rolling append.
 //!    Every tool call, slash command, agent run start/end, and provider
 //!    error pushes a one-line JSON record. ~256-entry ring also kept in
 //!    memory for the crash hook to dump.
 //!
 //! Both are best-effort; failures here never panic the caller. If
-//! `~/.phantom-mesh/` isn't writable, events are silently dropped (fine
+//! `~/.spectyn-mesh/` isn't writable, events are silently dropped (fine
 //! for tests / readonly homes).
 //!
 //! `init()` must be called at process startup before anything else
@@ -20,11 +20,11 @@
 //!
 //! ## Where to look when something goes wrong
 //!
-//! - Event log: `~/.phantom-mesh/events.jsonl` (rotated to
+//! - Event log: `~/.spectyn-mesh/events.jsonl` (rotated to
 //!   `events.jsonl.1` once it passes 10 MB). One JSON object per line —
-//!   `{ "ts_ms", "kind", "summary" }`. Tail it to see what phantom did
+//!   `{ "ts_ms", "kind", "summary" }`. Tail it to see what spectyn did
 //!   right before a problem.
-//! - Crash logs: `~/.phantom-mesh/crashes/crash-<unix-ts>.log`. Each
+//! - Crash logs: `~/.spectyn-mesh/crashes/crash-<unix-ts>.log`. Each
 //!   contains the version, git hash, OS/arch, panic location + message,
 //!   a backtrace (set `RUST_BACKTRACE=1` to make it useful), and the
 //!   last 32 events leading up to the crash.
@@ -79,13 +79,13 @@ pub fn init() {
     if STATE.get().is_some() {
         return;
     }
-    let phantom_dir = crate::cli_config::phantom_data_dir().ok();
-    let _ = phantom_dir.as_ref().map(|p| std::fs::create_dir_all(p));
+    let spectyn_dir = crate::cli_config::spectyn_data_dir().ok();
+    let _ = spectyn_dir.as_ref().map(|p| std::fs::create_dir_all(p));
 
     let state = DiagState {
         ring: VecDeque::with_capacity(RING_CAPACITY),
-        events_log: phantom_dir.as_ref().map(|p| p.join("events.jsonl")),
-        crash_dir: phantom_dir.as_ref().map(|p| p.join("crashes")),
+        events_log: spectyn_dir.as_ref().map(|p| p.join("events.jsonl")),
+        crash_dir: spectyn_dir.as_ref().map(|p| p.join("crashes")),
     };
     if let Some(dir) = &state.crash_dir {
         let _ = std::fs::create_dir_all(dir);
@@ -99,7 +99,7 @@ pub fn init() {
     // pipe (Windows ERROR_NO_DATA "管道正關閉中" os error 232, or
     // EPIPE on Unix) Rust's eprintln! / println! panics. That panic is
     // not actionable — it just means "the consumer hung up". Don't
-    // pollute ~/.phantom-mesh/crashes/ with one of these on every
+    // pollute ~/.spectyn-mesh/crashes/ with one of these on every
     // short-lived MCP session, and exit silently with code 0 so the
     // parent doesn't think we crashed.
     let prev = std::panic::take_hook();
@@ -122,7 +122,7 @@ pub fn init() {
         prev(info);
     }));
 
-    record("startup", "phantom diagnostic init");
+    record("startup", "spectyn diagnostic init");
 }
 
 /// Cap (so a runaway dump can't bloat the log) THEN redact a diag summary at
@@ -249,12 +249,12 @@ fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
     let path = crash_dir.join(format!("crash-{}.log", ts));
 
     let mut buf = String::new();
-    buf.push_str("phantom crash report (panic)\n");
+    buf.push_str("spectyn crash report (panic)\n");
     buf.push_str(&format!("ts_unix: {}\n", ts));
     buf.push_str(&format!("version: {}\n", env!("CARGO_PKG_VERSION")));
     buf.push_str(&format!(
         "git_hash: {}\n",
-        option_env!("PHANTOM_GIT_HASH").unwrap_or("?")
+        option_env!("SPECTYN_GIT_HASH").unwrap_or("?")
     ));
     buf.push_str(&format!(
         "os: {}-{}\n",
@@ -290,7 +290,7 @@ fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
 
     let _ = std::fs::write(&path, &buf);
     // Surface to user so they know where to look. We CANNOT use
-    // eprintln! here: if stderr is closed (the user piped phantom into
+    // eprintln! here: if stderr is closed (the user piped spectyn into
     // `head`, `less`, or anything that exits early), eprintln! panics
     // with "failed printing to stderr: Broken pipe", which re-enters
     // this hook and produces a meaningless second crash log
@@ -300,7 +300,7 @@ fn write_crash_log(info: &std::panic::PanicHookInfo<'_>) {
     use std::io::Write as _;
     let _ = writeln!(
         std::io::stderr(),
-        "\n  ⚠ phantom crashed. A crash log was written to:\n      {}\n  \
+        "\n  ⚠ spectyn crashed. A crash log was written to:\n      {}\n  \
          Please attach that file when reporting this. \
          Re-run with RUST_BACKTRACE=1 for a fuller trace.",
         path.display(),

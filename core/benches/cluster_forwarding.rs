@@ -15,8 +15,8 @@
 //!     N = 10, 100, 1000.
 //!
 //! The LAN end-to-end p50/p95/p99 measurement lives in the sibling bash
-//! scenario `scripts/phantom-test/scenarios/cross_host_perf.sh`, which
-//! drives two real `phantom serve` instances and asserts the 500ms p99
+//! scenario `scripts/spectyn-test/scenarios/cross_host_perf.sh`, which
+//! drives two real `spectyn serve` instances and asserts the 500ms p99
 //! budget on real hardware. The two together cover both halves of the
 //! perf-gate test matrix row from F004's spec.
 //!
@@ -36,7 +36,7 @@ mod common;
 use std::time::Instant;
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use phantom_mesh::mesh::{select_best_peer_with_caps, PeerHealth, PeerInfo};
+use spectyn_mesh::mesh::{select_best_peer_with_caps, PeerHealth, PeerInfo};
 
 /// Build a `PeerInfo` inventory of `n` online, healthy peers. Capabilities
 /// are sharded across three tags so that `required_caps = ["shell.write"]`

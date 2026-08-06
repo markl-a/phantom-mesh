@@ -50,7 +50,7 @@ const mkLine = (kind: LineKind, text: string): Line => ({
 // ── Initial seed (replaced by /api/sessions fetch on 5/2) ───────────────
 
 const SEED: Line[] = [
-  mkLine("system", "phantom 0.4.0 (\x1b[36m6a58dda9ef+\x1b[0m, macos-aarch64) · session local"),
+  mkLine("system", "spectyn 0.4.0 (\x1b[36m6a58dda9ef+\x1b[0m, macos-aarch64) · session local"),
   mkLine("system", "Type \x1b[36m/help\x1b[0m for commands, \x1b[36m/agent\x1b[0m to switch agent."),
   mkLine("output", "\x1b[2m─── ready ───\x1b[0m"),
 ];
@@ -167,7 +167,7 @@ function Header({ version, node, peers }: { version: string; node: string; peers
       }}
     >
       <span>
-        <span style={{ color: "var(--term-fg)" }}>phantom</span>{" "}
+        <span style={{ color: "var(--term-fg)" }}>spectyn</span>{" "}
         <span style={{ color: "var(--term-prompt)" }}>{version}</span>
       </span>
       <span>·</span>
@@ -346,7 +346,7 @@ export default function TerminalShell({
         setLines((cur) => [
           mkLine(
             "system",
-            `phantom \x1b[36m${ver.version}\x1b[0m (\x1b[36m${ver.commit}\x1b[0m, macos-aarch64) · ${sessions.length} session${sessions.length === 1 ? "" : "s"} · ${totalMsgs} messages`,
+            `spectyn \x1b[36m${ver.version}\x1b[0m (\x1b[36m${ver.commit}\x1b[0m, macos-aarch64) · ${sessions.length} session${sessions.length === 1 ? "" : "s"} · ${totalMsgs} messages`,
           ),
           ...cur.slice(1), // drop the SEED's hardcoded version line; keep the rest
         ]);

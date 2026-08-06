@@ -4,7 +4,7 @@
 # provider-error "render leak" that the headless ratatui TestBackend tests
 # CANNOT reach.
 #
-# Why a PTY: `phantom tui` bails unless `stdin().is_terminal()` (tui.rs), so a
+# Why a PTY: `spectyn tui` bails unless `stdin().is_terminal()` (tui.rs), so a
 # piped-stdin test can't drive it. tmux gives a genuine PTY + a real screen we
 # can read back with `tmux capture-pane` (the actual rendered cells, after
 # ratatui has written escape sequences to the terminal — exactly the layer where
@@ -21,7 +21,7 @@
 #
 # Usage:
 #   scripts/e2e/tui-provider-error.sh                 # builds debug binary if needed
-#   PHANTOM_BIN=/path/to/phantom scripts/e2e/tui-provider-error.sh
+#   SPECTYN_BIN=/path/to/spectyn scripts/e2e/tui-provider-error.sh
 #   KEEP=1 scripts/e2e/tui-provider-error.sh          # keep HOME + frames + tmux log
 #   COLS=120 ROWS=40 scripts/e2e/tui-provider-error.sh
 #
@@ -31,12 +31,12 @@ set -uo pipefail
 
 COLS="${COLS:-100}"
 ROWS="${ROWS:-30}"
-SESSION="phantom-tui-bugA-$$"
+SESSION="spectyn-tui-bugA-$$"
 TS="$(date +%Y%m%d-%H%M%S)"
-OUT="${TMPDIR:-/tmp}/phantom-tui-bugA-$TS"
+OUT="${TMPDIR:-/tmp}/spectyn-tui-bugA-$TS"
 mkdir -p "$OUT"
 FRAMES="$OUT/frames"; mkdir -p "$FRAMES"
-RUN_HOME="$OUT/home"; mkdir -p "$RUN_HOME/.phantom-mesh"
+RUN_HOME="$OUT/home"; mkdir -p "$RUN_HOME/.spectyn-mesh"
 
 note() { printf '%s\n' "$*"; }
 fail() { note "✗ FAIL: $*"; finish 1; }
@@ -59,45 +59,45 @@ trap 'cleanup' EXIT INT TERM
 # ── Preconditions ───────────────────────────────────────────────────────────
 command -v tmux >/dev/null 2>&1 || fail "tmux not found — required for the PTY (brew install tmux)"
 
-BIN="${PHANTOM_BIN:-}"
+BIN="${SPECTYN_BIN:-}"
 if [ -z "$BIN" ]; then
   REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
   # cargo runs from core/ (the crate root — there is NO root workspace), so the
   # binary lands in core/target/, NOT REPO_ROOT/target. Pointing at the latter
   # would run a stale/absent binary after a fresh build (codex review F2).
-  BIN="$REPO_ROOT/core/target/debug/phantom"
+  BIN="$REPO_ROOT/core/target/debug/spectyn"
   if [ ! -x "$BIN" ]; then
-    note "building phantom (debug) ..."
-    ( cd "$REPO_ROOT/core" && cargo build --bin phantom ) || fail "cargo build --bin phantom failed"
+    note "building spectyn (debug) ..."
+    ( cd "$REPO_ROOT/core" && cargo build --bin spectyn ) || fail "cargo build --bin spectyn failed"
   fi
 fi
-[ -x "$BIN" ] || fail "phantom binary not found/executable at $BIN"
+[ -x "$BIN" ] || fail "spectyn binary not found/executable at $BIN"
 note "bin:  $BIN"
 note "home: $RUN_HOME (isolated, no provider key)"
 note "pty:  tmux ${COLS}x${ROWS}"
 
 # Scrub every provider key from the child env so the fallback chain is GUARANTEED
 # to exhaust → provider error. (We pass a clean env into the tmux session.)
-UNSET_KEYS="GROQ_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY MISTRAL_API_KEY DEEPSEEK_API_KEY PHANTOM_MESH_GROQ_API_KEY PHANTOM_MESH_ANTHROPIC_API_KEY PHANTOM_MESH_GEMINI_API_KEY"
+UNSET_KEYS="GROQ_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY MISTRAL_API_KEY DEEPSEEK_API_KEY SPECTYN_MESH_GROQ_API_KEY SPECTYN_MESH_ANTHROPIC_API_KEY SPECTYN_MESH_GEMINI_API_KEY"
 UNSET_ARGS=""
 for k in $UNSET_KEYS; do UNSET_ARGS="$UNSET_ARGS -u $k"; done
 
 # ── Launch the TUI in a real PTY ────────────────────────────────────────────
-# `env -u <keys> HOME=... phantom tui` inside tmux. tmux allocates the PTY so
+# `env -u <keys> HOME=... spectyn tui` inside tmux. tmux allocates the PTY so
 # is_terminal() is true and the full-screen ratatui app runs for real.
 # shellcheck disable=SC2086
 tmux new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS" \
-  "env $UNSET_ARGS HOME='$RUN_HOME' PHANTOM_LOG=error '$BIN' tui 2>'$OUT/tui.stderr'"
+  "env $UNSET_ARGS HOME='$RUN_HOME' SPECTYN_LOG=error '$BIN' tui 2>'$OUT/tui.stderr'"
 
 # Wait for the first real frame. The full layout draws a box-drawing border, but
 # at very narrow widths ratatui may render borderless — so also accept the brand
-# status line ("phantom ·") as proof the app drew. Either means we're live.
+# status line ("spectyn ·") as proof the app drew. Either means we're live.
 drew=0
 for _ in $(seq 1 50); do          # up to ~10s
   sleep 0.2
   tmux capture-pane -t "$SESSION" -p > "$FRAMES/00-startup.txt" 2>/dev/null || true
   if grep -q '[─│╭╮╰╯┌┐└┘║═]' "$FRAMES/00-startup.txt" 2>/dev/null \
-     || grep -q 'phantom ·' "$FRAMES/00-startup.txt" 2>/dev/null; then
+     || grep -q 'spectyn ·' "$FRAMES/00-startup.txt" 2>/dev/null; then
     drew=1; break
   fi
 done

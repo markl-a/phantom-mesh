@@ -11,7 +11,7 @@ import type { InterruptionKind } from "./InterruptionKind";
  * `FocusSessionResult.interruptions`（中斷次數）欄位回傳 count（總數）。
  *
  * **Telemetry**: `kind.slug()` is used as the label value for the
- * `phantom_focus_interruptions_total{kind="..."}` Prometheus counter
+ * `spectyn_focus_interruptions_total{kind="..."}` Prometheus counter
  * (mapped from SPEC-21 §12.4 observability section).
  */
 export type FocusInterruption = { 

@@ -12,7 +12,7 @@
 ## 0. 前置需求（Prerequisites）
 
 除非另有說明，所有命令都從
-`/Users/<you>/path/to/phantom-mesh-ios`
+`/Users/<you>/path/to/spectyn-mesh-ios`
 執行。
 
 ```bash
@@ -23,7 +23,7 @@ git pull --ff-only origin platform/ios
 # Coordinator on Mac (must be reachable from devices over Tailscale
 # or the same Wi-Fi)
 curl -s -m 5 http://127.0.0.1:7878/healthz   # → "ok"
-grep cluster_secret ~/.phantom-mesh/agents.toml   # capture for step 5
+grep cluster_secret ~/.spectyn-mesh/agents.toml   # capture for step 5
 
 # Devices paired + on same network as Mac (`localNetwork` transport
 # means they're already wifi-debug ready)
@@ -71,7 +71,7 @@ node /tmp/test-cluster-dispatch.mjs
 
 若此步驟失敗，繼續下去沒有意義 — 請先修好 coordinator 端
 （`/rpc/task/assign`、`core/src/mesh.rs::make_auth_token_bytes`、
-`~/.phantom-mesh/agents.toml` 裡的 agent runtime providers，代理執行時供應商），
+`~/.spectyn-mesh/agents.toml` 裡的 agent runtime providers，代理執行時供應商），
 再去碰 iOS。
 
 ---
@@ -80,7 +80,7 @@ node /tmp/test-cluster-dispatch.mjs
 
 ```bash
 ./scripts/package-ios.sh --sim
-#  → dist/phantom-ios-sim.app  (~97 MB, debug, unsigned)
+#  → dist/spectyn-ios-sim.app  (~97 MB, debug, unsigned)
 ```
 
 冷樹時此腳本會：
@@ -110,18 +110,18 @@ SIM_ID=$(xcrun simctl list devices available \
          | grep -E "iPhone 17 Pro " | grep -oE "[A-F0-9-]{36}" | tail -1)
 xcrun simctl boot      "$SIM_ID" 2>/dev/null || true
 open -a Simulator      --args -CurrentDeviceUDID "$SIM_ID"
-xcrun simctl terminate "$SIM_ID" ai.phantommesh.app 2>/dev/null
-xcrun simctl uninstall "$SIM_ID" ai.phantommesh.app 2>/dev/null
-xcrun simctl install   "$SIM_ID" dist/phantom-ios-sim.app
-xcrun simctl launch    "$SIM_ID" ai.phantommesh.app
+xcrun simctl terminate "$SIM_ID" ai.spectynmesh.app 2>/dev/null
+xcrun simctl uninstall "$SIM_ID" ai.spectynmesh.app 2>/dev/null
+xcrun simctl install   "$SIM_ID" dist/spectyn-ios-sim.app
+xcrun simctl launch    "$SIM_ID" ai.spectynmesh.app
 sleep 4
 xcrun simctl io        "$SIM_ID" screenshot /tmp/ios-sim-launch.png
 ```
 
 Log（日誌）預期（`xcrun simctl spawn "$SIM_ID" log show --last 30s
---predicate 'process == "Phantom Mesh"' --info`）：
+--predicate 'process == "Spectyn Mesh"' --info`）：
 
-- ✓ `PhantomMeshRuntime ready in 0.0Xs`
+- ✓ `SpectynMeshRuntime ready in 0.0Xs`
 - ✓ 不應出現 `HTTP server failed: Address already in use`
   （`lib.rs` 的 cfg(desktop)-gate，commit `1abf2f5`）
 - ⚠ `agents.toml not found; checked: [...]` 是預期且無害的；
@@ -139,7 +139,7 @@ Log（日誌）預期（`xcrun simctl spawn "$SIM_ID" log show --last 30s
 
 ```bash
 ./scripts/package-ios.sh
-#  → dist/phantom-ios.ipa  (~31 MB, signed by team F7683B69U7)
+#  → dist/spectyn-ios.ipa  (~31 MB, signed by team F7683B69U7)
 ```
 
 `bundle.iOS.developmentTeam` 已寫死（hardcoded）在 `tauri.conf.json`；
@@ -148,21 +148,21 @@ Log（日誌）預期（`xcrun simctl spawn "$SIM_ID" log show --last 30s
 ```bash
 IPHONE=00008110-001134A026F2801E
 IPAD=00008027-0018296E2E22002E
-IPA=dist/phantom-ios.ipa
+IPA=dist/spectyn-ios.ipa
 
 xcrun devicectl device install app --device "$IPHONE" "$IPA"
 xcrun devicectl device install app --device "$IPAD"   "$IPA"
-xcrun devicectl device process launch --device "$IPHONE" ai.phantommesh.app
-xcrun devicectl device process launch --device "$IPAD"   ai.phantommesh.app
+xcrun devicectl device process launch --device "$IPHONE" ai.spectynmesh.app
+xcrun devicectl device process launch --device "$IPAD"   ai.spectynmesh.app
 ```
 
 驗證：
 
 ```bash
-xcrun devicectl device info processes --device "$IPHONE" | grep -i phantom
-xcrun devicectl device info processes --device "$IPAD"   | grep -i phantom
+xcrun devicectl device info processes --device "$IPHONE" | grep -i spectyn
+xcrun devicectl device info processes --device "$IPAD"   | grep -i spectyn
 # Each prints one PID + bundle path under
-# /private/var/containers/Bundle/Application/<GUID>/Phantom Mesh.app/Phantom Mesh
+# /private/var/containers/Bundle/Application/<GUID>/Spectyn Mesh.app/Spectyn Mesh
 ```
 
 若啟動時出現 `FBSOpenApplicationErrorDomain error 7
@@ -175,7 +175,7 @@ xcrun devicectl device info processes --device "$IPAD"   | grep -i phantom
 
 每台裝置手動執行：
 
-1. 點 **Phantom Mesh** → 進入 chat 分頁。
+1. 點 **Spectyn Mesh** → 進入 chat 分頁。
 2. 輸入任意 prompt → **Send**。出現紅色橫幅（banner）：
    `尚未設定 cluster — 點此到「設定 → Cluster 派送」`。
 3. 點該橫幅。透過 commit `e1f4b14` 接好的 deep-link（深層連結），
@@ -184,7 +184,7 @@ xcrun devicectl device info processes --device "$IPAD"   | grep -i phantom
    - **Coordinator URL**：`http://<mac-tailscale-ip>:7878`
      （Mac 的 Tailscale IP；替換成 coordinator 上 `tailscale ip -4`
      回報的數值）。
-   - **Cluster Secret**：貼上 Mac 上 `~/.phantom-mesh/agents.toml`
+   - **Cluster Secret**：貼上 Mac 上 `~/.spectyn-mesh/agents.toml`
      裡的 `cluster_secret` 值。
 5. 點 **測試 dispatch**。成功（✓）時：
    - 顯示 `回應：<short answer> (<ms>ms, job <8-char>)`。
@@ -208,8 +208,8 @@ xcrun devicectl device info processes --device "$IPAD"   | grep -i phantom
 
 ```bash
 # Tail the coordinator log for incoming /rpc/task/assign hits
-journalctl --user -u phantom-mesh -f 2>/dev/null \
-  || tail -f ~/.phantom-mesh/logs/app.log.* 2>/dev/null \
+journalctl --user -u spectyn-mesh -f 2>/dev/null \
+  || tail -f ~/.spectyn-mesh/logs/app.log.* 2>/dev/null \
   || true
 ```
 
@@ -241,5 +241,5 @@ journalctl --user -u phantom-mesh -f 2>/dev/null \
 09:00 Asia/Taipei 自動開一個 GitHub issue，提醒重跑本文件的步驟 4-5。
 
 重新 build + reinstall 之後，localStorage 設定
-（`phantom-mesh-cluster-mode` Zustand persist key）會保留 — 除非
+（`spectyn-mesh-cluster-mode` Zustand persist key）會保留 — 除非
 使用者反安裝（uninstall），否則裝置不需要重新設定。

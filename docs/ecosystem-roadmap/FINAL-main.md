@@ -1,4 +1,4 @@
-# FINAL Development Plan — phantom-mesh ("main")
+# FINAL Development Plan — spectyn-mesh ("main")
 
 > Synthesis of codex DRAFT + agy REVIEW, re-grounded against actual code on branch
 > `feat/platform-flows-design-fixes`. agy's review was **usable and largely correct** — it
@@ -6,7 +6,7 @@
 > Every claim below was re-verified by reading the cited files.
 
 ## What it is + current state
-Phantom Mesh is a local-first private AI agent mesh: a single Rust binary (daemon + CLI) plus a
+Spectyn Mesh is a local-first private AI agent mesh: a single Rust binary (daemon + CLI) plus a
 Tauri/React app, with encrypted Life Track event capture, daily coach review, recall/search,
 provider fallback, and HMAC-authenticated mesh RPC. Broad and usable for v0.6.0 exploration but
 **pre-stable**: the v0.6.0 cut is gated on app-facing honesty (no mock/leak surfaces), a clean
@@ -32,14 +32,14 @@ Verified ground truth (changes the plan):
   broker/OAuth is unreachable (removes the login-first hard dead-end across mac/win app + CLIs).
 - **P1 — SYS-C / SYS-D fail-safe + reversibility:** unattended runs default to **safe-pause** when
   the supervisor device is unresponsive; add GUI/CLI off-switches (`coach uninstall-schedule`, fix
-  the broken `service uninstall` that `taskkill /F`-es all phantom.exe, GUI "delete my data").
+  the broken `service uninstall` that `taskkill /F`-es all spectyn.exe, GUI "delete my data").
 - **P2 — SYS-A planned/as-built split:** mark `/rpc/task/resume|approve`, push channel, and
   `awaiting_approval` UI as `[PLANNED v0.7]` (dashed) in all six flow diagrams so implementers stop
   treating goal-state as a built contract.
 - **P2 — Life Track day-0 UX:** honest empty states for `review`/`coach review`/`recall`
-  ("no events yet — capture your first with `phantom note ...`"); README 30-second local-first path.
+  ("no events yet — capture your first with `spectyn note ...`"); README 30-second local-first path.
 - **P2 — Capture never fails on enrichment:** persist the event first (exit 0), make Gemini analysis
-  async best-effort (`analysis: pending` + `phantom event reanalyze <id>`) — today an analyze
+  async best-effort (`analysis: pending` + `spectyn event reanalyze <id>`) — today an analyze
   failure exits 1 and loses the event (win-CLI capture death path).
 - **P3 — perf pass (post-cut):** move `serve.rs` blocking `std::fs` off the Tokio hot path
   (`:526/1021/1347/3798/3870` → `tokio::fs`/`spawn_blocking`); `session.rs:71` global async Mutex →
@@ -54,12 +54,12 @@ Verified ground truth (changes the plan):
 - `SecurityPanel.tsx`: replace `MOCK_EVENTS` (lines 36/187/223/242) with a real audit/flight-recorder
   fetch; when no data, render an honest empty state instead of fake events (incl. the
   `state.isOffline ? MOCK_EVENTS` fallback at `:242`).
-- `scripts/setup-cloud-linux.sh`: replace the invalid `phantom run --node` (not in KNOWN_SUBCOMMANDS,
+- `scripts/setup-cloud-linux.sh`: replace the invalid `spectyn run --node` (not in KNOWN_SUBCOMMANDS,
   ~`:243`) with current verbs (`peer assign`/`send-async`); replace hardcoded `100.64.0.10-13`
   (`:149-152`) with prompts/placeholders.
 - Run and green `npm run build` + `tsc` in `app/`, and `cargo test -p <core> skill_wire` to lock the
   already-landed panic-gate (the `:1469` GA-floor assertion) against regression.
-- Smoke the README path: `phantom serve`, a capture verb, `phantom coach review`.
+- Smoke the README path: `spectyn serve`, a capture verb, `spectyn coach review`.
 
 ### 2. P1 — SYS-B offline bypass
 - Add a first-run path that mints a local ed25519 identity and reaches a usable single-machine
@@ -77,7 +77,7 @@ Verified ground truth (changes the plan):
 - Add a lifetime-level escalation/budget cap (撞頂 → forced `Cancelled`) so reaper auto-resume +
   governor escalation can't become unbounded push.
 - Symmetric off-switches: `coach uninstall-schedule` (unload+delete unit); fix win `service uninstall`
-  so it stops only its own task with a printed plan, not `taskkill /F` of every phantom.exe.
+  so it stops only its own task with a printed plan, not `taskkill /F` of every spectyn.exe.
 - GUI reversibility: Settings → "delete all my data" wired to the existing kill-switch, with copy
   distinguishing logout (keeps data) vs delete (irreversible).
 

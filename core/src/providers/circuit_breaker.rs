@@ -101,7 +101,7 @@ pub struct CircuitBreaker {
 
 impl CircuitBreaker {
     /// Build a breaker with the given config. `failure_threshold` is clamped to
-    /// at least 1 so a misconfigured 0 can never open on a phantom 0th failure.
+    /// at least 1 so a misconfigured 0 can never open on a spectyn 0th failure.
     pub fn new(config: BreakerConfig) -> Self {
         let mut config = config;
         if config.failure_threshold == 0 {

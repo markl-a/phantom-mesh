@@ -2,7 +2,7 @@
 //
 // GUI onboarding D1–D5 (English-only). Drives the shared SPEC-28 FSM through
 // `lib/onboardingFsm.ts`, whose `onboarding_advance` now runs the REAL per-edge
-// side-effects in core (login+identity mint, detached `phantom serve` + mDNS
+// side-effects in core (login+identity mint, detached `spectyn serve` + mDNS
 // advertise, provider detection + ranking) — the same backend the shipped CLI
 // onboarding uses (a7c5701f).
 //
@@ -71,7 +71,7 @@ type StepCopy = {
 const STEPS: Record<OnboardingState, StepCopy> = {
   fresh_install: {
     state: "fresh_install",
-    title: "Welcome to Phantom Mesh",
+    title: "Welcome to Spectyn Mesh",
     body: "Sign in with Google or Apple to link this device. Your identity key is generated locally and never leaves this device. Takes about 30 seconds.",
     icon: Sparkles,
     backendReady: true,
@@ -80,7 +80,7 @@ const STEPS: Record<OnboardingState, StepCopy> = {
   picked_language: {
     state: "picked_language",
     title: "Language",
-    body: "Phantom Mesh is English-only for now.",
+    body: "Spectyn Mesh is English-only for now.",
     icon: Sparkles,
     backendReady: true,
   },
@@ -506,7 +506,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
   return (
     <div
       data-testid="onboarding-hello"
-      className="min-h-screen bg-phantom-bg text-phantom-text pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      className="min-h-screen bg-spectyn-bg text-spectyn-text pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       <div className="flex min-h-screen flex-col">
         <main className="flex-1 overflow-y-auto px-5 pb-6 pt-6">
@@ -524,28 +524,28 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                   aria-hidden="true"
                   className={`h-2.5 min-h-[10px] rounded-full transition-colors motion-reduce:transition-none ${
                     isCurrent
-                      ? "w-6 bg-phantom-primary"
+                      ? "w-6 bg-spectyn-primary"
                       : reached
-                        ? "w-2.5 bg-phantom-primary/50"
-                        : "w-2.5 bg-phantom-border"
+                        ? "w-2.5 bg-spectyn-primary/50"
+                        : "w-2.5 bg-spectyn-border"
                   }`}
                 />
               );
             })}
           </nav>
-          <p role="status" className="mb-6 text-center text-base text-phantom-muted">
+          <p role="status" className="mb-6 text-center text-base text-spectyn-muted">
             Step {idx + 1} of {total}
           </p>
 
           <header className="mb-6 flex items-center gap-3">
-            <div className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-phantom-primary text-phantom-bg">
+            <div className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-spectyn-primary text-spectyn-bg">
               <StepIcon aria-hidden="true" size={22} />
             </div>
-            <h1 className="text-2xl font-semibold text-phantom-text">{step.title}</h1>
+            <h1 className="text-2xl font-semibold text-spectyn-text">{step.title}</h1>
           </header>
 
-          <section className="rounded-lg border border-phantom-border bg-phantom-card p-4">
-            <p className="text-lg leading-7 text-phantom-text">{step.body}</p>
+          <section className="rounded-lg border border-spectyn-border bg-spectyn-card p-4">
+            <p className="text-lg leading-7 text-spectyn-text">{step.body}</p>
           </section>
 
           {/* D1 (login-first): the sign-in lives on the FIRST screen. The
@@ -553,11 +553,11 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
               fresh_install → created_identity edge, so the user must sign in
               before Continue can mint the identity. */}
           {current === "fresh_install" && !finished ? (
-            <section className="mt-4 rounded-lg border border-phantom-border bg-phantom-card p-4">
+            <section className="mt-4 rounded-lg border border-spectyn-border bg-spectyn-card p-4">
               {loginIdentity ? (
                 <p
                   role="status"
-                  className="flex items-center gap-2 text-base text-phantom-success"
+                  className="flex items-center gap-2 text-base text-spectyn-success"
                 >
                   <Check aria-hidden="true" size={18} />
                   Signed in as {loginIdentity.email} ({loginIdentity.provider}). Continue to
@@ -569,7 +569,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                     type="button"
                     onClick={() => void handleLogin()}
                     disabled={loginBusy}
-                    className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-phantom-primary px-4 py-3 text-base font-semibold text-phantom-bg transition disabled:opacity-60 motion-reduce:transition-none"
+                    className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-spectyn-primary px-4 py-3 text-base font-semibold text-spectyn-bg transition disabled:opacity-60 motion-reduce:transition-none"
                   >
                     {loginBusy ? (
                       <Loader2 aria-hidden="true" size={20} className="animate-spin motion-reduce:animate-none" />
@@ -579,7 +579,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                     {loginBusy ? "Opening browser…" : "Sign in with Google or Apple"}
                   </button>
                   {loginError ? (
-                    <p role="alert" className="mt-3 text-base text-phantom-danger">
+                    <p role="alert" className="mt-3 text-base text-spectyn-danger">
                       Sign-in failed: {loginError}
                     </p>
                   ) : null}
@@ -591,10 +591,10 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           {/* created_identity: login already happened on the first screen; this
               step confirms the local ed25519 key was minted. */}
           {current === "created_identity" && !finished ? (
-            <section className="mt-4 rounded-lg border border-phantom-border bg-phantom-card p-4">
+            <section className="mt-4 rounded-lg border border-spectyn-border bg-spectyn-card p-4">
               <p
                 role="status"
-                className="flex items-center gap-2 text-base text-phantom-success"
+                className="flex items-center gap-2 text-base text-spectyn-success"
               >
                 <Check aria-hidden="true" size={18} />
                 Your local identity key is ready
@@ -606,16 +606,16 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
 
           {/* D5: provider priority picker on the set_provider step. */}
           {current === "set_provider" && !finished ? (
-            <section className="mt-4 rounded-lg border border-phantom-border bg-phantom-card p-4">
+            <section className="mt-4 rounded-lg border border-spectyn-border bg-spectyn-card p-4">
               {!providersLoaded ? (
-                <p role="status" className="flex items-center gap-2 text-base text-phantom-muted">
+                <p role="status" className="flex items-center gap-2 text-base text-spectyn-muted">
                   <Loader2 aria-hidden="true" size={18} className="animate-spin motion-reduce:animate-none" />
                   Detecting your model providers…
                 </p>
               ) : providers.length === 0 ? (
                 freeRecommended ? (
                   <div className="flex flex-col gap-3">
-                    <p className="text-base text-phantom-text">
+                    <p className="text-base text-spectyn-text">
                       No subscription or local model found. Start free with{" "}
                       <span className="font-semibold">{freeRecommended.display}</span> — a
                       no-credit-card free tier. About a minute to set up.
@@ -623,7 +623,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                     {freeConfiguredSlug ? (
                       <p
                         role="status"
-                        className="flex items-center gap-2 text-base text-phantom-success"
+                        className="flex items-center gap-2 text-base text-spectyn-success"
                       >
                         <Check aria-hidden="true" size={18} />
                         {freeRecommended.display} is ready — continue to start chatting.
@@ -633,7 +633,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                         <button
                           type="button"
                           onClick={handleGetFreeKey}
-                          className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-phantom-border px-4 py-2 text-base font-medium text-phantom-text transition motion-reduce:transition-none"
+                          className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-spectyn-border px-4 py-2 text-base font-medium text-spectyn-text transition motion-reduce:transition-none"
                         >
                           <KeyRound aria-hidden="true" size={18} />
                           Get a free key
@@ -644,13 +644,13 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                           onChange={(e) => setFreeKey(e.target.value)}
                           aria-label={`${freeRecommended.display} API key`}
                           placeholder={`Paste your ${freeRecommended.display} API key`}
-                          className="min-h-[44px] rounded-lg border border-phantom-border bg-phantom-bg px-3 py-2 text-base text-phantom-text"
+                          className="min-h-[44px] rounded-lg border border-spectyn-border bg-spectyn-bg px-3 py-2 text-base text-spectyn-text"
                         />
                         <button
                           type="button"
                           onClick={() => void handleValidateFreeKey()}
                           disabled={freeBusy || !freeKey.trim()}
-                          className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-phantom-primary px-4 py-2 text-base font-semibold text-phantom-bg transition disabled:opacity-60 motion-reduce:transition-none"
+                          className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-spectyn-primary px-4 py-2 text-base font-semibold text-spectyn-bg transition disabled:opacity-60 motion-reduce:transition-none"
                         >
                           {freeBusy ? (
                             <Loader2 aria-hidden="true" size={18} className="animate-spin motion-reduce:animate-none" />
@@ -660,7 +660,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                           {freeBusy ? "Checking…" : "Use this key"}
                         </button>
                         {freeError ? (
-                          <p role="alert" className="text-base text-phantom-danger">
+                          <p role="alert" className="text-base text-spectyn-danger">
                             {freeError}
                           </p>
                         ) : null}
@@ -668,7 +668,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                     )}
                   </div>
                 ) : (
-                  <p role="status" className="text-base text-phantom-muted">
+                  <p role="status" className="text-base text-spectyn-muted">
                     No signed-in providers or local Ollama detected yet. Sign in to a CLI
                     (claude / codex / gemini) or start Ollama, then come back.
                   </p>
@@ -690,20 +690,20 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                           dragIndex.current = null;
                         }
                       }}
-                      className="flex items-center gap-3 rounded-lg border border-phantom-border bg-phantom-bg p-3"
+                      className="flex items-center gap-3 rounded-lg border border-spectyn-border bg-spectyn-bg p-3"
                     >
-                      <GripVertical aria-hidden="true" size={18} className="shrink-0 text-phantom-muted" />
-                      <span className="min-w-[1.5rem] text-base font-semibold text-phantom-primary">
+                      <GripVertical aria-hidden="true" size={18} className="shrink-0 text-spectyn-muted" />
+                      <span className="min-w-[1.5rem] text-base font-semibold text-spectyn-primary">
                         {i + 1}
                       </span>
-                      <span className="flex-1 text-base text-phantom-text">{p.label}</span>
+                      <span className="flex-1 text-base text-spectyn-text">{p.label}</span>
                       <span className="flex flex-col">
                         <button
                           type="button"
                           aria-label={`Move ${p.label} up`}
                           disabled={i === 0}
                           onClick={() => reorder(i, i - 1)}
-                          className="px-2 text-phantom-muted disabled:opacity-30"
+                          className="px-2 text-spectyn-muted disabled:opacity-30"
                         >
                           ▲
                         </button>
@@ -712,7 +712,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
                           aria-label={`Move ${p.label} down`}
                           disabled={i === providers.length - 1}
                           onClick={() => reorder(i, i + 1)}
-                          className="px-2 text-phantom-muted disabled:opacity-30"
+                          className="px-2 text-spectyn-muted disabled:opacity-30"
                         >
                           ▼
                         </button>
@@ -728,7 +728,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           {!step.backendReady && !finished ? (
             <p
               role="status"
-              className="mt-4 flex items-start gap-2 rounded-lg border border-phantom-warning/40 bg-phantom-warning/10 p-3 text-base text-phantom-warning"
+              className="mt-4 flex items-start gap-2 rounded-lg border border-spectyn-warning/40 bg-spectyn-warning/10 p-3 text-base text-spectyn-warning"
             >
               <Zap aria-hidden="true" size={18} className="mt-0.5 shrink-0" />
               <span>Backend for this step is still in progress; continuing completes it locally.</span>
@@ -737,7 +737,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
 
           {/* Stage-2 honest TODO note on the mesh-node step (peer-join/vault). */}
           {current === "joined_cluster" && !finished ? (
-            <p role="status" className="mt-4 rounded-lg border border-phantom-border bg-phantom-card p-3 text-base text-phantom-muted">
+            <p role="status" className="mt-4 rounded-lg border border-spectyn-border bg-spectyn-card p-3 text-base text-spectyn-muted">
               Single-node mode for now. Peer-pairing with an existing cluster and
               encrypted vault sync are coming soon (Stage 2).
             </p>
@@ -747,7 +747,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           {error ? (
             <p
               role="alert"
-              className="mt-4 rounded-lg border border-phantom-danger/40 bg-phantom-danger/10 p-3 text-base text-phantom-danger"
+              className="mt-4 rounded-lg border border-spectyn-danger/40 bg-spectyn-danger/10 p-3 text-base text-spectyn-danger"
             >
               Could not complete this step: {error}
             </p>
@@ -757,7 +757,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           {softNote && !error ? (
             <p
               role="status"
-              className="mt-4 rounded-lg border border-phantom-border bg-phantom-card p-3 text-base text-phantom-muted"
+              className="mt-4 rounded-lg border border-spectyn-border bg-spectyn-card p-3 text-base text-spectyn-muted"
             >
               {softNote}
             </p>
@@ -767,7 +767,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           {finished ? (
             <p
               role="status"
-              className="mt-4 flex items-center gap-2 rounded-lg border border-phantom-success/40 bg-phantom-success/10 p-3 text-base text-phantom-success"
+              className="mt-4 flex items-center gap-2 rounded-lg border border-spectyn-success/40 bg-spectyn-success/10 p-3 text-base text-spectyn-success"
             >
               <Check aria-hidden="true" size={18} />
               Setup complete — you are ready to go.
@@ -775,14 +775,14 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
           ) : null}
         </main>
 
-        <footer className="sticky bottom-0 flex items-center gap-3 border-t border-phantom-border bg-phantom-bg/95 px-5 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
+        <footer className="sticky bottom-0 flex items-center gap-3 border-t border-spectyn-border bg-spectyn-bg/95 px-5 pt-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
           {canGoBack ? (
             <button
               type="button"
               onClick={handleBack}
               disabled={busy || finished}
               aria-label="Back"
-              className="flex min-h-[48px] items-center justify-center gap-2 rounded-lg border border-phantom-border px-4 py-3 text-base font-medium text-phantom-text transition disabled:opacity-60 motion-reduce:transition-none"
+              className="flex min-h-[48px] items-center justify-center gap-2 rounded-lg border border-spectyn-border px-4 py-3 text-base font-medium text-spectyn-text transition disabled:opacity-60 motion-reduce:transition-none"
             >
               <ArrowLeft aria-hidden="true" size={20} />
               Back
@@ -794,7 +794,7 @@ export default function OnboardingHello({ onComplete }: OnboardingHelloProps = {
             onClick={handleContinue}
             disabled={continueDisabled}
             aria-label={isLast ? "Finish" : "Continue"}
-            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-lg bg-phantom-primary px-4 py-3 text-base font-semibold text-phantom-bg transition disabled:opacity-60 motion-reduce:transition-none"
+            className="flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-lg bg-spectyn-primary px-4 py-3 text-base font-semibold text-spectyn-bg transition disabled:opacity-60 motion-reduce:transition-none"
           >
             {busy ? (
               <Loader2 aria-hidden="true" size={20} className="animate-spin motion-reduce:animate-none" />

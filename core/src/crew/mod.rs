@@ -11,7 +11,7 @@
 //! `Adapter` integration seam (+ rate-limit detection + `MockAdapter`) and the
 //! mediated `Blackboard` (inter-agent comms). The conductor (round-runner
 //! brain) + its runtime deps (supervise / test_gate / worktree / journal /
-//! full `CrewConfig`) and phantom's own `GovernedCliAdapter` (driving
+//! full `CrewConfig`) and spectyn's own `GovernedCliAdapter` (driving
 //! codex/claude/agy/opencode through `cli_session` + `governed_run`) land in
 //! later slices.
 
@@ -22,7 +22,7 @@ pub mod config;
 pub mod gate;
 pub mod governed_adapter;
 pub mod matrix_plan;
-pub mod phantom_adapter;
+pub mod spectyn_adapter;
 pub mod supervise;
 pub mod test_gate;
 pub mod verdict;
@@ -43,7 +43,7 @@ pub use governed_adapter::{
 pub use matrix_plan::{
     capability_for, parse_matrix_targets, render_spec_toml, target_slug, MatrixStatus, MatrixTarget,
 };
-pub use phantom_adapter::{fold_phantom_output, PhantomAgentAdapter};
+pub use spectyn_adapter::{fold_spectyn_output, SpectynAgentAdapter};
 pub use supervise::{ControlState, RunObserver};
 pub use test_gate::{run_tests, TestOutcome};
 pub use verdict::{parse_verdict, Verdict};

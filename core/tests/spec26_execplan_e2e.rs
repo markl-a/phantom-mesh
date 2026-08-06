@@ -4,15 +4,15 @@
 //! error path (`v4_chaos.rs`). The SUCCESS path (assign → poll → Completed),
 //! the reassign-to-fallback hop, and `refresh_capabilities` parsing were all
 //! untested — a fake-green risk on real reqwest/HMAC code. This drives them
-//! through wiremock via the per-peer URL seam (`PHANTOM_PEER_<ID>_URL`) and the
-//! poll seam (`PHANTOM_POLL_URL`).
+//! through wiremock via the per-peer URL seam (`SPECTYN_PEER_<ID>_URL`) and the
+//! poll seam (`SPECTYN_POLL_URL`).
 //!
-//! All scenarios run sequentially in ONE test fn: `PHANTOM_CLUSTER_SECRET` and
-//! `PHANTOM_POLL_URL` are process-global, and this is a dedicated test binary,
+//! All scenarios run sequentially in ONE test fn: `SPECTYN_CLUSTER_SECRET` and
+//! `SPECTYN_POLL_URL` are process-global, and this is a dedicated test binary,
 //! so a single fn avoids any cross-test env race. Unique peer_ids keep each
-//! `PHANTOM_PEER_<ID>_URL` key non-colliding.
+//! `SPECTYN_PEER_<ID>_URL` key non-colliding.
 
-use phantom_mesh::cluster_dispatch_wire::{
+use spectyn_mesh::cluster_dispatch_wire::{
     execute_plan, refresh_capabilities, DispatchPlan, DispatchStatus,
 };
 use wiremock::matchers::{method, path};
@@ -30,7 +30,7 @@ fn plan(task_id: &str, selected: &str, fallback: Vec<String>) -> DispatchPlan {
 
 fn set_peer_url(peer_id: &str, url: &str) {
     let key = format!(
-        "PHANTOM_PEER_{}_URL",
+        "SPECTYN_PEER_{}_URL",
         peer_id.to_uppercase().replace('-', "_")
     );
     std::env::set_var(key, url);
@@ -38,7 +38,7 @@ fn set_peer_url(peer_id: &str, url: &str) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn spec26_execplan_e2e_caps_success_and_reassign() {
-    std::env::set_var("PHANTOM_CLUSTER_SECRET", "test-cluster-secret-spec26-e2e");
+    std::env::set_var("SPECTYN_CLUSTER_SECRET", "test-cluster-secret-spec26-e2e");
 
     // ── (1) refresh_capabilities success: GET /node/capabilities → typed caps ──
     {
@@ -85,7 +85,7 @@ async fn spec26_execplan_e2e_caps_success_and_reassign() {
             .mount(&poll_mock)
             .await;
         set_peer_url("e2e-sel", &assign_mock.uri());
-        std::env::set_var("PHANTOM_POLL_URL", poll_mock.uri());
+        std::env::set_var("SPECTYN_POLL_URL", poll_mock.uri());
 
         let out = execute_plan(&plan("t-ok", "e2e-sel", vec![]))
             .await
@@ -118,7 +118,7 @@ async fn spec26_execplan_e2e_caps_success_and_reassign() {
             .await;
         set_peer_url("e2e-bad", &sel_mock.uri());
         set_peer_url("e2e-fb", &fb_mock.uri());
-        std::env::set_var("PHANTOM_POLL_URL", poll_mock.uri());
+        std::env::set_var("SPECTYN_POLL_URL", poll_mock.uri());
 
         let out = execute_plan(&plan("t-reassign", "e2e-bad", vec!["e2e-fb".to_string()]))
             .await
@@ -130,6 +130,6 @@ async fn spec26_execplan_e2e_caps_success_and_reassign() {
         assert!(matches!(out.status, DispatchStatus::Completed));
     }
 
-    std::env::remove_var("PHANTOM_POLL_URL");
-    std::env::remove_var("PHANTOM_CLUSTER_SECRET");
+    std::env::remove_var("SPECTYN_POLL_URL");
+    std::env::remove_var("SPECTYN_CLUSTER_SECRET");
 }

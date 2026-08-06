@@ -3,9 +3,9 @@
 # setup-oracle-ampere.sh — v0.6.0 three-node demo bring-up, Node B (cloud).
 #
 # Run this ON the Oracle Cloud Free Tier Ampere A1 instance (Ubuntu 22.04
-# aarch64). It installs Tailscale, drops a pre-built aarch64-linux `phantom`
+# aarch64). It installs Tailscale, drops a pre-built aarch64-linux `spectyn`
 # binary onto the box, renders a cluster-ready `agents.toml`, and starts
-# `phantom serve` as a systemd user service so it survives logout.
+# `spectyn serve` as a systemd user service so it survives logout.
 #
 # Why this exists separately from scripts/setup-oci.sh
 # ----------------------------------------------------
@@ -14,7 +14,7 @@
 # expectation). This script is purpose-built for the v0.6.0 three-node demo:
 #   • Tiny `[cluster]` block only — no provider keys, no UFW dance
 #   • Pulls a pre-built binary from a maintainer URL (operator memory:
-#     `phantommesh.io/dist/phantom-linux-aarch64` once L1 publishes it)
+#     `phantommesh.io/dist/spectyn-linux-aarch64` once L1 publishes it)
 #   • SHA256 verify is OPTIONAL (env-var driven) so first-day operators can
 #     run it before the .sha256 sidecar exists
 #   • Systemd USER service (no sudo needed past `apt install`)
@@ -25,51 +25,51 @@
 #   2. Install Tailscale via official one-liner (operator does `tailscale up`
 #      themselves — we don't take an auth key over the wire)
 #   3. Wait up to TAILSCALE_TIMEOUT_S for `tailscale status` to be Healthy
-#   4. Download phantom binary from PHANTOM_BIN_URL (or, fallback, print the
+#   4. Download spectyn binary from SPECTYN_BIN_URL (or, fallback, print the
 #      cargo zigbuild one-liner the operator can run on their workstation and
 #      `scp` over — building on the Ampere VM itself works but is ~20 min)
-#   5. If PHANTOM_BIN_SHA256 is set, verify (sha256sum); on mismatch, delete
+#   5. If SPECTYN_BIN_SHA256 is set, verify (sha256sum); on mismatch, delete
 #      the binary and exit 1 (matches F-CRIT-3 install-script safety policy)
-#   6. Write ~/.phantom-mesh/agents.toml with the cluster section
-#   7. Write ~/.config/systemd/user/phantom-serve.service
-#   8. `loginctl enable-linger` + `systemctl --user enable --now phantom-serve`
+#   6. Write ~/.spectyn-mesh/agents.toml with the cluster section
+#   7. Write ~/.config/systemd/user/spectyn-serve.service
+#   8. `loginctl enable-linger` + `systemctl --user enable --now spectyn-serve`
 #   9. Verify: tailscale IP printed, `curl /healthz` returns 200
 #
 # Environment contract (REQUIRED)
 # -------------------------------
-#   PHANTOM_CLUSTER_SECRET   — 64-hex shared secret (same on all 3 nodes)
+#   SPECTYN_CLUSTER_SECRET   — 64-hex shared secret (same on all 3 nodes)
 #                              generate once with: openssl rand -hex 32
 #
 # Environment contract (OPTIONAL)
 # -------------------------------
-#   PHANTOM_BIN_URL          — https:// URL to a pre-built phantom binary for
+#   SPECTYN_BIN_URL          — https:// URL to a pre-built spectyn binary for
 #                              aarch64-linux. Default:
-#                              https://phantommesh.io/dist/phantom-linux-aarch64
-#   PHANTOM_BIN_SHA256       — expected sha256 (lowercase hex). If unset,
+#                              https://phantommesh.io/dist/spectyn-linux-aarch64
+#   SPECTYN_BIN_SHA256       — expected sha256 (lowercase hex). If unset,
 #                              SHA256 verification is SKIPPED with a loud warn.
-#   PHANTOM_NODE_NAME        — node_name written to agents.toml
+#   SPECTYN_NODE_NAME        — node_name written to agents.toml
 #                              (default: "cloud")
-#   PHANTOM_CAPABILITIES     — comma-separated capability list
+#   SPECTYN_CAPABILITIES     — comma-separated capability list
 #                              (default: "always_on,big_disk")
-#   PHANTOM_HOME             — phantom data dir (default: ~/.phantom-mesh)
-#   PHANTOM_PORT             — serve port (default: 7878)
+#   SPECTYN_HOME             — spectyn data dir (default: ~/.spectyn-mesh)
+#   SPECTYN_PORT             — serve port (default: 7878)
 #   TAILSCALE_TIMEOUT_S      — wait for `tailscale up` to become Healthy
 #                              (default: 120)
-#   PHANTOM_SKIP_TAILSCALE=1 — skip Tailscale install/wait (already configured)
-#   PHANTOM_SKIP_VERIFY=1    — explicit opt-out of SHA256 even if hash given
+#   SPECTYN_SKIP_TAILSCALE=1 — skip Tailscale install/wait (already configured)
+#   SPECTYN_SKIP_VERIFY=1    — explicit opt-out of SHA256 even if hash given
 #
 # Operator workflow
 # -----------------
 #   ssh ubuntu@<oracle-public-ip>
-#   export PHANTOM_CLUSTER_SECRET=$(cat /tmp/cluster-secret)   # from workstation
-#   export PHANTOM_BIN_URL=https://phantommesh.io/dist/phantom-linux-aarch64
-#   curl -fsSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/bring-up/setup-oracle-ampere.sh \
+#   export SPECTYN_CLUSTER_SECRET=$(cat /tmp/cluster-secret)   # from workstation
+#   export SPECTYN_BIN_URL=https://phantommesh.io/dist/spectyn-linux-aarch64
+#   curl -fsSL https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/bring-up/setup-oracle-ampere.sh \
 #     | bash
 #   # ... then `sudo tailscale up` when prompted (script pauses for this)
 #
 # Exit codes
 # ----------
-#   0   — Tailscale Healthy + phantom serve answers /healthz with 200
+#   0   — Tailscale Healthy + spectyn serve answers /healthz with 200
 #   1   — anything failed; reason on the last FAIL: line
 #   77  — preconditions missing (wrong arch, no sudo, missing env)
 #
@@ -114,17 +114,17 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 77
 fi
 
-if [ -z "${PHANTOM_CLUSTER_SECRET:-}" ]; then
-  fail "PHANTOM_CLUSTER_SECRET is required (64-hex shared cluster secret)"
+if [ -z "${SPECTYN_CLUSTER_SECRET:-}" ]; then
+  fail "SPECTYN_CLUSTER_SECRET is required (64-hex shared cluster secret)"
   fail "generate one on your workstation: openssl rand -hex 32"
   exit 77
 fi
 
 # Validate cluster secret shape (64 lowercase hex chars). Tolerate uppercase by
 # downcasing.
-PHANTOM_CLUSTER_SECRET="$(printf '%s' "$PHANTOM_CLUSTER_SECRET" | tr 'A-Z' 'a-z')"
-if ! printf '%s' "$PHANTOM_CLUSTER_SECRET" | grep -Eq '^[0-9a-f]{64}$'; then
-  fail "PHANTOM_CLUSTER_SECRET must be 64 lowercase hex chars (got ${#PHANTOM_CLUSTER_SECRET})"
+SPECTYN_CLUSTER_SECRET="$(printf '%s' "$SPECTYN_CLUSTER_SECRET" | tr 'A-Z' 'a-z')"
+if ! printf '%s' "$SPECTYN_CLUSTER_SECRET" | grep -Eq '^[0-9a-f]{64}$'; then
+  fail "SPECTYN_CLUSTER_SECRET must be 64 lowercase hex chars (got ${#SPECTYN_CLUSTER_SECRET})"
   exit 77
 fi
 
@@ -136,22 +136,22 @@ for cmd in curl sudo systemctl; do
 done
 
 # Defaults
-PHANTOM_NODE_NAME="${PHANTOM_NODE_NAME:-cloud}"
-PHANTOM_CAPABILITIES="${PHANTOM_CAPABILITIES:-always_on,big_disk}"
-PHANTOM_HOME="${PHANTOM_HOME:-$HOME/.phantom-mesh}"
-PHANTOM_PORT="${PHANTOM_PORT:-7878}"
-PHANTOM_BIN_URL="${PHANTOM_BIN_URL:-https://phantommesh.io/dist/phantom-linux-aarch64}"
+SPECTYN_NODE_NAME="${SPECTYN_NODE_NAME:-cloud}"
+SPECTYN_CAPABILITIES="${SPECTYN_CAPABILITIES:-always_on,big_disk}"
+SPECTYN_HOME="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"
+SPECTYN_PORT="${SPECTYN_PORT:-7878}"
+SPECTYN_BIN_URL="${SPECTYN_BIN_URL:-https://phantommesh.io/dist/spectyn-linux-aarch64}"
 TAILSCALE_TIMEOUT_S="${TAILSCALE_TIMEOUT_S:-120}"
 
-step "node name : $PHANTOM_NODE_NAME"
-step "capabilities: $PHANTOM_CAPABILITIES"
-step "home dir  : $PHANTOM_HOME"
-step "serve port: $PHANTOM_PORT"
-step "binary URL: $PHANTOM_BIN_URL"
+step "node name : $SPECTYN_NODE_NAME"
+step "capabilities: $SPECTYN_CAPABILITIES"
+step "home dir  : $SPECTYN_HOME"
+step "serve port: $SPECTYN_PORT"
+step "binary URL: $SPECTYN_BIN_URL"
 
 # ── 2. install Tailscale ─────────────────────────────────────────────────────
-if [ "${PHANTOM_SKIP_TAILSCALE:-0}" = "1" ]; then
-  title "setup-oracle-ampere · Tailscale (SKIPPED via PHANTOM_SKIP_TAILSCALE=1)"
+if [ "${SPECTYN_SKIP_TAILSCALE:-0}" = "1" ]; then
+  title "setup-oracle-ampere · Tailscale (SKIPPED via SPECTYN_SKIP_TAILSCALE=1)"
 else
   title "setup-oracle-ampere · install Tailscale"
   if command -v tailscale >/dev/null 2>&1; then
@@ -191,44 +191,44 @@ else
   pass "tailscale up: $TS_IP"
 fi
 
-# ── 3. download phantom binary ───────────────────────────────────────────────
-title "setup-oracle-ampere · phantom binary"
+# ── 3. download spectyn binary ───────────────────────────────────────────────
+title "setup-oracle-ampere · spectyn binary"
 
-mkdir -p "$PHANTOM_HOME/bin"
-BIN_PATH="$PHANTOM_HOME/bin/phantom"
+mkdir -p "$SPECTYN_HOME/bin"
+BIN_PATH="$SPECTYN_HOME/bin/spectyn"
 
 # Honour explicit local override (advanced users who scp'd a binary).
-if [ -n "${PHANTOM_BIN_LOCAL:-}" ]; then
-  if [ ! -x "$PHANTOM_BIN_LOCAL" ]; then
-    die "PHANTOM_BIN_LOCAL=$PHANTOM_BIN_LOCAL is not executable"
+if [ -n "${SPECTYN_BIN_LOCAL:-}" ]; then
+  if [ ! -x "$SPECTYN_BIN_LOCAL" ]; then
+    die "SPECTYN_BIN_LOCAL=$SPECTYN_BIN_LOCAL is not executable"
   fi
-  step "using local binary: $PHANTOM_BIN_LOCAL"
-  cp -f "$PHANTOM_BIN_LOCAL" "$BIN_PATH"
+  step "using local binary: $SPECTYN_BIN_LOCAL"
+  cp -f "$SPECTYN_BIN_LOCAL" "$BIN_PATH"
 else
-  step "downloading: $PHANTOM_BIN_URL"
-  case "$PHANTOM_BIN_URL" in
+  step "downloading: $SPECTYN_BIN_URL"
+  case "$SPECTYN_BIN_URL" in
     https://*) ;;
     http://*)
-      if [ "${PHANTOM_ALLOW_INSECURE:-0}" != "1" ]; then
-        die "refusing http:// binary URL (set PHANTOM_ALLOW_INSECURE=1 to bypass)"
+      if [ "${SPECTYN_ALLOW_INSECURE:-0}" != "1" ]; then
+        die "refusing http:// binary URL (set SPECTYN_ALLOW_INSECURE=1 to bypass)"
       fi
-      warn "PHANTOM_ALLOW_INSECURE=1 — downloading over plain http://"
+      warn "SPECTYN_ALLOW_INSECURE=1 — downloading over plain http://"
       ;;
-    *) die "unsupported PHANTOM_BIN_URL scheme: $PHANTOM_BIN_URL" ;;
+    *) die "unsupported SPECTYN_BIN_URL scheme: $SPECTYN_BIN_URL" ;;
   esac
-  if ! curl -fsSL --max-time 120 "$PHANTOM_BIN_URL" -o "$BIN_PATH"; then
-    fail "download failed from $PHANTOM_BIN_URL"
+  if ! curl -fsSL --max-time 120 "$SPECTYN_BIN_URL" -o "$BIN_PATH"; then
+    fail "download failed from $SPECTYN_BIN_URL"
     fail ""
     fail "Fallback: build aarch64-linux binary on your WORKSTATION (~5 min, not"
     fail "          on this Ampere VM where it takes ~20 min and risks OOM):"
     fail ""
-    fail "  cd phantom-mesh/core"
+    fail "  cd spectyn-mesh/core"
     fail "  cargo install cargo-zigbuild   # one-time"
-    fail "  cargo zigbuild --release --target aarch64-unknown-linux-gnu --bin phantom"
-    fail "  scp target/aarch64-unknown-linux-gnu/release/phantom \\"
+    fail "  cargo zigbuild --release --target aarch64-unknown-linux-gnu --bin spectyn"
+    fail "  scp target/aarch64-unknown-linux-gnu/release/spectyn \\"
     fail "      ubuntu@<oracle-public-ip>:$BIN_PATH"
     fail ""
-    fail "Then re-run this script with PHANTOM_BIN_LOCAL=$BIN_PATH set."
+    fail "Then re-run this script with SPECTYN_BIN_LOCAL=$BIN_PATH set."
     exit 1
   fi
 fi
@@ -236,12 +236,12 @@ fi
 chmod +x "$BIN_PATH"
 
 # ── 4. SHA256 verify (optional but recommended) ──────────────────────────────
-if [ -n "${PHANTOM_BIN_SHA256:-}" ] && [ "${PHANTOM_SKIP_VERIFY:-0}" != "1" ]; then
-  step "verifying SHA256 (expected: $PHANTOM_BIN_SHA256)"
-  expected="$(printf '%s' "$PHANTOM_BIN_SHA256" | tr 'A-Z' 'a-z')"
+if [ -n "${SPECTYN_BIN_SHA256:-}" ] && [ "${SPECTYN_SKIP_VERIFY:-0}" != "1" ]; then
+  step "verifying SHA256 (expected: $SPECTYN_BIN_SHA256)"
+  expected="$(printf '%s' "$SPECTYN_BIN_SHA256" | tr 'A-Z' 'a-z')"
   if ! printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$'; then
     rm -f "$BIN_PATH"
-    die "PHANTOM_BIN_SHA256 is not 64-hex (got: $expected)"
+    die "SPECTYN_BIN_SHA256 is not 64-hex (got: $expected)"
   fi
   actual="$(sha256sum "$BIN_PATH" | awk '{print tolower($1)}')"
   if [ "$expected" != "$actual" ]; then
@@ -252,8 +252,8 @@ if [ -n "${PHANTOM_BIN_SHA256:-}" ] && [ "${PHANTOM_SKIP_VERIFY:-0}" != "1" ]; t
   fi
   pass "SHA256 verified ($expected)"
 else
-  warn "SHA256 verification SKIPPED (PHANTOM_BIN_SHA256 unset or PHANTOM_SKIP_VERIFY=1)"
-  warn "  set PHANTOM_BIN_SHA256=<hex> from your maintainer to enable verify"
+  warn "SHA256 verification SKIPPED (SPECTYN_BIN_SHA256 unset or SPECTYN_SKIP_VERIFY=1)"
+  warn "  set SPECTYN_BIN_SHA256=<hex> from your maintainer to enable verify"
 fi
 
 # Smoke test the binary runs at all.
@@ -265,11 +265,11 @@ pass "binary OK: $($BIN_PATH --version 2>&1 | head -1)"
 # ── 5. agents.toml ───────────────────────────────────────────────────────────
 title "setup-oracle-ampere · render agents.toml"
 
-mkdir -p "$PHANTOM_HOME"
-AGENTS_TOML="$PHANTOM_HOME/agents.toml"
+mkdir -p "$SPECTYN_HOME"
+AGENTS_TOML="$SPECTYN_HOME/agents.toml"
 
 # Convert comma-separated caps to TOML array literal.
-CAPS_TOML="$(printf '%s' "$PHANTOM_CAPABILITIES" | awk -F, '{
+CAPS_TOML="$(printf '%s' "$SPECTYN_CAPABILITIES" | awk -F, '{
   out=""; for (i=1;i<=NF;i++) {
     if (out != "") out = out ", "
     out = out "\"" $i "\""
@@ -281,11 +281,11 @@ cat > "$AGENTS_TOML" <<EOF
 # (v0.6.0 three-node demo bring-up — Node B / cloud)
 [core]
 host = "0.0.0.0"   # listen on all interfaces (Tailscale needs this)
-port = $PHANTOM_PORT
+port = $SPECTYN_PORT
 
 [cluster]
-node_name      = "$PHANTOM_NODE_NAME"
-cluster_secret = "$PHANTOM_CLUSTER_SECRET"
+node_name      = "$SPECTYN_NODE_NAME"
+cluster_secret = "$SPECTYN_CLUSTER_SECRET"
 capabilities   = $CAPS_TOML
 worker_caps    = $CAPS_TOML
 enforce_caps   = "soft"
@@ -310,20 +310,20 @@ if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q '^Linger=yes$'; then
 fi
 
 mkdir -p "$HOME/.config/systemd/user"
-SVC_FILE="$HOME/.config/systemd/user/phantom-serve.service"
+SVC_FILE="$HOME/.config/systemd/user/spectyn-serve.service"
 cat > "$SVC_FILE" <<EOF
 # Auto-rendered by scripts/bring-up/setup-oracle-ampere.sh
 [Unit]
-Description=Phantom Mesh — cluster node (v0.6.0 three-node demo)
+Description=Spectyn Mesh — cluster node (v0.6.0 three-node demo)
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 ExecStart=$BIN_PATH serve --config $AGENTS_TOML
-WorkingDirectory=$PHANTOM_HOME
-Environment=PHANTOM_FORWARD_ON_CAPS_MISMATCH=1
-Environment=PHANTOM_ENFORCE_REQUIRED_CAPS=soft
+WorkingDirectory=$SPECTYN_HOME
+Environment=SPECTYN_FORWARD_ON_CAPS_MISMATCH=1
+Environment=SPECTYN_ENFORCE_REQUIRED_CAPS=soft
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -335,10 +335,10 @@ EOF
 pass "wrote $SVC_FILE"
 
 systemctl --user daemon-reload
-if systemctl --user enable --now phantom-serve.service; then
-  pass "systemctl --user enable --now phantom-serve.service"
+if systemctl --user enable --now spectyn-serve.service; then
+  pass "systemctl --user enable --now spectyn-serve.service"
 else
-  die "systemctl --user enable --now failed — see: journalctl --user -u phantom-serve -n 50"
+  die "systemctl --user enable --now failed — see: journalctl --user -u spectyn-serve -n 50"
 fi
 
 # Give it a moment to bind the port.
@@ -358,34 +358,34 @@ deadline=$(( $(date +%s) + 30 ))
 healthz_ok=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
-              "http://localhost:$PHANTOM_PORT/healthz" 2>/dev/null || echo 000)"
+              "http://localhost:$SPECTYN_PORT/healthz" 2>/dev/null || echo 000)"
   if [ "$code" = "200" ]; then healthz_ok=1; break; fi
   sleep 1
 done
 
 if [ "$healthz_ok" = "1" ]; then
-  pass "GET http://localhost:$PHANTOM_PORT/healthz → 200"
+  pass "GET http://localhost:$SPECTYN_PORT/healthz → 200"
 else
   fail "GET /healthz never returned 200 within 30s"
   fail "last 20 journal lines:"
-  journalctl --user -u phantom-serve -n 20 --no-pager >&2 || true
-  die "phantom serve did not come up"
+  journalctl --user -u spectyn-serve -n 20 --no-pager >&2 || true
+  die "spectyn serve did not come up"
 fi
 
 # ── done ─────────────────────────────────────────────────────────────────────
 title "setup-oracle-ampere · DONE"
 printf '\n'
 printf '%sPASS%s — Node B (cloud / %s) is on Tailscale and serving on :%s\n' \
-       "$C_GREEN" "$C_RESET" "$PHANTOM_NODE_NAME" "$PHANTOM_PORT"
+       "$C_GREEN" "$C_RESET" "$SPECTYN_NODE_NAME" "$SPECTYN_PORT"
 printf '\n'
 printf 'Next steps (on your workstation):\n'
 printf '  1. Add this node to your workstation agents.toml [cluster].peers:\n'
-printf '       "http://%s:%s"\n' "${TS_IP_OUT:-<tailscale-ip>}" "$PHANTOM_PORT"
+printf '       "http://%s:%s"\n' "${TS_IP_OUT:-<tailscale-ip>}" "$SPECTYN_PORT"
 printf '  2. Run scripts/bring-up/setup-android-termux.sh on the tablet.\n'
-printf '  3. Run scripts/phantom-test/scenarios/three_node_demo.sh to verify.\n'
+printf '  3. Run scripts/spectyn-test/scenarios/three_node_demo.sh to verify.\n'
 printf '\n'
 printf 'Service controls (on this VM):\n'
-printf '  systemctl --user status phantom-serve\n'
-printf '  systemctl --user restart phantom-serve\n'
-printf '  journalctl --user -u phantom-serve -f\n'
+printf '  systemctl --user status spectyn-serve\n'
+printf '  systemctl --user restart spectyn-serve\n'
+printf '  journalctl --user -u spectyn-serve -f\n'
 exit 0

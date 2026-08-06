@@ -36,13 +36,13 @@ describe('<MobileErrorView />', () => {
     const report = screen.getByRole('link', { name: /回報問題/ });
     expect(report).toHaveAttribute('target', '_blank');
     const href = report.getAttribute('href') ?? '';
-    expect(href).toContain('github.com/markl-a/phantom-mesh/issues/new');
+    expect(href).toContain('github.com/markl-a/spectyn-mesh/issues/new');
     expect(href).toContain(encodeURIComponent('E42'));
   });
 
   it('reset clears onboarding keys after confirmation', async () => {
-    localStorage.setItem('phantom_mesh_v2_onboarded', 'true');
-    localStorage.setItem('phantom_mesh_v2_onboarded_mode', 'demo');
+    localStorage.setItem('spectyn_mesh_v2_onboarded', 'true');
+    localStorage.setItem('spectyn_mesh_v2_onboarded_mode', 'demo');
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const assign = vi.fn();
     Object.defineProperty(window, 'location', {
@@ -53,8 +53,8 @@ describe('<MobileErrorView />', () => {
     render(<MobileErrorView code="X" />);
     await userEvent.click(screen.getByRole('button', { name: /重設並重新設定/ }));
 
-    expect(localStorage.getItem('phantom_mesh_v2_onboarded')).toBeNull();
-    expect(localStorage.getItem('phantom_mesh_v2_onboarded_mode')).toBeNull();
+    expect(localStorage.getItem('spectyn_mesh_v2_onboarded')).toBeNull();
+    expect(localStorage.getItem('spectyn_mesh_v2_onboarded_mode')).toBeNull();
     expect(assign).toHaveBeenCalledWith('/');
   });
 });

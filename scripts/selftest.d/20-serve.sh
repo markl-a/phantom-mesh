@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Probe the HTTP daemon. Skips the whole feature cleanly if /healthz isn't
 # reachable, so this script also works on a freshly-installed box where
-# `phantom serve` hasn't been started yet.
+# `spectyn serve` hasn't been started yet.
 
 selftest_feature_meta() {
   echo "name=serve"
   echo "priority=P1"
   echo "requires=daemon"
-  echo "description=phantom serve HTTP+WS endpoints respond as expected"
+  echo "description=spectyn serve HTTP+WS endpoints respond as expected"
   echo "hints=core/src/serve.rs core/src/main.rs core/src/mesh.rs"
 }
 
@@ -15,7 +15,7 @@ selftest_requires() {
   if t_http "$COORD/healthz" 200; then
     return 0
   fi
-  echo "phantom serve not reachable at $COORD — start it with \`phantom serve\`" >&2
+  echo "spectyn serve not reachable at $COORD — start it with \`spectyn serve\`" >&2
   return 1
 }
 

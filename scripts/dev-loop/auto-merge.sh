@@ -10,7 +10,7 @@
 # Conditions to merge (ALL required; any miss → branches-only, never main):
 #   * enabled    : $STATE_DIR/auto-merge-enabled exists AND its first line NAMES the
 #                  exact dev base authorized (allowlist); $BASE must equal it, else
-#                  refuse. Arm with:  echo '<dev-base>' > ~/.phantom-mesh/auto-merge-enabled
+#                  refuse. Arm with:  echo '<dev-base>' > ~/.spectyn-mesh/auto-merge-enabled
 #                  (an empty file, or any other branch incl. main/master, is refused.)
 #   * not stopped: kill-switch file absent     ($STATE_DIR/auto-merge-stop)
 #   * not dry-run: observation file absent      ($STATE_DIR/auto-merge-dryrun)
@@ -36,7 +36,7 @@ cd "$ROOT" || exit 3
 
 ID="${1:?usage: auto-merge.sh <id> --verify-exit N --review-exit N --deviation N}"; shift || true
 BASE="${BACKLOG_BASE:-step3-coach-install-schedule}"
-STATE_DIR="${PHANTOM_STATE_DIR:-$HOME/.phantom-mesh}"
+STATE_DIR="${SPECTYN_STATE_DIR:-$HOME/.spectyn-mesh}"
 NODE="${BACKLOG_NODE:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo unknown)}"
 ENABLED="$STATE_DIR/auto-merge-enabled"
 STOP="$STATE_DIR/auto-merge-stop"
@@ -53,9 +53,9 @@ esac; shift; done
 
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 say() { local m; m="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)  [$NODE] $*"; printf '%s\n' "$m"; printf '%s\n' "$m" >> "$LOG" 2>/dev/null || true; }
-# best-effort owner notification (never fatal): use the repo's newest phantom.
+# best-effort owner notification (never fatal): use the repo's newest spectyn.
 notify() {
-  local p; p="$( { [ -x "$ROOT/core/target/debug/phantom" ] && echo "$ROOT/core/target/debug/phantom"; } || command -v phantom 2>/dev/null || true)"
+  local p; p="$( { [ -x "$ROOT/core/target/debug/spectyn" ] && echo "$ROOT/core/target/debug/spectyn"; } || command -v spectyn 2>/dev/null || true)"
   [ -n "$p" ] || return 0
   ( "$p" inbox send all "$1" >/dev/null 2>&1 ) & local c=$!
   ( sleep 10; kill "$c" 2>/dev/null ) & local w=$!

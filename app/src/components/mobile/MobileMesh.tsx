@@ -9,12 +9,12 @@ import MobileClusterSettings from "./MobileClusterSettings";
 export default function MobileMesh() {
   return (
     <div className="h-full overflow-y-auto">
-      <div className="px-4 py-3 border-b border-phantom-border">
-        <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wide">節點 (online peers)</h2>
+      <div className="px-4 py-3 border-b border-spectyn-border">
+        <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wide">節點 (online peers)</h2>
       </div>
       <MobileCluster />
-      <div className="px-4 py-3 border-t border-phantom-border mt-4">
-        <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wide">集群派送 (test dispatch)</h2>
+      <div className="px-4 py-3 border-t border-spectyn-border mt-4">
+        <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wide">集群派送 (test dispatch)</h2>
       </div>
       <MobileClusterSettings />
     </div>

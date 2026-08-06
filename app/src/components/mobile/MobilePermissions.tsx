@@ -30,30 +30,30 @@ const KINDS: PermissionKind[] = ["microphone", "camera", "notifications"];
 function StatusBadge({ status }: { status: PermissionStatus | "unknown" }) {
   if (status === "granted") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-phantom-success">
+      <span className="inline-flex items-center gap-1 text-[11px] text-spectyn-success">
         <CheckCircle2 size={13} /> 已授權
       </span>
     );
   }
   if (status === "denied") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-phantom-warning">
+      <span className="inline-flex items-center gap-1 text-[11px] text-spectyn-warning">
         <XCircle size={13} /> 已拒絕
       </span>
     );
   }
   if (status === "unsupported") {
     return (
-      <span className="inline-flex items-center gap-1 text-[11px] text-phantom-muted">
+      <span className="inline-flex items-center gap-1 text-[11px] text-spectyn-muted">
         <HelpCircle size={13} /> 不適用
       </span>
     );
   }
   if (status === "unknown") {
-    return <Loader2 size={13} className="text-phantom-muted animate-spin" />;
+    return <Loader2 size={13} className="text-spectyn-muted animate-spin" />;
   }
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] text-phantom-muted">
+    <span className="inline-flex items-center gap-1 text-[11px] text-spectyn-muted">
       <HelpCircle size={13} /> 尚未決定
     </span>
   );
@@ -68,27 +68,27 @@ function PermissionRow({ kind }: { kind: PermissionKind }) {
   const granted = status === "granted" || status === "unsupported";
 
   return (
-    <div className="bg-phantom-card border border-phantom-border rounded-2xl p-4 space-y-3" data-testid={`perm-row-${kind}`}>
+    <div className="bg-spectyn-card border border-spectyn-border rounded-2xl p-4 space-y-3" data-testid={`perm-row-${kind}`}>
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-2xl bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-          <Icon size={19} className="text-phantom-primary" />
+        <div className="w-10 h-10 rounded-2xl bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+          <Icon size={19} className="text-spectyn-primary" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-phantom-text">{meta.label}</span>
+            <span className="text-sm font-medium text-spectyn-text">{meta.label}</span>
             <StatusBadge status={status} />
           </div>
-          <p className="text-[11px] text-phantom-muted font-mono truncate">{meta.androidPermission}</p>
+          <p className="text-[11px] text-spectyn-muted font-mono truncate">{meta.androidPermission}</p>
         </div>
       </div>
 
-      <p className="text-xs text-phantom-muted leading-relaxed">{meta.rationaleZh}</p>
+      <p className="text-xs text-spectyn-muted leading-relaxed">{meta.rationaleZh}</p>
 
       {!granted && (
         neverAskAgain ? (
           <button
             onClick={() => void openSettings().then((ok) => ok && setTimeout(refresh, 500))}
-            className="w-full flex items-center justify-center gap-2 bg-phantom-bg border border-phantom-border text-phantom-text py-2 rounded-xl text-sm hover:border-phantom-primary/40 transition"
+            className="w-full flex items-center justify-center gap-2 bg-spectyn-bg border border-spectyn-border text-spectyn-text py-2 rounded-xl text-sm hover:border-spectyn-primary/40 transition"
           >
             <Settings size={15} /> 前往系統設定開啟
           </button>
@@ -96,7 +96,7 @@ function PermissionRow({ kind }: { kind: PermissionKind }) {
           <button
             onClick={() => void request()}
             disabled={requesting}
-            className="w-full flex items-center justify-center gap-2 bg-phantom-primary text-phantom-bg py-2 rounded-xl text-sm font-medium hover:brightness-110 transition disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 bg-spectyn-primary text-spectyn-bg py-2 rounded-xl text-sm font-medium hover:brightness-110 transition disabled:opacity-60"
           >
             {requesting ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
             {requesting ? "等待授權…" : `允許使用${meta.label}`}
@@ -137,20 +137,20 @@ function MiuiGuide() {
   };
 
   return (
-    <div className="bg-phantom-card border border-phantom-border rounded-2xl p-4 space-y-3">
+    <div className="bg-spectyn-card border border-spectyn-border rounded-2xl p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <BatteryCharging size={17} className="text-phantom-warning" />
-        <h3 className="text-sm font-medium text-phantom-text">小米 / Redmi 背景存活</h3>
+        <BatteryCharging size={17} className="text-spectyn-warning" />
+        <h3 className="text-sm font-medium text-spectyn-text">小米 / Redmi 背景存活</h3>
       </div>
-      <p className="text-xs text-phantom-muted leading-relaxed">
+      <p className="text-xs text-spectyn-muted leading-relaxed">
         MIUI（小米客製系統）預設會在過夜時殺掉背景 app，導致焦點計時中斷、教練回顧推播收不到。
-        把 Phantom 加入「自啟白名單」與「電池優化白名單」可避免（SPEC-33 §15.4）。
+        把 Spectyn 加入「自啟白名單」與「電池優化白名單」可避免（SPEC-33 §15.4）。
       </p>
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => void run("miui_guide_open_autostart", "自啟動")}
           disabled={busy !== null}
-          className="flex items-center justify-center gap-1.5 bg-phantom-bg border border-phantom-border text-phantom-text py-2 rounded-xl text-xs hover:border-phantom-primary/40 transition disabled:opacity-60"
+          className="flex items-center justify-center gap-1.5 bg-spectyn-bg border border-spectyn-border text-spectyn-text py-2 rounded-xl text-xs hover:border-spectyn-primary/40 transition disabled:opacity-60"
         >
           {busy === "miui_guide_open_autostart" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
           自啟白名單
@@ -158,14 +158,14 @@ function MiuiGuide() {
         <button
           onClick={() => void run("miui_guide_open_battery_optimization", "電池優化")}
           disabled={busy !== null}
-          className="flex items-center justify-center gap-1.5 bg-phantom-bg border border-phantom-border text-phantom-text py-2 rounded-xl text-xs hover:border-phantom-primary/40 transition disabled:opacity-60"
+          className="flex items-center justify-center gap-1.5 bg-spectyn-bg border border-spectyn-border text-spectyn-text py-2 rounded-xl text-xs hover:border-spectyn-primary/40 transition disabled:opacity-60"
         >
           {busy === "miui_guide_open_battery_optimization" ? <Loader2 size={13} className="animate-spin" /> : <BatteryCharging size={13} />}
           電池優化
         </button>
       </div>
       {note && (
-        <p className="text-[11px] text-phantom-muted leading-relaxed bg-phantom-bg border border-phantom-border rounded-xl p-2.5">
+        <p className="text-[11px] text-spectyn-muted leading-relaxed bg-spectyn-bg border border-spectyn-border rounded-xl p-2.5">
           {note}
         </p>
       )}
@@ -176,8 +176,8 @@ function MiuiGuide() {
 export default function MobilePermissions() {
   return (
     <div className="space-y-3" data-testid="mobile-permissions">
-      <p className="text-xs text-phantom-muted leading-relaxed px-1">
-        Phantom 只在用到時才請求權限，且全部可拒絕後仍以降級模式運作（SPEC-33 §15.2）。
+      <p className="text-xs text-spectyn-muted leading-relaxed px-1">
+        Spectyn 只在用到時才請求權限，且全部可拒絕後仍以降級模式運作（SPEC-33 §15.2）。
       </p>
       {KINDS.map((k) => (
         <PermissionRow key={k} kind={k} />

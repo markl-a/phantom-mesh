@@ -1,6 +1,6 @@
-//! Mac-side CLI integration tests for `phantom` binary.
+//! Mac-side CLI integration tests for `spectyn` binary.
 //!
-//! These exec the actual built binary (via `env!("CARGO_BIN_EXE_phantom")`)
+//! These exec the actual built binary (via `env!("CARGO_BIN_EXE_spectyn")`)
 //! and assert observable behavior — exit codes, output shape, side effects
 //! — rather than calling internal functions. Slower than unit tests but
 //! they catch real packaging/wiring breakage (e.g. a binary that builds
@@ -14,11 +14,11 @@
 use std::process::Command;
 use std::time::Duration;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
-/// MAC P0 — `phantom repl -c "<prompt>"` one-shot REPL must exit 0
+/// MAC P0 — `spectyn repl -c "<prompt>"` one-shot REPL must exit 0
 /// and return some non-empty completion. Uses the default agent
 /// (opencode, configured in agents.toml) so cost per run is ~$0.0001.
 ///
@@ -33,11 +33,11 @@ fn repl_macos() {
     {
         eprintln!(
             "SKIPPED: repl_macos — no provider key in env \
-             (source ~/.phantom-mesh/env first)"
+             (source ~/.spectyn-mesh/env first)"
         );
         return;
     }
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .args([
             "repl",
@@ -45,11 +45,11 @@ fn repl_macos() {
             "Reply with the literal word PING and nothing else.",
         ])
         .output()
-        .expect("phantom repl -c must spawn");
+        .expect("spectyn repl -c must spawn");
 
     assert!(
         output.status.success(),
-        "phantom repl -c exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn repl -c exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -58,12 +58,12 @@ fn repl_macos() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         !stdout.trim().is_empty(),
-        "phantom repl -c produced empty stdout — LLM never replied?\nstderr: {}",
+        "spectyn repl -c produced empty stdout — LLM never replied?\nstderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
-/// MAC P0 — `phantom exec --json <prompt>` must emit a stream of JSON
+/// MAC P0 — `spectyn exec --json <prompt>` must emit a stream of JSON
 /// AgentEvent lines on stdout (one event per line), exit 0, and the
 /// stream must contain at least one event with a recognizable tag
 /// (StreamStart / ContentBlock / Done / similar). This is the
@@ -78,11 +78,11 @@ fn exec_json_stream_macos() {
     {
         eprintln!(
             "SKIPPED: exec_json_stream_macos — no provider key in env \
-             (source ~/.phantom-mesh/env first)"
+             (source ~/.spectyn-mesh/env first)"
         );
         return;
     }
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .args([
             "exec",
@@ -90,11 +90,11 @@ fn exec_json_stream_macos() {
             "Reply with the literal word PONG and nothing else.",
         ])
         .output()
-        .expect("phantom exec --json must spawn");
+        .expect("spectyn exec --json must spawn");
 
     assert!(
         output.status.success(),
-        "phantom exec --json exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn exec --json exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -104,7 +104,7 @@ fn exec_json_stream_macos() {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
     assert!(
         !lines.is_empty(),
-        "phantom exec --json produced no stdout lines — stream never started?\n\
+        "spectyn exec --json produced no stdout lines — stream never started?\n\
          stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -148,13 +148,13 @@ fn exec_json_stream_macos() {
     );
 }
 
-/// MAC P0 — `phantom serve` must bind a TCP port and respond 200 to
+/// MAC P0 — `spectyn serve` must bind a TCP port and respond 200 to
 /// GET /healthz within 10 s. Uses a non-default port (17878) so the
-/// test doesn't collide with a long-running `phantom serve` started
+/// test doesn't collide with a long-running `spectyn serve` started
 /// by the dev or by the cluster on the canonical :7878.
 #[tokio::test(flavor = "current_thread")]
 async fn serve_starts_macos() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let port: u16 = 17878;
 
     let mut child = tokio::process::Command::new(bin)
@@ -167,7 +167,7 @@ async fn serve_starts_macos() {
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
         .spawn()
-        .expect("phantom serve must spawn");
+        .expect("spectyn serve must spawn");
 
     // Poll /healthz every 500 ms for up to 10 s.
     let client = reqwest::Client::builder()
@@ -193,13 +193,13 @@ async fn serve_starts_macos() {
 
     assert!(
         got_200,
-        "phantom serve did not respond 200 to GET {} within 10 s — \
+        "spectyn serve did not respond 200 to GET {} within 10 s — \
          the daemon either failed to bind :{} or /healthz route is broken",
         url, port
     );
 }
 
-/// MAC P0 — `phantom snapshot create` must exit 0 and produce a
+/// MAC P0 — `spectyn snapshot create` must exit 0 and produce a
 /// recognizable success message. Real side effect: creates one
 /// purgeable APFS snapshot (macOS auto-prunes; no disk leak).
 /// Pairs with the unit test `snapshot::tests::create_returns_unique_id`
@@ -207,16 +207,16 @@ async fn serve_starts_macos() {
 /// module → tmutil) rather than the module function alone.
 #[test]
 fn snapshot_create_smoke() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .arg("snapshot")
         .arg("create")
         .output()
-        .expect("phantom snapshot create must spawn");
+        .expect("spectyn snapshot create must spawn");
 
     assert!(
         output.status.success(),
-        "phantom snapshot create exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn snapshot create exited {:?}.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -227,26 +227,26 @@ fn snapshot_create_smoke() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("Created") || stdout.contains("snapshot"),
-        "phantom snapshot create produced unexpected output: {}",
+        "spectyn snapshot create produced unexpected output: {}",
         stdout
     );
 }
 
-/// MAC P0 — `phantom doctor` must exit 0 on a healthy dev Mac (Xcode
+/// MAC P0 — `spectyn doctor` must exit 0 on a healthy dev Mac (Xcode
 /// CLT, sandbox-exec, sysctl all present). This is the smoke gate that
 /// new contributors run after `cargo install` to confirm the binary
 /// works end-to-end before they start configuring providers / cluster.
 #[test]
 fn doctor_exit_zero_macos() {
-    let bin = phantom_bin();
+    let bin = spectyn_bin();
     let output = Command::new(bin)
         .arg("doctor")
         .output()
-        .expect("phantom doctor must spawn — is the bin built?");
+        .expect("spectyn doctor must spawn — is the bin built?");
 
     assert!(
         output.status.success(),
-        "phantom doctor exited {:?} on a Mac dev host.\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        "spectyn doctor exited {:?} on a Mac dev host.\n--- stdout ---\n{}\n--- stderr ---\n{}",
         output.status,
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
@@ -261,7 +261,7 @@ fn doctor_exit_zero_macos() {
     let combined = format!("{}{}", stdout, stderr);
     assert!(
         !combined.trim().is_empty(),
-        "phantom doctor produced empty output — likely shortcircuited \
+        "spectyn doctor produced empty output — likely shortcircuited \
          without running any checks. exit={:?}",
         output.status
     );

@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for Phantom Mesh",
+  "description": "Default capabilities for Spectyn Mesh",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -11,7 +11,7 @@
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "binaries/phantom-mesh",
+          "name": "binaries/spectyn-mesh",
           "sidecar": true,
           "args": true
         }

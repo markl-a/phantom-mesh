@@ -17,10 +17,10 @@
 #   --ci mode (called from ship-gate-coverage.yml)
 #     1. Skip the `cargo llvm-cov` run because the CI step already did it
 #        (saves ~5-8 minutes — we just need to parse the existing JSON).
-#     2. Read paths from env vars `PHANTOM_V2_COVERAGE_JSON` +
-#        `PHANTOM_V2_EXCEPTIONS_YAML` + `PHANTOM_V2_REPORT_OUT` so the
+#     2. Read paths from env vars `SPECTYN_V2_COVERAGE_JSON` +
+#        `SPECTYN_V2_EXCEPTIONS_YAML` + `SPECTYN_V2_REPORT_OUT` so the
 #        workflow does not have to know the file layout.
-#     3. Write the human-readable report to `PHANTOM_V2_REPORT_OUT` so the
+#     3. Write the human-readable report to `SPECTYN_V2_REPORT_OUT` so the
 #        artifact upload step can grab it.
 #
 # Exit codes
@@ -48,10 +48,10 @@ Usage: scripts/ship-gate/v2-coverage-local.sh [--ci]
              (called from .github/workflows/ship-gate-coverage.yml).
 
 Env vars honoured (CI mode):
-  PHANTOM_V2_COVERAGE_THRESHOLD  default 80
-  PHANTOM_V2_COVERAGE_JSON       default ./coverage.json
-  PHANTOM_V2_EXCEPTIONS_YAML     default .github/ship-gate-coverage-exceptions.yaml
-  PHANTOM_V2_REPORT_OUT          default ./coverage-per-spec-report.txt
+  SPECTYN_V2_COVERAGE_THRESHOLD  default 80
+  SPECTYN_V2_COVERAGE_JSON       default ./coverage.json
+  SPECTYN_V2_EXCEPTIONS_YAML     default .github/ship-gate-coverage-exceptions.yaml
+  SPECTYN_V2_REPORT_OUT          default ./coverage-per-spec-report.txt
 
 Exit: 0 pass, 1 coverage shortfall, 2 environment problem.
 EOF
@@ -70,10 +70,10 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 cd "$REPO_ROOT"
 
 # ─── env defaults ─────────────────────────────────────────────────────────
-THRESHOLD="${PHANTOM_V2_COVERAGE_THRESHOLD:-80}"
-COVERAGE_JSON="${PHANTOM_V2_COVERAGE_JSON:-$REPO_ROOT/coverage.json}"
-EXCEPTIONS_YAML="${PHANTOM_V2_EXCEPTIONS_YAML:-$REPO_ROOT/.github/ship-gate-coverage-exceptions.yaml}"
-REPORT_OUT="${PHANTOM_V2_REPORT_OUT:-$REPO_ROOT/coverage-per-spec-report.txt}"
+THRESHOLD="${SPECTYN_V2_COVERAGE_THRESHOLD:-80}"
+COVERAGE_JSON="${SPECTYN_V2_COVERAGE_JSON:-$REPO_ROOT/coverage.json}"
+EXCEPTIONS_YAML="${SPECTYN_V2_EXCEPTIONS_YAML:-$REPO_ROOT/.github/ship-gate-coverage-exceptions.yaml}"
+REPORT_OUT="${SPECTYN_V2_REPORT_OUT:-$REPO_ROOT/coverage-per-spec-report.txt}"
 
 # ─── colour helpers (off in CI for clean logs) ────────────────────────────
 if [[ "$CI_MODE" -eq 1 || -z "${TERM:-}" ]]; then
@@ -129,7 +129,7 @@ fi
 
 # ─── step 2: per-spec module → wire-file mapping ──────────────────────────
 # This is the source of truth for "which Rust file backs which leaf spec".
-# Aligned with project memory `reference_phantom_wire_module_pattern.md`:
+# Aligned with project memory `reference_spectyn_wire_module_pattern.md`:
 # 18 wire modules at core/src/<slug>_wire.rs. Add new specs here as they
 # graduate to Stage 3+.
 #

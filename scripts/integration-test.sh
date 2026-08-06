@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BINARY="${BINARY:-$PROJECT_ROOT/core/target/release/phantom-mesh}"
+BINARY="${BINARY:-$PROJECT_ROOT/core/target/release/spectyn-mesh}"
 PORT="${PORT:-17878}"  # Use non-standard port to avoid conflicts
 BASE="http://localhost:$PORT"
 PASS=0
@@ -61,7 +61,7 @@ TOML
 # cluster_secret, so without an explicit allow the gate fail-closes → 403 → the
 # `curl --fail` assertions exit 22 (#326). Opt this test daemon into empty-secret
 # loopback calls; production behaviour (empty secret ⇒ 403) is unchanged.
-PHANTOM_ALLOW_EMPTY_CLUSTER_SECRET=1 "$BINARY" daemon --port "$PORT" --config "$TMPDIR_TEST/agents.toml" > "$TMPDIR_TEST/daemon.log" 2>&1 &
+SPECTYN_ALLOW_EMPTY_CLUSTER_SECRET=1 "$BINARY" daemon --port "$PORT" --config "$TMPDIR_TEST/agents.toml" > "$TMPDIR_TEST/daemon.log" 2>&1 &
 DAEMON_PID=$!
 
 echo "Waiting for daemon to be ready..."
@@ -85,7 +85,7 @@ if ! curl -sf "$BASE/health" > /dev/null 2>&1; then
 fi
 
 echo ""
-echo "=== phantom-mesh integration tests ==="
+echo "=== spectyn-mesh integration tests ==="
 echo "Daemon: $BASE (PID $DAEMON_PID)"
 echo ""
 

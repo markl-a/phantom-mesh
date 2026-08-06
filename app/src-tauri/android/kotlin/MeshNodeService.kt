@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -13,7 +13,7 @@ import android.service.quicksettings.TileService
 import androidx.core.app.NotificationCompat
 
 /**
- * Foreground service that keeps the Phantom Mesh HTTP node alive
+ * Foreground service that keeps the Spectyn Mesh HTTP node alive
  * even when the app is in the background or the user swipes it away.
  *
  * Lifecycle: started by MainActivity.onCreate(), runs until the user
@@ -25,20 +25,20 @@ import androidx.core.app.NotificationCompat
 class MeshNodeService : Service() {
 
     companion object {
-        const val CHANNEL_ID   = "phantom_mesh_node"
+        const val CHANNEL_ID   = "spectyn_mesh_node"
         const val NOTIFICATION_ID = 1001
-        const val ACTION_STOP  = "ai.phantommesh.app.STOP_NODE"
+        const val ACTION_STOP  = "ai.spectynmesh.app.STOP_NODE"
 
         // SPEC-21 focus session (mirrors FocusQuickTile constants)
-        const val ACTION_START_FOCUS  = "ai.phantommesh.app.START_FOCUS"
-        const val ACTION_STOP_FOCUS   = "ai.phantommesh.app.STOP_FOCUS"
+        const val ACTION_START_FOCUS  = "ai.spectynmesh.app.START_FOCUS"
+        const val ACTION_STOP_FOCUS   = "ai.spectynmesh.app.STOP_FOCUS"
         const val EXTRA_FOCUS_MINUTES = "focus_minutes"
-        const val FOCUS_CHANNEL_ID    = "phantom_focus_session"
+        const val FOCUS_CHANNEL_ID    = "spectyn_focus_session"
         const val FOCUS_NOTIFICATION_ID = 1002
         const val DEFAULT_FOCUS_MINUTES = 25
 
         // SPEC-34 §10E habit-chip palette widget (mirrors HabitChipPaletteWidget)
-        const val ACTION_CAPTURE_HABIT = "ai.phantommesh.app.CAPTURE_HABIT"
+        const val ACTION_CAPTURE_HABIT = "ai.spectynmesh.app.CAPTURE_HABIT"
         const val EXTRA_HABIT_SLUG     = "habit_slug"
         const val HABIT_NOTIFICATION_ID = 1003
     }
@@ -120,7 +120,7 @@ class MeshNodeService : Service() {
         // (app/src/lib/captureHabit.ts) so drained taps map to real habit chips.
         val validSlug = if (slug in setOf("water", "coffee", "exercise", "breath")) slug else "water"
 
-        val prefs = getSharedPreferences("phantom_habit_queue", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("spectyn_habit_queue", Context.MODE_PRIVATE)
         val pending = prefs.getString("pending", "").orEmpty()
         val entry = "${System.currentTimeMillis()},$validSlug"
         prefs.edit().putString("pending", if (pending.isEmpty()) entry else "$pending\n$entry").apply()
@@ -155,7 +155,7 @@ class MeshNodeService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, FOCUS_CHANNEL_ID)
-            .setContentTitle("專注中 · Phantom 焦點")
+            .setContentTitle("專注中 · Spectyn 焦點")
             .setContentText("$minutes 分鐘焦點 session 進行中")
             .setSmallIcon(R.drawable.ic_focus_tile)
             .setOngoing(true)
@@ -167,7 +167,7 @@ class MeshNodeService : Service() {
     private fun createFocusChannel() {
         val channel = NotificationChannel(
             FOCUS_CHANNEL_ID,
-            "Phantom 焦點 session",
+            "Spectyn 焦點 session",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "SPEC-21 焦點 session 進行中的通知"
@@ -197,7 +197,7 @@ class MeshNodeService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Phantom Mesh")
+            .setContentTitle("Spectyn Mesh")
             .setContentText("節點運行中 · port 7878")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
@@ -209,10 +209,10 @@ class MeshNodeService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Phantom Mesh 節點",
+            "Spectyn Mesh 節點",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "保持 Phantom Mesh 節點在背景運行"
+            description = "保持 Spectyn Mesh 節點在背景運行"
             setShowBadge(false)
         }
         getSystemService(NotificationManager::class.java)

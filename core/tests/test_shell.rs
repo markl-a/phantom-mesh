@@ -1,4 +1,4 @@
-use phantom_mesh::tools::shell;
+use spectyn_mesh::tools::shell;
 use serde_json::json;
 
 // ── 1. Basic command executes successfully ────────────────────────────────

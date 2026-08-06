@@ -78,23 +78,23 @@ export default function FocusStartSheet({ onStart, onCancel, micGranted = true }
     <div
       data-testid="focus-start-sheet"
       onKeyDown={onKeyDown}
-      className="w-[480px] max-w-full bg-phantom-card border border-phantom-border rounded-xl shadow-xl overflow-hidden text-phantom-text"
+      className="w-[480px] max-w-full bg-spectyn-card border border-spectyn-border rounded-xl shadow-xl overflow-hidden text-spectyn-text"
     >
-      <header className="px-5 py-3 border-b border-phantom-border">
+      <header className="px-5 py-3 border-b border-spectyn-border">
         <h2 className="text-sm font-semibold">開始焦點 session</h2>
       </header>
 
       <div className="px-5 py-4 space-y-4">
         {/* 選擇時長 */}
         <fieldset>
-          <legend className="text-xs text-phantom-muted mb-2">選擇時長：</legend>
+          <legend className="text-xs text-spectyn-muted mb-2">選擇時長：</legend>
           <div className="space-y-1.5">
             {PRESETS.map((p) => (
               <label key={p.mode} className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="radio" name="focus-mode" checked={mode === p.mode}
                   onChange={() => setMode(p.mode)}
-                  className="accent-phantom-primary"
+                  className="accent-spectyn-primary"
                 />
                 {p.label}
               </label>
@@ -103,13 +103,13 @@ export default function FocusStartSheet({ onStart, onCancel, micGranted = true }
               <input
                 type="radio" name="focus-mode" checked={mode === "custom"}
                 onChange={() => setMode("custom")}
-                className="accent-phantom-primary"
+                className="accent-spectyn-primary"
               />
               自訂：
               <input
                 type="number" min={1} max={240} value={customMin}
                 onChange={(e) => { setMode("custom"); setCustomMin(Number(e.target.value) || 1); }}
-                className="w-16 bg-phantom-bg border border-phantom-border rounded px-2 py-0.5 text-sm focus:outline-none focus:border-phantom-primary"
+                className="w-16 bg-spectyn-bg border border-spectyn-border rounded px-2 py-0.5 text-sm focus:outline-none focus:border-spectyn-primary"
               />
               min
             </label>
@@ -118,24 +118,24 @@ export default function FocusStartSheet({ onStart, onCancel, micGranted = true }
 
         {/* 錄音 */}
         <fieldset>
-          <legend className="text-xs text-phantom-muted mb-2">錄音：</legend>
+          <legend className="text-xs text-spectyn-muted mb-2">錄音：</legend>
           <div className="space-y-1.5">
             <label className={`flex items-center gap-2 text-sm ${micGranted ? "cursor-pointer" : "opacity-50"}`}>
               <input
                 type="checkbox" checked={syncRecording && micGranted} disabled={!micGranted}
                 onChange={(e) => setSyncRecording(e.target.checked)}
-                className="accent-phantom-primary"
+                className="accent-spectyn-primary"
               />
               同步錄音（on-device ASR）
             </label>
             {!micGranted && (
-              <p className="text-[11px] text-phantom-warning pl-6">需開麥克風權限（系統設定 → 隱私權）</p>
+              <p className="text-[11px] text-spectyn-warning pl-6">需開麥克風權限（系統設定 → 隱私權）</p>
             )}
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox" checked={cloudAsr}
                 onChange={(e) => setCloudAsr(e.target.checked)}
-                className="accent-phantom-primary"
+                className="accent-spectyn-primary"
               />
               Cloud ASR fallback（明確 opt-in）
             </label>
@@ -144,31 +144,31 @@ export default function FocusStartSheet({ onStart, onCancel, micGranted = true }
 
         {/* 備註 */}
         <div>
-          <label className="text-xs text-phantom-muted block mb-1.5">備註（選填）：</label>
+          <label className="text-xs text-spectyn-muted block mb-1.5">備註（選填）：</label>
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="這段時間要做什麼？"
-            className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-1.5 text-sm placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+            className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-1.5 text-sm placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
           />
         </div>
 
         {error && (
-          <p className="text-xs text-phantom-danger" role="alert">{error}</p>
+          <p className="text-xs text-spectyn-danger" role="alert">{error}</p>
         )}
       </div>
 
-      <footer className="px-5 py-3 border-t border-phantom-border flex items-center justify-end gap-2">
+      <footer className="px-5 py-3 border-t border-spectyn-border flex items-center justify-end gap-2">
         <button
           onClick={() => onCancel?.()}
-          className="px-4 py-1.5 rounded-lg text-sm text-phantom-muted hover:bg-phantom-bg transition"
+          className="px-4 py-1.5 rounded-lg text-sm text-spectyn-muted hover:bg-spectyn-bg transition"
         >
           <X size={14} className="inline -mt-0.5 mr-1" />取消
         </button>
         <button
           onClick={() => void start()}
           disabled={starting}
-          className="px-4 py-1.5 rounded-lg text-sm font-medium bg-phantom-primary text-phantom-bg hover:brightness-110 disabled:opacity-40 transition"
+          className="px-4 py-1.5 rounded-lg text-sm font-medium bg-spectyn-primary text-spectyn-bg hover:brightness-110 disabled:opacity-40 transition"
         >
           <Play size={14} className="inline -mt-0.5 mr-1" />
           {starting ? "開始中…" : "開始"}

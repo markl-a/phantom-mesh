@@ -1,4 +1,4 @@
-//! P0-2 Task 3 — `skills` store durability across a simulated phantom restart.
+//! P0-2 Task 3 — `skills` store durability across a simulated spectyn restart.
 //!
 //! The STORE half of the apex ②owned-memory loop must be DURABLE: a skill
 //! stored in one "process" must survive a restart. Because
@@ -16,12 +16,12 @@
 
 #![cfg(feature = "experimental-memory")]
 
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::skill_wire::{recall_skills, store_skill, Skill};
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::skill_wire::{recall_skills, store_skill, Skill};
 
-// `phantom_mesh::env_lock` is `#[cfg(test)]`-gated, so it is NOT reachable from
+// `spectyn_mesh::env_lock` is `#[cfg(test)]`-gated, so it is NOT reachable from
 // an integration test (which links the non-test lib build). Serialize on a
-// file-local mutex instead — PHANTOM_DB_PATH is a process-global, and this is
+// file-local mutex instead — SPECTYN_DB_PATH is a process-global, and this is
 // the only test in this binary that touches it, so a file-local lock is
 // sufficient to keep the env mutation hermetic.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -31,7 +31,7 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Both must see the skill — proving the write reached the on-disk file.
 #[test]
 fn stored_skill_survives_a_simulated_restart() {
-    // Serialize on the file-local env mutex (PHANTOM_DB_PATH is a process-global)
+    // Serialize on the file-local env mutex (SPECTYN_DB_PATH is a process-global)
     // so this never races a sibling test in this binary that touches the env.
     let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
@@ -39,8 +39,8 @@ fn stored_skill_survives_a_simulated_restart() {
     // connection — exactly the "DB file persists across a restart" condition.
     let dir = tempfile::tempdir().expect("tempdir");
     let db_path = dir.path().join("skills.db");
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
-    std::env::set_var("PHANTOM_DB_PATH", &db_path);
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
+    std::env::set_var("SPECTYN_DB_PATH", &db_path);
 
     let skill = Skill {
         id: "sk-restart-1".into(),
@@ -54,7 +54,7 @@ fn stored_skill_survives_a_simulated_restart() {
         source_event_count: 3,
     };
 
-    // Wrap the DB-touching body so PHANTOM_DB_PATH is restored BEFORE asserting,
+    // Wrap the DB-touching body so SPECTYN_DB_PATH is restored BEFORE asserting,
     // even on an early failure path.
     let outcome = (|| -> Result<(bool, i64), String> {
         // Phase 1 — store via the PUBLIC surface, keeping no handle afterwards.
@@ -63,7 +63,7 @@ fn stored_skill_survives_a_simulated_restart() {
         store_skill(&skill).map_err(|e| format!("store: {e:?}"))?;
 
         // Phase 2 — "restart": no handle from Phase 1 is alive. `recall_skills`
-        // opens its OWN fresh connection from PHANTOM_DB_PATH.
+        // opens its OWN fresh connection from SPECTYN_DB_PATH.
         let res = recall_skills("staging", RecallPolicy::default())
             .map_err(|e| format!("recall: {e:?}"))?;
         let found = res.skills.iter().any(|s| s.id == "sk-restart-1");
@@ -82,8 +82,8 @@ fn stored_skill_survives_a_simulated_restart() {
 
     // Restore env BEFORE asserting so a failure can't leak the override.
     match saved {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let (found, count) = outcome.expect("store + restart-recall round-trip");

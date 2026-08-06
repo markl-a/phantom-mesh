@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.annotation.SuppressLint
 import android.content.Context
@@ -12,7 +12,7 @@ import androidx.security.crypto.MasterKey
  * This object is the Kotlin side of the `core/src/identity_wire.rs` Android
  * keystore arm. The Rust bridge resolves this exact class over JNI:
  *
- *   find_class("ai/phantommesh/app/IdentityKeystore")
+ *   find_class("ai/spectynmesh/app/IdentityKeystore")
  *
  * and invokes these three STATIC methods (must stay `@JvmStatic` so the Rust
  * `call_static_method` finds them) with these EXACT signatures — keep them in
@@ -23,7 +23,7 @@ import androidx.security.crypto.MasterKey
  *   read(account: String): String?                    // (Ljava/lang/String;)Ljava/lang/String;
  *   delete(account: String): Unit                     // (Ljava/lang/String;)V
  *
- * Storage: an [EncryptedSharedPreferences] file (`phantom_identity_keystore`)
+ * Storage: an [EncryptedSharedPreferences] file (`spectyn_identity_keystore`)
  * whose AES-256-GCM data/key encryption keys are wrapped by a [MasterKey] held
  * in the hardware-backed AndroidKeyStore (`AES256_GCM` scheme). The Rust side
  * base64-encodes the raw 32-byte master seed BEFORE calling `write`, so the
@@ -46,7 +46,7 @@ import androidx.security.crypto.MasterKey
 object IdentityKeystore {
 
     /** EncryptedSharedPreferences file name backing every identity record. */
-    private const val PREFS_FILE = "phantom_identity_keystore"
+    private const val PREFS_FILE = "spectyn_identity_keystore"
 
     /** Cached encrypted prefs handle — built lazily on first use, then reused. */
     @Volatile

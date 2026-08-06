@@ -1,4 +1,4 @@
-use phantom_mesh::{cost::CostTracker, providers::traits::ChatMessage, session::ConversationStore};
+use spectyn_mesh::{cost::CostTracker, providers::traits::ChatMessage, session::ConversationStore};
 use tempfile::tempdir;
 
 // ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ async fn test_session_evict() {
 // ---------------------------------------------------------------------------
 
 /// Build a fresh CostTracker whose backing file lives in a temp dir so that
-/// tests are isolated from ~/.phantom-mesh/costs.json and from each other.
+/// tests are isolated from ~/.spectyn-mesh/costs.json and from each other.
 fn fresh_tracker(dir: &tempfile::TempDir) -> CostTracker {
     // CostTracker::new() reads HOME to pick its path. Point HOME at the
     // tempdir so the backing file is isolated per-test.

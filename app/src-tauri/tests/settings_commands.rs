@@ -7,14 +7,14 @@
 // trip cases, one per new command surface.
 //
 // Scope-out: we do NOT drive the `#[tauri::command]` functions directly
-// here. They mutate ~/.phantom-mesh/{auth,agents.toml} on disk and the
+// here. They mutate ~/.spectyn-mesh/{auth,agents.toml} on disk and the
 // per-process TEST_PATH_OVERRIDE / AuthSnapshot machinery they rely on
 // is gated behind cfg(test) inside the library. Those behaviours are
 // covered by the `mobile_settings::tests` unit suite. This integration
 // surface verifies the pieces JS sees — the validators + redactor — so
 // a refactor that drifts the error codes is caught here, not at e2e.
 
-use phantom_mesh_app_lib::commands::mobile_settings::{
+use spectyn_mesh_app_lib::commands::mobile_settings::{
     redact_token, validate_heartbeat_secs, validate_peer_url,
     DEFAULT_HEARTBEAT_SECS, MAX_HEARTBEAT_SECS, MIN_HEARTBEAT_SECS,
 };

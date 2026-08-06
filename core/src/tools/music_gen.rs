@@ -10,7 +10,7 @@
 //!
 //! ## Supported providers
 //!
-//! Selected via `PHANTOM_MUSIC_GEN_PROVIDER`:
+//! Selected via `SPECTYN_MUSIC_GEN_PROVIDER`:
 //!
 //! | value (default `replicate`) | provider          | default model                  | vocals? |
 //! |---|---|---|---|
@@ -19,16 +19,16 @@
 //! | `elevenlabs` | ElevenLabs Music `/v1/music`          | (server default — chirp-class) | YES (lyrics supported) |
 //!
 //! Env overrides:
-//! - `PHANTOM_MUSIC_GEN_PROVIDER` — see table
-//! - `PHANTOM_MUSIC_GEN_BASE_URL` — override the provider base URL
-//! - `PHANTOM_MUSIC_GEN_API_KEY`  — fallback per-provider env
+//! - `SPECTYN_MUSIC_GEN_PROVIDER` — see table
+//! - `SPECTYN_MUSIC_GEN_BASE_URL` — override the provider base URL
+//! - `SPECTYN_MUSIC_GEN_API_KEY`  — fallback per-provider env
 //!   (`REPLICATE_API_TOKEN` / `FAL_KEY` / `ELEVENLABS_API_KEY`)
-//! - `PHANTOM_MUSIC_GEN_MODEL`    — override the model id
-//! - `PHANTOM_MUSIC_GEN_TIMEOUT_SECS` — default 300 (= 5 min)
+//! - `SPECTYN_MUSIC_GEN_MODEL`    — override the model id
+//! - `SPECTYN_MUSIC_GEN_TIMEOUT_SECS` — default 300 (= 5 min)
 //!
 //! ## Output
 //!
-//! Audio lands in `~/.phantom-mesh/generated/<unix-ts>.mp3` (or
+//! Audio lands in `~/.spectyn-mesh/generated/<unix-ts>.mp3` (or
 //! whichever extension the provider URL/content-type suggests).
 //! Returns the path so the agent can `file_read` / `@`-attach for a
 //! follow-up turn (transcribe / describe lyrics / etc).
@@ -50,7 +50,7 @@ enum Provider {
 
 impl Provider {
     fn from_env() -> Self {
-        match std::env::var("PHANTOM_MUSIC_GEN_PROVIDER")
+        match std::env::var("SPECTYN_MUSIC_GEN_PROVIDER")
             .unwrap_or_default()
             .to_lowercase()
             .as_str()
@@ -80,9 +80,9 @@ impl Provider {
 
     fn api_key_envs(self) -> &'static [&'static str] {
         match self {
-            Self::Replicate => &["PHANTOM_MUSIC_GEN_API_KEY", "REPLICATE_API_TOKEN"],
-            Self::Fal => &["PHANTOM_MUSIC_GEN_API_KEY", "FAL_KEY"],
-            Self::ElevenLabs => &["PHANTOM_MUSIC_GEN_API_KEY", "ELEVENLABS_API_KEY"],
+            Self::Replicate => &["SPECTYN_MUSIC_GEN_API_KEY", "REPLICATE_API_TOKEN"],
+            Self::Fal => &["SPECTYN_MUSIC_GEN_API_KEY", "FAL_KEY"],
+            Self::ElevenLabs => &["SPECTYN_MUSIC_GEN_API_KEY", "ELEVENLABS_API_KEY"],
         }
     }
 
@@ -122,20 +122,20 @@ pub async fn generate(args: &Value) -> String {
     let api_key = read_api_key(provider);
     if api_key.is_empty() {
         return format!(
-            "Error: no API key for provider '{}' — set PHANTOM_MUSIC_GEN_API_KEY or one of [{}]",
+            "Error: no API key for provider '{}' — set SPECTYN_MUSIC_GEN_API_KEY or one of [{}]",
             provider.name(),
             provider.api_key_envs().join(", "),
         );
     }
 
-    let base_url = std::env::var("PHANTOM_MUSIC_GEN_BASE_URL")
+    let base_url = std::env::var("SPECTYN_MUSIC_GEN_BASE_URL")
         .unwrap_or_else(|_| provider.default_base_url().to_string());
     let model = args
         .get("model")
         .and_then(|v| v.as_str())
         .map(str::to_string)
         .unwrap_or_else(|| {
-            std::env::var("PHANTOM_MUSIC_GEN_MODEL")
+            std::env::var("SPECTYN_MUSIC_GEN_MODEL")
                 .unwrap_or_else(|_| provider.default_model().to_string())
         });
     let duration_secs = args
@@ -150,12 +150,12 @@ pub async fn generate(args: &Value) -> String {
     if lyrics.is_some() && provider != Provider::ElevenLabs {
         return format!(
             "Error: 'lyrics' is only supported by elevenlabs provider; current provider is '{}'. \
-             Set PHANTOM_MUSIC_GEN_PROVIDER=elevenlabs to use vocals.",
+             Set SPECTYN_MUSIC_GEN_PROVIDER=elevenlabs to use vocals.",
             provider.name(),
         );
     }
 
-    let timeout_secs = std::env::var("PHANTOM_MUSIC_GEN_TIMEOUT_SECS")
+    let timeout_secs = std::env::var("SPECTYN_MUSIC_GEN_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_TIMEOUT_SECS);
@@ -238,7 +238,7 @@ pub async fn generate(args: &Value) -> String {
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 fn output_dir() -> std::io::Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir()
+    let data = crate::cli_config::spectyn_data_dir()
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e.to_string()))?;
     let dir = data.join("generated");
     std::fs::create_dir_all(&dir)?;
@@ -401,7 +401,7 @@ async fn poll_until_done(
     loop {
         if start.elapsed() > overall_timeout {
             return Err(format!(
-                "timeout after {} s (set PHANTOM_MUSIC_GEN_TIMEOUT_SECS to extend)",
+                "timeout after {} s (set SPECTYN_MUSIC_GEN_TIMEOUT_SECS to extend)",
                 overall_timeout.as_secs()
             ));
         }
@@ -589,11 +589,11 @@ mod tests {
 
     fn clean_env() {
         for v in [
-            "PHANTOM_MUSIC_GEN_PROVIDER",
-            "PHANTOM_MUSIC_GEN_API_KEY",
-            "PHANTOM_MUSIC_GEN_BASE_URL",
-            "PHANTOM_MUSIC_GEN_MODEL",
-            "PHANTOM_MUSIC_GEN_TIMEOUT_SECS",
+            "SPECTYN_MUSIC_GEN_PROVIDER",
+            "SPECTYN_MUSIC_GEN_API_KEY",
+            "SPECTYN_MUSIC_GEN_BASE_URL",
+            "SPECTYN_MUSIC_GEN_MODEL",
+            "SPECTYN_MUSIC_GEN_TIMEOUT_SECS",
             "REPLICATE_API_TOKEN",
             "FAL_KEY",
             "ELEVENLABS_API_KEY",
@@ -613,13 +613,13 @@ mod tests {
     fn provider_from_env_aliases() {
         let _g = crate::sandbox::test_lock();
         clean_env();
-        std::env::set_var("PHANTOM_MUSIC_GEN_PROVIDER", "fal");
+        std::env::set_var("SPECTYN_MUSIC_GEN_PROVIDER", "fal");
         assert_eq!(Provider::from_env(), Provider::Fal);
-        std::env::set_var("PHANTOM_MUSIC_GEN_PROVIDER", "Fal.ai");
+        std::env::set_var("SPECTYN_MUSIC_GEN_PROVIDER", "Fal.ai");
         assert_eq!(Provider::from_env(), Provider::Fal);
-        std::env::set_var("PHANTOM_MUSIC_GEN_PROVIDER", "elevenlabs");
+        std::env::set_var("SPECTYN_MUSIC_GEN_PROVIDER", "elevenlabs");
         assert_eq!(Provider::from_env(), Provider::ElevenLabs);
-        std::env::set_var("PHANTOM_MUSIC_GEN_PROVIDER", "eleven");
+        std::env::set_var("SPECTYN_MUSIC_GEN_PROVIDER", "eleven");
         assert_eq!(Provider::from_env(), Provider::ElevenLabs);
         clean_env();
     }
@@ -653,7 +653,7 @@ mod tests {
     async fn lyrics_on_non_elevenlabs_rejected() {
         let _g = crate::sandbox::test_lock();
         clean_env();
-        std::env::set_var("PHANTOM_MUSIC_GEN_PROVIDER", "replicate");
+        std::env::set_var("SPECTYN_MUSIC_GEN_PROVIDER", "replicate");
         std::env::set_var("REPLICATE_API_TOKEN", "stub-key");
         let out = generate(&json!({
             "prompt": "synthwave",

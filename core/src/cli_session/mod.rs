@@ -34,7 +34,7 @@ pub struct SessionSpec {
     /// governed run pauses before each tool. Empty for an ungoverned session.
     pub extra_args: Vec<String>,
     /// Extra environment variables for the spawned CLI process. The L1 governor uses
-    /// this to pass `PHANTOM_HOME` + `PHANTOM_GOVERN_TASK_ID` so the hook binds to
+    /// this to pass `SPECTYN_HOME` + `SPECTYN_GOVERN_TASK_ID` so the hook binds to
     /// the run's identity. Empty for an ungoverned session.
     pub env: Vec<(String, String)>,
 }

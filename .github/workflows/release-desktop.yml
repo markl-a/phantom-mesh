@@ -34,7 +34,7 @@ jobs:
         # COST WORKAROUND 2026-05-17: macOS + Windows entries appear only
         # when this workflow is run via workflow_dispatch. Tag pushes build
         # ubuntu-22.04 only.
-        include: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","core-binary":"phantom-mesh.exe"},{"platform":"macos-latest","target":"aarch64-apple-darwin","core-binary":"phantom-mesh"},{"platform":"macos-latest","target":"x86_64-apple-darwin","core-binary":"phantom-mesh"},{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"phantom-mesh"}]') || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"phantom-mesh"}]') }}
+        include: ${{ github.event_name == 'workflow_dispatch' && fromJSON('[{"platform":"windows-latest","target":"x86_64-pc-windows-msvc","core-binary":"spectyn-mesh.exe"},{"platform":"macos-latest","target":"aarch64-apple-darwin","core-binary":"spectyn-mesh"},{"platform":"macos-latest","target":"x86_64-apple-darwin","core-binary":"spectyn-mesh"},{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"spectyn-mesh"}]') || fromJSON('[{"platform":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","core-binary":"spectyn-mesh"}]') }}
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -78,9 +78,9 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile || pnpm install
 
-      # Step 1: Build phantom-mesh daemon binary
-      - name: Build phantom-mesh (release)
-        run: cargo build --release -p phantom-mesh --target ${{ matrix.target }}
+      # Step 1: Build spectyn-mesh daemon binary
+      - name: Build spectyn-mesh (release)
+        run: cargo build --release -p spectyn-mesh --target ${{ matrix.target }}
 
       # Step 2: Copy sidecar binary with target triple suffix
       - name: Copy sidecar binary (Unix)
@@ -88,7 +88,7 @@ jobs:
         run: |
           mkdir -p app/src-tauri/binaries
           cp target/${{ matrix.target }}/release/${{ matrix.core-binary }} \
-             app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}
+             app/src-tauri/binaries/spectyn-mesh-${{ matrix.target }}
 
       - name: Copy sidecar binary (Windows)
         if: matrix.platform == 'windows-latest'
@@ -96,7 +96,7 @@ jobs:
         run: |
           mkdir -p app/src-tauri/binaries
           cp target/${{ matrix.target }}/release/${{ matrix.core-binary }} \
-             app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}.exe
+             app/src-tauri/binaries/spectyn-mesh-${{ matrix.target }}.exe
 
       # Ad-hoc codesign the macOS sidecar BEFORE Tauri bundles it. cp into
       # app/src-tauri/binaries strips the kernel-valid signature; if Tauri
@@ -108,7 +108,7 @@ jobs:
       - name: Ad-hoc codesign macOS sidecar
         if: matrix.platform == 'macos-latest'
         run: |
-          BIN="app/src-tauri/binaries/phantom-mesh-${{ matrix.target }}"
+          BIN="app/src-tauri/binaries/spectyn-mesh-${{ matrix.target }}"
           codesign --force --sign - "$BIN"
           codesign --verify --verbose "$BIN"
           echo "✓ sidecar ad-hoc signed: $BIN"
@@ -124,7 +124,7 @@ jobs:
           projectPath: app
           args: --target ${{ matrix.target }}
           tagName: ${{ github.ref_name }}
-          releaseName: 'Phantom Mesh Desktop ${{ github.ref_name }}'
+          releaseName: 'Spectyn Mesh Desktop ${{ github.ref_name }}'
           releaseBody: |
             See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
           releaseDraft: ${{ github.event.inputs.draft || 'true' }}

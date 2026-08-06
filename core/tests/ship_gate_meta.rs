@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use phantom_mesh::test_report::{
+use spectyn_mesh::test_report::{
     build_report, collect_report, load_gate_map, lint_gate_map, resolve_citation, Check, CheckKind,
     CheckResolution, GateId, GateMap, GateSpec, GateStatus, Override, OverallStatus, RunContext,
     ShipGate, TriggeredBy,
@@ -103,7 +103,7 @@ fn t_testing_citations_agreement() {
     }
 }
 
-/// First bash that actually runs (`bash -c 'echo PHANTOM_BASH_OK'` → exact match),
+/// First bash that actually runs (`bash -c 'echo SPECTYN_BASH_OK'` → exact match),
 /// preferring Git Bash over the WSL stub on Windows.
 fn usable_bash() -> Option<String> {
     let mut candidates: Vec<String> = Vec::new();
@@ -119,8 +119,8 @@ fn usable_bash() -> Option<String> {
     }
     candidates.push("bash".to_string());
     for c in candidates {
-        if let Ok(out) = std::process::Command::new(&c).args(["-c", "echo PHANTOM_BASH_OK"]).output() {
-            if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "PHANTOM_BASH_OK" {
+        if let Ok(out) = std::process::Command::new(&c).args(["-c", "echo SPECTYN_BASH_OK"]).output() {
+            if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "SPECTYN_BASH_OK" {
                 return Some(c);
             }
         }

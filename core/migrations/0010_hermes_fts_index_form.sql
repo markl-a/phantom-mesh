@@ -1,6 +1,6 @@
 -- 0010_hermes_fts_index_form.sql — P0-8: FTS index fed from Rust, not raw text.
 --
--- When PHANTOM_ENCRYPT_MEMORY is ON, hermes_memory.text holds a sealed age blob
+-- When SPECTYN_ENCRYPT_MEMORY is ON, hermes_memory.text holds a sealed age blob
 -- (see core/src/hermes/memory_seal.rs). The FTS5 index must NOT index that
 -- ciphertext (BM25 over base64 noise is useless) and must NOT index the raw PII
 -- sentence (that would re-leak the plaintext into the index pages). It must

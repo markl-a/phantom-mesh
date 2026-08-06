@@ -19,13 +19,13 @@ name: Release Windows Binary + MSI
 # COST WORKAROUND header above.)
 #
 # Artifacts uploaded:
-#   - phantom-x86_64-pc-windows.exe          standalone CLI (matches the
-#                                            install-phantom-windows.ps1
+#   - spectyn-x86_64-pc-windows.exe          standalone CLI (matches the
+#                                            install-spectyn-windows.ps1
 #                                            $exeUrl path)
-#   - phantom-x86_64-pc-windows.exe.sha256   for `phantom self-update`
+#   - spectyn-x86_64-pc-windows.exe.sha256   for `spectyn self-update`
 #                                            integrity checks
-#   - Phantom Mesh_<ver>_x64-setup.exe       NSIS installer (Tauri shell)
-#   - Phantom Mesh_<ver>_x64_en-US.msi       MSI installer (Tauri shell)
+#   - Spectyn Mesh_<ver>_x64-setup.exe       NSIS installer (Tauri shell)
+#   - Spectyn Mesh_<ver>_x64_en-US.msi       MSI installer (Tauri shell)
 
 on:
   workflow_dispatch:
@@ -81,21 +81,21 @@ jobs:
         run: pnpm install --frozen-lockfile || pnpm install
 
       # ── Standalone CLI binary ───────────────────────────────────────────
-      - name: Build phantom CLI (release, msvc)
+      - name: Build spectyn CLI (release, msvc)
         working-directory: core
-        # --features experimental-curator: the CLI advertises `phantom skill
+        # --features experimental-curator: the CLI advertises `spectyn skill
         # run`, but the default Windows release built WITHOUT it, so skill-run failed
         # "built without experimental-curator" (Windows usage-matrix finding,
         # 2026-05-29). Verified to compile clean on windows-msvc before enabling.
-        run: cargo build --release --bin phantom --target x86_64-pc-windows-msvc --features experimental-curator
+        run: cargo build --release --bin spectyn --target x86_64-pc-windows-msvc --features experimental-curator
 
       - name: Stage CLI binary
         shell: pwsh
         run: |
-          $src = "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\release\phantom.exe"
+          $src = "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\release\spectyn.exe"
           if (-not (Test-Path $src)) { throw "build output missing: $src" }
-          Copy-Item $src "phantom-x86_64-pc-windows.exe"
-          Get-Item "phantom-x86_64-pc-windows.exe"
+          Copy-Item $src "spectyn-x86_64-pc-windows.exe"
+          Get-Item "spectyn-x86_64-pc-windows.exe"
 
       - name: Sign CLI binary (Authenticode, secret-gated)
         shell: pwsh
@@ -103,19 +103,19 @@ jobs:
         # the script prints "skip" and exits 0, so the build stays green and the
         # binary just ships unsigned. With the secret present it gets a real
         # RFC3161-timestamped Authenticode signature, which is what removes the
-        # SmartScreen "unknown publisher" warning for downloaded phantom.exe.
+        # SmartScreen "unknown publisher" warning for downloaded spectyn.exe.
         env:
           WINDOWS_CODESIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
           WINDOWS_CODESIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
-        run: .\scripts\sign-windows-ci.ps1 -Path .\phantom-x86_64-pc-windows.exe
+        run: .\scripts\sign-windows-ci.ps1 -Path .\spectyn-x86_64-pc-windows.exe
 
       - name: Hash CLI binary (post-sign)
         shell: pwsh
         # MUST run after signing: an Authenticode signature is embedded into the
-        # PE, changing the file bytes. `phantom self-update` verifies this
+        # PE, changing the file bytes. `spectyn self-update` verifies this
         # sha256, so it has to match the signed artifact, not the pre-sign one.
         run: |
-          $dst = "phantom-x86_64-pc-windows.exe"
+          $dst = "spectyn-x86_64-pc-windows.exe"
           $sha = (Get-FileHash $dst -Algorithm SHA256).Hash.ToLower()
           "$sha  $dst" | Out-File -Encoding ascii "$dst.sha256"
           Get-Content "$dst.sha256"
@@ -123,10 +123,10 @@ jobs:
       - name: Upload CLI binary artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-cli-windows
+          name: spectyn-cli-windows
           path: |
-            phantom-x86_64-pc-windows.exe
-            phantom-x86_64-pc-windows.exe.sha256
+            spectyn-x86_64-pc-windows.exe
+            spectyn-x86_64-pc-windows.exe.sha256
 
       # ── Tauri MSI / NSIS bundle ─────────────────────────────────────────
       - name: Build Tauri Windows bundle (MSI + NSIS)
@@ -137,7 +137,7 @@ jobs:
           # (currently bundle.targets = "all", so on Windows it produces
           # both .msi and .nsis-setup.exe).
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: 'Phantom Mesh ${{ github.ref_name }}'
+          releaseName: 'Spectyn Mesh ${{ github.ref_name }}'
           releaseDraft: ${{ inputs.draft != 'false' }}
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
         env:
@@ -160,15 +160,15 @@ jobs:
       - name: Download CLI artifact
         uses: actions/download-artifact@v4
         with:
-          name: phantom-cli-windows
+          name: spectyn-cli-windows
           path: ./dist
 
       - name: Upload to release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: |
-            ./dist/phantom-x86_64-pc-windows.exe
-            ./dist/phantom-x86_64-pc-windows.exe.sha256
+            ./dist/spectyn-x86_64-pc-windows.exe
+            ./dist/spectyn-x86_64-pc-windows.exe.sha256
           fail_on_unmatched_files: true
           draft: ${{ inputs.draft != 'false' }}
           prerelease: ${{ contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}

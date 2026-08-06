@@ -16,7 +16,7 @@
 //   2. Add a `#[cfg(target_os = "<os>")] mod <os>;` line below.
 //   3. Add the corresponding cfg arm to [`current()`].
 //
-// iOS: minimal stub adapter (see ios.rs). `phantom-mesh-app` links the
+// iOS: minimal stub adapter (see ios.rs). `spectyn-mesh-app` links the
 // core lib as a dep for all targets (Cargo.toml line 24), so the iOS
 // target needs *some* adapter or `current()` falls through to the
 // compile_error! arm and breaks `package-ios.sh --sim`. Full iOS
@@ -66,9 +66,9 @@ pub trait PlatformAdapter: Send + Sync + 'static {
     fn dist_binary_name(&self) -> &'static str;
 
     /// User-level config/data directory.
-    /// macOS: `~/Library/Application Support/ai.phantommesh.app`
-    /// Windows: `%APPDATA%\phantom-mesh`
-    /// Linux/Android/other: `~/.phantom-mesh`
+    /// macOS: `~/Library/Application Support/ai.spectynmesh.app`
+    /// Windows: `%APPDATA%\spectyn-mesh`
+    /// Linux/Android/other: `~/.spectyn-mesh`
     fn config_dir(&self) -> std::path::PathBuf;
 }
 
@@ -103,7 +103,7 @@ pub fn current() -> &'static dyn PlatformAdapter {
     )))]
     {
         compile_error!(
-            "phantom-mesh: unsupported target_os for platform adapter. \
+            "spectyn-mesh: unsupported target_os for platform adapter. \
              Add a per-OS module under core/src/platform/ and wire it \
              into platform::current()."
         );
@@ -163,7 +163,7 @@ pub async fn mdns_advertise(service_name: &str, port: u16, url_txt: &str) {
         .args([
             "-R",
             service_name,
-            "_phantom-mesh._tcp",
+            "_spectyn-mesh._tcp",
             ".",
             &port_str,
             url_txt,
@@ -172,7 +172,7 @@ pub async fn mdns_advertise(service_name: &str, port: u16, url_txt: &str) {
 
     #[cfg(target_os = "linux")]
     let result = tokio::process::Command::new("avahi-publish-service")
-        .args([service_name, "_phantom-mesh._tcp", &port_str, url_txt])
+        .args([service_name, "_spectyn-mesh._tcp", &port_str, url_txt])
         .spawn();
 
     #[cfg(target_os = "windows")]

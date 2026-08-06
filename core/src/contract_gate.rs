@@ -1,7 +1,7 @@
 //! Process-wide ExecutionContract gate — the agent-loop injection of the
 //! deny-until-approved policy (sprint MVP T7).
 //!
-//! **OPT-IN, default OFF.** Enabled only by `PHANTOM_CONTRACT_GATE=1`. When
+//! **OPT-IN, default OFF.** Enabled only by `SPECTYN_CONTRACT_GATE=1`. When
 //! disabled, [`check`] is a byte-identical pass-through (`Ok(())`), so the live
 //! `tool_gate` chokepoint behaves exactly as before — this is the safety
 //! guarantee for shipping it inert.
@@ -15,7 +15,7 @@
 //! the durable ledger BEFORE the agent loop (async, no friction). High-risk
 //! tool calls whose fingerprint is not yet approved are blocked and recorded in
 //! [`pending`] for the runner to raise durably; the operator approves via
-//! `phantom task approve`, the runner reloads the snapshot, and the re-run is
+//! `spectyn task approve`, the runner reloads the snapshot, and the re-run is
 //! allowed. No async, no `block_on`, no panic.
 
 use crate::execution_contract::{ExecutionContract, RiskLevel};
@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 /// Whether the contract gate is engaged. Default OFF.
 pub fn enabled() -> bool {
-    std::env::var("PHANTOM_CONTRACT_GATE").as_deref() == Ok("1")
+    std::env::var("SPECTYN_CONTRACT_GATE").as_deref() == Ok("1")
 }
 
 /// Process-global set of APPROVED action fingerprints (= contract ids). The
@@ -39,7 +39,7 @@ pub fn approved() -> &'static Mutex<HashSet<String>> {
 
 /// Process-global map of contracts the gate BLOCKED, keyed by fingerprint
 /// (= the contract id). The runner drains this after the loop ([`flush_pending`])
-/// to durably raise the contracts so `phantom task approvals` can show them.
+/// to durably raise the contracts so `spectyn task approvals` can show them.
 pub fn pending() -> &'static Mutex<HashMap<String, ExecutionContract>> {
     static P: OnceLock<Mutex<HashMap<String, ExecutionContract>>> = OnceLock::new();
     P.get_or_init(|| Mutex::new(HashMap::new()))
@@ -54,7 +54,7 @@ fn now_ms() -> i64 {
 
 /// Build the ExecutionContract for a blocked tool call. The id is the stable
 /// fingerprint so it matches across the gate snapshot, the durable ledger, and
-/// `phantom task approve`. ASCII-only command summary (I7).
+/// `spectyn task approve`. ASCII-only command summary (I7).
 fn build_contract(id: String, name: &str, args: &serde_json::Value, risk: RiskLevel) -> ExecutionContract {
     let raw = serde_json::to_string(args).unwrap_or_default();
     let command = if raw.chars().count() > 200 {
@@ -65,7 +65,7 @@ fn build_contract(id: String, name: &str, args: &serde_json::Value, risk: RiskLe
     let now = now_ms();
     ExecutionContract {
         id,
-        node: std::env::var("PHANTOM_NODE").unwrap_or_else(|_| "local".to_string()),
+        node: std::env::var("SPECTYN_NODE").unwrap_or_else(|_| "local".to_string()),
         agent: "agent".to_string(),
         action: name.to_string(),
         command,
@@ -94,7 +94,7 @@ pub async fn load_approved(events: &EventStore, task_id: Uuid) -> anyhow::Result
 
 /// Durably raise every contract the gate blocked this run (drains [`pending`]),
 /// skipping ones already in the task's ledger. The runner calls this AFTER an
-/// agent loop so `phantom task approvals <id>` shows what needs the operator.
+/// agent loop so `spectyn task approvals <id>` shows what needs the operator.
 pub async fn flush_pending(events: &EventStore, task_id: Uuid) -> anyhow::Result<usize> {
     let drained: Vec<ExecutionContract> = {
         match pending().lock() {
@@ -128,7 +128,7 @@ pub fn fingerprint(name: &str, args: &serde_json::Value) -> String {
 /// `Ok(())` when: the gate is disabled (pass-through), the tool is low-risk
 /// (auto-allowed), or its fingerprint has been approved. `Err(reason)` when a
 /// high-risk action is not yet approved — the reason tells the operator the
-/// exact `phantom task approve` command. Blocked fingerprints are added to
+/// exact `spectyn task approve` command. Blocked fingerprints are added to
 /// [`pending`].
 pub fn check(name: &str, args: &serde_json::Value) -> Result<(), String> {
     if !enabled() {
@@ -152,7 +152,7 @@ pub fn check(name: &str, args: &serde_json::Value) -> Result<(), String> {
     }
     Err(format!(
         "blocked: '{name}' is {} and needs approval (contract {fp}). \
-         Approve with `phantom task approve <task-id> {fp}`, then re-run.",
+         Approve with `spectyn task approve <task-id> {fp}`, then re-run.",
         risk.as_str()
     ))
 }
@@ -162,22 +162,22 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    // Serialise: these mutate the process-global PHANTOM_CONTRACT_GATE env + the
+    // Serialise: these mutate the process-global SPECTYN_CONTRACT_GATE env + the
     // approved/pending snapshots.
     fn with_gate<T>(on: bool, f: impl FnOnce() -> T) -> T {
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_CONTRACT_GATE");
+        let saved = std::env::var_os("SPECTYN_CONTRACT_GATE");
         if on {
-            std::env::set_var("PHANTOM_CONTRACT_GATE", "1");
+            std::env::set_var("SPECTYN_CONTRACT_GATE", "1");
         } else {
-            std::env::remove_var("PHANTOM_CONTRACT_GATE");
+            std::env::remove_var("SPECTYN_CONTRACT_GATE");
         }
         approved().lock().unwrap().clear();
         pending().lock().unwrap().clear();
         let out = f();
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_CONTRACT_GATE", v),
-            None => std::env::remove_var("PHANTOM_CONTRACT_GATE"),
+            Some(v) => std::env::set_var("SPECTYN_CONTRACT_GATE", v),
+            None => std::env::remove_var("SPECTYN_CONTRACT_GATE"),
         }
         out
     }
@@ -217,8 +217,8 @@ mod tests {
         use crate::execution_contract::{ApprovalDecision, ContractState};
         use crate::tasks::store::TaskStore;
         let _g = crate::env_lock::acquire();
-        let saved = std::env::var_os("PHANTOM_CONTRACT_GATE");
-        std::env::set_var("PHANTOM_CONTRACT_GATE", "1");
+        let saved = std::env::var_os("SPECTYN_CONTRACT_GATE");
+        std::env::set_var("SPECTYN_CONTRACT_GATE", "1");
         approved().lock().unwrap().clear();
         pending().lock().unwrap().clear();
 
@@ -254,8 +254,8 @@ mod tests {
         approved().lock().unwrap().clear();
         pending().lock().unwrap().clear();
         match saved {
-            Some(v) => std::env::set_var("PHANTOM_CONTRACT_GATE", v),
-            None => std::env::remove_var("PHANTOM_CONTRACT_GATE"),
+            Some(v) => std::env::set_var("SPECTYN_CONTRACT_GATE", v),
+            None => std::env::remove_var("SPECTYN_CONTRACT_GATE"),
         }
     }
 

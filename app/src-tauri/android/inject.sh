@@ -20,20 +20,20 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GEN="$HERE/../gen/android/app/src/main"
-PKG_DIR="$GEN/java/ai/phantommesh/app"
+PKG_DIR="$GEN/java/ai/spectynmesh/app"
 
 # Resolve a WORKING python for the manifest/gradle patches. On Windows the bare
 # `python3` is often the Microsoft Store execution-alias stub (exits ~49, opens
 # the Store) — so probe candidates and pick one that actually runs. Override
-# with $PHANTOM_PY if needed.
+# with $SPECTYN_PY if needed.
 PY=""
-for cand in "${PHANTOM_PY:-}" python3 python py; do
+for cand in "${SPECTYN_PY:-}" python3 python py; do
     [ -z "$cand" ] && continue
     if "$cand" -c "import sys" >/dev/null 2>&1; then PY="$cand"; break; fi
 done
 if [ -z "$PY" ]; then
     echo "[inject] ERROR: no working python found (tried python3/python/py)."
-    echo "[inject] install Python or set PHANTOM_PY=/path/to/python; needed for manifest patches."
+    echo "[inject] install Python or set SPECTYN_PY=/path/to/python; needed for manifest patches."
     exit 1
 fi
 echo "[inject] using python: $PY ($($PY --version 2>&1))"
@@ -57,14 +57,14 @@ mkdir -p "$GEN/res/xml"
 cp -v "$HERE"/res/xml/*.xml "$GEN/res/xml/" 2>/dev/null || true
 
 echo "[inject] merging custom strings"
-# strings-phantom.xml already contains app_name + custom strings; overwrite the
+# strings-spectyn.xml already contains app_name + custom strings; overwrite the
 # generated strings.xml (it only has app_name + main_activity_title which we keep).
-cp -v "$HERE/res/values/strings-phantom.xml" "$GEN/res/values/strings.xml"
+cp -v "$HERE/res/values/strings-spectyn.xml" "$GEN/res/values/strings.xml"
 
-echo "[inject] applying Material 3 theme + phantom color tokens (SPEC-33 §10.1)"
-# Override the M2 scaffold theme with the Material 3 phantom theme + tokens. The
+echo "[inject] applying Material 3 theme + spectyn color tokens (SPEC-33 §10.1)"
+# Override the M2 scaffold theme with the Material 3 spectyn theme + tokens. The
 # generated AndroidManifest already points <application android:theme> at
-# @style/Theme.phantom_mesh_app, so redefining that style here is enough.
+# @style/Theme.spectyn_mesh_app, so redefining that style here is enough.
 cp -v "$HERE/res/values/colors.xml" "$GEN/res/values/colors.xml"
 cp -v "$HERE/res/values/themes.xml" "$GEN/res/values/themes.xml"
 mkdir -p "$GEN/res/values-night"

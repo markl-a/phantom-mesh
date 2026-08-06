@@ -27,19 +27,19 @@ export default function ClusterStatusDashboard() {
   // gray when isolated (no peers) or still loading.
   const anyUnhealthy = peers.some((p) => p.status === "Unhealthy");
   const health = peers.length === 0 ? "gray" : anyUnhealthy ? "amber" : "green";
-  const healthColor = health === "green" ? "bg-phantom-success"
-    : health === "amber" ? "bg-phantom-warning" : "bg-phantom-muted";
+  const healthColor = health === "green" ? "bg-spectyn-success"
+    : health === "amber" ? "bg-spectyn-warning" : "bg-spectyn-muted";
   const healthLabel = health === "green" ? "Green" : health === "amber" ? "Degraded" : "—";
 
   return (
     <div data-testid="cluster-status-dashboard" className="max-w-2xl space-y-5">
       <header className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-phantom-primary/15 flex items-center justify-center">
-          <Network size={18} className="text-phantom-primary" />
+        <div className="w-9 h-9 rounded-lg bg-spectyn-primary/15 flex items-center justify-center">
+          <Network size={18} className="text-spectyn-primary" />
         </div>
         <div className="flex-1">
-          <h1 className="text-lg font-bold text-phantom-text">叢集狀態</h1>
-          <p className="text-xs text-phantom-muted">
+          <h1 className="text-lg font-bold text-spectyn-text">叢集狀態</h1>
+          <p className="text-xs text-spectyn-muted">
             本機：{thisDeviceId || "（未命名）"}
             <span className="mx-2">·</span>
             <span className={`inline-block w-2 h-2 rounded-full ${healthColor} align-middle mr-1`} />
@@ -48,7 +48,7 @@ export default function ClusterStatusDashboard() {
         </div>
         <button
           onClick={() => void refresh()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-phantom-card border border-phantom-border text-phantom-text hover:border-phantom-primary/40 transition"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-spectyn-card border border-spectyn-border text-spectyn-text hover:border-spectyn-primary/40 transition"
         >
           <RefreshCw size={14} className={status === "loading" ? "animate-spin" : ""} />
           重新整理
@@ -56,35 +56,35 @@ export default function ClusterStatusDashboard() {
       </header>
 
       {error && (
-        <div className="bg-phantom-danger/10 border border-phantom-danger/40 rounded-lg p-3 text-sm text-phantom-danger">
+        <div className="bg-spectyn-danger/10 border border-spectyn-danger/40 rounded-lg p-3 text-sm text-spectyn-danger">
           無法取得叢集狀態：{error}
         </div>
       )}
 
       {/* Peers / isolated edge case (§10.7) */}
       {peers.length === 0 ? (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center">
-          <p className="text-sm text-phantom-text">孤立模式（單機跑）</p>
-          <p className="text-xs text-phantom-muted mt-1">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center">
+          <p className="text-sm text-spectyn-text">孤立模式（單機跑）</p>
+          <p className="text-xs text-spectyn-muted mt-1">
             尚未連接任何 peer。透過設定 → API 金鑰 / 同網段裝置加入叢集。
           </p>
         </div>
       ) : (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-4">
-          <h3 className="text-sm font-medium text-phantom-text mb-3">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4">
+          <h3 className="text-sm font-medium text-spectyn-text mb-3">
             Peers（{peers.length}）
           </h3>
           <div className="space-y-2">
             {peers.map((p) => (
-              <div key={p.peer_id} className="flex items-center gap-3 px-3 py-2 rounded bg-phantom-bg border border-phantom-border">
+              <div key={p.peer_id} className="flex items-center gap-3 px-3 py-2 rounded bg-spectyn-bg border border-spectyn-border">
                 <PeerBadge status={p.status} />
-                <span className="text-sm text-phantom-text flex-1 truncate">{p.display_name}</span>
+                <span className="text-sm text-spectyn-text flex-1 truncate">{p.display_name}</span>
                 {(p.caps ?? []).slice(0, 3).map((c) => (
-                  <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-phantom-primary/10 text-phantom-primary">
+                  <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-spectyn-primary/10 text-spectyn-primary">
                     {c}
                   </span>
                 ))}
-                <span className="text-[11px] text-phantom-muted w-16 text-right flex-shrink-0">
+                <span className="text-[11px] text-spectyn-muted w-16 text-right flex-shrink-0">
                   {relTime(p.last_seen_unix)}
                 </span>
               </div>
@@ -93,7 +93,7 @@ export default function ClusterStatusDashboard() {
         </div>
       )}
 
-      <p className="text-[11px] text-phantom-muted">
+      <p className="text-[11px] text-spectyn-muted">
         {lastSyncMs > 0 ? `最後同步：${relTime(Math.floor(lastSyncMs / 1000))}` : "尚未同步"}
       </p>
     </div>

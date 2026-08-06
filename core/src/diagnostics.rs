@@ -1,4 +1,4 @@
-//! System-state diagnostics — the state-machine `phantom doctor` renders (and a
+//! System-state diagnostics — the state-machine `spectyn doctor` renders (and a
 //! future shared `status` overview).
 //!
 //! Onboarding/CLI design (owner-decided 2026-06-15, option 乙): the CLI is split
@@ -7,15 +7,15 @@
 //! and **Config** plumbing. Every failure state is *named* (a stable `code`) and
 //! carries the exact next command to run (`fix`), so a user (or a recruiter
 //! watching a demo) never sees a bare error. This module is the single source
-//! of truth for the system-state view: `phantom doctor` renders it today (human
-//! + `--json`). `phantom status` is a SEPARATE command (the dev-session
+//! of truth for the system-state view: `spectyn doctor` renders it today (human
+//! + `--json`). `spectyn status` is a SEPARATE command (the dev-session
 //! heartbeat) and does NOT render this yet — a shared `status` overview onto
 //! `diagnose()` is a follow-up, not a current claim.
 //!
 //! This module is deliberately **hermetic**: `diagnose()` takes the home + cwd
 //! paths AND an env-lookup closure explicitly, so it can be unit-tested against
 //! a temp HOME with a synthetic environment — without touching the real
-//! `~/.phantom-mesh` or the real process env. At the call site the closure is
+//! `~/.spectyn-mesh` or the real process env. At the call site the closure is
 //! `|k| std::env::var(k).ok()`, the exact seam `agent.rs` sources a provider key
 //! from (`provider.api_key_env` → env), so `doctor` checks whether a provider's
 //! key is *actually present in the environment* — not merely that the config
@@ -32,7 +32,7 @@
 //! they are not yet enforced, so they are NOT reported here as if they were
 //! (no-overclaim).
 //!
-//! 中文: 系統狀態診斷 — `phantom doctor` render 的 state machine(status 之後再接)。把 CLI 切成
+//! 中文: 系統狀態診斷 — `spectyn doctor` render 的 state machine(status 之後再接)。把 CLI 切成
 //! 四個可查的層(身份/供應商/專案信任/執行權限)+ mesh/config;每個失敗狀態有命名 code
 //! 與「下一步指令(fix)」。hermetic:吃顯式路徑、直接讀檔,可用 temp HOME 單測。
 
@@ -137,9 +137,9 @@ impl Diagnosis {
     }
 }
 
-/// `<home>/.phantom-mesh`.
-fn phantom_dir(home: &Path) -> PathBuf {
-    home.join(".phantom-mesh")
+/// `<home>/.spectyn-mesh`.
+fn spectyn_dir(home: &Path) -> PathBuf {
+    home.join(".spectyn-mesh")
 }
 
 /// Resolve the active config file from the SAME candidate list the runtime
@@ -161,7 +161,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
     let mut findings: Vec<Finding> = Vec::new();
 
     // ── Local Identity ──────────────────────────────────────────────────────
-    let id_path = phantom_dir(home).join("identity.key");
+    let id_path = spectyn_dir(home).join("identity.key");
     if id_path.is_file() {
         findings.push(Finding::ok(Layer::Identity, "device key", "ed25519 identity.key present"));
     } else {
@@ -169,8 +169,8 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
             "NO_LOCAL_IDENTITY",
             Layer::Identity,
             "device key",
-            "no ~/.phantom-mesh/identity.key on this device",
-            Some("phantom setup"),
+            "no ~/.spectyn-mesh/identity.key on this device",
+            Some("spectyn setup"),
         ));
     }
 
@@ -184,8 +184,8 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                 "NO_CONFIG",
                 Layer::Config,
                 "agents.toml",
-                "not found in cwd or ~/.phantom-mesh",
-                Some("phantom onboarding"),
+                "not found in cwd or ~/.spectyn-mesh",
+                Some("spectyn onboarding"),
             ));
             // Without a config there is no provider either — make it explicit.
             findings.push(Finding::fail(
@@ -193,7 +193,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                 Layer::Provider,
                 "model provider",
                 "no provider configured (no agents.toml yet)",
-                Some("phantom onboarding"),
+                Some("spectyn onboarding"),
             ));
         }
         Some(path) => {
@@ -205,14 +205,14 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                         Layer::Config,
                         "agents.toml",
                         "exists but is not valid TOML — fix the syntax, or regenerate it",
-                        Some("phantom onboarding"),
+                        Some("spectyn onboarding"),
                     ));
                     findings.push(Finding::fail(
                         "NO_PROVIDER",
                         Layer::Provider,
                         "model provider",
                         "cannot read providers (config parse error)",
-                        Some("phantom provider add"),
+                        Some("spectyn provider add"),
                     ));
                 }
                 Some(val) => {
@@ -228,7 +228,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                             Layer::Provider,
                             "model provider",
                             "agents.toml has no [providers.*] — LLM tasks cannot run",
-                            Some("phantom provider add"),
+                            Some("spectyn provider add"),
                         ));
                     } else {
                         let tbl = val.get("providers").and_then(|v| v.as_table());
@@ -296,7 +296,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                                     n_providers,
                                     env_unset.join(", ")
                                 ),
-                                Some("phantom provider add"),
+                                Some("spectyn provider add"),
                             ));
                         } else {
                             findings.push(Finding::warn(
@@ -310,7 +310,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                                     n_providers,
                                     names.join(", ")
                                 ),
-                                Some("phantom provider add"),
+                                Some("spectyn provider add"),
                             ));
                         }
                     }
@@ -352,7 +352,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                                      Valid: observe / suggest / workspace-write / developer-full",
                                     prof
                                 ),
-                                Some("phantom permissions set workspace-write"),
+                                Some("spectyn permissions set workspace-write"),
                             )),
                         }
                     } else {
@@ -361,7 +361,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                             Layer::Permission,
                             "[permissions]",
                             "no rules or profile → allow-all (legacy default). See docs/PERMISSIONS.md",
-                            Some("phantom permissions set observe"),
+                            Some("spectyn permissions set observe"),
                         ));
                     }
 
@@ -380,7 +380,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                             Layer::Mesh,
                             "peers",
                             format!("{} peer(s) configured — liveness unchecked", n_peers),
-                            Some("phantom doctor --mesh"),
+                            Some("spectyn doctor --mesh"),
                         ));
                     }
 
@@ -429,7 +429,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
                     policy.slug(),
                     policy.summary()
                 ),
-                Some("phantom project trust add"),
+                Some("spectyn project trust add"),
             ));
         }
     }
@@ -439,7 +439,7 @@ pub fn diagnose(home: &Path, cwd: &Path, env_get: &dyn Fn(&str) -> Option<String
 }
 
 /// Render a diagnosis as a human-readable, grouped report (the body
-/// `phantom doctor` prints). Findings are grouped by layer in a stable order;
+/// `spectyn doctor` prints). Findings are grouped by layer in a stable order;
 /// every Warn/Fail prints its `fix:` (and `inspect:`) command so no state is a
 /// dead end. Glyphs are colour-coded via the shared term helper.
 pub fn render_human(d: &Diagnosis) -> String {
@@ -534,12 +534,12 @@ mod tests {
     #[test]
     fn identity_and_provider_present_is_ok() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         // Mirror what `write_onboarding_config` emits for a free provider: a
         // `type` + an `api_key_env`. It is usable ONLY when that env var is
         // actually set — modelled here by the `groq_set` closure.
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype = \"groq\"\napi_key_env = \"GROQ_API_KEY\"\n\
              default_model = \"llama-3.3-70b-versatile\"\n\n\
              [permissions]\nallow = [\"file_read\"]\n",
@@ -559,9 +559,9 @@ mod tests {
         // THE #1 onboarding failure: config names GROQ_API_KEY but it is not
         // exported. Must warn (not green) AND must not be a hard Fail.
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype = \"groq\"\napi_key_env = \"GROQ_API_KEY\"\n\n\
              [permissions]\nallow = [\"file_read\"]\n",
         );
@@ -578,8 +578,8 @@ mod tests {
     #[test]
     fn config_without_providers_flags_no_provider() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
-        write(&tmp.path().join(".phantom-mesh/agents.toml"), "[core]\nport = 7878\n");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/agents.toml"), "[core]\nport = 7878\n");
         let d = diagnose(tmp.path(), tmp.path(), &no_env);
         assert!(has(&d, "NO_PROVIDER"));
         assert!(has(&d, "PERMISSIONS_ALLOW_ALL")); // no rules → legacy warn
@@ -590,7 +590,7 @@ mod tests {
     fn cwd_config_takes_precedence_over_home() {
         let home = tempfile::tempdir().unwrap();
         let cwd = tempfile::tempdir().unwrap();
-        write(&home.path().join(".phantom-mesh/agents.toml"), "[core]\nport=1\n");
+        write(&home.path().join(".spectyn-mesh/agents.toml"), "[core]\nport=1\n");
         write(&cwd.path().join("agents.toml"), "[providers.groq]\ntype=\"groq\"\n");
         let d = diagnose(home.path(), cwd.path(), &no_env);
         // cwd has a provider → no NO_PROVIDER despite home config lacking one
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn malformed_config_is_flagged_not_panicked() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/agents.toml"), "this is { not valid toml");
+        write(&tmp.path().join(".spectyn-mesh/agents.toml"), "this is { not valid toml");
         let d = diagnose(tmp.path(), tmp.path(), &no_env);
         assert!(has(&d, "CONFIG_PARSE_ERROR"));
         assert_eq!(d.worst, Severity::Fail);
@@ -624,9 +624,9 @@ mod tests {
     #[test]
     fn keyless_provider_warns_not_false_green() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         // a provider block with a type but NO key mechanism and not a no-key type
-        write(&tmp.path().join(".phantom-mesh/agents.toml"), "[providers.foo]\ntype = \"foo\"\n");
+        write(&tmp.path().join(".spectyn-mesh/agents.toml"), "[providers.foo]\ntype = \"foo\"\n");
         let d = diagnose(tmp.path(), tmp.path(), &no_env);
         assert!(has(&d, "PROVIDER_NO_KEY"), "keyless provider must warn, not green");
         assert!(!has(&d, "NO_PROVIDER")); // it IS configured, just keyless
@@ -638,9 +638,9 @@ mod tests {
     fn subscription_provider_is_usable_without_any_env_key() {
         // claude_cli is a no-key subscription type → usable even with NO env set.
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.claude_cli]\ntype = \"claude_cli\"\n\n\
              [permissions]\nallow = [\"file_read\"]\n",
         );
@@ -654,9 +654,9 @@ mod tests {
     fn env_keyed_provider_is_usable_when_var_is_set() {
         // groq carries api_key_env and the var IS set → usable (the env path).
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype = \"groq\"\napi_key_env = \"GROQ_API_KEY\"\n\n\
              [permissions]\nallow = [\"file_read\"]\n",
         );
@@ -667,13 +667,13 @@ mod tests {
     }
 
     #[test]
-    fn phantom_toml_in_cwd_is_a_valid_config() {
+    fn spectyn_toml_in_cwd_is_a_valid_config() {
         let home = tempfile::tempdir().unwrap();
         let cwd = tempfile::tempdir().unwrap();
-        write(&home.path().join(".phantom-mesh/identity.key"), "x");
-        write(&cwd.path().join("PHANTOM.toml"), "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n");
+        write(&home.path().join(".spectyn-mesh/identity.key"), "x");
+        write(&cwd.path().join("SPECTYN.toml"), "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n");
         let d = diagnose(home.path(), cwd.path(), &no_env);
-        assert!(!has(&d, "NO_CONFIG"), "PHANTOM.toml must count as config (shared candidate list)");
+        assert!(!has(&d, "NO_CONFIG"), "SPECTYN.toml must count as config (shared candidate list)");
         assert!(!has(&d, "NO_PROVIDER"));
     }
 
@@ -686,9 +686,9 @@ mod tests {
     #[test]
     fn configured_peers_warn_unverified() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\n[cluster]\npeers = [\"http://100.64.0.2:7878\"]\n",
         );
         let d = diagnose(tmp.path(), tmp.path(), &no_env);
@@ -698,9 +698,9 @@ mod tests {
     #[test]
     fn named_profile_is_reported_not_allow_all_warn() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n\n\
              [permissions]\nprofile = \"workspace-write\"\n",
         );
@@ -718,9 +718,9 @@ mod tests {
     #[test]
     fn unknown_profile_warns() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n\n\
              [permissions]\nprofile = \"nonsense\"\n",
         );
@@ -732,9 +732,9 @@ mod tests {
     #[test]
     fn untrusted_dir_with_enforcement_off_is_informational_ok() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n",
         );
         let d = diagnose(tmp.path(), tmp.path(), &groq_set);
@@ -746,9 +746,9 @@ mod tests {
     #[test]
     fn trusted_dir_is_reported_trusted() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n",
         );
         // trust the cwd
@@ -764,9 +764,9 @@ mod tests {
     #[test]
     fn untrusted_dir_with_enforcement_on_warns() {
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n\n\
              [trust]\nenforcement = \"prompt\"\n",
         );
@@ -780,9 +780,9 @@ mod tests {
         // Mirrors the engine builder: explicit rules win, so doctor reports the
         // rule counts (not the profile) when both are present.
         let tmp = tempfile::tempdir().unwrap();
-        write(&tmp.path().join(".phantom-mesh/identity.key"), "x");
+        write(&tmp.path().join(".spectyn-mesh/identity.key"), "x");
         write(
-            &tmp.path().join(".phantom-mesh/agents.toml"),
+            &tmp.path().join(".spectyn-mesh/agents.toml"),
             "[providers.groq]\ntype=\"groq\"\napi_key_env=\"GROQ_API_KEY\"\n\n\
              [permissions]\nprofile = \"observe\"\nallow = [\"file_read\"]\n",
         );

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-cloud-linux.sh — bootstrap a $5/mo Linux VPS as a phantom-mesh
+# setup-cloud-linux.sh — bootstrap a $5/mo Linux VPS as a spectyn-mesh
 # cluster execution container.
 #
 # Designed for a freshly-provisioned Ubuntu 22.04 / Debian 12 box from
@@ -7,8 +7,8 @@
 #
 # What you get:
 #   - Tailscale joined to your tailnet
-#   - phantom binary on PATH
-#   - phantom serve running as systemd unit (auto-restart, on by default)
+#   - spectyn binary on PATH
+#   - spectyn serve running as systemd unit (auto-restart, on by default)
 #   - agents.toml with the cluster peers + node_name = $NODE_NAME
 #
 # What you do NOT get (left to you, since cloud machines vary):
@@ -16,11 +16,11 @@
 #     container — you push tasks to it via subagent({node}), not run
 #     specific repo demos on it)
 #   - GPU / CUDA setup (this VPS is for orchestration, not training)
-#   - Any data persistence beyond /var/lib/phantom-mesh/
+#   - Any data persistence beyond /var/lib/spectyn-mesh/
 #
 # Usage on a freshly-provisioned VPS:
 #
-#   curl -fsSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/setup-cloud-linux.sh \
+#   curl -fsSL https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/setup-cloud-linux.sh \
 #       | sudo NODE_NAME=cloud-vps-1 \
 #              CLUSTER_SECRET=<your-cluster-secret> \
 #              TAILSCALE_AUTHKEY=tskey-... \
@@ -33,7 +33,7 @@ set -euo pipefail
 NODE_NAME="${NODE_NAME:-cloud-vps-$(hostname -s)}"
 CLUSTER_SECRET="${CLUSTER_SECRET:?set CLUSTER_SECRET to your mesh shared secret}"
 TAILSCALE_AUTHKEY="${TAILSCALE_AUTHKEY:-}"
-PHANTOM_RELEASE_URL="${PHANTOM_RELEASE_URL:-}"
+SPECTYN_RELEASE_URL="${SPECTYN_RELEASE_URL:-}"
 SERVE_PORT="${SERVE_PORT:-7878}"
 
 step()  { echo; echo "── $*"; }
@@ -63,8 +63,8 @@ if ! tailscale status >/dev/null 2>&1; then
 fi
 ok "tailscale: $(tailscale status 2>&1 | head -1 || echo unknown)"
 
-step "3. phantom binary"
-PHANTOM_BIN="/usr/local/bin/phantom"
+step "3. spectyn binary"
+SPECTYN_BIN="/usr/local/bin/spectyn"
 
 # Load the SHA256 + HTTPS verification helper. Prefer a co-located copy
 # (when the operator cloned the repo and runs scripts/setup-cloud-linux.sh
@@ -74,8 +74,8 @@ VERIFY_HELPER=""
 if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/_verify-download.sh" ]; then
     VERIFY_HELPER="$SCRIPT_DIR/_verify-download.sh"
 else
-    VERIFY_HELPER="$(mktemp -t phantom-verify.XXXXXX)"
-    HELPER_URL="https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/_verify-download.sh"
+    VERIFY_HELPER="$(mktemp -t spectyn-verify.XXXXXX)"
+    HELPER_URL="https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/_verify-download.sh"
     if ! curl -fsSL --max-time 10 "$HELPER_URL" -o "$VERIFY_HELPER"; then
         fail "Could not load $HELPER_URL — refusing to install unverified binary"
     fi
@@ -83,50 +83,50 @@ fi
 # shellcheck disable=SC1090
 . "$VERIFY_HELPER"
 
-if [ -x "$PHANTOM_BIN" ]; then
-    ok "phantom already at $PHANTOM_BIN: $($PHANTOM_BIN --version | head -1)"
+if [ -x "$SPECTYN_BIN" ]; then
+    ok "spectyn already at $SPECTYN_BIN: $($SPECTYN_BIN --version | head -1)"
 else
-    if [ -z "$PHANTOM_RELEASE_URL" ]; then
+    if [ -z "$SPECTYN_RELEASE_URL" ]; then
         ARCH=$(uname -m)
         case "$ARCH" in
-            x86_64|amd64)   PHANTOM_RELEASE_URL="https://github.com/markl-a/phantom-mesh/releases/latest/download/phantom-x86_64-unknown-linux" ;;
-            aarch64|arm64)  PHANTOM_RELEASE_URL="https://github.com/markl-a/phantom-mesh/releases/latest/download/phantom-aarch64-unknown-linux" ;;
-            *) fail "unknown arch $ARCH; set PHANTOM_RELEASE_URL=..." ;;
+            x86_64|amd64)   SPECTYN_RELEASE_URL="https://github.com/markl-a/spectyn-mesh/releases/latest/download/spectyn-x86_64-unknown-linux" ;;
+            aarch64|arm64)  SPECTYN_RELEASE_URL="https://github.com/markl-a/spectyn-mesh/releases/latest/download/spectyn-aarch64-unknown-linux" ;;
+            *) fail "unknown arch $ARCH; set SPECTYN_RELEASE_URL=..." ;;
         esac
     fi
-    echo "  downloading $PHANTOM_RELEASE_URL"
-    require_https "$PHANTOM_RELEASE_URL" || fail "non-HTTPS PHANTOM_RELEASE_URL"
-    curl -fsSL "$PHANTOM_RELEASE_URL" -o "$PHANTOM_BIN"
+    echo "  downloading $SPECTYN_RELEASE_URL"
+    require_https "$SPECTYN_RELEASE_URL" || fail "non-HTTPS SPECTYN_RELEASE_URL"
+    curl -fsSL "$SPECTYN_RELEASE_URL" -o "$SPECTYN_BIN"
     # Verify SHA256 BEFORE chmod +x. verify_sha256 deletes the binary on
     # mismatch and exits non-zero (which `set -e` propagates).
-    verify_sha256 "$PHANTOM_BIN" "$PHANTOM_RELEASE_URL"
-    chmod +x "$PHANTOM_BIN"
-    ok "installed to $PHANTOM_BIN"
+    verify_sha256 "$SPECTYN_BIN" "$SPECTYN_RELEASE_URL"
+    chmod +x "$SPECTYN_BIN"
+    ok "installed to $SPECTYN_BIN"
 fi
 
 step "4. service user + state dir"
-# Dedicated system user so phantom-serve.service does not run as root.
-# Hardened systemd unit (see step 5) blocks $HOME access, so PHANTOM_HOME
-# must live under /var/lib/phantom-mesh, not /root/.phantom-mesh.
-PHANTOM_USER="${PHANTOM_USER:-phantom-mesh}"
-PHANTOM_GROUP="${PHANTOM_GROUP:-phantom-mesh}"
-PHANTOM_HOME="${PHANTOM_HOME:-/var/lib/phantom-mesh}"
-if ! id -u "$PHANTOM_USER" >/dev/null 2>&1; then
+# Dedicated system user so spectyn-serve.service does not run as root.
+# Hardened systemd unit (see step 5) blocks $HOME access, so SPECTYN_HOME
+# must live under /var/lib/spectyn-mesh, not /root/.spectyn-mesh.
+SPECTYN_USER="${SPECTYN_USER:-spectyn-mesh}"
+SPECTYN_GROUP="${SPECTYN_GROUP:-spectyn-mesh}"
+SPECTYN_HOME="${SPECTYN_HOME:-/var/lib/spectyn-mesh}"
+if ! id -u "$SPECTYN_USER" >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin \
-            --home-dir "$PHANTOM_HOME" "$PHANTOM_USER" || true
-    ok "created system user $PHANTOM_USER"
+            --home-dir "$SPECTYN_HOME" "$SPECTYN_USER" || true
+    ok "created system user $SPECTYN_USER"
 else
-    ok "user $PHANTOM_USER already exists"
+    ok "user $SPECTYN_USER already exists"
 fi
-mkdir -p "$PHANTOM_HOME"
-chown -R "$PHANTOM_USER:$PHANTOM_GROUP" "$PHANTOM_HOME"
-chmod 750 "$PHANTOM_HOME"
+mkdir -p "$SPECTYN_HOME"
+chown -R "$SPECTYN_USER:$SPECTYN_GROUP" "$SPECTYN_HOME"
+chmod 750 "$SPECTYN_HOME"
 
 step "5. agents.toml"
-CFG="$PHANTOM_HOME/agents.toml"
+CFG="$SPECTYN_HOME/agents.toml"
 if [ ! -f "$CFG" ]; then
     cat > "$CFG" <<EOF
-# phantom-mesh agents.toml — generated by setup-cloud-linux.sh
+# spectyn-mesh agents.toml — generated by setup-cloud-linux.sh
 
 [core]
 host = "0.0.0.0"
@@ -140,7 +140,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 provider     = "anthropic"
 tools        = ["shell", "file_read", "file_edit", "content_search",
                 "git_status", "git_diff", "task"]
-instructions = "You are phantom on a cloud Linux execution container. Be terse."
+instructions = "You are spectyn on a cloud Linux execution container. Be terse."
 
 [cluster]
 node_name      = "$NODE_NAME"
@@ -152,14 +152,14 @@ peers = [
   "http://100.64.0.10:7878",   # mac-coordinator
 ]
 EOF
-    chown "$PHANTOM_USER:$PHANTOM_GROUP" "$CFG"
+    chown "$SPECTYN_USER:$SPECTYN_GROUP" "$CFG"
     ok "wrote $CFG"
 else
     ok "$CFG exists (NOT overwriting)"
 fi
 
 step "6. systemd unit"
-SVC=/etc/systemd/system/phantom-serve.service
+SVC=/etc/systemd/system/spectyn-serve.service
 if [ ! -f "$SVC" ]; then
     # Hardening notes (C10 / T79):
     #   - User/Group: drop root, run as dedicated system account.
@@ -176,24 +176,24 @@ if [ ! -f "$SVC" ]; then
     #   - RestrictAddressFamilies: only the sockets serve actually needs.
     cat > "$SVC" <<EOF
 [Unit]
-Description=phantom-mesh serve
+Description=spectyn-mesh serve
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=$PHANTOM_USER
-Group=$PHANTOM_GROUP
-Environment=PHANTOM_HOME=$PHANTOM_HOME
-EnvironmentFile=-/etc/phantom-mesh/env
-ExecStart=$PHANTOM_BIN serve --port $SERVE_PORT
+User=$SPECTYN_USER
+Group=$SPECTYN_GROUP
+Environment=SPECTYN_HOME=$SPECTYN_HOME
+EnvironmentFile=-/etc/spectyn-mesh/env
+ExecStart=$SPECTYN_BIN serve --port $SERVE_PORT
 Restart=on-failure
 RestartSec=5
 ProtectSystem=full
 ProtectHome=true
 NoNewPrivileges=true
 PrivateTmp=true
-ReadWritePaths=$PHANTOM_HOME
+ReadWritePaths=$SPECTYN_HOME
 PrivateDevices=true
 ProtectKernelTunables=true
 ProtectControlGroups=true
@@ -203,30 +203,30 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
-    systemctl enable phantom-serve.service
+    systemctl enable spectyn-serve.service
     ok "wrote $SVC + enabled"
 else
     ok "$SVC exists"
 fi
-mkdir -p /etc/phantom-mesh
-[ -f /etc/phantom-mesh/env ] || cat > /etc/phantom-mesh/env <<'EOF'
+mkdir -p /etc/spectyn-mesh
+[ -f /etc/spectyn-mesh/env ] || cat > /etc/spectyn-mesh/env <<'EOF'
 # put your provider keys here (chmod 600). e.g.:
 # ANTHROPIC_API_KEY=sk-ant-...
 # GROQ_API_KEY=gsk_...
 EOF
-# env must be readable by the phantom-mesh service user (EnvironmentFile
+# env must be readable by the spectyn-mesh service user (EnvironmentFile
 # is read by systemd before the User= drop, but we still keep group-read
 # narrow so secrets stay off other accounts on the box).
-chown root:"$PHANTOM_GROUP" /etc/phantom-mesh/env
-chmod 640 /etc/phantom-mesh/env
+chown root:"$SPECTYN_GROUP" /etc/spectyn-mesh/env
+chmod 640 /etc/spectyn-mesh/env
 
 step "7. start"
-systemctl restart phantom-serve.service
+systemctl restart spectyn-serve.service
 sleep 2
-if systemctl is-active --quiet phantom-serve.service; then
-    ok "phantom-serve.service active"
+if systemctl is-active --quiet spectyn-serve.service; then
+    ok "spectyn-serve.service active"
 else
-    fail "phantom-serve.service failed to start — see: journalctl -u phantom-serve"
+    fail "spectyn-serve.service failed to start — see: journalctl -u spectyn-serve"
 fi
 
 step "8. verify"
@@ -240,4 +240,4 @@ echo "Add this peer to other nodes' agents.toml:"
 echo "  \"http://${TS_IP}:${SERVE_PORT}\",   # $NODE_NAME"
 echo
 echo "From any other peer, confirm dispatch works:"
-echo "  phantom run --node $NODE_NAME 'echo hi from cloud'"
+echo "  spectyn run --node $NODE_NAME 'echo hi from cloud'"

@@ -18,7 +18,7 @@
 //! Telegram (track O1, spec §4) ships as the first real adapter, gated
 //! behind `experimental-remote-control-telegram`. When the feature is enabled the
 //! `remote_control::telegram` submodule pulls in `teloxide` and exposes a
-//! round-trip bot loop plus a `cli` helper used by `phantom serve
+//! round-trip bot loop plus a `cli` helper used by `spectyn serve
 //! --remote-telegram` (B2/T83).
 
 pub mod channel_trait;

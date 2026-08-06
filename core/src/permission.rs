@@ -1,12 +1,12 @@
 //! Permission rule engine — Claude-Code-style `Tool(specifier)` DSL.
 //!
-//! Phantom previously gated tool execution with three env vars:
-//! `PHANTOM_PERM=allow|ask|deny|diff` plus a per-session "always allow"
+//! Spectyn previously gated tool execution with three env vars:
+//! `SPECTYN_PERM=allow|ask|deny|diff` plus a per-session "always allow"
 //! `HashSet<String>`. That's enough for a single-user smoke test, but
 //! a real config wants finer grain — e.g. "always allow `git status`
 //! and `cargo check`, ask before any other shell command, never run
 //! anything that touches `.env`." This module is the data + engine for
-//! that DSL; `bin/phantom.rs` and the TUI gate plug in via
+//! that DSL; `bin/spectyn.rs` and the TUI gate plug in via
 //! [`Engine::evaluate`].
 //!
 //! ## Syntax
@@ -21,12 +21,12 @@
 //! ```
 //!
 //! Tool names use Claude-Code's PascalCase (`Bash`, `Read`, `Edit`,
-//! `Write`, `WebFetch`) but match phantom's snake_case tool names via
+//! `Write`, `WebFetch`) but match spectyn's snake_case tool names via
 //! [`canonical_tool_name`]: `Bash` → `shell`, `Read` → `file_read`,
 //! `Edit` → any of {`file_edit`, `file_write`, `multi_file_edit`,
 //! `apply_patch`} (the OpenCode "edit-family collapse"), `WebFetch`
 //! → `web_fetch`. Unknown PascalCase names fall through to the snake
-//! version, so any tool reachable from phantom's dispatcher can be
+//! version, so any tool reachable from spectyn's dispatcher can be
 //! gated.
 //!
 //! ## Evaluation order
@@ -98,7 +98,7 @@ pub enum Specifier {
 #[derive(Debug, Clone)]
 pub struct Rule {
     pub action: Action,
-    /// Canonical phantom tool name (`shell`, `file_read`, …) or `*`.
+    /// Canonical spectyn tool name (`shell`, `file_read`, …) or `*`.
     /// Edit-family rules expand to multiple Rule rows at parse time.
     pub tool: String,
     pub specifier: Option<Specifier>,
@@ -211,7 +211,7 @@ impl Engine {
     }
 }
 
-/// Map a Claude-Code-style PascalCase tool name to one or more phantom
+/// Map a Claude-Code-style PascalCase tool name to one or more spectyn
 /// snake_case tool names. Returns the input unchanged (single-element)
 /// if no alias is known, so user-defined / MCP tools can be gated by
 /// their literal names too.
@@ -232,7 +232,7 @@ pub fn canonical_tool_name(s: &str) -> Vec<String> {
         ],
         "WebFetch" => vec!["web_fetch".into()],
         "WebSearch" => vec!["web_search".into()],
-        // Already snake_case / explicit phantom name / wildcard.
+        // Already snake_case / explicit spectyn name / wildcard.
         other => vec![other.to_string()],
     }
 }

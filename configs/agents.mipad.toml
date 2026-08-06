@@ -1,4 +1,4 @@
-# Phantom Mesh — Mi Pad Worker Node
+# Spectyn Mesh — Mi Pad Worker Node
 # =====================================
 # 硬體: Xiaomi Mi Pad (5/6)
 #   Mi Pad 5: Snapdragon 860, 6GB RAM
@@ -11,10 +11,10 @@
 #
 # 安裝步驟:
 #   1. 安裝 Tailscale (Play Store)
-#   2. 安裝 phantom-mesh.apk
-#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.phantommesh.app/agents.toml
-#   4. 設定 → 電池 → 為 Phantom Mesh 關閉電池最佳化
-#   5. MIUI 設定 → 應用程式 → 鎖定 Phantom Mesh (防止被清理)
+#   2. 安裝 spectyn-mesh.apk
+#   3. 把此檔案複製到裝置: /sdcard/Android/data/ai.spectynmesh.app/agents.toml
+#   4. 設定 → 電池 → 為 Spectyn Mesh 關閉電池最佳化
+#   5. MIUI 設定 → 應用程式 → 鎖定 Spectyn Mesh (防止被清理)
 
 [core]
 host = "0.0.0.0"
@@ -65,6 +65,6 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """你是 Phantom Mesh 叢集中的 Android 平板工作節點 (Mi Pad)。
+instructions = """你是 Spectyn Mesh 叢集中的 Android 平板工作節點 (Mi Pad)。
 接收並執行協調者指派的任務。使用 Gemini Flash 快速回應。
 回覆簡潔，專注任務執行。"""

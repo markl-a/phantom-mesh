@@ -30,13 +30,13 @@
 //! the three tests are folded into ONE `#[test]` run sequentially under a single
 //! runtime rather than racing across cargo's test threads.
 
-use phantom_mesh::coach_wire::{run_daily_review, DailyReviewRequest, DailyReviewOutcome, ReviewStatus};
+use spectyn_mesh::coach_wire::{run_daily_review, DailyReviewRequest, DailyReviewOutcome, ReviewStatus};
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn unique_home(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-cuj04llm-{}-{}-{}",
+        "spectyn-cuj04llm-{}-{}-{}",
         tag,
         std::process::id(),
         std::time::SystemTime::now()
@@ -48,8 +48,8 @@ fn unique_home(tag: &str) -> std::path::PathBuf {
 
 fn seed_home(tag: &str, agents_toml: &str) -> std::path::PathBuf {
     let home = unique_home(tag);
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
     std::fs::write(pm.join("agents.toml"), agents_toml).expect("write agents.toml");
     home
 }
@@ -64,7 +64,7 @@ fn anthropic_ok(text: &str) -> serde_json::Value {
 }
 
 fn set_event_key() {
-    phantom_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32])
+    spectyn_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32])
         .expect("install test EventKey");
 }
 
@@ -78,7 +78,7 @@ fn set_event_key() {
 fn review_on(
     rt: &tokio::runtime::Runtime,
     date: &str,
-) -> Result<DailyReviewOutcome, phantom_mesh::coach_wire::CoachError> {
+) -> Result<DailyReviewOutcome, spectyn_mesh::coach_wire::CoachError> {
     let date = date.to_string();
     rt.block_on(async move {
         tokio::task::spawn_blocking(move || {
@@ -124,8 +124,8 @@ default_model = "claude-test"
 "#,
         );
         std::env::set_var("HOME", &home);
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_API_KEY", "test-key");
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_API_KEY", "test-key");
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_BASE_URL", server.uri());
         set_event_key();
 
         let outcome = review_on(&rt, "2026-05-30").expect("happy review returns Ok");
@@ -142,7 +142,7 @@ default_model = "claude-test"
         assert_eq!(outcome.model_used, "claude-test");
         assert!(!outcome.event_id.is_empty(), "completed review is persisted");
 
-        std::env::remove_var("PHANTOM_MESH_ANTHROPIC_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_ANTHROPIC_BASE_URL");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -179,10 +179,10 @@ default_model = "claude-test"
 "#,
         );
         std::env::set_var("HOME", &home);
-        std::env::set_var("PHANTOM_MESH_GEMINI_API_KEY", "g-key");
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_API_KEY", "a-key");
-        std::env::set_var("PHANTOM_MESH_GEMINI_BASE_URL", gemini.uri());
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_BASE_URL", anthropic.uri());
+        std::env::set_var("SPECTYN_MESH_GEMINI_API_KEY", "g-key");
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_API_KEY", "a-key");
+        std::env::set_var("SPECTYN_MESH_GEMINI_BASE_URL", gemini.uri());
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_BASE_URL", anthropic.uri());
         set_event_key();
 
         let outcome = review_on(&rt, "2026-05-30").expect("fallback review returns Ok");
@@ -197,8 +197,8 @@ default_model = "claude-test"
         );
         assert!(outcome.next_action.contains("散步"));
 
-        std::env::remove_var("PHANTOM_MESH_GEMINI_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_ANTHROPIC_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_GEMINI_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_ANTHROPIC_BASE_URL");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -245,10 +245,10 @@ default_model = "claude-test"
 "#,
         );
         std::env::set_var("HOME", &home);
-        std::env::set_var("PHANTOM_MESH_GEMINI_API_KEY", "g-key");
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_API_KEY", "a-key");
-        std::env::set_var("PHANTOM_MESH_GEMINI_BASE_URL", bad.uri());
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_BASE_URL", good.uri());
+        std::env::set_var("SPECTYN_MESH_GEMINI_API_KEY", "g-key");
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_API_KEY", "a-key");
+        std::env::set_var("SPECTYN_MESH_GEMINI_BASE_URL", bad.uri());
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_BASE_URL", good.uri());
         set_event_key();
 
         let outcome = review_on(&rt, "2026-05-23")
@@ -263,10 +263,10 @@ default_model = "claude-test"
             "after HTTP {code}, the SECOND (anthropic) provider must be the one that answered"
         );
 
-        std::env::remove_var("PHANTOM_MESH_GEMINI_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_ANTHROPIC_BASE_URL");
-        std::env::remove_var("PHANTOM_MESH_GEMINI_API_KEY");
-        std::env::remove_var("PHANTOM_MESH_ANTHROPIC_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_GEMINI_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_ANTHROPIC_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_GEMINI_API_KEY");
+        std::env::remove_var("SPECTYN_MESH_ANTHROPIC_API_KEY");
         let _ = std::fs::remove_dir_all(&home);
     }
 
@@ -294,8 +294,8 @@ default_model = "claude-test"
 "#,
         );
         std::env::set_var("HOME", &home);
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_API_KEY", "test-key");
-        std::env::set_var("PHANTOM_MESH_ANTHROPIC_BASE_URL", server.uri());
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_API_KEY", "test-key");
+        std::env::set_var("SPECTYN_MESH_ANTHROPIC_BASE_URL", server.uri());
         set_event_key();
 
         let outcome = review_on(&rt, "2026-05-30").expect("lint-reject still returns Ok (degraded)");
@@ -314,7 +314,7 @@ default_model = "claude-test"
             "stats-only brief still present on the degraded path"
         );
 
-        std::env::remove_var("PHANTOM_MESH_ANTHROPIC_BASE_URL");
+        std::env::remove_var("SPECTYN_MESH_ANTHROPIC_BASE_URL");
         let _ = std::fs::remove_dir_all(&home);
     }
 }

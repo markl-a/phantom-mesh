@@ -5,7 +5,7 @@ The **safety net that must exist before any unattended dev loop runs** —
 implemented in shell so they compose with the existing dev framework
 (`scripts/dev-cluster/`, `scripts/local-ai/review.sh`) and run **now**, with no
 SSH and no native build. They are the Stage-1 form of the future native
-`phantom dev spec validate` / `core/src/dev_loop/{spec_gate,deviation}.rs`
+`spectyn dev spec validate` / `core/src/dev_loop/{spec_gate,deviation}.rs`
 (the design doc lists those as "behind the gate" — so we emulate in shell first,
 exactly as M2/M3 were, and port later).
 
@@ -18,7 +18,7 @@ exactly as M2/M3 were, and port later).
 |---|---|---|
 | `spec-gate.sh validate <spec.toml>` | 支柱1 | Validates the spec envelope. **No/incomplete spec → REJECT (don't do the task).** Requires `capability` ∈ {sense\|learn\|nudge\|dispatch} + `component` + `acceptance` + non-empty `scope_allow`. |
 | `deviation-handler.sh --spec <f> [--range R\|--staged] [--verify-exit N] [--review-exit N]` | 支柱2 | After a work attempt: **detect (R1) → contain (R2) → normalize (R3) → notify (R4)**. Consumes the real `dev_verify` + `review.sh` exit codes (no fake green). |
-| `status.sh [--all]` | — | Lists pending needs-human escalations + recent outcomes (stand-in for `phantom dev status`). |
+| `status.sh [--all]` | — | Lists pending needs-human escalations + recent outcomes (stand-in for `spectyn dev status`). |
 | `demo-governance.sh` | — | The **§4 demonstrable acceptance** — runs every R1–R5 path in a hermetic repo and asserts main is untouched + the moat ledger is byte-identical. |
 | `spec-lib.sh` | — | Shared, section-anchored `[spec]` parser sourced by both gates (one parser, no drift). Robust to single/double quotes, trailing comments, and same-named keys in other sections. **Arrays must be single-line** (a multi-line array → 0 entries → spec-gate REJECT — fail-closed, never a silent empty scope). |
 | `examples/spec.example.toml` | — | A complete spec envelope to copy. |
@@ -45,7 +45,7 @@ exactly as M2/M3 were, and port later).
 needs-human · `30` CONTAINED (R2 forbidden/destructive) · `3` setup error.
 
 ## 防污染牆 (支柱3)
-The handler writes **only** to `~/.phantom-mesh/dev-loop-log.jsonl` (+ escalations to
+The handler writes **only** to `~/.spectyn-mesh/dev-loop-log.jsonl` (+ escalations to
 `deviation-proposals.jsonl`, notices to `notifications.log`). It contains **zero**
 references to `partner-signals*` (the moat ledger). `demo-governance.sh` asserts the
 real `partner-signals.jsonl` is byte-identical before/after.

@@ -1,5 +1,5 @@
 //! DRIFT-fix gate: the LIVE coach review path (`daily_review::run_coach_review`,
-//! the one the CLI `phantom coach review` + the SPEC-23 scheduler daemon
+//! the one the CLI `spectyn coach review` + the SPEC-23 scheduler daemon
 //! actually fire) must carry the SPEC-23 §8 Degraded state machine that
 //! `coach_wire::run_daily_review` already has + is tested for.
 //!
@@ -22,9 +22,9 @@
 //! deterministic EventKey is installed from a fixed seed so the degraded review
 //! can be age-encrypted + persisted (persist happens on the degraded path too).
 
-use phantom_mesh::coach_wire::ReviewStatus;
-use phantom_mesh::event_storage_wire::{query_events, EventStoreQuery};
-use phantom_mesh::life_node::daily_review::run_coach_review;
+use spectyn_mesh::coach_wire::ReviewStatus;
+use spectyn_mesh::event_storage_wire::{query_events, EventStoreQuery};
+use spectyn_mesh::life_node::daily_review::run_coach_review;
 
 mod harness {
     use std::sync::Mutex;
@@ -35,7 +35,7 @@ mod harness {
 
     pub fn unique_home() -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "phantom-coach-live-degrade-{}-{}",
+            "spectyn-coach-live-degrade-{}-{}",
             std::process::id(),
             nanos()
         ))
@@ -52,7 +52,7 @@ mod harness {
     /// degraded review can be age-encrypted + persisted. Populates the cache
     /// `lookup_or_derive_event_key` reads first — no on-disk identity.key needed.
     pub fn set_event_key() {
-        phantom_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32])
+        spectyn_mesh::encryption_wire::install_event_key_from_seed(&[9u8; 32])
             .expect("install test EventKey from seed");
     }
 }
@@ -62,21 +62,21 @@ async fn coach_live_review_no_providers_degrades_and_persists_retryable_row() {
     let _guard = harness::ENV_LOCK.lock().unwrap();
 
     let home = harness::unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(pm.join("events")).expect("create .phantom-mesh/events");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(pm.join("events")).expect("create .spectyn-mesh/events");
 
     // Redirect HOME (and USERPROFILE for Windows) so the EventStore root +
-    // reviews dir land in the tempdir, not the real ~/.phantom-mesh.
+    // reviews dir land in the tempdir, not the real ~/.spectyn-mesh.
     let saved_home = std::env::var("HOME").ok();
     let saved_userprofile = std::env::var("USERPROFILE").ok();
-    let saved_phantom_home = std::env::var("PHANTOM_HOME").ok();
+    let saved_spectyn_home = std::env::var("SPECTYN_HOME").ok();
     let saved_gemini = std::env::var("GEMINI_API_KEY").ok();
     let saved_groq = std::env::var("GROQ_API_KEY").ok();
     let saved_ollama = std::env::var("OLLAMA_DISABLE").ok();
 
     std::env::set_var("HOME", &home);
     std::env::set_var("USERPROFILE", &home);
-    std::env::set_var("PHANTOM_HOME", &pm);
+    std::env::set_var("SPECTYN_HOME", &pm);
     // No provider keys + Ollama off → the live provider fallback chain is EMPTY,
     // which is exactly the "no-keys / Ollama unreachable" degraded trigger.
     std::env::remove_var("GEMINI_API_KEY");
@@ -144,7 +144,7 @@ async fn coach_live_review_no_providers_degrades_and_persists_retryable_row() {
     };
     restore("HOME", saved_home);
     restore("USERPROFILE", saved_userprofile);
-    restore("PHANTOM_HOME", saved_phantom_home);
+    restore("SPECTYN_HOME", saved_spectyn_home);
     restore("GEMINI_API_KEY", saved_gemini);
     restore("GROQ_API_KEY", saved_groq);
     restore("OLLAMA_DISABLE", saved_ollama);

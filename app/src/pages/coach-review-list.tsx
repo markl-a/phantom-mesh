@@ -10,7 +10,7 @@
 //
 // SPEC-31 HIG: safe-area insets, Dynamic Type (min-h not fixed h), reachability
 // (primary CTA pinned to a sticky bottom footer), ≥44px touch targets, reduced
-// motion, bilingual zh/en aria-labels, role=alert/status. phantom-* palette only.
+// motion, bilingual zh/en aria-labels, role=alert/status. spectyn-* palette only.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, ClipboardList, Lock, RefreshCw } from "lucide-react";
@@ -119,7 +119,7 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
 
   return (
     <div
-      className="min-h-screen flex flex-col bg-phantom-bg text-phantom-text
+      className="min-h-screen flex flex-col bg-spectyn-bg text-spectyn-text
         pt-[env(safe-area-inset-top)]
         pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
       data-testid="coach-review-list"
@@ -128,27 +128,27 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
       <main className="flex-1 overflow-y-auto px-4 pt-4 pb-4 space-y-5">
         <header className="flex items-center gap-3">
           <div
-            className="w-11 h-11 min-h-[44px] rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0"
+            className="w-11 h-11 min-h-[44px] rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0"
             aria-hidden="true"
           >
-            <ClipboardList size={22} className="text-phantom-primary" />
+            <ClipboardList size={22} className="text-spectyn-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-bold text-phantom-text">教練回顧 Coach reviews</h1>
-            <p className="text-base text-phantom-muted">最近 {SCAN_DAYS} 天有紀錄的日子</p>
+            <h1 className="text-lg font-bold text-spectyn-text">教練回顧 Coach reviews</h1>
+            <p className="text-base text-spectyn-muted">最近 {SCAN_DAYS} 天有紀錄的日子</p>
           </div>
         </header>
 
         {error && (
           <div
-            className="bg-phantom-warning/10 border border-phantom-warning/40 rounded-lg p-3 text-base text-phantom-warning flex flex-col gap-2"
+            className="bg-spectyn-warning/10 border border-spectyn-warning/40 rounded-lg p-3 text-base text-spectyn-warning flex flex-col gap-2"
             role="alert"
           >
             <span className="min-w-0 break-words">{error}</span>
             <button
               type="button"
               onClick={onRefresh}
-              className="self-start min-h-[44px] text-base px-3 py-2 rounded-lg border border-phantom-warning/40 hover:bg-phantom-warning/15 transition motion-reduce:transition-none"
+              className="self-start min-h-[44px] text-base px-3 py-2 rounded-lg border border-spectyn-warning/40 hover:bg-spectyn-warning/15 transition motion-reduce:transition-none"
               aria-label="重試載入 Retry loading reviews"
             >
               重試 Retry
@@ -162,7 +162,7 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
             {[0, 1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="min-h-[56px] rounded-lg bg-phantom-card border border-phantom-border animate-pulse motion-reduce:animate-none"
+                className="min-h-[56px] rounded-lg bg-spectyn-card border border-spectyn-border animate-pulse motion-reduce:animate-none"
                 aria-hidden="true"
               />
             ))}
@@ -171,25 +171,25 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
 
         {!loading && !error && entries.length === 0 && (
           <div
-            className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center"
+            className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center"
             data-testid="review-list-empty"
             role="status"
           >
-            <p className="text-base text-phantom-text">最近 {SCAN_DAYS} 天還沒有可回顧的紀錄。</p>
-            <p className="text-base text-phantom-muted mt-1">
+            <p className="text-base text-spectyn-text">最近 {SCAN_DAYS} 天還沒有可回顧的紀錄。</p>
+            <p className="text-base text-spectyn-muted mt-1">
               No reviews yet — 用專注 / 習慣 / 飲食頁記錄一筆後，當天就會出現在這裡。
             </p>
-            <p className="text-base text-phantom-muted/70 mt-2">
+            <p className="text-base text-spectyn-muted/70 mt-2">
               空白的日子沒關係 — 這是紀錄，不是評分表。
             </p>
           </div>
         )}
 
         {anyLocked && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-3 text-base text-phantom-muted flex items-start gap-2">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-3 text-base text-spectyn-muted flex items-start gap-2">
             <Lock size={16} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
             <span>
-              部分日子的事件已加密 — 載入身分金鑰（<code className="text-phantom-primary">phantom init</code>）後才能讀內容。
+              部分日子的事件已加密 — 載入身分金鑰（<code className="text-spectyn-primary">spectyn init</code>）後才能讀內容。
             </span>
           </div>
         )}
@@ -204,26 +204,26 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
                     impact("light");
                     onOpenDate?.(e.date);
                   }}
-                  className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3 rounded-lg bg-phantom-card border border-phantom-border hover:border-phantom-primary/40 transition motion-reduce:transition-none text-left"
+                  className="w-full min-h-[44px] flex items-center gap-3 px-4 py-3 rounded-lg bg-spectyn-card border border-spectyn-border hover:border-spectyn-primary/40 transition motion-reduce:transition-none text-left"
                   data-testid={`review-row-${e.date}`}
                   aria-label={`開啟 ${e.date} 的回顧 Open review for ${e.date}${e.locked ? "，已加密 locked" : `，已就緒 ready, ${e.eventCount} 筆 events`}`}
                 >
                   <div className="flex-1 min-w-0">
-                    <p className="text-base text-phantom-text font-medium">{e.date}</p>
-                    <p className="text-base text-phantom-muted">{dayLabel(e.date)}</p>
+                    <p className="text-base text-spectyn-text font-medium">{e.date}</p>
+                    <p className="text-base text-spectyn-muted">{dayLabel(e.date)}</p>
                   </div>
                   {e.locked ? (
-                    <span className="text-base px-2 py-0.5 rounded-full bg-phantom-border/40 text-phantom-muted flex items-center gap-1 flex-shrink-0">
+                    <span className="text-base px-2 py-0.5 rounded-full bg-spectyn-border/40 text-spectyn-muted flex items-center gap-1 flex-shrink-0">
                       <Lock size={13} aria-hidden="true" /> 已加密 Locked
                     </span>
                   ) : (
-                    <span className="text-base px-2 py-0.5 rounded-full bg-phantom-success/15 text-phantom-success flex-shrink-0">
+                    <span className="text-base px-2 py-0.5 rounded-full bg-spectyn-success/15 text-spectyn-success flex-shrink-0">
                       已就緒 Ready · {e.eventCount}
                     </span>
                   )}
                   <ChevronRight
                     size={18}
-                    className="text-phantom-muted flex-shrink-0"
+                    className="text-spectyn-muted flex-shrink-0"
                     aria-hidden="true"
                   />
                 </button>
@@ -235,14 +235,14 @@ export default function CoachReviewList({ onOpenDate }: CoachReviewListProps) {
 
       {/* ── Reachability: primary CTA pinned to a sticky bottom footer ── */}
       <footer
-        className="sticky bottom-0 bg-phantom-bg/95 backdrop-blur border-t border-phantom-border
+        className="sticky bottom-0 bg-spectyn-bg/95 backdrop-blur border-t border-spectyn-border
           px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       >
         <button
           type="button"
           onClick={onRefresh}
           disabled={loading}
-          className="w-full min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-phantom-primary text-phantom-bg text-base font-semibold disabled:opacity-60 transition motion-reduce:transition-none"
+          className="w-full min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-spectyn-primary text-spectyn-bg text-base font-semibold disabled:opacity-60 transition motion-reduce:transition-none"
           aria-label="重新整理回顧列表 Refresh review list"
         >
           <RefreshCw

@@ -14,11 +14,11 @@ work is ready when you choose to proceed.
 - **App** (`app/src-tauri/src/commands/dispatch.rs:410`) is a **data-plane**
   client: it POSTs to `{broker}/api/squad/dispatch` and expects the HTTP response
   body to be a live SSE token stream (`data: {"type":"token"|...}`).
-- **Broker** (`phantommesh-io/src/routes/dispatch.ts`) is a **control-plane** by
+- **Broker** (`spectynmesh-io/src/routes/dispatch.ts`) is a **control-plane** by
   explicit design — it **never streams tokens**. `POST /api/me/dispatch/start`
   only writes a D1 `dispatches` row (status `pending`) and returns
   `{job_id, started_at}`. Tokens are meant to be produced by the SPA talking to
-  localhost `phantom serve` directly, then PUSHed to `POST .../stream/:job_id`
+  localhost `spectyn serve` directly, then PUSHed to `POST .../stream/:job_id`
   for cross-tab fan-out; `GET .../stream/:job_id` only *replays* pushed chunks.
 
 So:
@@ -45,7 +45,7 @@ streams tokens" (data-plane), that is a much larger broker+peer-protocol build**
 
 **Recommendation:** don't ship a half-fix that looks done but streams nothing.
 Decide first: is the cloud/app dispatch path meant to be control-plane (SPA drives
-localhost) or data-plane (broker proxies)? The CLI path (`phantom dispatch`)
+localhost) or data-plane (broker proxies)? The CLI path (`spectyn dispatch`)
 already works end-to-end today and is the dogfoodable surface.
 
 ---
@@ -61,7 +61,7 @@ clean, shippable Rust follow-ups and are being committed separately.
 
 **Finding:** the tri-role task/subtask structure (`decompose → assign_subtasks →
 DispatchOutcome[] → integrate`) exists **only in core** (`cluster_dispatch_wire`)
-and is reachable only from the CLI (`phantom dispatch --tri`). **No existing data
+and is reachable only from the CLI (`spectyn dispatch --tri`). **No existing data
 source carries the tree** to a UI:
 - the broker SSE wire carries opaque flat `{kind,data}` chunks (no subtask info);
 - the persisted dispatch event is **lossy** (`persist_dispatch_event` stores only
@@ -74,7 +74,7 @@ and returns a structured `TriDispatchReport` (subtasks + outcomes), rendered by 
 new `TaskTreeView.tsx` + `dispatchTreeStore.ts`. Honest constraints:
 - **blocks until all subtasks finish** (no streaming) — mitigate by rendering a
   skeleton from a pure `dispatch_decompose(prompt)->Subtask[]` preview first;
-- **local-cluster only** — needs reachable `phantom serve` peers; on a phone with
+- **local-cluster only** — needs reachable `spectyn serve` peers; on a phone with
   no cluster every subtask is `NoCandidate` (surface as cards, not a crash);
 - needs a **ts-rs export re-run** for the new `TriDispatchReport` type;
 - watch `bigint` fields (`startedAtMs`/`completedAtMs`/`totalLatencyMs`) in the

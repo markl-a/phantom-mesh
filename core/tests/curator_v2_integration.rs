@@ -9,8 +9,8 @@
 
 #![cfg(feature = "experimental-curator")]
 
-use phantom_mesh::evolve_checkpoint::{AgreementClass, EvolveCheckpoint};
-use phantom_mesh::skillbank::curator_ensemble::{
+use spectyn_mesh::evolve_checkpoint::{AgreementClass, EvolveCheckpoint};
+use spectyn_mesh::skillbank::curator_ensemble::{
     AnthropicJudge, EnsembleCurator, JudgeError, JudgeProvider,
 };
 use std::sync::Arc;

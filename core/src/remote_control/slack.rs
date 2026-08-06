@@ -1,7 +1,7 @@
 //! Slack channel — your team's Remote Control for the cluster (BIG-GOAL
 //! §P3), real Bolt-style implementation (B5 / T86).
 //!
-//! A Slack DM or `@phantom` mention is a cluster command, not a chat
+//! A Slack DM or `@spectyn` mention is a cluster command, not a chat
 //! turn: the reply is whatever the agent / runtime produced for that
 //! one command. This module is the wire-protocol half of the remote —
 //! signing-secret verification, outbound `chat.postMessage`, and a
@@ -1102,7 +1102,7 @@ mod tests {
 
     const PERSONA_FULL: &str = r#"
         [persona]
-        name = "phantom-helper"
+        name = "spectyn-helper"
         intro_message = "top"
         [persona.style]
         tone = "playful"

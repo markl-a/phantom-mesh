@@ -3,9 +3,9 @@
 # setup-android-termux.sh — v0.6.0 three-node demo bring-up, Node C (mobile).
 #
 # Run this INSIDE Termux on an aarch64 Android device (tablet or phone). It
-# installs base packages, drops a pre-built aarch64-android phantom binary
-# into ~/.phantom-mesh/bin/, renders the cluster `agents.toml`, and starts
-# `phantom serve` via `nohup` (Termux has limited service support — see the
+# installs base packages, drops a pre-built aarch64-android spectyn binary
+# into ~/.spectyn-mesh/bin/, renders the cluster `agents.toml`, and starts
+# `spectyn serve` via `nohup` (Termux has limited service support — see the
 # foreground-app-keepalive notes below).
 #
 # Why a separate script from scripts/termux-setup.sh
@@ -16,7 +16,7 @@
 # the v0.6.0 three-node demo:
 #   • Tiny `[cluster]` block only — provider = echo, no Groq key needed
 #   • Pulls a pre-built android binary from a maintainer URL
-#     (default: phantommesh.io/dist/phantom-aarch64-linux-android)
+#     (default: phantommesh.io/dist/spectyn-aarch64-linux-android)
 #   • SHA256 verify is OPTIONAL but recommended
 #   • Tailscale on Android is a SEPARATE APP (Play Store) — this script
 #     only verifies it's installed + asks the operator to grant always-on
@@ -27,10 +27,10 @@
 #   2. `pkg update && pkg install curl wget termux-services` (idempotent)
 #   3. Tailscale check (script does NOT install — that's a separate
 #      Play Store app), prints operator action if missing
-#   4. Download phantom binary from PHANTOM_BIN_URL
-#   5. SHA256 verify if PHANTOM_BIN_SHA256 set; on mismatch, delete + exit 1
-#   6. Write ~/.phantom-mesh/agents.toml
-#   7. Start `phantom serve` via `nohup ... &` (Termux has no systemd; the
+#   4. Download spectyn binary from SPECTYN_BIN_URL
+#   5. SHA256 verify if SPECTYN_BIN_SHA256 set; on mismatch, delete + exit 1
+#   6. Write ~/.spectyn-mesh/agents.toml
+#   7. Start `spectyn serve` via `nohup ... &` (Termux has no systemd; the
 #      sv-enable / termux-services path is brittle on Android 14+, so we
 #      keep this simple. The runbook documents the foreground-app keepalive
 #      pattern: keep Termux notification visible + grant battery exemption).
@@ -38,33 +38,33 @@
 #
 # Environment contract (REQUIRED)
 # -------------------------------
-#   PHANTOM_CLUSTER_SECRET   — 64-hex shared secret (same on all 3 nodes)
+#   SPECTYN_CLUSTER_SECRET   — 64-hex shared secret (same on all 3 nodes)
 #
 # Environment contract (OPTIONAL)
 # -------------------------------
-#   PHANTOM_BIN_URL          — https:// URL to pre-built aarch64-android binary
-#                              (default: https://phantommesh.io/dist/phantom-aarch64-linux-android)
-#   PHANTOM_BIN_SHA256       — expected sha256 (lowercase hex). Skipped if unset.
-#   PHANTOM_NODE_NAME        — node_name in agents.toml (default: "mobile")
-#   PHANTOM_CAPABILITIES     — comma-separated caps (default: "mobile,camera")
-#   PHANTOM_HOME             — phantom data dir (default: ~/.phantom-mesh)
-#   PHANTOM_PORT             — serve port (default: 7878)
-#   PHANTOM_BIN_LOCAL        — already on-device binary path (skip download)
-#   PHANTOM_SKIP_VERIFY=1    — explicit opt-out of SHA256 verification
+#   SPECTYN_BIN_URL          — https:// URL to pre-built aarch64-android binary
+#                              (default: https://phantommesh.io/dist/spectyn-aarch64-linux-android)
+#   SPECTYN_BIN_SHA256       — expected sha256 (lowercase hex). Skipped if unset.
+#   SPECTYN_NODE_NAME        — node_name in agents.toml (default: "mobile")
+#   SPECTYN_CAPABILITIES     — comma-separated caps (default: "mobile,camera")
+#   SPECTYN_HOME             — spectyn data dir (default: ~/.spectyn-mesh)
+#   SPECTYN_PORT             — serve port (default: 7878)
+#   SPECTYN_BIN_LOCAL        — already on-device binary path (skip download)
+#   SPECTYN_SKIP_VERIFY=1    — explicit opt-out of SHA256 verification
 #
 # Operator workflow
 # -----------------
 #   # On the Android tablet, in Termux:
 #   pkg install curl
-#   export PHANTOM_CLUSTER_SECRET=<paste-from-workstation>
-#   curl -fsSL https://raw.githubusercontent.com/markl-a/phantom-mesh/main/scripts/bring-up/setup-android-termux.sh \
+#   export SPECTYN_CLUSTER_SECRET=<paste-from-workstation>
+#   curl -fsSL https://raw.githubusercontent.com/markl-a/spectyn-mesh/main/scripts/bring-up/setup-android-termux.sh \
 #     | bash
 #
 # Exit codes
 # ----------
-#   0   — phantom serve answers /healthz with 200
+#   0   — spectyn serve answers /healthz with 200
 #   1   — anything failed; reason on the last FAIL: line
-#   77  — preconditions missing (not Termux, wrong arch, no PHANTOM_CLUSTER_SECRET)
+#   77  — preconditions missing (not Termux, wrong arch, no SPECTYN_CLUSTER_SECRET)
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -u
@@ -108,36 +108,36 @@ ARCH="$(uname -m)"
 case "$ARCH" in
   aarch64|arm64) step "arch: $ARCH (OK)" ;;
   armv7l|armv7|arm)
-    die "32-bit ARM detected ($ARCH) — phantom-aarch64-linux-android won't run"
+    die "32-bit ARM detected ($ARCH) — spectyn-aarch64-linux-android won't run"
     ;;
   *)
     warn "expected aarch64; got $ARCH — proceeding but the binary may not run"
     ;;
 esac
 
-if [ -z "${PHANTOM_CLUSTER_SECRET:-}" ]; then
-  fail "PHANTOM_CLUSTER_SECRET is required (64-hex shared cluster secret)"
+if [ -z "${SPECTYN_CLUSTER_SECRET:-}" ]; then
+  fail "SPECTYN_CLUSTER_SECRET is required (64-hex shared cluster secret)"
   fail "get it from your workstation (same value you used on the Oracle node)"
   exit 77
 fi
-PHANTOM_CLUSTER_SECRET="$(printf '%s' "$PHANTOM_CLUSTER_SECRET" | tr 'A-Z' 'a-z')"
-if ! printf '%s' "$PHANTOM_CLUSTER_SECRET" | grep -Eq '^[0-9a-f]{64}$'; then
-  fail "PHANTOM_CLUSTER_SECRET must be 64 lowercase hex chars (got ${#PHANTOM_CLUSTER_SECRET})"
+SPECTYN_CLUSTER_SECRET="$(printf '%s' "$SPECTYN_CLUSTER_SECRET" | tr 'A-Z' 'a-z')"
+if ! printf '%s' "$SPECTYN_CLUSTER_SECRET" | grep -Eq '^[0-9a-f]{64}$'; then
+  fail "SPECTYN_CLUSTER_SECRET must be 64 lowercase hex chars (got ${#SPECTYN_CLUSTER_SECRET})"
   exit 77
 fi
 
 # Defaults
-PHANTOM_NODE_NAME="${PHANTOM_NODE_NAME:-mobile}"
-PHANTOM_CAPABILITIES="${PHANTOM_CAPABILITIES:-mobile,camera}"
-PHANTOM_HOME="${PHANTOM_HOME:-$HOME/.phantom-mesh}"
-PHANTOM_PORT="${PHANTOM_PORT:-7878}"
-PHANTOM_BIN_URL="${PHANTOM_BIN_URL:-https://phantommesh.io/dist/phantom-aarch64-linux-android}"
+SPECTYN_NODE_NAME="${SPECTYN_NODE_NAME:-mobile}"
+SPECTYN_CAPABILITIES="${SPECTYN_CAPABILITIES:-mobile,camera}"
+SPECTYN_HOME="${SPECTYN_HOME:-$HOME/.spectyn-mesh}"
+SPECTYN_PORT="${SPECTYN_PORT:-7878}"
+SPECTYN_BIN_URL="${SPECTYN_BIN_URL:-https://phantommesh.io/dist/spectyn-aarch64-linux-android}"
 
-step "node name : $PHANTOM_NODE_NAME"
-step "capabilities: $PHANTOM_CAPABILITIES"
-step "home dir  : $PHANTOM_HOME"
-step "serve port: $PHANTOM_PORT"
-step "binary URL: $PHANTOM_BIN_URL"
+step "node name : $SPECTYN_NODE_NAME"
+step "capabilities: $SPECTYN_CAPABILITIES"
+step "home dir  : $SPECTYN_HOME"
+step "serve port: $SPECTYN_PORT"
+step "binary URL: $SPECTYN_BIN_URL"
 
 # ── 2. pkg install ──────────────────────────────────────────────────────────
 title "setup-android-termux · install base packages"
@@ -169,59 +169,59 @@ else
   warn "  4. Back here, verify with: ip route get 100.64.0.1   # should NOT fail"
   warn ""
   warn "Once Tailscale app is up, this script will still proceed — the binary"
-  warn "binds 0.0.0.0:$PHANTOM_PORT and Android-side VPN routes both inbound"
+  warn "binds 0.0.0.0:$SPECTYN_PORT and Android-side VPN routes both inbound"
   warn "and outbound Tailscale traffic to/from any process on the device."
 fi
 
-# ── 4. download phantom binary ──────────────────────────────────────────────
-title "setup-android-termux · phantom binary"
-mkdir -p "$PHANTOM_HOME/bin"
-BIN_PATH="$PHANTOM_HOME/bin/phantom"
+# ── 4. download spectyn binary ──────────────────────────────────────────────
+title "setup-android-termux · spectyn binary"
+mkdir -p "$SPECTYN_HOME/bin"
+BIN_PATH="$SPECTYN_HOME/bin/spectyn"
 
-if [ -n "${PHANTOM_BIN_LOCAL:-}" ]; then
-  if [ ! -x "$PHANTOM_BIN_LOCAL" ]; then
-    die "PHANTOM_BIN_LOCAL=$PHANTOM_BIN_LOCAL is not executable"
+if [ -n "${SPECTYN_BIN_LOCAL:-}" ]; then
+  if [ ! -x "$SPECTYN_BIN_LOCAL" ]; then
+    die "SPECTYN_BIN_LOCAL=$SPECTYN_BIN_LOCAL is not executable"
   fi
-  step "using local binary: $PHANTOM_BIN_LOCAL"
-  cp -f "$PHANTOM_BIN_LOCAL" "$BIN_PATH"
+  step "using local binary: $SPECTYN_BIN_LOCAL"
+  cp -f "$SPECTYN_BIN_LOCAL" "$BIN_PATH"
 else
-  step "downloading: $PHANTOM_BIN_URL"
-  case "$PHANTOM_BIN_URL" in
+  step "downloading: $SPECTYN_BIN_URL"
+  case "$SPECTYN_BIN_URL" in
     https://*) ;;
     http://*)
-      if [ "${PHANTOM_ALLOW_INSECURE:-0}" != "1" ]; then
-        die "refusing http:// binary URL (set PHANTOM_ALLOW_INSECURE=1 to bypass)"
+      if [ "${SPECTYN_ALLOW_INSECURE:-0}" != "1" ]; then
+        die "refusing http:// binary URL (set SPECTYN_ALLOW_INSECURE=1 to bypass)"
       fi
-      warn "PHANTOM_ALLOW_INSECURE=1 — downloading over plain http://"
+      warn "SPECTYN_ALLOW_INSECURE=1 — downloading over plain http://"
       ;;
-    *) die "unsupported PHANTOM_BIN_URL scheme: $PHANTOM_BIN_URL" ;;
+    *) die "unsupported SPECTYN_BIN_URL scheme: $SPECTYN_BIN_URL" ;;
   esac
-  if ! curl -fsSL --max-time 120 "$PHANTOM_BIN_URL" -o "$BIN_PATH"; then
-    fail "download failed from $PHANTOM_BIN_URL"
+  if ! curl -fsSL --max-time 120 "$SPECTYN_BIN_URL" -o "$BIN_PATH"; then
+    fail "download failed from $SPECTYN_BIN_URL"
     fail ""
     fail "Fallback: build aarch64-android binary on your WORKSTATION (NDK needed):"
     fail ""
-    fail "  cd phantom-mesh/core"
+    fail "  cd spectyn-mesh/core"
     fail "  cargo install cargo-ndk    # one-time"
-    fail "  cargo ndk -t arm64-v8a build --release --bin phantom"
+    fail "  cargo ndk -t arm64-v8a build --release --bin spectyn"
     fail "  # then push via adb:"
-    fail "  adb push target/aarch64-linux-android/release/phantom /sdcard/Download/"
+    fail "  adb push target/aarch64-linux-android/release/spectyn /sdcard/Download/"
     fail "  # on the tablet, in Termux:"
-    fail "  cp /sdcard/Download/phantom $BIN_PATH && chmod +x $BIN_PATH"
+    fail "  cp /sdcard/Download/spectyn $BIN_PATH && chmod +x $BIN_PATH"
     fail ""
-    fail "Then re-run this script with PHANTOM_BIN_LOCAL=$BIN_PATH set."
+    fail "Then re-run this script with SPECTYN_BIN_LOCAL=$BIN_PATH set."
     exit 1
   fi
 fi
 chmod +x "$BIN_PATH"
 
 # ── 5. SHA256 verify (optional but recommended) ─────────────────────────────
-if [ -n "${PHANTOM_BIN_SHA256:-}" ] && [ "${PHANTOM_SKIP_VERIFY:-0}" != "1" ]; then
-  step "verifying SHA256 (expected: $PHANTOM_BIN_SHA256)"
-  expected="$(printf '%s' "$PHANTOM_BIN_SHA256" | tr 'A-Z' 'a-z')"
+if [ -n "${SPECTYN_BIN_SHA256:-}" ] && [ "${SPECTYN_SKIP_VERIFY:-0}" != "1" ]; then
+  step "verifying SHA256 (expected: $SPECTYN_BIN_SHA256)"
+  expected="$(printf '%s' "$SPECTYN_BIN_SHA256" | tr 'A-Z' 'a-z')"
   if ! printf '%s' "$expected" | grep -Eq '^[0-9a-f]{64}$'; then
     rm -f "$BIN_PATH"
-    die "PHANTOM_BIN_SHA256 is not 64-hex (got: $expected)"
+    die "SPECTYN_BIN_SHA256 is not 64-hex (got: $expected)"
   fi
   if command -v sha256sum >/dev/null 2>&1; then
     actual="$(sha256sum "$BIN_PATH" | awk '{print tolower($1)}')"
@@ -239,7 +239,7 @@ if [ -n "${PHANTOM_BIN_SHA256:-}" ] && [ "${PHANTOM_SKIP_VERIFY:-0}" != "1" ]; t
   fi
   pass "SHA256 verified ($expected)"
 else
-  warn "SHA256 verification SKIPPED (PHANTOM_BIN_SHA256 unset or PHANTOM_SKIP_VERIFY=1)"
+  warn "SHA256 verification SKIPPED (SPECTYN_BIN_SHA256 unset or SPECTYN_SKIP_VERIFY=1)"
 fi
 
 if ! "$BIN_PATH" --version >/dev/null 2>&1; then
@@ -249,8 +249,8 @@ pass "binary OK: $($BIN_PATH --version 2>&1 | head -1)"
 
 # ── 6. agents.toml ──────────────────────────────────────────────────────────
 title "setup-android-termux · render agents.toml"
-AGENTS_TOML="$PHANTOM_HOME/agents.toml"
-CAPS_TOML="$(printf '%s' "$PHANTOM_CAPABILITIES" | awk -F, '{
+AGENTS_TOML="$SPECTYN_HOME/agents.toml"
+CAPS_TOML="$(printf '%s' "$SPECTYN_CAPABILITIES" | awk -F, '{
   out=""; for (i=1;i<=NF;i++) {
     if (out != "") out = out ", "
     out = out "\"" $i "\""
@@ -262,11 +262,11 @@ cat > "$AGENTS_TOML" <<EOF
 # (v0.6.0 three-node demo bring-up — Node C / mobile)
 [core]
 host = "0.0.0.0"
-port = $PHANTOM_PORT
+port = $SPECTYN_PORT
 
 [cluster]
-node_name      = "$PHANTOM_NODE_NAME"
-cluster_secret = "$PHANTOM_CLUSTER_SECRET"
+node_name      = "$SPECTYN_NODE_NAME"
+cluster_secret = "$SPECTYN_CLUSTER_SECRET"
 capabilities   = $CAPS_TOML
 worker_caps    = $CAPS_TOML
 enforce_caps   = "soft"
@@ -279,8 +279,8 @@ EOF
 chmod 600 "$AGENTS_TOML"
 pass "wrote $AGENTS_TOML (mode 600 — contains cluster_secret)"
 
-# ── 7. start phantom serve via nohup ────────────────────────────────────────
-title "setup-android-termux · start phantom serve"
+# ── 7. start spectyn serve via nohup ────────────────────────────────────────
+title "setup-android-termux · start spectyn serve"
 # Termux has no systemd. termux-services / sv is available but fragile on
 # Android 14+ where Doze + background-restrictions kill long-running shells.
 # The reliable pattern is:
@@ -288,7 +288,7 @@ title "setup-android-termux · start phantom serve"
 #       termux-wake-lock — comes from termux-tools)
 #   (b) Tell Android battery optimizer to leave Termux alone (manual: Settings
 #       → Apps → Termux → Battery → "Unrestricted")
-# Then nohup-spawn phantom and detach. This is documented in the runbook.
+# Then nohup-spawn spectyn and detach. This is documented in the runbook.
 
 # Acquire wake lock so Android doesn't pause Termux when the screen is off.
 if command -v termux-wake-lock >/dev/null 2>&1; then
@@ -296,11 +296,11 @@ if command -v termux-wake-lock >/dev/null 2>&1; then
 fi
 
 # Sweep any prior instance from a re-run.
-PID_FILE="$PHANTOM_HOME/phantom-serve.pid"
+PID_FILE="$SPECTYN_HOME/spectyn-serve.pid"
 if [ -f "$PID_FILE" ]; then
   oldpid="$(cat "$PID_FILE" 2>/dev/null || true)"
   if [ -n "$oldpid" ] && kill -0 "$oldpid" 2>/dev/null; then
-    step "killing stale phantom serve (pid=$oldpid)"
+    step "killing stale spectyn serve (pid=$oldpid)"
     kill "$oldpid" 2>/dev/null || true
     sleep 1
     kill -9 "$oldpid" 2>/dev/null || true
@@ -308,10 +308,10 @@ if [ -f "$PID_FILE" ]; then
   rm -f "$PID_FILE"
 fi
 
-LOG_FILE="$PHANTOM_HOME/serve.log"
+LOG_FILE="$SPECTYN_HOME/serve.log"
 step "spawning: nohup $BIN_PATH serve --config $AGENTS_TOML > $LOG_FILE 2>&1 &"
-PHANTOM_FORWARD_ON_CAPS_MISMATCH=1 \
-PHANTOM_ENFORCE_REQUIRED_CAPS=soft \
+SPECTYN_FORWARD_ON_CAPS_MISMATCH=1 \
+SPECTYN_ENFORCE_REQUIRED_CAPS=soft \
 nohup "$BIN_PATH" serve --config "$AGENTS_TOML" \
       > "$LOG_FILE" 2>&1 < /dev/null &
 echo $! > "$PID_FILE"
@@ -325,18 +325,18 @@ deadline=$(( $(date +%s) + 30 ))
 healthz_ok=0
 while [ "$(date +%s)" -lt "$deadline" ]; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 \
-              "http://localhost:$PHANTOM_PORT/healthz" 2>/dev/null || echo 000)"
+              "http://localhost:$SPECTYN_PORT/healthz" 2>/dev/null || echo 000)"
   if [ "$code" = "200" ]; then healthz_ok=1; break; fi
   sleep 1
 done
 
 if [ "$healthz_ok" = "1" ]; then
-  pass "GET http://localhost:$PHANTOM_PORT/healthz → 200"
+  pass "GET http://localhost:$SPECTYN_PORT/healthz → 200"
 else
   fail "GET /healthz never returned 200 within 30s"
   fail "last 30 lines of $LOG_FILE:"
   tail -n 30 "$LOG_FILE" >&2 || true
-  die "phantom serve did not come up"
+  die "spectyn serve did not come up"
 fi
 
 # Try to print the Tailscale-facing address for the operator's convenience.
@@ -356,7 +356,7 @@ fi
 title "setup-android-termux · DONE"
 printf '\n'
 printf '%sPASS%s — Node C (mobile / %s) is serving on :%s\n' \
-       "$C_GREEN" "$C_RESET" "$PHANTOM_NODE_NAME" "$PHANTOM_PORT"
+       "$C_GREEN" "$C_RESET" "$SPECTYN_NODE_NAME" "$SPECTYN_PORT"
 printf '\n'
 printf 'Tailscale address: %s\n' "${TS_IP:-<unknown — check Tailscale app>}"
 printf '\n'
@@ -366,8 +366,8 @@ printf '  Settings → Apps → Termux → notifications → ALLOW (keeps wake-l
 printf '\n'
 printf 'Next steps (on your workstation):\n'
 printf '  1. Add this node to workstation agents.toml [cluster].peers:\n'
-printf '       "http://%s:%s"\n' "${TS_IP:-<tailscale-ip>}" "$PHANTOM_PORT"
-printf '  2. Run scripts/phantom-test/scenarios/three_node_demo.sh to verify.\n'
+printf '       "http://%s:%s"\n' "${TS_IP:-<tailscale-ip>}" "$SPECTYN_PORT"
+printf '  2. Run scripts/spectyn-test/scenarios/three_node_demo.sh to verify.\n'
 printf '\n'
 printf 'Service controls (on the tablet, in Termux):\n'
 printf '  tail -f %s\n' "$LOG_FILE"

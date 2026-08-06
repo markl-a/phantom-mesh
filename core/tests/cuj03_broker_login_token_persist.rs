@@ -1,7 +1,7 @@
 // CUJ-03 §3.A · broker login → token-persist → re-read — hermetic test.
 //
 // 對應 docs/test-cases/mac.md §3.A:
-//   - MAC-CUJ03-LOG-001 (`phantom login --provider google` → exit 0、
+//   - MAC-CUJ03-LOG-001 (`spectyn login --provider google` → exit 0、
 //     `broker.json` 存在) — the *token-persist* leg.
 //   - MAC-CUJ03-LOG-002 (post-001 + clear cache → token 有效) — the
 //     *token persistence* leg: a subsequent authenticated read picks the
@@ -13,17 +13,17 @@
 // "✅ existing", but NO hermetic test exercised it — the only `login` hit
 // in `core/tests` was a literal string inside a task_text fixture, i.e. a
 // false-green. This test exercises the *actual* persist/read seam that
-// `phantom login` drives.
+// `spectyn login` drives.
 //
-// ## What the production flow does (core/src/bin/phantom.rs::login_broker)
+// ## What the production flow does (core/src/bin/spectyn.rs::login_broker)
 //
 //   1. Receives a broker callback carrying `broker_token` + `broker_url`.
 //   2. Runs an **authenticated** vault exchange against the broker
 //      (`cli_config::config_pull_lines` → `GET /api/me/settings/raw` with
 //      `Authorization: Bearer <token>`).
 //   3. **Only on a successful exchange** persists the token to
-//      `~/.phantom-mesh/broker.json` via `cli_config::write_broker_config`,
-//      so zero-arg `phantom config pull` re-runs remember it.
+//      `~/.spectyn-mesh/broker.json` via `cli_config::write_broker_config`,
+//      so zero-arg `spectyn config pull` re-runs remember it.
 //   4. A later authenticated read picks it back up via
 //      `cli_config::read_broker_config`.
 //
@@ -45,23 +45,23 @@
 //
 // `cli_config::broker_config_path()` (and the env-file path) resolve under
 // `dirs::home_dir()`. On Linux/macOS that follows `$HOME`; we point it at a
-// `TempDir` so we never touch the dev's real `~/.phantom-mesh/broker.json`.
-// We also export `PHANTOM_HOME` (the spec'd data-root override) to the same
+// `TempDir` so we never touch the dev's real `~/.spectyn-mesh/broker.json`.
+// We also export `SPECTYN_HOME` (the spec'd data-root override) to the same
 // dir for forward-compat with the unified home resolver — on Windows
-// `dirs::home_dir()` ignores `$HOME`, and `PHANTOM_HOME` is the documented
+// `dirs::home_dir()` ignores `$HOME`, and `SPECTYN_HOME` is the documented
 // way to redirect the data root, so setting both keeps this test correct as
 // the resolver migrates. (CI for this test runs under WSL/Linux, where
 // `$HOME` is honoured today.)
 //
-// PLATFORM GATE: this test relies on a `$HOME`/`PHANTOM_HOME` redirect to a
+// PLATFORM GATE: this test relies on a `$HOME`/`SPECTYN_HOME` redirect to a
 // TempDir for isolation, but on Windows `dirs::home_dir()` ignores those env
 // vars (resolves SHGetKnownFolderPath), so the test would be RED on a windows
-// runner and could touch the operator's real `~/.phantom-mesh`. Gate the whole
-// file to Unix until a PHANTOM_HOME-honouring resolver lands (matches the repo
+// runner and could touch the operator's real `~/.spectyn-mesh`. Gate the whole
+// file to Unix until a SPECTYN_HOME-honouring resolver lands (matches the repo
 // pattern of windows-ignoring `$HOME`-sandbox tests).
 #![cfg(unix)]
 
-use phantom_mesh::cli_config::{
+use spectyn_mesh::cli_config::{
     broker_config_path, config_pull_lines, read_broker_config, write_broker_config, BrokerConfig,
 };
 use tempfile::TempDir;
@@ -79,11 +79,11 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// expressive (mirrors the cuj05_delete_include_broker.rs reasoning).
 #[tokio::test]
 async fn cuj03_broker_login_token_persist_and_reread() {
-    // ── Hermetic HOME: redirect ~/.phantom-mesh into a throwaway tempdir ──
+    // ── Hermetic HOME: redirect ~/.spectyn-mesh into a throwaway tempdir ──
     let home = TempDir::new().expect("tempdir for fake HOME");
     std::env::set_var("HOME", home.path());
     // Spec'd data-root override (forward-compat; see module doc).
-    std::env::set_var("PHANTOM_HOME", home.path());
+    std::env::set_var("SPECTYN_HOME", home.path());
 
     // Precondition: no broker.json yet (clean machine, never logged in).
     let cfg_path = broker_config_path().expect("broker_config_path resolves under temp HOME");
@@ -177,7 +177,7 @@ async fn cuj03_broker_login_token_persist_and_reread() {
 
     // ── Step 3: clear in-memory state, re-read off disk (LOG-002) ─────────
     // Simulate "post-001 + clear cache": a brand-new process has no token in
-    // memory and must recover it purely from ~/.phantom-mesh/broker.json.
+    // memory and must recover it purely from ~/.spectyn-mesh/broker.json.
     drop(broker); // tear down the live server — re-read is disk-only.
 
     let reread = read_broker_config()

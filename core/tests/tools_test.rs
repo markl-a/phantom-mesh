@@ -1,4 +1,4 @@
-//! Comprehensive unit tests for the phantom-mesh tool layer.
+//! Comprehensive unit tests for the spectyn-mesh tool layer.
 //!
 //! Tests are organized by tool family:
 //!   1. file tool  (read, write, edit)
@@ -6,7 +6,7 @@
 //!   3. memory tool (store, recall, list, delete, search)
 //!   4. git tool   (status, log — using a temp repo)
 
-use phantom_mesh::tools::{file, git, memory, search};
+use spectyn_mesh::tools::{file, git, memory, search};
 use serde_json::json;
 
 mod common;
@@ -22,7 +22,7 @@ async fn test_file_write_and_read() {
     let dir = workspace_tempdir();
     let path = dir.path().join("roundtrip.txt");
     let path_str = path.to_str().unwrap();
-    let content = "Hello, phantom-mesh!\nSecond line.\n";
+    let content = "Hello, spectyn-mesh!\nSecond line.\n";
 
     let write_result = file::write(&json!({
         "path": path_str,
@@ -329,7 +329,7 @@ async fn test_glob_search_exclude() {
 // ============================================================================
 // 3. MEMORY TOOL TESTS
 //
-// The memory tool reads/writes ~/.phantom-mesh/memory.json — a single shared
+// The memory tool reads/writes ~/.spectyn-mesh/memory.json — a single shared
 // global file with no file-level locking.  Running multiple memory tests in
 // parallel causes non-atomic read-modify-write races that silently drop data.
 //

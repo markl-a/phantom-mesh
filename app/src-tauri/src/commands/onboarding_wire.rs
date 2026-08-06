@@ -1,12 +1,12 @@
 // Wave H1.1 — Tauri command surface for SPEC-28 onboarding FSM (wire layer).
 //
-// Wraps `phantom_mesh::onboarding_wire` so the React onboarding flow can drive
+// Wraps `spectyn_mesh::onboarding_wire` so the React onboarding flow can drive
 // the GUI D1–D5 state machine through Tauri's `invoke` channel.
 //
 // `onboarding_advance` now runs the REAL per-edge side-effects (login+identity
-// mint, detached `phantom serve` + mDNS advertise, provider detection +
+// mint, detached `spectyn serve` + mDNS advertise, provider detection +
 // ranking) via `onboarding_wire::advance_with_effects` — the same functions the
-// shipped `phantom` CLI onboarding (a7c5701f) uses. The remaining fns
+// shipped `spectyn` CLI onboarding (a7c5701f) uses. The remaining fns
 // (`compute_ttfr` / `start_demo_relay_handoff`) are still `unimplemented!()`
 // (TTFR telemetry + SPEC-52 demo relay = Stage 2); we use
 // `std::panic::catch_unwind` to translate those panics into a stable
@@ -14,7 +14,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::onboarding_wire::{
+use spectyn_mesh::onboarding_wire::{
     self, DemoRelayHandoff, OnboardingContext, OnboardingError, OnboardingState,
     OnboardingStateSnapshot, TTFRMetric,
 };

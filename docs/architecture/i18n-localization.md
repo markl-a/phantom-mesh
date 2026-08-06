@@ -2,7 +2,7 @@
 
 ## 目的（Purpose）
 
-i18n（internationalization / localization，國際化 / 在地化）子系統讓 phantom
+i18n（internationalization / localization，國際化 / 在地化）子系統讓 spectyn
 CLI 與 TUI（終端機使用者介面）能將其面向使用者的字串 — 說明文字、錯誤訊息、
 狀態輸出、TUI 標籤 — 以英文（`en`）或繁體中文（`zh-TW`）呈現，
 並於每次執行時在執行期（runtime）選定語言。
@@ -14,7 +14,7 @@ CLI 與 TUI（終端機使用者介面）能將其面向使用者的字串 — �
 字串放在一起，意味著審查者能在上下文旁邊看到對應翻譯，
 而且兩者永遠不會像分離的鍵值目錄那樣彼此漂移失同步。
 
-它落在核心 crate（`phantom_mesh::i18n`）的呈現邊界（presentation edge）：
+它落在核心 crate（`spectyn_mesh::i18n`）的呈現邊界（presentation edge）：
 商業邏輯維持與語系無關（locale-agnostic），只有負責印出到
 終端機的那一層才會呼叫 `tr()` / `tr_owned()`。
 
@@ -23,8 +23,8 @@ CLI 與 TUI（終端機使用者介面）能將其面向使用者的字串 — �
 | 檔案 | 角色 |
 | --- | --- |
 | `core/src/i18n.rs` | 整個子系統：`Lang` enum、語系解析、持久化（persistence），以及 `tr` / `tr_owned` 翻譯輔助函式。 |
-| `core/src/lib.rs` | 宣告 `pub mod i18n;`，將其公開為 `phantom_mesh::i18n`。 |
-| `core/src/bin/phantom.rs` | CLI 執行檔；承載 `phantom lang {show,set,reset}` 子命令，是 `tr()` 最重度的使用者。 |
+| `core/src/lib.rs` | 宣告 `pub mod i18n;`，將其公開為 `spectyn_mesh::i18n`。 |
+| `core/src/bin/spectyn.rs` | CLI 執行檔；承載 `spectyn lang {show,set,reset}` 子命令，是 `tr()` 最重度的使用者。 |
 | `core/src/tui.rs` | 終端機 UI；將其標籤包進 `i18n::tr(...)`。 |
 | `core/src/cli_config.rs` | 與設定相關的 CLI 輸出，透過 `tr()` 在地化。 |
 | `core/src/mesh.rs` | Mesh / peer（對等節點）狀態輸出，透過 `tr()` 在地化。 |
@@ -39,8 +39,8 @@ flowchart TD
     A["process starts"] --> B["current_lang() first call"]
     B --> C["detect_lang() reads env + disk"]
     C --> D{"resolve_lang() precedence"}
-    D -->|"1. PHANTOM_LANG set"| E["classify_locale(value)"]
-    D -->|"2. persisted file exists"| F["read ~/.phantom-mesh/lang"]
+    D -->|"1. SPECTYN_LANG set"| E["classify_locale(value)"]
+    D -->|"2. persisted file exists"| F["read ~/.spectyn-mesh/lang"]
     D -->|"3. LC_ALL / LANG set"| G["classify_locale(posix)"]
     D -->|"4. nothing set"| H["default En"]
     E --> I["cache Lang in OnceLock"]
@@ -52,9 +52,9 @@ flowchart TD
 
 解析優先順序（precedence，第一個符合者勝出）：
 
-1. `PHANTOM_LANG` — 每次執行明確覆寫（override）（例如 `PHANTOM_LANG=zh-TW`）。
-2. 持久化偏好（persisted preference） — 由 `phantom lang set` 寫入的檔案，位於
-   `~/.phantom-mesh/lang`（測試中為 `$PHANTOM_LANG_FILE`）。
+1. `SPECTYN_LANG` — 每次執行明確覆寫（override）（例如 `SPECTYN_LANG=zh-TW`）。
+2. 持久化偏好（persisted preference） — 由 `spectyn lang set` 寫入的檔案，位於
+   `~/.spectyn-mesh/lang`（測試中為 `$SPECTYN_LANG_FILE`）。
 3. `LC_ALL`，接著 `LANG` — 標準的 POSIX 語系環境變數。
 4. 預設值 — `En`。
 

@@ -21,7 +21,7 @@ session 開始時跑 `./scripts/tdd/tdd-status.sh`。
 ## 規劃來源
 
 完整 TDD 規劃位於
-[`../planning/sprint-2026-05-18/31-phantom-mesh-tdd-comprehensive-plan-2026-05-18.md`](../planning/sprint-2026-05-18/31-phantom-mesh-tdd-comprehensive-plan-2026-05-18.md)。
+[`../planning/sprint-2026-05-18/31-spectyn-mesh-tdd-comprehensive-plan-2026-05-18.md`](../planning/sprint-2026-05-18/31-spectyn-mesh-tdd-comprehensive-plan-2026-05-18.md)。
 內容包含 P0/P1/P2 分層、各平台分配、四週執行表與跨工具 framework 設計。
 
 ## 同步方向

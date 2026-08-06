@@ -3,7 +3,7 @@
 .cargo-registry/
 
 # The compiled linux binary (host it via release asset / http.server instead).
-phantom-*-linux
+spectyn-*-linux
 
 # Terminal-Bench run outputs (trajectories, logs, results.json).
 runs/

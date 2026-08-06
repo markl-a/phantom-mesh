@@ -1,13 +1,13 @@
 # 架構參考文件
 
-Phantom Mesh 各子系統的架構文件 — 包含目的、關鍵檔案、資料流（data flow）、
+Spectyn Mesh 各子系統的架構文件 — 包含目的、關鍵檔案、資料流（data flow）、
 擴充點（extension point）與測試。在修改某子系統前，請先從這裡開始了解它如何運作。
 
 ## 執行時核心（Runtime core）
 - [agent-runtime](agent-runtime.md) — 多供應商（multi-provider）SSE（伺服器推送事件）代理迴圈、工具派發（tool dispatch）、壓縮（compaction）。
 - [auth-security-gate](auth-security-gate.md) — 工具/RPC 的預設安全（secure-by-default）認證閘門（auth gate）。
 - [provider-routing](provider-routing.md) — LLM（大型語言模型）供應商選擇、備援（fallback）、重試（retry）。
-- [cli-phantom](cli-phantom.md) — `phantom` CLI 介面。
+- [cli-spectyn](cli-spectyn.md) — `spectyn` CLI 介面。
 - [mcp-server](mcp-server.md) — 對外提供工具的 Model Context Protocol（模型上下文協議）伺服器。
 
 ## 叢集與分散式（Cluster & distribution）
@@ -34,7 +34,7 @@ Phantom Mesh 各子系統的架構文件 — 包含目的、關鍵檔案、資�
 - [i18n-localization](i18n-localization.md) — 在地化（localization，en / zh-TW）。
 
 ## 品質（Quality）
-- [selftest-harness](selftest-harness.md) — `phantom selftest` + `scripts/selftest.d/`。
+- [selftest-harness](selftest-harness.md) — `spectyn selftest` + `scripts/selftest.d/`。
 
 > 這些文件由原始碼產生並維持其準確性 — 若某個檔案搬移或某條流程改變了，
 > 請在同一個 PR 中更新對應的文件。

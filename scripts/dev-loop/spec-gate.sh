@@ -3,7 +3,7 @@
 #
 # AUTONOMY-GOVERNANCE.md §1 pillar 1: every self-igniting task MUST be bound to a
 # spec, co-defined by human + AI in advance. NO SPEC -> DON'T DO IT. This is the
-# Stage-1 shell form of the future native `phantom dev spec validate` /
+# Stage-1 shell form of the future native `spectyn dev spec validate` /
 # `core/src/dev_loop/spec_gate.rs` (which the design doc lists as "behind the gate",
 # i.e. a later native port — so we emulate it in shell now, exactly as M2/M3 were).
 #

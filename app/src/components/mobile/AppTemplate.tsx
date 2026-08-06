@@ -1,4 +1,4 @@
-// AppTemplate — a polished, product-grade mobile shell for the phantom mesh
+// AppTemplate — a polished, product-grade mobile shell for the spectyn mesh
 // thin client. Built for an interview demo: it must LOOK like a shipping
 // product (dark premium theme, iOS-native feel) AND actually connect.
 //
@@ -22,7 +22,7 @@ import SupervisorCoach from "./SupervisorCoach";
 // No hardcoded backend IP (ANDAPP-LEAK-002): the user enters their backend
 // URL once in the Settings tab; we persist it in localStorage so it survives
 // relaunch. Empty string until set.
-const BASE_URL_KEY = "phantom.baseUrl";
+const BASE_URL_KEY = "spectyn.baseUrl";
 const DEFAULT_BASE_URL = "";
 // Never hardcode the cluster secret — it authenticates cross-machine dispatch.
 // Enter it once in the 設定 (Settings) tab.
@@ -173,7 +173,7 @@ export default function AppTemplate() {
 
   // Bridge the native diagnostics callback into our log.
   useEffect(() => {
-    (window as { phantomDiag?: (m: string) => void }).phantomDiag = (m: string) =>
+    (window as { spectynDiag?: (m: string) => void }).spectynDiag = (m: string) =>
       addLog("info", m);
   }, [addLog]);
 
@@ -236,7 +236,7 @@ function TopBar() {
     <header style={S.topbar}>
       <div style={S.brand}>
         <span style={S.diamond}>◆</span>
-        <span style={S.brandText}>phantom mesh</span>
+        <span style={S.brandText}>spectyn mesh</span>
       </div>
       <div style={{ ...S.pill, borderColor: online ? "rgba(52,211,153,0.4)" : C.border }}>
         <span style={{ ...S.pillDot, background: dotColor, boxShadow: online ? `0 0 8px ${C.success}` : "none" }} />
@@ -300,7 +300,7 @@ function ChatTab() {
     peers, selectedMachines,
   } = useApp();
   const [messages, setMessages] = useState<Bubble[]>([
-    { id: ++_bubbleId, role: "partner", text: "嗨,我是你的 phantom 夥伴。隨時告訴我你在想什麼、想去哪、或想在機器上做什麼 — 我會自動判斷並幫你處理。" },
+    { id: ++_bubbleId, role: "partner", text: "嗨,我是你的 spectyn 夥伴。隨時告訴我你在想什麼、想去哪、或想在機器上做什麼 — 我會自動判斷並幫你處理。" },
   ]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -478,7 +478,7 @@ function ChatTab() {
     patchBubble(pendingId, {
       pending: false,
       tag: "🚀 機隊",
-      text: "啟動機隊,讓四台機器一起檢查 phantom-mesh…",
+      text: "啟動機隊,讓四台機器一起檢查 spectyn-mesh…",
     });
 
     const orch = orchBase(baseUrl);
@@ -708,7 +708,7 @@ function MachineTab() {
 // ═══════════════════════════════════════════════════════════════════════════
 // Tab 3 — Approvals (審核): apex-④ pending high-risk approvals
 // ═══════════════════════════════════════════════════════════════════════════
-// MobileApprovals is a self-contained Tailwind component (dark phantom-* theme,
+// MobileApprovals is a self-contained Tailwind component (dark spectyn-* theme,
 // fits this shell). It defaults to reading the cluster store for baseUrl/secret,
 // but this shell keeps its connection in `useApp()` + localStorage (NOT the
 // cluster store), so we pass them in as props.
@@ -821,7 +821,7 @@ function SettingsTab() {
       </div>
 
       <div style={S.footNote}>
-        ◆ phantom mesh · 安全 HMAC 連線 · NSURLSession 原生傳輸
+        ◆ spectyn mesh · 安全 HMAC 連線 · NSURLSession 原生傳輸
       </div>
     </div>
   );
@@ -833,11 +833,11 @@ function SettingsTab() {
 const FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif";
 
 // keyframes injected once for the typing dots
-if (typeof document !== "undefined" && !document.getElementById("phantom-apptemplate-kf")) {
+if (typeof document !== "undefined" && !document.getElementById("spectyn-apptemplate-kf")) {
   const style = document.createElement("style");
-  style.id = "phantom-apptemplate-kf";
+  style.id = "spectyn-apptemplate-kf";
   style.textContent = `
-@keyframes phantomBlink { 0%,80%,100% { opacity:.25; transform:translateY(0) } 40% { opacity:1; transform:translateY(-2px) } }
+@keyframes spectynBlink { 0%,80%,100% { opacity:.25; transform:translateY(0) } 40% { opacity:1; transform:translateY(-2px) } }
 `;
   document.head.appendChild(style);
 }
@@ -961,7 +961,7 @@ const S: Record<string, React.CSSProperties> = {
   typingDot: {
     width: 6, height: 6, borderRadius: 999, background: C.muted,
     display: "inline-block",
-    animation: "phantomBlink 1.2s infinite ease-in-out",
+    animation: "spectynBlink 1.2s infinite ease-in-out",
   },
 
   // sticky input bar

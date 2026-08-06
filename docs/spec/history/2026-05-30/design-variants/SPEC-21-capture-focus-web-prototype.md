@@ -61,7 +61,7 @@ iOS hero prototype 是底，Web prototype 加上 **6 個 Web-specific 互動軸*
 |---|---|
 | 頂部 `[caveat-banner]`（`focus.web.caveat`） | **不可 tap dismissible**（per Mockup §107） — tap 無動作；hover 時不變色，純資訊 |
 | `25` / `50` / `自訂` chip | 即時 select；無 haptic（Web 沒 `navigator.vibrate` 在 desktop / iOS Safari，僅 Android Chrome 支援 — 不依賴）；CSS `:active` 變 bg `overlay-ripple-24` 100ms ease-out |
-| **PTT 大鈕 — `pointerdown`** | (1) 若 `permissions.query({name:'microphone'})` 回 `prompt` → 立即呼叫 `navigator.mediaDevices.getUserMedia({audio:true})` 觸發 B browser prompt；(2) 若 `granted` → 0ms CSS press 變 bg `phantom-primary @ 70%`；100ms 內 `MediaRecorder.start(300_000)` + 啟動 Web Worker chunk timer；切到 C Recording。**同時 Timer 副按鈕進入 disabled state**（per Mockup invariant）|
+| **PTT 大鈕 — `pointerdown`** | (1) 若 `permissions.query({name:'microphone'})` 回 `prompt` → 立即呼叫 `navigator.mediaDevices.getUserMedia({audio:true})` 觸發 B browser prompt；(2) 若 `granted` → 0ms CSS press 變 bg `spectyn-primary @ 70%`；100ms 內 `MediaRecorder.start(300_000)` + 啟動 Web Worker chunk timer；切到 C Recording。**同時 Timer 副按鈕進入 disabled state**（per Mockup invariant）|
 | **PTT 大鈕 — `pointerup` / `pointerleave` / `pointercancel`** | 立即 `mediaRecorder.requestData()` flush 當前 chunk → POST 給 host（C' 失敗路徑見下）；UI 顯示 chunk +1 toast bottom-up enter 100ms / hold 1.5s / exit 200ms；**留在 A1 Idle**（PTT 是一次按一段）；Timer 副按鈕回 enabled |
 | **Timer 副按鈕** | (1) 若未授權 → 同上走 getUserMedia；(2) 授權 → 200ms cross-fade 到 C Recording；`MediaRecorder.start(300_000)` 啟動；Web Worker chunk timer 啟動 |
 | `trust-badge` tap | 開 modal sheet（Web 用 `<dialog>` 元素 + `showModal()`） — 顯示 trust 全文；ESC / 點背景 / 「關閉」按鈕關閉 |
@@ -72,7 +72,7 @@ iOS hero prototype 是底，Web prototype 加上 **6 個 Web-specific 互動軸*
 |---|---|
 | 頂部 caveat banner | 同 A1 |
 | `◯ [duration-opt-N]` radio rows | tap 整行（不只 circle）select；keyboard `↑ ↓` 切換；`space` / `enter` 觸發 Start |
-| **`[start-timer]` 按鈕** | tap：(1) 觸發 getUserMedia（若未授權）；(2) 授權後 `MediaRecorder.start(300_000)`；hover bg +10% brightness；active bg `overlay-ripple-24`；focus ring `2px phantom-primary` outline；keyboard `enter` / `space` 等同 tap |
+| **`[start-timer]` 按鈕** | tap：(1) 觸發 getUserMedia（若未授權）；(2) 授權後 `MediaRecorder.start(300_000)`；hover bg +10% brightness；active bg `overlay-ripple-24`；focus ring `2px spectyn-primary` outline；keyboard `enter` / `space` 等同 tap |
 | **A2 無 PTT** — `space` long-press 不觸發 PTT | 桌機鍵盤情境不適合 press-and-hold（per Mockup §84） — `space` 純作 button trigger |
 
 ### Breakpoint resize 切換動畫
@@ -98,15 +98,15 @@ CSS animation：**無**（resize 是 user 主動，不該再加 transition 增�
 1. user 看到 A1 / A2（依裝置），預期注意到頂部 caveat banner
 2. **觀察點 1**：caveat banner 是否引起焦慮？若 30% 以上 user 反問「這 app 有問題嗎」，要重寫 `focus.web.caveat` 文案
 3. user 點 25 → Start → 觸發 browser permission prompt
-4. **觀察點 2**：user 是否能在 5 秒內辨認 browser native prompt 跟 phantom UI 是兩件事？
+4. **觀察點 2**：user 是否能在 5 秒內辨認 browser native prompt 跟 spectyn UI 是兩件事？
 
 ## 螢幕 B — getUserMedia Permission Prompt
 
 ### 互動限制
 
-Browser native — phantom 唯一能控的是 **trigger timing**（user 主動 tap 才呼叫，不在 page load）+ **pre-permission education**（A1 / A2 trust-badge + 安撫文）。
+Browser native — spectyn 唯一能控的是 **trigger timing**（user 主動 tap 才呼叫，不在 page load）+ **pre-permission education**（A1 / A2 trust-badge + 安撫文）。
 
-### Tap targets（browser native dialog，phantom 不可自訂）
+### Tap targets（browser native dialog，spectyn 不可自訂）
 
 | Browser | 樣式 / 文案 |
 |---|---|
@@ -114,7 +114,7 @@ Browser native — phantom 唯一能控的是 **trigger timing**（user 主動 t
 | Safari | 中央 modal `Allow "<origin>" to use your microphone?` + `Don't Allow` / `Allow` |
 | Firefox | 頂部下拉 + `Remember this decision` checkbox + `Block` / `Allow` |
 
-### 結果回 phantom
+### 結果回 spectyn
 
 ```
 [user 點 Allow]
@@ -127,7 +127,7 @@ Browser native — phantom 唯一能控的是 **trigger timing**（user 主動 t
   → 切到 B' Denied 卡（覆蓋 Idle）
 
 [user 關 prompt（按 ESC / 點外面）]
-  → Chrome / Firefox: Promise pending（不 resolve 不 reject）→ phantom 視為等待中，UI 仍 spinner
+  → Chrome / Firefox: Promise pending（不 resolve 不 reject）→ spectyn 視為等待中，UI 仍 spinner
   → Safari: 視同 Block → reject
 ```
 
@@ -137,7 +137,7 @@ Browser native — phantom 唯一能控的是 **trigger timing**（user 主動 t
 - Safari：prompt 出現 ~300-500ms（macOS / iOS Safari）
 - Firefox：prompt 出現 < 200ms，但若 user 之前 `Remember` Block 過 → 直接 reject 不顯 prompt
 
-phantom UI 在 getUserMedia call 後立即進入 micro-state「Requesting」（PTT / Start button 顯示 Lucide `loader-2` + `animate-spin` 32px，文案 `focus.perm.requesting`）— **若 > 2s 仍未 resolve**，顯示 hint「請查看瀏覽器頂部對話框」（文案 `focus.web.perm_hint_browser_top`，新 key v0.7+ 補）。
+spectyn UI 在 getUserMedia call 後立即進入 micro-state「Requesting」（PTT / Start button 顯示 Lucide `loader-2` + `animate-spin` 32px，文案 `focus.perm.requesting`）— **若 > 2s 仍未 resolve**，顯示 hint「請查看瀏覽器頂部對話框」（文案 `focus.web.perm_hint_browser_top`，新 key v0.7+ 補）。
 
 ## 螢幕 B' — Denied 卡（覆蓋 Idle）
 
@@ -225,7 +225,7 @@ window.addEventListener('beforeunload', (e) => {
 | save-offline 模式有 pending queue 時關 tab | 同上 dialog，但訊息文案 `focus.web.offline_unload_warn`「還有 X 段未上傳，關了會留在 browser」 — 強調「不會立刻丟」（IndexedDB 持久），但提醒 user 下次回來才能 flush |
 | 完全沒 recording / 沒 queue 時關 tab | **不觸發 dialog** — `beforeunload` listener `e.preventDefault()` 條件不成立 |
 
-**Browser 限制**：現代 Chrome / Firefox 已不允許自訂 `e.returnValue` 字串顯示，只能彈標準訊息。phantom 無法強制顯示 `focus.web.offline_unload_warn` 文字 — 但 listener 註冊本身仍能觸發 dialog（dialog 文案由 browser 統一），文案會 fallback 到 i18n key 內容僅 for screen-reader / 開發者 debug。
+**Browser 限制**：現代 Chrome / Firefox 已不允許自訂 `e.returnValue` 字串顯示，只能彈標準訊息。spectyn 無法強制顯示 `focus.web.offline_unload_warn` 文字 — 但 listener 註冊本身仍能觸發 dialog（dialog 文案由 browser 統一），文案會 fallback 到 i18n key 內容僅 for screen-reader / 開發者 debug。
 
 ### Failure paths
 
@@ -269,9 +269,9 @@ window.addEventListener('beforeunload', (e) => {
 | Target | 動作 |
 |---|---|
 | 頂部 `[upload-failed-msg]` banner（`focus.web.upload_failed`，Lucide `wifi-off` 20px） | 純資訊，tap 無動作；bg `overlay-error-16` 從 C 的 caveat 變色 transition 250ms |
-| `[retry-btn]`（`focus.web.retry`，bg `phantom-danger`，左、主要救濟） | 立即重新嘗試 POST 失敗 chunk；UI 顯示 spinner 32px；成功 → 200ms cross-fade 回 C；失敗 → retry counter +1，**連續失敗 5 次自動切 save-offline 模式**（per Wireframe §165） |
-| `[save-offline-btn]`（`focus.web.save_offline`，bg `phantom-card`，右、次要救濟） | 立即寫 IndexedDB queue → 200ms cross-fade 回 C；caveat banner 文案切 `focus.web.offline_pending`「已暫存 {n} 段」；bg 切回 `overlay-web-warn-20`（warn 但非加深）；**錄音繼續不中斷**；後續 chunk 直接寫 IndexedDB（不再嘗試 POST）|
-| waveform（凍結態） | 純視覺，無 tap 互動；color 從 `phantom-warning` 切 `phantom-muted` 250ms |
+| `[retry-btn]`（`focus.web.retry`，bg `spectyn-danger`，左、主要救濟） | 立即重新嘗試 POST 失敗 chunk；UI 顯示 spinner 32px；成功 → 200ms cross-fade 回 C；失敗 → retry counter +1，**連續失敗 5 次自動切 save-offline 模式**（per Wireframe §165） |
+| `[save-offline-btn]`（`focus.web.save_offline`，bg `spectyn-card`，右、次要救濟） | 立即寫 IndexedDB queue → 200ms cross-fade 回 C；caveat banner 文案切 `focus.web.offline_pending`「已暫存 {n} 段」；bg 切回 `overlay-web-warn-20`（warn 但非加深）；**錄音繼續不中斷**；後續 chunk 直接寫 IndexedDB（不再嘗試 POST）|
+| waveform（凍結態） | 純視覺，無 tap 互動；color 從 `spectyn-warning` 切 `spectyn-muted` 250ms |
 | `trust-badge` | 同 C — 仍提醒「就算 upload 失敗，本地仍加密」|
 
 ### IndexedDB queue 寫入順序（save-offline 模式）
@@ -310,7 +310,7 @@ if (usage + blob.size > quota * 0.95) {
   // 95% 強制停
   mediaRecorder.stop()
   worker.terminate()
-  showToast(i18n('focus.web.quota_exceeded'))  // 全寬 48px bg phantom-danger@95%
+  showToast(i18n('focus.web.quota_exceeded'))  // 全寬 48px bg spectyn-danger@95%
   navigate(A1)
   return
 }
@@ -344,7 +344,7 @@ await db.put(blob)
 
 ### 互動差異（vs iOS）
 
-- **ASR / LLM 全跑 host**（phantom-serve），browser 只 POST chunk + render progress
+- **ASR / LLM 全跑 host**（spectyn-serve），browser 只 POST chunk + render progress
 - E phase 1 (Transcribing) progress：host 推 SSE `event: chunk_transcribed`，每次收到 progress +1/N
 - E phase 2 (SummaryGen) spinner：host 推 `event: summary_started` → spinner / `event: summary_done` → 切 F
 
@@ -455,7 +455,7 @@ iOS hero prototype 7 個 task 沿用，**Web 補 3 個額外 task**（共 10 個
 
 | # | Task | 測項 | 6-state 覆蓋 |
 |---|---|---|---|
-| 8 | **Tab 切換 + 回來**：「開始錄音 → 切到 YouTube 看 30 秒 → 回 phantom tab → 停止」 | visibilitychange + Web Worker 持續性 + 信任感 | Ideal |
+| 8 | **Tab 切換 + 回來**：「開始錄音 → 切到 YouTube 看 30 秒 → 回 spectyn tab → 停止」 | visibilitychange + Web Worker 持續性 + 信任感 | Ideal |
 | 9 | **C' Upload Failed 救濟**：「錄音中假裝 host 斷網（測試環境注入），請選擇你信任的救濟方式」 | C' 雙救濟視覺權重 + retry 連續失敗降級 + save-offline 信任 | Error + Partial |
 | 10 | **Breakpoint resize**：「desktop 開錄音，縮窗到 mobile 寬度，繼續錄音 30 秒」 | A2 → A1 切換不中斷錄音 + 版型 state 共用 | Ideal |
 
@@ -468,7 +468,7 @@ iOS hero prototype 7 個 task 沿用，**Web 補 3 個額外 task**（共 10 個
 ### 觀察重點（Web-specific）
 
 - **A1 / A2 breakpoint 切換**：resize 時 user 是否注意到版型變了？是否引起混亂？
-- **B getUserMedia prompt**：user 是否能在 5s 內辨認「browser native」vs「phantom UI」？
+- **B getUserMedia prompt**：user 是否能在 5s 內辨認「browser native」vs「spectyn UI」？
 - **B' Denied 卡**：user 是否能自助找到瀏覽器麥克風設定？或一直按「重新請求」？
 - **C visibilitychange**：切 tab 回來時 user 是否信任錄音還在跑？
 - **C' Upload Failed**：Retry vs Save-offline user 真實偏好？

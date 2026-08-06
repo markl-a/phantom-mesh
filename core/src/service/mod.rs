@@ -1,7 +1,7 @@
 // core/src/service/mod.rs
 //
-// Per-OS service-manager adapters. `phantom service <install|uninstall|status>`
-// installs phantom as a user-level auto-start service:
+// Per-OS service-manager adapters. `spectyn service <install|uninstall|status>`
+// installs spectyn as a user-level auto-start service:
 //
 //   Windows → Scheduled Task at logon (schtasks / PowerShell Register-ScheduledTask)
 //   macOS   → LaunchAgent in ~/Library/LaunchAgents (launchctl)
@@ -11,13 +11,13 @@
 // entry point is `run_service_subcommand(action)` which dispatches to the
 // active OS implementation.
 //
-// PF-2a (2026-05-18): Windows impl extracted from `core/src/bin/phantom.rs`.
+// PF-2a (2026-05-18): Windows impl extracted from `core/src/bin/spectyn.rs`.
 // PF-2b (this commit): Linux impl extracted + `PROPAGATED_ENV_KEYS` const
 // promoted here as a shared list (used by Linux systemd install AND macOS
 // launchd install).
-// PF-2c (follow-up): macOS impl (currently lives at phantom.rs:6834).
+// PF-2c (follow-up): macOS impl (currently lives at spectyn.rs:6834).
 //
-// After PF-2b: macOS dispatch in phantom.rs `main` still uses the in-bin
+// After PF-2b: macOS dispatch in spectyn.rs `main` still uses the in-bin
 // function; Windows + Linux now route through here.
 
 #[cfg(target_os = "linux")]
@@ -45,22 +45,22 @@ pub const PROPAGATED_ENV_KEYS: &[&str] = &[
     "OPENAI_API_KEY",
     "CEREBRAS_API_KEY",
     "DEEPSEEK_API_KEY",
-    // phantom runtime knobs
-    "PHANTOM_MAX_TOKENS",
-    "PHANTOM_NODE_NAME",
-    // L1 governed-worker knobs — so `phantom service install` produces a DURABLE
+    // spectyn runtime knobs
+    "SPECTYN_MAX_TOKENS",
+    "SPECTYN_NODE_NAME",
+    // L1 governed-worker knobs — so `spectyn service install` produces a DURABLE
     // governed worker (flight-recorder + governor) on macOS/Linux, not just an
     // ungoverned serve. (Windows scheduled tasks inherit the user env directly.)
-    "PHANTOM_GOVERN_CLI",
-    "PHANTOM_CLI_SESSION_REPO",
+    "SPECTYN_GOVERN_CLI",
+    "SPECTYN_CLI_SESSION_REPO",
 ];
 
-/// Dispatch `phantom service <action>` to the active OS's implementation.
+/// Dispatch `spectyn service <action>` to the active OS's implementation.
 /// `action` is one of `install`, `uninstall`, `status` (others print an
 /// error and exit 1).
 ///
 /// On macOS this is currently a stub: the binary's dispatch site
-/// (phantom.rs `main`) handles macOS directly via in-bin function until
+/// (spectyn.rs `main`) handles macOS directly via in-bin function until
 /// PF-2c lands.
 #[cfg(target_os = "windows")]
 pub async fn run_service_subcommand(action: &str) -> anyhow::Result<()> {
@@ -78,7 +78,7 @@ pub async fn run_service_subcommand(_action: &str) -> anyhow::Result<()> {
     // macOS directly to its in-bin function until PF-2c lands — so this
     // stub should never be reached on macOS.
     Err(anyhow::anyhow!(
-        "service: Windows + Linux routed through phantom_mesh::service; \
-         macOS service install still lives in phantom.rs (PF-2c pending)."
+        "service: Windows + Linux routed through spectyn_mesh::service; \
+         macOS service install still lives in spectyn.rs (PF-2c pending)."
     ))
 }

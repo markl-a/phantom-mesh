@@ -4,7 +4,7 @@
 //! Ported from the `ensemble` project (Apache-2.0) §6 crew port — ONLY the
 //! conductor-facing subset is carried. ensemble's `FeedObserver` / `ControlCmd`
 //! / `drain_control` + the `watch` CLI live behind its own `ndjson` feed + serve
-//! layer, which phantom does not need (it has its own serve + the governed-run
+//! layer, which spectyn does not need (it has its own serve + the governed-run
 //! flight recorder for live observability).
 
 use super::blackboard::Message;

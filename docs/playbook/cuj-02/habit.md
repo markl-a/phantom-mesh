@@ -16,9 +16,9 @@
 
 ## 前置條件
 
-- [ ] phantom CLI 已 build 並 in PATH（`phantom --version` 回 ≥ 0.6.0）
+- [ ] spectyn CLI 已 build 並 in PATH（`spectyn --version` 回 ≥ 0.6.0）
 - [ ] 使用乾淨測試帳號 OR `--data-dir=/tmp/spec22-test` 不污染 prod
-- [ ] 已有 starter palette（`phantom habit palette list` 回 12 個預設 chip）
+- [ ] 已有 starter palette（`spectyn habit palette list` 回 12 個預設 chip）
 
 ---
 
@@ -26,43 +26,43 @@
 
 ```bash
 # CLI 入口
-phantom habit water --qty 250
+spectyn habit water --qty 250
 ```
 
 - [ ] 輸出包含 `streak=1` 或 `streak` 字樣（不應 panic）
 - [ ] 輸出 < 100ms（手感即時、不卡）
-- [ ] `phantom habit streak --chip water` 回顯 current_streak=1
+- [ ] `spectyn habit streak --chip water` 回顯 current_streak=1
 
 ## Test 2：palette CRUD
 
 ```bash
-phantom habit palette list                           # 應印 12 條
-phantom habit palette add --id meditation --zh 冥想 --en Meditation --unit min --qty 5
-phantom habit palette list                           # 應變 13 條... 等等
+spectyn habit palette list                           # 應印 12 條
+spectyn habit palette add --id meditation --zh 冥想 --en Meditation --unit min --qty 5
+spectyn habit palette list                           # 應變 13 條... 等等
 ```
 
 - [ ] 第二個 add 應 **失敗**（palette 上限 12）── 期望錯誤 `ERR-22-PALETTE-FULL` 或同義訊息
 - [ ] 若上述 add 成功（與 spec G1 違反），記 BUG
-- [ ] `phantom habit palette remove --id water` → 再 add `meditation` 應成功
-- [ ] `phantom habit palette reorder --id meditation --to 0` → list 第一條變 meditation
+- [ ] `spectyn habit palette remove --id water` → 再 add `meditation` 應成功
+- [ ] `spectyn habit palette reorder --id meditation --to 0` → list 第一條變 meditation
 
 ## Test 3：freetext fallback (G5)
 
 ```bash
-phantom habit "讀完 SICP ch3"
+spectyn habit "讀完 SICP ch3"
 ```
 
 - [ ] 不應 panic／回非空成功訊息
-- [ ] 內部 chip_id 應為 `freetext` + free_text 原樣存（用 `phantom habit list-events --limit 1` 或 sqlite 檢查）
+- [ ] 內部 chip_id 應為 `freetext` + free_text 原樣存（用 `spectyn habit list-events --limit 1` 或 sqlite 檢查）
 
 ## Test 4：跨時區 streak 不追溯（G3 risk）
 
-> 需要兩台機（或同機改時區）。若只 mac → 用 `TZ=Asia/Taipei phantom ...` 跟 `TZ=America/New_York phantom ...` 模擬。
+> 需要兩台機（或同機改時區）。若只 mac → 用 `TZ=Asia/Taipei spectyn ...` 跟 `TZ=America/New_York spectyn ...` 模擬。
 
 ```bash
-TZ=Asia/Taipei phantom habit coffee --qty 1        # 假設台北凌晨 1am log
-TZ=America/New_York phantom habit coffee --qty 1   # 模擬飛 NY 後再 log（同一 chip）
-phantom habit streak --chip coffee
+TZ=Asia/Taipei spectyn habit coffee --qty 1        # 假設台北凌晨 1am log
+TZ=America/New_York spectyn habit coffee --qty 1   # 模擬飛 NY 後再 log（同一 chip）
+spectyn habit streak --chip coffee
 ```
 
 - [ ] streak 不應因為 user 改時區而追溯改舊 event 的歸屬日
@@ -71,8 +71,8 @@ phantom habit streak --chip coffee
 ## Test 5：plaintext boundary (G7)
 
 ```bash
-phantom habit "跟某人吵架"  # user 自己寫敏感內容（責任 user 自負）
-sqlite3 ~/.phantom-mesh/events.sqlite \
+spectyn habit "跟某人吵架"  # user 自己寫敏感內容（責任 user 自負）
+sqlite3 ~/.spectyn-mesh/events.sqlite \
   "SELECT metadata_json FROM events ORDER BY ts_ms DESC LIMIT 1"
 ```
 
@@ -82,18 +82,18 @@ sqlite3 ~/.phantom-mesh/events.sqlite \
 
 ## Test 6：CLI / shortcut 對等（G8）
 
-> 需要 desktop UI 在跑（`phantom-mesh-app`）
+> 需要 desktop UI 在跑（`spectyn-mesh-app`）
 
 - [ ] 按 Cmd+Shift+H（mac）/ Ctrl+Shift+H → 出現 chip popover
 - [ ] popover 點「水」→ 輸入 250 → ✓
-- [ ] CLI `phantom habit list-events --limit 2` → 兩筆 metadata 結構應一致（除 source 欄位 desktop vs cli）
+- [ ] CLI `spectyn habit list-events --limit 2` → 兩筆 metadata 結構應一致（除 source 欄位 desktop vs cli）
 
 ## Test 7：mobile widget 3-tap（G2）
 
 > iOS / Android only — 需要 ayaneo / iOS sim 跑
 
 - [ ] iPhone 鎖屏 → 解鎖（tap 1）
-- [ ] Home screen 有 Phantom Habit Widget → tap chip「水」（tap 2）
+- [ ] Home screen 有 Spectyn Habit Widget → tap chip「水」（tap 2）
 - [ ] 預設 250ml quick action 出現 → 點 ✓（tap 3）= 寫入
 - [ ] 主 app 沒被打開（背景寫入）
 
@@ -102,8 +102,8 @@ sqlite3 ~/.phantom-mesh/events.sqlite \
 > 需要 broker live + 兩台已配 broker token 的裝置
 
 - [ ] 手機 log 一筆「咖啡」
-- [ ] ≤ 5s 後 desktop `phantom habit streak --chip coffee` 包含這筆
-- [ ] 隔日早上 coach review (phantom coach review) 提到此 chip pattern
+- [ ] ≤ 5s 後 desktop `spectyn habit streak --chip coffee` 包含這筆
+- [ ] 隔日早上 coach review (spectyn coach review) 提到此 chip pattern
 
 ---
 
@@ -118,7 +118,7 @@ sqlite3 ~/.phantom-mesh/events.sqlite \
 ## 跑跑 automated 對齊
 
 ```bash
-cargo test -p phantom-mesh --test spec22_capture_habit_acceptance
+cargo test -p spectyn-mesh --test spec22_capture_habit_acceptance
 ```
 
 - [ ] 全綠 → automated layer 沒退化

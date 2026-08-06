@@ -33,7 +33,7 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 #[test]
 fn v4_identity_linux_no_dbus_returns_keystore_unavailable() {
-    use phantom_mesh::identity_wire::{
+    use spectyn_mesh::identity_wire::{
         write_to_keystore, KeyDerivationError, KeystoreBackend,
     };
 
@@ -46,7 +46,7 @@ fn v4_identity_linux_no_dbus_returns_keystore_unavailable() {
     // only fails on panic / wrong error variant.
     match write_to_keystore(
         KeystoreBackend::LinuxSecretService,
-        "phantom-mesh-v4-chaos-test",
+        "spectyn-mesh-v4-chaos-test",
         b"not-a-real-seed-just-bytes-for-test",
     ) {
         Ok(()) => { /* keyring is actually up; degraded path not exercised */ }
@@ -66,7 +66,7 @@ fn v4_identity_linux_no_dbus_returns_keystore_unavailable() {
 
 #[test]
 fn v4_providers_validate_config_missing_api_key_ref() {
-    use phantom_mesh::providers_wire::{validate_config, ProviderConfig, ProviderError};
+    use spectyn_mesh::providers_wire::{validate_config, ProviderConfig, ProviderError};
 
     let cfg = ProviderConfig {
         slug: "groq".to_string(),
@@ -93,7 +93,7 @@ fn v4_providers_validate_config_missing_api_key_ref() {
 
 #[test]
 fn v4_broker_verify_jwt_garbage_returns_unauthorized() {
-    use phantom_mesh::broker_vault_wire::{verify_broker_jwt, BrokerError};
+    use spectyn_mesh::broker_vault_wire::{verify_broker_jwt, BrokerError};
 
     let garbage = "this.is.definitely-not-a-jwt";
     let secret = b"any-secret-bytes-here-for-hs256";
@@ -112,20 +112,20 @@ fn v4_broker_verify_jwt_garbage_returns_unauthorized() {
 //
 // SPEC-26: `refresh_capabilities` is the public RPC entry point that wraps
 // the private HMAC-signed `rpc_get`. We redirect the per-peer URL via the
-// documented `PHANTOM_PEER_<ID>_URL` env-var hook to `127.0.0.1:1` (almost
+// documented `SPECTYN_PEER_<ID>_URL` env-var hook to `127.0.0.1:1` (almost
 // guaranteed connection-refused). The call MUST return a typed
 // `DispatchError` (timeout / busy / auth-failed) within reasonable wall
 // time — not hang and not panic.
 
 #[tokio::test]
 async fn v4_dispatch_refresh_capabilities_unreachable_url() {
-    use phantom_mesh::cluster_dispatch_wire::{refresh_capabilities, DispatchError};
+    use spectyn_mesh::cluster_dispatch_wire::{refresh_capabilities, DispatchError};
 
     // SPEC-26's `peer_base_url` reads these vars on each call. Edition 2021
     // keeps `set_var` safe; the same writes would need an `unsafe` block on
     // edition 2024 — flagged here so the test moves forward cleanly.
-    std::env::set_var("PHANTOM_CLUSTER_SECRET", "test-secret-not-used-for-real-auth");
-    std::env::set_var("PHANTOM_PEER_V4CHAOS_URL", "http://127.0.0.1:1");
+    std::env::set_var("SPECTYN_CLUSTER_SECRET", "test-secret-not-used-for-real-auth");
+    std::env::set_var("SPECTYN_PEER_V4CHAOS_URL", "http://127.0.0.1:1");
 
     // Bound the wall clock so a regression to "hang forever" fails loudly.
     let res = tokio::time::timeout(
@@ -154,7 +154,7 @@ async fn v4_dispatch_refresh_capabilities_unreachable_url() {
 
 #[test]
 fn v4_mdns_start_browser_no_match_does_not_panic() {
-    use phantom_mesh::mdns_wire::{start_browser, MdnsError};
+    use spectyn_mesh::mdns_wire::{start_browser, MdnsError};
 
     // 16-hex cluster id hash that's vanishingly unlikely to match anything.
     let cluster_hash = "deadbeefcafef00d";
@@ -170,7 +170,7 @@ fn v4_mdns_start_browser_no_match_does_not_panic() {
 
 // ─── 6/8 — event_storage_wire query_events on absent events dir ──────────────
 //
-// SPEC-16 §6.1: the data layout is `~/.phantom-mesh/events/`; when that
+// SPEC-16 §6.1: the data layout is `~/.spectyn-mesh/events/`; when that
 // directory is missing (fresh install before first capture), `query_events`
 // MUST return `Ok(vec![])` per the §11 catalog "STORE-001 OpenFailed is
 // reserved for unreadable, not absent." We point `HOME` at a fresh temp
@@ -178,7 +178,7 @@ fn v4_mdns_start_browser_no_match_does_not_panic() {
 
 #[test]
 fn v4_event_storage_query_missing_dir_returns_ok_empty() {
-    use phantom_mesh::event_storage_wire::{query_events, EventStoreQuery};
+    use spectyn_mesh::event_storage_wire::{query_events, EventStoreQuery};
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let prev_home = std::env::var("HOME").ok();
@@ -212,7 +212,7 @@ fn v4_event_storage_query_missing_dir_returns_ok_empty() {
 #[test]
 #[ignore = "pending Stage 4: coach_delivery_wire::vault_read_pseudo unimplemented"]
 fn v4_coach_send_email_invalid_smtp_host_returns_smtp_failed() {
-    use phantom_mesh::coach_delivery_wire::{send_email, DeliveryError, EmailConfig};
+    use spectyn_mesh::coach_delivery_wire::{send_email, DeliveryError, EmailConfig};
 
     let cfg = EmailConfig {
         smtp_host: "smtp.invalid".to_string(),
@@ -237,21 +237,21 @@ fn v4_coach_send_email_invalid_smtp_host_returns_smtp_failed() {
 // SPEC-25: `recall_skills` is the public entry to the skill recall stack.
 // `fts5_search` (its sqlite FTS5 leg) MUST degrade to an empty hit set
 // when the DB file is absent (fresh install before SPEC-16 migration).
-// We point `HOME` + `PHANTOM_DB_PATH` at a tempdir to guarantee absence.
+// We point `HOME` + `SPECTYN_DB_PATH` at a tempdir to guarantee absence.
 // `recall_k = 0` skips the still-Stage-4 `embedding_search` panic path.
 
 #[test]
 fn v4_skill_recall_missing_db_does_not_panic() {
-    use phantom_mesh::coach_wire::RecallPolicy;
-    use phantom_mesh::skill_wire::recall_skills;
+    use spectyn_mesh::coach_wire::RecallPolicy;
+    use spectyn_mesh::skill_wire::recall_skills;
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let prev_home = std::env::var("HOME").ok();
-    let prev_db = std::env::var("PHANTOM_DB_PATH").ok();
+    let prev_db = std::env::var("SPECTYN_DB_PATH").ok();
     // Edition 2021 keeps `set_var` safe; see test 4 note.
     std::env::set_var("HOME", tmp.path());
     std::env::set_var(
-        "PHANTOM_DB_PATH",
+        "SPECTYN_DB_PATH",
         tmp.path().join("does-not-exist.db"),
     );
 
@@ -270,8 +270,8 @@ fn v4_skill_recall_missing_db_does_not_panic() {
         None => std::env::remove_var("HOME"),
     }
     match prev_db {
-        Some(p) => std::env::set_var("PHANTOM_DB_PATH", p),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(p) => std::env::set_var("SPECTYN_DB_PATH", p),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     match result {

@@ -25,11 +25,11 @@
 #
 # PLATFORM ROUTING: a spec may declare `caps = ["macos","ios"]` in its [spec]; a
 # node only claims tasks whose caps it covers (so each machine develops for its
-# own platforms). Node caps come from PHANTOM_NODE_CAPS / ~/.phantom-mesh/caps /
+# own platforms). Node caps come from SPECTYN_NODE_CAPS / ~/.spectyn-mesh/caps /
 # OS fallback. A spec with no `caps` is claimable by any node (back-compat).
 #
 # Env: BACKLOG_BASE (default: step3-coach-install-schedule), BACKLOG_NODE (default: hostname),
-#      BACKLOG_DIR (default: backlog), PHANTOM_NODE_CAPS (comma-sep platform caps)
+#      BACKLOG_DIR (default: backlog), SPECTYN_NODE_CAPS (comma-sep platform caps)
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -70,7 +70,7 @@ claim_owner() {
 . "$HERE/spec-lib.sh"   # spec_section / spec_list — to read a spec's [spec] caps
 
 # node_caps — the platforms THIS machine can develop for. Source order:
-#   PHANTOM_NODE_CAPS env  →  ~/.phantom-mesh/caps file  →  OS-derived fallback.
+#   SPECTYN_NODE_CAPS env  →  ~/.spectyn-mesh/caps file  →  OS-derived fallback.
 # One per line. Set it per the fleet plan, e.g. z13=windows,linux ·
 # ayaneo=windows,gui · acer=windows,android · m1(mac)=macos,ios.
 node_caps() {
@@ -79,10 +79,10 @@ node_caps() {
   # the bash + PowerShell ports agree on what a cap is (review: codex).
   local trim='s/^[[:space:]]*//;s/[[:space:]]*$//'
   local out=""
-  if [ -n "${PHANTOM_NODE_CAPS:-}" ]; then
-    out="$(printf '%s\n' "$PHANTOM_NODE_CAPS" | tr ',' '\n' | sed "$trim" | grep -v '^$')"
+  if [ -n "${SPECTYN_NODE_CAPS:-}" ]; then
+    out="$(printf '%s\n' "$SPECTYN_NODE_CAPS" | tr ',' '\n' | sed "$trim" | grep -v '^$')"
   else
-    local f="${PHANTOM_STATE_DIR:-$HOME/.phantom-mesh}/caps"
+    local f="${SPECTYN_STATE_DIR:-$HOME/.spectyn-mesh}/caps"
     [ -f "$f" ] && out="$(tr ',' '\n' < "$f" | sed "$trim" | grep -v '^$')"
   fi
   if [ -n "$out" ]; then printf '%s\n' "$out"; return; fi

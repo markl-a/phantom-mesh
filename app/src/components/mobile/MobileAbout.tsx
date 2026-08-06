@@ -8,8 +8,8 @@ import { getVersion } from "../../lib/api";
 // get_version probe (degrades gracefully on a thin mobile client).
 
 const LINKS: { label: string; url: string }[] = [
-  { label: "Source（GitHub）", url: "https://github.com/markl-a/phantom-mesh" },
-  { label: "License（AGPL-3.0）", url: "https://github.com/markl-a/phantom-mesh/blob/main/LICENSE" },
+  { label: "Source（GitHub）", url: "https://github.com/markl-a/spectyn-mesh" },
+  { label: "License（AGPL-3.0）", url: "https://github.com/markl-a/spectyn-mesh/blob/main/LICENSE" },
 ];
 
 export default function MobileAbout() {
@@ -39,8 +39,8 @@ export default function MobileAbout() {
 
   const restartOnboarding = () => {
     try {
-      localStorage.removeItem("phantom_mesh_v2_onboarded");
-      localStorage.removeItem("phantom_mesh_v2_onboarded_mode");
+      localStorage.removeItem("spectyn_mesh_v2_onboarded");
+      localStorage.removeItem("spectyn_mesh_v2_onboarded_mode");
     } catch { /* localStorage may be restricted */ }
     // Reload so App re-evaluates onboarding state and shows MobileFirstLaunch.
     window.location.assign("/");
@@ -49,13 +49,13 @@ export default function MobileAbout() {
   return (
     <div className="flex flex-col h-full overflow-y-auto space-y-4">
       {/* Version block */}
-      <div className="bg-phantom-card border border-phantom-border rounded-lg px-4 py-3">
-        <div className="text-sm font-medium text-phantom-text">Phantom Mesh</div>
-        <div className="text-xs text-phantom-muted mt-1 font-mono">
+      <div className="bg-spectyn-card border border-spectyn-border rounded-lg px-4 py-3">
+        <div className="text-sm font-medium text-spectyn-text">Spectyn Mesh</div>
+        <div className="text-xs text-spectyn-muted mt-1 font-mono">
           {version ? `v${version}` : "—"}
           {commit ? ` · ${commit.slice(0, 8)}` : ""}
         </div>
-        <div className="text-xs text-phantom-muted mt-0.5 font-mono">ai.phantommesh.app</div>
+        <div className="text-xs text-spectyn-muted mt-0.5 font-mono">ai.spectynmesh.app</div>
       </div>
 
       {/* OSS link rows */}
@@ -67,10 +67,10 @@ export default function MobileAbout() {
             target="_blank"
             rel="noreferrer noopener"
             aria-label={`${l.label}，外部連結`}
-            className="flex items-center justify-between bg-phantom-card border border-phantom-border rounded-lg px-4 py-3 hover:border-phantom-primary transition"
+            className="flex items-center justify-between bg-spectyn-card border border-spectyn-border rounded-lg px-4 py-3 hover:border-spectyn-primary transition"
           >
-            <span className="text-sm text-phantom-text">{l.label}</span>
-            <ExternalLink size={16} className="text-phantom-muted" />
+            <span className="text-sm text-spectyn-text">{l.label}</span>
+            <ExternalLink size={16} className="text-spectyn-muted" />
           </a>
         ))}
       </div>
@@ -78,9 +78,9 @@ export default function MobileAbout() {
       {/* Restart onboarding */}
       <button
         onClick={restartOnboarding}
-        className="flex items-center gap-2 bg-phantom-card border border-phantom-border rounded-lg px-4 py-3 text-sm text-phantom-text hover:border-phantom-primary transition"
+        className="flex items-center gap-2 bg-spectyn-card border border-spectyn-border rounded-lg px-4 py-3 text-sm text-spectyn-text hover:border-spectyn-primary transition"
       >
-        <RotateCcw size={16} className="text-phantom-muted" />
+        <RotateCcw size={16} className="text-spectyn-muted" />
         重啟 onboarding（重新設定）
       </button>
     </div>

@@ -5,16 +5,16 @@
 //! A Recipe is a content-addressed, ed25519-signed JSON document that
 //! captures one autonomous evolution episode. Storage:
 //!
-//!   ~/.phantom-mesh/recipes/<sha256-of-body>.json
+//!   ~/.spectyn-mesh/recipes/<sha256-of-body>.json
 //!
 //! v0.1.0 ships:
-//!   - `phantom evolve publish [--private]` — export a recipe locally
-//!   - sign with this machine's identity (`phantom keys init` first)
+//!   - `spectyn evolve publish [--private]` — export a recipe locally
+//!   - sign with this machine's identity (`spectyn keys init` first)
 //!   - verify on round-trip (no broker yet)
 //!
 //! v0.2 adds:
 //!   - `--share` (no `--private`) to POST to phantommesh.io broker
-//!   - `phantom evolve adopt <url>` to fetch + verify + apply a recipe
+//!   - `spectyn evolve adopt <url>` to fetch + verify + apply a recipe
 //!   - GitHub OAuth link so recipes carry @username
 
 use anyhow::{Context, Result};
@@ -23,10 +23,10 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
 
-/// Path to `~/.phantom-mesh/recipes/`.
+/// Path to `~/.spectyn-mesh/recipes/`.
 pub fn recipes_dir() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("recipes")
 }
 
@@ -35,12 +35,12 @@ pub fn ensure_dir() -> Result<()> {
     Ok(())
 }
 
-/// Recipe descriptor — what platform / phantom version this was
+/// Recipe descriptor — what platform / spectyn version this was
 /// generated against. Used by adopters to filter applicability.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Descriptor {
     pub platform: String,
-    pub phantom_version: String,
+    pub spectyn_version: String,
     pub core_sha: String,
     /// Classification hint — "extensions_only" | "scripts_or_tests" |
     /// "core_change" | "sensitive_change". The broker re-classifies
@@ -125,11 +125,11 @@ pub fn compute_sha(goal: &str, plan: &[String], patch: Option<&str>) -> String {
 }
 
 /// Build a signed Recipe from a body. Loads the user's signing key
-/// from disk; errors if `phantom keys init` hasn't run.
+/// from disk; errors if `spectyn keys init` hasn't run.
 pub fn sign(body: RecipeBody) -> Result<Recipe> {
     let canonical = serde_json::to_vec(&body).context("serialising recipe body for signing")?;
     let signature = crate::identity::sign_hex(&canonical)
-        .context("signing recipe — has `phantom keys init` been run?")?;
+        .context("signing recipe — has `spectyn keys init` been run?")?;
     let author_pubkey = crate::identity::load_pub_hex()?;
     Ok(Recipe {
         body,
@@ -144,7 +144,7 @@ pub fn verify(recipe: &Recipe) -> Result<bool> {
     crate::identity::verify(&recipe.author_pubkey, &canonical, &recipe.signature)
 }
 
-/// Write a recipe to `~/.phantom-mesh/recipes/<recipe_sha>.json`.
+/// Write a recipe to `~/.spectyn-mesh/recipes/<recipe_sha>.json`.
 /// Returns the path written.
 pub fn save(recipe: &Recipe) -> Result<PathBuf> {
     ensure_dir()?;
@@ -216,7 +216,7 @@ mod tests {
             patch: None,
             descriptor: Descriptor {
                 platform: "macos-aarch64".into(),
-                phantom_version: "0.4.0".into(),
+                spectyn_version: "0.4.0".into(),
                 core_sha: "abc1234567".into(),
                 classification: "extensions_only".into(),
             },

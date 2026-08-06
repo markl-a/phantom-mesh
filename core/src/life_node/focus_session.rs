@@ -1,14 +1,14 @@
-//! Disk-backed focus session for the `phantom focus` CLI (SPEC-21, Life Track).
+//! Disk-backed focus session for the `spectyn focus` CLI (SPEC-21, Life Track).
 //!
 //! `capture_focus_wire` keeps the active session in a process-global in-memory
 //! table — fine for the long-lived desktop app, but a CLI runs `start` and
 //! `stop` as SEPARATE processes, so the in-memory session would vanish between
 //! them. This module persists the single active session to
-//! `<home>/.phantom-mesh/focus-session.json` (single-active invariant) so the
+//! `<home>/.spectyn-mesh/focus-session.json` (single-active invariant) so the
 //! terminal flow survives across invocations.
 //!
 //! On `stop` the finished session is written as a Life Node focus event
-//! (kind = "focus", with a summary) so it shows up in `phantom coach review`
+//! (kind = "focus", with a summary) so it shows up in `spectyn coach review`
 //! and the desktop Daily Review screen — closing the capture→review loop.
 //! `base` is the home directory, injected so tests use a tempdir.
 
@@ -23,7 +23,7 @@ use crate::life_node::storage::EventStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum FocusSessionError {
-    #[error("a focus session is already active (run `phantom focus stop` first)")]
+    #[error("a focus session is already active (run `spectyn focus stop` first)")]
     AlreadyActive,
     #[error("no active focus session")]
     NotActive,
@@ -74,25 +74,25 @@ fn now_ms() -> u64 {
     now_ms_on(&crate::clock::SystemClock)
 }
 
-fn phantom_dir(base: &Path) -> PathBuf {
-    crate::cli_config::phantom_dir_under(base)
+fn spectyn_dir(base: &Path) -> PathBuf {
+    crate::cli_config::spectyn_dir_under(base)
 }
 
 fn session_path(base: &Path) -> PathBuf {
-    phantom_dir(base).join("focus-session.json")
+    spectyn_dir(base).join("focus-session.json")
 }
 
 /// The age `EventKey` for sealing the active-session file, if `identity.key`
 /// exists. `None` → plaintext fallback (tests / pre-encryption machines), same
 /// policy as `EventStore::new` vs `with_key`.
 fn session_key(base: &Path) -> Option<EventKey> {
-    load_event_key(&phantom_dir(base).join("identity.key")).ok()
+    load_event_key(&spectyn_dir(base).join("identity.key")).ok()
 }
 
 /// The active session, or `None` when no session file exists / is unreadable.
 ///
 /// The on-disk session file is age-encrypted when an `identity.key` is present
-/// (SPEC-13 / P4 "only you can read"): the live `phantom focus` session carries
+/// (SPEC-13 / P4 "only you can read"): the live `spectyn focus` session carries
 /// `task` + per-interruption `note` free text, which must not sit in plaintext
 /// on disk for the whole session. Reads transparently handle both the encrypted
 /// form (age magic → decrypt) and a legacy plaintext file (migration).
@@ -117,7 +117,7 @@ pub fn start(
     if status(base).is_some() {
         return Err(FocusSessionError::AlreadyActive);
     }
-    std::fs::create_dir_all(phantom_dir(base)).map_err(|e| FocusSessionError::Io(e.to_string()))?;
+    std::fs::create_dir_all(spectyn_dir(base)).map_err(|e| FocusSessionError::Io(e.to_string()))?;
     let session = DiskFocusSession {
         session_id: uuid::Uuid::now_v7().to_string(),
         started_at_ms: now_ms(),
@@ -155,7 +155,7 @@ pub fn stop(base: &Path) -> Result<FocusStopResult, FocusSessionError> {
     // Persist the focus event FIRST; only delete the live session file once it
     // is durably written. If the write is refused — D24: identity.key present
     // but corrupt — surface the error and KEEP the session file so the user can
-    // retry `phantom focus stop` after repairing the key. Deleting it here (the
+    // retry `spectyn focus stop` after repairing the key. Deleting it here (the
     // old behavior) would lose the session's task + interruption notes outright,
     // which is worse than the silent-plaintext bug D24 set out to fix.
     let event_id = Some(write_focus_event(base, &session, actual_duration_ms)?);
@@ -176,7 +176,7 @@ fn write_session(base: &Path, session: &DiskFocusSession) -> Result<(), FocusSes
     // event (SPEC-13 / P4): never leave the user's `task`/interruption notes in
     // plaintext on disk. No identity.key → plaintext fallback (matches EventStore).
     // D24: a PRESENT-but-corrupt key must refuse, not silently write plaintext.
-    let key = event_key_for_write(&phantom_dir(base).join("identity.key")).map_err(|e| {
+    let key = event_key_for_write(&spectyn_dir(base).join("identity.key")).map_err(|e| {
         FocusSessionError::Io(format!(
             "identity.key present but unloadable — refusing to write a plaintext session: {e}"
         ))
@@ -194,10 +194,10 @@ fn write_focus_event(
     session: &DiskFocusSession,
     actual_duration_ms: u64,
 ) -> Result<String, FocusSessionError> {
-    let events_dir = phantom_dir(base).join("events");
+    let events_dir = spectyn_dir(base).join("events");
     // D24: refuse to write a plaintext focus event when identity.key is present
     // but corrupt (vs. genuinely absent → plaintext is the pre-encryption state).
-    let key = event_key_for_write(&phantom_dir(base).join("identity.key")).map_err(|e| {
+    let key = event_key_for_write(&spectyn_dir(base).join("identity.key")).map_err(|e| {
         FocusSessionError::Io(format!(
             "identity.key present but unloadable — refusing to write a plaintext focus event: {e}"
         ))
@@ -213,7 +213,7 @@ fn write_focus_event(
         "{mins}m {secs}s focus session on \"{task}\", {} interruption(s).",
         session.interruptions.len()
     );
-    let source_node = std::env::var("PHANTOM_NODE")
+    let source_node = std::env::var("SPECTYN_NODE")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "local".to_string());
     let meta = store
@@ -278,7 +278,7 @@ mod tests {
         assert!(r.event_id.is_some(), "focus event written to store");
         assert!(status(base).is_none(), "session file removed after stop");
         // The focus event is on disk under events/ with meta + analysis.
-        let events = base.join(".phantom-mesh").join("events");
+        let events = base.join(".spectyn-mesh").join("events");
         let id = r.event_id.unwrap();
         assert!(events.join(&id).join("meta.json").exists());
         assert!(events.join(&id).join("analysis.json").exists());
@@ -293,8 +293,8 @@ mod tests {
         // not sit in plaintext for the whole session.
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
-        std::fs::create_dir_all(phantom_dir(base)).unwrap();
-        std::fs::write(phantom_dir(base).join("identity.key"), [0x42u8; 64]).unwrap();
+        std::fs::create_dir_all(spectyn_dir(base)).unwrap();
+        std::fs::write(spectyn_dir(base).join("identity.key"), [0x42u8; 64]).unwrap();
 
         start(base, 25, Some("secret merger plan".into()), vec![]).unwrap();
         interrupt(base, "private note about Alice").unwrap();

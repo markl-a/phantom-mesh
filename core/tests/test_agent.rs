@@ -8,7 +8,7 @@ use axum::Router;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     agent::AgentRuntime,
     config::{AgentEntry, AgentsConfig, ProviderEntry},
 };
@@ -287,8 +287,8 @@ async fn test_compaction_triggered() {
     // Each ChatMessage has a 40 001-char content; 6 of them = 240 006 chars
     // which crosses the 60 000-token (≈ 240 000 char) threshold.
     let big_content = "x".repeat(40_001);
-    let fat_history: Vec<phantom_mesh::providers::traits::ChatMessage> = (0..6)
-        .map(|i| phantom_mesh::providers::traits::ChatMessage {
+    let fat_history: Vec<spectyn_mesh::providers::traits::ChatMessage> = (0..6)
+        .map(|i| spectyn_mesh::providers::traits::ChatMessage {
             role: if i % 2 == 0 {
                 "user".to_string()
             } else {

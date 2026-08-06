@@ -16,7 +16,7 @@ import { invoke } from "@tauri-apps/api/core";
  * times out when fetching Tailscale magic hostnames + private IPs from
  * physical iOS devices — likely because reqwest uses raw sockets that
  * don't satisfy the iOS network sandbox. The `swift_cluster_fetch`
- * Tauri command (app/src-tauri/src/lib.rs + PhantomFetch.swift) routes
+ * Tauri command (app/src-tauri/src/lib.rs + SpectynFetch.swift) routes
  * the request through native NSURLSession.dataTask which goes through
  * iOS's standard URL loading stack and works reliably.
  *
@@ -30,7 +30,7 @@ async function nativeFetch(
   const method = (init.method || "GET").toUpperCase();
   const auth = init.headers?.["X-Cluster-Auth"] || init.headers?.["x-cluster-auth"] || "";
   const body = init.body || "";
-  const diag = (msg: string) => (window as { phantomDiag?: (m: string) => void }).phantomDiag?.(msg);
+  const diag = (msg: string) => (window as { spectynDiag?: (m: string) => void }).spectynDiag?.(msg);
   diag(`[fetch] ${method} ${url.slice(0, 60)} body=${body.length}B`);
   try {
     const r = await invoke<{ status: number; body: string }>("swift_cluster_fetch", {
@@ -56,7 +56,7 @@ async function nativeFetch(
 // So when there is no Tauri runtime we fall back to the standard window.fetch,
 // wrapped to the same {ok,status,text(),json()} shape the other backends return.
 // NOTE: in a plain browser the coordinator must allow CORS for the page origin
-// (start serve with PHANTOM_CORS_ALLOW_LOCALHOST=1, or PHANTOM_CORS_ALLOW_ANY=1
+// (start serve with SPECTYN_CORS_ALLOW_LOCALHOST=1, or SPECTYN_CORS_ALLOW_ANY=1
 // for a custom static port, or front it with a same-origin reverse proxy).
 async function browserFetch(
   url: string,
@@ -275,10 +275,10 @@ export async function classifyIntent(
   text: string,
   machineLabels: string[],
 ): Promise<{ intent: "chat" | "dispatch" | "sense" | "swarm"; machine?: string; task?: string }> {
-  const PROMPT = `你是 phantom 的意圖分類器,只回一行 JSON,不要任何其他文字。
+  const PROMPT = `你是 spectyn 的意圖分類器,只回一行 JSON,不要任何其他文字。
 把使用者輸入分類成:
 - "dispatch":想在「某一台」機器上執行程式碼/任務(寫程式、改檔、跑指令、派工、實作)
-- "swarm":使用者想讓整個機隊/多台機器一起檢查或開發這個專案(例:「派機隊檢查 bug」「讓四台機器一起修」「檢查 phantom-mesh 的 bug 跟未完成功能」「整個機隊一起開發」)
+- "swarm":使用者想讓整個機隊/多台機器一起檢查或開發這個專案(例:「派機隊檢查 bug」「讓四台機器一起修」「檢查 spectyn-mesh 的 bug 跟未完成功能」「整個機隊一起開發」)
 - "sense":詢問自己的所在位置、現場狀況、附近環境、是否到了某地點
 - "chat":一般對話、陪伴、心情、提問、閒聊
 可用機器:${machineLabels.join("、")}

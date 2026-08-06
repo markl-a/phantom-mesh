@@ -19,13 +19,13 @@
 派送是「SPEC-23 寫完 review → 送到 user 眼前」。Windows 三個平台特定點：
 1. **OS 通知 = WinRT Toast**（非 iOS UNUserNotificationCenter / Android NotificationManager / macOS NSUserNotification / Linux libnotify）— ActionCenter persist 行為 + deep-link 點擊冷啟動序列都不同
 2. **桌面是輸入 SMTP / bot token 的好地方**（鍵盤友善）— 行動端打長 token 痛苦；Settings 的憑證輸入 UX 在桌面最完整
-3. **deep-link `phantom-mesh://coach/review?id=` 冷啟動** — app 沒開時點 toast，要 launch app → 跳 Coach tab → 載入該 review
+3. **deep-link `spectyn-mesh://coach/review?id=` 冷啟動** — app 沒開時點 toast，要 launch app → 跳 Coach tab → 載入該 review
 
 ## 縮寫對照表
 
 > - **channel（通道）**：一條派送路徑（Markdown+通知 / Telegram / Email）
 > - **WinRT Toast**：Windows 10/11 ActionCenter（通知中心）的快顯通知
-> - **deep-link（深連結）**：`phantom-mesh://coach/review?id=...` 點擊喚起 app 跳到特定畫面
+> - **deep-link（深連結）**：`spectyn-mesh://coach/review?id=...` 點擊喚起 app 跳到特定畫面
 > - **opt-in（選擇加入）**：使用者主動開啟某通道（預設只開 OS 通知）
 > - **vault seal（保險庫封存）**：憑證客戶端加密存，broker 只看密文（SPEC-15）
 > - **dedup（去重）**：同一 review 不重複發（24 小時 ledger 帳本）
@@ -36,7 +36,7 @@
 
 | 通道 | Windows 行為 | v0.6.0 預設 | 憑證 |
 |---|---|---|---|
-| **Markdown + OS 通知** | 寫 `~/.phantom-mesh/coach/YYYY-MM-DD.md` + WinRT Toast（deep-link） | ✅ ON | 無 |
+| **Markdown + OS 通知** | 寫 `~/.spectyn-mesh/coach/YYYY-MM-DD.md` + WinRT Toast（deep-link） | ✅ ON | 無 |
 | **Telegram** | bot 發整份 markdown（>4096 自動 chunk）到 chat_id | ❌ OFF（opt-in） | bot token + chat_id（vault seal） |
 | **Email** | user 自帶 SMTP，markdown → HTML | ❌ OFF（opt-in） | SMTP host/port/user/pass（vault seal） |
 | Push（APNs/FCM） | — | ❌ 不做（v0.7+，SPEC-24 OoS） | — |
@@ -45,7 +45,7 @@
 
 ```
 +------------------------------------------+
-| Phantom Mesh                             |  ← AppLogo + app name
+| Spectyn Mesh                             |  ← AppLogo + app name
 |  今天的回顧好了                          |  ← 標題（取 coach.deliv.toast_title）
 |  下午 3 點放一杯水在桌上 . 點開看看      |  ← action 一句預覽（不報「你昨天只...」）
 |                            [ 開啟回顧 ]  |  ← action button → deep-link
@@ -53,7 +53,7 @@
 ```
 - `scenario="reminder"` → **persist 到 user dismiss**（Win 用戶常 miss 一閃通知，per SPEC-43）
 - **無 `<audio>`**（晚上 21:00 溫和，shame-free + P4）
-- 點 toast / 「開啟回顧」→ deep-link `phantom-mesh://coach/review?id=<review_id>`：
+- 點 toast / 「開啟回顧」→ deep-link `spectyn-mesh://coach/review?id=<review_id>`：
   - app 已開 → 直接跳 Coach tab 載該 review
   - app 沒開 → 冷啟動 app → 等 serve ready → 跳 Coach tab（中間顯 splash，不卡白屏）
 - Focus Assist（專注模式）期間 → toast 折疊到 ActionCenter（不彈），user 之後自己看（review 非急事）

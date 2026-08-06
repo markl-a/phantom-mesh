@@ -26,11 +26,11 @@ selftest_requires() {
 }
 
 selftest_run() {
-  local sess="phantom-double-tap-$$"
+  local sess="spectyn-double-tap-$$"
   local cap="$SELFTEST_ARTIFACTS/double-tap-pane.txt"
 
   tmux kill-session -t "$sess" 2>/dev/null || true
-  tmux new-session -d -s "$sess" -x 120 -y 40 "$PHANTOM" 2>/dev/null
+  tmux new-session -d -s "$sess" -x 120 -y 40 "$SPECTYN" 2>/dev/null
   sleep 2  # ratatui first paint
 
   # ── 1. First Ctrl-C — should NOT exit ──────────────────────────────────
@@ -38,7 +38,7 @@ selftest_run() {
   sleep 0.5
 
   T_ARTIFACT="$cap"
-  T_REPRO="tmux new-session -d -s tap-debug -x 120 -y 40 $(printf '%q' "$PHANTOM") && sleep 2 && tmux send-keys -t tap-debug C-c"
+  T_REPRO="tmux new-session -d -s tap-debug -x 120 -y 40 $(printf '%q' "$SPECTYN") && sleep 2 && tmux send-keys -t tap-debug C-c"
 
   if tmux has-session -t "$sess" 2>/dev/null; then
     t_pass "first Ctrl-C does NOT exit" "session still alive"

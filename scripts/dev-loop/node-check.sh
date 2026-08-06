@@ -18,19 +18,19 @@ ais=${ais%,}
 
 # Declared platform caps (set at arm time → backlog routing).
 caps=""
-if [ -f "$HOME/.phantom-mesh/caps" ]; then
-  caps=$(tr '\n,' '  ' < "$HOME/.phantom-mesh/caps" 2>/dev/null | tr -s ' ')
+if [ -f "$HOME/.spectyn-mesh/caps" ]; then
+  caps=$(tr '\n,' '  ' < "$HOME/.spectyn-mesh/caps" 2>/dev/null | tr -s ' ')
 fi
 
 # Repo present? probe the per-machine candidate paths (path varies by node).
 repo=""
 for d in \
-  "$HOME/Projects/phantom-mesh" \
-  "$HOME/Projects/phantom-mesh" \
+  "$HOME/Projects/spectyn-mesh" \
+  "$HOME/Projects/spectyn-mesh" \
   "$HOME/pm-node" \
-  "/d/Projects/phantom-mesh" \
+  "/d/Projects/spectyn-mesh" \
   "/c/Users/$USER/pm-node" \
-  "$HOME/Documents/GitHub/hailmary/phantom-mesh"; do
+  "$HOME/Documents/GitHub/hailmary/spectyn-mesh"; do
   if [ -d "$d/core" ] || [ -d "$d/.git" ]; then repo="$d"; break; fi
 done
 

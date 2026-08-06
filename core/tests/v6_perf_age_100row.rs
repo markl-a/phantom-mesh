@@ -17,13 +17,13 @@
 //!      `decrypt_event(&envelope, &identity)` round-trip.
 //!   4. Assert wall-clock elapsed ≤ budget.
 //!
-//! No I/O (no `~/.phantom-mesh/blobs/*` writes), no network — everything runs
+//! No I/O (no `~/.spectyn-mesh/blobs/*` writes), no network — everything runs
 //! in-memory through the Stage 3 real impl in `core/src/encryption_wire.rs`.
 //! `std::time::Instant` for measurement, no extra crates.
 
 use std::time::{Duration, Instant};
 
-use phantom_mesh::encryption_wire::{
+use spectyn_mesh::encryption_wire::{
     decrypt_event, derive_event_key_from_identity, derive_recipient_from_identity, encrypt_event,
     event_key_to_age_identity,
 };
@@ -33,8 +33,8 @@ use phantom_mesh::encryption_wire::{
 /// Build the deterministic crypto material once per test. OSS-safe: uses a
 /// fixed byte pattern seed (no real identity material, no operator keys).
 fn build_crypto_material() -> (
-    phantom_mesh::encryption_wire::X25519Identity,
-    phantom_mesh::encryption_wire::X25519Recipient,
+    spectyn_mesh::encryption_wire::X25519Identity,
+    spectyn_mesh::encryption_wire::X25519Recipient,
 ) {
     // Fixed seed pattern — purely a test fixture.
     let seed = [0xA5u8; 32];

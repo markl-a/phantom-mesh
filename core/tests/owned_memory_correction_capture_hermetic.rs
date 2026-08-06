@@ -7,21 +7,21 @@
 //! correction's content survives the store→recall trip. Modeled on
 //! `owned_memory_loop_e2e.rs`.
 
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::skill_wire::{
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::skill_wire::{
     capture_correction, drain_corrections_to_store, recall_skills,
 };
 
 #[test]
 fn capture_drain_recall_round_trips_the_correction() {
-    // Only test in this binary ⇒ the process-global PHANTOM_DB_PATH /
-    // PHANTOM_OWNED_MEMORY mutations race nothing, and the process-global
+    // Only test in this binary ⇒ the process-global SPECTYN_DB_PATH /
+    // SPECTYN_OWNED_MEMORY mutations race nothing, and the process-global
     // hand-off queue starts empty (no sibling test enqueued into it).
     let db = tempfile::NamedTempFile::new().expect("temp DB file");
-    let saved_db = std::env::var_os("PHANTOM_DB_PATH");
-    let saved_om = std::env::var_os("PHANTOM_OWNED_MEMORY");
-    std::env::set_var("PHANTOM_DB_PATH", db.path());
-    std::env::remove_var("PHANTOM_OWNED_MEMORY"); // default ON
+    let saved_db = std::env::var_os("SPECTYN_DB_PATH");
+    let saved_om = std::env::var_os("SPECTYN_OWNED_MEMORY");
+    std::env::set_var("SPECTYN_DB_PATH", db.path());
+    std::env::remove_var("SPECTYN_OWNED_MEMORY"); // default ON
 
     let outcome = (|| -> Result<(usize, bool), String> {
         // (capture) the operator denies a `shell` force-push.
@@ -40,12 +40,12 @@ fn capture_drain_recall_round_trips_the_correction() {
 
     // Restore env BEFORE asserting.
     match saved_db {
-        Some(v) => std::env::set_var("PHANTOM_DB_PATH", v),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(v) => std::env::set_var("SPECTYN_DB_PATH", v),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
     match saved_om {
-        Some(v) => std::env::set_var("PHANTOM_OWNED_MEMORY", v),
-        None => std::env::remove_var("PHANTOM_OWNED_MEMORY"),
+        Some(v) => std::env::set_var("SPECTYN_OWNED_MEMORY", v),
+        None => std::env::remove_var("SPECTYN_OWNED_MEMORY"),
     }
 
     let (stored, steps_name_tool) = outcome.expect("capture→drain→recall round-trip");

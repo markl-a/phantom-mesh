@@ -30,7 +30,7 @@
 //!
 //! ## Why no axum boot?
 //!
-//! The spec's `## Scope (in)` mentions booting two `phantom serve`
+//! The spec's `## Scope (in)` mentions booting two `spectyn serve`
 //! instances on loopback ports. We deliberately collapse that down to the
 //! pure state-machine path because:
 //!
@@ -62,7 +62,7 @@
 
 #![cfg(feature = "experimental-cluster-heartbeat")]
 
-use phantom_mesh::mesh::{
+use spectyn_mesh::mesh::{
     select_best_peer_with_caps, ClusterConfig, ClusterManager, PeerHealth, PeerInfo,
 };
 use std::time::Instant;

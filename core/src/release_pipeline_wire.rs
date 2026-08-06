@@ -19,7 +19,7 @@
 // Relationship to existing release infra:
 //   - `.github/workflows/release-*.yml` 既有 9 個 workflow 是 CI 側落地。
 //   - `scripts/build-update-manifest.py` 既有 147 行已會組 latest.json。
-//   - 本檔是 Rust 側「型別契約」— phantom CLI / Tauri app / verify-and-publish
+//   - 本檔是 Rust 側「型別契約」— spectyn CLI / Tauri app / verify-and-publish
 //     job 共用同一個 ReleaseManifest serde shape。
 //
 // TODO Stage 2: wire into core/src/lib.rs + add chrono/url deps if not present
@@ -126,7 +126,7 @@ pub enum ArtifactArch {
 pub struct ReleaseArtifact {
     pub os: ArtifactOs,
     pub arch: ArtifactArch,
-    /// Bare file name (no path), e.g. `"phantom-mesh-0.6.0-rc1-darwin-aarch64.dmg"`.
+    /// Bare file name (no path), e.g. `"spectyn-mesh-0.6.0-rc1-darwin-aarch64.dmg"`.
     pub file_name: String,
     /// Lower-case hex `sha256sum` of the artifact bytes. Verified by Tauri
     /// updater before swap-and-restart per SPEC-29 §10.1 verifying state.
@@ -738,9 +738,9 @@ pub fn check_updater_endpoint(channel: ReleaseChannel) -> Result<u32, ReleaseErr
         ReleaseChannel::Nightly => "nightly",
     };
     // Base is the GitHub releases-latest download dir by default; tests (and a
-    // self-hosted updater) override it via PHANTOM_UPDATER_BASE_URL so the GET is
+    // self-hosted updater) override it via SPECTYN_UPDATER_BASE_URL so the GET is
     // redirectable to a wiremock server instead of hitting github.com.
-    let base = std::env::var("PHANTOM_UPDATER_BASE_URL")
+    let base = std::env::var("SPECTYN_UPDATER_BASE_URL")
         .unwrap_or_else(|_| "https://github.com/owner/repo/releases/latest/download".to_string());
     let url = format!("{}/latest-{}.json", base.trim_end_matches('/'), channel_slug);
     let (body, latency_ms) = https_get_timing_pseudo(&url)?;
@@ -806,12 +806,12 @@ mod tests {
             artifacts: vec![ReleaseArtifact {
                 os: ArtifactOs::Macos,
                 arch: ArtifactArch::Aarch64,
-                file_name: "phantom-mesh-0.6.0-rc1-darwin-aarch64.dmg".into(),
+                file_name: "spectyn-mesh-0.6.0-rc1-darwin-aarch64.dmg".into(),
                 sha256_hex: "a".repeat(64),
                 size_bytes: 29_360_128,
                 signature_url: None,
                 download_url:
-                    "https://github.com/owner/repo/releases/download/v0.6.0-rc1/phantom-mesh.dmg"
+                    "https://github.com/owner/repo/releases/download/v0.6.0-rc1/spectyn-mesh.dmg"
                         .into(),
             }],
             latest_for_channel: true,
@@ -854,7 +854,7 @@ mod tests {
     fn check_updater_endpoint_via_mock_handles_200_non200_and_bad_json() {
         // SPEC-29 G5: the live updater-endpoint smoke is now wired through reqwest
         // (https_get_timing_pseudo). Drive it against a wiremock server via the
-        // PHANTOM_UPDATER_BASE_URL redirect. All 3 scenarios run sequentially in
+        // SPECTYN_UPDATER_BASE_URL redirect. All 3 scenarios run sequentially in
         // ONE test fn so the process-global env var never races a sibling test.
         use wiremock::matchers::method;
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -877,7 +877,7 @@ mod tests {
                 .respond_with(ResponseTemplate::new(200).set_body_string(manifest_json))
                 .mount(&ok_mock),
         );
-        std::env::set_var("PHANTOM_UPDATER_BASE_URL", ok_mock.uri());
+        std::env::set_var("SPECTYN_UPDATER_BASE_URL", ok_mock.uri());
         let ok = check_updater_endpoint(ReleaseChannel::Stable);
         assert!(matches!(ok, Ok(_)), "200 + valid manifest must be Ok: {ok:?}");
 
@@ -888,7 +888,7 @@ mod tests {
                 .respond_with(ResponseTemplate::new(503))
                 .mount(&down_mock),
         );
-        std::env::set_var("PHANTOM_UPDATER_BASE_URL", down_mock.uri());
+        std::env::set_var("SPECTYN_UPDATER_BASE_URL", down_mock.uri());
         let down = check_updater_endpoint(ReleaseChannel::Stable);
         assert!(
             matches!(down, Err(ReleaseError::UpdaterEndpointDown(_))),
@@ -902,14 +902,14 @@ mod tests {
                 .respond_with(ResponseTemplate::new(200).set_body_string("{ not json"))
                 .mount(&bad_mock),
         );
-        std::env::set_var("PHANTOM_UPDATER_BASE_URL", bad_mock.uri());
+        std::env::set_var("SPECTYN_UPDATER_BASE_URL", bad_mock.uri());
         let bad = check_updater_endpoint(ReleaseChannel::Stable);
         assert!(
             matches!(bad, Err(ReleaseError::UpdaterEndpointDown(_))),
             "malformed JSON must be UpdaterEndpointDown: {bad:?}"
         );
 
-        std::env::remove_var("PHANTOM_UPDATER_BASE_URL");
+        std::env::remove_var("SPECTYN_UPDATER_BASE_URL");
     }
 
     #[test]
@@ -1039,7 +1039,7 @@ mod tests {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let nanos = now_unix_ms_pseudo().unwrap();
-        std::env::temp_dir().join(format!("phantom_rpw_{}_{}_{}", nanos, n, suffix))
+        std::env::temp_dir().join(format!("spectyn_rpw_{}_{}_{}", nanos, n, suffix))
     }
 
     #[test]
@@ -1153,38 +1153,38 @@ mod tests {
     fn parse_os_arch_from_filename_pseudo_matrix() {
         let cases = [
             (
-                "phantom-mesh-0.6.0-darwin-aarch64.dmg",
+                "spectyn-mesh-0.6.0-darwin-aarch64.dmg",
                 ArtifactOs::Macos,
                 ArtifactArch::Aarch64,
             ),
             (
-                "phantom-mesh-0.6.0-macos-x86_64.dmg",
+                "spectyn-mesh-0.6.0-macos-x86_64.dmg",
                 ArtifactOs::Macos,
                 ArtifactArch::X86_64,
             ),
             (
-                "phantom-mesh-0.6.0-windows-amd64.msi",
+                "spectyn-mesh-0.6.0-windows-amd64.msi",
                 ArtifactOs::Windows,
                 ArtifactArch::X86_64,
             ),
             (
-                "phantom-mesh-0.6.0-linux-arm64.AppImage",
+                "spectyn-mesh-0.6.0-linux-arm64.AppImage",
                 ArtifactOs::Linux,
                 ArtifactArch::Aarch64,
             ),
             (
-                "phantom-mesh-0.6.0-android-arm64.apk",
+                "spectyn-mesh-0.6.0-android-arm64.apk",
                 ArtifactOs::Android,
                 ArtifactArch::Aarch64,
             ),
             (
-                "phantom-mesh-0.6.0-macos-universal.dmg",
+                "spectyn-mesh-0.6.0-macos-universal.dmg",
                 ArtifactOs::Macos,
                 ArtifactArch::Universal2,
             ),
             // Case-insensitivity.
             (
-                "Phantom-Mesh-0.6.0-DARWIN-X86_64.dmg",
+                "Spectyn-Mesh-0.6.0-DARWIN-X86_64.dmg",
                 ArtifactOs::Macos,
                 ArtifactArch::X86_64,
             ),
@@ -1201,12 +1201,12 @@ mod tests {
     fn parse_os_arch_from_filename_pseudo_rejects_unknown() {
         // Unknown OS.
         assert!(matches!(
-            parse_os_arch_from_filename_pseudo("phantom-plan9-x86_64.bin"),
+            parse_os_arch_from_filename_pseudo("spectyn-plan9-x86_64.bin"),
             Err(ReleaseError::VerifyFailed(_))
         ));
         // Known OS, unknown arch.
         assert!(matches!(
-            parse_os_arch_from_filename_pseudo("phantom-linux-riscv128.AppImage"),
+            parse_os_arch_from_filename_pseudo("spectyn-linux-riscv128.AppImage"),
             Err(ReleaseError::VerifyFailed(_))
         ));
     }

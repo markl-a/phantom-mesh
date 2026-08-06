@@ -15,7 +15,7 @@ TOTAL=13
 pass() { echo -e "  ${GREEN}PASS${NC}  $1"; ((PASS++)); }
 fail() { echo -e "  ${RED}FAIL${NC}  $1"; ((FAIL++)); }
 
-echo "==> phantom-mesh pre-open-source checklist"
+echo "==> spectyn-mesh pre-open-source checklist"
 echo ""
 
 # ── 1. No inline API keys in tracked files ───────────────────
@@ -66,11 +66,11 @@ else
   fi
 fi
 
-# ── 4. PHANTOM.md is not empty (more than 5 lines) ───────────
-if [ -f PHANTOM.md ] && [ "$(wc -l < PHANTOM.md)" -gt 5 ]; then
-  pass "PHANTOM.md exists and has content ($(wc -l < PHANTOM.md) lines)"
+# ── 4. SPECTYN.md is not empty (more than 5 lines) ───────────
+if [ -f SPECTYN.md ] && [ "$(wc -l < SPECTYN.md)" -gt 5 ]; then
+  pass "SPECTYN.md exists and has content ($(wc -l < SPECTYN.md) lines)"
 else
-  fail "PHANTOM.md is missing or too short (need > 5 lines)"
+  fail "SPECTYN.md is missing or too short (need > 5 lines)"
 fi
 
 # ── 5. README.md is not a placeholder (more than 50 lines) ───

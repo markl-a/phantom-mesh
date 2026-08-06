@@ -5,7 +5,7 @@ name: ci-e2e-mobile
 # fatal Java exception in logcat. Screen-by-screen UIAutomator2 coverage is
 # deferred to F107/F108 and is explicitly NOT in scope here.
 #
-# Structurally mirrors `.github/workflows/ci-android-avd.yml` (M1 phantom
+# Structurally mirrors `.github/workflows/ci-android-avd.yml` (M1 spectyn
 # binary cap-mismatch smoke) — same macos-13 runner (AVD hardware accel is
 # only available there), same emulator-runner action version, same AVD cache
 # key shape — so the two jobs drift together rather than independently.
@@ -144,7 +144,7 @@ jobs:
           script: |
             set -e
             APK="${{ steps.locate-apk.outputs.apk_path }}"
-            PKG="ai.phantommesh.app"
+            PKG="ai.spectynmesh.app"
 
             echo "=== adb devices ==="
             adb devices
@@ -163,7 +163,7 @@ jobs:
 
             # Give the WebView + Rust runtime time to boot. 8s is enough for
             # a cold start on macos-13 + swiftshader (M1 workflow uses 3s for
-            # the much lighter phantom binary; the Tauri WebView is heavier).
+            # the much lighter spectyn binary; the Tauri WebView is heavier).
             sleep 8
 
             echo "=== dump logcat ==="

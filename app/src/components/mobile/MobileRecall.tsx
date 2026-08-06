@@ -41,7 +41,7 @@ function dayOf(iso: string): string | null {
 }
 
 // The `since` filter is a YYYY-MM-DD cutoff (same shape as CLI
-// `phantom recall --since DATE`): events on/after this local day. null = no
+// `spectyn recall --since DATE`): events on/after this local day. null = no
 // lower bound (all time).
 function sinceIso(days: number | null): string | null {
   if (days == null) return null;
@@ -62,7 +62,7 @@ export default function MobileRecall() {
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<RecallKind | null>(null);
   // null = all time; otherwise the cutoff is N days ago (the wired `since`
-  // filter on recall_search). Mirrors the CLI `phantom recall --since DATE`.
+  // filter on recall_search). Mirrors the CLI `spectyn recall --since DATE`.
   const [sinceDays, setSinceDays] = useState<number | null>(null);
   const [hits, setHits] = useState<RecallHit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -116,30 +116,30 @@ export default function MobileRecall() {
   return (
     <div className="flex flex-col h-full overflow-y-auto" data-testid="mobile-recall">
       {/* Header bar — back to Settings + title (matches MobileDailyReview). */}
-      <div className="flex items-center px-2 py-2.5 border-b border-phantom-border flex-shrink-0">
+      <div className="flex items-center px-2 py-2.5 border-b border-spectyn-border flex-shrink-0">
         <button
           onClick={() => navigate("/settings")}
-          className="text-phantom-text p-2 -m-2 flex items-center gap-1"
+          className="text-spectyn-text p-2 -m-2 flex items-center gap-1"
           aria-label="返回設定"
         >
           <ChevronLeft size={20} />
           <span className="text-sm">設定</span>
         </button>
-        <span className="text-sm font-medium text-phantom-text mx-auto pr-8">回想</span>
+        <span className="text-sm font-medium text-spectyn-text mx-auto pr-8">回想</span>
       </div>
 
       <div className="p-3 space-y-3">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-            <Search size={18} className="text-phantom-primary" />
+          <div className="w-9 h-9 rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+            <Search size={18} className="text-spectyn-primary" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-phantom-text">Recall</div>
-            <div className="text-[11px] text-phantom-muted">搜尋過往 Life Node 事件</div>
+            <div className="text-sm font-semibold text-spectyn-text">Recall</div>
+            <div className="text-[11px] text-spectyn-muted">搜尋過往 Life Node 事件</div>
           </div>
           <button
             onClick={() => void run(query, kind, sinceDays)}
-            className="text-phantom-muted hover:text-phantom-text p-1.5 flex-shrink-0"
+            className="text-spectyn-muted hover:text-spectyn-text p-1.5 flex-shrink-0"
             aria-label="重新搜尋"
           >
             <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
@@ -159,11 +159,11 @@ export default function MobileRecall() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜尋內容(例如:沙拉、deep work、散步)…"
             aria-label="搜尋內容"
-            className="flex-1 min-w-0 bg-phantom-bg border border-phantom-border rounded-lg px-3 py-2 text-sm text-phantom-text placeholder:text-phantom-muted focus:border-phantom-primary outline-none"
+            className="flex-1 min-w-0 bg-spectyn-bg border border-spectyn-border rounded-lg px-3 py-2 text-sm text-spectyn-text placeholder:text-spectyn-muted focus:border-spectyn-primary outline-none"
           />
           <button
             type="submit"
-            className="px-4 py-2 rounded-lg bg-phantom-primary/15 border border-phantom-primary/40 text-phantom-primary text-sm flex-shrink-0 hover:bg-phantom-primary/25"
+            className="px-4 py-2 rounded-lg bg-spectyn-primary/15 border border-spectyn-primary/40 text-spectyn-primary text-sm flex-shrink-0 hover:bg-spectyn-primary/25"
           >
             搜尋
           </button>
@@ -175,8 +175,8 @@ export default function MobileRecall() {
             aria-pressed={kind === null}
             className={`px-3 py-1 rounded-full text-xs border transition ${
               kind === null
-                ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"
+                ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"
             }`}
           >
             全部
@@ -188,8 +188,8 @@ export default function MobileRecall() {
               aria-pressed={kind === k}
               className={`px-3 py-1 rounded-full text-xs border transition ${
                 kind === k
-                  ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                  : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"
+                  ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                  : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"
               }`}
             >
               {RECALL_KIND_META[k].emoji} {RECALL_KIND_META[k].label}
@@ -206,8 +206,8 @@ export default function MobileRecall() {
               aria-pressed={sinceDays === r.days}
               className={`px-3 py-1 rounded-full text-xs border transition ${
                 sinceDays === r.days
-                  ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary"
-                  : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"
+                  ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary"
+                  : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"
               }`}
             >
               {r.label}
@@ -216,13 +216,13 @@ export default function MobileRecall() {
         </div>
 
         {error && (
-          <div className="bg-phantom-warning/10 border border-phantom-warning/40 rounded-lg p-3 text-sm text-phantom-warning">
+          <div className="bg-spectyn-warning/10 border border-spectyn-warning/40 rounded-lg p-3 text-sm text-spectyn-warning">
             {error}
           </div>
         )}
 
         {!error && searched && hits.length === 0 && !loading && (
-          <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center text-sm text-phantom-muted">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center text-sm text-spectyn-muted">
             {query.trim()
               ? `沒有符合「${query.trim()}」的事件。`
               : "尚無事件 — 用專注 / 習慣 / 飲食頁記錄後會出現在這裡。"}
@@ -237,9 +237,9 @@ export default function MobileRecall() {
               <>
                 <span className="text-base w-6 text-center flex-shrink-0">{meta.emoji}</span>
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-phantom-text break-words">{h.summary}</span>
+                  <span className="text-sm text-spectyn-text break-words">{h.summary}</span>
                 </div>
-                <span className="text-[11px] text-phantom-muted flex-shrink-0">
+                <span className="text-[11px] text-spectyn-muted flex-shrink-0">
                   {fmtTime(h.timestamp)}
                 </span>
               </>
@@ -251,15 +251,15 @@ export default function MobileRecall() {
                 key={h.eventId || `hit-${i}`}
                 onClick={() => navigate(`/review?date=${day}`)}
                 aria-label={`查看 ${day} 的每日回顧`}
-                className="w-full text-left flex items-start gap-3 px-3 py-2 rounded bg-phantom-card border border-phantom-border hover:border-phantom-primary/40 transition"
+                className="w-full text-left flex items-start gap-3 px-3 py-2 rounded bg-spectyn-card border border-spectyn-border hover:border-spectyn-primary/40 transition"
               >
                 {inner}
-                <ChevronRight size={14} className="text-phantom-muted flex-shrink-0 mt-0.5" />
+                <ChevronRight size={14} className="text-spectyn-muted flex-shrink-0 mt-0.5" />
               </button>
             ) : (
               <div
                 key={h.eventId || `hit-${i}`}
-                className="flex items-start gap-3 px-3 py-2 rounded bg-phantom-card border border-phantom-border"
+                className="flex items-start gap-3 px-3 py-2 rounded bg-spectyn-card border border-spectyn-border"
               >
                 {inner}
               </div>

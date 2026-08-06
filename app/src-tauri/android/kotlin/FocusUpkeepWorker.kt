@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.app.NotificationManager
 import android.content.ComponentName
@@ -63,7 +63,7 @@ class FocusUpkeepWorker(
     }
 
     companion object {
-        private const val UNIQUE_WORK = "phantom_focus_upkeep"
+        private const val UNIQUE_WORK = "spectyn_focus_upkeep"
         private const val INTERVAL_MINUTES = 15L
 
         /** Enqueue the periodic upkeep worker (idempotent — KEEP existing). */

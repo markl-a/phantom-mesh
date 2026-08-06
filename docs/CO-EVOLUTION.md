@@ -2,19 +2,19 @@
 
 # 協同演化架構（Co-Evolution Architecture）
 
-phantom-mesh 如何處理 **agent 自我修改（agent self-modification）** 與
+spectyn-mesh 如何處理 **agent 自我修改（agent self-modification）** 與
 **跨所有已安裝實例維持一致共享程式碼庫（coherent shared codebase）** 之間的張力。
 
-簡短版：每位使用者的 phantom 都能自主修正它在自己機器上遇到的問題，
+簡短版：每位使用者的 spectyn 都能自主修正它在自己機器上遇到的問題，
 而那些修正會以 PR（pull request，拉取請求）形式向上游（upstream）匯流到單一權威
 （canonical）發行版。三個層級（sandbox（沙盒）→ recipes（配方）→ core PR（核心 PR））
-讓「phantom v0.1.x」在每台機器上都是同一個東西，同時保留每位使用者自由演化的空間。
+讓「spectyn v0.1.x」在每台機器上都是同一個東西，同時保留每位使用者自由演化的空間。
 
 ## 問題所在
 
-`autoevolve` 讓 phantom 二進位檔（binary）修改自己的原始碼。如果我們原封不動地交付這個功能，
-每位使用者安裝的 phantom 在一週後就會分歧成私有分支（private fork）。「phantom v0.1.0」在專案層級的意義
-會蒸發殆盡：bug 修正無法傳播、新功能被孤立封存、同一個 mesh（網狀網路）裡的兩個 phantom
+`autoevolve` 讓 spectyn 二進位檔（binary）修改自己的原始碼。如果我們原封不動地交付這個功能，
+每位使用者安裝的 spectyn 在一週後就會分歧成私有分支（private fork）。「spectyn v0.1.0」在專案層級的意義
+會蒸發殆盡：bug 修正無法傳播、新功能被孤立封存、同一個 mesh（網狀網路）裡的兩個 spectyn
 無法就 wire format（傳輸線格式）達成一致，而我們發佈的任何「release（發行版）」都會立刻被
 本地的 autoevolve commit（提交）覆寫。
 
@@ -32,7 +32,7 @@ jcode 也沒有解決分歧問題——他們賭使用者是會手動 git-push �
 
 **(2) 純粹在二進位檔之外做擴充（Goose、Cline、Continue）：** 二進位檔維持
 不可變（immutable）；客製化是放在 `~/.tool/` 裡的 markdown／YAML。一致，但失去了
-phantom 的差異化特色——二進位檔本身無法變得更聰明。
+spectyn 的差異化特色——二進位檔本身無法變得更聰明。
 
 我們採取結合兩者的第三條路。
 
@@ -41,7 +41,7 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │  Tier 1 — SANDBOX  (autoevolve default)                            │
-│  Writable: ~/.phantom-mesh/extensions/{prompts,skills,hooks}/      │
+│  Writable: ~/.spectyn-mesh/extensions/{prompts,skills,hooks}/      │
 │  Read-only from agent: core/*.rs, anything under repo root         │
 │  Distribution: optional. Local until user chooses to share.        │
 └────────────────────────────────────────────────────────────────────┘
@@ -51,7 +51,7 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 │  Tier 2 — RECIPE  (shareable artifact)                             │
 │  Unit: one EvolveCheckpoint exported as content-addressed JSON     │
 │  Carries: goal, plan, dead-ends, journey, patch (if any), descriptor│
-│  Signed: ed25519 (per-user key in ~/.phantom-mesh/keys/)           │
+│  Signed: ed25519 (per-user key in ~/.spectyn-mesh/keys/)           │
 │  Distribution: gist, git remote, or registry repo (Tier 2.5)       │
 └────────────────────────────────────────────────────────────────────┘
                                   │
@@ -65,27 +65,27 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 │       sensitive-path human-review gate (auth/, mesh.rs, keys.rs)   │
 │  Merge: automerge bot if green AND no sensitive paths touched      │
 │         else: human review label                                   │
-│  Release: tagged version → all phantoms `phantom upgrade`          │
+│  Release: tagged version → all spectyns `spectyn upgrade`          │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 為什麼這行得通
 
-- **Tier 1 是 autoevolve 的預設值。** 使用者安裝 phantom 並開啟
+- **Tier 1 是 autoevolve 的預設值。** 使用者安裝 spectyn 並開啟
   autoevolve，並不會悄悄開始變動（mutate）Rust 原始碼。他們磁碟上的 `core/*.rs`
-  會持續與上游的 `phantom v0.1.x` 相符。Agent 改善的是
+  會持續與上游的 `spectyn v0.1.x` 相符。Agent 改善的是
   prompt（提示詞）、hook（鉤子）與特定使用者的調適——恰恰是 agent CLI 生態系其餘成員
   都同意應該可客製化的那個介面層。
 
 - **Tier 2 是跨域交流（cross-pollination）的基本單位。** EvolveCheckpoint 本身已經是一份
   內容定址（content-addressed）的 JSON 文件，帶有完整的稽核軌跡（audit trail）（goal、plan、dead-ends、
-  journey、artifacts、binary swaps）。加上 `phantom evolve publish` 與
-  `phantom evolve adopt <recipe>` 就把它變成一個配方生態系，恰恰是
+  journey、artifacts、binary swaps）。加上 `spectyn evolve publish` 與
+  `spectyn evolve adopt <recipe>` 就把它變成一個配方生態系，恰恰是
   Sakana AI 的演化式模型合併（Evolutionary Model Merging）模式：小而宣告式的產物（artifact），
   笨重的東西在本地重建。
 
 - **Tier 3 是上游得以存續的方式。** 多數 OSS 專案之所以能存活，
-  是因為貢獻會回流。我們只是把這個回流自動化：使用者 A 的 Mac 上的 phantom
+  是因為貢獻會回流。我們只是把這個回流自動化：使用者 A 的 Mac 上的 spectyn
   發現一個 CJK（中日韓文字）渲染 bug，autoevolve 修好它，該配方被
   標記為觸及核心原始碼，`--allow-core-evolve` 經互動式批准，
   該 patch（修補檔）變成一個 PR，CI 跑的是每個人類 PR 都會跑的同一套跨平台
@@ -94,30 +94,30 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 
 ### 為什麼是三層，而不是一層
 
-如果我們只做 Tier 1，phantom 永遠不會成為一個會自我改進的 Rust agent——
+如果我們只做 Tier 1，spectyn 永遠不會成為一個會自我改進的 Rust agent——
 只會是一個自我改進的 prompt 集合。我們會失去差異化要素。
 
 如果我們只做 Tier 3（所有東西都走受門控的 PR），像「我偏好把輸入框放在最上面」
 這種例行的個人微調，都得跑一趟 CI 來回。摩擦力會扼殺
 採用率。
 
-如果我們只做 Tier 2（自由分享配方而沒有核心 PR），phantom 就會變成
+如果我們只做 Tier 2（自由分享配方而沒有核心 PR），spectyn 就會變成
 沒有權威版本的無邊界外掛濃湯（plugin soup），跟 jcode 同樣的處境。
 
 三層讓使用者在自己那塊地盤上擁有 jcode 等級的威力（Tier 1+2），同時
-保留「phantom v0.1.x 在任何地方都代表同一個東西」（Tier 3 對權威 release 設下門控）。
+保留「spectyn v0.1.x 在任何地方都代表同一個東西」（Tier 3 對權威 release 設下門控）。
 
 ## 實作階段
 
 | 階段 | 目標 | 狀態 |
 |---|---|---|
 | **0. Foundations（基礎建設）** | EvolveCheckpoint 模組 + mesh handoff（網狀交接） | ✓ 已交付（Phase 1+2） |
-| **1. Sandbox（沙盒）** | autoevolve 受限於 `~/.phantom-mesh/extensions/`；`core/` 唯讀 | 待辦 |
-| **2. Recipe export/import（配方匯出／匯入）** | `phantom evolve publish/adopt` + 內容定址的簽署 JSON | 待辦 |
+| **1. Sandbox（沙盒）** | autoevolve 受限於 `~/.spectyn-mesh/extensions/`；`core/` 唯讀 | 待辦 |
+| **2. Recipe export/import（配方匯出／匯入）** | `spectyn evolve publish/adopt` + 內容定址的簽署 JSON | 待辦 |
 | **3. Trust chain（信任鏈）** | 對每份已發佈配方做 ed25519 簽署 + 維護者金鑰圈（maintainer keychain） | 待辦 |
 | **4. Core-PR pipeline（核心 PR 管線）** | `--allow-core-evolve` flag → fork 分支 + 透過 `gh api` 自動發 PR | 待辦 |
 | **5. CI gate + automerge（CI 門控 + 自動合併）** | GitHub Actions 跨平台測試矩陣 + automerge bot | 待辦 |
-| **6. Sync（同步）** | `phantom upgrade` 拉取已簽署的 release；每日計時器抓取新配方 | 待辦 |
+| **6. Sync（同步）** | `spectyn upgrade` 拉取已簽署的 release；每日計時器抓取新配方 | 待辦 |
 
 每個階段是一個 commit。各階段不依賴下一個；我們可以在 Phase 1 之後停下來
 就擁有一個有用且已沙盒化的產品。Phase 4+5+6 合起來才解鎖
@@ -127,7 +127,7 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 
 聯邦式自動 PR（federated auto-PR）的難題是惡意 patch：壞行為者
 發佈一個夾帶後門（backdoor）的「修正」，CI 通過、automerge 合進去，
-1000 個 phantom 升級，全部被植入 root 權限。
+1000 個 spectyn 升級，全部被植入 root 權限。
 
 依重要性排序的防禦措施：
 
@@ -147,7 +147,7 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 
 4. **CodeQL + cargo-audit + clippy `-D warnings`。** 標準的供應鏈衛生（supply-chain hygiene）。
 
-5. **已簽署的 release（Signed releases）。** 每個 release tag 都經簽署。`phantom upgrade` 會
+5. **已簽署的 release（Signed releases）。** 每個 release tag 都經簽署。`spectyn upgrade` 會
    針對嵌在前一個二進位檔裡的硬編碼維護者金鑰驗證簽章。
    要破壞它需要同時掌控上游**以及**一個先前的 release。
 
@@ -157,10 +157,10 @@ phantom 的差異化特色——二進位檔本身無法變得更聰明。
 
 ## 版本控制
 
-`phantom --version` 會印出三個數字：
+`spectyn --version` 會印出三個數字：
 
 ```
-phantom 0.1.4 / core-sha 7a3f2b1 / extensions-rev 23
+spectyn 0.1.4 / core-sha 7a3f2b1 / extensions-rev 23
         ↑           ↑                  ↑
         │           │                  └── monotonic counter, user-local
         │           └── content hash of core/ — should match
@@ -171,7 +171,7 @@ phantom 0.1.4 / core-sha 7a3f2b1 / extensions-rev 23
 現有工具把這三者塌縮成一個數字。我們保持它們分開，這樣
 「我分歧了嗎？」就能機械式地被回答：`core-sha` 與上游
 release sha 不同，當且僅當使用者（或他們的 autoevolve）修改了 `core/`。那就是
-「你跑的是不是權威 phantom？」這個問題的單一位元（single bit）答案。
+「你跑的是不是權威 spectyn？」這個問題的單一位元（single bit）答案。
 
 ## 路線圖（Roadmap）
 
@@ -181,8 +181,8 @@ release sha 不同，當且僅當使用者（或他們的 autoevolve）修改了
 - **5/5 週一** — Phase 3（Signing，簽署）
 - **5/6-7** — Phase 4+5（Core-PR pipeline + CI gate）
 - **5/8** — Phase 6（Sync）+ 第一次端對端（end-to-end）測試
-- **5/9** — 面試展示（interview demo）：Mac 上的 phantom 演化出一個 bug 修正、自動發 PR、
-  Linux 上的 phantom 拉取已合併的 release
+- **5/9** — 面試展示（interview demo）：Mac 上的 spectyn 演化出一個 bug 修正、自動發 PR、
+  Linux 上的 spectyn 拉取已合併的 release
 - **5/15** — OSS 發佈
 
 ## 參考資料（References）

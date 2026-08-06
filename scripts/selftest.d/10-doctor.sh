@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `phantom doctor` is the canonical health summary. We assert it runs cleanly
+# `spectyn doctor` is the canonical health summary. We assert it runs cleanly
 # and emits the sections we expect — so a regression that quietly drops a
 # section (e.g. provider keys) fails the self-test loudly.
 
@@ -7,30 +7,30 @@ selftest_feature_meta() {
   echo "name=doctor"
   echo "priority=P0"
   echo "requires="
-  echo "description=phantom doctor exits 0 and contains all expected sections"
-  echo "hints=core/src/bin/phantom.rs core/src/diag.rs"
+  echo "description=spectyn doctor exits 0 and contains all expected sections"
+  echo "hints=core/src/bin/spectyn.rs core/src/diag.rs"
 }
 
 selftest_run() {
-  P=$(printf '%q' "$PHANTOM")
+  P=$(printf '%q' "$SPECTYN")
   out="$SELFTEST_ARTIFACTS/doctor.out"
   T_REPRO="$P doctor"
   T_ARTIFACT="$out"
-  if "$PHANTOM" doctor > "$out" 2>&1; then
+  if "$SPECTYN" doctor > "$out" 2>&1; then
     lines=$(wc -l < "$out" | tr -d ' ')
-    t_pass "phantom doctor runs" "$lines lines of output"
+    t_pass "spectyn doctor runs" "$lines lines of output"
   else
-    t_fail "phantom doctor runs" "non-zero exit (see $out)"
+    t_fail "spectyn doctor runs" "non-zero exit (see $out)"
     return
   fi
 
-  # Stable structural markers in the current `phantom doctor` line-label output
+  # Stable structural markers in the current `spectyn doctor` line-label output
   # (the older "binary"/"provider keys"/"network"/"diagnostics" section HEADERS
   # were never emitted by this format — doctor uses per-line labels). Each marker
   # below is state-independent: version (always), Anthropic (always in the
   # known-provider list, set or not), healthz (serve reachability, up or down),
   # crash logs (always checked). A regression that drops one fails loudly.
-  for sec in version config Anthropic "phantom serve" healthz tools autoevolve identity "crash logs"; do
+  for sec in version config Anthropic "spectyn serve" healthz tools autoevolve identity "crash logs"; do
     if grep -qF "$sec" "$out"; then
       t_pass "section: $sec" ""
     else
@@ -48,19 +48,19 @@ selftest_run() {
       fi
       ;;
     MINGW*|MSYS*|CYGWIN*)
-      # Git Bash on Windows — phantom doctor's Windows-integrations block
-      # only runs when phantom itself was built for windows-msvc/gnu.
+      # Git Bash on Windows — spectyn doctor's Windows-integrations block
+      # only runs when spectyn itself was built for windows-msvc/gnu.
       if grep -q "Windows integrations" "$out"; then
         t_pass "Windows integrations section" ""
       else
-        t_skip "Windows integrations section" "not present (running a non-windows phantom build?)"
+        t_skip "Windows integrations section" "not present (running a non-windows spectyn build?)"
       fi
       ;;
   esac
 
   red=$(grep -c '✗' "$out" || true)
   if [ "$red" -gt 0 ]; then
-    t_fail "doctor red checks" "$red red ✗ lines — run \`phantom doctor\` to see"
+    t_fail "doctor red checks" "$red red ✗ lines — run \`spectyn doctor\` to see"
   else
     t_pass "doctor red checks" "none"
   fi

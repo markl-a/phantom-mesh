@@ -11,7 +11,7 @@
 #   ./tests-e2e/run_tier1.sh T1.1 T1.5          # selection
 #
 # Env:
-#   PHANTOM_BINARY  override path (default: $(which phantom))
+#   SPECTYN_BINARY  override path (default: $(which spectyn))
 #   OPERATOR        operator name for the result file (default: $USER)
 #   MACHINE         machine label (default: $(hostname))
 
@@ -20,19 +20,19 @@ set -u
 SCENARIOS_DIR="$(cd "$(dirname "$0")/scenarios" && pwd)"
 RESULTS_BASE="$(cd "$(dirname "$0")" && pwd)/results"
 
-PHANTOM_BINARY="${PHANTOM_BINARY:-$(command -v phantom 2>/dev/null || true)}"
+SPECTYN_BINARY="${SPECTYN_BINARY:-$(command -v spectyn 2>/dev/null || true)}"
 OPERATOR="${OPERATOR:-$USER}"
 MACHINE="${MACHINE:-$(hostname)}"
 
 # pre-flight: verify-binary
 echo "=== Pre-flight: verify-binary --quick ==="
-if [[ -z "$PHANTOM_BINARY" ]]; then
-  echo "✗ phantom not on PATH and PHANTOM_BINARY unset; aborting" >&2
+if [[ -z "$SPECTYN_BINARY" ]]; then
+  echo "✗ spectyn not on PATH and SPECTYN_BINARY unset; aborting" >&2
   exit 2
 fi
 VERIFY_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/scripts/verify-binary.sh"
 if [[ -x "$VERIFY_SCRIPT" ]]; then
-  if ! "$VERIFY_SCRIPT" "$PHANTOM_BINARY" --quick; then
+  if ! "$VERIFY_SCRIPT" "$SPECTYN_BINARY" --quick; then
     echo "✗ verify-binary failed; aborting Tier 1 run" >&2
     exit 1
   fi
@@ -55,7 +55,7 @@ mkdir -p "$RESULTS_DIR"
 
 echo ""
 echo "=== Running ${#SELECTION[@]} Tier 1 scenarios ==="
-echo "Binary:  $PHANTOM_BINARY ($($PHANTOM_BINARY --version --short))"
+echo "Binary:  $SPECTYN_BINARY ($($SPECTYN_BINARY --version --short))"
 echo "Results: $RESULTS_DIR/"
 echo "Operator: $OPERATOR  Machine: $MACHINE"
 echo ""
@@ -100,7 +100,7 @@ for id in "${SELECTION[@]}"; do
 
 Run by: $OPERATOR
 Machine: $MACHINE
-Binary version: $($PHANTOM_BINARY --version 2>/dev/null | head -1)
+Binary version: $($SPECTYN_BINARY --version 2>/dev/null | head -1)
 
 ## Result
 - [$( [[ "$status" == "PASS" ]] && echo "x" || echo " " )] PASS

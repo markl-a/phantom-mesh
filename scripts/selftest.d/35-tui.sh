@@ -22,9 +22,9 @@ selftest_requires() {
 _tui_n=0
 _tui_launch() {
   _tui_n=$((_tui_n+1))
-  local sess="phantom-selftest-tui-$$-$_tui_n"
+  local sess="spectyn-selftest-tui-$$-$_tui_n"
   tmux kill-session -t "$sess" 2>/dev/null || true
-  tmux new-session -d -s "$sess" -x 120 -y 40 "$PHANTOM" 2>/dev/null
+  tmux new-session -d -s "$sess" -x 120 -y 40 "$SPECTYN" 2>/dev/null
   sleep 2  # ratatui first paint + onboarding-skip
   echo "$sess"
 }
@@ -45,7 +45,7 @@ _tui_assert() {
   local cap="$SELFTEST_ARTIFACTS/${slug}.txt"
   tmux capture-pane -t "$sess" -p > "$cap" 2>/dev/null
   T_ARTIFACT="$cap"
-  T_REPRO="tmux new-session -d -s tui-debug -x 120 -y 40 $(printf '%q' "$PHANTOM") && sleep 2 && tmux send-keys -t tui-debug ... && tmux capture-pane -t tui-debug -p"
+  T_REPRO="tmux new-session -d -s tui-debug -x 120 -y 40 $(printf '%q' "$SPECTYN") && sleep 2 && tmux send-keys -t tui-debug ... && tmux capture-pane -t tui-debug -p"
   if grep -qE "$pattern" "$cap"; then
     t_pass "$name" "matched /$pattern/"
   else
@@ -59,7 +59,7 @@ selftest_run() {
 
   # 1. Launch — chrome chars (box drawing) should be visible
   sess=$(_tui_launch)
-  _tui_assert "TUI launch" 'phantom|>|│|╭|─' "$sess" "launch"
+  _tui_assert "TUI launch" 'spectyn|>|│|╭|─' "$sess" "launch"
   _tui_cleanup "$sess"
 
   # 2. /help renders the slash-command palette
@@ -70,8 +70,8 @@ selftest_run() {
 
   # 3. Typed input renders in the input area
   sess=$(_tui_launch)
-  tmux send-keys -t "$sess" "phantom-typing-marker-99"; sleep 0.8
-  _tui_assert "TUI typing renders" 'phantom-typing-marker-99' "$sess" "typing"
+  tmux send-keys -t "$sess" "spectyn-typing-marker-99"; sleep 0.8
+  _tui_assert "TUI typing renders" 'spectyn-typing-marker-99' "$sess" "typing"
   _tui_cleanup "$sess"
 
   # 4. Tab completion — single-match path: `/cos<Tab>` → `/cost`. The previous
@@ -118,7 +118,7 @@ selftest_run() {
 
   # 9. History persistence: file durability + Up-arrow recall in fresh session
   local marker="hist-marker-$$-$RANDOM"
-  local hist_file="$HOME/.phantom-mesh/tui-history"
+  local hist_file="$HOME/.spectyn-mesh/tui-history"
   sess=$(_tui_launch)
   tmux send-keys -t "$sess" "$marker" Enter; sleep 0.6
   tmux send-keys -t "$sess" Escape;          sleep 0.4

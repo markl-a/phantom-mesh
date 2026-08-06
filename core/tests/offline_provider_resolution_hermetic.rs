@@ -1,10 +1,10 @@
 //! Platform-agnostic, hermetic offline-first assertions (SYS-B): provider resolution + empty-scan->stub fallback work with no network, no subprocess, no live model.
 
-use phantom_mesh::config::{AgentsConfig, ProviderEntry};
-use phantom_mesh::providers::resolver::DefaultProviderResolver;
+use spectyn_mesh::config::{AgentsConfig, ProviderEntry};
+use spectyn_mesh::providers::resolver::DefaultProviderResolver;
 
 #[cfg(feature = "offline-stub-model")]
-use phantom_mesh::onboarding_config::write_onboarding_config;
+use spectyn_mesh::onboarding_config::write_onboarding_config;
 
 #[test]
 fn offline_provider_resolution_succeeds_without_network() {

@@ -25,7 +25,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     providers::traits::ChatMessage,
     streaming::{stream_agent_full, StreamEvent, StreamResult},

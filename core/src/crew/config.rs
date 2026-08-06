@@ -413,7 +413,7 @@ mod tests {
     #[test]
     fn from_path_reads_a_file_then_parses() {
         // Replaces ensemble's two `examples/crew*.toml` file tests (those example files are
-        // ensemble-specific and not carried into phantom): prove from_path reads a real file and
+        // ensemble-specific and not carried into spectyn): prove from_path reads a real file and
         // routes through from_toml, against a tempfile we write ourselves.
         use std::io::Write;
         let mut f = tempfile::NamedTempFile::new().unwrap();

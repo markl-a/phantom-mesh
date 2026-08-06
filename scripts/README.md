@@ -11,7 +11,7 @@
 | 檔案 | 用途 |
 |---|---|
 | `install.sh` / `install.ps1` | 安裝器(POSIX / Windows) |
-| `install-mac.sh` / `install-phantom-windows.ps1` | 平台專屬安裝 |
+| `install-mac.sh` / `install-spectyn-windows.ps1` | 平台專屬安裝 |
 | `package-android.sh` / `package-android-apk.sh` | 打包 Android |
 | `package-ios.sh` / `run-ios-sandbox.sh` | 打包 / 跑 iOS |
 | `package-linux.sh` / `package-macos.sh` / `package-windows.ps1` | 桌面打包 |
@@ -23,7 +23,7 @@
 | `setup-env.sh` | 環境變數初始化 |
 | `termux-setup.sh` | Android Termux 環境 |
 | `windows-bootstrap.ps1` / `onboard-windows-dev-machine.ps1` | Windows 節點 bootstrap |
-| `phantom-mesh.service` | systemd unit file |
+| `spectyn-mesh.service` | systemd unit file |
 | `install-launchagent.sh` / `uninstall-launchagent.sh` | macOS LaunchAgent |
 | `smoke-test.sh` / `integration-test.sh` | 基本煙霧 / 整合測試 |
 | `self-evolve.sh` | 自我演化迴圈觸發 |
@@ -52,7 +52,7 @@
 | `eval/` | promptfoo 評測 harness(`run.sh` + `promptfooconfig.yaml`,自帶 `README.md`) |
 | `hooks/` | git hooks(pre-commit / pre-push + 安裝器 + 測試) |
 | `local-ai/` | 同機呼叫其他本地 AI CLI 做 review(`review.sh`) |
-| `phantom-test/` | 最大的測試家族(47 檔):harness + lib + fixtures + cases(自帶 `README.md` / `README.zh-TW.md`) |
+| `spectyn-test/` | 最大的測試家族(47 檔):harness + lib + fixtures + cases(自帶 `README.md` / `README.zh-TW.md`) |
 | `qa/` | 程式碼 lint(event payload、tauri command、selftest、Windows 回歸) |
 | `release/` | epic 驗收計分 + scoreboard |
 | `selftest.d/` | 編號自測階梯(00-binary → ...):doctor / serve / run / mcp / tui fuzz 等 |

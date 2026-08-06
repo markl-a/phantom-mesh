@@ -1,7 +1,7 @@
 # `core/src/platform/` — 各作業系統平台轉接器（per-OS platform adapters）
 
 此目錄存放各作業系統（per-operating-system，依各 OS 區分）的程式碼，讓
-`phantom-mesh` 的其餘部分得以維持 OS-agnostic（與作業系統無關）。凡是在
+`spectyn-mesh` 的其餘部分得以維持 OS-agnostic（與作業系統無關）。凡是在
 macOS、Linux、Windows、Android 與 iOS 之間有差異的部分 — 子行程（child
 process，由程式衍生的下層行程）如何被衍生、如何被 sandbox（沙箱，受限執行
 環境）隔離、RAM / CPU / OS 字串如何讀取、設定檔放在哪裡、release（發行）
@@ -69,15 +69,15 @@ impl PlatformAdapter for Platform { /* ... */ }
 透過 `crate::process_sandbox::macos::wrap`，以 Seatbelt（`sandbox-exec`）
 包裹每個被衍生的工具。透過 `sysctl`（`hw.memsize`、
 `machdep.cpu.brand_string`）讀取 RAM/CPU，並透過 `sw_vers` 讀取 OS 版本。
-設定目錄：`~/Library/Application Support/ai.phantommesh.app`。
-Dist binary：`phantom-macos-arm64`。
+設定目錄：`~/Library/Application Support/ai.spectynmesh.app`。
+Dist binary：`spectyn-macos-arm64`。
 
 ### [`linux.rs`](./linux.rs)
 透過 `crate::process_sandbox::linux::install_pre_exec`，安裝一個 Landlock
 LSM（Linux Security Module，Linux 安全模組）pre-exec hook（exec 前掛鉤，
 等同於 Linux 上的 Seatbelt）。讀取 `/proc/meminfo`、`/proc/cpuinfo` 與
-`/etc/os-release` 以取得系統資訊。設定目錄：`~/.phantom-mesh`。Dist
-binary：`phantom-linux-arm64`。它也存放標準的 journald socket 常數
+`/etc/os-release` 以取得系統資訊。設定目錄：`~/.spectyn-mesh`。Dist
+binary：`spectyn-linux-arm64`。它也存放標準的 journald socket 常數
 （`JOURNAL_SOCKETS`）以及 systemd 日誌路徑所用的
 `journal_routing_available()` 輔助函式（helper）。
 
@@ -85,22 +85,22 @@ binary：`phantom-linux-arm64`。它也存放標準的 journald socket 常數
 對於需要 shell 功能的工具，會經由 `cmd.exe /C` 轉送；但對已知的跨平台
 （cross-platform）binary（`cargo`、`git`、`node`、`python`、…；見
 `is_cross_platform_bin`）則直接衍生，因此其 argv（引數向量）會原封不動傳遞。
-透過 `wmic` 讀取 RAM/CPU。設定目錄：`%APPDATA%\phantom-mesh`。Dist
-binary：`phantom-windows-x86_64.exe`。無行程層級（process-level）sandbox、
+透過 `wmic` 讀取 RAM/CPU。設定目錄：`%APPDATA%\spectyn-mesh`。Dist
+binary：`spectyn-windows-x86_64.exe`。無行程層級（process-level）sandbox、
 也無 mDNS（多點傳播 DNS）。
 
 ### [`android.rs`](./android.rs)
 一個輕量墊片（shim，相容轉接層）：無 sandbox（Landlock 僅限 Linux；
 Termux/APK 環境本身已運行於 app sandbox 之中），也不做 `/proc` 解析，因此
 `ram_mb()`、`cpu_name()` 與 `os_name()` 會回傳未抽取（pre-extraction）前的
-預設值（`0`、`"Unknown CPU"`、`"Unknown OS"`）。設定目錄：`~/.phantom-mesh`。
-Dist binary：`phantom-aarch64-linux-android`。Termux 偵測、app-container
+預設值（`0`、`"Unknown CPU"`、`"Unknown OS"`）。設定目錄：`~/.spectyn-mesh`。
+Dist binary：`spectyn-aarch64-linux-android`。Termux 偵測、app-container
 （應用程式容器）路徑對應，以及前景服務（foreground-service）生命週期，皆屬
 未來工作（epic P-AND-2）。
 
 ### [`ios.rs`](./ios.rs)
 一個刻意極簡的 stub（樁，最小佔位實作），之所以必要，是因為 Tauri app
-（`phantom-mesh-app`）在每個 target 上都把 core lib 連結為相依套件
+（`spectyn-mesh-app`）在每個 target 上都把 core lib 連結為相依套件
 （dependency），包含 `aarch64-apple-ios{,-sim}`。若 `current()` 中沒有
 iOS 分支，`compile_error!` 分支就會觸發並破壞 `scripts/package-ios.sh`。
 它重用 macOS 風格的 `sysctl` 自省（introspection，盡力而為，在 App Store

@@ -1,7 +1,7 @@
 //! Desktop behavior capture — read the frontmost macOS app (life capability ① "sense").
 //!
 //! Produces ONE `focus` event describing the currently active application so
-//! that `phantom recall <appname> --kind focus` can surface it later.
+//! that `spectyn recall <appname> --kind focus` can surface it later.
 //!
 //! ## Why `/usr/bin/lsappinfo` and NOT native NSWorkspace / Accessibility
 //!
@@ -60,7 +60,7 @@ pub fn focus_event_text(app: &FrontmostApp) -> String {
 /// Read the current frontmost application via LaunchServices (`lsappinfo`).
 ///
 /// macOS body is cfg-gated; on other platforms a stub returns an
-/// `Unsupported` error so the `phantom` bin still builds everywhere.
+/// `Unsupported` error so the `spectyn` bin still builds everywhere.
 #[cfg(target_os = "macos")]
 pub fn read_frontmost() -> std::io::Result<FrontmostApp> {
     use std::io::{Error, ErrorKind};
@@ -110,7 +110,7 @@ pub fn read_frontmost() -> std::io::Result<FrontmostApp> {
     })
 }
 
-/// Non-macOS stub so the `phantom` bin builds on ios/android/linux/windows.
+/// Non-macOS stub so the `spectyn` bin builds on ios/android/linux/windows.
 #[cfg(not(target_os = "macos"))]
 pub fn read_frontmost() -> std::io::Result<FrontmostApp> {
     use std::io::{Error, ErrorKind};

@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.content.Context
 import android.content.Intent
@@ -39,7 +39,7 @@ import androidx.glance.unit.ColorProvider
  * NOT @Composable) so the chip composable never touches `LocalContext.current`
  * — that inline trips the Compose-compiler IR codegen on this toolchain.
  */
-const val ACTION_CAPTURE_HABIT = "ai.phantommesh.app.CAPTURE_HABIT"
+const val ACTION_CAPTURE_HABIT = "ai.spectynmesh.app.CAPTURE_HABIT"
 const val EXTRA_HABIT_SLUG = "habit_slug"
 
 private val SLUG_KEY = ActionParameters.Key<String>(EXTRA_HABIT_SLUG)

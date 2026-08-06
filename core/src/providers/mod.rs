@@ -88,7 +88,7 @@ pub struct DiscoveredProviderInfo {
 /// # Examples
 ///
 /// ```
-/// use phantom_mesh::providers::resolve_model_alias;
+/// use spectyn_mesh::providers::resolve_model_alias;
 /// assert_eq!(resolve_model_alias("sonnet"), "claude-sonnet-4-5-20251022");
 /// assert_eq!(resolve_model_alias("my-custom-model"), "my-custom-model");
 /// ```

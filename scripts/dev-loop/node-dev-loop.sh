@@ -7,7 +7,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-PHANTOM="${PHANTOM_BIN:-phantom}"
+SPECTYN="${SPECTYN_BIN:-spectyn}"
 # Keep a standalone/local run consistent with the develop flow (default main =
 # the landing target); goal-develop.sh exports this, but set it here too so a
 # bare `node-dev-loop.sh` invocation also coordinates on one base.
@@ -20,7 +20,7 @@ while [ "$done_n" -lt "$MAX" ]; do
   [ -n "$id" ] || { echo "node-dev-loop: backlog empty for this node"; break; }
   bash "$HERE/backlog.sh" claim "$id" || { echo "claim race on $id, skip"; continue; }
   echo "node-dev-loop: claimed $id"
-  if "$PHANTOM" fleet run --executor crew --once "$id" 2>&1; then
+  if "$SPECTYN" fleet run --executor crew --once "$id" 2>&1; then
     bash "$HERE/backlog.sh" done "$id"
     done_n=$((done_n+1))
   else

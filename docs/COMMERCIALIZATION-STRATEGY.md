@@ -1,4 +1,4 @@
-# Phantom Mesh — Commercialization Strategy
+# Spectyn Mesh — Commercialization Strategy
 
 > **Status:** Decisive recommendation. Supersedes the earlier `docs/design/COMMERCIAL-DESIGN.md`
 > (which assumed an Apache-core / BSL-broker / Tailscale-clone shape). This document is
@@ -17,7 +17,7 @@
 > the locked [`BIG-GOAL.md`](superpowers/BIG-GOAL.md)** and to the execution-sequencing in
 > [`STRATEGY-DIFFERENTIATION.md`](STRATEGY-DIFFERENTIATION.md). Read it at **side-business scale**,
 > not venture: the owner's call is **1 + 2 (portfolio→job AND a power-user niche side-business),
-> explicitly NOT 3 (scale/venture)**. The single paid product (Phantom Relay) is a convenience that
+> explicitly NOT 3 (scale/venture)**. The single paid product (Spectyn Relay) is a convenience that
 > *extends* P4 (carries only ciphertext it cannot read) and never paywalls a Big-Goal pillar — the
 > whole cross-device mesh (P1), multimodal capture (P2), evolve/skill bank (P3), encryption (P4),
 > and the mobile apps stay free forever. The **relay/commercialization door is kept open** (owner: both
@@ -25,7 +25,7 @@
 > below is **AGPL core + Apache/MIT SDK + FSL relay** day-one — preserving the business option is the
 > low-cost, asymmetric-safe choice (AGPL→permissive later is safe; permissive→tighten causes revolts).
 > Commercialization is the **downstream reward** of building toward the Big Goal, and must never be
-> allowed to reshape what Phantom *is*.
+> allowed to reshape what Spectyn *is*.
 
 ---
 
@@ -38,7 +38,7 @@ commercial decision below:
   your own hardware, with a local model. → *Nothing core can sit behind a paywall or a login.*
 - **P2 — Multimodal understanding.** → *Anti-goal in the Big Goal itself: core multimodal must
   never be gated behind a paid tier.*
-- **P3 — Evolve mesh ("grows with how you use it").** → *Gating the thing that makes Phantom
+- **P3 — Evolve mesh ("grows with how you use it").** → *Gating the thing that makes Spectyn
   learn would be self-defeating; the skill bank and evolve loop stay free.*
 - **P4 — Encryption-first ("your data, encrypted, only you can read").** → *Any paid service may
   only ever move encrypted bytes it cannot read; charging for encryption itself would destroy the
@@ -56,7 +56,7 @@ app, and no multimodal or evolve feature is ever paid. The alignment is exact an
 
 **The single primary model:** the entire mesh — engine, agents, evolve loop, encryption, and every
 platform client *including the mobile apps* — is **free and open source forever**. The only paid
-product is a subscription **hosted convenience service, "Phantom Relay"**: a zero-knowledge
+product is a subscription **hosted convenience service, "Spectyn Relay"**: a zero-knowledge
 rendezvous/relay point for phones and laptops behind NAT, a push-notification bridge, and
 end-to-end-encrypted off-site backup.
 
@@ -116,7 +116,7 @@ right** [15][16]. Therefore:
 | Encryption (at-rest, per-device key) | ✅ AGPL | — | Charging for encryption destroys the trust narrative |
 | **Mobile apps (Android / iOS client)** | ✅ Free | — | The Plex/Emby lesson: charging for a mobile client invites a fork |
 | Skills marketplace / SDK | ✅ MIT/Apache | Free forever, no rev-share | HACS / VS Code / Raycast all run free marketplaces as an adoption moat [17] |
-| **Phantom Relay** (hosted rendezvous + push bridge + E2E off-site backup) | Protocol open; server code FSL | 💰 ~$6/mo | The one paid product; self-hosting your own relay stays possible forever (Tailscale's goodwill toward Headscale [18]) |
+| **Spectyn Relay** (hosted rendezvous + push bridge + E2E off-site backup) | Protocol open; server code FSL | 💰 ~$6/mo | The one paid product; self-hosting your own relay stays possible forever (Tailscale's goodwill toward Headscale [18]) |
 | Supporter lifetime license | — | 💰 Voluntary, no gate | Immich model |
 | Enterprise SSO / RBAC / audit (future) | — | 💰 Commercial license | "Buyer-based open core": charge only for what a manager buys [19] |
 
@@ -131,11 +131,11 @@ Tailscale Personal (free for 6 users / unlimited devices [20]).
 
 | Component | License | Rationale |
 |---|---|---|
-| Core (engine / mesh / CLI / agents) | **AGPLv3** | Blocks cloud strip-mining: hyperscalers like Google have a blanket internal ban on AGPL and simply will not build a "Phantom Mesh Cloud" [21]; for an end-user self-hoster AGPL imposes zero obligation, so the cost/benefit is unusually favorable for a local-first product. Grafana / Bitwarden / Nextcloud have proven AGPL + commercial dual-licensing. |
+| Core (engine / mesh / CLI / agents) | **AGPLv3** | Blocks cloud strip-mining: hyperscalers like Google have a blanket internal ban on AGPL and simply will not build a "Spectyn Mesh Cloud" [21]; for an end-user self-hoster AGPL imposes zero obligation, so the cost/benefit is unusually favorable for a local-first product. Grafana / Bitwarden / Nextcloud have proven AGPL + commercial dual-licensing. |
 | Skills SDK / protocol lib / client embed layer | **Apache-2.0 or MIT** | So skill authors and integrators are not "infected" by copyleft — this is what lets a marketplace grow. |
-| Relay server | **FSL-1.1-Apache-2.0** | A 2-year auto-conversion to Apache (a *Delayed Open Source Publication*) is a credible promise that still blocks a "Phantom Relay competitor SaaS" [22][23]; avoids BSL, whose reputation went toxic after HashiCorp. |
+| Relay server | **FSL-1.1-Apache-2.0** | A 2-year auto-conversion to Apache (a *Delayed Open Source Publication*) is a credible promise that still blocks a "Spectyn Relay competitor SaaS" [22][23]; avoids BSL, whose reputation went toxic after HashiCorp. |
 | Contributions | **CLA (via cla-assistant), with the purpose honestly disclosed in CONTRIBUTING.md** | Preserves the dual-licensing option: the iOS App Store conflicts with AGPL, and only the sole copyright holder can self-grant a store exception. Switching DCO→CLA *later* is a trust event; CLA from day one, stated plainly, is not [24]. |
-| Trademark | **Register the "Phantom Mesh" word mark (USPTO ~$350/class) + publish a trademark policy** (forks must rename; nominative use allowed) | The highest-leverage protection a solo maintainer can afford; OpenTofu being forced to rename is the power of a trademark [25][26]. |
+| Trademark | **Register the "Spectyn Mesh" word mark (USPTO ~$350/class) + publish a trademark policy** (forks must rename; nominative use allowed) | The highest-leverage protection a solo maintainer can afford; OpenTofu being forced to rename is the power of a trademark [25][26]. |
 
 **The single most important rule:** *use a protective license from day one.* Every 2024–2026
 community revolt (HashiCorp / Redis / Elastic / Open WebUI) was caused by "permissive first, tighten
@@ -155,7 +155,7 @@ later." No project that was AGPL from day one has suffered an equivalent revolt 
 |---|---|---|---|
 | **Free** | $0 | Everything: unlimited own devices, every-OS node, squad, evolve, encryption, skills marketplace | Tailscale Personal (free, 6 users / unlimited devices), Ollama, Jellyfin |
 | **Supporter (lifetime, voluntary)** | **$29 personal / $99 per cluster** | Zero feature difference; badge + CHANGELOG credit + early test access | Immich $24.99/person, $99.99/server; Obsidian Catalyst $25 |
-| **Phantom Relay** | **$6/mo or $60/yr** | Zero-knowledge relay (NAT traversal), push bridge, E2E off-site encrypted backup, "support development" framing | Nabu Casa $6.50/$65; Coolify $5; Obsidian Sync $4–10 band |
+| **Spectyn Relay** | **$6/mo or $60/yr** | Zero-knowledge relay (NAT traversal), push bridge, E2E off-site encrypted backup, "support development" framing | Nabu Casa $6.50/$65; Coolify $5; Obsidian Sync $4–10 band |
 | **Team / Compliance (v0.8.0+, only on signal)** | ~$15/user/mo (per-seat, **never per-device**) | SSO, audit logs, priority support, commercial license | Tabby $19–24/user/mo; Msty Teams $300/user/yr; Tailscale Standard $8/user/mo |
 
 **Pricing-unit lesson: charge per *person*, not per *device*.** Tailscale's 2026 "pricing v4"
@@ -174,7 +174,7 @@ exactly why the Supporter lifetime license (Lever A) should sell in parallel to 
 > Added by the maintainer on top of the research, and consistent with the Big Goal's BYOM
 > (bring-your-own-model) anti-lock-in stance and P3's "12+ providers behind one trait."
 
-**Direction:** ship a free, open-weight, house-distilled model as Phantom's *default brain* — the
+**Direction:** ship a free, open-weight, house-distilled model as Spectyn's *default brain* — the
 thing that makes the air-gapped, no-API-key experience genuinely good out of the box. Then **monetize
 the hosted inference and the personalized distillation, never the weights themselves.**
 
@@ -187,12 +187,12 @@ How this fits the rest of the strategy:
 - **What's paid is convenience and personalization, not capability:**
   - *Hosted inference* — for users who don't have, or don't want to run, a GPU box 24/7. This is the
     same "self-hosters can do it but don't want to operate it" logic as the relay, and it slots
-    cleanly under (or alongside) the Phantom Relay SKU. GPU-time billing, not token billing — the
+    cleanly under (or alongside) the Spectyn Relay SKU. GPU-time billing, not token billing — the
     Ollama Cloud model [5].
-  - *Personalized distillation* — Phantom's whole thesis is "grows with how you use it" (P3). A paid
+  - *Personalized distillation* — Spectyn's whole thesis is "grows with how you use it" (P3). A paid
     service that distills a *personalized* small model from a user's own (encrypted, consented) skill
     bank and usage is convenience layered on the evolve loop, and the output model belongs to the
-    user. The training pipeline for this is the [phantom-training](ECOSYSTEM.md) satellite.
+    user. The training pipeline for this is the [spectyn-training](ECOSYSTEM.md) satellite.
 - **What this is *not*:** it is not selling the base weights, and it is not gating the local evolve
   loop. Distillation you run yourself, on your own hardware, stays free. You pay only if you want
   *us* to run the GPU and the pipeline for you.
@@ -268,7 +268,7 @@ feature. Supporting metrics: GitHub stars ≥2,000, cumulative Supporter revenue
 
 | # | Risk | Mitigation |
 |---|---|---|
-| 1 | **Strip-mining:** someone ships a "Phantom Mesh Cloud" and captures the monetization layer | AGPL core (hyperscaler policy ban) + registered trademark (a competitor can't use your name) + FSL relay server (no competitive use for 2 years). The three layers stack into the combined deterrent the research concludes on [21][22]. |
+| 1 | **Strip-mining:** someone ships a "Spectyn Mesh Cloud" and captures the monetization layer | AGPL core (hyperscaler policy ban) + registered trademark (a competitor can't use your name) + FSL relay server (no competitive use for 2 years). The three layers stack into the combined deterrent the research concludes on [21][22]. |
 | 2 | **Solo bus-factor:** if the maintainer is out, the project and the revenue go to zero — so users hesitate to pay | Short term: automate release/triage + publish the ops runbook. Mid term: promote 1–2 co-maintainers from the community. Hard-coded promise: the relay code carries an FSL DOSP (if the company dies, the code auto-converts to Apache) — more credible than a verbal promise [23]. *Honest note: this is the risk this strategy can least fully eliminate.* |
 | 3 | **OSS community revolt** (read as crippled-core, or fear of a future rug-pull) | The only reliable defense is "never tighten after the fact": day-one AGPL, a public boundary commitment, honest CLA disclosure, a zero-gate Supporter license, mobile apps free forever. Every revolt on record was a *post-hoc* license change; there is no precedent of a day-one protective license being revolted against [28]. |
 | 4 | **Conversion too low to sustain a livelihood** (the most existential risk) | Face it honestly: 2–5% is the real band, donations <1%. Use Lever A (lifetime license) to front-load cash; keep other income until MRR is stable; if the 90-day metric misses, pivot immediately to Lever B (SMB support, $100–500/user/yr) rather than burning more on relay. Stated willingness-to-pay for privacy vastly exceeds *revealed* willingness (the privacy paradox) — trust only the waitlist and the card swipes. |
@@ -310,7 +310,7 @@ This is a strategy memo, not legal or financial advice. The evidence has real li
 ## One-sentence summary
 
 **Nail "runs on all your devices, encrypted so only you can read it" as free forever with a day-one
-AGPL + trademark, then sell exactly one thing — a ~$6/mo zero-knowledge Phantom Relay (NAT traversal
+AGPL + trademark, then sell exactly one thing — a ~$6/mo zero-knowledge Spectyn Relay (NAT traversal
 + push + encrypted off-site backup, optionally bundled with hosted/personalized inference on a free
 house-distilled model) — the path Nabu Casa has already proven can sustain a whole team with zero
 funding, front-loaded by a $29/$99 lifetime supporter license, with the relay waitlist count
@@ -371,7 +371,7 @@ that backs this document.
 
 ## Internal notes (strip before public mirror) / 內部備註（公開鏡像前移除）
 
-<!-- INTERNAL: everything below this line must be removed or sanitized before this file reaches the public mirror (markl-a/phantom-mesh). -->
+<!-- INTERNAL: everything below this line must be removed or sanitized before this file reaches the public mirror (markl-a/spectyn-mesh). -->
 
 - **Sequencing vs other tracks:** Phase-0 legal foundation is a 4-day window before the v0.6.0
   public push. It is independent of feature tracks and can be fanned out across the agent fleet in
@@ -381,7 +381,7 @@ that backs this document.
   internal absolute paths) before pushing. The dual `LICENSE-APACHE` + `LICENSE-MIT` files in this
   repo root are what need to be replaced with the AGPL core decision.
 - **Satellite tie-in:** the personalized-distillation SKU in §5 is implemented by the
-  `phantom-training` satellite (see `docs/ECOSYSTEM.md`); the relay rendezvous server reuses the
+  `spectyn-training` satellite (see `docs/ECOSYSTEM.md`); the relay rendezvous server reuses the
   existing mesh RPC code, and the OAuth/login broker work is the `phantommesh.io` Cloudflare Worker
   already described in `docs/commercial/CONTRIBUTOR-FUNNEL.md`.
 - **Decision artifact:** this document is the polished form of the decisive internal strategy memo;

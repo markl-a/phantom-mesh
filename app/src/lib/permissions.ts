@@ -1,6 +1,6 @@
 // SPEC-33 §11 / §15 — Android runtime permission gates (frontend layer).
 //
-// phantom-mesh declares three *dangerous / runtime* Android permissions that
+// spectyn-mesh declares three *dangerous / runtime* Android permissions that
 // must be requested at use-time rather than install-time (SPEC-33 §11.1):
 //
 //   - RECORD_AUDIO       SPEC-21 focus audio + SPEC-22 habit voice  →「麥克風」
@@ -22,7 +22,7 @@
 
 import { isTauri } from "./tauri-compat";
 
-/** The three runtime permission gates phantom requests. */
+/** The three runtime permission gates spectyn requests. */
 export type PermissionKind = "microphone" | "camera" | "notifications";
 
 /**
@@ -51,9 +51,9 @@ interface PermissionMeta {
   androidPermission: string;
   /** Short label shown in chips / headers. */
   label: string;
-  /** Why phantom needs it — Traditional Chinese, shown in the rationale step. */
+  /** Why spectyn needs it — Traditional Chinese, shown in the rationale step. */
   rationaleZh: string;
-  /** Why phantom needs it — English, shown beneath the zh copy. */
+  /** Why spectyn needs it — English, shown beneath the zh copy. */
   rationaleEn: string;
   /** What the user loses if they decline (fallback behaviour copy). */
   fallbackZh: string;
@@ -66,7 +66,7 @@ export const PERMISSION_META: Record<PermissionKind, PermissionMeta> = {
     rationaleZh:
       "專注時段（SPEC-21）需要麥克風錄下環境音，才能在結束後產生這段時間的摘要與建議。",
     rationaleEn:
-      "Focus sessions record ambient audio so phantom can summarise the block when it ends.",
+      "Focus sessions record ambient audio so spectyn can summarise the block when it ends.",
     fallbackZh: "沒有麥克風權限仍可純計時，但不會有錄音摘要。",
   },
   camera: {
@@ -82,9 +82,9 @@ export const PERMISSION_META: Record<PermissionKind, PermissionMeta> = {
     androidPermission: "android.permission.POST_NOTIFICATIONS",
     label: "通知",
     rationaleZh:
-      "通知權限讓 phantom 在背景節點與焦點計時結束、教練回顧（SPEC-24）抵達時提醒你。",
+      "通知權限讓 spectyn 在背景節點與焦點計時結束、教練回顧（SPEC-24）抵達時提醒你。",
     rationaleEn:
-      "Notifications let phantom alert you when a focus block ends or a coach review arrives.",
+      "Notifications let spectyn alert you when a focus block ends or a coach review arrives.",
     fallbackZh: "沒有通知權限仍可使用，但需自行打開 app 才看得到提醒。",
   },
 };
@@ -95,7 +95,7 @@ export const PERMISSION_META: Record<PermissionKind, PermissionMeta> = {
 // the 2nd+ denial we assume the OS will stop showing its dialog and the UI
 // should route to settings instead. Cleared on the first grant.
 
-const DENY_COUNT_KEY = "phantom_mesh_perm_deny_v1";
+const DENY_COUNT_KEY = "spectyn_mesh_perm_deny_v1";
 const NEVER_ASK_THRESHOLD = 2;
 
 type DenyMap = Partial<Record<PermissionKind, number>>;
@@ -257,7 +257,7 @@ export async function requestPermission(kind: PermissionKind): Promise<Permissio
  * The dedicated Rust command (`Settings.ACTION_APPLICATION_DETAILS_SETTINGS`
  * bridge) is not registered yet, so we probe a couple of candidate commands and
  * report whether any handled it. Returns `false` when the caller should fall
- * back to showing manual "Settings → Apps → phantom → Permissions" steps.
+ * back to showing manual "Settings → Apps → spectyn → Permissions" steps.
  */
 export async function openAppSettings(): Promise<boolean> {
   if (!isTauri()) return false;

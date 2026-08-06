@@ -1,6 +1,6 @@
 /**
  * Minimal ANSI-to-React renderer. Handles the 16-colour SGR codes the
- * phantom Mac TUI emits (`\e[31m` red, `\e[1m` bold, `\e[0m` reset, …)
+ * spectyn Mac TUI emits (`\e[31m` red, `\e[1m` bold, `\e[0m` reset, …)
  * plus 256-colour where used. We deliberately do NOT pull xterm.js or
  * ansi-to-react: this module is ~90 lines and covers the ~12 SGR codes
  * the agent loop actually emits, vs. >200KB gz for the alternatives.
@@ -72,7 +72,7 @@ function parse(input: string): Span[] {
       else if (c === 39)   cur = { ...cur, fg: undefined };
       else if (ANSI_FG[c]) cur = { ...cur, fg: ANSI_FG[c] };
       // 38;5;N (256-colour) and 38;2;R;G;B (truecolor) are rare in
-      // phantom output — ignored for now, falls through as default fg.
+      // spectyn output — ignored for now, falls through as default fg.
     }
   }
   flush(input.length);

@@ -15,7 +15,7 @@ use tokio::sync::Mutex;
 ///
 /// 0007 creates the two tables + the FTS sync triggers. 0010 (P0-8) retires the
 /// auto-insert/update FTS triggers so `insert` can feed the FTS index a de-PII'd
-/// token form (`memory_seal::fts_index_form`) when `PHANTOM_ENCRYPT_MEMORY` is
+/// token form (`memory_seal::fts_index_form`) when `SPECTYN_ENCRYPT_MEMORY` is
 /// ON; the delete trigger is left in place. Concatenated (not a real migration
 /// runner) because `open_at` bootstraps via a single `execute_batch`.
 const SCHEMA_SQL: &str = concat!(
@@ -92,7 +92,7 @@ impl SkillMemory {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // P0-8: when PHANTOM_ENCRYPT_MEMORY is ON, seal text/source at rest and
+        // P0-8: when SPECTYN_ENCRYPT_MEMORY is ON, seal text/source at rest and
         // feed the FTS index a de-PII'd token form (NOT the ciphertext, NOT the
         // raw sentence). Fail CLOSED — `seal()` returns Err(NoKey) if the flag is
         // on but no EventKey is loaded, so the row is never silently written in
@@ -159,7 +159,7 @@ impl SkillMemory {
             // Recompute the indexed FTS text to match exactly what `insert`
             // wrote, so the FTS5 'delete' command does not corrupt the
             // external-content index. The decision keys off whether the STORED
-            // value is sealed — NOT the current `PHANTOM_ENCRYPT_MEMORY` flag —
+            // value is sealed — NOT the current `SPECTYN_ENCRYPT_MEMORY` flag —
             // because the flag may have been toggled OFF after the row was
             // sealed (and an unsealed row may exist while the flag is ON). If the
             // stored text is a sealed blob it was indexed as `fts_index_form`, so
@@ -408,7 +408,7 @@ impl SkillMemory {
 #[cfg(test)]
 mod tests {
     // The seal tests deliberately hold a std::sync::Mutex across `.await` to
-    // serialize the process-global EventKey cache + PHANTOM_ENCRYPT_MEMORY env
+    // serialize the process-global EventKey cache + SPECTYN_ENCRYPT_MEMORY env
     // for the WHOLE async body (an async-aware mutex would release between
     // awaits, defeating the serialization). Suppress the (correct-in-general)
     // lint for this intentional test-only pattern.
@@ -416,7 +416,7 @@ mod tests {
 
     use super::*;
 
-    // PHANTOM_ENCRYPT_MEMORY + the EVENT_KEY_CACHE are process-global; every
+    // SPECTYN_ENCRYPT_MEMORY + the EVENT_KEY_CACHE are process-global; every
     // flag-ON test serializes on this mutex so they don't clobber each other's
     // env/key. Single-thread (`--test-threads=1`) is belt-and-suspenders.
     static SEAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -548,7 +548,7 @@ mod tests {
     }
 
     /// V7 ship-blocker: skills stored in the skillbank FTS5 memory (with
-    /// `kind = "skill"`) MUST survive a phantom restart. This is the
+    /// `kind = "skill"`) MUST survive a spectyn restart. This is the
     /// regression guard for the skill self-evolution loop's persistence
     /// layer.
     ///
@@ -558,18 +558,18 @@ mod tests {
     /// 3. FTS5 search must find skills by keyword after restart.
     /// 4. `list_by_kind("skill", ...)` must return all 3.
     #[tokio::test]
-    async fn skills_persist_across_phantom_restart() {
+    async fn skills_persist_across_spectyn_restart() {
         // Test-isolation guard (mirrors the P0-8 sibling sealing tests): this
         // test asserts the PLAINTEXT-path persistence, so it must run with
         // at-rest sealing OFF while holding SEAL_TEST_LOCK. Without the lock a
         // concurrent P0-8 sealing test can flip the process-global
-        // PHANTOM_ENCRYPT_MEMORY + EventKey cache mid-run, sealing these rows
+        // SPECTYN_ENCRYPT_MEMORY + EventKey cache mid-run, sealing these rows
         // with a key that is then cleared → "undecryptable sealed value" on
         // reopen. Holding the lock + forcing the flag OFF serializes against
         // them so the global state can't change underneath this test.
         use crate::encryption_wire::clear_event_key_cache;
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
 
         let td = tempfile::tempdir().unwrap();
@@ -605,7 +605,7 @@ mod tests {
             .await
             .expect("insert skill 3");
 
-            // mem drops here → simulates phantom process exit
+            // mem drops here → simulates spectyn process exit
         }
 
         // ── Phase 2: reopen → all 3 skills must survive ─────────────────────
@@ -692,7 +692,7 @@ mod tests {
         }
     }
 
-    // ─── P0-8 at-rest encryption (PHANTOM_ENCRYPT_MEMORY) ────────────────────
+    // ─── P0-8 at-rest encryption (SPECTYN_ENCRYPT_MEMORY) ────────────────────
 
     /// Task 2+4: with the flag ON, the on-disk `text`/`source` columns are
     /// sealed (the plaintext needle is NOT present), and a reopen + read returns
@@ -701,7 +701,7 @@ mod tests {
     async fn insert_seals_text_and_source_on_disk_when_flag_on() {
         use crate::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0x5Au8; 32]).unwrap();
 
         let td = tempfile::tempdir().unwrap();
@@ -751,7 +751,7 @@ mod tests {
         assert_eq!(row.text, "SECRET-NEEDLE classified owned memory");
         assert_eq!(row.source, "secret-source");
 
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
     }
 
@@ -761,7 +761,7 @@ mod tests {
     async fn fts_search_works_over_sealed_rows_via_index_form() {
         use crate::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0x6Bu8; 32]).unwrap();
 
         let td = tempfile::tempdir().unwrap();
@@ -783,7 +783,7 @@ mod tests {
         let hits2 = mem.search("onto", 10).await.expect("search onto");
         assert_eq!(hits2.len(), 1, "second keyword must also recall the row");
 
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
     }
 
@@ -793,7 +793,7 @@ mod tests {
     async fn read_fails_closed_on_wrong_key() {
         use crate::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0xAAu8; 32]).unwrap();
         let td = tempfile::tempdir().unwrap();
         let db = td.path().join("h.db");
@@ -820,7 +820,7 @@ mod tests {
         let msg = format!("{:#}", r.unwrap_err());
         assert!(!msg.contains("top secret"), "plaintext in error: {msg}");
 
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
     }
 
@@ -835,7 +835,7 @@ mod tests {
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
         // Phase 1: write rows with the flag OFF (plaintext on disk).
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         let td = tempfile::tempdir().unwrap();
         let db = td.path().join("h.db");
         let id = {
@@ -851,7 +851,7 @@ mod tests {
         };
 
         // Phase 2: flip the flag ON + install a key, reopen, read.
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0xCDu8; 32]).unwrap();
         let mem2 = SkillMemory::open_at(db).unwrap();
         let row = mem2
@@ -865,7 +865,7 @@ mod tests {
         let hits = mem2.search("rebase", 10).await.unwrap();
         assert_eq!(hits.len(), 1);
 
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
     }
 
@@ -874,7 +874,7 @@ mod tests {
     #[tokio::test]
     async fn delete_purges_fts_index() {
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         let td = tempfile::tempdir().unwrap();
         let mem = SkillMemory::open_at(td.path().join("h.db")).unwrap();
         let id = mem
@@ -904,7 +904,7 @@ mod tests {
     async fn delete_purges_fts_index_when_sealed() {
         use crate::encryption_wire::{clear_event_key_cache, install_event_key_from_seed};
         let _g = SEAL_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0x7Eu8; 32]).unwrap();
 
         let td = tempfile::tempdir().unwrap();
@@ -927,7 +927,7 @@ mod tests {
             "sealed-row delete must purge the FTS index"
         );
 
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         clear_event_key_cache();
     }
 
@@ -943,7 +943,7 @@ mod tests {
         let db = td.path().join("h.db");
 
         // Phase 1: flag ON → insert a sealed row (FTS indexed as token form).
-        std::env::set_var("PHANTOM_ENCRYPT_MEMORY", "1");
+        std::env::set_var("SPECTYN_ENCRYPT_MEMORY", "1");
         install_event_key_from_seed(&[0x9Fu8; 32]).unwrap();
         let id = {
             let mem = SkillMemory::open_at(db.clone()).unwrap();
@@ -961,7 +961,7 @@ mod tests {
         };
 
         // Phase 2: flag OFF (key still loaded), reopen, delete. Must not corrupt.
-        std::env::remove_var("PHANTOM_ENCRYPT_MEMORY");
+        std::env::remove_var("SPECTYN_ENCRYPT_MEMORY");
         let mem2 = SkillMemory::open_at(db).unwrap();
         mem2.delete_by_id(id)
             .await

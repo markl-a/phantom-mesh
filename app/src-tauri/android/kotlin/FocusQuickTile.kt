@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.content.Intent
 import android.graphics.drawable.Icon
@@ -8,7 +8,7 @@ import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 
 /**
- * Quick Settings tile — "Phantom 焦點" / "Phantom Focus".
+ * Quick Settings tile — "Spectyn 焦點" / "Spectyn Focus".
  *
  * SPEC-34 §10E / SPEC-21 capture-focus.
  *
@@ -26,8 +26,8 @@ import android.service.quicksettings.TileService
 class FocusQuickTile : TileService() {
 
     companion object {
-        const val ACTION_START_FOCUS = "ai.phantommesh.app.START_FOCUS"
-        const val ACTION_STOP_FOCUS  = "ai.phantommesh.app.STOP_FOCUS"
+        const val ACTION_START_FOCUS = "ai.spectynmesh.app.START_FOCUS"
+        const val ACTION_STOP_FOCUS  = "ai.spectynmesh.app.STOP_FOCUS"
         const val EXTRA_FOCUS_MINUTES = "focus_minutes"
         const val DEFAULT_FOCUS_MINUTES = 25
         private const val REFRESH_INTERVAL_MS = 30_000L

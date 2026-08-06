@@ -100,7 +100,7 @@ fn registry() -> &'static Registry {
 /// `Uuid::new_v4()` draws from the OS CSPRNG (122 bits of entropy). Even
 /// if the entire `Vec<u8>` of live handles leaked, a guess has ~`2^-122`
 /// chance of colliding with a real one — security-equivalent to the
-/// session tokens phantom already uses.
+/// session tokens spectyn already uses.
 fn new_handle() -> String {
     format!("bg-{}", Uuid::new_v4())
 }
@@ -189,24 +189,24 @@ pub async fn run_background(args: &Value) -> String {
     // but allowed in background (a model could simply route destructive
     // commands through `bash_run_background` to bypass approval).
     //
-    // Honors the same `PHANTOM_AUTO_APPROVE=1` escape hatch as `shell::run`
+    // Honors the same `SPECTYN_AUTO_APPROVE=1` escape hatch as `shell::run`
     // for non-interactive CI/agent workflows. Returns the {"error": "..."}
     // JSON shape to match the rest of this entry point's contract.
     if let Some(reason) = crate::tools::shell::requires_confirmation(&command) {
-        if std::env::var("PHANTOM_AUTO_APPROVE").as_deref() != Ok("1") {
+        if std::env::var("SPECTYN_AUTO_APPROVE").as_deref() != Ok("1") {
             return format!(
                 "{}",
                 json!({
                     "error": format!(
                         "APPROVAL_REQUIRED: command '{}' matches pattern '{}'. \
-                         Set PHANTOM_AUTO_APPROVE=1 or explicitly confirm to proceed.",
+                         Set SPECTYN_AUTO_APPROVE=1 or explicitly confirm to proceed.",
                         command, reason
                     )
                 })
             );
         }
         tracing::warn!(
-            "PHANTOM_AUTO_APPROVE active — bash_run_background executing potentially dangerous command: '{}'",
+            "SPECTYN_AUTO_APPROVE active — bash_run_background executing potentially dangerous command: '{}'",
             command
         );
     }
@@ -645,13 +645,13 @@ mod tests {
 
     /// V9 H-3 regression: `bash_run_background` must refuse commands
     /// matching `requires_confirmation` (e.g. `rm`) when
-    /// `PHANTOM_AUTO_APPROVE` is not set. Pre-fix this would silently
+    /// `SPECTYN_AUTO_APPROVE` is not set. Pre-fix this would silently
     /// spawn — letting a model route `rm -rf foo` (not blocklisted) past
     /// the approval gate by going through the background path.
     #[tokio::test]
     async fn bg_requires_confirmation_blocks_rm() {
         let _g = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         let r = run_background(&json!({"command": "rm -rf foo"})).await;
         let v = parse(&r);
         let err = v["error"].as_str().unwrap_or("");
@@ -667,7 +667,7 @@ mod tests {
     #[tokio::test]
     async fn bg_safe_command_still_runs() {
         let _g = crate::sandbox::test_lock();
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         let r = run_background(&json!({"command": "echo hi"})).await;
         let v = parse(&r);
         assert!(
@@ -682,17 +682,17 @@ mod tests {
         );
     }
 
-    /// `PHANTOM_AUTO_APPROVE=1` must let confirmation-required commands
+    /// `SPECTYN_AUTO_APPROVE=1` must let confirmation-required commands
     /// through (CI / non-interactive workflows rely on this escape hatch).
     #[tokio::test]
     async fn bg_auto_approve_bypasses_gate() {
         let _g = crate::sandbox::test_lock();
-        std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+        std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
         // Use a path that almost certainly doesn't exist; we only need the
         // gate to NOT fire — we don't care whether the spawn ultimately
         // succeeds or fails, just that we got a handle (gate passed).
         let r = run_background(&json!({"command": "rm /tmp/__c7_t76_nonexistent__"})).await;
-        std::env::remove_var("PHANTOM_AUTO_APPROVE");
+        std::env::remove_var("SPECTYN_AUTO_APPROVE");
         let v = parse(&r);
         let err = v.get("error").and_then(|e| e.as_str()).unwrap_or("");
         assert!(

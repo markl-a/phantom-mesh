@@ -25,7 +25,7 @@ iOS hero wireframe 的 Windows 段只 ~35 行，作為「同 macOS X」的快速
 | **System tray right-click → "Start Focus..."** | ✅ | ✅ | **SPEC-43 §8.2 item 6（tray dropdown 鎖定順序第 6 項）** |
 | `Win+Shift+F` global hotkey（user opt-in） | ❌ | ✅ | **SPEC-43 §8.5（v0.6.0 不預設註冊；Settings → Hotkeys user 可開啟）** |
 | `Ctrl+Alt+F` fallback hotkey | ❌ | ✅ | SPEC-43 §8.5 fallback 1（primary 撞時自動退） |
-| Deep-link `phantom-mesh://focus/start` | ✅ | ✅ | SPEC-43 §10.1 S10 entry "deep-link" |
+| Deep-link `spectyn-mesh://focus/start` | ✅ | ✅ | SPEC-43 §10.1 S10 entry "deep-link" |
 | **SystemMediaTransportControls (鎖屏控制)** | ❌ | ✅ | **v0.7+ 評估（SMTC API；v0.6.0 NG — Tauri 2 binding 未穩）** |
 | Win 11 Widgets board | ❌ | ❌ | SPEC-43 §3.3 OoS1 |
 
@@ -64,7 +64,7 @@ iOS hero wireframe 的 Windows 段只 ~35 行，作為「同 macOS X」的快速
 
 Windows runtime permission model — RegisterHotKey 與 mic capture 都**不彈 dialog**（per SPEC-43 §15）。
 - **Mic 權限**：Win 10/11 Settings → Privacy → Microphone 已預設允許桌面 app；首次錄音若 user 在系統設定關掉 → mic capture fail 拋 `WASAPI_ERROR_DEVICE_DISABLED` → 走螢幕 B' 變體（不畫獨立 frame）
-- **Toast 通知權限**：Settings → Notifications → Phantom Mesh enabled（預設開）；user 關掉 → `R.windows.toast_emit_fail`（per SPEC-43 §9.4） → 退化到 in-app banner
+- **Toast 通知權限**：Settings → Notifications → Spectyn Mesh enabled（預設開）；user 關掉 → `R.windows.toast_emit_fail`（per SPEC-43 §9.4） → 退化到 in-app banner
 - **Global hotkey**：不需 user 授權 — 直接 `RegisterHotKey` API；衝突走 §8.5 fallback chain（不是權限問題）
 
 → 因 Windows 沒對等 iOS B perm gate 流程，本檔不畫獨立 B frame；異常路徑歸 B' 變體。
@@ -81,10 +81,10 @@ Idle 上覆蓋遮罩卡片：
 主視窗版型同 macOS C（計時器 / waveform / pause-stop / chunk count / trust badge）。Windows delta：
 
 - **Tray icon state 切換**（per SPEC-43 §8.1 + mockup §404）：
-  - Idle: `phantom-tray-idle.ico`（Lucide `mic` 16×16 phantom-muted）
-  - **Recording: `phantom-tray-working.ico`（綠點）**（mockup 用 phantom-warning 飽和橘；本 wireframe 採 SPEC-43 §8.1 「working」semantics — focus 屬 active task，icon green）
-  - Paused: `phantom-tray-idle.ico` + Lucide `mic-off` overlay
-  - Error: `phantom-tray-error.ico`（紅點；mic 被搶 / 系統 interrupt）
+  - Idle: `spectyn-tray-idle.ico`（Lucide `mic` 16×16 spectyn-muted）
+  - **Recording: `spectyn-tray-working.ico`（綠點）**（mockup 用 spectyn-warning 飽和橘；本 wireframe 採 SPEC-43 §8.1 「working」semantics — focus 屬 active task，icon green）
+  - Paused: `spectyn-tray-idle.ico` + Lucide `mic-off` overlay
+  - Error: `spectyn-tray-error.ico`（紅點；mic 被搶 / 系統 interrupt）
 - **State 切換 debounce 1 秒**（per SPEC-43 §8.1）— 避免 chunk 邊界閃爍
 - **沒有鎖屏卡（iOS D / macOS lock screen）** — v0.6.0 Windows 不做 SMTC（per 入口表 v0.7+），鎖屏期間錄音持續但無 OS-level 控制介面
 
@@ -92,17 +92,17 @@ Idle 上覆蓋遮罩卡片：
 
 ```
 ┌──────────────────────────────────────────────┐
-│ Phantom Mesh · Focus 05:23 / 25:00          │   ← header（灰、不可點、動態；per SPEC-43 §8.2 item 1）
+│ Spectyn Mesh · Focus 05:23 / 25:00          │   ← header（灰、不可點、動態；per SPEC-43 §8.2 item 1）
 ├──────────────────────────────────────────────┤
 │ ⏹ Stop & finalize                Ctrl+Shift+S│   ← **Recording 期間最高優先（與 wireframe / mockup invariant 同步）**
 │ ⏸ Pause                                      │
 ├──────────────────────────────────────────────┤
-│ Open Phantom Mesh                  Ctrl+O    │
+│ Open Spectyn Mesh                  Ctrl+O    │
 │ Settings...                                  │
 └──────────────────────────────────────────────┘
 ```
 
-**delta vs SPEC-43 §10.2 default tray dropdown**：Recording 中 tray menu **動態 rebuild** — header 文字切到 `focus.tray.header_recording`、Stop 提到首項、其他 capability 項（Quick Log / Start Focus...）灰階 disabled（避撞）。Stop 點下去走 phantom serve `focus_stop` Tauri command，等同 app 內 ⏹。
+**delta vs SPEC-43 §10.2 default tray dropdown**：Recording 中 tray menu **動態 rebuild** — header 文字切到 `focus.tray.header_recording`、Stop 提到首項、其他 capability 項（Quick Log / Start Focus...）灰階 disabled（避撞）。Stop 點下去走 spectyn serve `focus_stop` Tauri command，等同 app 內 ⏹。
 
 ### Tray icon hover tooltip
 
@@ -124,7 +124,7 @@ UX 同 macOS C'：**desktop 無專屬 UI 變體**（waveform 不凍結、計時�
 
 ```
 ┌─────────────────────────────────────────────┐
-│  ◯  Phantom Mesh                            │   ← AppLogo（per mockup §423）
+│  ◯  Spectyn Mesh                            │   ← AppLogo（per mockup §423）
 │      Focus 25 min · takeaway ready          │   ← title (i18n: `focus.done.title`)
 │      第一行 takeaway 取 60 字（row 2 限制）  │   ← body line 1（取 takeaway 60 字截斷）
 │                                             │
@@ -135,8 +135,8 @@ UX 同 macOS C'：**desktop 無專屬 UI 變體**（waveform 不凍結、計時�
 **Windows delta vs macOS Notification banner**：
 - **Persists 到 user dismiss**（macOS NC banner ~5s 自動消）— per hero §Windows 重點 line 263「ActionCenter 通知 persists 比 mac NC banner 友善」
 - **進 Action Center 歷史**（user 漏看可回查；macOS NC 也進歷史但 Win 11 ActionCenter UI 更可見）
-- **AUMID-anchored**：`com.phantom-mesh.app`（per SPEC-43 §7.1.3 + SPEC-42 §8.5）— MSI 安裝時 shortcut metadata 註冊
-- **deep-link launch**：`phantom-mesh://focus/<session_id>` → cold-launch 主視窗 → route to Focus tab takeaway card（per SPEC-43 §9.3 `coach_review_open` 同樣機制）
+- **AUMID-anchored**：`com.spectyn-mesh.app`（per SPEC-43 §7.1.3 + SPEC-42 §8.5）— MSI 安裝時 shortcut metadata 註冊
+- **deep-link launch**：`spectyn-mesh://focus/<session_id>` → cold-launch 主視窗 → route to Focus tab takeaway card（per SPEC-43 §9.3 `coach_review_open` 同樣機制）
 - **scenario="default"**：被 Focus Assist 折疊可接受（done 不是 urgent）
 - **body row 2 ≤ 60 字**（per mockup §547 「Notification body 截字上限」cross-platform 統一）— 比 macOS NC 80 字嚴格
 
@@ -146,7 +146,7 @@ Recording 中 OS interrupt + 主視窗非 active focus 必發（per hero invaria
 
 ```
 ┌─────────────────────────────────────────────┐
-│  ◯  Phantom Mesh                            │
+│  ◯  Spectyn Mesh                            │
 │      `focus.desktop.interrupt_notif_title`   │   ← title i18n key
 │      5:23 / 25:00 · mic 被佔用              │   ← body line 1（dynamic per interrupt 來源）
 │      `focus.interrupted.resume_hint`         │   ← body line 2 i18n key
@@ -185,11 +185,11 @@ Recording 中 OS interrupt + 主視窗非 active focus 必發（per hero invaria
 
 繼承全部 hero invariants（trust badge / Stop ≤ 2 操作 / waveform / chunk count / 計時器顏色 / **desktop 中斷強制系統通知** per line 350）。Windows 額外：
 
-- **Tray icon 必常駐**（不可隱藏；user 想關只能 Settings → General quit phantom serve）— 是 cluster status 唯一 ambient indicator
+- **Tray icon 必常駐**（不可隱藏；user 想關只能 Settings → General quit spectyn serve）— 是 cluster status 唯一 ambient indicator
 - **Recording 期間 tray menu 第一項必為 Stop**（per SPEC-43 §8.2 鎖定順序 + mockup §417 「Stop & finalize 最高優先，與 wireframe 同步」）
 - **ActionCenter toast 必 AUMID-anchored**（無 AUMID → `R.windows.toast_emit_fail`，per SPEC-42 §8.5）
 - **Tray dropdown render < 150ms p95**（per SPEC-43 G1） — wireframe 層保證 menu rebuild 不阻塞 UI thread
-- **Toast emit < 500ms p95**（per SPEC-43 G2） — phantom serve 背景 emit 不依賴 webview alive
+- **Toast emit < 500ms p95**（per SPEC-43 G2） — spectyn serve 背景 emit 不依賴 webview alive
 - **Narrator AutomationName 必填**（per SPEC-43 §12.2 + WCAG 2.2 AA） — 所有 button / icon / tray menu item 都要
 
 ## 6 大資料狀態 — Windows 對映表
@@ -215,7 +215,7 @@ Recording 中 OS interrupt + 主視窗非 active focus 必發（per hero invaria
 
 1. **SystemMediaTransportControls（SMTC）鎖屏控制**（v0.7+）：值得做嗎？SPEC-42 / SPEC-43 都沒列。等 iOS hero usability test 結果 + Tauri 2 SMTC binding 穩定再評估。Linux 也沒對等（per hero §Linux line 296 「不承諾鎖屏控制」）— 桌面三平台一起留 v0.7+。
 2. **Focus Assist 折疊行為**：Done toast 用 `scenario="default"` 可接受被 Focus Assist 折疊（user 之後到 Action Center 補看）；但 user research 是否顯示「miss 一次就失約」？需 5-user UX session 量測。
-3. **Tray icon Recording 配色**：SPEC-43 §8.1 「working」= 綠點（與 cluster active task 同），但 mockup §404 用 `phantom-warning` 飽和橘（暗示「請小心、正在錄」）— 採哪個語意？本 wireframe 暫採 SPEC-43 綠點，留 mockup 階段確認終值。
+3. **Tray icon Recording 配色**：SPEC-43 §8.1 「working」= 綠點（與 cluster active task 同），但 mockup §404 用 `spectyn-warning` 飽和橘（暗示「請小心、正在錄」）— 採哪個語意？本 wireframe 暫採 SPEC-43 綠點，留 mockup 階段確認終值。
 
 → 互動 timing / 鍵盤焦點 cycle / 動效 token 細節歸 Windows prototype（待補）。
 

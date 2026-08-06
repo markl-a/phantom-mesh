@@ -9,7 +9,7 @@ test.describe('GUI Interaction Tests', () => {
     await page.waitForTimeout(1500);
 
     // Title
-    await expect(page.getByRole('heading', { name: 'Phantom Mesh' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Spectyn Mesh' })).toBeVisible();
 
     // Environment detection message
     await expect(page.locator('text=環境偵測完成')).toBeVisible();
@@ -28,17 +28,17 @@ test.describe('GUI Interaction Tests', () => {
     await expect(page.locator('text=Anthropic').first()).toBeVisible({ timeout: 15000 });
 
     // Launch button
-    await expect(page.locator('text=啟動 Phantom Mesh')).toBeVisible();
+    await expect(page.locator('text=啟動 Spectyn Mesh')).toBeVisible();
 
     await page.screenshot({ path: 'e2e/screenshots/onboarding.png' });
   });
 
-  test('Click "啟動 Phantom Mesh" button', async ({ page }) => {
+  test('Click "啟動 Spectyn Mesh" button', async ({ page }) => {
     await page.goto(BASE);
     await page.waitForTimeout(1500);
 
     // Click the launch button
-    const launchBtn = page.locator('text=啟動 Phantom Mesh');
+    const launchBtn = page.locator('text=啟動 Spectyn Mesh');
     await expect(launchBtn).toBeVisible();
     await launchBtn.click();
     await page.waitForTimeout(2000);
@@ -112,7 +112,7 @@ test.describe('GUI Interaction Tests', () => {
     // what the page actually renders — the Google Gemini sign-in button and the
     // launch button — so this proves real clickable controls are present.
     const gemini = page.getByRole('button', { name: /Google Gemini/i });
-    const launch = page.locator('text=啟動 Phantom Mesh');
+    const launch = page.locator('text=啟動 Spectyn Mesh');
     await expect(gemini).toBeVisible();
     await expect(launch).toBeVisible();
     const actionable = (await gemini.count()) + (await launch.count());

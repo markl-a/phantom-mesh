@@ -75,7 +75,7 @@ pub fn render_unified_diff(path: &str, old_text: &str, new_text: &str) -> String
     let new_lines: Vec<&str> = new_text.split('\n').collect();
 
     // Trim trailing empty line that comes from trailing '\n' in file content,
-    // so the diff doesn't include a phantom blank "line" after the real content.
+    // so the diff doesn't include a spectyn blank "line" after the real content.
     let trim_trailing = |v: &mut Vec<&str>| {
         if v.last().map(|s| s.is_empty()).unwrap_or(false) && v.len() > 1 {
             v.pop();

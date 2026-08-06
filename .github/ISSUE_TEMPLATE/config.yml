@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 問題討論與提問（Questions & discussion）
-    url: https://github.com/markl-a/phantom-mesh/discussions
+    url: https://github.com/markl-a/spectyn-mesh/discussions
     about: 一般使用問題、想法交流請走 Discussions，不要開 Issue。
   - name: 🔒 安全漏洞回報（Security vulnerability）
-    url: https://github.com/markl-a/phantom-mesh/security/policy
+    url: https://github.com/markl-a/spectyn-mesh/security/policy
     about: 安全問題請依 SECURITY.md 私下回報，切勿開公開 Issue。

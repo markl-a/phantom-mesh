@@ -67,7 +67,7 @@ user 開 Coach tab --> 顯示當日 state ；點歷史 --> HISTORY_LIST --(點�
 
 ## 螢幕 C — CARD_EMPTY / HISTORY：tap targets
 
-- EMPTY 的「記一餐 / 開始專注 / 打卡習慣」→ 深連結 `phantom-mesh://{food/focus/habit}`（跳對應 capture 面）— 註：`food/focus/habit` prefix 同 SPEC-20/22 待加入 SPEC-43 §12.1 deep-link 白名單（目前只放行 coach/cluster/settings）
+- EMPTY 的「記一餐 / 開始專注 / 打卡習慣」→ 深連結 `spectyn-mesh://{food/focus/habit}`（跳對應 capture 面）— 註：`food/focus/habit` prefix 同 SPEC-20/22 待加入 SPEC-43 §12.1 deep-link 白名單（目前只放行 coach/cluster/settings）
 - HISTORY 列點某日 → 展開該日 CARD_FULL（同版型）；ESC / 返回 → 回列表
 
 ## Narrator focus order（per SPEC-43 §12.2 + WCAG 2.2 AA 無障礙）

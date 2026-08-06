@@ -2,7 +2,7 @@
 //
 // Spec: docs/superpowers/specs/_current/E002-mobile-cluster-dispatch-ui.md
 //   §"Settings screen (extend existing) — broker token rotation + manual peer
-//   add + heartbeat-interval slider (writes back to ~/.phantom-mesh/agents.toml
+//   add + heartbeat-interval slider (writes back to ~/.spectyn-mesh/agents.toml
 //   on the local node via Rust command)".
 //
 // Surface exposed to JS:
@@ -13,7 +13,7 @@
 //     a redacted preview so the JS pill can confirm success without ever
 //     touching the raw token.
 //   - get_heartbeat_interval() → u64 (current `[cluster] heartbeat_interval_secs`
-//     from ~/.phantom-mesh/agents.toml; falls back to DEFAULT_HEARTBEAT_SECS
+//     from ~/.spectyn-mesh/agents.toml; falls back to DEFAULT_HEARTBEAT_SECS
 //     when unset).
 //   - set_heartbeat_interval(secs) → ()  (5..=300; read-modify-write that
 //     PRESERVES every other key/comment in agents.toml — backed by toml_edit).
@@ -28,7 +28,7 @@
 // Token-equality checks use `subtle::ConstantTimeEq` per the broker-token
 // secret discipline — see `tests::token_equality_is_constant_time`.
 
-use phantom_mesh::auth;
+use spectyn_mesh::auth;
 use serde::Serialize;
 use std::path::PathBuf;
 use subtle::ConstantTimeEq;
@@ -56,7 +56,7 @@ const E_TOML_SHAPE:           &str = "E_SETTINGS_TOML_SHAPE";
 pub const MIN_HEARTBEAT_SECS: u64 = 5;
 pub const MAX_HEARTBEAT_SECS: u64 = 300;
 /// Default the slider snaps to when agents.toml hasn't set the field.
-/// Matches phantom_mesh::mesh::DEFAULT_HEARTBEAT_INTERVAL_SECS so the
+/// Matches spectyn_mesh::mesh::DEFAULT_HEARTBEAT_INTERVAL_SECS so the
 /// behaviour after first-load is the same as before the slider existed.
 pub const DEFAULT_HEARTBEAT_SECS: u64 = 30;
 
@@ -217,7 +217,7 @@ fn agents_toml_path() -> PathBuf {
     }
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("agents.toml")
 }
 
@@ -402,7 +402,7 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     // Tests that mutate the on-disk TEST_PATH_OVERRIDE or the
-    // ~/.phantom-mesh/auth.json file run under this lock so the
+    // ~/.spectyn-mesh/auth.json file run under this lock so the
     // per-process global state doesn't race across parallel tests.
     static FILE_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
@@ -467,7 +467,7 @@ mod tests {
             "http://evil.example.com/",
             "file:///etc/passwd",
             "javascript:alert(1)",
-            "phantom://anything",
+            "spectyn://anything",
             "ftp://example.com/",
             "http://user:pass@localhost/",
             "localhost:7878",
@@ -556,7 +556,7 @@ mod tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!(
-            "phantom-f105-{}-{}",
+            "spectyn-f105-{}-{}",
             std::process::id(),
             nanos
         ));
@@ -634,7 +634,7 @@ api_key = \"sk-xxx\"  # don't drop me
 
 [cluster]
 node_name = \"my-node\"
-cluster_secret = \"phantom-cluster-existing\"
+cluster_secret = \"spectyn-cluster-existing\"
 heartbeat_interval_secs = 30
 peers = [
   \"http://1.2.3.4:7878\",  # legacy peer
@@ -658,7 +658,7 @@ provider = \"openai\"
         assert!(raw.contains("[providers.openai]"));
         assert!(raw.contains("sk-xxx"));
         assert!(raw.contains("# don't drop me"));
-        assert!(raw.contains("cluster_secret = \"phantom-cluster-existing\""));
+        assert!(raw.contains("cluster_secret = \"spectyn-cluster-existing\""));
         assert!(raw.contains("# legacy peer"));
         assert!(raw.contains("[agent.master]"));
     }
@@ -746,7 +746,7 @@ provider = \"openai\"
 
     // ── rotate_broker_token (auth.json) ────────────────────────────────
     //
-    // These tests overwrite the real ~/.phantom-mesh/auth.json on the
+    // These tests overwrite the real ~/.spectyn-mesh/auth.json on the
     // dev box. They take an exclusive lock and restore the original
     // contents on drop to keep the dev environment clean.
 

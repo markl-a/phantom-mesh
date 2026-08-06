@@ -170,15 +170,15 @@ export default function AgentsPanel() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">
-          Agent 監控{offline && <span className="text-sm font-normal text-phantom-muted ml-2">(離線模式)</span>}
+          Agent 監控{offline && <span className="text-sm font-normal text-spectyn-muted ml-2">(離線模式)</span>}
         </h1>
-        <div className="flex items-center gap-3 text-sm text-phantom-muted">
+        <div className="flex items-center gap-3 text-sm text-spectyn-muted">
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-phantom-success inline-block" />
+            <span className="w-2 h-2 rounded-full bg-spectyn-success inline-block" />
             在線 {agents.filter((a) => a.online).length}
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-phantom-danger inline-block" />
+            <span className="w-2 h-2 rounded-full bg-spectyn-danger inline-block" />
             離線 {agents.filter((a) => !a.online).length}
           </span>
         </div>
@@ -186,11 +186,11 @@ export default function AgentsPanel() {
 
       {/* Error banner */}
       {fetchError && (
-        <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-4 flex items-center justify-between text-sm">
-          <span title={fetchError ?? undefined}>無法連接本機 daemon — 確認 phantom serve 已啟動（行動裝置可改用「集群派送」或從 Mac 匯入設定）</span>
+        <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-4 flex items-center justify-between text-sm">
+          <span title={fetchError ?? undefined}>無法連接本機 daemon — 確認 spectyn serve 已啟動（行動裝置可改用「集群派送」或從 Mac 匯入設定）</span>
           <button
             onClick={() => void fetchWorkers()}
-            className="ml-4 px-3 py-1 rounded text-xs font-medium bg-phantom-danger/30 hover:bg-phantom-danger/50"
+            className="ml-4 px-3 py-1 rounded text-xs font-medium bg-spectyn-danger/30 hover:bg-spectyn-danger/50"
           >
             重試
           </button>
@@ -200,34 +200,34 @@ export default function AgentsPanel() {
       {/* Loading state */}
       {fetchLoading ? (
         <div className="flex items-center justify-center py-16">
-          <div className="w-6 h-6 border-2 border-phantom-primary border-t-transparent rounded-full animate-spin" />
-          <span className="ml-3 text-phantom-muted text-sm">載入 Agent 資訊...</span>
+          <div className="w-6 h-6 border-2 border-spectyn-primary border-t-transparent rounded-full animate-spin" />
+          <span className="ml-3 text-spectyn-muted text-sm">載入 Agent 資訊...</span>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {agents.map((agent) => (
             <div
               key={agent.id}
-              className="bg-phantom-card border border-phantom-border rounded-lg p-4 flex flex-col"
+              className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 flex flex-col"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span
                     className={`w-2.5 h-2.5 rounded-full ${
-                      agent.online ? "bg-phantom-success" : "bg-phantom-danger"
+                      agent.online ? "bg-spectyn-success" : "bg-spectyn-danger"
                     }`}
                   />
                   <h3 className="font-semibold text-lg">{agent.name}</h3>
                 </div>
-                <span className="text-xs bg-phantom-primary/20 text-phantom-primary px-2 py-0.5 rounded">
+                <span className="text-xs bg-spectyn-primary/20 text-spectyn-primary px-2 py-0.5 rounded">
                   {agent.role}
                 </span>
               </div>
-              <p className="text-sm text-phantom-muted flex-1 mb-4">{agent.description}</p>
+              <p className="text-sm text-spectyn-muted flex-1 mb-4">{agent.description}</p>
               <div className="flex items-center justify-between">
                 <span
                   className={`text-xs font-medium ${
-                    agent.online ? "text-phantom-success" : "text-phantom-danger"
+                    agent.online ? "text-spectyn-success" : "text-spectyn-danger"
                   }`}
                 >
                   {agent.online ? "運行中" : "離線"}
@@ -235,7 +235,7 @@ export default function AgentsPanel() {
                 <button
                   onClick={() => openModal(agent.id)}
                   disabled={!agent.online}
-                  className="bg-phantom-primary text-phantom-bg px-3 py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="bg-spectyn-primary text-spectyn-bg px-3 py-1.5 rounded text-xs font-medium hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   執行 Agent
                 </button>
@@ -248,14 +248,14 @@ export default function AgentsPanel() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-phantom-card border border-phantom-border rounded-lg w-full max-w-lg p-6">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-lg w-full max-w-lg p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">
                 執行 Agent — {agents.find((a) => a.id === selectedAgent)?.name}
               </h2>
               <button
                 onClick={() => setShowModal(false)}
-                className="text-phantom-muted hover:text-phantom-text text-xl leading-none"
+                className="text-spectyn-muted hover:text-spectyn-text text-xl leading-none"
               >
                 &times;
               </button>
@@ -266,17 +266,17 @@ export default function AgentsPanel() {
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="輸入指令..."
               rows={4}
-              className="w-full bg-phantom-bg border border-phantom-border rounded px-3 py-2 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary mb-3 resize-none"
+              className="w-full bg-spectyn-bg border border-spectyn-border rounded px-3 py-2 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary mb-3 resize-none"
             />
 
             {error && (
-              <div className="bg-phantom-danger/20 border border-phantom-danger rounded p-3 mb-3 text-sm">
+              <div className="bg-spectyn-danger/20 border border-spectyn-danger rounded p-3 mb-3 text-sm">
                 {error}
               </div>
             )}
 
             {result && (
-              <div className="bg-phantom-bg border border-phantom-border rounded p-3 mb-3 text-sm max-h-48 overflow-y-auto whitespace-pre-wrap">
+              <div className="bg-spectyn-bg border border-spectyn-border rounded p-3 mb-3 text-sm max-h-48 overflow-y-auto whitespace-pre-wrap">
                 {result}
               </div>
             )}
@@ -284,14 +284,14 @@ export default function AgentsPanel() {
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowModal(false)}
-                className="px-4 py-2 rounded text-sm text-phantom-muted hover:text-phantom-text border border-phantom-border"
+                className="px-4 py-2 rounded text-sm text-spectyn-muted hover:text-spectyn-text border border-spectyn-border"
               >
                 關閉
               </button>
               <button
                 onClick={() => void runAgent()}
                 disabled={loading || !prompt.trim()}
-                className="bg-phantom-primary text-phantom-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                className="bg-spectyn-primary text-spectyn-bg px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
               >
                 {loading ? "執行中..." : "執行"}
               </button>

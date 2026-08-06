@@ -36,7 +36,7 @@
 - The swarm path reuses the same store: `rpc_swarm` writes at
   `core/src/serve.rs:2438` and `core/src/serve.rs:2453`.
 
-**Consequence:** a daemon restart (crash, deploy, `phantom serve` relaunch)
+**Consequence:** a daemon restart (crash, deploy, `spectyn serve` relaunch)
 silently drops every in-flight and completed job; a subsequent
 `/rpc/task/status/:id` returns `{"error":"job not found"}`
 (`core/src/serve.rs:2537-2539`). This is the `do-things-mesh` "partial" gap in
@@ -47,7 +47,7 @@ silently drops every in-flight and completed job; a subsequent
 A complete SQLite task store is already in the tree, but the async dispatch path
 above does **not** use it:
 
-- `TaskStore` over `~/.phantom-mesh/phantom.db` — `core/src/tasks/store.rs:12`,
+- `TaskStore` over `~/.spectyn-mesh/spectyn.db` — `core/src/tasks/store.rs:12`,
   `open_default` at `core/src/tasks/store.rs:18`, schema (`tasks` table) at
   `core/src/tasks/store.rs:44-69`.
 - CRUD: `insert` `core/src/tasks/store.rs:73`, `get`
@@ -83,7 +83,7 @@ and only behind an env flag:
   `assign_task_to_peer_full` — `core/src/mesh.rs:1944`.
 - Server decision point in `rpc_task_assign`: `CapsDecision::ForwardTo` branch —
   `core/src/serve.rs:2115`; gated by `forward_on_caps_mismatch_enabled()`
-  (`PHANTOM_FORWARD_ON_CAPS_MISMATCH`) — `core/src/serve.rs:2050`,
+  (`SPECTYN_FORWARD_ON_CAPS_MISMATCH`) — `core/src/serve.rs:2050`,
   `core/src/serve.rs:2084`.
 - Cycle guard (inbound chain) — `core/src/serve.rs:2009-2032`;
   `FORWARD_CHAIN_LIMIT = 2` — `core/src/mesh.rs:2305`; `forward_chain` field on
@@ -174,7 +174,7 @@ unaffected.
    `Failed("interrupted: daemon restart")` and `/rpc/task/status` returns a
    definitive terminal answer instead of "not found".
 
-**Done-when:** create a job, kill `phantom serve`, restart, poll the same
+**Done-when:** create a job, kill `spectyn serve`, restart, poll the same
 `job_id` → get a terminal status (not "job not found"). Add an integration test
 that opens a `TaskStore` at a temp path, inserts a `Running` row, reopens, runs
 `mark_interrupted`, and asserts `Failed`.
@@ -220,7 +220,7 @@ Add — broaden the trigger beyond capability mismatch:
 1. Add `max_local_tasks` to `ClusterConfig` (`core/src/mesh.rs:199`) +
    `should_handoff_for_load` pure fn + tests. No wiring yet.
 2. In `rpc_task_assign` (`core/src/serve.rs:1958`), gate the load-handoff behind
-   a new env flag `PHANTOM_HANDOFF_ON_OVERLOAD=1` (mirror
+   a new env flag `SPECTYN_HANDOFF_ON_OVERLOAD=1` (mirror
    `forward_on_caps_mismatch_enabled`, `core/src/serve.rs:2050`) so default
    behaviour is unchanged.
 3. Reuse the existing `ForwardTo` response shape

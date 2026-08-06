@@ -1,15 +1,15 @@
 [package]
-name = "phantom-mesh-app"
+name = "spectyn-mesh-app"
 version = "0.6.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 
 [[bin]]
-name = "phantom-mesh-app"
+name = "spectyn-mesh-app"
 path = "src/main.rs"
 
 [lib]
-name = "phantom_mesh_app_lib"
+name = "spectyn_mesh_app_lib"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [build-dependencies]
@@ -34,7 +34,7 @@ tauri-plugin-http = "2"
 # UIApplication.openURL: — the `open` crate's subprocess approach fails in the iOS
 # sandbox, which made open_external_url fall back to in-webview navigation, so
 # Google rejected the OAuth flow (disallowed_useragent). Opens Safari instead; the
-# broker OAuth callback returns via the phantom://oauth/callback deep-link.
+# broker OAuth callback returns via the spectyn://oauth/callback deep-link.
 tauri-plugin-opener = "2"
 # E2E only: in-app W3C WebDriver server for native-window (WKWebView) automation
 # on macOS, where no system WKWebView WebDriver exists. OPTIONAL + behind the
@@ -44,7 +44,7 @@ tauri-plugin-opener = "2"
 # (cargo install tauri-webdriver-automation) on port 4444.
 tauri-plugin-webdriver-automation = { version = "0.1.3", optional = true }
 mdns-sd = "0.11"
-phantom-mesh = { path = "../../core", features = ["desktop"] }
+spectyn-mesh = { path = "../../core", features = ["desktop"] }
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 anyhow = "1"
@@ -69,10 +69,10 @@ subtle = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 toml = "1.1.0"
-# F105 (E002 §"Settings screen" extend) edits ~/.phantom-mesh/agents.toml in
+# F105 (E002 §"Settings screen" extend) edits ~/.spectyn-mesh/agents.toml in
 # place. toml_edit preserves comments + key ordering, which the plain `toml`
 # crate's value→re-serialize path would lose. Workspace already uses 0.22 in
-# phantom-mesh core::cli_config — kept the same major to avoid a duplicate
+# spectyn-mesh core::cli_config — kept the same major to avoid a duplicate
 # transitive build.
 toml_edit = "0.22"
 tracing-appender = "0.2"

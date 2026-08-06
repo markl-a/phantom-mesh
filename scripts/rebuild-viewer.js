@@ -74,14 +74,14 @@ for (const config of filesConfig) {
   }
 }
 
-const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Phantom Mesh — 7-surface 流程圖 & 交互圖</title>
+const html = `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>Spectyn Mesh — 7-surface 流程圖 & 交互圖</title>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({startOnLoad:true,theme:'default',securityLevel:'loose'});</script>
 <style>body{font-family:'Segoe UI','Microsoft JhengHei',sans-serif;max-width:1200px;margin:0 auto;padding:24px;color:#222}
 h1{border-bottom:3px solid #333}h2{margin-top:2.2em;border-left:6px solid #2b6cb0;padding-left:10px;background:#eef4fb}
 h3{color:#555;margin-top:1.4em}pre.mermaid{background:#fafafa;border:1px solid #e2e2e2;border-radius:8px;padding:14px;overflow:auto}
 nav{position:sticky;top:0;background:#fff;border-bottom:1px solid #ddd;padding:8px 0;font-size:13px}nav a{margin-right:12px;color:#2b6cb0;text-decoration:none}.c{color:#999;font-weight:normal;font-size:13px}</style></head><body>
-<h1>Phantom Mesh — 7-surface 流程圖 &amp; 交互圖 <span class=c>(mmdc 驗證 ${totalDiagrams}/${totalDiagrams} · zh-TW)</span></h1><nav>${navLinks}</nav>${sectionsHtml}</body></html>`;
+<h1>Spectyn Mesh — 7-surface 流程圖 &amp; 交互圖 <span class=c>(mmdc 驗證 ${totalDiagrams}/${totalDiagrams} · zh-TW)</span></h1><nav>${navLinks}</nav>${sectionsHtml}</body></html>`;
 
 fs.writeFileSync(outFile, html, 'utf8');
 console.log(`Successfully generated ${outFile} with ${totalDiagrams} diagrams.`);

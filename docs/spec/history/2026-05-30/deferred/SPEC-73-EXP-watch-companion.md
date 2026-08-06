@@ -62,7 +62,7 @@ SPEC-73 scopes an experimental watchOS 10+ / Wear OS 5+ companion app for v0.7.0
 
 ### 2.1 為什麼現在做
 
-v0.6.0 phantom Tauri（桌面/手機跨平台框架）app 只跑 iOS / Android / desktop。Dogfood 顯示 phone-only capture（拿出 → Face ID → 找 app → 點按鈕 → 送出）中位 6.4 秒、p90 14 秒；2026-04 內部統計「想記但放棄」每天 2–4 次。Apple Watch / Wear OS 5+ 把同流程壓到「抬手 → 點 complication → 確認」< 1 秒；Apple Health / Streaks / Toggl Track 已驗證 watch（手錶）companion 對「高頻、小 payload、不打字」場景是 game changer。
+v0.6.0 spectyn Tauri（桌面/手機跨平台框架）app 只跑 iOS / Android / desktop。Dogfood 顯示 phone-only capture（拿出 → Face ID → 找 app → 點按鈕 → 送出）中位 6.4 秒、p90 14 秒；2026-04 內部統計「想記但放棄」每天 2–4 次。Apple Watch / Wear OS 5+ 把同流程壓到「抬手 → 點 complication → 確認」< 1 秒；Apple Health / Streaks / Toggl Track 已驗證 watch（手錶）companion 對「高頻、小 payload、不打字」場景是 game changer。
 
 ### 2.2 在 BIG-GOAL 哪裡
 
@@ -144,13 +144,13 @@ v0.5.0 只有 CLI + desktop chat；v0.6.0 mobile Tauri app 上線（[`SPEC-30`](
 flowchart LR
     subgraph apple["Apple 生態"]
         watch_a["Apple Watch app（watchOS 10+）"]
-        phone_a["iPhone phantom app（含 WatchConnectivity host）"]
+        phone_a["iPhone spectyn app（含 WatchConnectivity host）"]
     end
     subgraph google["Google 生態"]
         watch_g["Wear OS app（Wear OS 5+）"]
-        phone_g["Android phantom app（含 Wear OS data layer host）"]
+        phone_g["Android spectyn app（含 Wear OS data layer host）"]
     end
-    cluster["phantom mesh cluster（家用節點群）"]
+    cluster["spectyn mesh cluster（家用節點群）"]
     coach["coach engine（教練引擎，雲端或自家 cluster）"]
     watch_a <-->|"WatchConnectivity messages"| phone_a
     watch_g <-->|"Wear data layer messages"| phone_g
@@ -187,9 +187,9 @@ flowchart LR
 sequenceDiagram
     actor user as "使用者（戴 Apple Watch）"
     participant watch as "Apple Watch app"
-    participant phone as "iPhone phantom app"
+    participant phone as "iPhone spectyn app"
     participant core as "Rust core（phone 進程內）"
-    participant cluster as "phantom mesh cluster"
+    participant cluster as "spectyn mesh cluster"
     user->>watch: "抬腕 → 點 habit complication → 確認"
     watch->>phone: "WCSession.sendMessage 「{type:'habit_tick', habit_id:'water', ts:...}」"
     Note over phone: "若 phone 在 doze（深度休眠），WatchConnectivity 會 wake"
@@ -215,9 +215,9 @@ sequenceDiagram
 sequenceDiagram
     actor user as "使用者（戴 Wear OS 手錶）"
     participant wear as "Wear OS app"
-    participant phone as "Android phantom app"
+    participant phone as "Android spectyn app"
     participant core as "Rust core（phone 進程內）"
-    participant cluster as "phantom mesh cluster"
+    participant cluster as "spectyn mesh cluster"
     user->>wear: "抬腕 → 點 focus Tile → 「開始 25 min」"
     wear->>phone: "DataClient.putDataItem 「path:/focus/start, ts」"
     phone->>core: "tauri invoke watch_quick_capture({type:'focus_start', duration_min:25})"
@@ -310,7 +310,7 @@ pub struct QuickCaptureMessage {
 ### 7.2 Storage location
 
 - **watch（手錶）本機**：僅存 `WatchEphemeralToken`（Keychain on watchOS / EncryptedSharedPreferences on Wear OS），絕不存 identity.key、不存歷史 capture。
-- **phone 本機**：`~/Library/Application Support/phantom-mesh/watch_outbox.sqlite`（pending capture queue, idempotency keyed by `client_msg_id`）+ `WatchEphemeralToken` mirror。
+- **phone 本機**：`~/Library/Application Support/spectyn-mesh/watch_outbox.sqlite`（pending capture queue, idempotency keyed by `client_msg_id`）+ `WatchEphemeralToken` mirror。
 - **記憶體**：phone zustand store `useWatchSessionStore`（key: `connectedWatchKind`, `lastSyncAt`, `tokenExpiresAt`）。
 - **遠端（cluster）**：`/vault/<user>/watch/tokens/<token_id>`（給 revoke 用，記錄 issuance / revocation）。
 
@@ -318,7 +318,7 @@ pub struct QuickCaptureMessage {
 
 - `WatchEphemeralToken`：到 `expires_at` 後 phone 自動刪、watch 收到 revoke push 後刪。
 - `watch_outbox.sqlite`：成功 flush 後立刻刪行；> 7 天未 flush 的條目自動丟棄 + log 警告。
-- `phantom data delete --all --yes` 一併清 watch outbox + revoke 所有 tokens。
+- `spectyn data delete --all --yes` 一併清 watch outbox + revoke 所有 tokens。
 
 ### 7.4 Migration
 
@@ -494,7 +494,7 @@ Watch capture 可離線：phone-side outbox queue + idempotency key（`client_ms
 | background refresh | `WKApplicationRefreshBackgroundTask` | `WorkManager` periodic | budget 都受 OS 限制 |
 | haptic API | `WKInterfaceDevice.play(.success)` | `Vibrator.vibrate(VibrationEffect.PREDEFINED_CLICK)` | Apple 預設較細緻 |
 | Always-on display | watchOS 5+ | Wear OS 4+ | 兩邊都要 dim 變體 |
-| pairing precondition | iOS 已 paired Apple Watch | Android 已配對 Wear OS device | phantom 不另做 BLE pairing |
+| pairing precondition | iOS 已 paired Apple Watch | Android 已配對 Wear OS device | spectyn 不另做 BLE pairing |
 
 ---
 
@@ -502,7 +502,7 @@ Watch capture 可離線：phone-side outbox queue + idempotency key（`client_ms
 
 | Permission | iOS Info.plist | Android `<uses-permission>` | watchOS / Wear OS | When asked | Fallback |
 |---|---|---|---|---|---|
-| WatchConnectivity active session | n/a（隱性） | n/a | watchOS 預設 | 第一次開 watch app | 顯示「請打開 iPhone phantom app 一次」 |
+| WatchConnectivity active session | n/a（隱性） | n/a | watchOS 預設 | 第一次開 watch app | 顯示「請打開 iPhone spectyn app 一次」 |
 | Wear data layer | n/a | `com.google.android.gms.permission.WEARABLE_DATA_API`（隱含） | Wear OS 預設 | 第一次配對 | 同上 |
 | Health Connect read（focus session 寫入） | `NSHealthShareUsageDescription`（如同時寫 HealthKit） | `android.permission.health.READ_*`（optional） | optional | 使用者主動勾「同步 focus 到 Apple Health / Health Connect」 | 不勾就純內部存 |
 | 通知（haptic + Glance） | `NSUserNotificationsUsageDescription` | `android.permission.POST_NOTIFICATIONS`（API 33+） | both | 配對成功後第一次想推 coach review | 不准就只在 phone 推 |
@@ -511,7 +511,7 @@ Watch capture 可離線：phone-side outbox queue + idempotency key（`client_ms
 
 ## §16 Rollout & Migration
 
-Feature flag `experimental.watch_companion`（預設 `false` 直到 v0.7.0 GA）。Kill switch: `phantom watch disable --all` revoke 所有 token + 停止處理 watch message。預設 opt-in（不偷裝）。Migration 無（新）。CHANGELOG v0.7.0 加「Experimental: Apple Watch + Wear OS companion」；release-notes 強調「24h 自動刷新、不存 identity.key、隨時 revoke」。
+Feature flag `experimental.watch_companion`（預設 `false` 直到 v0.7.0 GA）。Kill switch: `spectyn watch disable --all` revoke 所有 token + 停止處理 watch message。預設 opt-in（不偷裝）。Migration 無（新）。CHANGELOG v0.7.0 加「Experimental: Apple Watch + Wear OS companion」；release-notes 強調「24h 自動刷新、不存 identity.key、隨時 revoke」。
 
 ---
 
@@ -553,7 +553,7 @@ watch 直接 cluster 註冊 + 自己持 identity.key。為何沒選：identity.k
 
 | # | Question | Default assumption | When needed |
 |---|---|---|---|
-| Q1 | watch app bundle id 是否與 phone 同一個 prefix？（影響 distribution） | 同 prefix（`com.example.phantom.watchkitapp`） | v0.7.0 開發 kickoff |
+| Q1 | watch app bundle id 是否與 phone 同一個 prefix？（影響 distribution） | 同 prefix（`com.example.spectyn.watchkitapp`） | v0.7.0 開發 kickoff |
 | Q2 | Wear OS 4 是否要支援？（市佔仍高但 data layer API 較舊） | 不支援；定 5+ baseline | 進 design 階段 |
 | Q3 | complication 是否要支援「過去 7 天 sparkline」？ | 先不做；只當前值 | v0.7.0 m2 |
 | Q4 | watch app 是否同步 dark mode？ | watch 強制 dark（OS 預設） | UX review |

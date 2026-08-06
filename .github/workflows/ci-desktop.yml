@@ -23,7 +23,7 @@ env:
 
 jobs:
   check-core:
-    name: Check phantom-mesh core
+    name: Check spectyn-mesh core
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +37,10 @@ jobs:
           sudo apt-get install -y libssl-dev
       - name: cargo check
         working-directory: core
-        run: cargo check -p phantom-mesh
+        run: cargo check -p spectyn-mesh
       - name: cargo test
         working-directory: core
-        run: cargo test -p phantom-mesh -- --skip integration
+        run: cargo test -p spectyn-mesh -- --skip integration
 
   check-desktop:
     name: Check Tauri desktop app
@@ -77,9 +77,9 @@ jobs:
       - name: Frontend type check
         working-directory: app
         run: npx tsc --noEmit
-      - name: Build phantom-mesh for sidecar
+      - name: Build spectyn-mesh for sidecar
         working-directory: core
-        run: cargo build -p phantom-mesh
+        run: cargo build -p spectyn-mesh
       - name: Cargo check desktop
         working-directory: app/src-tauri
         run: cargo check
@@ -102,6 +102,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev
-      - name: Clippy phantom-mesh
+      - name: Clippy spectyn-mesh
         working-directory: core
-        run: cargo clippy -p phantom-mesh -- -D warnings
+        run: cargo clippy -p spectyn-mesh -- -D warnings

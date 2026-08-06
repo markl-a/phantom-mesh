@@ -1,34 +1,34 @@
-//! Regression guards for `phantom onboarding` so it never HANGS on a headless
+//! Regression guards for `spectyn onboarding` so it never HANGS on a headless
 //! box trying to open a browser / spin up the onboarding web server.
 //!
 //! Two guards, both checked BEFORE `run_web_onboarding` is reached:
-//!   (a) `phantom onboarding -h` / `--help` → usage to stdout + exit 0, fast.
+//!   (a) `spectyn onboarding -h` / `--help` → usage to stdout + exit 0, fast.
 //!   (b) when stdin is NOT a terminal (piped / closed), print actionable
 //!       guidance and exit 2 — DON'T launch the web onboarding (which binds a
 //!       port + opens a browser and blocks forever in CI).
 //!
-//! These spawn the REAL binary (CARGO_BIN_EXE_phantom). The non-TTY case is
+//! These spawn the REAL binary (CARGO_BIN_EXE_spectyn). The non-TTY case is
 //! reproduced by giving the child a piped (empty) stdin: `Stdio::piped()` +
 //! immediate drop ⇒ EOF on a non-terminal fd, exactly the headless shape.
 
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
-/// `phantom onboarding --help` must short-circuit to usage + exit 0, fast, and
+/// `spectyn onboarding --help` must short-circuit to usage + exit 0, fast, and
 /// MUST NOT fall through into the web-onboarding (which would block).
 #[test]
 fn onboarding_help_exits_0_with_usage_fast() {
     for flag in ["--help", "-h"] {
         let start = Instant::now();
-        let output = Command::new(phantom_bin())
+        let output = Command::new(spectyn_bin())
             .args(["onboarding", flag])
             .stdin(Stdio::null())
             .output()
-            .expect("phantom onboarding --help must spawn");
+            .expect("spectyn onboarding --help must spawn");
         let elapsed = start.elapsed();
 
         assert_eq!(
@@ -51,7 +51,7 @@ fn onboarding_help_exits_0_with_usage_fast() {
     }
 }
 
-/// `phantom onboarding` with a non-terminal stdin (piped/empty) must NOT launch
+/// `spectyn onboarding` with a non-terminal stdin (piped/empty) must NOT launch
 /// the web onboarding. It must print actionable guidance and exit 2, quickly,
 /// and bind NO onboarding port (7878..=7888) while doing so.
 #[test]
@@ -60,7 +60,7 @@ fn onboarding_non_tty_exits_2_binds_no_port() {
     let cwd = tempfile::tempdir().unwrap();
 
     // Snapshot which onboarding ports are already held by SOMETHING ELSE in
-    // this environment (e.g. a running `phantom serve`). We only care that the
+    // this environment (e.g. a running `spectyn serve`). We only care that the
     // guarded onboarding process doesn't bind a NEW one, so we exclude these
     // pre-existing listeners from the post-run "must be free" assertion.
     let pre_busy: Vec<u16> = (7878..=7888u16)
@@ -68,7 +68,7 @@ fn onboarding_non_tty_exits_2_binds_no_port() {
         .collect();
 
     let start = Instant::now();
-    let mut child = Command::new(phantom_bin())
+    let mut child = Command::new(spectyn_bin())
         .arg("onboarding")
         .current_dir(cwd.path())
         .env("HOME", home.path())
@@ -78,7 +78,7 @@ fn onboarding_non_tty_exits_2_binds_no_port() {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("phantom onboarding must spawn");
+        .expect("spectyn onboarding must spawn");
 
     // Drop the child's stdin handle → EOF, no terminal.
     drop(child.stdin.take());
@@ -94,7 +94,7 @@ fn onboarding_non_tty_exits_2_binds_no_port() {
                     let _ = child.kill();
                     let _ = child.wait();
                     panic!(
-                        "`phantom onboarding` (non-TTY) did not exit within 2s — \
+                        "`spectyn onboarding` (non-TTY) did not exit within 2s — \
                          it is launching the web onboarding instead of guarding"
                     );
                 }
@@ -111,7 +111,7 @@ fn onboarding_non_tty_exits_2_binds_no_port() {
         output.status.code()
     );
 
-    // It must have printed actionable guidance (on stderr per the bare-phantom
+    // It must have printed actionable guidance (on stderr per the bare-spectyn
     // guard convention).
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(

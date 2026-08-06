@@ -13,13 +13,13 @@
 | 最後更新（Last updated） | `2026-05-25` |
 | 作者（Author） | `operator（操作者）+ Claude Opus 4.7（100 萬 token 上下文窗）擔任 orchestrator（協調者）self-write` |
 | 審查者（Reviewer(s)） | （待填） |
-| 實作負責人（Implementation owner） | （待 v0.7.0 啟動時指派；預期 iOS extension binary 落於 `app/src-tauri/gen/apple/extensions/<name>Extension/` + Android extension service 落於 `app/src-tauri/gen/android/app/src/main/java/ai/phantommesh/ext/`） |
+| 實作負責人（Implementation owner） | （待 v0.7.0 啟動時指派；預期 iOS extension binary 落於 `app/src-tauri/gen/apple/extensions/<name>Extension/` + Android extension service 落於 `app/src-tauri/gen/android/app/src/main/java/ai/spectynmesh/ext/`） |
 | 目標版本（Target release） | `v0.7.0+`（EXP；不入 v0.6.0 GA） |
 | 服務的 pillar（支柱） | `P2（多模態理解 — 系統級 capture 入口讓 image / text / activity 從任意 app 流進 mesh）`；cross-cutting `P4（extension 不持 identity.key，只簽 ephemeral cluster JWT，符合 fail-closed 安全模型）` |
 | 軌道（Track） | `Life`（生活軌道；食物 / 焦點 / 習慣 quick capture 為核心 use case） |
 | 史詩功能群（Epic） | `EXP05 extensions`（v0.7.0+ 新增 EPIC 群；不入 v0.6.0 七 epic） |
 | 對應 BIG-GOAL phrase | `BIG-GOAL.md §P2`：「Multimodal capture pipeline (E002 in v0.6.0) takes lifestyle events (food log photo, focus-session audio, ambient text) and feeds them into the agent loop the same way code/terminal events do」— 本 spec 把「multimodal capture」入口從 main app icon 擴張到 OS-level surface（share sheet、widget、quick tile），讓「ambient text」「food log photo」這些事件**不必先開 main app** 就能進 mesh。**+** `§陪你進步 Life Track`：daily review 仰賴 food / focus / habit 三類 capture 事件 — 擴充入口降低 capture 漏記率。 |
-| 依賴（Depends on） | `SPEC-30-PLATFORM-iOS-foundations`（iOS shell / Keychain access group `group.ai.phantommesh.app` / bundle ID `ai.phantommesh.app` — extension 共用），`SPEC-33-PLATFORM-Android-foundations`（Android shell / SharedPreferences / Foreground Service 模式），`SPEC-20-SYSTEM-capture-food`（food entry schema — extension 寫入 event），`SPEC-21-SYSTEM-capture-focus`（focus entry schema + 計時器狀態），`SPEC-22-SYSTEM-capture-habit`（habit toggle schema），`SPEC-12-PROTOCOL-identity-keypair`（identity.key 在 Keychain access group 共享規則） |
+| 依賴（Depends on） | `SPEC-30-PLATFORM-iOS-foundations`（iOS shell / Keychain access group `group.ai.spectynmesh.app` / bundle ID `ai.spectynmesh.app` — extension 共用），`SPEC-33-PLATFORM-Android-foundations`（Android shell / SharedPreferences / Foreground Service 模式），`SPEC-20-SYSTEM-capture-food`（food entry schema — extension 寫入 event），`SPEC-21-SYSTEM-capture-focus`（focus entry schema + 計時器狀態），`SPEC-22-SYSTEM-capture-habit`（habit toggle schema），`SPEC-12-PROTOCOL-identity-keypair`（identity.key 在 Keychain access group 共享規則） |
 | 阻擋（Blocks） | （無 v0.6.0 spec 被阻擋；v0.7.0+ 可能 unlock SPEC-73 watch-companion 共用 widget timeline provider） |
 | 模板偏離（Template deviation） | §14「Platform divergence」為本 spec **核心章節**（iOS 4 種 extension vs Android 4 種 surface 不對稱）。§10「UI 元件 / 畫面」聚焦 6 個 OS-level surface（share sheet preview / widget S/M/L / app clip 1-pager / lock screen widget / quick settings tile / app shortcut menu），不畫 main app 內畫面。§7「Data model」extension-to-main IPC（行程間通訊）payload + widget timeline entry 為兩個 schema 主軸。 |
 
@@ -27,13 +27,13 @@
 
 ## §1 重點摘要（TL;DR）
 
-**問題**：v0.6.0 唯一 capture 入口是 main app icon — 從 lock screen 到 capture form ≈ 3 秒（unlock 0.5s + 找 icon 0.8s + tap 0.1s + cold start 1.6s + navigate 0.5s，per SPEC-30 §13 TTI 預算）。Life Track 高頻低意願事件（吃完一口想記、突然想 toggle focus、看到文章想記）3 秒就等於 friction wall（摩擦牆 — user 心智轉移就漏了）。Apple Health / Google Fit / Streaks 把入口放到 share sheet（分享面板）/ widget（小工具）/ quick settings tile（快速設定磁磚）把時間降到 0.3–0.5 秒。phantom 沒做，因為 v0.6.0 主刀在 main app 穩定 + capture 三類 schema 落地，且 Tauri 2 對 iOS extension target / Android multi-process service 支援在 2026-05 仍 immature。
+**問題**：v0.6.0 唯一 capture 入口是 main app icon — 從 lock screen 到 capture form ≈ 3 秒（unlock 0.5s + 找 icon 0.8s + tap 0.1s + cold start 1.6s + navigate 0.5s，per SPEC-30 §13 TTI 預算）。Life Track 高頻低意願事件（吃完一口想記、突然想 toggle focus、看到文章想記）3 秒就等於 friction wall（摩擦牆 — user 心智轉移就漏了）。Apple Health / Google Fit / Streaks 把入口放到 share sheet（分享面板）/ widget（小工具）/ quick settings tile（快速設定磁磚）把時間降到 0.3–0.5 秒。spectyn 沒做，因為 v0.6.0 主刀在 main app 穩定 + capture 三類 schema 落地，且 Tauri 2 對 iOS extension target / Android multi-process service 支援在 2026-05 仍 immature。
 
-**方案**：v0.7.0+ 加 8 個 OS-level surface — **iOS 4 種**：(1) Share Extension（分享擴充）— 任何 app 分享按鈕可選 Phantom；(2) Widget S/M/L（home screen 顯示今日 focus 時數 + habit streak 連續天數 + 1-tap capture）；(3) Lock Screen Widget（鎖屏小工具，iOS 16+）— 簡化 focus 計時器；(4) App Clip（小程式片段）— 餐廳 QR code 跳 1-pager food entry，**無需安裝 full app**（≤ 10 MB hard cap）。**Android 4 種**：(1) Quick Settings Tile（快速設定磁磚，API 33+）— 控制中心一鍵 toggle focus；(2) App Shortcut（app 捷徑，API 25+）— long-press app icon 跳 capture；(3) Slice / App Actions — Google Assistant 自然語言；(4) Home Screen Widget（Glance API，API 31+）。**共用契約**：所有 surface 走 ephemeral cluster JWT + App Group / SharedPreferences IPC（行程間通訊）— extension binary **不**持 identity.key（per SPEC-12 fail-closed），main app 派發 30-day-rolling JWT 進 Keychain access group `group.ai.phantommesh.app`。**Sandbox 隔離**：extension 只能 write capture event，不能 read vault / coach review / chat history。
+**方案**：v0.7.0+ 加 8 個 OS-level surface — **iOS 4 種**：(1) Share Extension（分享擴充）— 任何 app 分享按鈕可選 Spectyn；(2) Widget S/M/L（home screen 顯示今日 focus 時數 + habit streak 連續天數 + 1-tap capture）；(3) Lock Screen Widget（鎖屏小工具，iOS 16+）— 簡化 focus 計時器；(4) App Clip（小程式片段）— 餐廳 QR code 跳 1-pager food entry，**無需安裝 full app**（≤ 10 MB hard cap）。**Android 4 種**：(1) Quick Settings Tile（快速設定磁磚，API 33+）— 控制中心一鍵 toggle focus；(2) App Shortcut（app 捷徑，API 25+）— long-press app icon 跳 capture；(3) Slice / App Actions — Google Assistant 自然語言；(4) Home Screen Widget（Glance API，API 31+）。**共用契約**：所有 surface 走 ephemeral cluster JWT + App Group / SharedPreferences IPC（行程間通訊）— extension binary **不**持 identity.key（per SPEC-12 fail-closed），main app 派發 30-day-rolling JWT 進 Keychain access group `group.ai.spectynmesh.app`。**Sandbox 隔離**：extension 只能 write capture event，不能 read vault / coach review / chat history。
 
-**代價**：(a) Extension 不能跑 LLM（iOS 50 MB memory cap）— image classify / summarisation 留給 main app deferred；(b) App Clip 10 MB hard cap — 不鏈 Rust core，純 SwiftUI + broker HTTPS（SPEC-15）；(c) Widget refresh budget 由系統決定（iOS WidgetKit 最短 5 分鐘 / Android Glance 15 分鐘）— 計時器顯示可能慢；(d) 不做 watch widget（留 SPEC-73）/ 不做 desktop tray / 不做 Siri Shortcut（留 v0.8.0+ — App Intents 對 Tauri 整合仍待補完）/ 不做反向 share-from-Phantom；(e) Tauri 2 extension support immature — 可能需手寫 Swift extension target + Kotlin extension service，僅共用 Keychain / SharedPreferences key。
+**代價**：(a) Extension 不能跑 LLM（iOS 50 MB memory cap）— image classify / summarisation 留給 main app deferred；(b) App Clip 10 MB hard cap — 不鏈 Rust core，純 SwiftUI + broker HTTPS（SPEC-15）；(c) Widget refresh budget 由系統決定（iOS WidgetKit 最短 5 分鐘 / Android Glance 15 分鐘）— 計時器顯示可能慢；(d) 不做 watch widget（留 SPEC-73）/ 不做 desktop tray / 不做 Siri Shortcut（留 v0.8.0+ — App Intents 對 Tauri 整合仍待補完）/ 不做反向 share-from-Spectyn；(e) Tauri 2 extension support immature — 可能需手寫 Swift extension target + Kotlin extension service，僅共用 Keychain / SharedPreferences key。
 
-**English abstract**: SPEC-74 (EXP, post-v0.6.0) extends Phantom Mesh's capture entry points from a single main-app icon to OS-level surfaces, cutting lock-screen-to-capture latency from ~3 s to ~0.5 s. It defines 8 surfaces across iOS (Share Extension, Widget S/M/L, Lock Screen Widget, App Clip) and Android (Quick Settings Tile, App Shortcut, Slice / App Actions, Glance Widget). All surfaces share one IPC contract: extensions hold an ephemeral 30-day cluster JWT in the `group.ai.phantommesh.app` Keychain access group (iOS) or `phantom_ext_prefs` shared preferences (Android), never the master `identity.key`. Sandbox is write-only: extensions enqueue `ExtensionCaptureIntent` payloads (5 kinds: `food`, `focus_start`, `focus_stop`, `habit_toggle`, `text_clip`); the main app's `ext_ingest_queue` consumer drains and signs them at next launch. Hard constraints: no LLM in extension binaries (50 MB iOS / 10 MB App Clip); widget refresh capped at 5 min (iOS WidgetKit) / 15 min (Android Glance); App Clip skips Rust core and writes directly to broker HTTPS. Out of scope: watch widgets (SPEC-73), desktop tray, Siri Shortcuts (v0.8.0+), reverse share-from-Phantom.
+**English abstract**: SPEC-74 (EXP, post-v0.6.0) extends Spectyn Mesh's capture entry points from a single main-app icon to OS-level surfaces, cutting lock-screen-to-capture latency from ~3 s to ~0.5 s. It defines 8 surfaces across iOS (Share Extension, Widget S/M/L, Lock Screen Widget, App Clip) and Android (Quick Settings Tile, App Shortcut, Slice / App Actions, Glance Widget). All surfaces share one IPC contract: extensions hold an ephemeral 30-day cluster JWT in the `group.ai.spectynmesh.app` Keychain access group (iOS) or `spectyn_ext_prefs` shared preferences (Android), never the master `identity.key`. Sandbox is write-only: extensions enqueue `ExtensionCaptureIntent` payloads (5 kinds: `food`, `focus_start`, `focus_stop`, `habit_toggle`, `text_clip`); the main app's `ext_ingest_queue` consumer drains and signs them at next launch. Hard constraints: no LLM in extension binaries (50 MB iOS / 10 MB App Clip); widget refresh capped at 5 min (iOS WidgetKit) / 15 min (Android Glance); App Clip skips Rust core and writes directly to broker HTTPS. Out of scope: watch widgets (SPEC-73), desktop tray, Siri Shortcuts (v0.8.0+), reverse share-from-Spectyn.
 
 ---
 
@@ -55,24 +55,24 @@
 > | `sandboxing`（沙箱化） | 沙箱化 | OS 把 app / extension 隔離在限定資源範圍的安全模型 |
 > | `capture intent`（capture 意圖） | capture 意圖 | 本 spec 自訂；extension 產出待 main app 簽章的事件 payload |
 > | `IPC`（Inter-Process Communication） | 行程間通訊 | 兩個 OS process 之間傳資料的機制 |
-> | `JWT`（JSON Web Token） | 網頁權杖 | broker（中介伺服器）對 phantom app 發的登入憑證 |
+> | `JWT`（JSON Web Token） | 網頁權杖 | broker（中介伺服器）對 spectyn app 發的登入憑證 |
 > | `OSS`（Open Source Software） | 開放原始碼軟體 | 本專案以 Apache-2.0 公開 |
 
 ---
 
 ## §2 脈絡與背景（context & background）
 
-**2.1 為什麼現在做（v0.7.0+ 而非 v0.6.0）**：v0.6.0 main app icon 唯一入口；實量 lock screen → capture form = **3.5 秒**（FaceID 0.5s + 找 icon 0.8s + tap 0.1s + 冷啟 1.6s + navigate 0.5s）。Life Track 三類事件（food / focus / habit）觸發點都是「user 突然想記」— 3.5 秒等於 friction wall。**競品基準**：Apple Health 把「Log Water」放 share sheet + widget；Google Fit 把「Start Workout」放 Quick Settings Tile；Streaks 把「Today's Habit」放 widget — 都把 capture 時間降到 0.3–0.5 秒。phantom 沒做，因 v0.6.0 主刀在 main app 穩定 + capture schema 落地 + Coach engine 跑通；且 Tauri 2 對 iOS extension target / Android multi-process service 在 2026-05 仍 immature。**何時做**：v0.7.0 Q3-26 啟動，先做 iOS Share Extension + Android Quick Settings Tile（最易實作 + 最高 ROI），其餘 6 個分 v0.7.1–0.8.0 滾動。
+**2.1 為什麼現在做（v0.7.0+ 而非 v0.6.0）**：v0.6.0 main app icon 唯一入口；實量 lock screen → capture form = **3.5 秒**（FaceID 0.5s + 找 icon 0.8s + tap 0.1s + 冷啟 1.6s + navigate 0.5s）。Life Track 三類事件（food / focus / habit）觸發點都是「user 突然想記」— 3.5 秒等於 friction wall。**競品基準**：Apple Health 把「Log Water」放 share sheet + widget；Google Fit 把「Start Workout」放 Quick Settings Tile；Streaks 把「Today's Habit」放 widget — 都把 capture 時間降到 0.3–0.5 秒。spectyn 沒做，因 v0.6.0 主刀在 main app 穩定 + capture schema 落地 + Coach engine 跑通；且 Tauri 2 對 iOS extension target / Android multi-process service 在 2026-05 仍 immature。**何時做**：v0.7.0 Q3-26 啟動，先做 iOS Share Extension + Android Quick Settings Tile（最易實作 + 最高 ROI），其餘 6 個分 v0.7.1–0.8.0 滾動。
 
 **2.2 在 BIG-GOAL 哪裡**：服務 **P2（多模態理解）**— BIG-GOAL.md §P2「Multimodal capture pipeline takes lifestyle events (food log photo, focus-session audio, ambient text) and feeds them into the agent loop the same way code/terminal events do」。Extension 是「ambient text」「food log photo」最自然 OS-level 入口（IG share → food entry / Safari share → focus entry / widget 1-tap habit toggle）。Cross-cutting **P4（加密為先）**— extension binary 不持 identity.key（per SPEC-12 fail-closed + SPEC-30 §15 `WhenUnlockedThisDeviceOnly`），只持 ephemeral cluster JWT；攻擊者抓 extension binary 只能寫 event，不能讀 vault。服務 **陪你進步 Life Track** — Life Track 3 類 capture 全受惠。
 
 **2.3 既有解的歷史**：
 - v0.5.x：iOS / Android target 剛通過 simulator smoke test，無 extension。
-- v0.6.0（current）：main app icon 唯一入口；SPEC-30 §15 Keychain access group `group.ai.phantommesh.app` 預留「future share extension」槽 — 本 spec 兌現。
+- v0.6.0（current）：main app icon 唯一入口；SPEC-30 §15 Keychain access group `group.ai.spectynmesh.app` 預留「future share extension」槽 — 本 spec 兌現。
 - v0.7.0+（本 spec）：8 個 surface 全套；先做 iOS Share + Android Quick Tile，其餘滾動。
 
 **2.4 相關 spec**：
-- [`SPEC-30-PLATFORM-iOS-foundations`](./SPEC-30-PLATFORM-iOS-foundations.md) — iOS shell / Keychain access group `group.ai.phantommesh.app` / bundle ID `ai.phantommesh.app`；本 spec 兌現 §15 entitlement 預留的 share extension 槽。
+- [`SPEC-30-PLATFORM-iOS-foundations`](./SPEC-30-PLATFORM-iOS-foundations.md) — iOS shell / Keychain access group `group.ai.spectynmesh.app` / bundle ID `ai.spectynmesh.app`；本 spec 兌現 §15 entitlement 預留的 share extension 槽。
 - [`SPEC-33-PLATFORM-Android-foundations`](./SPEC-33-PLATFORM-Android-foundations.md) — Android shell / SharedPreferences / Foreground Service 模式。
 - [`SPEC-20-SYSTEM-capture-food`](./SPEC-20-SYSTEM-capture-food.md) / [`SPEC-21-SYSTEM-capture-focus`](./SPEC-21-SYSTEM-capture-focus.md) / [`SPEC-22-SYSTEM-capture-habit`](./SPEC-22-SYSTEM-capture-habit.md) — capture event schemas。
 - [`SPEC-12-PROTOCOL-identity-keypair`](./SPEC-12-PROTOCOL-identity-keypair.md) — extension fail-closed 不持 identity.key 之規則來源。
@@ -84,12 +84,12 @@
 
 ### 3.1 目標（goals，≥ 5；本 spec 提 7）
 
-- **G1**：iOS Share Extension（分享擴充）冷啟動 < 200ms p95 — user 在 Safari / IG / Photos 點 share → 選 Phantom → extension UI 顯示 capture preview，端到端 wall-clock ≤ 200ms p95（iPhone 13 / iOS 17）。`(verifies via: T-ext-share-cold-start)`
+- **G1**：iOS Share Extension（分享擴充）冷啟動 < 200ms p95 — user 在 Safari / IG / Photos 點 share → 選 Spectyn → extension UI 顯示 capture preview，端到端 wall-clock ≤ 200ms p95（iPhone 13 / iOS 17）。`(verifies via: T-ext-share-cold-start)`
 - **G2**：Widget timeline（小工具時間軸）refresh 在系統允許 budget 內 — iOS WidgetKit `TimelineProvider.getTimeline()` 回傳 5 個未來 entry（涵蓋未來 25 分鐘 = focus 一輪），iOS 系統決定何時 invoke；本 spec 保證 timeline payload 計算 ≤ 50ms（不阻塞系統）。Android Glance `GlanceAppWidget.provideContent()` 同 ≤ 50ms。`(verifies via: T-ext-widget-timeline-refresh)`
 - **G3**：Android Quick Settings Tile（快速設定磁磚）toggle focus mode 反應 ≤ 100ms — user 下拉控制中心點磁磚，磁磚狀態（active / inactive）切換 + 觸發 main app Foreground Service 啟動 focus session，視覺回饋 ≤ 100ms p95。`(verifies via: T-ext-tile-toggle)`
 - **G4**：App Clip（小程式片段）binary size ≤ 10 MB hard limit — App Clip IPA（iOS App Package）解壓後 binary + assets ≤ 10 MB（per Apple App Clip size cap）；CI 加 `du -sh app/src-tauri/gen/apple/AppClip/build/` 檢查。`(verifies via: T-ext-clip-size)`
 - **G5**：Extension 不持有 identity.key — grep extension binary（`strings`）找 master key 預期 byte pattern（per SPEC-12 §X.Y forensic signature）→ 0 hit；Keychain access group 讀取 audit log 顯示 extension process 只 read `cluster-jwt` account，不 read `identity-master`。`(verifies via: T-ext-no-master-key-leak)`
-- **G6**：App Shortcut（app 捷徑）deep-link（深層連結）路由正確 — Android long-press app icon → 點「Log food」shortcut → main app cold start → 直達 `phantom://capture/food`（per SPEC-30 deep-link routing）；端到端 ≤ 3 秒 p95（含冷啟 TTI）。`(verifies via: T-ext-shortcut-deeplink)`
+- **G6**：App Shortcut（app 捷徑）deep-link（深層連結）路由正確 — Android long-press app icon → 點「Log food」shortcut → main app cold start → 直達 `spectyn://capture/food`（per SPEC-30 deep-link routing）；端到端 ≤ 3 秒 p95（含冷啟 TTI）。`(verifies via: T-ext-shortcut-deeplink)`
 - **G7**：Extension capture intent enqueue → main app drain → mesh broadcast 端到端 ≤ 30 秒 — extension 寫 `ExtensionCaptureIntent` 到 App Group container / SharedPreferences；main app 下次冷啟 / warm-launch / BGTaskScheduler tick 時 `ext_ingest_queue` 消費 → 簽章 → 廣播到 mesh peers；端到端從 extension 點按到 cluster peer 收到 ≤ 30 秒 p95（main app 已在 background；冷啟版本可放寬到 ≤ 60 秒）。`(verifies via: T-ext-ingest-end-to-end)`
 
 ### 3.2 非目標（non-goals，≥ 3；本 spec 提 5）
@@ -97,7 +97,7 @@
 - **NG1**：**不**做「extension-only chat」— extension 不能跑 LLM（per §1 代價 a + iOS 50 MB extension memory cap）；user 想 chat 必須開 main app。Extension 只做 write-only capture，不做 read-only 顯示既有事件 / coach review 內文（widget 可顯示 streak / 計時器數字，但不顯示 chat history）。
 - **NG2**：**不**做 extension 內 LLM inference — image classify / text summarise / focus session analysis 全部由 main app 在前景或 BGTaskScheduler 排程時做；extension 只 enqueue raw payload。
 - **NG3**：**不**做 watch widget（Apple Watch / Wear OS）— 留 [`SPEC-73-EXP-watch-companion.md`](./SPEC-73-EXP-watch-companion.md) 處理；本 spec 純 iPhone / iPad / Android phone 表面。
-- **NG4**：**不**做「從 Phantom share 到其他 app」反向流（user 把 coach review markdown 從 Phantom 內 share 到 Notes / Slack 等） — 留 v0.8.0+ 探索；coach review 隱私敏感，預設不可外流。
+- **NG4**：**不**做「從 Spectyn share 到其他 app」反向流（user 把 coach review markdown 從 Spectyn 內 share 到 Notes / Slack 等） — 留 v0.8.0+ 探索；coach review 隱私敏感，預設不可外流。
 - **NG5**：**不**做 Siri Shortcut（iOS App Intents framework 暴露 app 動作給 Siri）— 留 v0.8.0+；App Intents 對 Tauri 整合仍待 Apple 文件補完，且需 main app rewrite for App Intents protocol conformance。Android Slice / App Actions 是替代品，本 spec 有做（見 §6）。
 
 ### 3.3 範圍外（out-of-scope，≥ 3；本 spec 提 5）
@@ -112,12 +112,12 @@
 
 ## §4 任務故事（job stories，≥ 3；本 spec 提 6）
 
-- **JS1（IG 食物分享）**：**When** 我在 Instagram 看到朋友貼出的午餐照、想記到自己的食物 log，**I want to** 點 IG 的 share 按鈕 → 選 Phantom → 看到 1-page 預覽（image preview + 自動帶入「lunch」label + 一個「記下」鈕），按一下就完成，**so I can** 不必離開 IG 切到 Phantom、不必下載圖片再上傳，3 秒內把這張圖納入今日食物 log。 (→ G1)
+- **JS1（IG 食物分享）**：**When** 我在 Instagram 看到朋友貼出的午餐照、想記到自己的食物 log，**I want to** 點 IG 的 share 按鈕 → 選 Spectyn → 看到 1-page 預覽（image preview + 自動帶入「lunch」label + 一個「記下」鈕），按一下就完成，**so I can** 不必離開 IG 切到 Spectyn、不必下載圖片再上傳，3 秒內把這張圖納入今日食物 log。 (→ G1)
 - **JS2（鎖屏看 focus）**：**When** 我在工作中、不想解鎖手機看詳細統計、但想知道目前 focus session 還剩幾分鐘，**I want to** 一眼看鎖屏 widget（lock screen widget — iOS 16+），上面顯示「focus 已過 18 分 / 還剩 7 分」，**so I can** 不被誘惑解鎖滑手機。 (→ G2 + iOS lock-screen widget 路徑)
-- **JS3（控制中心一鍵 focus）**：**When** 我突然想開始 25 分鐘 focus session（Android Pixel 8），**I want to** 下拉系統控制中心、點 Phantom 的 Quick Settings Tile（已之前加進控制中心），磁磚變藍 + 通知「focus session started」彈出，**so I can** 不必解鎖 + 找 app icon + 開 app + 點 start 按鈕 — 整段 < 1 秒。 (→ G3)
-- **JS4（長按 app icon shortcut）**：**When** 我在 Android home screen long-press Phantom icon、想直接記一筆食物 entry，**I want to** 跳出 shortcut menu 有「Log food」「Start focus」「Toggle habit」三選項，點「Log food」→ main app cold-launch + 直接打開食物 capture form（不是首頁），**so I can** 跳過 navigate tab 的步驟。 (→ G6)
-- **JS5（餐廳 QR code App Clip）**：**When** 我去一家加入 Phantom partner program 的餐廳吃飯、桌上有 QR code（觸發 App Clip）、我手機沒裝 Phantom，**I want to** 用 iOS 相機掃 QR → 跳出 App Clip 1-pager（菜單 + 「記到 Phantom」按鈕）→ 點按 → 食物 entry 寫到 broker（中介伺服器）暫存，等我之後裝 full app 再 sync 進 mesh，**so I can** 沒裝 app 也能體驗 capture，當作獲取新 user 的 onramp（入口）。 (→ G4)
-- **JS6（Google Assistant 自然語言 log food）**：**When** 我在 Android 手上拿不出來、開車中，想記「我剛喝了一杯黑咖啡」，**I want to** 對 Google Assistant 說「Hey Google, log food coffee in Phantom」→ Assistant 透過 Slice / App Actions 把 voice intent 傳到 Phantom extension → 一筆 food entry 寫進 enqueue，**so I can** 完全免動手記食物。 (→ §6 Android Slice + §9 ext_capture_food)
+- **JS3（控制中心一鍵 focus）**：**When** 我突然想開始 25 分鐘 focus session（Android Pixel 8），**I want to** 下拉系統控制中心、點 Spectyn 的 Quick Settings Tile（已之前加進控制中心），磁磚變藍 + 通知「focus session started」彈出，**so I can** 不必解鎖 + 找 app icon + 開 app + 點 start 按鈕 — 整段 < 1 秒。 (→ G3)
+- **JS4（長按 app icon shortcut）**：**When** 我在 Android home screen long-press Spectyn icon、想直接記一筆食物 entry，**I want to** 跳出 shortcut menu 有「Log food」「Start focus」「Toggle habit」三選項，點「Log food」→ main app cold-launch + 直接打開食物 capture form（不是首頁），**so I can** 跳過 navigate tab 的步驟。 (→ G6)
+- **JS5（餐廳 QR code App Clip）**：**When** 我去一家加入 Spectyn partner program 的餐廳吃飯、桌上有 QR code（觸發 App Clip）、我手機沒裝 Spectyn，**I want to** 用 iOS 相機掃 QR → 跳出 App Clip 1-pager（菜單 + 「記到 Spectyn」按鈕）→ 點按 → 食物 entry 寫到 broker（中介伺服器）暫存，等我之後裝 full app 再 sync 進 mesh，**so I can** 沒裝 app 也能體驗 capture，當作獲取新 user 的 onramp（入口）。 (→ G4)
+- **JS6（Google Assistant 自然語言 log food）**：**When** 我在 Android 手上拿不出來、開車中，想記「我剛喝了一杯黑咖啡」，**I want to** 對 Google Assistant 說「Hey Google, log food coffee in Spectyn」→ Assistant 透過 Slice / App Actions 把 voice intent 傳到 Spectyn extension → 一筆 food entry 寫進 enqueue，**so I can** 完全免動手記食物。 (→ §6 Android Slice + §9 ext_capture_food)
 
 ---
 
@@ -130,7 +130,7 @@
 | **iOS heavy user（iOS 重度使用者）** | iPhone 為主裝置 + 多用 share sheet / widget；BIG-GOAL Audience #5「行動族 mobile-first user」之一 | Share Extension 流暢、widget 顯示即時 streak + 計時器、lock screen widget 一眼看 focus |
 | **Android tinker（Android 玩家）** | Pixel / Samsung 為主裝置 + 喜歡 Quick Settings Tile / Tasker 自動化；BIG-GOAL Audience #5 之一 | Quick Settings Tile + App Shortcut + Slice / Assistant 整合都做齊 |
 | **Pixel native user（Pixel 原生使用者）** | Google Pixel 使用者，Google Assistant 重度使用；BIG-GOAL Audience #5 之一 | Slice / App Actions 讓 Assistant 「log food」「start focus」自然語言觸發 |
-| **iPad mini split-screen user（iPad mini 分割畫面使用者）** | iPad mini 是隨手筆記裝置，split-screen 同時看書 + 開 Phantom；BIG-GOAL Audience #5 之一 | iPad 版 widget（large 尺寸 — 較多資訊密度）、Share Extension 從 Books / Safari 分享 text clip |
+| **iPad mini split-screen user（iPad mini 分割畫面使用者）** | iPad mini 是隨手筆記裝置，split-screen 同時看書 + 開 Spectyn；BIG-GOAL Audience #5 之一 | iPad 版 widget（large 尺寸 — 較多資訊密度）、Share Extension 從 Books / Safari 分享 text clip |
 
 ---
 
@@ -165,8 +165,8 @@ flowchart LR
         GlanceWid["Glance Widget Provider 小工具提供者"]
     end
     subgraph AppGroup["共享儲存層 (App Group / SharedPreferences)"]
-        Keychain["iOS Keychain access group group.ai.phantommesh.app"]
-        SharedPrefs["Android SharedPreferences phantom_ext_prefs"]
+        Keychain["iOS Keychain access group group.ai.spectynmesh.app"]
+        SharedPrefs["Android SharedPreferences spectyn_ext_prefs"]
         Container["iOS App Group container / Android Internal Storage"]
     end
     Main["Main app (Tauri + Rust core)"]
@@ -204,11 +204,11 @@ flowchart LR
 | 元件 | 程式碼位置（預期 v0.7.0） | 職責 | 對外介面（§9） |
 |---|---|---|---|
 | iOS Share Extension | `app/src-tauri/gen/apple/extensions/ShareExtension/` | 收 share sheet payload + 寫 ExtensionCaptureIntent | `ext_capture_food/focus` |
-| iOS Widget Extension | `app/src-tauri/gen/apple/extensions/PhantomWidget/` | WidgetKit TimelineProvider；顯示計時器 + streak | `ext_widget_timeline` |
-| iOS Lock Screen Widget | `app/src-tauri/gen/apple/extensions/PhantomLockWidget/` | iOS 16+ ActivityKit + lock-screen family | `ext_widget_timeline` (subset) |
+| iOS Widget Extension | `app/src-tauri/gen/apple/extensions/SpectynWidget/` | WidgetKit TimelineProvider；顯示計時器 + streak | `ext_widget_timeline` |
+| iOS Lock Screen Widget | `app/src-tauri/gen/apple/extensions/SpectynLockWidget/` | iOS 16+ ActivityKit + lock-screen family | `ext_widget_timeline` (subset) |
 | iOS App Clip | `app/src-tauri/gen/apple/AppClip/` | < 10 MB SwiftUI 1-pager；不鏈 Rust core；走 broker HTTPS | broker REST API（SPEC-15） |
 | Android Quick Tile Service | `app/src-tauri/gen/android/app/.../ext/TileService.kt` | TileService（API 24+）toggle focus | `ext_capture_focus` |
-| Android App Shortcut Provider | `app/src-tauri/gen/android/app/.../ext/ShortcutProvider.kt` | static + dynamic shortcut（API 25+） | deep-link `phantom://capture/*` |
+| Android App Shortcut Provider | `app/src-tauri/gen/android/app/.../ext/ShortcutProvider.kt` | static + dynamic shortcut（API 25+） | deep-link `spectyn://capture/*` |
 | Android Slice Provider | `app/src-tauri/gen/android/app/.../ext/SliceProvider.kt` | Jetpack Slice 暴露給 Assistant / Search | `ext_capture_*` family |
 | Android Glance Widget | `app/src-tauri/gen/android/app/.../ext/GlanceWidget.kt` | Jetpack Glance widget（API 31+） | `ext_widget_timeline` |
 | ext_ingest_queue 消費者 | `core/src/extensions/ingest.rs` | main app 內 drain pending intent + 簽章 + 廣播 | （內部） |
@@ -220,7 +220,7 @@ sequenceDiagram
     participant User as "User"
     participant IG as "Instagram app"
     participant SS as "iOS Share Sheet"
-    participant Ext as "Phantom Share Extension"
+    participant Ext as "Spectyn Share Extension"
     participant KC as "Keychain group"
     participant Cont as "App Group container"
     participant Main as "Main app"
@@ -229,7 +229,7 @@ sequenceDiagram
     User->>IG: "點 share 按鈕"
     IG->>SS: "提供 image + caption"
     SS->>User: "顯示 share targets"
-    User->>SS: "選 Phantom"
+    User->>SS: "選 Spectyn"
     SS->>Ext: "launch extension binary (memory cap 50 MB)"
     Ext->>KC: "read cluster-jwt"
     KC-->>Ext: "JWT (ephemeral, 30-day rolling)"
@@ -250,7 +250,7 @@ sequenceDiagram
 sequenceDiagram
     participant User as "User"
     participant QS as "Android Quick Settings"
-    participant Tile as "Phantom TileService"
+    participant Tile as "Spectyn TileService"
     participant Prefs as "SharedPreferences"
     participant FG as "Foreground Service"
 
@@ -306,7 +306,7 @@ pub struct ExtensionCaptureIntent {
 pub enum ExtensionCaptureKind { Food, FocusStart, FocusStop, HabitToggle, TextClip }
 ```
 
-**Swift / Kotlin 端對應**：Swift `struct ExtensionCaptureIntent: Codable`（snake_case via `CodingKeys`）寫入 App Group container `Application Support/phantom_ext/queue/<id>.json`；Kotlin `data class` + Moshi 寫入 SharedPreferences key `phantom_ext_queue`（JSON array，typically < 100 entries）。
+**Swift / Kotlin 端對應**：Swift `struct ExtensionCaptureIntent: Codable`（snake_case via `CodingKeys`）寫入 App Group container `Application Support/spectyn_ext/queue/<id>.json`；Kotlin `data class` + Moshi 寫入 SharedPreferences key `spectyn_ext_queue`（JSON array，typically < 100 entries）。
 
 **`WidgetTimelineEntry`**（main app 寫、widget extension 讀）：
 
@@ -320,15 +320,15 @@ pub enum ExtensionCaptureKind { Food, FocusStart, FocusStop, HabitToggle, TextCl
 
 ### 7.2 儲存位置（storage location）
 
-- **iOS App Group container**：`group.ai.phantommesh.app` shared container，路徑由 `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)` 回傳，加 `phantom_ext/queue/*.json`
-- **iOS Keychain access group**：`group.ai.phantommesh.app`（per SPEC-30 §15 既有），新增 account `cluster-jwt`（30-day rolling JWT；非 identity.key）
-- **Android SharedPreferences**：`phantom_ext_prefs`（main app 與 extension 共享 — 透過 `Context.MODE_PRIVATE` + same UID）；key `phantom_ext_queue`（JSON array）+ key `cluster_jwt`（明文 JWT；不存 identity.key）
+- **iOS App Group container**：`group.ai.spectynmesh.app` shared container，路徑由 `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)` 回傳，加 `spectyn_ext/queue/*.json`
+- **iOS Keychain access group**：`group.ai.spectynmesh.app`（per SPEC-30 §15 既有），新增 account `cluster-jwt`（30-day rolling JWT；非 identity.key）
+- **Android SharedPreferences**：`spectyn_ext_prefs`（main app 與 extension 共享 — 透過 `Context.MODE_PRIVATE` + same UID）；key `spectyn_ext_queue`（JSON array）+ key `cluster_jwt`（明文 JWT；不存 identity.key）
 - **記憶體**：extension 短暫存活（iOS extension typically < 30 秒生命）；不長存記憶體
 - **遠端**：App Clip 直接走 broker REST `POST /onboarding/clip-event`（SPEC-15）；其他 surface 透過 main app 進 mesh
 
 ### 7.3 保留（retention）
 
-- 未消費的 `ExtensionCaptureIntent` 在 App Group container / SharedPreferences 保留最多 **7 天**；超過 7 天 main app drain 時自動丟（避免堆積）；main app `phantom data delete --all --yes` 同時清此 queue
+- 未消費的 `ExtensionCaptureIntent` 在 App Group container / SharedPreferences 保留最多 **7 天**；超過 7 天 main app drain 時自動丟（避免堆積）；main app `spectyn data delete --all --yes` 同時清此 queue
 - `cluster_jwt` 30-day rolling；main app 每次冷啟若 JWT 距 expiry < 7 天則 refresh
 
 ### 7.4 遷移（migration）
@@ -441,7 +441,7 @@ pub trait ExtensionIngestQueue: Send + Sync {
 - circular accessory family；focus_active 顯示倒數「剩 6 分」；focus_idle 顯示 logo + 「點開始 focus」
 
 ### 10.4 iOS App Clip 1-pager
-- 內容：餐廳菜單 placeholder + 多選一品項 + [記下] + 底部 [下載 Phantom full app]
+- 內容：餐廳菜單 placeholder + 多選一品項 + [記下] + 底部 [下載 Spectyn full app]
 - Size budget: SwiftUI + 不鏈 Rust core；目標 < 8 MB（< 10 MB hard cap，2 MB buffer）
 
 ### 10.5 Android Quick Settings Tile UI（系統 render）
@@ -450,7 +450,7 @@ pub trait ExtensionIngestQueue: Send + Sync {
 
 ### 10.6 Android App Shortcut menu（long-press app icon，系統 render）
 - 三條：「Log food」「Start focus」「Toggle habit」
-- 每條 shortcut：static manifest 註冊 + deep-link `phantom://capture/{food,focus,habit}`
+- 每條 shortcut：static manifest 註冊 + deep-link `spectyn://capture/{food,focus,habit}`
 
 ---
 
@@ -526,7 +526,7 @@ n/a — v0.7.0+ 新建；v0.6.0 main app 無 extension。
 ## §17 替代方案（alternatives considered）— ≥ 3；本 spec 提 4
 
 ### Alternative 1：Deeplink-only（不做 extension）
-依賴 `phantom://` deep-link + Universal Link / intent filter 從 share sheet 帶資料進 main app。**沒選**：仍需開 main app（冷啟 1.6s + navigate 0.5s）friction 沒降；share sheet 不支援 image attachment 透過 deep-link（URL 長度 + binary 限制）。**何時回來**：永不。
+依賴 `spectyn://` deep-link + Universal Link / intent filter 從 share sheet 帶資料進 main app。**沒選**：仍需開 main app（冷啟 1.6s + navigate 0.5s）friction 沒降；share sheet 不支援 image attachment 透過 deep-link（URL 長度 + binary 限制）。**何時回來**：永不。
 
 ### Alternative 2：Web fallback (PWA / mobile web)
 capture form 做 mobile web，share sheet 開 Safari → web page。**沒選**：iOS 限制只有 native extension 可註冊為 share target；Android 雖可（intent filter）但 web cold start < 1s vs native < 200ms。**何時回來**：永不（架構不允許）。
@@ -611,4 +611,4 @@ coach push 掛 `UNNotificationAction` / NotificationAction「+ Log food」一鍵
 
 ### D. Changelog
 
-- **0.1.0 / 2026-05-25** — 初版 draft（DRAFT post-v0.6.0 EXP）。Operator + Claude Opus 4.7（1M context）self-write。8 個 surface 鎖契約（4 iOS + 4 Android）+ ExtensionCaptureIntent / WidgetTimelineEntry schema + 5 個 new error code + ≥ 5 risks + 4 alternatives + 8 open questions + 8 placeholder T-ext-* 測項。引用 SPEC-30 verbatim App Group ID `group.ai.phantommesh.app` + bundle ID `ai.phantommesh.app`；無 SPEC ID hallucinate；OSS-safe（無個資 / 無 hostname / 無 IP / 無 secret）。
+- **0.1.0 / 2026-05-25** — 初版 draft（DRAFT post-v0.6.0 EXP）。Operator + Claude Opus 4.7（1M context）self-write。8 個 surface 鎖契約（4 iOS + 4 Android）+ ExtensionCaptureIntent / WidgetTimelineEntry schema + 5 個 new error code + ≥ 5 risks + 4 alternatives + 8 open questions + 8 placeholder T-ext-* 測項。引用 SPEC-30 verbatim App Group ID `group.ai.spectynmesh.app` + bundle ID `ai.spectynmesh.app`；無 SPEC ID hallucinate；OSS-safe（無個資 / 無 hostname / 無 IP / 無 secret）。

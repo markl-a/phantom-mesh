@@ -15,7 +15,7 @@
 | 最後更新（Last updated） | `2026-05-25` |
 | 作者（Author） | `operator + Claude Code (claude-opus-4-7-1m, 2026-05-25 session)` |
 | 評審者（Reviewer(s)） | （待填，建議：operator + 一位獨立 SaaS（軟體即服務，Software as a Service）創業者法律顧問） |
-| 實作負責人（Implementation owner） | `phantommesh-io/workers/pro-billing/`（Cloudflare Workers TypeScript，待建）+ `core/src/pro_entitlement.rs`（client entitlement cache，待寫，~200 行）+ `app/src/routes/pro/*`（Tauri UI，待寫，5 screens） |
+| 實作負責人（Implementation owner） | `spectynmesh-io/workers/pro-billing/`（Cloudflare Workers TypeScript，待建）+ `core/src/pro_entitlement.rs`（client entitlement cache，待寫，~200 行）+ `app/src/routes/pro/*`（Tauri UI，待寫，5 screens） |
 | 目標 release（Target release） | `v0.7.0+` |
 | 服務的 pillar（支柱） | `cross-pillar X`（跨支柱商業化層 — 不歸 P1/P2/P3/P4 任一 user-facing pillar；它是 sustainability infra（永續基礎設施）讓 operator 不靠廣告 / 不靠賣 data 持續維護專案） |
 | Track | `infra（基礎設施 — revenue path 收入路徑）` |
@@ -35,11 +35,11 @@
 
 **代價（Trade-offs accepted + what we're not doing）**：(a) PCI scope（支付卡產業合規範圍）整段外包 Stripe — broker 永遠不接觸信用卡明文（plaintext PAN，主帳號），代價是某些 sanction（制裁）區域（俄羅斯 / 部分中東國家）Stripe 不支援，這些 user 無法 Pro 升級；(b) 不做 freemium-by-mesh-feature（按 mesh peer 數收費 / 按 RPC（遠端程序呼叫）次數收費）— 這違反 BIG-GOAL「mesh peer 平等」核心；(c) 不接 ads（廣告）、不賣 user data（個資 / vault content / event log），凡此皆寫進 §3.2 Non-Goals 鎖死；(d) refund（退款）後 entitlement 撤回但 vault content 不刪 14 天緩衝（避免誤刪導致使用者資料一鍵蒸發）；(e) 中港台 PPP（Purchasing Power Parity，購買力平價）discount（折扣）採白名單 IP-based、非自動 — 有 abuse（濫用）VPN 規避風險，但這比強推全價更貼近專案精神。
 
-**English abstract**: SPEC-72 specifies the Pro tier commercialization layer for the phantom-mesh broker, targeting v0.7.0+. v0.6.0 broker is free-and-capped (100 vault items × 1 MB per SPEC-15; 30 demo-relay requests per fingerprint per 24h per SPEC-52); heavy users hit those caps without an upgrade path, and the operator lacks a sustainable revenue channel. Pro tier is a strictly opt-in upgrade: users complete payment via Stripe Checkout, the broker issues a short-TTL (≤ 24h) JWT carrying an `EntitlementSnapshot`, and the client caches it locally to unlock raised quotas (5000 vault items × 5 MB), unlimited LLM relay (rate-limited per the SPEC-50 sliding window), priority cross-device sync, and an optional family plan (one account binds up to 6 identities (1 owner + 5 members per SPEC-71), see SPEC-71). PCI compliance scope is fully delegated to Stripe — the broker never touches plaintext PAN. Six new REST endpoints (`POST /pro/checkout`, `GET /pro/portal`, `GET /pro/entitlement`, `POST /webhooks/stripe`, `POST /pro/cancel`, `GET /pro/usage`), six new error codes, and one new state machine (`Subscription`: `active` / `past_due` / `cancelled` / `refunded`) are introduced. Hard guardrails: Pro tier never gates core P2P (peer-to-peer) mesh functionality; the broker decouples payment identity from vault content (separate database tables, separate encryption domains); no ads, no data brokering, ever.
+**English abstract**: SPEC-72 specifies the Pro tier commercialization layer for the spectyn-mesh broker, targeting v0.7.0+. v0.6.0 broker is free-and-capped (100 vault items × 1 MB per SPEC-15; 30 demo-relay requests per fingerprint per 24h per SPEC-52); heavy users hit those caps without an upgrade path, and the operator lacks a sustainable revenue channel. Pro tier is a strictly opt-in upgrade: users complete payment via Stripe Checkout, the broker issues a short-TTL (≤ 24h) JWT carrying an `EntitlementSnapshot`, and the client caches it locally to unlock raised quotas (5000 vault items × 5 MB), unlimited LLM relay (rate-limited per the SPEC-50 sliding window), priority cross-device sync, and an optional family plan (one account binds up to 6 identities (1 owner + 5 members per SPEC-71), see SPEC-71). PCI compliance scope is fully delegated to Stripe — the broker never touches plaintext PAN. Six new REST endpoints (`POST /pro/checkout`, `GET /pro/portal`, `GET /pro/entitlement`, `POST /webhooks/stripe`, `POST /pro/cancel`, `GET /pro/usage`), six new error codes, and one new state machine (`Subscription`: `active` / `past_due` / `cancelled` / `refunded`) are introduced. Hard guardrails: Pro tier never gates core P2P (peer-to-peer) mesh functionality; the broker decouples payment identity from vault content (separate database tables, separate encryption domains); no ads, no data brokering, ever.
 
 ---
 
-> **📚 全檔縮寫 + 英文名詞對照表**（給第一次接觸 phantom-mesh 的研究生 / 大學生讀者；同檔第二次出現後允許只用英文）：
+> **📚 全檔縮寫 + 英文名詞對照表**（給第一次接觸 spectyn-mesh 的研究生 / 大學生讀者；同檔第二次出現後允許只用英文）：
 >
 > | 縮寫 / 名詞 | 中文 | 一句話解釋 |
 > |---|---|---|
@@ -54,7 +54,7 @@
 > | **entitlement** | 授權範圍 | 一個 user 帳號目前可享用的功能 / 配額快照 |
 > | **webhook** | 反向回呼 | Stripe 主動 POST 通知 broker 「訂閱狀態改變」的事件 wire |
 > | **idempotency key** | 冪等鍵 | 重複請求帶同一 key 只執行一次的防重機制 |
-> | **broker** | 中介伺服器 | phantom-mesh 的 Cloudflare Workers 伺服器端 |
+> | **broker** | 中介伺服器 | spectyn-mesh 的 Cloudflare Workers 伺服器端 |
 > | **vault** | 保險庫 | broker 上儲存的 user sealed 設定（LLM key、cluster 設定） |
 > | **PAN** | 主帳號 | Primary Account Number — 信用卡 16 位卡號明文 |
 > | **refund** | 退款 | user 取消訂閱並要求退回款項 |
@@ -66,11 +66,11 @@
 
 ### 2.1 為什麼現在（觸發本檔的事件）
 
-phantom-mesh v0.6.0 已 ship local-first（本地優先）BYOM（Bring Your Own Model，自帶模型）mesh + optional broker vault sync，operator 自費補貼 Cloudflare Workers + Cerebras / Groq commodity tier LLM key。三件事同時發生使付費路徑成為必要：
+spectyn-mesh v0.6.0 已 ship local-first（本地優先）BYOM（Bring Your Own Model，自帶模型）mesh + optional broker vault sync，operator 自費補貼 Cloudflare Workers + Cerebras / Groq commodity tier LLM key。三件事同時發生使付費路徑成為必要：
 
 1. **Heavy user 撞配額**：早期採用者多設備（iPhone + Android + 3 desktop）+ 多 LLM provider 多 key，100 vault item 上限不夠用，回報「想付費換更高配額」。
 2. **Operator 收入路徑**：純 OSS（開放原始碼軟體，Open Source Software）+ 個人補貼撐不過 12 個月；不付費就停服或砍功能。
-3. **Family use case**：使用者反映「想用同一個帳號管全家 5 個人的 phantom identity」（見 SPEC-71-EXP-multi-user-household），這天然是付費賣點。
+3. **Family use case**：使用者反映「想用同一個帳號管全家 5 個人的 spectyn identity」（見 SPEC-71-EXP-multi-user-household），這天然是付費賣點。
 
 不做付費，operator 只剩三條路：(a) 接 ads / (b) 賣 user data / (c) 停服。三條都違反 BIG-GOAL；故開第四條：opt-in Pro tier。
 
@@ -92,12 +92,12 @@ v0.7.0+（本檔）：補完 Pro tier wire。
 
 ### 2.4 競品對照（Comparable products）
 
-| 競品 | 定價策略 | phantom-mesh Pro 學了什麼 / 沒學什麼 |
+| 競品 | 定價策略 | spectyn-mesh Pro 學了什麼 / 沒學什麼 |
 |---|---|---|
-| **Tailscale Personal Pro** | USD 5 / mo 個人版；free tier 100 device | 學：個人 Pro 價位；簡單 unlimited 訴求。沒學：device-count gate（device 數封頂） — phantom mesh peer 數不收費，違反 BIG-GOAL「peer 平等」核心 |
-| **Cloudflare Zero Trust SOHO** | USD 7 / user / mo，企業特化 | 沒學：per-user pricing 太複雜；phantom 走 per-account（每 account 一價） |
-| **Apple iCloud+** | USD 0.99-9.99 / mo 純儲存階梯 | 學：階梯儲存價位透明、用 lifetime 一次買斷取代某些階梯。沒學：純 storage 計費 — phantom Pro 不是賣 GB |
-| **Bitwarden Family** | USD 3.33 / mo / family（6 user） | 學：family plan 設計（1 付費綁多 identity）— phantom 走 6 identity / family (owner + 5 members)（見 SPEC-71）。沒學：unlimited device count（phantom 本來就 unlimited，free 也不限） |
+| **Tailscale Personal Pro** | USD 5 / mo 個人版；free tier 100 device | 學：個人 Pro 價位；簡單 unlimited 訴求。沒學：device-count gate（device 數封頂） — spectyn mesh peer 數不收費，違反 BIG-GOAL「peer 平等」核心 |
+| **Cloudflare Zero Trust SOHO** | USD 7 / user / mo，企業特化 | 沒學：per-user pricing 太複雜；spectyn 走 per-account（每 account 一價） |
+| **Apple iCloud+** | USD 0.99-9.99 / mo 純儲存階梯 | 學：階梯儲存價位透明、用 lifetime 一次買斷取代某些階梯。沒學：純 storage 計費 — spectyn Pro 不是賣 GB |
+| **Bitwarden Family** | USD 3.33 / mo / family（6 user） | 學：family plan 設計（1 付費綁多 identity）— spectyn 走 6 identity / family (owner + 5 members)（見 SPEC-71）。沒學：unlimited device count（spectyn 本來就 unlimited，free 也不限） |
 
 ---
 
@@ -149,7 +149,7 @@ v0.7.0+（本檔）：補完 Pro tier wire。
 從 BIG-GOAL Audience 6 種挑：
 
 1. **Heavy-Vault User（重度 vault 使用者）**：5+ 裝置、8+ LLM provider key、撞 100 item 上限。期待：付 USD 5/mo 換更大 vault + priority sync。
-2. **Family Coordinator（家庭協調者）**：家長 / 室友代表，要付一筆錢管全家 phantom identity。期待：family plan 6 identity (owner + 5 members) / 12 USD/mo。
+2. **Family Coordinator（家庭協調者）**：家長 / 室友代表，要付一筆錢管全家 spectyn identity。期待：family plan 6 identity (owner + 5 members) / 12 USD/mo。
 3. **Indie-Dev Sponsor（開發者贊助者）**：想用付費表態支持專案永續，可能本身配額用不到 Pro。期待：lifetime USD 200 一次買斷 + 名字進 sponsor wall（OoS for v0.7.0）。
 4. **Privacy-First Subscriber（隱私優先付費者）**：付費可以、揭露身份不行。期待：付費資訊與 vault content 在 broker 嚴格分離、broker 看不到 vault 明文（既有 SPEC-15 已保證、本檔強化付費 record 分離）。
 
@@ -164,7 +164,7 @@ v0.7.0+（本檔）：補完 Pro tier wire。
 ```mermaid
 flowchart LR
     subgraph "使用者裝置（User Device）"
-        Client["phantom client（含 Pro UI）"]
+        Client["spectyn client（含 Pro UI）"]
         Cache["EntitlementSnapshot cache（24h TTL）"]
     end
 
@@ -207,9 +207,9 @@ flowchart LR
 
 | 元件 | 程式碼位置 | 職責 | 對外介面 |
 |---|---|---|---|
-| `pro-billing handler` | `phantommesh-io/workers/pro-billing/index.ts` | 6 個 `/pro/*` endpoint 路由 | §9.1 全部 |
-| `webhook verifier` | `phantommesh-io/workers/pro-billing/webhook.ts` | Stripe signature 驗證 + 事件分派 | §9.1 `/webhooks/stripe` |
-| `entitlement signer` | `phantommesh-io/workers/pro-billing/entitlement.ts` | 查 ProDB → 簽 EntitlementSnapshot JWT | §9.1 `/pro/entitlement` |
+| `pro-billing handler` | `spectynmesh-io/workers/pro-billing/index.ts` | 6 個 `/pro/*` endpoint 路由 | §9.1 全部 |
+| `webhook verifier` | `spectynmesh-io/workers/pro-billing/webhook.ts` | Stripe signature 驗證 + 事件分派 | §9.1 `/webhooks/stripe` |
+| `entitlement signer` | `spectynmesh-io/workers/pro-billing/entitlement.ts` | 查 ProDB → 簽 EntitlementSnapshot JWT | §9.1 `/pro/entitlement` |
 | `pro_entitlement.rs` | `core/src/pro_entitlement.rs` | client 端 cache + heartbeat（心跳） | §9.2 `ProEntitlement` trait |
 | `pro UI routes` | `app/src/routes/pro/{pricing,checkout,manage,usage,family}.tsx` | 5 screens | §10 |
 
@@ -218,7 +218,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant U as "使用者（User）"
-    participant C as "client（phantom）"
+    participant C as "client（spectyn）"
     participant B as "broker"
     participant S as "Stripe"
 
@@ -229,7 +229,7 @@ sequenceDiagram
     B-->>C: "{ checkout_url }"
     C->>U: "瀏覽器跳 Stripe Checkout"
     U->>S: "輸入卡號 + 完成付款"
-    S-->>U: "跳回 phantom success URL"
+    S-->>U: "跳回 spectyn success URL"
     par "webhook 路徑（權威）"
         S->>B: "POST /webhooks/stripe {event:'checkout.session.completed', ...}"
         B->>B: "驗 signature（HMAC-SHA256）"
@@ -243,7 +243,7 @@ sequenceDiagram
         C->>B: "GET /pro/entitlement（attach identity JWT）"
         B->>B: "查 pro_subscriptions where user_id=..."
         B-->>C: "signed EntitlementSnapshot JWT（TTL 24h）"
-        C->>C: "緩存於 local（~/.phantom-mesh/pro_ent.cache）"
+        C->>C: "緩存於 local（~/.spectyn-mesh/pro_ent.cache）"
     end
     Note over C,B: 後續所有 broker 請求附帶 ent_jwt；<br/>broker 依 snapshot 放行 quota
 ```
@@ -342,13 +342,13 @@ interface EntitlementSnapshot {
 ### 7.3 Storage location
 
 - **broker（D1）**：`pro_subscriptions` table + `pro_webhook_events` audit table（30 天保留）。**獨立於** `vault_items` table — 不同 SQL schema，admin 查詢無法 join。
-- **client（local）**：`~/.phantom-mesh/pro_ent.cache`（JSON，TTL 24h，過期自動刪）。
+- **client（local）**：`~/.spectyn-mesh/pro_ent.cache`（JSON，TTL 24h，過期自動刪）。
 - **Stripe（外部）**：所有信用卡明文、PCI scope record — broker **永不接觸**。
 
 ### 7.4 Retention
 
 - `pro_subscriptions` 永久保留（會計用途）；refund 後不刪 row，僅標 `status='refunded'`。
-- `pro_ent.cache` user `phantom pro logout` 立即刪 + TTL 24h 自動過期。
+- `pro_ent.cache` user `spectyn pro logout` 立即刪 + TTL 24h 自動過期。
 - `pro_webhook_events` 30 天滾動保留（debug 用，不含 PCI 資料）。
 
 ### 7.5 Migration
@@ -657,7 +657,7 @@ UI 任何角落塞第三方廣告聯播網（如 Carbon Ads / Google AdSense）�
 ### 17.4 Data brokering（賣 user data）
 
 把 vault content / event log / capture 摘要去識別後賣給研究機構或行銷公司。
-**為何沒選**：**永久拒絕**。違反 BIG-GOAL P4；違反 SPEC-08 threat model 對 broker 信任的根本假設；違反 user 對 phantom-mesh 的核心信任（隱私品牌）。即使「匿名化」也已被多次研究證明可 re-identify。寫進 §3.2 NG2 鎖死。
+**為何沒選**：**永久拒絕**。違反 BIG-GOAL P4；違反 SPEC-08 threat model 對 broker 信任的根本假設；違反 user 對 spectyn-mesh 的核心信任（隱私品牌）。即使「匿名化」也已被多次研究證明可 re-identify。寫進 §3.2 NG2 鎖死。
 **什麼條件會回來考慮**：永遠不。
 
 ### 17.5 Pay-per-use（按使用量計費，無月費）

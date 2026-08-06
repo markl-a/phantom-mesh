@@ -1,12 +1,12 @@
-//! End-to-end tests for `phantom permissions` (the Execution Permission CLI).
+//! End-to-end tests for `spectyn permissions` (the Execution Permission CLI).
 //! Spawns the real binary against a temp HOME so the `set` write path + the
 //! `doctor` round-trip are both exercised, not just the lib logic.
 
 use std::path::Path;
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn write(p: &Path, s: &str) {
@@ -18,7 +18,7 @@ fn write(p: &Path, s: &str) {
 #[test]
 fn permissions_list_shows_all_profiles() {
     let home = tempfile::tempdir().unwrap();
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .args(["permissions", "list"])
         .env("HOME", home.path())
         .output()
@@ -36,15 +36,15 @@ fn permissions_list_shows_all_profiles() {
 #[test]
 fn permissions_set_writes_profile_and_doctor_reports_it() {
     let home = tempfile::tempdir().unwrap();
-    let cfg = home.path().join(".phantom-mesh/agents.toml");
-    write(&home.path().join(".phantom-mesh/identity.key"), "x");
+    let cfg = home.path().join(".spectyn-mesh/agents.toml");
+    write(&home.path().join(".spectyn-mesh/identity.key"), "x");
     // a pre-existing config with a comment + provider block we must not clobber
     write(
         &cfg,
         "# my config\n[providers.groq]\ntype = \"groq\"\napi_key_env = \"GROQ_API_KEY\"\n",
     );
 
-    let set = Command::new(phantom_bin())
+    let set = Command::new(spectyn_bin())
         .args(["permissions", "set", "workspace-write"])
         .env("HOME", home.path())
         .output()
@@ -57,7 +57,7 @@ fn permissions_set_writes_profile_and_doctor_reports_it() {
     assert!(after.contains("[providers.groq]"), "provider block clobbered:\n{after}");
 
     // doctor now reports the profile in its JSON state.
-    let doc = Command::new(phantom_bin())
+    let doc = Command::new(spectyn_bin())
         .args(["doctor", "--json"])
         .current_dir(home.path()) // avoid picking up a stray cwd config
         .env("HOME", home.path())
@@ -75,9 +75,9 @@ fn permissions_set_writes_profile_and_doctor_reports_it() {
 #[test]
 fn permissions_set_rejects_unknown_profile() {
     let home = tempfile::tempdir().unwrap();
-    let cfg = home.path().join(".phantom-mesh/agents.toml");
+    let cfg = home.path().join(".spectyn-mesh/agents.toml");
     write(&cfg, "[providers.groq]\ntype = \"groq\"\n");
-    let out = Command::new(phantom_bin())
+    let out = Command::new(spectyn_bin())
         .args(["permissions", "set", "nonsense"])
         .env("HOME", home.path())
         .output()

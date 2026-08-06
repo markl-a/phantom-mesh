@@ -14,11 +14,11 @@ pub struct TaskStore {
 }
 
 impl TaskStore {
-    /// Open (or create) the store at `~/.phantom-mesh/phantom.db`.
+    /// Open (or create) the store at `~/.spectyn-mesh/spectyn.db`.
     pub fn open_default() -> Result<Self> {
-        let dir = crate::cli_config::phantom_data_dir()?;
+        let dir = crate::cli_config::spectyn_data_dir()?;
         std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-        Self::open_at(dir.join("phantom.db"))
+        Self::open_at(dir.join("spectyn.db"))
     }
 
     pub fn open_at(db_path: PathBuf) -> Result<Self> {

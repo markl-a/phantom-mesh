@@ -19,7 +19,7 @@
 //! carrying the same key within a TTL window.
 //!
 //! Design (deliberately small + dependency-light):
-//!   - A single JSONL ledger at `~/.phantom-mesh/idempotency.jsonl` — same
+//!   - A single JSONL ledger at `~/.spectyn-mesh/idempotency.jsonl` — same
 //!     convention as `partner-signals.jsonl`, no DB to provision, survives a
 //!     restart (so an at-most-once guarantee holds across a serve bounce too).
 //!   - One `{key, ts, kind}` record per accepted request, appended atomically.
@@ -82,16 +82,16 @@ impl Decision {
     }
 }
 
-/// Path of the dedup ledger. Override with `PHANTOM_IDEMPOTENCY_STORE` (used in
+/// Path of the dedup ledger. Override with `SPECTYN_IDEMPOTENCY_STORE` (used in
 /// tests and to relocate the brain's home). Mirrors `partner::signals_path`.
 pub fn store_path() -> PathBuf {
-    if let Ok(p) = std::env::var("PHANTOM_IDEMPOTENCY_STORE") {
+    if let Ok(p) = std::env::var("SPECTYN_IDEMPOTENCY_STORE") {
         if !p.is_empty() {
             return PathBuf::from(p);
         }
     }
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("idempotency.jsonl")
 }
 
@@ -142,7 +142,7 @@ pub fn task_assign_idem_key(idempotency_key: Option<&str>, agent: &str, prompt: 
 /// Check `key` against the ledger and, if unseen within `ttl_secs`, record it.
 ///
 /// Returns [`Decision::First`] (and appends) the first time; [`Decision::Duplicate`]
-/// (without appending) for a retry. Honors `PHANTOM_IDEMPOTENCY_STORE`.
+/// (without appending) for a retry. Honors `SPECTYN_IDEMPOTENCY_STORE`.
 ///
 /// Fail-open philosophy: an unreadable/corrupt ledger is treated as "key not
 /// seen" so a transient FS error never *blocks* a legitimate request — the cost

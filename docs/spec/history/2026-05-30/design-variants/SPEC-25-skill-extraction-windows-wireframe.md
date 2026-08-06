@@ -2,7 +2,7 @@
 
 > **Stage 1/3** · 線框稿（wireframe，低保真版型骨架）→ [視覺稿（mockup，待補）] → [原型（prototype，待補）]
 > **Status**: draft v0.1 · **Last updated**: 2026-05-28
-> **Scope**: Windows only。SPEC-25 是 **技能庫 6 步技能自我演進迴圈**（judge → extract → store → recall → apply → measure，演化引擎）。引擎多在背景；本檔描述桌面 user 看得到 / 控得到的三面：(1) **skill bank（技能庫）list** — 看抽出的技能；(2) **recalled-skill（喚回技能）apply banner** — 任務命中技能時顯示 + decline（拒絕）；(3) `phantom skill` CLI。
+> **Scope**: Windows only。SPEC-25 是 **技能庫 6 步技能自我演進迴圈**（judge → extract → store → recall → apply → measure，演化引擎）。引擎多在背景；本檔描述桌面 user 看得到 / 控得到的三面：(1) **skill bank（技能庫）list** — 看抽出的技能；(2) **recalled-skill（喚回技能）apply banner** — 任務命中技能時顯示 + decline（拒絕）；(3) `spectyn skill` CLI。
 > **Spec**: [`SPEC-25-SYSTEM-skill-extraction`](../specs/v060-deep-spec/SPEC-25-SYSTEM-skill-extraction.md) · [`SPEC-42`](../specs/v060-deep-spec/SPEC-42-PLATFORM-Windows-foundations.md) · [`SPEC-43`](../specs/v060-deep-spec/SPEC-43-PLATFORM-Windows-screens-flows.md)
 
 ## 設計溯源（trace）
@@ -39,9 +39,9 @@
 | Main window `[Skills tab]`（由技能庫引擎驅動，§10.1 Screen A） | ✅ | skill bank 列表（Core/Recall/Archival 三段）+ 詳情 |
 | **每日「學到新 skill」通知**（§10.2，judge 跑完有新 skill 才發） | ✅ | WinRT toast「技能庫學到 N 個新 skill 等你 review」→ 點開到 Skills tab |
 | **Recalled-skill apply banner**（chat/task 內 inline，§10.1 Screen C） | ✅ | 命中時顯示 + decline；consent-gated |
-| CLI `phantom skill status / review / decline <id> / delete <id> / sync`（per §9.7） | ✅ | 終端機查統計 / 看上輪新 skill / 拒絕 / 永久刪 / 跨 peer 同步 |
-| Deep-link `phantom-mesh://skills`（+ `?id=<skill_id>`） | ✅ | toast 啟動 / 外部跳 Skills tab（待加入 SPEC-43 §12.1 白名單，同 capture prefix） |
-| Task Scheduler `PhantomMeshSkillJudge` 每日 | ✅ | 背景 judge → extract（user 不需手動） |
+| CLI `spectyn skill status / review / decline <id> / delete <id> / sync`（per §9.7） | ✅ | 終端機查統計 / 看上輪新 skill / 拒絕 / 永久刪 / 跨 peer 同步 |
+| Deep-link `spectyn-mesh://skills`（+ `?id=<skill_id>`） | ✅ | toast 啟動 / 外部跳 Skills tab（待加入 SPEC-43 §12.1 白名單，同 capture prefix） |
+| Task Scheduler `SpectynMeshSkillJudge` 每日 | ✅ | 背景 judge → extract（user 不需手動） |
 | Settings → 技能演化 → 演化開關 | ✅ | 全域 on/off skill 演化（Reversible） |
 
 ## 螢幕 A — Skill bank list（Skills tab，列表 + 詳情雙欄）
@@ -91,28 +91,28 @@
 
 ```
 +------------------------------------------+
-| Phantom Mesh                             |
+| Spectyn Mesh                             |
 |  技能庫學到 3 個新 skill 等你 review      |  ← 取 skillbank.notify.learned (§10.2 文案)
 |  Rust 錯誤先看 cargo check 等 . 點開看看  |
-|                          [ 看看 ]        |  ← action → deep-link phantom-mesh://skills
+|                          [ 看看 ]        |  ← action → deep-link spectyn-mesh://skills
 +------------------------------------------+
 ```
 - 只在「judge 完成 + 有新 skill」才發（沒新 skill 不打擾，per §10.2）；`scenario="reminder"` persist、**無 audio**（夜間、shame-free）
-- 點 toast / 「看看」→ deep-link `phantom-mesh://skills` → Skills tab（新 skill 在 Recall 段頂、可逐一 keep/edit/delete，per job story J1）
+- 點 toast / 「看看」→ deep-link `spectyn-mesh://skills` → Skills tab（新 skill 在 Recall 段頂、可逐一 keep/edit/delete，per job story J1）
 - Focus Assist 期間折疊到 ActionCenter（非急事）
 
 ## 螢幕 C — 空狀態（skill bank 還沒長出東西）
 
 ```
 |  還沒有學到技能                                          |
-|  多用幾天，phantom 會從你的重複做法裡學會自動套用         |  ← 不催促、解釋機制
+|  多用幾天，spectyn 會從你的重複做法裡學會自動套用         |  ← 不催促、解釋機制
 |  (要 ≥ 5 次重複才會抽成技能，避免學到雜訊)               |
 ```
 - 解釋「為何還沒有」（≥5 次門檻）— user 才不會以為壞了
 
 ## Task Scheduler + Settings
 
-- task `PhantomMeshSkillJudge` 每日 23:00（per SPEC-25 §6.1，與 coach 21:00 自然錯開）→ `phantom skill judge --since 7d`
+- task `SpectynMeshSkillJudge` 每日 23:00（per SPEC-25 §6.1，與 coach 21:00 自然錯開）→ `spectyn skill judge --since 7d`
 - Settings → 技能演化 → 「技能演化」總開關（off = 不 judge / 不 recall，但保留已存 skill）；「跨機分享」開關（off = skill 只留本機，不 `/rpc/skill/sync`）
 - 全域 off 是 Reversible 原則的體現
 

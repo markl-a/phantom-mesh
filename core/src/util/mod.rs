@@ -5,6 +5,6 @@
 //
 // PF-2d (this commit): consolidates `colored()` / `is_colored()` ANSI
 // helpers that PF-2a / PF-2b had as private duplicates in
-// `service/{windows,linux}.rs` and `bin/phantom.rs`.
+// `service/{windows,linux}.rs` and `bin/spectyn.rs`.
 
 pub mod term;

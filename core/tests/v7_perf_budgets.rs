@@ -18,7 +18,7 @@ fn assert_budget(label: &str, avg_ns: u128, budget_ns: u128, iters: u32) {
 // V7.1 — SPEC-10 HMAC sign + verify ≤ 1ms avg per op.
 #[test]
 fn v7_hmac_sign_verify_under_1ms_avg() {
-    use phantom_mesh::rpc_wire::{sign_hmac, verify_hmac};
+    use spectyn_mesh::rpc_wire::{sign_hmac, verify_hmac};
     let secret: &[u8] = b"perf-budget-cluster-secret-32-by";
     assert_eq!(secret.len(), 32);
     let canonical = "GET\n/rpc/ping\n\nXXX\n";
@@ -35,7 +35,7 @@ fn v7_hmac_sign_verify_under_1ms_avg() {
 // V7.2 — SPEC-11 mdns TXT parse ≤ 100µs avg.
 #[test]
 fn v7_mdns_parse_txt_under_100us_avg() {
-    use phantom_mesh::mdns_wire::parse_txt_records;
+    use spectyn_mesh::mdns_wire::parse_txt_records;
     let raw: Vec<(String, String)> = vec![
         ("v".into(), "1".into()),
         ("pf".into(), "deadbeef".into()),
@@ -56,7 +56,7 @@ fn v7_mdns_parse_txt_under_100us_avg() {
 // V7.3 — SPEC-12 identity fingerprint_short ≤ 50µs avg.
 #[test]
 fn v7_identity_fingerprint_short_under_50us_avg() {
-    use phantom_mesh::identity_wire::fingerprint_short;
+    use spectyn_mesh::identity_wire::fingerprint_short;
     let verifying: [u8; 32] = [0x42; 32];
     const ITERS: u32 = 1_000;
     let start = Instant::now();
@@ -70,8 +70,8 @@ fn v7_identity_fingerprint_short_under_50us_avg() {
 // V7.4 — SPEC-23 coach aggregate of 50 events ≤ 5ms.
 #[test]
 fn v7_coach_aggregate_50_events_under_5ms_avg() {
-    use phantom_mesh::coach_wire::aggregate;
-    use phantom_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
+    use spectyn_mesh::coach_wire::aggregate;
+    use spectyn_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
     let events: Vec<(EventMeta, AnalysisResult)> = (0..50)
         .map(|i| {
             let meta = EventMeta {
@@ -105,7 +105,7 @@ fn v7_coach_aggregate_50_events_under_5ms_avg() {
 // V7.5 — SPEC-25 apply_skill_to_prompt with 10 recalled skills ≤ 1ms avg.
 #[test]
 fn v7_skill_apply_to_prompt_10_skills_under_1ms_avg() {
-    use phantom_mesh::skill_wire::{apply_skill_to_prompt, Skill, SkillExample};
+    use spectyn_mesh::skill_wire::{apply_skill_to_prompt, Skill, SkillExample};
     let recalled: Vec<Skill> = (0..10)
         .map(|i| Skill {
             id: format!("skill-{i:02}"),
@@ -139,7 +139,7 @@ fn v7_skill_apply_to_prompt_10_skills_under_1ms_avg() {
 // V7.6 — SPEC-26 score_peer over 20 peers ≤ 500µs per sweep.
 #[test]
 fn v7_cluster_score_peer_20_peers_under_500us_avg() {
-    use phantom_mesh::cluster_dispatch_wire::{
+    use spectyn_mesh::cluster_dispatch_wire::{
         score_peer, CapabilityTag, DispatchTask, PeerCapabilities,
     };
     let now_ms = 1_700_000_000_000u64;
@@ -180,7 +180,7 @@ fn v7_cluster_score_peer_20_peers_under_500us_avg() {
 // it stands in as the V7.7 onboarding-wire budget sentinel.
 #[test]
 fn v7_onboarding_fsm_decision_under_100us_avg() {
-    use phantom_mesh::onboarding_wire::{should_fallback_to_demo_relay, OnboardingContext};
+    use spectyn_mesh::onboarding_wire::{should_fallback_to_demo_relay, OnboardingContext};
     let ctx_needs_fallback = OnboardingContext::default();
     let ctx_has_provider = OnboardingContext {
         cluster_id_hash: Some("ab".repeat(32)),

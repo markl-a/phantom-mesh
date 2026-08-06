@@ -1,4 +1,4 @@
-use phantom_mesh::AgentsConfig;
+use spectyn_mesh::AgentsConfig;
 
 fn main() {
     let content = r#"

@@ -1,10 +1,10 @@
-use phantom_mesh::tools::file;
+use spectyn_mesh::tools::file;
 use serde_json::json;
 use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
 
 // T7 fix (codex audit 2026-05-15): safe_path now confines results to a
-// workspace-roots set (CWD + ~/.phantom-mesh + PHANTOM_EXTRA_ALLOWED_ROOTS).
+// workspace-roots set (CWD + ~/.spectyn-mesh + SPECTYN_EXTRA_ALLOWED_ROOTS).
 // All file::{read,write,edit} tests below operate on tempdirs that are
 // nowhere near CWD or $HOME, so we have to whitelist each tempdir before
 // touching it. Env vars are process-global; the mutex below serialises
@@ -16,18 +16,18 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|p| p.into_inner())
 }
 
-/// Append `td.path()` to `PHANTOM_EXTRA_ALLOWED_ROOTS`. Caller must hold an
+/// Append `td.path()` to `SPECTYN_EXTRA_ALLOWED_ROOTS`. Caller must hold an
 /// `env_lock()` guard for the duration of the test.
 fn allow_tempdir(td: &tempfile::TempDir) {
     let p = td.path().to_string_lossy().to_string();
-    let prev = std::env::var("PHANTOM_EXTRA_ALLOWED_ROOTS").unwrap_or_default();
+    let prev = std::env::var("SPECTYN_EXTRA_ALLOWED_ROOTS").unwrap_or_default();
     let sep = if cfg!(windows) { ";" } else { ":" };
     let merged = if prev.is_empty() {
         p
     } else {
         format!("{prev}{sep}{p}")
     };
-    std::env::set_var("PHANTOM_EXTRA_ALLOWED_ROOTS", merged);
+    std::env::set_var("SPECTYN_EXTRA_ALLOWED_ROOTS", merged);
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +48,7 @@ fn test_safe_path_existing() {
     // file name and actually point to an existing path.
     assert_eq!(result.file_name().unwrap(), "exists.txt");
     assert!(result.is_absolute());
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn test_safe_path_new_file() {
     assert_eq!(result.file_name().unwrap(), "new_file.txt");
     // The parent directory (tempdir) must exist.
     assert!(result.parent().unwrap().exists());
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ async fn test_write_then_read() {
 
     let read_result = file::read(&json!({ "path": path_str })).await;
     assert_eq!(read_result, "hello world");
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ async fn test_write_creates_parents() {
     );
     assert!(nested.exists(), "file should have been created");
     assert_eq!(std::fs::read_to_string(&nested).unwrap(), "deep content");
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ async fn test_edit_replaces_once() {
 
     let content = std::fs::read_to_string(&file_path).unwrap();
     assert_eq!(content, "foo qux baz");
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
@@ -173,7 +173,7 @@ async fn test_edit_not_found() {
         result.contains("not found"),
         "expected 'not found' error but got: {result}"
     );
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
@@ -198,7 +198,7 @@ async fn test_edit_ambiguous() {
         result.contains("3 times"),
         "expected ambiguity error mentioning '3 times' but got: {result}"
     );
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +219,7 @@ async fn test_read_nonexistent() {
         result.starts_with("Error"),
         "expected an error string but got: {result}"
     );
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 #[tokio::test]
@@ -246,7 +246,7 @@ async fn test_read_large_file() {
         result.len() < big_content.len(),
         "truncated output should be shorter than the original"
     );
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
 }
 
 // ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ async fn test_read_large_file() {
 #[test]
 fn test_no_path_traversal() {
     let _g = env_lock();
-    std::env::remove_var("PHANTOM_EXTRA_ALLOWED_ROOTS");
+    std::env::remove_var("SPECTYN_EXTRA_ALLOWED_ROOTS");
     // T7 fix (codex audit 2026-05-15): safe_path MUST reject ../../etc/passwd.
     let result = file::safe_path("../../etc/passwd");
 
@@ -270,8 +270,8 @@ fn test_no_path_traversal() {
         let cwd = std::env::current_dir().unwrap();
         let cwd = cwd.canonicalize().unwrap_or(cwd);
         assert!(
-            p.starts_with(&cwd) || p.to_string_lossy().contains(".phantom-mesh"),
-            "safe_path returned {p:?} which is outside CWD {cwd:?} and not in .phantom-mesh"
+            p.starts_with(&cwd) || p.to_string_lossy().contains(".spectyn-mesh"),
+            "safe_path returned {p:?} which is outside CWD {cwd:?} and not in .spectyn-mesh"
         );
     }
 }

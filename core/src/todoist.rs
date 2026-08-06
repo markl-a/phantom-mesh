@@ -105,7 +105,7 @@ fn client() -> reqwest::Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(TIMEOUT_SECS))
         .use_rustls_tls()
-        .user_agent("phantom-mesh-partner/0.6")
+        .user_agent("spectyn-mesh-partner/0.6")
         .build()
 }
 

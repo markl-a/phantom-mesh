@@ -8,7 +8,7 @@
 # Works on macOS bash AND Windows git-bash — on Windows you MUST run it from Git Bash
 # (NOT WSL: WSL can't see the Windows npm-installed AI CLIs; NOT cmd/PowerShell).
 #
-# Usage (on each machine):  cd <your phantom-mesh clone> && bash scripts/dev-loop/verify-m2-m3.sh
+# Usage (on each machine):  cd <your spectyn-mesh clone> && bash scripts/dev-loop/verify-m2-m3.sh
 #   QUICK=1   skip the live >=2-AI review.sh call (the slow/costly part); still checks the
 #             reviewers are available + runs the hermetic governance demo.
 #
@@ -19,7 +19,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." 2>/dev/null && pwd)"
 cd "$ROOT" 2>/dev/null || { echo "verify: cannot locate repo root from $0" >&2; exit 1; }
 OS="$(uname -s 2>/dev/null || echo unknown)"
-MACHINE="${PHANTOM_NODE:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo this)}"
+MACHINE="${SPECTYN_NODE:-$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo this)}"
 T="/tmp/pv.$$"
 
 pass=0; fail=0; skip=0; warn=0
@@ -30,7 +30,7 @@ wn(){ printf '  [warn]  %s\n' "$1"; warn=$((warn+1)); }   # noted, does NOT fail
 have(){ for e in "" .cmd .exe; do command -v "$1$e" >/dev/null 2>&1 && return 0; done; return 1; }
 
 echo "================================================================"
-echo " phantom M2/M3 verify — ${MACHINE} (${OS})"
+echo " spectyn M2/M3 verify — ${MACHINE} (${OS})"
 echo " repo: $ROOT"
 case "$OS" in MINGW*|MSYS*|CYGWIN*) echo " shell: git-bash ✓ (correct on Windows — not WSL)";; esac
 echo "================================================================"
@@ -41,10 +41,10 @@ echo "[M2] 本機武裝 — local Claude Code drives THIS machine's own AIs (no 
 
 # M2.1 — arm + enrol (live-detects which AIs work here, writes the node descriptor)
 scripts/dev-cluster/node-setup.sh "$MACHINE" --role dev >"${T}.node" 2>&1 || true
-if [ -f "$HOME/.phantom-mesh/node.json" ]; then
+if [ -f "$HOME/.spectyn-mesh/node.json" ]; then
   wtools=""
   for t in claude codex opencode agy; do
-    grep -oE "\"$t\":\{[^}]*\"working\":true" "$HOME/.phantom-mesh/node.json" >/dev/null 2>&1 && wtools="${wtools} ${t}"
+    grep -oE "\"$t\":\{[^}]*\"working\":true" "$HOME/.spectyn-mesh/node.json" >/dev/null 2>&1 && wtools="${wtools} ${t}"
   done
   ok "M2.1 arm + enrol — node.json written; working AIs here:${wtools:- none} (claude = the driver itself)"
 else
@@ -69,7 +69,7 @@ done
 # first: piping straight into `grep -q` makes grep close the pipe on the first match,
 # SIGPIPE-killing the still-printing hook and (under pipefail) looking like a failure.
 hint_out="$(CLAUDE_PROJECT_DIR="$ROOT" bash "$ROOT/.claude/hooks/dev-node-hint.sh" 2>/dev/null || true)"
-if printf '%s' "$hint_out" | grep -q "phantom-mesh dev node"; then
+if printf '%s' "$hint_out" | grep -q "spectyn-mesh dev node"; then
   ok "M2.3 auto-arm surface — SessionStart hook emits the dev-node hint"
 else
   no "M2.3 auto-arm surface — hook produced no hint"

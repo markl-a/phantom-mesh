@@ -1,0 +1,39 @@
+{
+  "name": "@spectynmesh/dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "phantommesh.io dashboard SPA shell (E003 / F200). Empty-shell scaffolding for F201-F204 to fill in.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-dropdown-menu": "^2.1.2",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.4",
+    "lucide-react": "^0.500",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-router-dom": "^7"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4",
+    "autoprefixer": "^10",
+    "jsdom": "^26.0.0",
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^4.1.1"
+  }
+}

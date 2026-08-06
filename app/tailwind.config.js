@@ -5,7 +5,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        phantom: {
+        spectyn: {
           bg: "#0f0f1a",
           card: "#1a1a2e",
           border: "#2a2a3e",

@@ -138,14 +138,14 @@ impl TauriCommandError {
 
 // ─── §8 / §11.2 Deep-link route ─────────────────────────────────────────────
 
-/// A parsed `phantom://<host>/<path>?<query>` URL after allowlist filtering.
+/// A parsed `spectyn://<host>/<path>?<query>` URL after allowlist filtering.
 /// Only URLs that match the §11.2 allowlist reach this struct; everything
 /// else is dropped + warn-logged inside `dispatch_deep_link` (the raw URL is
 /// **not** logged per §13 privacy — only its length + rejection reason).
 ///
-/// The `scheme` field is always `"phantom"` (other schemes are rejected at
+/// The `scheme` field is always `"spectyn"` (other schemes are rejected at
 /// the parser entry); kept as a field for future-proofing if we ever accept a
-/// `phantom-mesh://` aliased scheme.
+/// `spectyn-mesh://` aliased scheme.
 ///
 /// 中文: 經過 allowlist（白名單）過濾後的 deep-link（深層連結）解析結果。
 /// 含 token 的 OAuth（開放授權）原始 URL **絕對不會**到這裡 — §13 規定
@@ -155,15 +155,15 @@ impl TauriCommandError {
 #[ts(export, export_to = "../../app/src/lib/generated/tauri/")]
 #[serde(rename_all = "camelCase")]
 pub struct DeepLinkRoute {
-    /// Always `"phantom"` in v0.6.0; field exists so we can add aliases later
+    /// Always `"spectyn"` in v0.6.0; field exists so we can add aliases later
     /// without breaking the TS surface.
     pub scheme: String,
     /// First path segment (`chat` / `settings` / `mesh` / `onboarding` /
-    /// `oauth` / `demo-mode`). For `phantom://demo-mode` (no path), this is
+    /// `oauth` / `demo-mode`). For `spectyn://demo-mode` (no path), this is
     /// `"demo-mode"` and `path` is empty.
     pub host: String,
     /// Remaining path segments joined with `/`. Empty for bare URLs like
-    /// `phantom://demo-mode`. Per §8: any segment containing `..` or
+    /// `spectyn://demo-mode`. Per §8: any segment containing `..` or
     /// `%2e%2e` causes the whole URL to be dropped before reaching this
     /// struct.
     pub path: String,
@@ -775,38 +775,38 @@ fn validate_args_schema_pseudo<T: serde::Serialize>(
     Ok(())
 }
 
-/// Parse a `phantom://...` URL through the SPEC-03 §7.3 BNF and filter it
+/// Parse a `spectyn://...` URL through the SPEC-03 §7.3 BNF and filter it
 /// through the SPEC-17 §11.2 allowlist. Returns the structured route on
 /// success; on rejection logs the **length + reason only** (never the raw
 /// URL, per §13 privacy rule) and returns
 /// `TauriCommandError { code: "deep_link_rejected", ... }`.
 ///
 /// Forbidden patterns (all reject):
-/// - non-`phantom://` scheme
+/// - non-`spectyn://` scheme
 /// - any path segment containing `..` or `%2e%2e`
 /// - query string with > 16 keys
 /// - any single query value > 256 chars
 /// - URL not matching one of the §11.2 allowlist patterns
 ///
-/// 中文: 解析 `phantom://...` URL，跑完 SPEC-03 §7.3 BNF + SPEC-17 §11.2
+/// 中文: 解析 `spectyn://...` URL，跑完 SPEC-03 §7.3 BNF + SPEC-17 §11.2
 /// allowlist。拒絕時只記長度 + 原因（不記原始 URL — §13 隱私規則）。
 pub fn dispatch_deep_link(url: &str) -> Result<DeepLinkRoute, TauriCommandError> {
     // Step 1 — parse the raw URL into scheme / host / path / query parts.
-    // Stage 3 uses a hand-rolled `phantom://` parser; the `url` crate is
+    // Stage 3 uses a hand-rolled `spectyn://` parser; the `url` crate is
     // optional behind `experimental-tools` so we avoid pulling it
-    // into the default build. The phantom:// grammar is intentionally
+    // into the default build. The spectyn:// grammar is intentionally
     // narrow (no userinfo, no port, no fragment) which makes a 30-line
     // parser straightforward + audit-friendly.
     let parsed = url_parse(url)?;
 
-    // Step 2 — enforce the scheme allowlist: only `phantom://` reaches the
+    // Step 2 — enforce the scheme allowlist: only `spectyn://` reaches the
     // dispatcher. Any other scheme (or no scheme) is rejected with
     // `deep_link_invalid_scheme` per SPEC-17 §8. §13 privacy rule: we log
     // only the URL length + reason, never the raw URL string.
-    if parsed.scheme != "phantom" {
+    if parsed.scheme != "spectyn" {
         return Err(TauriCommandError::new(
             "deep_link_invalid_scheme",
-            "only phantom:// scheme is accepted",
+            "only spectyn:// scheme is accepted",
         ));
     }
 
@@ -820,7 +820,7 @@ pub fn dispatch_deep_link(url: &str) -> Result<DeepLinkRoute, TauriCommandError>
     // §11.2 allowlist pattern matcher).
     let query_params = extract_query(&parsed)?;
 
-    // Step 5 — for the OAuth callback path (`phantom://oauth/callback?...`),
+    // Step 5 — for the OAuth callback path (`spectyn://oauth/callback?...`),
     // **CRITICAL** per SPEC-17 §5 audit fix: we MUST NOT propagate the raw
     // `code` / `token` query params into the returned `DeepLinkRoute`.
     // Instead, sanitise down to `{state_id, provider}` so the webview only
@@ -840,14 +840,14 @@ pub fn dispatch_deep_link(url: &str) -> Result<DeepLinkRoute, TauriCommandError>
     })
 }
 
-/// Stage 3 helper — parse a `phantom://host/path?query` URL into its
+/// Stage 3 helper — parse a `spectyn://host/path?query` URL into its
 /// component parts. Hand-rolled to avoid pulling in the optional `url`
 /// crate (gated behind `experimental-tools`). Accepts only the
-/// narrow phantom:// grammar: no userinfo, no port, no fragment.
+/// narrow spectyn:// grammar: no userinfo, no port, no fragment.
 ///
-/// 中文: 解析 `phantom://` URL 成 scheme / host / path / query 結構。手寫
+/// 中文: 解析 `spectyn://` URL 成 scheme / host / path / query 結構。手寫
 /// 解析（不用 `url` crate，因為它在 default-off feature 後面）；只接受
-/// phantom:// 的 narrow grammar。
+/// spectyn:// 的 narrow grammar。
 fn url_parse(raw: &str) -> Result<ParsedUrl, TauriCommandError> {
     let err_invalid = |reason: &str| {
         // §13 privacy rule: never log the raw URL; log only its length +
@@ -1194,7 +1194,7 @@ mod tests {
         // `dispatch_deep_link` MUST drop them and only return
         // `{state_id, provider}` in `query_params`.
         let route = dispatch_deep_link(
-            "phantom://oauth/callback?state_id=abc&provider=cerebras\
+            "spectyn://oauth/callback?state_id=abc&provider=cerebras\
              &code=SECRET_AUTH_CODE&access_token=SECRET_BEARER",
         )
         .expect("dispatch");
@@ -1214,16 +1214,16 @@ mod tests {
         // §11.2 invariant: `..` or `%2e%2e` anywhere in the URL causes the
         // whole URL to be dropped with `deep_link_invalid_format`. We must
         // never let a deep-link traversal escape into a handler.
-        let err = dispatch_deep_link("phantom://coach/../etc/passwd").unwrap_err();
+        let err = dispatch_deep_link("spectyn://coach/../etc/passwd").unwrap_err();
         assert_eq!(err.code, "deep_link_invalid_format");
 
-        let err2 = dispatch_deep_link("phantom://coach/%2E%2E/secrets").unwrap_err();
+        let err2 = dispatch_deep_link("spectyn://coach/%2E%2E/secrets").unwrap_err();
         assert_eq!(err2.code, "deep_link_invalid_format");
     }
 
     #[test]
-    fn dispatch_deep_link_rejects_non_phantom_scheme() {
-        // §8 invariant: only `phantom://` is accepted; `http://` / `file://`
+    fn dispatch_deep_link_rejects_non_spectyn_scheme() {
+        // §8 invariant: only `spectyn://` is accepted; `http://` / `file://`
         // / `javascript:` all reject with `deep_link_invalid_scheme`.
         let err = dispatch_deep_link("http://evil.example.com/x").unwrap_err();
         assert_eq!(err.code, "deep_link_invalid_scheme");
@@ -1234,7 +1234,7 @@ mod tests {
         // §8 invariant: non-OAuth deep-links keep all query params (after
         // the §11.2 limit checks). The sanitiser only fires on the OAuth
         // callback path.
-        let route = dispatch_deep_link("phantom://coach/review?date=2026-05-25&lang=zh-TW")
+        let route = dispatch_deep_link("spectyn://coach/review?date=2026-05-25&lang=zh-TW")
             .expect("dispatch");
         let keys: Vec<&str> = route.query_params.iter().map(|(k, _)| k.as_str()).collect();
         assert!(keys.contains(&"date"));

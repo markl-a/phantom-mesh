@@ -3,7 +3,7 @@
 // The hook subscribes to the `deep-link://route` Tauri event (lib.rs forwards ONLY
 // allowlist-gated, credential-free navigation URLs there — Rust is the primary gate).
 // This test exercises the FRONTEND second gate (defense-in-depth): an allowlisted
-// phantom:// route → React Router navigate(); a disallowed/unknown route → NO navigate
+// spectyn:// route → React Router navigate(); a disallowed/unknown route → NO navigate
 // (logged ios.deeplink.disallowed). It also confirms query params are preserved and the
 // non-Tauri (web) path is a harmless no-op.
 import { render, act, waitFor } from "@testing-library/react";
@@ -46,28 +46,28 @@ async function mountAndGetEmit() {
 describe("useDeepLinkRouter — allowlist routing", () => {
   beforeEach(() => { navigate.mockReset(); for (const k of Object.keys(listeners)) delete listeners[k]; });
 
-  it("navigates for an allowlisted phantom:// route", async () => {
+  it("navigates for an allowlisted spectyn:// route", async () => {
     const emit = await mountAndGetEmit();
-    emit("phantom://coach/review");
+    emit("spectyn://coach/review");
     expect(navigate).toHaveBeenCalledWith("/coach/review");
   });
 
   it("preserves query params on an allowlisted route", async () => {
     const emit = await mountAndGetEmit();
-    emit("phantom://coach/review?date=2026-05-30");
+    emit("spectyn://coach/review?date=2026-05-30");
     expect(navigate).toHaveBeenCalledWith("/coach/review?date=2026-05-30");
   });
 
   it("does NOT navigate for a disallowed route (V8-HIGH-5 defense-in-depth)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const emit = await mountAndGetEmit();
-    emit("phantom://evil/payload");
+    emit("spectyn://evil/payload");
     expect(navigate).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith("ios.deeplink.disallowed", "/evil/payload");
     warn.mockRestore();
   });
 
-  it("does NOT navigate for a non-phantom URL", async () => {
+  it("does NOT navigate for a non-spectyn URL", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const emit = await mountAndGetEmit();
     emit("https://example.com/hack");

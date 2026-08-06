@@ -49,7 +49,7 @@ if [ "$FORCE" = false ]; then
 fi
 
 echo "============================================================"
-echo "  phantom-mesh git history cleaner"
+echo "  spectyn-mesh git history cleaner"
 if [ "$DRY_RUN" = true ]; then
   echo "  MODE: DRY RUN — no history will be modified"
 else
@@ -115,7 +115,7 @@ read -r -p "Type YES to confirm and proceed: " CONFIRM
 [[ "$CONFIRM" == "YES" ]] || { echo "Aborted."; exit 1; }
 
 # Create a bundle backup before touching anything
-BACKUP_FILE="../phantom-mesh-backup-$(date +%Y%m%d).bundle"
+BACKUP_FILE="../spectyn-mesh-backup-$(date +%Y%m%d).bundle"
 echo ""
 echo "==> Creating backup bundle at $BACKUP_FILE ..."
 git bundle create "$BACKUP_FILE" --all

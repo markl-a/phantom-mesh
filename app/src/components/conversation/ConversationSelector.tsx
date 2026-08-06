@@ -80,35 +80,35 @@ export default function ConversationSelector({ activeChatId, onSelect }: Convers
           if (!open) fetchConversations();
           setOpen((v) => !v);
         }}
-        className="flex items-center gap-1.5 text-xs text-phantom-text bg-phantom-card border border-phantom-border rounded-lg px-2.5 py-1.5 hover:border-phantom-primary/50 transition max-w-[160px]"
+        className="flex items-center gap-1.5 text-xs text-spectyn-text bg-spectyn-card border border-spectyn-border rounded-lg px-2.5 py-1.5 hover:border-spectyn-primary/50 transition max-w-[160px]"
         title={activeChatId}
       >
-        <MessageSquare size={12} className="text-phantom-primary flex-shrink-0" />
+        <MessageSquare size={12} className="text-spectyn-primary flex-shrink-0" />
         <span className="truncate font-mono">{displayLabel}</span>
         <ChevronDown size={12} className={`flex-shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute top-full mt-1 left-0 z-50 w-60 bg-phantom-card border border-phantom-border rounded-lg shadow-lg overflow-hidden">
+        <div className="absolute top-full mt-1 left-0 z-50 w-60 bg-spectyn-card border border-spectyn-border rounded-lg shadow-lg overflow-hidden">
           {/* Existing conversations */}
           <div className="max-h-52 overflow-y-auto">
             {conversations.length === 0 ? (
-              <p className="text-xs text-phantom-muted px-3 py-2">No conversations found</p>
+              <p className="text-xs text-spectyn-muted px-3 py-2">No conversations found</p>
             ) : (
               conversations.map((conv) => (
                 <button
                   key={conv.id}
                   onClick={() => handleSelect(conv.id)}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-phantom-bg transition text-left"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-spectyn-bg transition text-left"
                 >
                   <Check
                     size={12}
-                    className={conv.id === activeChatId ? "text-phantom-primary" : "invisible"}
+                    className={conv.id === activeChatId ? "text-spectyn-primary" : "invisible"}
                   />
-                  <span className="font-mono text-phantom-text flex-1 truncate">{conv.id}</span>
+                  <span className="font-mono text-spectyn-text flex-1 truncate">{conv.id}</span>
                   {conv.message_count !== undefined && (
-                    <span className="text-phantom-muted flex-shrink-0">{conv.message_count} msgs</span>
+                    <span className="text-spectyn-muted flex-shrink-0">{conv.message_count} msgs</span>
                   )}
                 </button>
               ))
@@ -116,7 +116,7 @@ export default function ConversationSelector({ activeChatId, onSelect }: Convers
           </div>
 
           {/* Divider + New conversation */}
-          <div className="border-t border-phantom-border">
+          <div className="border-t border-spectyn-border">
             {showNewInput ? (
               <div className="flex items-center gap-1.5 px-2 py-1.5">
                 <input
@@ -129,12 +129,12 @@ export default function ConversationSelector({ activeChatId, onSelect }: Convers
                     if (e.key === "Escape") { setShowNewInput(false); setNewIdInput(""); }
                   }}
                   placeholder="conversation id..."
-                  className="flex-1 bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-xs text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+                  className="flex-1 bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-xs text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
                 />
                 <button
                   onClick={handleCreate}
                   disabled={!newIdInput.trim()}
-                  className="text-phantom-primary text-xs font-medium disabled:opacity-40 hover:text-phantom-primary/80 transition"
+                  className="text-spectyn-primary text-xs font-medium disabled:opacity-40 hover:text-spectyn-primary/80 transition"
                 >
                   OK
                 </button>
@@ -142,7 +142,7 @@ export default function ConversationSelector({ activeChatId, onSelect }: Convers
             ) : (
               <button
                 onClick={() => setShowNewInput(true)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-phantom-muted hover:text-phantom-text hover:bg-phantom-bg transition"
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-spectyn-muted hover:text-spectyn-text hover:bg-spectyn-bg transition"
               >
                 <Plus size={12} />
                 New conversation

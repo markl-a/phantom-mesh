@@ -1,4 +1,4 @@
-use phantom_mesh::tools::{git, search};
+use spectyn_mesh::tools::{git, search};
 use serde_json::json;
 
 mod common;

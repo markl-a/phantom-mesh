@@ -38,13 +38,13 @@
 //!      without a production change, so per HONEST-BAIL we do not fake it.
 //! CI-visible (NOT `#[ignore]`).
 
-use phantom_mesh::cli_session::CliKind;
-use phantom_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
-use phantom_mesh::coach_wire::RecallPolicy;
-use phantom_mesh::governed_run::escalation::MockEscalator;
-use phantom_mesh::governed_run::recorder::{MemRecorder, RunRecord};
-use phantom_mesh::governed_run::{drive, GovernPolicy, RunOutcome};
-use phantom_mesh::skill_wire::{recall_skills, store_skill, Skill};
+use spectyn_mesh::cli_session::CliKind;
+use spectyn_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
+use spectyn_mesh::coach_wire::RecallPolicy;
+use spectyn_mesh::governed_run::escalation::MockEscalator;
+use spectyn_mesh::governed_run::recorder::{MemRecorder, RunRecord};
+use spectyn_mesh::governed_run::{drive, GovernPolicy, RunOutcome};
+use spectyn_mesh::skill_wire::{recall_skills, store_skill, Skill};
 use serde_json::json;
 
 /// Build a single-event-then-done stream carrying one derived ToolCall.
@@ -132,11 +132,11 @@ fn recall_then_govern(query: &str) -> Result<GovernedRecall, String> {
 #[test]
 fn recalled_owned_skill_action_is_governed_offline() {
     // Hermetic: a scratch DB, no network. This is the ONLY test in its own
-    // integration binary, so the process-global PHANTOM_DB_PATH mutation races
+    // integration binary, so the process-global SPECTYN_DB_PATH mutation races
     // nothing (mirrors owned_memory_loop_e2e).
     let db = tempfile::NamedTempFile::new().expect("temp DB file");
-    let saved = std::env::var_os("PHANTOM_DB_PATH");
-    std::env::set_var("PHANTOM_DB_PATH", db.path());
+    let saved = std::env::var_os("SPECTYN_DB_PATH");
+    std::env::set_var("SPECTYN_DB_PATH", db.path());
 
     // (capture->extract) Two owned skills. By the documented skill->action convention
     // their NAME leads with the tool the action maps to: the deploy skill maps to a
@@ -176,11 +176,11 @@ fn recalled_owned_skill_action_is_governed_offline() {
         Ok((high, low))
     })();
 
-    // Restore PHANTOM_DB_PATH BEFORE asserting so a panicking assert never leaks the
+    // Restore SPECTYN_DB_PATH BEFORE asserting so a panicking assert never leaks the
     // temp path into the process for any later-linked test.
     match saved {
-        Some(value) => std::env::set_var("PHANTOM_DB_PATH", value),
-        None => std::env::remove_var("PHANTOM_DB_PATH"),
+        Some(value) => std::env::set_var("SPECTYN_DB_PATH", value),
+        None => std::env::remove_var("SPECTYN_DB_PATH"),
     }
 
     let (high, low) = result.expect("recall->govern composition round-trip");

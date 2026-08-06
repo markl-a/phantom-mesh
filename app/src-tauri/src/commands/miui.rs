@@ -1,7 +1,7 @@
 // MIUI (小米系統) compatibility guide — native detection + dismiss persistence.
 // SPEC-33 §6(E) / SPEC-34 §9 + G6.
 //
-// MIUI / Redmi kill background apps aggressively, so phantom's foreground node
+// MIUI / Redmi kill background apps aggressively, so spectyn's foreground node
 // service is reaped overnight unless the user whitelists auto-start + battery
 // optimization. We can only GUIDE (no public MIUI API), but we CAN detect MIUI
 // (the `ro.miui.ui.version.code` system property exists only on MIUI) and
@@ -26,12 +26,12 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Where the dismiss flag is persisted. Mirrors local_keys.rs's choice of
-/// `~/.phantom-mesh/` so all per-user phantom state sits in one dir (on Android
+/// `~/.spectyn-mesh/` so all per-user spectyn state sits in one dir (on Android
 /// this resolves under the app sandbox home).
 fn flag_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("miui_guide.json")
 }
 

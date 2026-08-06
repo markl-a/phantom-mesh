@@ -2,7 +2,7 @@
 import type { PeerOs } from "./PeerOs";
 
 /**
- * Single-source-of-truth Rust struct for a mDNS-advertised phantom-mesh peer.
+ * Single-source-of-truth Rust struct for a mDNS-advertised spectyn-mesh peer.
  * Combines the 6 TXT records from §7.2 (`v`, `pf`, `cl`, `ca`, `os`, `na`)
  * with the SRV port and the A/AAAA addresses resolved by `mdns-sd`.
  *
@@ -43,7 +43,7 @@ os: PeerOs,
  */
 na: string, 
 /**
- * SRV record port; default `7878` (shared with `phantom serve`).
+ * SRV record port; default `7878` (shared with `spectyn serve`).
  */
 port: number, 
 /**

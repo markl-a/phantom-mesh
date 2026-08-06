@@ -1,7 +1,7 @@
 // core/src/vault/conversation_seal.rs
 //
 // At-rest sealing for conversation history (E004 gap). Conversation history
-// lives at `~/.phantom-mesh/conversations/<id>.jsonl` (see `crate::session`),
+// lives at `~/.spectyn-mesh/conversations/<id>.jsonl` (see `crate::session`),
 // historically written in the clear. This module seals each JSONL line with the
 // existing age v1 / EventKey primitive so the file is unreadable without the
 // device identity key — while staying fully backward-compatible.
@@ -13,9 +13,9 @@
 //     (a raw file copy) all keep working unchanged. A sealed line is the
 //     base64 age blob emitted by `encryption_wire::encrypt_event`.
 //
-//   * Opt-in kill-switch `PHANTOM_ENCRYPT_CONVERSATIONS` — DEFAULT OFF. With it
+//   * Opt-in kill-switch `SPECTYN_ENCRYPT_CONVERSATIONS` — DEFAULT OFF. With it
 //     off, callers write plaintext exactly as before (byte-identical, ships
-//     safe). This is a dedicated flag (not the SPEC-15 broker `PHANTOM_VAULT_E2EE`,
+//     safe). This is a dedicated flag (not the SPEC-15 broker `SPECTYN_VAULT_E2EE`,
 //     which is a different subsystem) because conversation history must never
 //     silently change format for existing users.
 //
@@ -53,11 +53,11 @@ pub enum SealError {
     Open,
 }
 
-/// The opt-in kill-switch. **Default OFF.** Only `PHANTOM_ENCRYPT_CONVERSATIONS`
+/// The opt-in kill-switch. **Default OFF.** Only `SPECTYN_ENCRYPT_CONVERSATIONS`
 /// set to `1` / `true` (case-insensitive) enables at-rest sealing of new writes.
 /// With it off, the conversation store behaves byte-identically to before.
 pub fn conversations_e2ee_enabled() -> bool {
-    std::env::var("PHANTOM_ENCRYPT_CONVERSATIONS")
+    std::env::var("SPECTYN_ENCRYPT_CONVERSATIONS")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }

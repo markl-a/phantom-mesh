@@ -1,4 +1,4 @@
-package ai.phantommesh.app
+package ai.spectynmesh.app
 
 import android.content.Context
 
@@ -14,7 +14,7 @@ import android.content.Context
  */
 object FocusSessionState {
 
-    private const val PREFS = "phantom_focus_session"
+    private const val PREFS = "spectyn_focus_session"
     private const val KEY_END_AT_MS = "focus_end_at_ms"
     private const val KEY_STARTED_AT_MS = "focus_started_at_ms"
 

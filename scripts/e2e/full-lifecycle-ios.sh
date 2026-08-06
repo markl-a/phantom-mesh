@@ -14,15 +14,15 @@
 #
 # Usage:
 #   scripts/e2e/full-lifecycle-ios.sh
-#   SIM_NAME="phantom-iphone15-ios17" APP_PATH=/path/to/Phantom.app scripts/e2e/...
+#   SIM_NAME="spectyn-iphone15-ios17" APP_PATH=/path/to/Spectyn.app scripts/e2e/...
 set -uo pipefail
 
-SIM_NAME="${SIM_NAME:-phantom-iphone15-ios17}"
+SIM_NAME="${SIM_NAME:-spectyn-iphone15-ios17}"
 APP_PATH="${APP_PATH:-}"
-BUNDLE_ID="${BUNDLE_ID:-ai.phantommesh.app}"
+BUNDLE_ID="${BUNDLE_ID:-ai.spectynmesh.app}"
 TS="$(date +%Y%m%d-%H%M%S)"
-SHOTS="${TMPDIR:-/tmp}/phantom-ios-e2e-$TS.shots"; mkdir -p "$SHOTS"
-LOG="${TMPDIR:-/tmp}/phantom-ios-e2e-$TS.log"
+SHOTS="${TMPDIR:-/tmp}/spectyn-ios-e2e-$TS.shots"; mkdir -p "$SHOTS"
+LOG="${TMPDIR:-/tmp}/spectyn-ios-e2e-$TS.log"
 LOGPID=""
 
 note() { printf '%s\n' "$*" | tee -a "$LOG"; }
@@ -41,7 +41,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-note "=== phantom iOS-simulator E2E rig ==="
+note "=== spectyn iOS-simulator E2E rig ==="
 note "sim:  $SIM_NAME"
 note "log:  $LOG"
 
@@ -64,7 +64,7 @@ note "  ✓ booted"
 # Stream the app's subsystem log in the background (G-DBG-2).
 note "▶ start log stream → $LOG"
 ( xcrun simctl spawn "$UDID" log stream --level debug \
-    --predicate 'subsystem CONTAINS "phantommesh" OR processImagePath CONTAINS "Phantom"' \
+    --predicate 'subsystem CONTAINS "spectynmesh" OR processImagePath CONTAINS "Spectyn"' \
     >>"$LOG" 2>&1 ) & LOGPID=$!
 
 SHOT_N=0

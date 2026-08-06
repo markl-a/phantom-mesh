@@ -2,7 +2,7 @@
 //!
 //! Folder convention:
 //!
-//!   ~/.phantom-mesh/extensions/
+//!   ~/.spectyn-mesh/extensions/
 //!   ├── prompts/  *.md      — user prompt overrides per agent
 //!   ├── skills/   *.json    — composite multi-step skill definitions
 //!   └── hooks/    *.sh      — pre-tool / post-agent shell hooks
@@ -11,20 +11,20 @@
 //! extension content into agent runtime is v0.2 (CO-EVO Phase 1+2).
 //! Today's value:
 //!
-//!   1. `phantom keys init` + boot of `phantom serve` create the dir
+//!   1. `spectyn keys init` + boot of `spectyn serve` create the dir
 //!      tree so users have a documented place to drop customisations.
 //!   2. `extensions::summarize()` lists what's there (used by
-//!      `/diag` + `phantom doctor`).
-//!   3. `phantom upgrade` (v0.2) preserves this dir across binary swap.
+//!      `/diag` + `spectyn doctor`).
+//!   3. `spectyn upgrade` (v0.2) preserves this dir across binary swap.
 
 use anyhow::Result;
 use std::fs;
 use std::path::PathBuf;
 
-/// Path to `~/.phantom-mesh/extensions/`.
+/// Path to `~/.spectyn-mesh/extensions/`.
 pub fn extensions_dir() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
-        .unwrap_or_else(|_| PathBuf::from(".").join(".phantom-mesh"))
+    crate::cli_config::spectyn_data_dir()
+        .unwrap_or_else(|_| PathBuf::from(".").join(".spectyn-mesh"))
         .join("extensions")
 }
 
@@ -41,7 +41,7 @@ pub fn subdirs() -> [PathBuf; 3] {
 }
 
 /// Idempotently create the extension dir tree.
-/// Called at daemon startup + by `phantom keys init` so the layout
+/// Called at daemon startup + by `spectyn keys init` so the layout
 /// exists before users start dropping customisations.
 pub fn ensure_layout() -> Result<()> {
     for dir in subdirs() {
@@ -50,7 +50,7 @@ pub fn ensure_layout() -> Result<()> {
     Ok(())
 }
 
-/// Snapshot of what's currently in the extensions tree, for `phantom
+/// Snapshot of what's currently in the extensions tree, for `spectyn
 /// doctor` and similar diagnostics. Counts files per subdir.
 #[derive(Debug, Clone, Default)]
 pub struct Summary {

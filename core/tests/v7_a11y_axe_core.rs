@@ -21,15 +21,15 @@
 //!   3. Flip the skip-gates below to assert `critical + serious == 0`.
 //!
 //! Run: `cargo test --test v7_a11y_axe_core` (skips cleanly without the harness).
-//! Override the app dir with `PHANTOM_APP_DIR`.
+//! Override the app dir with `SPECTYN_APP_DIR`.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 /// Resolve the SPA app directory (`<workspace>/app`). Override with
-/// `PHANTOM_APP_DIR`. Returns `None` when it can't be located.
+/// `SPECTYN_APP_DIR`. Returns `None` when it can't be located.
 fn app_dir() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("PHANTOM_APP_DIR") {
+    if let Ok(p) = std::env::var("SPECTYN_APP_DIR") {
         let path = PathBuf::from(p);
         return path.is_dir().then_some(path);
     }
@@ -59,7 +59,7 @@ fn v7_a11y_toolchain_probe_is_sound() {
     let _ = node_available();
     match app_dir() {
         Some(d) => println!("v7-a11y: app dir = {}", d.display()),
-        None => eprintln!("v7-a11y: app dir not found (set PHANTOM_APP_DIR)"),
+        None => eprintln!("v7-a11y: app dir not found (set SPECTYN_APP_DIR)"),
     }
 }
 
@@ -78,7 +78,7 @@ fn v7_a11y_axe_scan_skeleton_pending_harness() {
     let Some(app) = app_dir() else {
         eprintln!(
             "SKIPPED: v7_a11y_axe_scan_no_critical_violations — app dir not found \
-             (set PHANTOM_APP_DIR)"
+             (set SPECTYN_APP_DIR)"
         );
         return;
     };

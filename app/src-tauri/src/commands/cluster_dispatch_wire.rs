@@ -1,6 +1,6 @@
 // Tauri command surface for SPEC-26 cluster dispatch planning.
 //
-// Exposes the pure (no-I/O) planning fns from `phantom_mesh::cluster_dispatch_wire`:
+// Exposes the pure (no-I/O) planning fns from `spectyn_mesh::cluster_dispatch_wire`:
 //   - dispatch_plan(task, peers)      → DispatchPlan (best peer + fallbacks + reason)
 //   - dispatch_score_peer(peer, task) → PeerScore   (per-peer fit breakdown)
 //
@@ -10,7 +10,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use phantom_mesh::cluster_dispatch_wire::{
+use spectyn_mesh::cluster_dispatch_wire::{
     self, DispatchPlan, DispatchTask, PeerCapabilities, PeerScore,
 };
 

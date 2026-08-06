@@ -22,7 +22,7 @@ use crate::skillbank::memory::MemoryRow;
 // TODO: unify once SPEC-25 stage 4 lands. The wire type
 // `crate::skill_wire::SkillSummary` is an *aggregate dashboard* shape
 // (count_total / count_active / last_extracted_at / top_3_by_score) used by
-// `phantom skill status`; this `SkillSummary` is a *per-row* shape used by
+// `spectyn skill status`; this `SkillSummary` is a *per-row* shape used by
 // the F400 list/detail endpoints. They share a name but encode different
 // concepts — same-name collision is intentional (each name describes its
 // own surface) and bridging via `From` would mislead callers. Wave 12
@@ -54,7 +54,7 @@ use crate::skillbank::memory::MemoryRow;
 //   • `skillbank::dto::SkillSummary`  — THIS one: full skill record for the
 //     `/api/skills` HTTP paginated list (9 fields incl. body Markdown).
 //   • `skill_wire::SkillSummary`   — dashboard overview (4 fields: counts +
-//     top-3 names) for `phantom skill status` card.
+//     top-3 names) for `spectyn skill status` card.
 //   • `rpc_wire::SkillSummary`     — peer-to-peer sync delta (5 fields)
 //     for `/rpc/skill/since/:ts` mesh sync.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

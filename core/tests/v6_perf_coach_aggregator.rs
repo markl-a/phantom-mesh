@@ -20,8 +20,8 @@
 
 use std::time::{Duration, Instant};
 
-use phantom_mesh::coach_wire::aggregate;
-use phantom_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
+use spectyn_mesh::coach_wire::aggregate;
+use spectyn_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

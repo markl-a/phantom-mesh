@@ -2,12 +2,12 @@
 
 > **What this project is:** "mesh-references" is the work of turning the three gap-aware
 > reference reports (`plans/cli-references-2026-06-12.md`, `…/desktop-app-references-…`,
-> `…/mobile-app-references-…`) into a *shippable, prioritized backlog* for phantom-mesh.
+> `…/mobile-app-references-…`) into a *shippable, prioritized backlog* for spectyn-mesh.
 > The reports already did the research; this plan picks the items that are (a) specific to
 > THIS codebase, (b) verified against current code, and (c) worth doing now. Generic "adopt
 > a CLI library" wishlist items are deferred or cut.
 >
-> **Core thesis (carried from the reports, re-confirmed):** phantom does **not** lack
+> **Core thesis (carried from the reports, re-confirmed):** spectyn does **not** lack
 > features — it lacks *honest UI surfaces for the apex abilities* and *finished plumbing*.
 > Highest ROI is single-file/single-function correctness fixes + wiring already-built
 > backends to the front, **not** big rewrites.
@@ -20,25 +20,25 @@
 
 | ID | Item | Surface | Evidence (verified) |
 |----|------|---------|----------|
-| **P1-1** | Fix `NO_COLOR` spec violation **and** add TTY fallback in `is_colored()` | CLI | `core/src/util/term.rs:18` = `var("NO_COLOR").is_err()` → empty `NO_COLOR=` wrongly disables color; **no `IsTerminal` gate** so `phantom … \| cat` emits raw ANSI. Reuse existing `atty_stdout()` (phantom.rs:10701). |
-| **P1-2** | Route `help`/`--help` to **stdout** (currently all `eprintln!`) | CLI | `phantom help \| less` gets nothing today; mechanical `eprintln!→println!` swap. |
+| **P1-1** | Fix `NO_COLOR` spec violation **and** add TTY fallback in `is_colored()` | CLI | `core/src/util/term.rs:18` = `var("NO_COLOR").is_err()` → empty `NO_COLOR=` wrongly disables color; **no `IsTerminal` gate** so `spectyn … \| cat` emits raw ANSI. Reuse existing `atty_stdout()` (spectyn.rs:10701). |
+| **P1-2** | Route `help`/`--help` to **stdout** (currently all `eprintln!`) | CLI | `spectyn help \| less` gets nothing today; mechanical `eprintln!→println!` swap. |
 | **P1-3** | Make **skill-bank reachable**: +1 `PRIMARY_NAV` entry + 1 `Route` | Desktop | `app/src/pages/skill-bank.tsx` exists with honest-empty state but is unrouted (App.tsx PRIMARY_NAV 46–57) → apex #1 "compounding memory" is psychologically absent. ~15 min. |
 | **P1-4** | Render `awaiting_approval` as a **first-class consent chip** (stop mapping → `pending`) + inline Approve/Reject/Stop | Desktop | `TasksPanel.tsx:21–29 DAEMON_STATUS_MAP` erases apex §3④ bounded-consent — the OSS-gap differentiator. |
 | **P1-5** | Remove fake audit data / strip hardcoded private IPs | Desktop + Mobile | `SecurityPanel.tsx:36 MOCK_EVENTS` violates SPEC-31 NO-FAKING; `AppTemplate.tsx` hardcodes Mac IP + 5 Tailnet node IPs (info leak in shipped APK). |
-| **P1-6** | iOS ATS one-line fix: `NSAllowsArbitraryLoads=true` → `NSAllowsLocalNetworking=true` | Mobile | `Info.plist:38`; App-Store rejection risk, zero functional loss (phantom only talks Tailnet/LAN). |
+| **P1-6** | iOS ATS one-line fix: `NSAllowsArbitraryLoads=true` → `NSAllowsLocalNetworking=true` | Mobile | `Info.plist:38`; App-Store rejection risk, zero functional loss (spectyn only talks Tailnet/LAN). |
 | **P1-7** | Windows global-shortcut OS branch + dynamic label | Desktop | `lib.rs:760` uses `Modifiers::SUPER` (Win key) → Win+Shift+F swallowed by Windows shell; label still says "Cmd". Branch to Ctrl+Alt on Windows. |
 
-### P2 — next (medium, builds on existing `phantom.db` / proven patterns; one PR each)
+### P2 — next (medium, builds on existing `spectyn.db` / proven patterns; one PR each)
 
 | ID | Item | Surface | Why |
 |----|------|---------|-----|
-| **P2-1** | `phantom status` unified entry (identity / serve up? / paired peers + direct-vs-relay + relative handshake age; `--json`) | CLI | Info is scattered across `doctor --mesh` / `peer list` / `cluster`. Model on Tailscale/fly `status`. |
-| **P2-2** | `phantom logs` (DB-backed) + `recall -c/--cid` continuation + `--model`/`--tool` filters + `--json` | CLI | `phantom.db` already stores task/dispatch; smallest interface gap, highest payoff (simonw/llm pattern). |
-| **P2-3** | `phantom netcheck` (or `doctor --net`) + `peer ping <id>` (UDP/HNS port reach, NAT, RTT, direct-or-relay) | CLI | Directly surfaces the logged HNS-port-range + stale-address (`:17878→:7878`) silent-drop traps. |
-| **P2-4** | Snapshot-before-mutate + `phantom restore/undo` (CLI) **and** desktop real NSPopover via `tauri-nspanel` mounting existing `MenuBarDropdown.tsx` | CLI + Desktop | Feeds the "safe unattended runs" pillar (gemini `--checkpointing`/aider `/undo`); `MenuBarDropdown.tsx` is built-but-never-mounted (SPEC-41 daily-loop hub). |
+| **P2-1** | `spectyn status` unified entry (identity / serve up? / paired peers + direct-vs-relay + relative handshake age; `--json`) | CLI | Info is scattered across `doctor --mesh` / `peer list` / `cluster`. Model on Tailscale/fly `status`. |
+| **P2-2** | `spectyn logs` (DB-backed) + `recall -c/--cid` continuation + `--model`/`--tool` filters + `--json` | CLI | `spectyn.db` already stores task/dispatch; smallest interface gap, highest payoff (simonw/llm pattern). |
+| **P2-3** | `spectyn netcheck` (or `doctor --net`) + `peer ping <id>` (UDP/HNS port reach, NAT, RTT, direct-or-relay) | CLI | Directly surfaces the logged HNS-port-range + stale-address (`:17878→:7878`) silent-drop traps. |
+| **P2-4** | Snapshot-before-mutate + `spectyn restore/undo` (CLI) **and** desktop real NSPopover via `tauri-nspanel` mounting existing `MenuBarDropdown.tsx` | CLI + Desktop | Feeds the "safe unattended runs" pillar (gemini `--checkpointing`/aider `/undo`); `MenuBarDropdown.tsx` is built-but-never-mounted (SPEC-41 daily-loop hub). |
 | **P2-5** | Standardize `doctor` checks to `{name, status: pass\|warn\|fail, hint}` + semantic exit code; add `indicatif` progress to `self-update`/`evolve`/`swarm`/`cluster upgrade`; `comfy-table` for cluster/peer/sessions tables | CLI | All build on already-leading `doctor --json` + tabular commands; warn-only, low risk. |
 | **P2-6** | Push→approval closed loop: APNs/FCM interactive notification → deep-link with `taskId` → **approval decision over encrypted reconnect** (payload is only a trigger) | Mobile | The ④ differentiator; both iOS (`aps-environment`/`UIBackgroundModes` missing) and Android (no FCM/`POST_NOTIFICATIONS`) lack it. Model on Home Assistant actionable notifications. |
-| **P2-7** | Cross-device pairing: `phantom pair/invite` short-lived token + `phantom join <token>` + QR on phone | CLI + Mobile | Kills the logged stale-peer-address silent-drop trap; replaces manual IP entry. Tailscale auth-key model. |
+| **P2-7** | Cross-device pairing: `spectyn pair/invite` short-lived token + `spectyn join <token>` + QR on phone | CLI + Mobile | Kills the logged stale-peer-address silent-drop trap; replaces manual IP entry. Tailscale auth-key model. |
 
 ### P3 — architectural / roadmap (decide-before-coding; phased + double-gate)
 
@@ -46,7 +46,7 @@
 |----|------|------|
 | **P3-1** | **owned-memory backend (apex #1)**: ✅ `skill_store()` + recall path DONE; remaining = hierarchical-markdown context load (global→project→subdir) + semantic `ort` leg (deferred) | `skill_wire.rs:1836 skill_store()` **now persists the extract hand-off** (M1 done; tests :3304/:3360), recall wired into the agent loop (`agent.rs:730`). No longer a stub. |
 | **P3-2** | **Self-update signature verification** (cosign/minisign) on CLI; Tauri `updater` plugin (minisign + GitHub Release static JSON) on desktop | self-update pulls/swaps/restarts with **no verification** today; high priority, large surface. Replaces the AppData-lock `self-update.ps1` hack. |
-| **P3-3** | **clap migration** (phased: wrap `phantom completions <shell>` + `phantom man` first, then incrementally replace the ~17k-line hand-rolled parser) | Common root cause of missing completions/man/`--quiet`/`--verbose`/consistent `--json`. Phased + double-gate regression only. |
+| **P3-3** | **clap migration** (phased: wrap `spectyn completions <shell>` + `spectyn man` first, then incrementally replace the ~17k-line hand-rolled parser) | Common root cause of missing completions/man/`--quiet`/`--verbose`/consistent `--json`. Phased + double-gate regression only. |
 | **P3-4** | Foundational data decisions (lock before writing): plaintext/Markdown = source of truth, SQLite = index only, always-exportable; Stronghold(secrets) vs Store(prefs) split; per-platform capability files + `freezePrototype:true`; mobile local-first + **CRDT** conflict resolution | Cheap to decide now, very expensive to retrofit (Logseq cautionary tale). Not code yet — a locked decision record. |
 
 ---
@@ -55,7 +55,7 @@
 
 - **24/7 environment capture (screenpipe/Rewind-style)** — premature + privacy hazard for a daily-use personal tool; not in the apex MVP. Defer past v0.6.
 - **iOS continuous background execution / CRDT offline sync as a near-term deliverable** — iOS background is ~30s-capped; commit to the **APNs-triggered supervisory remote-control** model instead (keep CRDT as a P3-4 *decision*, not a build item).
-- **`phantom explain` / `phantom alias` / Khoj proactive newsletters / serve `/metrics`** — nice-to-have surface area, not load-bearing for apex; backlog only.
+- **`spectyn explain` / `spectyn alias` / Khoj proactive newsletters / serve `/metrics`** — nice-to-have surface area, not load-bearing for apex; backlog only.
 - **Full `clap` rewrite as a single effort** — kept but explicitly **phased** (P3-3); a big-bang rewrite would break the just-landed P1 quick-wins.
 
 ---
@@ -64,9 +64,9 @@
 
 ### P1-1 — NO_COLOR + TTY fix (`core/src/util/term.rs`)
 - Change `is_colored()` to: color **off** iff `NO_COLOR` is *present and non-empty* (spec-correct), **and** `stdout().is_terminal()` is true — additionally honor `CLICOLOR_FORCE`/`FORCE_COLOR`.
-- Reuse the existing `atty_stdout()` helper (phantom.rs:10701) rather than re-implementing TTY detection.
+- Reuse the existing `atty_stdout()` helper (spectyn.rs:10701) rather than re-implementing TTY detection.
 - Add `crate::env_lock` tests: `NO_COLOR=` (empty) keeps color; `NO_COLOR=1` disables; piped stdout disables.
-- Verify `phantom doctor` + `phantom doctor --json` output is unchanged in CI/pipe runs (the comment at term.rs:11 flags this dependency).
+- Verify `spectyn doctor` + `spectyn doctor --json` output is unchanged in CI/pipe runs (the comment at term.rs:11 flags this dependency).
 
 ### P1-4 — `awaiting_approval` consent chip (`app/src/screens/.../TasksPanel.tsx`)
 - Remove the `awaiting_approval → pending` collapse in `DAEMON_STATUS_MAP` (line 21–29); give it a distinct high-visibility state.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cluster-install.sh — 一鍵部署 phantom serve 到所有節點
+# cluster-install.sh — 一鍵部署 spectyn serve 到所有節點
 #
 # 用法：
 #   ./scripts/cluster-install.sh                         # 互動模式
@@ -79,15 +79,15 @@ deploy_linux() {
   [[ -f "$binary" ]] || err "Binary not found: $binary"
 
   # 建目錄，上傳 binary
-  ssh "$ssh_target" "mkdir -p ~/.phantom-mesh/bin"
-  scp "$binary" "$ssh_target:~/.phantom-mesh/bin/phantom"
-  ssh "$ssh_target" "chmod +x ~/.phantom-mesh/bin/phantom"
+  ssh "$ssh_target" "mkdir -p ~/.spectyn-mesh/bin"
+  scp "$binary" "$ssh_target:~/.spectyn-mesh/bin/spectyn"
+  ssh "$ssh_target" "chmod +x ~/.spectyn-mesh/bin/spectyn"
   ok "Binary uploaded"
 
   # 生成 agents.toml（如果還沒有）
   ssh "$ssh_target" 'bash -s' << 'REMOTE'
-if [[ ! -f ~/.phantom-mesh/agents.toml ]]; then
-  cat > ~/.phantom-mesh/agents.toml << 'TOML'
+if [[ ! -f ~/.spectyn-mesh/agents.toml ]]; then
+  cat > ~/.spectyn-mesh/agents.toml << 'TOML'
 [core]
 host = "0.0.0.0"
 port = 7878
@@ -107,25 +107,25 @@ default_model = "llama-3.1-70b-versatile"
 [agent.master]
 tools = ["shell","file_read","file_write","file_edit","content_search","glob_search","git_status","git_diff","git_commit","web_search"]
 TOML
-  echo "Created default agents.toml — edit ~/.phantom-mesh/agents.toml to configure"
+  echo "Created default agents.toml — edit ~/.spectyn-mesh/agents.toml to configure"
 fi
 REMOTE
   ok "agents.toml ready"
 
   # 安裝 systemd service
   ssh "$ssh_target" 'bash -s' << REMOTE
-cat > /tmp/phantom-serve.service << 'SERVICE'
+cat > /tmp/spectyn-serve.service << 'SERVICE'
 [Unit]
-Description=Phantom Mesh Agent Server
+Description=Spectyn Mesh Agent Server
 After=network.target tailscaled.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/root/.phantom-mesh/bin/phantom serve
+ExecStart=/root/.spectyn-mesh/bin/spectyn serve
 Restart=on-failure
 RestartSec=10
 Environment="RUST_LOG=info"
-EnvironmentFile=-/root/.phantom-mesh/env
+EnvironmentFile=-/root/.spectyn-mesh/env
 
 [Install]
 WantedBy=multi-user.target
@@ -133,21 +133,21 @@ SERVICE
 
 # Try systemd (most Linux distros)
 if command -v systemctl >/dev/null 2>&1; then
-  sudo mv /tmp/phantom-serve.service /etc/systemd/system/phantom-serve.service
+  sudo mv /tmp/spectyn-serve.service /etc/systemd/system/spectyn-serve.service
   sudo systemctl daemon-reload
-  sudo systemctl enable phantom-serve
-  sudo systemctl restart phantom-serve
-  echo "systemd: phantom-serve started"
+  sudo systemctl enable spectyn-serve
+  sudo systemctl restart spectyn-serve
+  echo "systemd: spectyn-serve started"
 else
   # Fallback: run in tmux
   command -v tmux >/dev/null 2>&1 || sudo apt-get install -y tmux 2>/dev/null || true
-  tmux new-session -d -s phantom "~/.phantom-mesh/bin/phantom serve" 2>/dev/null || \
-  tmux send-keys -t phantom "" Enter 2>/dev/null || \
-  nohup ~/.phantom-mesh/bin/phantom serve > ~/.phantom-mesh/serve.log 2>&1 &
-  echo "Started phantom serve (no systemd, using nohup)"
+  tmux new-session -d -s spectyn "~/.spectyn-mesh/bin/spectyn serve" 2>/dev/null || \
+  tmux send-keys -t spectyn "" Enter 2>/dev/null || \
+  nohup ~/.spectyn-mesh/bin/spectyn serve > ~/.spectyn-mesh/serve.log 2>&1 &
+  echo "Started spectyn serve (no systemd, using nohup)"
 fi
 REMOTE
-  ok "phantom-serve service installed and started"
+  ok "spectyn-serve service installed and started"
 
   # 驗證
   sleep 2
@@ -168,16 +168,16 @@ deploy_windows_wsl() {
 
   [[ -f "$binary" ]] || err "Binary not found: $binary"
 
-  ssh "$ssh_target" "mkdir -p ~/.phantom-mesh/bin"
-  scp "$binary" "$ssh_target:~/.phantom-mesh/bin/phantom"
-  ssh "$ssh_target" "chmod +x ~/.phantom-mesh/bin/phantom"
+  ssh "$ssh_target" "mkdir -p ~/.spectyn-mesh/bin"
+  scp "$binary" "$ssh_target:~/.spectyn-mesh/bin/spectyn"
+  ssh "$ssh_target" "chmod +x ~/.spectyn-mesh/bin/spectyn"
   ok "Binary uploaded"
 
   # 在 WSL2 裡用 nohup 啟動，並盡量補上 /etc/wsl.conf 開機自啟
   ssh "$ssh_target" 'bash -s' << 'REMOTE'
-mkdir -p ~/.phantom-mesh
-if [[ ! -f ~/.phantom-mesh/agents.toml ]]; then
-  cat > ~/.phantom-mesh/agents.toml << 'TOML'
+mkdir -p ~/.spectyn-mesh
+if [[ ! -f ~/.spectyn-mesh/agents.toml ]]; then
+  cat > ~/.spectyn-mesh/agents.toml << 'TOML'
 [core]
 host = "0.0.0.0"
 port = 7878
@@ -198,18 +198,18 @@ TOML
 fi
 
 # 建立啟動腳本（idempotent）
-cat > ~/.phantom-mesh/start.sh << 'START'
+cat > ~/.spectyn-mesh/start.sh << 'START'
 #!/bin/bash
 set -euo pipefail
-pkill -f "phantom serve" 2>/dev/null || true
+pkill -f "spectyn serve" 2>/dev/null || true
 sleep 1
-mkdir -p ~/.phantom-mesh/logs
+mkdir -p ~/.spectyn-mesh/logs
 export RUST_LOG=info
-nohup ~/.phantom-mesh/bin/phantom serve >> ~/.phantom-mesh/logs/serve.log 2>&1 &
+nohup ~/.spectyn-mesh/bin/spectyn serve >> ~/.spectyn-mesh/logs/serve.log 2>&1 &
 START
-chmod +x ~/.phantom-mesh/start.sh
+chmod +x ~/.spectyn-mesh/start.sh
 
-~/.phantom-mesh/start.sh
+~/.spectyn-mesh/start.sh
 sleep 2
 curl -sf http://localhost:7878/healthz >/dev/null && echo "healthz ok"
 
@@ -219,31 +219,31 @@ if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
   HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
   sudo tee /etc/wsl.conf > /dev/null <<EOF
 [boot]
-command = "su - $USER_NAME -c $HOME_DIR/.phantom-mesh/start.sh"
+command = "su - $USER_NAME -c $HOME_DIR/.spectyn-mesh/start.sh"
 EOF
   echo "wsl.conf updated"
 else
   echo "wsl.conf skipped (sudo unavailable or requires password)"
 fi
 REMOTE
-  ok "phantom serve started on $name"
+  ok "spectyn serve started on $name"
 }
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════╗"
-echo "║   phantom-mesh cluster-install.sh    ║"
+echo "║   spectyn-mesh cluster-install.sh    ║"
 echo "╚══════════════════════════════════════╝"
 echo ""
 
 LINUX_ARM64="$(pick_binary \
   'Linux ARM64' \
-  "$DIST/phantom-linux-arm64" \
-  "$REPO_ROOT/core/target/aarch64-unknown-linux-gnu/release/phantom-mesh")"
+  "$DIST/spectyn-linux-arm64" \
+  "$REPO_ROOT/core/target/aarch64-unknown-linux-gnu/release/spectyn-mesh")"
 LINUX_X86="$(pick_binary \
   'Linux x86_64' \
-  "$DIST/phantom-linux-x86_64" \
-  "$REPO_ROOT/core/target/x86_64-unknown-linux-gnu/release/phantom-mesh")"
+  "$DIST/spectyn-linux-x86_64" \
+  "$REPO_ROOT/core/target/x86_64-unknown-linux-gnu/release/spectyn-mesh")"
 
 [[ -z "$ORACLE_SSH" ]] || deploy_linux  "Oracle VM"  "$ORACLE_SSH"  "$LINUX_ARM64"
 [[ -z "$NODEA_SSH" ]]  || deploy_windows_wsl "node-a"  "$NODEA_SSH"  "$LINUX_X86"
@@ -263,8 +263,8 @@ echo "       cluster_secret = \"your-shared-secret\""
 echo "       peers = [\"http://100.x.x.mac:7878\", ...]"
 echo ""
 echo "  2. Add API keys on each node:"
-echo "       echo 'GROQ_API_KEY=gsk_...' >> ~/.phantom-mesh/env"
+echo "       echo 'GROQ_API_KEY=gsk_...' >> ~/.spectyn-mesh/env"
 echo ""
 echo "  3. Verify from Mac node-c:"
-echo "       phantom peer list"
+echo "       spectyn peer list"
 echo "═══════════════════════════════════════════"

@@ -1,4 +1,4 @@
-# phantom-mesh — 跨作業系統群集架構（Cross-OS Swarm Architecture）
+# spectyn-mesh — 跨作業系統群集架構（Cross-OS Swarm Architecture）
 
 > 一個在任何裝置（Linux / macOS / Windows / Android / iOS）上輸入的提示
 > （prompt）如何被拆解、派發，並在異質機隊（heterogeneous fleet，組成不同的
@@ -6,7 +6,7 @@
 > 推進到多遠。
 >
 > 範圍：本文是群集層（swarm layer，分散式協作層）的設計契約（design
-> contract），位於既有單節點（single-node）`phantom serve` 常駐程式（daemon）
+> contract），位於既有單節點（single-node）`spectyn serve` 常駐程式（daemon）
 > 之上，後者已記載於 [ARCHITECTURE.md](./ARCHITECTURE.md)。
 > 中樞輻射式（hub-and-spoke，一個中樞對多個分支）是 2026-05-20 上線時的
 > **出貨（shipping）** 拓撲（topology，網路結構）；帶 CRDT 狀態的網格
@@ -46,7 +46,7 @@
 | **Coordinator（協調者）** | 擁有工作階段日誌（session log），執行規劃器，派發子任務。每個工作階段恰好一個（失敗時可重新選舉）。 | Mac、node-a、任何永遠開機的 Linux/Windows 機器 |
 | **Full Agent（完整代理人）** | 可執行任意子任務：shell、git、瀏覽器、檔案編輯、本機大型語言模型（LLM）、雲端 LLM。 | Linux、macOS、Windows 桌機、Termux-on-Android |
 | **Lite Agent（精簡代理人）** | 只能執行受限、預先宣告的子任務子集。不能執行 shell、不能任意執行子行程（subprocess）。 | iOS 原生 app、瀏覽器分頁 PWA、被鎖死的企業筆電 |
-| **Thin Client（瘦客戶端）** | 僅作為使用者介面（UI）表層。送出提示、呈現串流輸出。不執行任何東西。 | iOS Safari / mobile.html、web `/projects`、tailnet 上任何未安裝 phantom 的裝置 |
+| **Thin Client（瘦客戶端）** | 僅作為使用者介面（UI）表層。送出提示、呈現串流輸出。不執行任何東西。 | iOS Safari / mobile.html、web `/projects`、tailnet 上任何未安裝 spectyn 的裝置 |
 
 目前 `core/src/mesh.rs` 中的 `PeerInfo` / `PeerStatus` 型別
 已經帶有 `capabilities: Vec<String>` 與 `worker_caps: Vec<String>`。
@@ -66,9 +66,9 @@
 - **Transport（傳輸）** — HTTP/1.1 + JSON，跑在 Tailscale 的 WireGuard
   通道（tunnel）之上。協調者 IP 是那台永遠開機中樞的 tailnet 100.x 位址。
   不需要 NAT 穿透（NAT punching）、不需要 STUN、不需要自製的 P2P 堆疊。
-- **Auth（認證）** — 每個 tailnet 共用一把 HMAC 密鑰（`PHANTOM_HMAC_KEY`）。
-  每個 RPC 都帶 `X-Phantom-Sig: hmac-sha256(body)`。協調者在執行
-  `phantom secret rotate` 時輪換密鑰；對等節點（peers）在下一次 ping 時重新載入。
+- **Auth（認證）** — 每個 tailnet 共用一把 HMAC 密鑰（`SPECTYN_HMAC_KEY`）。
+  每個 RPC 都帶 `X-Spectyn-Sig: hmac-sha256(body)`。協調者在執行
+  `spectyn secret rotate` 時輪換密鑰；對等節點（peers）在下一次 ping 時重新載入。
 - **Discovery（探索）** — MagicDNS（`mac.tailnet`、`rog.tailnet`）。對等節點
   啟動時在 `agents.toml` 中帶 `coordinator_url = "http://mac:7878"`，
   並在啟動時呼叫 `/rpc/join`。叢集範圍的對等清單會透過
@@ -190,13 +190,13 @@ airflow 風格的 DAG。
 ### 實例演練（Worked example）
 
 iPhone 上的使用者輸入：
-> 跑一輪 phantom-mobile demo，把 log 整成週報 PDF 上傳 Drive
+> 跑一輪 spectyn-mobile demo，把 log 整成週報 PDF 上傳 Drive
 
 規劃器一次只發出一個子任務：
 
 | # | 子任務 | required_caps | 選定節點 | 原因 |
 |---|---------|---------------|---------------|-----|
-| 1 | `phantom-mobile make demo-mock` | `shell, mobile_driver=android` | android-phone | 唯一有該驅動的 Android 對等節點 |
+| 1 | `spectyn-mobile make demo-mock` | `shell, mobile_driver=android` | android-phone | 唯一有該驅動的 Android 對等節點 |
 | 2 | `collect logs/*.json`（在 #1 之後） | `shell, file_edit_scope=fs` | android-phone | 與 #1 同地共置，避免把原始 log 透過 Tailscale 串流傳輸 |
 | 3 | 把 2,300 行的 log 摘要成 8 個重點 | `cloud_llm=anthropic` | mac | 有 API 金鑰；在這個長度下本機 3B 準確度不足 |
 | 4 | 把 Typst 算繪（Render）成 PDF | `subprocess, has_typst` | mac | 只有 Mac 安裝了 Typst |
@@ -296,7 +296,7 @@ node-a 在手動檢查清單（manual checklist）的第 #6 項之後成為協�
 
 ### 8.4 Android（透過 Termux）
 
-完整代理人，但有但書。`aarch64-linux-android` 的 phantom 二進位檔
+完整代理人，但有但書。`aarch64-linux-android` 的 spectyn 二進位檔
 已經能在 Termux 中建置並執行。可行的部分：
 
 - 真正的 Linux 使用者空間（userland）：shell、git、curl、ssh、完整 POSIX
@@ -312,7 +312,7 @@ node-a 在手動檢查清單（manual checklist）的第 #6 項之後成為協�
 - Android 12+ 上的 Termux 背景限制——必須宣告前景服務，
   並用 `Termux:Boot` 附加元件達成開機持續存活
 
-一支旗艦級 Android（SD 8 Gen 3 等級）在 Termux 中跑 phantom，
+一支旗艦級 Android（SD 8 Gen 3 等級）在 Termux 中跑 spectyn，
 是一個正當合格的叢集對等節點。使用者機隊中的 ROG 裝置就扮演這個角色。
 RAM 小於 8 GB 的便宜手機應被歸類為 **Lite Agent**（其能力為
 `local_models = []`）。
@@ -357,7 +357,7 @@ iOS 自成一節，因為它的約束與最佳化問題在本質上就不一樣�
 一個原生的 SwiftUI app，透過 TestFlight（需付費的 Apple 開發者帳號）
 或 AltStore/SideStore（免費，每 7 天重新簽章一次）側載。內嵌：
 
-- **phantom core 作為靜態程式庫（static library）** — 把 Rust 代理人
+- **spectyn core 作為靜態程式庫（static library）** — 把 Rust 代理人
   迴圈與 HTTP 客戶端編譯成 `staticlib`，並透過 `swift-bridge`
   或 `UniFFI` 連結。代理人迴圈在行程內（in-process）執行，無子行程。
 - **Apple Foundation Models**（iOS 26+）— Apple 隨作業系統出貨的
@@ -435,7 +435,7 @@ iOS 自成一節，因為它的約束與最佳化問題在本質上就不一樣�
   來說太慢。我們不會把它記載為受支援的路徑。
 - **不做 Apple Watch 代理人** — RAM 不夠、沒有背景、除了一個「送出提示」
   的表層之外沒有實際使用情境，而那個 iPhone 已經涵蓋了。
-- **不做「phantom 作為 Shortcut 動作」** — Shortcuts 整合層很淺
+- **不做「spectyn 作為 Shortcut 動作」** — Shortcuts 整合層很淺
   （URL 機制進、結果出）。可愛，但同樣的捷徑透過 HTTPS 對協調者運作即可，
   根本不需要 iOS app。
 
@@ -476,11 +476,11 @@ iOS 自成一節，因為它的約束與最佳化問題在本質上就不一樣�
 
 ## 12. 開放問題（Open Questions）
 
-1. 清單應該是自我回報（self-reported）還是協調者驗證（coordinator-verified）？自我回報比較簡單，但會讓惡意對等節點誇大宣稱（overclaim）。延後到 phantom-mesh 有多租戶（multi-tenant）部署時再說。
+1. 清單應該是自我回報（self-reported）還是協調者驗證（coordinator-verified）？自我回報比較簡單，但會讓惡意對等節點誇大宣稱（overclaim）。延後到 spectyn-mesh 有多租戶（multi-tenant）部署時再說。
 2. 當 iOS Lite Agent 做本機推論但結果是錯的，誰來付雲端重跑的費用？可能的政策：靜默重試一次，然後把成本攤到使用者面前。
 3. 當家中協調者無法連線時，由 iOS 發起的工作階段中，規劃器本身要在哪裡執行？兩個選項：
    (a) iOS app 降級為僅本機並掛上橫幅；(b) app 內嵌一個能決定「把這個排入佇列，等協調者回來再說」的微型規劃器。為求簡單傾向選 (a)。
 
 ---
 
-*最後更新：2026-05-13。作者：phantom-mesh 維護者。與 [ARCHITECTURE.md](./ARCHITECTURE.md)（單節點）以及 [../mesh/CLUSTER-SCALE.md](../mesh/CLUSTER-SCALE.md)（既有叢集運維）互為搭檔文件。*
+*最後更新：2026-05-13。作者：spectyn-mesh 維護者。與 [ARCHITECTURE.md](./ARCHITECTURE.md)（單節點）以及 [../mesh/CLUSTER-SCALE.md](../mesh/CLUSTER-SCALE.md)（既有叢集運維）互為搭檔文件。*

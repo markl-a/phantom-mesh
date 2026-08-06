@@ -1,10 +1,10 @@
 //! Public-drive apex-4 escalation STOP tests: a stopped post-action alert is
 //! auditable and halts the run before later stream work is consumed.
-use phantom_mesh::cli_session::CliKind;
-use phantom_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
-use phantom_mesh::governed_run::escalation::MockEscalator;
-use phantom_mesh::governed_run::recorder::{MemRecorder, RunRecord};
-use phantom_mesh::governed_run::{GovernPolicy, RunOutcome, drive};
+use spectyn_mesh::cli_session::CliKind;
+use spectyn_mesh::cli_session::event::{CliEvent, EventKind, Fidelity, Source};
+use spectyn_mesh::governed_run::escalation::MockEscalator;
+use spectyn_mesh::governed_run::recorder::{MemRecorder, RunRecord};
+use spectyn_mesh::governed_run::{GovernPolicy, RunOutcome, drive};
 use serde_json::json;
 
 fn stream(events: Vec<CliEvent>) -> std::sync::mpsc::Receiver<CliEvent> {

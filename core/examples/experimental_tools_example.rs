@@ -8,13 +8,13 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh \
+//!     cargo run -p spectyn-mesh \
 //!       --example experimental_tools_example \
 //!       --features experimental-tools
 //!
 //! Expected last line: `experimental-tools OK`. Exit code 0.
 
-use phantom_mesh::skillbank::tools::catalog;
+use spectyn_mesh::skillbank::tools::catalog;
 use serde_json::json;
 
 #[tokio::main]

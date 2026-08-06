@@ -12,25 +12,25 @@ hero mockup §Android（L298-340）只列「跟 iOS deltas」13 行 high-level�
 2. **Dynamic Color 預設關**（per SPEC-34 §30(B)）— 但 settings 有 toggle，要畫兩種 mode
 3. **Quick Settings tile icon** — Material 規範：mono single-color，24dp container，啟用態有 accent
 4. **Glance widget chip palette** — 1×4 / 2×4 / 4×4 三 size，每個 chip 視覺
-5. **FG-service notification 樣式** — Material You vs phantom brand 取捨
+5. **FG-service notification 樣式** — Material You vs spectyn brand 取捨
 6. **MIUI 引導 dialog**（per SPEC-34 §30(F)）— button label / dismiss state 視覺
 7. **TalkBack contentDescription** — 每元件可朗讀字串（不是視覺但屬 mockup spec）
 
 ## Design token 對映（per SPEC-02 + SPEC-34 §30(B)）
 
-| Material 3 attribute | phantom token | 用途 |
+| Material 3 attribute | spectyn token | 用途 |
 |---|---|---|
-| `colorPrimary` | `phantom-primary` (#8ab4f8) | 主動作按鈕、Quick-tile 啟用態 |
-| `colorOnPrimary` | `phantom-bg` (#0f0f1a) | primary 上的文字 |
-| `colorSurface` | `phantom-card` (#1a1a2e) | card / sheet 背景 |
-| `colorSurfaceVariant` | `phantom-border` (#2a2a3e) | divider / chip bg |
-| `colorError` | `phantom-danger` (#dc3545) | Stop / denied icon |
-| `colorTertiary` | `phantom-warning` (#ff9800) | recording 中色 |
+| `colorPrimary` | `spectyn-primary` (#8ab4f8) | 主動作按鈕、Quick-tile 啟用態 |
+| `colorOnPrimary` | `spectyn-bg` (#0f0f1a) | primary 上的文字 |
+| `colorSurface` | `spectyn-card` (#1a1a2e) | card / sheet 背景 |
+| `colorSurfaceVariant` | `spectyn-border` (#2a2a3e) | divider / chip bg |
+| `colorError` | `spectyn-danger` (#dc3545) | Stop / denied icon |
+| `colorTertiary` | `spectyn-warning` (#ff9800) | recording 中色 |
 | `Typography.bodyLarge` | type ramp `body-lg` 16sp / 500 | 主按鈕 label |
 | `Typography.displayMedium` | `display` 48sp / 700 | 計時器 |
 | ripple opacity | `overlay-ripple-24` (24%) | 按鈕 pressed |
 
-**Dynamic Color (Material You)**：v0.6.0 預設**關**，preserve phantom brand consistency；Settings → "Use system color" toggle 開啟後 user 桌布抽色覆蓋 `colorPrimary` 等。Toggle 視覺：Material Switch 元件。
+**Dynamic Color (Material You)**：v0.6.0 預設**關**，preserve spectyn brand consistency；Settings → "Use system color" toggle 開啟後 user 桌布抽色覆蓋 `colorPrimary` 等。Toggle 視覺：Material Switch 元件。
 
 ## Material Symbols Rounded（per Icon 對照矩陣，per hero mockup §56）
 
@@ -62,7 +62,7 @@ hero mockup §Android（L298-340）只列「跟 iOS deltas」13 行 high-level�
 
 - **bottom nav**: 4 tabs（Home / Coach / **Capture** / Settings）— Focus 是 Capture tab 內的子 surface
 - **nav bar 高 56dp**（iOS 44pt）
-- **status bar**: Recording 中 tint `colorTertiary` (`phantom-warning`)
+- **status bar**: Recording 中 tint `colorTertiary` (`spectyn-warning`)
 - **按鈕 press**: Material ripple `overlay-ripple-24` (NOT 8% bg lighten)
 - **system bar handling**: 螢幕 edge-to-edge，content padding 避開 status bar + nav bar
 - **TalkBack labels**:
@@ -72,7 +72,7 @@ hero mockup §Android（L298-340）只列「跟 iOS deltas」13 行 high-level�
 
 ## 螢幕 B1 / B2 — 權限提示（Permission Prompts）
 
-由 OS（作業系統）渲染，不可自訂版面。phantom 只能設定 manifest（資訊清單）`permission_request_text`：
+由 OS（作業系統）渲染，不可自訂版面。spectyn 只能設定 manifest（資訊清單）`permission_request_text`：
 - `RECORD_AUDIO` Permission rationale: `focus.perm.denied_reassure`（per hero mockup）
 - `POST_NOTIFICATIONS` rationale: "通知欄顯示錄音狀態，方便您快速停止"
 
@@ -107,7 +107,7 @@ Material 通知（notification）規格：
 
 ```
 ┌──────────────────────────────────┐
-│ [phantom-mono-icon-24] Phantom Mesh
+│ [spectyn-mono-icon-24] Spectyn Mesh
 │ Focus · 05:23 / 25:00
 │
 │ ┌──────┐
@@ -118,7 +118,7 @@ Material 通知（notification）規格：
 
 - **Channel**: `focus_session`，IMPORTANCE_LOW（無音效、無震動，常駐通知欄）
 - **Style**: `NotificationCompat.Builder` + `setOngoing(true)`（不可滑掉）
-- **smallIcon**: `R.drawable.ic_phantom_mono`（24dp, mono, alpha 100%）
+- **smallIcon**: `R.drawable.ic_spectyn_mono`（24dp, mono, alpha 100%）
 - **color**: `colorPrimary`（影響 icon tint）
 - **contentTitle**: i18n key `app.name`
 - **contentText**: 動態，per FSM state
@@ -128,7 +128,7 @@ Material 通知（notification）規格：
 
 ## 螢幕 C' — 中斷子狀態（Interrupted sub-state）
 
-視覺等同 iOS C' — waveform（波形）凍結（顏色 `phantom-muted`）+ 中斷訊息。Android delta（差異）：通知欄文字同步切換為「電話中已暫停」（取 `focus.interrupted.phone`）。
+視覺等同 iOS C' — waveform（波形）凍結（顏色 `spectyn-muted`）+ 中斷訊息。Android delta（差異）：通知欄文字同步切換為「電話中已暫停」（取 `focus.interrupted.phone`）。
 
 ## 螢幕 E — 收尾中（Finalizing）
 
@@ -141,7 +141,7 @@ Material 通知（notification）規格：
 
 版型同 iOS F — per hero mockup §iOS F L266-294。Android delta：
 - card: Material `Card` (filled) elevation 1dp + radius 12dp
-- success icon: `check_circle` 64dp `colorPrimary` （不用 `phantom-success` — 因為 Material 3 沒 success color tier，用 `colorPrimary` 統一）
+- success icon: `check_circle` 64dp `colorPrimary` （不用 `spectyn-success` — 因為 Material 3 沒 success color tier，用 `colorPrimary` 統一）
 - **新狀態：ASR 無語音（Empty 變體）**:
   ```
   本次時段未偵測到語音
@@ -158,9 +158,9 @@ Android Quick Settings 規範：
 
 | 狀態 | 圖示 | 標籤 | 副標題 |
 |---|---|---|---|
-| **未啟用（Inactive）** | `mic` outlined 24dp `colorOnSurface` | "Phantom 焦點" | "1 tap 啟 25min" |
-| **啟用中（Active）**（25min 倒數中） | `mic` filled 24dp `colorPrimary` | "Phantom 焦點" | "{elapsed}/25:00"（每 1 min 更新） |
-| **已暫停（Paused）** | `mic_off` 24dp `colorTertiary` | "Phantom 焦點" | "已暫停" |
+| **未啟用（Inactive）** | `mic` outlined 24dp `colorOnSurface` | "Spectyn 焦點" | "1 tap 啟 25min" |
+| **啟用中（Active）**（25min 倒數中） | `mic` filled 24dp `colorPrimary` | "Spectyn 焦點" | "{elapsed}/25:00"（每 1 min 更新） |
+| **已暫停（Paused）** | `mic_off` 24dp `colorTertiary` | "Spectyn 焦點" | "已暫停" |
 
 圖磚點擊（Tile click）行為：
 - Inactive（未啟用） → 啟動時段（broadcast 廣播 → MeshNodeService）
@@ -178,7 +178,7 @@ Android Quick Settings 規範：
 ┌──────────────────────────────────┐
 │ 小米手機需要額外授權              │  title 20sp / 500
 │                                  │
-│ Phantom Mesh 需要「自啟動」+      │  body 14sp / 400
+│ Spectyn Mesh 需要「自啟動」+      │  body 14sp / 400
 │ 「省電白名單」才能在背景持續錄音。│
 │                                  │
 │ ┌──────┐ ┌──────┐ ┌──────┐    │

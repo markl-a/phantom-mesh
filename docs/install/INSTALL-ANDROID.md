@@ -1,29 +1,29 @@
-# phantom 在 Android 上 — 安裝指南
+# spectyn 在 Android 上 — 安裝指南
 
 兩種型態（flavor），你可以在**同一台裝置上同時執行兩者**：
 
 | 型態 | 它能給你什麼 | 安裝時間 |
 |---|---|---|
-| **Tauri APK（精簡客戶端 thin client）** | 在主畫面放一個原生 app 圖示，點開後是一個 webview（網頁檢視容器），用來和你的 Mac/Linux 上的 phantom serve 對話。觸控友善的聊天介面。 | 約 30 秒 |
-| **Termux worker（無介面 headless 或 TUI）** | 在手機上跑一個真正的 `phantom serve` 常駐程式（daemon）。它會加入叢集（cluster）、接受派發的任務，並提供和你在 Mac 上一樣的 ratatui TUI（文字使用者介面）。 | 約 2 分鐘 |
+| **Tauri APK（精簡客戶端 thin client）** | 在主畫面放一個原生 app 圖示，點開後是一個 webview（網頁檢視容器），用來和你的 Mac/Linux 上的 spectyn serve 對話。觸控友善的聊天介面。 | 約 30 秒 |
+| **Termux worker（無介面 headless 或 TUI）** | 在手機上跑一個真正的 `spectyn serve` 常駐程式（daemon）。它會加入叢集（cluster）、接受派發的任務，並提供和你在 Mac 上一樣的 ratatui TUI（文字使用者介面）。 | 約 2 分鐘 |
 
 > 兩者的前置需求（prerequisites）：手機要連到與協調者（coordinator）相同的
 > Tailscale tailnet（虛擬區網），而協調者（一台執行
-> `phantom serve` 的 Mac/Linux）要能透過它的 Tailscale IP 連到。從手機上：
+> `spectyn serve` 的 Mac/Linux）要能透過它的 Tailscale IP 連到。從手機上：
 > `ping <coord-ts-ip>` 應該要成功。
 
 ---
 
 ## A. Tauri APK — 原生精簡客戶端
 
-當你想要一個**主畫面圖示**、點開後直接進入 phantom 行動版介面時，就用這個。最適合「我只想跟我的叢集聊天」這種使用情境。
+當你想要一個**主畫面圖示**、點開後直接進入 spectyn 行動版介面時，就用這個。最適合「我只想跟我的叢集聊天」這種使用情境。
 
 ### A.1. 下載 APK
 
 在手機的瀏覽器（Chrome / Firefox / Samsung Internet — 任何一個都行）中開啟：
 
 ```
-http://<COORDINATOR-TS-IP>:7878/dist/phantom-mesh-android.apk
+http://<COORDINATOR-TS-IP>:7878/dist/spectyn-mesh-android.apk
 ```
 
 把 `<COORDINATOR-TS-IP>` 換成你的 Mac/Linux 節點的 Tailscale IP
@@ -40,10 +40,10 @@ http://<COORDINATOR-TS-IP>:7878/dist/phantom-mesh-android.apk
 
 ### A.3. 首次啟動
 
-點一下新出現的 **Phantom Mesh** 圖示。你會看到一個設定表單：
+點一下新出現的 **Spectyn Mesh** 圖示。你會看到一個設定表單：
 
 ```
-Connect to phantom serve
+Connect to spectyn serve
 
 Host:  localhost          ← change to your coordinator's TS IP
 Port:  7878
@@ -62,14 +62,14 @@ ANSI 著色的串流、修飾鍵列（`@` `/` `⇥` `↑` `↓` `■`）、
 
 ### A.5. 之後切換協調者
 
-開 Chrome → `phantom://localhost:1430` 這招**行不通** — Tauri 的
+開 Chrome → `spectyn://localhost:1430` 這招**行不通** — Tauri 的
 WebView（網頁檢視）不會從外部暴露它的 localStorage。正確做法是直接
 **解除安裝再重新安裝** APK 來重置，或使用行動版介面中即將推出的
 `/Settings` 路由（見下方 roadmap）。
 
 ---
 
-## B. Termux worker — 在手機上跑真正的 `phantom serve`
+## B. Termux worker — 在手機上跑真正的 `spectyn serve`
 
 當你想讓**手機成為一個真正的叢集成員**時就用這個 —
 Mac（或任何對等節點 peer）都可以把 `subagent({node: "<phone-ts-ip>:7879"})`
@@ -84,7 +84,7 @@ Mac（或任何對等節點 peer）都可以把 `subagent({node: "<phone-ts-ip>:
 ### B.2. 執行 bootstrap 啟動腳本
 
 開啟 Termux，貼上這**一行**（把 Groq key 換成你自己的，
-可從協調者上的 `~/.phantom-mesh/env` 取得）：
+可從協調者上的 `~/.spectyn-mesh/env` 取得）：
 
 ```bash
 COORD=http://<mac-tailscale-ip>:7878 \
@@ -95,10 +95,10 @@ GROQ_KEY=gsk_your_groq_key_here \
 這個腳本會做的事（約 2 分鐘）：
 - `pkg install` 安裝 curl/wget/git/termux-tools
 - 從 `<COORD>/dist/...` 拉取最新的
-  `phantom-aarch64-linux-android`
-- 寫入 `~/.phantom-mesh/agents.toml`，內含 cluster_secret（叢集密鑰）+
+  `spectyn-aarch64-linux-android`
+- 寫入 `~/.spectyn-mesh/agents.toml`，內含 cluster_secret（叢集密鑰）+
   協調者 URL
-- 在背景啟動 `phantom serve --port 7879` 並驗證
+- 在背景啟動 `spectyn serve --port 7879` 並驗證
   healthz（健康檢查端點）
 - 印出一個三選一選單（TUI / 瀏覽器 / 叢集 worker），讓你知道
   接下來該做什麼
@@ -109,7 +109,7 @@ GROQ_KEY=gsk_your_groq_key_here \
 
 **1) ratatui TUI** — 全螢幕的互動介面，和 Mac 上完全相同：
 ```bash
-phantom
+spectyn
 ```
 這會佔住（block）整個 Termux 工作階段（session）。如果你想讓 worker
 在你使用 TUI 的同時繼續執行，請另外開一個 Termux 工作階段。
@@ -123,7 +123,7 @@ http://<coord-ts-ip>:7878/m   ← Mac coordinator's mobile UI
 
 **3) 維持無介面（只當 worker）** — 由 Mac 派發任務給它：
 ```ts
-mcp__phantom__subagent({
+mcp__spectyn__subagent({
   agent: "master",
   prompt: "echo hello from node-a",
   node: "<phone-ts-ip>:7879",
@@ -137,11 +137,11 @@ mcp__phantom__subagent({
 
 ```bash
 mkdir -p ~/.termux/boot
-cat > ~/.termux/boot/phantom-serve <<'EOF'
+cat > ~/.termux/boot/spectyn-serve <<'EOF'
 #!/data/data/com.termux/files/usr/bin/sh
-~/.phantom-mesh/bin/phantom serve >> ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
+~/.spectyn-mesh/bin/spectyn serve >> ~/.spectyn-mesh/data/spectyn-serve.log 2>&1 &
 EOF
-chmod +x ~/.termux/boot/phantom-serve
+chmod +x ~/.termux/boot/spectyn-serve
 ```
 
 手機重新開機後，Termux:Boot 會在背景靜默啟動 worker。
@@ -173,18 +173,18 @@ APK 是在不穩定的連線下載的，檔案毀損了。重新下載
 
 ```bash
 # On the phone after download:
-curl -I http://<coord>:7878/dist/phantom-mesh-android.apk
+curl -I http://<coord>:7878/dist/spectyn-mesh-android.apk
 # Content-Length should be ≥ 90 MB. If not, re-download.
 ```
 
 ### Tauri app 顯示「Connection refused」（連線被拒）
 
-協調者的 `phantom serve` 從手機這邊連不到：
+協調者的 `spectyn serve` 從手機這邊連不到：
 
 1. 手機的 Tailscale 開了嗎？（通知列上的 VPN 圖示）
-2. 協調者的 `phantom doctor` 顯示 healthz OK 嗎？
+2. 協調者的 `spectyn doctor` 顯示 healthz OK 嗎？
 3. macOS 防火牆有沒有擋住 :7878 的對外連線？系統設定 →
-   網路 → 防火牆 → 允許 phantom
+   網路 → 防火牆 → 允許 spectyn
 
 ### Termux 腳本在 `pkg install` 階段失敗
 
@@ -200,11 +200,11 @@ pkg install -y curl wget git termux-tools
 **不受限制（Unrestricted）**。在小米 MIUI 上你可能還需要：
 設定 → 應用程式 → Termux → 其他權限 → 自動啟動（Autostart）**開啟**。
 
-### `phantom doctor` 中「APFS snapshots: tmutil reachable」這一列看起來很怪
+### `spectyn doctor` 中「APFS snapshots: tmutil reachable」這一列看起來很怪
 
-那一列是 macOS 專用的。Android 版的 phantom 二進位檔沒有
+那一列是 macOS 專用的。Android 版的 spectyn 二進位檔沒有
 APFS 快照（snapshot）工具（它被 `#[cfg(target_os = "macos")]` 條件編譯擋住了）。在
-Android 上 `phantom doctor` 會直接省略 macOS 整合那一段。
+Android 上 `spectyn doctor` 會直接省略 macOS 整合那一段。
 
 ### Worker 已啟動但 Mac 無法派發 — 找不到 `node`
 
@@ -222,7 +222,7 @@ ip -4 addr show | awk '/100\./ {print $2}' | cut -d/ -f1
 
 ## 驗證來回往返（round trip）
 
-從 Mac 上執行（Mac 上跑著 phantom serve、手機上跑著 worker
+從 Mac 上執行（Mac 上跑著 spectyn serve、手機上跑著 worker
 時）：
 
 ```bash
@@ -231,7 +231,7 @@ curl -fsS http://<phone-ts-ip>:7879/healthz
 # Expect: ok
 
 # 2. HMAC dispatch through cluster RPC:
-# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+# 請設定你自己的共享密鑰（須與各節點 SPECTYN_CLUSTER_SECRET 一致）
 SECRET="changeme-cluster-secret"
 BODY='{"agent":"master","prompt":"reply: OK from android"}'
 AUTH=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
@@ -259,6 +259,6 @@ TUI / autoevolve / Termux:Boot / 壓力測試 / 失效模式 / 清理），
   變更主機/連接埠
 - **APK 內的前景服務（Foreground Service）** — 即使 Android 想砍掉背景
   app，也能讓 worker 保持存活
-- **以 GitHub Releases 作為 APK 的正式來源** — 屆時 `phantom serve`
+- **以 GitHub Releases 作為 APK 的正式來源** — 屆時 `spectyn serve`
   會直接從那裡拉取，不再需要某個對等節點來代管二進位檔
 - **推播通知（Push notifications）** — 當長時間執行的任務完成時通知你

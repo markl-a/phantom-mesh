@@ -40,7 +40,7 @@ in the "Needs upstream comparison" subsection rather than asserted as fact.
 | `hermes/dto.rs` | original | Flat JSON DTOs for internal F400 RPC; shapes derived from internal `MemoryRow`. | n/a | n/a |
 | `hermes/integration.rs` | original | Façade wiring internal curator/skill/memory/tools; internal PR refs. | n/a | n/a |
 | `hermes/skill_extractor/mod.rs` | original | Pluggable extractor over E003 daily reviews (internal format). | n/a | n/a |
-| `hermes/skill_extractor/from_daily_review.rs` | original | Parses internal `phantom coach review` markdown contract. | n/a | n/a |
+| `hermes/skill_extractor/from_daily_review.rs` | original | Parses internal `spectyn coach review` markdown contract. | n/a | n/a |
 | `serve_hermes.rs` | original | Axum RPC routes (`/api/hermes/skills*`) reusing internal broker-token auth + FTS5. | n/a | n/a |
 | `interrupt.rs` | concept-port | Header: "Modeled on Hermes Agent's `_interrupt_requested` + `_interrupt_message`" with line refs; explicitly a "Rust port" using tokio `CancellationToken` (different primitive — Hermes uses a 300ms thread poll). Flag-poll-unwind is a generic pattern; no Python copied. | NousResearch/hermes-agent (MIT) — concept | n/a (no code) |
 

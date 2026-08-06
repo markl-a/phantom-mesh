@@ -39,6 +39,6 @@ export const useClusterModeStore = create<ClusterModeState>()(
         return s.clusterSecret.length > 0 && s.coordinatorUrl.length > 0;
       },
     }),
-    { name: "phantom-mesh-cluster-mode" }
+    { name: "spectyn-mesh-cluster-mode" }
   )
 );

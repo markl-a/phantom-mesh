@@ -75,4 +75,4 @@
 
 ## 為何這條最被忽略
 
-「測 happy path 容易、測 degraded path 麻煩」── 沒人主動跑「斷網 24h」測試。但**用 phantom 的人多數會經歷至少 1 個 degraded scenario / 月**。漏這條 = 部分 user 沉默離開。
+「測 happy path 容易、測 degraded path 麻煩」── 沒人主動跑「斷網 24h」測試。但**用 spectyn 的人多數會經歷至少 1 個 degraded scenario / 月**。漏這條 = 部分 user 沉默離開。

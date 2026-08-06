@@ -21,7 +21,7 @@ tags:
   - git
   - housekeeping
 created_at: "2026-05-15T00:00:00Z"
-author: phantom-mesh weekend push H2
+author: spectyn-mesh weekend push H2
 ---
 
 # rebase-onto-main

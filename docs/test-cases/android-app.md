@@ -23,7 +23,7 @@
 | **ID** | 唯一識別 (永不重用) |
 | **Type** | `unit` / `integ` / `e2e`(Maestro/Appium/WebView drive) / `manual` / `static`(原始碼靜態斷言；舊名 `grep`) / `monitor` |
 | **Auto** | `✅` 完全自動 / `⚠` 需 env/fixture/裝置 / `❌` manual only / `⏰` cron / `🔒` 阻於 code-backlog |
-| **Setup** | 跑前準備 (裝置 / emulator / 後端 phantom serve / env) |
+| **Setup** | 跑前準備 (裝置 / emulator / 後端 spectyn serve / env) |
 | **cmd** | 實際命令或動作 (runner 直接抄) |
 | **expected** | 通過條件 |
 | **Verifies** | 對應 surface flow §/能力/SPEC/BRK |
@@ -53,12 +53,12 @@
 
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
-| ANDAPP-CHAT-001 | e2e | ⚠ device+backend | emulator/裝置 + 一台可達 `phantom serve` + 已填 baseUrl/secret | 啟動 app → onboarding 完成 → landing | 落地 tab = **對話**(full-bleed)，底部 3-tab bar(對話/機器/設定)，無 7-tab | surface §2 landing / §1 出貨殼 | ⬜ | ⬜ |
+| ANDAPP-CHAT-001 | e2e | ⚠ device+backend | emulator/裝置 + 一台可達 `spectyn serve` + 已填 baseUrl/secret | 啟動 app → onboarding 完成 → landing | 落地 tab = **對話**(full-bleed)，底部 3-tab bar(對話/機器/設定)，無 7-tab | surface §2 landing / §1 出貨殼 | ⬜ | ⬜ |
 | ANDAPP-CHAT-002 | e2e | ⚠ backend | 後端 `/healthz` online | 對話框輸入「你好」→ 送出 | partner 泡泡回 LLM 文字，connection pill = online | surface §2 chat intent | ⬜ | ⬜ |
 | ANDAPP-CHAT-003 | e2e | ⚠ backend offline | 後端不可達 | 送任一訊息 | 泡泡印「連線失敗 (status)。請到「設定」確認連線。」+ pill 翻 offline | surface §5 offline / `AppTemplate.tsx:311` | ⬜ | ⬜ |
 | ANDAPP-CHAT-004 | unit | ✅ | - | `classifyIntent("幫我去 X")` 類分類測試 | 回 chat/dispatch/sense/swarm 其一（分類器存在且 deterministic） | surface §2 classifyIntent | ⬜ | ⬜ |
 | ANDAPP-CHAT-005 | e2e | ⚠ backend | 已選 0 台機器 | 輸入派工意圖句 | 印「請先在「機器」tab 選一台機器,我才能幫你派工。」(不靜默 fan-out) | `AppTemplate.tsx:418` 守門 | ⬜ | ⬜ |
-| ANDAPP-CHAT-006 | manual | ❌ | - | 觀察初始 partner 歡迎泡泡 | 含「我是你的 phantom 夥伴」引導文（非空白）| `AppTemplate.tsx:286` | ⬜ | ⬜ |
+| ANDAPP-CHAT-006 | manual | ❌ | - | 觀察初始 partner 歡迎泡泡 | 含「我是你的 spectyn 夥伴」引導文（非空白）| `AppTemplate.tsx:286` | ⬜ | ⬜ |
 | ANDAPP-CHAT-007 | e2e | ⚠ device | - | 旋轉/鍵盤彈出 | 版面不亂、輸入框 placeholder「說點什麼…」可見 | `AppTemplate.tsx:564` | ⬜ | ⬜ |
 | ANDAPP-CHAT-008 | manual | ❌ | - | onboarding(英文) → 落地對話(繁中) | **記錄語言跳轉**：登入英文→落地繁中（非驗收 PASS，記為 UX-debt，見 §9 UXDEBT-001）| surface UX finding(medium) | ⬜ | 🟡 記 debt |
 
@@ -95,7 +95,7 @@
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
 | **ANDAPP-LEAK-001** | static | ✅ | repo 根（唯讀）| `grep -nE '100\.(87\|115\|106\|107)\.[0-9]+\.[0-9]+' app/src/components/mobile/AppTemplate.tsx` | **0 命中**（標籤應動態來自 `/rpc/peers`，硬編 IP 應移除）| K7 leak / surface UX finding(low) | 2026-06-16 | ✅ **PASS**：`NODE_LABELS` 硬編 IP→label map 已整個移除；peer 標籤現在動態派生自 `/rpc/peers` 的 `name/host/id`（fallback 到 IP 字串），APK 不再內嵌任何私有 Tailnet IP。grep 0 命中。 |
-| ANDAPP-LEAK-002 | static | ✅ | repo | `grep -n 'DEFAULT_BASE_URL = "http://100\.' app/src/components/mobile/AppTemplate.tsx` | 0 命中（預設後端不應硬編私有 IP）| K7 leak | 2026-06-16 | ✅ **PASS**：`DEFAULT_BASE_URL` 改為 `""`（不再硬編私有 IP）；使用者於 設定 tab 輸入後端 URL，存 `localStorage`（`phantom.baseUrl`）跨重啟保留。grep 0 命中。 |
+| ANDAPP-LEAK-002 | static | ✅ | repo | `grep -n 'DEFAULT_BASE_URL = "http://100\.' app/src/components/mobile/AppTemplate.tsx` | 0 命中（預設後端不應硬編私有 IP）| K7 leak | 2026-06-16 | ✅ **PASS**：`DEFAULT_BASE_URL` 改為 `""`（不再硬編私有 IP）；使用者於 設定 tab 輸入後端 URL，存 `localStorage`（`spectyn.baseUrl`）跨重啟保留。grep 0 命中。 |
 
 > **LEAK 裁決（已修，2026-06-16）**: **as-built 真相 = 硬編 IP 已移除（現況 PASS）**。`NODE_LABELS` IP→label map 整個刪除，標籤改派生自 `/rpc/peers` reported `name/host/id`（fallback IP 字串）；`DEFAULT_BASE_URL` 改 `""` + `localStorage` 持久化。ANDAPP-LEAK-001/002 grep 皆 0 命中。
 > - **owner**: mobile（app/ 維護者，= 單一 operator）。
@@ -135,7 +135,7 @@
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
 | **ANDAPP-MEM-001** | static | ✅ | repo | `grep -n 'memory\|recall\|timeline\|skill' app/src/components/mobile/AppTemplate.tsx`（**出貨殼**內）| 出貨殼應有 ≥1 記憶/recall 表面（apex #1）| BIG-GOAL §3② / surface §3② | ⬜ | 🟥 **FAIL**：出貨殼 0 記憶表面。能力②（apex 自稱 #1 未實作優先）在手機完全不可見。**[現況 FAIL / code-backlog]** |
-| **ANDAPP-MEM-002** | integ | 🔒 | features `experimental-memory` | `cargo test --features experimental-memory -p phantom-core skill_wire` | `embedding_search()` / `skill_store()` 回真實結果 | BRK-1 / FIDX-FAIL-D | ⬜ | 🟥 **FAIL**：`core/src/skill_wire.rs:882 embedding_search()` / `:1127 skill_store()` = `unimplemented!()`，全 7 面 panic；`0008_hermes_skills.sql` migration 不存在。封死手機記憶表面。**[現況 FAIL / code-backlog]** |
+| **ANDAPP-MEM-002** | integ | 🔒 | features `experimental-memory` | `cargo test --features experimental-memory -p spectyn-core skill_wire` | `embedding_search()` / `skill_store()` 回真實結果 | BRK-1 / FIDX-FAIL-D | ⬜ | 🟥 **FAIL**：`core/src/skill_wire.rs:882 embedding_search()` / `:1127 skill_store()` = `unimplemented!()`，全 7 面 panic；`0008_hermes_skills.sql` migration 不存在。封死手機記憶表面。**[現況 FAIL / code-backlog]** |
 | ANDAPP-MEM-003 | e2e | ⏸ | (死碼) | `MobileRecall` `recall_search` over Life Node events | (空狀態「尚無事件…」) | surface §3② EXISTS-DEAD | ⬜ | ⏸ **v0.7.0 deferred**：`MobileRecall.tsx` 真碼但 off render path（`App.tsx:149` 先 return AppTemplate）。不對死碼寫 v0.6.0 驗收。 |
 | ANDAPP-MEM-004 | e2e | ⏸ | (死碼) | `MobileMemory` panel | (記憶面板) | surface §3② EXISTS-DEAD | ⬜ | ⏸ **v0.7.0 deferred**：同上，死碼。 |
 
@@ -153,7 +153,7 @@
 
 | ID | Type | Auto | Setup | cmd | expected | Verifies | last_run | 狀態 |
 |---|---|---|---|---|---|---|---|---|
-| **ANDAPP-SUP-001** | integ | 🔒 | backend `phantom serve` | `curl -X POST <serve>/rpc/task/resume` | route 存在，可 resume/redirect 暫停的長跑 | D2 / surface §4④ | ⬜ | 🟥 **FAIL**：**無 `/rpc/task/resume` route、無 takeover driver**。手機 Approve/Redirect **無後端 primitive 可呼叫**。**[現況 FAIL / code-backlog]** |
+| **ANDAPP-SUP-001** | integ | 🔒 | backend `spectyn serve` | `curl -X POST <serve>/rpc/task/resume` | route 存在，可 resume/redirect 暫停的長跑 | D2 / surface §4④ | ⬜ | 🟥 **FAIL**：**無 `/rpc/task/resume` route、無 takeover driver**。手機 Approve/Redirect **無後端 primitive 可呼叫**。**[現況 FAIL / code-backlog]** |
 | **ANDAPP-SUP-002** | integ | 🔒 | backend | (grep repo) `governor\|wall-clock\|hard-brake` 實碼 | 存在 wall-clock governor；邊界偵測 producer 可用且能升級到手機 | D3 / surface §4④ | ⬜ | 🟥 **FAIL**：邊界偵測 producer EXISTS（round cap / budget break loop），但 **wall-clock governor 與升級 transport 缺**；手機無可用升級閉環。**[現況 FAIL / code-backlog]** |
 | **ANDAPP-SUP-003** | e2e | 🔒 | backend+FCM | tool-call 邊界 → push → 手機 Approve/Redirect/Stop sheet | push 喚醒 + in-app 核准/改向/中止 | surface §4④ phone escalation | ⬜ | 🟥 **FAIL**：無 FCM（manifest `:77` 自承「API31+ background start = FCM follow-up」）、無 `POST_NOTIFICATIONS`、無核准 UI。Stop 的最近 primitive = `cancel_dispatch`，但 unreachable + transport 不符；仍記全缺。**[現況 FAIL / code-backlog]** |
 | ANDAPP-SUP-004 | integ | ⚠ backend | 已派工長跑 | 觸發可達停止控制 | 長跑停止，且覆蓋出貨 `/rpc/task/assign` 流 | surface §4④ Stop | ⬜ | 🟥 FAIL/code-backlog：`cancel_dispatch` primitive 存在（dispatch.rs:453）但出貨殼不可達（唯一 caller=死碼 `MobileDispatch`），且僅覆蓋 Tauri `dispatch_task` 流、非出貨 `/rpc/task/assign` 流 → 出貨手機 0 種停止方式。**[現況 FAIL / code-backlog]** |

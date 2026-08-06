@@ -8,7 +8,7 @@
 ///   search.rs — pattern length limit, path-traversal rejection
 use serde_json::json;
 
-use phantom_mesh::tools::{file, git, search, shell};
+use spectyn_mesh::tools::{file, git, search, shell};
 
 // ── shell.rs ──────────────────────────────────────────────────────────────
 
@@ -227,9 +227,9 @@ async fn test_file_read_cwd_relative_allowed() {
 
 #[tokio::test]
 async fn test_file_write_outside_home_blocked() {
-    // Attempting to write to /tmp/phantom_test_should_be_blocked is outside
+    // Attempting to write to /tmp/spectyn_test_should_be_blocked is outside
     // home; safe_path must reject it.
-    let r = file::write(&json!({"path": "/tmp/phantom_test_write", "content": "x"})).await;
+    let r = file::write(&json!({"path": "/tmp/spectyn_test_write", "content": "x"})).await;
     // Same reasoning as read: /tmp is outside home on macOS/Linux.
     if r.starts_with("Error:") {
         // Correct: blocked.
@@ -271,7 +271,7 @@ async fn test_git_path_dollar_sign_rejected() {
 #[tokio::test]
 async fn test_git_path_outside_cwd_rejected() {
     // An absolute path that is not under CWD should be rejected.
-    let r = git::status(&json!({"path": "/nonexistent_directory_phantom_test"})).await;
+    let r = git::status(&json!({"path": "/nonexistent_directory_spectyn_test"})).await;
     // Either "Error:" from safe_git_path or a "git error:" from git itself.
     // Both are acceptable — what matters is no injection occurred.
     let _ = r;
@@ -379,7 +379,7 @@ async fn test_search_default_path_is_valid() {
     // With no "path" supplied the default is "." (CWD), which is always valid.
     // We use a pattern unlikely to appear so we get "No matches found" rather
     // than an error.
-    let r = search::content(&json!({"pattern": "PHANTOM_MESH_UNIQUE_CANARY_XYZ"})).await;
+    let r = search::content(&json!({"pattern": "SPECTYN_MESH_UNIQUE_CANARY_XYZ"})).await;
     assert!(
         !r.starts_with("Error:"),
         "search with default path should not error, got: {r}"

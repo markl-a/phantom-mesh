@@ -1,18 +1,18 @@
-//! Runtime bootstrap and event-loop wiring for a phantom-mesh node.
+//! Runtime bootstrap and event-loop wiring for a spectyn-mesh node.
 //!
 //! This module owns the top-level process lifecycle: it builds the shared
 //! [`AppState`], discovers and loads the node's `agents.toml` configuration,
 //! and assigns a per-process node identifier. Everything else in the crate
-//! reaches into the runtime through [`PhantomMeshRuntime`] to obtain the
+//! reaches into the runtime through [`SpectynMeshRuntime`] to obtain the
 //! initialized [`AppState`] and the node's identity.
 //!
 //! # Initialization flow
 //!
-//! 1. [`PhantomMeshRuntime::init`] derives a `node_id` and constructs a fresh
+//! 1. [`SpectynMeshRuntime::init`] derives a `node_id` and constructs a fresh
 //!    [`AppState`].
 //! 2. Configuration is resolved by probing, in order: an explicit
 //!    `config_path`, then `<data_dir>/agents.toml`, then
-//!    `~/.phantom-mesh/agents.toml`. The first existing, readable file wins
+//!    `~/.spectyn-mesh/agents.toml`. The first existing, readable file wins
 //!    and is loaded into the shared state; remaining candidates are skipped.
 //! 3. The configured `data_dir` (if any) is created on disk so later
 //!    components can persist state.
@@ -27,7 +27,7 @@ use std::path::PathBuf;
 /// Inputs that steer how the runtime locates and loads its configuration.
 ///
 /// All fields are optional; when absent the runtime falls back to the
-/// well-known `~/.phantom-mesh/agents.toml` location.
+/// well-known `~/.spectyn-mesh/agents.toml` location.
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeConfig {
     /// Explicit path to an `agents.toml` file. Takes precedence over every
@@ -39,17 +39,17 @@ pub struct RuntimeConfig {
     pub data_dir: Option<PathBuf>,
 }
 
-/// Top-level handle to an initialized phantom-mesh node.
+/// Top-level handle to an initialized spectyn-mesh node.
 ///
 /// Holds the per-process node identifier and the shared [`AppState`] that the
 /// rest of the crate operates on. Construct one with
-/// [`PhantomMeshRuntime::init`].
-pub struct PhantomMeshRuntime {
+/// [`SpectynMeshRuntime::init`].
+pub struct SpectynMeshRuntime {
     node_id: String,
     app_state: AppState,
 }
 
-impl PhantomMeshRuntime {
+impl SpectynMeshRuntime {
     /// Initialize the runtime: derive a node identifier, build a fresh
     /// [`AppState`], load configuration from the first available source, and
     /// ensure the data directory exists.
@@ -69,11 +69,11 @@ impl PhantomMeshRuntime {
 
         let mut state = AppState::new();
 
-        // Try loading config from explicit path first, then data_dir, then ~/.phantom-mesh
+        // Try loading config from explicit path first, then data_dir, then ~/.spectyn-mesh
         let config_paths = [
             config.config_path.clone(),
             config.data_dir.as_ref().map(|d| d.join("agents.toml")),
-            home_dir_lenient().map(|h| h.join(".phantom-mesh").join("agents.toml")),
+            home_dir_lenient().map(|h| h.join(".spectyn-mesh").join("agents.toml")),
         ];
 
         for path in config_paths.into_iter().flatten() {
@@ -133,10 +133,10 @@ mod tests {
     fn home_resolution_prefers_home_env() {
         let _g = crate::env_lock::acquire();
         let _saved = VarGuard::save("HOME");
-        std::env::set_var("HOME", "/tmp/phantom-runtime-home-test");
+        std::env::set_var("HOME", "/tmp/spectyn-runtime-home-test");
         assert_eq!(
             home_dir_lenient(),
-            Some(PathBuf::from("/tmp/phantom-runtime-home-test")),
+            Some(PathBuf::from("/tmp/spectyn-runtime-home-test")),
         );
     }
 

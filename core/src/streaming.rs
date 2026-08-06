@@ -634,7 +634,7 @@ where
     // Provider ordering — uses the same resolver as agent.rs's non-streaming
     // path so all four control surfaces work consistently for the streaming
     // chat reply (which is the most common code path):
-    //   1. PHANTOM_RUNTIME_OVERRIDE env (set by /model X:Y in TUI)
+    //   1. SPECTYN_RUNTIME_OVERRIDE env (set by /model X:Y in TUI)
     //   2. agent.providers list ([agent.X] providers = [...] in agents.toml)
     //   3. agent.provider singular field
     //   4. alphabetical fallback for the rest
@@ -647,7 +647,7 @@ where
     );
     // Facet ⑤ (fix #2): local-first, cloud opt-in fallback. This is the most
     // common streaming chat path (serve / partner), so without this the
-    // PHANTOM_LOCAL_FIRST opt-in was a silent no-op here even though it worked
+    // SPECTYN_LOCAL_FIRST opt-in was a silent no-op here even though it worked
     // for call_with_fallback / call_with_streaming. Gated on the same env opt-in,
     // reorders only (never drops cloud → fallback preserved), and placed BEFORE
     // the runtime override so an explicit /model X:Y still wins, identical to the
@@ -665,8 +665,8 @@ where
         crate::agent::inject_detected_local_servers(&mut provider_names).await;
     }
     // Read both the env var (per-process) AND the file at
-    // ~/.phantom-mesh/runtime-override (shared across phantom processes —
-    // so /model X:Y in the TUI also affects the local `phantom serve`
+    // ~/.spectyn-mesh/runtime-override (shared across spectyn processes —
+    // so /model X:Y in the TUI also affects the local `spectyn serve`
     // and any subagent dispatched cluster-wide).
     if let Some(over) = crate::cli_config::read_runtime_override() {
         let trimmed = over.trim();
@@ -1007,7 +1007,7 @@ where
         // unchanged.
         //
         // Tests may override delays to keep wallclock fast. Production unset.
-        let pre_stream_cfg = if std::env::var_os("PHANTOM_TEST_PRE_STREAM_FAST").is_some() {
+        let pre_stream_cfg = if std::env::var_os("SPECTYN_TEST_PRE_STREAM_FAST").is_some() {
             PreStreamRetryConfig {
                 base_delay: std::time::Duration::from_millis(5),
                 max_delay: std::time::Duration::from_millis(50),
@@ -2011,7 +2011,7 @@ fn streaming_url_openai(provider: &ProviderEntry) -> String {
         // instead of delegating to those functions because the
         // `core/src/providers/<name>` modules are gated behind the
         // `experimental-extra-providers` cargo feature — they aren't
-        // compiled into the default `phantom` binary, which is the build
+        // compiled into the default `spectyn` binary, which is the build
         // path the V1 round-trip exercise was using when it tripped this
         // bug. Keep the strings in sync with each module's
         // `DEFAULT_BASE_URL` + `streaming_url()` path-suffix logic; the

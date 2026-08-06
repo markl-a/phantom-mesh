@@ -16,13 +16,13 @@ import { safeInvoke as invoke } from '../../lib/tauri-compat';
 
 // Mirrors the desktop honesty rail (BIG-GOAL P4 / TUI /identity §P4_SCOPE).
 const ENCRYPTED = [
-  '~/.phantom-mesh/events/ — Life Node 事件 (age v1)',
-  '~/.phantom-mesh/identity.key — 裝置根金鑰',
+  '~/.spectyn-mesh/events/ — Life Node 事件 (age v1)',
+  '~/.spectyn-mesh/identity.key — 裝置根金鑰',
 ];
 const PLAINTEXT = [
-  '~/.phantom-mesh/agents.toml — Provider 設定',
-  '~/.phantom-mesh/memory.db — 記憶資料庫',
-  '~/.phantom-mesh/sessions/ — 對話紀錄',
+  '~/.spectyn-mesh/agents.toml — Provider 設定',
+  '~/.spectyn-mesh/memory.db — 記憶資料庫',
+  '~/.spectyn-mesh/sessions/ — 對話紀錄',
 ];
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
@@ -113,19 +113,19 @@ export default function MobileIdentity() {
     <div data-testid="mobile-identity-root" className="flex flex-col gap-3">
       {/* ─── Header ─────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-phantom-primary/15 flex items-center justify-center flex-shrink-0">
-          <KeyRound size={16} className="text-phantom-primary" />
+        <div className="w-8 h-8 rounded-lg bg-spectyn-primary/15 flex items-center justify-center flex-shrink-0">
+          <KeyRound size={16} className="text-spectyn-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold text-phantom-text leading-tight">身分與隱私</h2>
-          <p className="text-[10px] text-phantom-muted">Identity & Privacy · BIG-GOAL P4</p>
+          <h2 className="text-sm font-semibold text-spectyn-text leading-tight">身分與隱私</h2>
+          <p className="text-[10px] text-spectyn-muted">Identity & Privacy · BIG-GOAL P4</p>
         </div>
         <button
           type="button"
           data-testid="identity-refresh"
           onClick={() => void refresh()}
           aria-label="重新整理"
-          className="text-phantom-muted hover:text-phantom-text p-1.5"
+          className="text-spectyn-muted hover:text-spectyn-text p-1.5"
         >
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
         </button>
@@ -134,7 +134,7 @@ export default function MobileIdentity() {
       {error && (
         <div
           data-testid="identity-error"
-          className="rounded-lg border border-phantom-warning/40 bg-phantom-warning/10 px-3 py-2 text-xs text-phantom-warning"
+          className="rounded-lg border border-spectyn-warning/40 bg-spectyn-warning/10 px-3 py-2 text-xs text-spectyn-warning"
         >
           {error}
         </div>
@@ -144,17 +144,17 @@ export default function MobileIdentity() {
       {status?.hasIdentity && (
         <div
           data-testid="identity-status-card"
-          className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5 space-y-1.5"
+          className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5 space-y-1.5"
         >
-          <div className="flex items-center gap-2 text-xs text-phantom-text">
-            <span className="text-phantom-primary">🔑 本機身分</span>
+          <div className="flex items-center gap-2 text-xs text-spectyn-text">
+            <span className="text-spectyn-primary">🔑 本機身分</span>
             <code className="font-mono text-[11px] break-all">{status.fingerprint}</code>
           </div>
-          <div className="text-[10px] text-phantom-muted">
+          <div className="text-[10px] text-spectyn-muted">
             建立於 {status.createdAt} · 金鑰庫：{status.keystore}
           </div>
           {status.identityLine && (
-            <div className="text-[10px] text-phantom-muted break-all">{status.identityLine}</div>
+            <div className="text-[10px] text-spectyn-muted break-all">{status.identityLine}</div>
           )}
         </div>
       )}
@@ -162,33 +162,33 @@ export default function MobileIdentity() {
       {status && !status.hasIdentity && !error && (
         <div
           data-testid="identity-empty"
-          className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5 text-xs text-phantom-text"
+          className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5 text-xs text-spectyn-text"
         >
-          尚未產生本機身分金鑰。執行 <code className="text-phantom-primary">phantom init</code> 後重新整理。
+          尚未產生本機身分金鑰。執行 <code className="text-spectyn-primary">spectyn init</code> 後重新整理。
         </div>
       )}
 
       {/* ─── Encryption honesty rail ───────────────────────────────────── */}
-      <div data-testid="identity-honesty-rail" className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5">
+      <div data-testid="identity-honesty-rail" className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5">
         <div className="flex items-center gap-2 mb-2">
-          <ShieldCheck size={14} className="text-phantom-success" />
-          <span className="text-xs font-semibold text-phantom-text">靜態加密範圍</span>
+          <ShieldCheck size={14} className="text-spectyn-success" />
+          <span className="text-xs font-semibold text-spectyn-text">靜態加密範圍</span>
         </div>
-        <p className="text-[10px] text-phantom-muted mb-1.5">以裝置金鑰 age 加密：</p>
+        <p className="text-[10px] text-spectyn-muted mb-1.5">以裝置金鑰 age 加密：</p>
         <ul className="space-y-0.5 mb-2">
           {ENCRYPTED.map((p) => (
-            <li key={p} className="text-[11px] text-phantom-text flex items-start gap-1.5">
-              <span className="text-phantom-success flex-shrink-0">🔒</span>
+            <li key={p} className="text-[11px] text-spectyn-text flex items-start gap-1.5">
+              <span className="text-spectyn-success flex-shrink-0">🔒</span>
               <code className="font-mono break-all">{p}</code>
             </li>
           ))}
         </ul>
-        <p className="text-[10px] text-phantom-muted mb-1.5 flex items-center gap-1">
+        <p className="text-[10px] text-spectyn-muted mb-1.5 flex items-center gap-1">
           <FileText size={11} /> 明文（未加密）：
         </p>
         <ul className="space-y-0.5">
           {PLAINTEXT.map((p) => (
-            <li key={p} className="text-[11px] text-phantom-muted flex items-start gap-1.5">
+            <li key={p} className="text-[11px] text-spectyn-muted flex items-start gap-1.5">
               <span className="flex-shrink-0">○</span>
               <code className="font-mono break-all">{p}</code>
             </li>
@@ -197,20 +197,20 @@ export default function MobileIdentity() {
       </div>
 
       {/* ─── Export ─────────────────────────────────────────────────────── */}
-      <div data-testid="identity-export" className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5">
+      <div data-testid="identity-export" className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5">
         <div className="flex items-center gap-2 mb-2">
-          <Download size={14} className="text-phantom-primary" />
-          <span className="text-xs font-semibold text-phantom-text">匯出我的資料</span>
+          <Download size={14} className="text-spectyn-primary" />
+          <span className="text-xs font-semibold text-spectyn-text">匯出我的資料</span>
         </div>
-        <p className="text-[10px] text-phantom-muted mb-2">
-          Life Node 事件 → 寫入 ~/.phantom-mesh/exports/
+        <p className="text-[10px] text-spectyn-muted mb-2">
+          Life Node 事件 → 寫入 ~/.spectyn-mesh/exports/
         </p>
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <select
             data-testid="export-kind"
             value={exportKind}
             onChange={(e) => setExportKind(e.target.value)}
-            className="bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-xs text-phantom-text focus:border-phantom-primary outline-none"
+            className="bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-xs text-spectyn-text focus:border-spectyn-primary outline-none"
           >
             {KIND_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -224,7 +224,7 @@ export default function MobileIdentity() {
             value={exportSince}
             onChange={(e) => setExportSince(e.target.value)}
             title="起始日期 (含)"
-            className="bg-phantom-bg border border-phantom-border rounded px-2 py-1 text-xs text-phantom-text focus:border-phantom-primary outline-none"
+            className="bg-spectyn-bg border border-spectyn-border rounded px-2 py-1 text-xs text-spectyn-text focus:border-spectyn-primary outline-none"
           />
           {(exportKind || exportSince) && (
             <button
@@ -234,7 +234,7 @@ export default function MobileIdentity() {
                 setExportKind('');
                 setExportSince('');
               }}
-              className="text-[11px] text-phantom-muted hover:text-phantom-text"
+              className="text-[11px] text-spectyn-muted hover:text-spectyn-text"
             >
               清除
             </button>
@@ -246,7 +246,7 @@ export default function MobileIdentity() {
             data-testid="export-json"
             disabled={exporting}
             onClick={() => void doExport('json')}
-            className="px-2.5 py-1 rounded border border-phantom-border bg-phantom-bg text-xs text-phantom-text hover:border-phantom-primary/50 disabled:opacity-50"
+            className="px-2.5 py-1 rounded border border-spectyn-border bg-spectyn-bg text-xs text-spectyn-text hover:border-spectyn-primary/50 disabled:opacity-50"
           >
             JSON
           </button>
@@ -255,7 +255,7 @@ export default function MobileIdentity() {
             data-testid="export-markdown"
             disabled={exporting}
             onClick={() => void doExport('markdown')}
-            className="px-2.5 py-1 rounded border border-phantom-border bg-phantom-bg text-xs text-phantom-text hover:border-phantom-primary/50 disabled:opacity-50"
+            className="px-2.5 py-1 rounded border border-spectyn-border bg-spectyn-bg text-xs text-spectyn-text hover:border-spectyn-primary/50 disabled:opacity-50"
           >
             Markdown
           </button>
@@ -263,14 +263,14 @@ export default function MobileIdentity() {
             type="button"
             data-testid="export-open-folder"
             onClick={() => void openFolder()}
-            className="px-2.5 py-1 rounded border border-phantom-border bg-phantom-bg text-xs text-phantom-muted hover:text-phantom-text flex items-center gap-1"
+            className="px-2.5 py-1 rounded border border-spectyn-border bg-spectyn-bg text-xs text-spectyn-muted hover:text-spectyn-text flex items-center gap-1"
           >
             <FolderOpen size={11} />
             資料夾
           </button>
         </div>
         {exportMsg && (
-          <p data-testid="export-msg" className="text-[11px] text-phantom-muted mt-2 break-all">
+          <p data-testid="export-msg" className="text-[11px] text-spectyn-muted mt-2 break-all">
             {exportMsg}
           </p>
         )}

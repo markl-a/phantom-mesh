@@ -54,9 +54,9 @@ iOS hero prototype 鎖了「PTT-first mobile / iOS perm prompt / lock-screen MPN
 | FSM state | Windows 螢幕 / surface | 互動重點 |
 |---|---|---|
 | `Idle` | Start window（真窗 480×320px）+ tray icon idle muted | duration picker / Start button / `Win+Enter` accelerator |
-| `Recording` | main window C + tray icon `phantom-tray-focus.ico`（橘）+ tray context menu rebuild | Stop & finalize 提到首項、`Ctrl+Shift+S` accelerator |
+| `Recording` | main window C + tray icon `spectyn-tray-focus.ico`（橘）+ tray context menu rebuild | Stop & finalize 提到首項、`Ctrl+Shift+S` accelerator |
 | `Chunking` (sub) | tray icon hover tooltip + main window chunk counter | `focus.tray.tooltip_recording` 每 1s update |
-| `Interrupted` (sub) | tray icon `phantom-tray-error.ico`（紅）+ ActionCenter toast `scenario="urgent"` | toast 穿透 Focus Assist + Alarm2 audio |
+| `Interrupted` (sub) | tray icon `spectyn-tray-error.ico`（紅）+ ActionCenter toast `scenario="urgent"` | toast 穿透 Focus Assist + Alarm2 audio |
 | `Finalizing` | tray icon 橘持續 + tray header `focus.finalizing.asr` | header 1s debounce update |
 | `Done` | main window F takeaway card + Done toast persists | `scenario="default"` 可被 Focus Assist 折疊 |
 
@@ -82,7 +82,7 @@ iOS hero prototype 鎖了「PTT-first mobile / iOS perm prompt / lock-screen MPN
 | `15` chip | `onClick` → 即時 select（Tauri command `focus_panel_set_duration({minutes: 15})`）；其他兩 chip deselect；display 區「00:00 / 15:00」更新；無 sound / animation 之外的回饋（桌機無 haptic）|
 | `25` chip | 同上，「00:00 / 25:00」更新；**預設選中**（首次開啟）|
 | `50` chip | 同上，「00:00 / 50:00」更新 |
-| **Start button** (label `focus.btn.start_timer`) | (1) 若 `vault_setup_status` 偵測 mic disabled → 切 B' 覆蓋層；(2) 若 mic OK → 0ms 視覺 press（press 樣式 mockup `phantom-primary @ 80%`）→ 100ms 內 invoke Tauri `focus_session_start({duration: N, source: "start_window"})` → 主視窗（main window）activate + route 到 Focus tab Recording state；Start window 同 frame 關閉（不留殘窗）|
+| **Start button** (label `focus.btn.start_timer`) | (1) 若 `vault_setup_status` 偵測 mic disabled → 切 B' 覆蓋層；(2) 若 mic OK → 0ms 視覺 press（press 樣式 mockup `spectyn-primary @ 80%`）→ 100ms 內 invoke Tauri `focus_session_start({duration: N, source: "start_window"})` → 主視窗（main window）activate + route 到 Focus tab Recording state；Start window 同 frame 關閉（不留殘窗）|
 | trust badge（caption 文字）| 不可點（純資訊；hero iOS trust badge 是 tappable，桌機桌面 user 不需深入）|
 
 ### Keyboard targets
@@ -147,15 +147,15 @@ per [mockup §141-162](./SPEC-21-capture-focus-windows-mockup.md#螢幕-b--mic-d
 
 ### Animations / Timings
 
-- 覆蓋層 fade-in：200ms `ease-out`（disabled mockup invariant `phantom-bg @ 92%`）
-- 「打開設定」按鈕 hover：bg `phantom-primary @ 90%` 100ms transition
-- 「重試」按鈕 disabled state（剛點過）：套 `overlay-disabled-40` 維持 1s；spinner 16px phantom-primary stroke 顯示於按鈕中間，1Hz rotate
+- 覆蓋層 fade-in：200ms `ease-out`（disabled mockup invariant `spectyn-bg @ 92%`）
+- 「打開設定」按鈕 hover：bg `spectyn-primary @ 90%` 100ms transition
+- 「重試」按鈕 disabled state（剛點過）：套 `overlay-disabled-40` 維持 1s；spinner 16px spectyn-primary stroke 顯示於按鈕中間，1Hz rotate
 - 覆蓋層淡出（retry 成功）：200ms `ease-out` opacity 0；之後 cross-fade 250ms 切主視窗 Recording
 
 ### Failure paths
 
 - 「打開設定」open shell 失敗（OS deep-link broken；rare）→ inline toast「無法開啟設定，請手動至 Windows 設定 → 隱私 → 麥克風」+ 顯示路徑文字（user 可手動 navigate）
-- 「重試」連續 3 次失敗 → 顯示「請重啟 Phantom Mesh 或檢查麥克風裝置」+ link to support page
+- 「重試」連續 3 次失敗 → 顯示「請重啟 Spectyn Mesh 或檢查麥克風裝置」+ link to support page
 
 ### Narrator focus order
 
@@ -170,7 +170,7 @@ per [mockup §141-162](./SPEC-21-capture-focus-windows-mockup.md#螢幕-b--mic-d
 
 ### Nielsen 5 對應（Windows）
 
-- Learnability：tray icon 橘（`phantom-tray-focus.ico`）+ hover tooltip 提示「right-click for controls」；主視窗 Pause / Stop 標籤對齊 hero iOS
+- Learnability：tray icon 橘（`spectyn-tray-focus.ico`）+ hover tooltip 提示「right-click for controls」；主視窗 Pause / Stop 標籤對齊 hero iOS
 - Efficiency：Stop 兩條路徑（主視窗 Stop button 或 tray menu Stop & finalize）≤ 2 操作；`Ctrl+Shift+S` 主視窗 active 即停
 - Memorability：tray icon 橘 ambient → user 漏看主視窗瞄一眼右下角即知「我還在錄」
 - Errors：mic 被搶 → Interrupted sub-state + `scenario="urgent"` toast 穿透 Focus Assist
@@ -180,12 +180,12 @@ per [mockup §141-162](./SPEC-21-capture-focus-windows-mockup.md#螢幕-b--mic-d
 
 | Target | 動作 |
 |---|---|
-| `⏸ 暫停` button | label `focus.btn.pause`。(1) WASAPI session pause；(2) waveform 凍結；(3) 計時 1Hz 閃爍（warning 色，per mockup invariant）；(4) 按鈕變 `▶ 繼續`；(5) tray icon 切 `phantom-tray-paused.ico`（mic-off muted）；(6) tray hover tooltip 變「Focus 已暫停 — 右鍵繼續」；(7) tray menu rebuild：Pause 變 Resume |
-| `▶ 繼續` button | label `focus.btn.resume`。反向：session 重啟、waveform 重跑、計時繼續、按鈕變回 Pause、tray icon 切 `phantom-tray-focus.ico`（橘）、tray header 切回 recording |
+| `⏸ 暫停` button | label `focus.btn.pause`。(1) WASAPI session pause；(2) waveform 凍結；(3) 計時 1Hz 閃爍（warning 色，per mockup invariant）；(4) 按鈕變 `▶ 繼續`；(5) tray icon 切 `spectyn-tray-paused.ico`（mic-off muted）；(6) tray hover tooltip 變「Focus 已暫停 — 右鍵繼續」；(7) tray menu rebuild：Pause 變 Resume |
+| `▶ 繼續` button | label `focus.btn.resume`。反向：session 重啟、waveform 重跑、計時繼續、按鈕變回 Pause、tray icon 切 `spectyn-tray-focus.ico`（橘）、tray header 切回 recording |
 | `⏹ 停止` button | label `focus.btn.stop_finalize`（desktop 用長版）。立即 transition 到 Finalizing screen（**不**加 confirm dialog — 同 hero 效率優先）；invoke Tauri `focus_session_stop` → flush chunk → Chunking → Finalizing |
 | chunk count `已落地 chunk: {n}` | 99 → 100 切到 `99+`（`focus.limit.chunk_overflow`，per mockup §341）；tap 無動作 |
 | trust badge | 不可點（同 Idle）|
-| 主視窗 `[X]` close button | **不關 session** — 主視窗 hide-to-tray（per SPEC-43 §8.2 「tray icon 必常駐」）+ tray icon 維持橘；user click tray menu「Open Phantom Mesh」可重開 |
+| 主視窗 `[X]` close button | **不關 session** — 主視窗 hide-to-tray（per SPEC-43 §8.2 「tray icon 必常駐」）+ tray icon 維持橘；user click tray menu「Open Spectyn Mesh」可重開 |
 
 ### Right-click → Tray context menu pop timing
 
@@ -207,10 +207,10 @@ per wireframe §92-103 + mockup §187-201。每 item tap 行為：
 
 | Menu item | Accelerator | Tap 動作 | Tauri command |
 |---|---|---|---|
-| `Phantom Mesh · Focus 05:23 / 25:00`（header）| — | **不可點**（per SPEC-43 §8.2 item 1）；hover 也不亮 | n/a |
+| `Spectyn Mesh · Focus 05:23 / 25:00`（header）| — | **不可點**（per SPEC-43 §8.2 item 1）；hover 也不亮 | n/a |
 | `⏹ Stop & finalize` | `Ctrl+Shift+S` | 等同主視窗 `⏹ 停止` button — invoke `focus_session_stop` + activate 主視窗 + route 到 Focus tab Finalizing；menu 自動關閉 | `focus_session_stop({source: "tray_menu"})` |
 | `⏸ Pause` | — | 等同主視窗 Pause button；menu 自動關閉；下次 right-click menu rebuild 顯示 `▶ Resume` | `focus_session_pause` |
-| `Open Phantom Mesh` | `Ctrl+O` | activate 主視窗 + route 到 Focus tab（保留 Recording state visible）| `window_focus_main` |
+| `Open Spectyn Mesh` | `Ctrl+O` | activate 主視窗 + route 到 Focus tab（保留 Recording state visible）| `window_focus_main` |
 | `Settings...` | — | activate 主視窗 + route `/settings/general` | `settings_open({tab: "general"})` |
 | `Quick Log` | — | **disabled**（per wireframe §105 + mockup §210 — Recording 期間避撞）| n/a |
 | `Start Focus...` | — | **disabled**（Recording 期間避撞）| n/a |
@@ -229,27 +229,27 @@ per wireframe §92-103 + mockup §187-201。每 item tap 行為：
 - 計時器數字：每秒 update；OS render（無 CSS animation）
 - pause/resume icon morph：CSS 200ms `ease-in-out`（同 hero iOS）
 - stop → Finalizing：主視窗內 cross-fade 250ms（per hero）
-- **tray icon state swap**：1s debounce 後 `phantom-tray-idle.ico` ↔ `phantom-tray-focus.ico`（Recording → Paused → Recording 不會閃；連續 chunk boundary 不重新 swap）
+- **tray icon state swap**：1s debounce 後 `spectyn-tray-idle.ico` ↔ `spectyn-tray-focus.ico`（Recording → Paused → Recording 不會閃；連續 chunk boundary 不重新 swap）
 - **tray hover tooltip 動態 update**：每 1s 更新計時（取 `focus.tray.tooltip_recording` 變數）；OS tooltip render，無 fade
 - **tray menu rebuild**：right-click 觸發 lazy rebuild（rebuild 在 `on_right_click` 內同步跑 ≤ 10ms）；menu 不 cache（每次 right-click 都拿 latest state）
 
 ### Background / Multi-monitor / DPI scaling
 
-- **主視窗最小化或關閉**：session 持續，phantom serve 背景跑（per SPEC-43 §6.3 Flow 2 — phantom serve emit toast 不依賴 webview alive）
+- **主視窗最小化或關閉**：session 持續，spectyn serve 背景跑（per SPEC-43 §6.3 Flow 2 — spectyn serve emit toast 不依賴 webview alive）
 - **Win+L 鎖屏**：session 持續錄音（WASAPI 不受鎖屏影響）；**v0.6.0 無鎖屏控制 UI**（SMTC 留 v0.7+，per wireframe §開放問題 #1）；user 解鎖回主視窗仍見計時器與 waveform 接續
 - **DPI scaling 切換**（user 從筆電 200% 切到外接 4K 100%；或反向）：tray icon 從 ico 多 frame 自動挑（16/32/48 三 frame，per SPEC-43 §OoS3）；切換偵測延遲 ≤ 500ms（OS WM_DPICHANGED）；主視窗自動 reflow（Tauri webview 接 system DPI）；Start window 已關不受影響
 - **多顯示器 Start window 開啟**：position = active focus monitor 中央（per mockup §124）；user 從 monitor A tray menu 開啟 → window 開在 monitor A；切到 monitor B 時 window 不跟（OS 預設行為）
 
 ### Failure paths
 
-- **Mic 被其他 app 搶**（WASAPI exclusive mode，e.g. Discord PTT 切入）：`AudioSessionDisconnectReason::ExclusiveModeOverride` → 進 Interrupted sub-state → 觸發 D' Interrupted toast（見下）；tray icon 切 `phantom-tray-error.ico`（紅）；主視窗 waveform 不凍結（per hero invariant — desktop interrupt 多源自 mic 被搶、狀態不明顯，靠 toast 提醒）
-- **系統 sleep（S3/S4）/ Modern Standby**：phantom serve 進入 sleep 一同停；wake 後 session 標 `interrupted=true`；剩餘 chunk 仍 finalize；user 回前景見「session 已中斷於 OS sleep」inline message
+- **Mic 被其他 app 搶**（WASAPI exclusive mode，e.g. Discord PTT 切入）：`AudioSessionDisconnectReason::ExclusiveModeOverride` → 進 Interrupted sub-state → 觸發 D' Interrupted toast（見下）；tray icon 切 `spectyn-tray-error.ico`（紅）；主視窗 waveform 不凍結（per hero invariant — desktop interrupt 多源自 mic 被搶、狀態不明顯，靠 toast 提醒）
+- **系統 sleep（S3/S4）/ Modern Standby**：spectyn serve 進入 sleep 一同停；wake 後 session 標 `interrupted=true`；剩餘 chunk 仍 finalize；user 回前景見「session 已中斷於 OS sleep」inline message
 - **藍牙耳機切換**（mic source 從內建 → BT mic）：`AudioEndpointVolume` event → 平滑切（不進 Interrupted）；UI 無提示（per hero invariant — 桌面 mic source 切換不通知，避過度打擾）；chunk boundary 落在切換點以保兩段 transcript 分離
 - **儲存空間滿**（chunk encrypt 失敗）：toast `focus.err.disk_full` + 切 Finalizing（保留已落地 chunk，同 hero）
 
 ### Narrator focus order（主視窗 Recording state）
 
-1. Window title `"Phantom Mesh · Focus Recording"`
+1. Window title `"Spectyn Mesh · Focus Recording"`
 2. Pause / Stop button group（focus 預設落 Pause — 常用順序）
 3. 計時器（`role="timer"` aria-live="polite"）— 每 30s announce 一次（避免每秒打擾）
 4. waveform（`role="img"` aria-label="Recording waveform, animated"）— Narrator 不 cycle 進
@@ -281,7 +281,7 @@ per [wireframe §111-119](./SPEC-21-capture-focus-windows-wireframe.md#螢幕-c-
 
 ### 觸發後動作（per hero invariant + SPEC-43 §15）
 
-1. tray icon 切 `phantom-tray-error.ico`（紅）— 1s debounce
+1. tray icon 切 `spectyn-tray-error.ico`（紅）— 1s debounce
 2. tray header 切 `focus.interrupted.*`（依來源）
 3. 主視窗 waveform **不凍結**（per hero invariant — desktop interrupt 視覺上不明顯，靠 toast）
 4. 主視窗計時 **不停**（OS interrupt 期間音訊雖斷但 session timer 持續）
@@ -303,7 +303,7 @@ per [mockup §216-260](./SPEC-21-capture-focus-windows-mockup.md#螢幕-d--done-
 
 | Target | 動作 |
 |---|---|
-| toast body（非 action button 區）| trigger toast `launch` URI → `phantom-mesh://focus/{session_id}` deep-link → 走 `coach_review_open` 同樣機制（per SPEC-43 §9.3）→ cold-launch 主視窗（若已關）→ route `/focus/:id` takeaway card |
+| toast body（非 action button 區）| trigger toast `launch` URI → `spectyn-mesh://focus/{session_id}` deep-link → 走 `coach_review_open` 同樣機制（per SPEC-43 §9.3）→ cold-launch 主視窗（若已關）→ route `/focus/:id` takeaway card |
 | `開啟回顧` action button | label `focus.btn.review`；arguments=`action=open`；activationType=`protocol`；觸發同 toast body click |
 | dismiss（user 滑出 / Action Center 全清 / Win+N 開 AC 後逐個關）| toast 進 Action Center 歷史；不寫 events、不啟動任何流程 |
 | 自動消失 | **無**（Win 11 toast 在 Action Center 中 persists 直到 user dismiss；不像 macOS NC banner 5s 自動消，per wireframe §136-141）|
@@ -313,16 +313,16 @@ per [mockup §216-260](./SPEC-21-capture-focus-windows-mockup.md#螢幕-d--done-
 per SPEC-43 §6.3 Flow 2 + SPEC-42 §8.5：
 
 1. user click toast / action button
-2. OS 解析 `launch` URI → `phantom-mesh://focus/{session_id}`
-3. 若 phantom-mesh app 已在跑（tray icon 在）→ Tauri `deep-link` plugin 接 URI → emit event `deep-link://focus/{session_id}` → React Router `navigate("/focus/" + session_id)`；耗時 ≤ 100ms p95
-4. 若 phantom-mesh app 未跑（tray icon 不在；user 已 quit）→ OS via `HKCR\phantom-mesh` registry 找 binary → 啟動 `phantom-mesh.exe phantom-mesh://focus/{session_id}` → Tauri 殼 cold-launch → first paint → deep-link route；耗時 ≤ 60s p95（per SPEC-43 perf budget `MSI install + cold-start = 90s combined`，cold-start 自身 ≤ 60s）
+2. OS 解析 `launch` URI → `spectyn-mesh://focus/{session_id}`
+3. 若 spectyn-mesh app 已在跑（tray icon 在）→ Tauri `deep-link` plugin 接 URI → emit event `deep-link://focus/{session_id}` → React Router `navigate("/focus/" + session_id)`；耗時 ≤ 100ms p95
+4. 若 spectyn-mesh app 未跑（tray icon 不在；user 已 quit）→ OS via `HKCR\spectyn-mesh` registry 找 binary → 啟動 `spectyn-mesh.exe spectyn-mesh://focus/{session_id}` → Tauri 殼 cold-launch → first paint → deep-link route；耗時 ≤ 60s p95（per SPEC-43 perf budget `MSI install + cold-start = 90s combined`，cold-start 自身 ≤ 60s）
 5. 主視窗 route 落定 → 顯示 Focus tab takeaway card；scroll 到該 session
 
-**AUMID 驗證**：toast emit 前 `windows_toast.rs` 驗 AUMID 已註冊（`com.phantom-mesh.app`）；缺失 → 走 §AUMID missing self-heal（見下）
+**AUMID 驗證**：toast emit 前 `windows_toast.rs` 驗 AUMID 已註冊（`com.spectyn-mesh.app`）；缺失 → 走 §AUMID missing self-heal（見下）
 
 ### Animations / Timings
 
-- toast emit budget：phantom serve `toast_show` call → Action Center render p50 < 250ms / p95 < 500ms（per SPEC-43 G2）
+- toast emit budget：spectyn serve `toast_show` call → Action Center render p50 < 250ms / p95 < 500ms（per SPEC-43 G2）
 - toast 進場：OS 預設 slide-up 200-300ms（OS 控、Win 11 用 SystemAnimations.SlideUpAnimation）
 - toast 在屏顯示：約 5-7s（OS 預設）後自動進 Action Center 歷史 — **不**消失（與 macOS NC 5s 後消失不同）
 - 主視窗 cold-launch 後 first paint → takeaway card 顯示：cross-fade 250ms（per hero）
@@ -334,7 +334,7 @@ per wireframe §117 + SPEC-43 §15：
 - Done toast `scenario="default"` → 可被 Focus Assist 折疊（user 在 dnd 模式下）
 - 折疊狀態：toast **不**即時彈出，但**仍進 Action Center 歷史**（user 之後 `Win+N` 開 AC 可補看）
 - **無 in-app fallback banner**（Done 不是 urgent；user 主動看 AC 即可）
-- 若 user 完全關閉 toast permission（Settings → Notifications → Phantom Mesh OFF）→ `R.windows.toast_emit_fail` → 退化到主視窗頂部 in-app banner（見下方 §Focus Assist + in-app fallback banner）
+- 若 user 完全關閉 toast permission（Settings → Notifications → Spectyn Mesh OFF）→ `R.windows.toast_emit_fail` → 退化到主視窗頂部 in-app banner（見下方 §Focus Assist + in-app fallback banner）
 
 ### Failure paths
 
@@ -346,7 +346,7 @@ per wireframe §117 + SPEC-43 §15：
 ### Narrator 行為
 
 Win 10/11 內建 Narrator 整合自動讀 toast（per SPEC-43 §12.2）：
-- Read 順序：title `"Phantom Mesh"` → body line 1 `"Focus 25 min · takeaway ready"` → body line 2 (60 字截斷後的 takeaway) → action button `"開啟回顧, button"`
+- Read 順序：title `"Spectyn Mesh"` → body line 1 `"Focus 25 min · takeaway ready"` → body line 2 (60 字截斷後的 takeaway) → action button `"開啟回顧, button"`
 - user 按 `Caps+Space` 啟動 action button（Narrator 快捷）
 
 ---
@@ -359,7 +359,7 @@ per [mockup §262-294](./SPEC-21-capture-focus-windows-mockup.md#螢幕-d--inter
 
 | Target | 動作 |
 |---|---|
-| toast body | trigger `launch` URI → `phantom-mesh://focus/{session_id}/stop` → cold-launch / activate 主視窗 → invoke `focus_session_stop` → 切 Finalizing → Done |
+| toast body | trigger `launch` URI → `spectyn-mesh://focus/{session_id}/stop` → cold-launch / activate 主視窗 → invoke `focus_session_stop` → 切 Finalizing → Done |
 | `開啟並停止` action button | label `focus.desktop.interrupt_notif_action`；arguments=`action=stop`；activationType=`protocol`；同 toast body click |
 | dismiss（user 主動關）| 進 Action Center 歷史；session 仍在 Interrupted state（可能 30s 內 OS event `.ended` 自動 resume；或超時強制 finalize）|
 
@@ -384,14 +384,14 @@ per wireframe §159 + SPEC-43 §15：
 per [wireframe §117](./SPEC-21-capture-focus-windows-wireframe.md#螢幕-d--interrupted-toast系統強制觸發) + mockup §294：
 
 **觸發條件**（任一）：
-- user 在 Win 11 Settings → Notifications → Phantom Mesh OFF（完全關閉 app toast）
+- user 在 Win 11 Settings → Notifications → Spectyn Mesh OFF（完全關閉 app toast）
 - `R.windows.toast_emit_fail` 發生（AUMID register 失敗、HRESULT 非 0、ToastNotifier.Show 拋例外）
 - Focus Assist 在 "Alarms only" mode（連 urgent 也擋掉，rare）
 
 **Fallback banner 行為**：
 - **觸發時機**：toast emit 失敗 detect 後 ≤ 100ms 顯示
 - **位置**：主視窗頂部（z-index 在 main content 之上，不阻擋 navigation）；若主視窗未開 → 暫存 banner state，user 開主視窗時即顯
-- **視覺**（per mockup §294）：icon Lucide `triangle-alert` 16px phantom-warning + bg `overlay-recording-16` + 文案 `focus.windows.focus_assist_fallback`「Focus Assist 開啟中，通知改在 app 內顯示」
+- **視覺**（per mockup §294）：icon Lucide `triangle-alert` 16px spectyn-warning + bg `overlay-recording-16` + 文案 `focus.windows.focus_assist_fallback`「Focus Assist 開啟中，通知改在 app 內顯示」
 - **可點關閉**：右上 `×` button → banner 淡出 200ms `ease-out`；user 主動 dismiss 後該 session 不再顯示（per-session state，非 global setting）
 - **action button**：「開啟並停止」（Interrupted 變體）或「開啟回顧」（Done 變體）—  click 等同對應 toast action
 - **Narrator**：`role="alert" aria-live="assertive"` — Narrator 即時讀出全文（不需 user navigate）
@@ -399,7 +399,7 @@ per [wireframe §117](./SPEC-21-capture-focus-windows-wireframe.md#螢幕-d--int
 ### Failure paths
 
 - 30s 寬限超時 + user 沒 click toast → 強制 finalize → toast 自動 dismiss + Done toast D 接著彈（per Flow 2）
-- user click toast 但主視窗 cold-launch 失敗（rare：app crash）→ OS 顯示 phantom-mesh.exe 啟動失敗 → user 重啟 app + session 已標 `interrupted=true`、`finalized_at=now`，takeaway 仍會在 Focus tab 找到
+- user click toast 但主視窗 cold-launch 失敗（rare：app crash）→ OS 顯示 spectyn-mesh.exe 啟動失敗 → user 重啟 app + session 已標 `interrupted=true`、`finalized_at=now`，takeaway 仍會在 Focus tab 找到
 
 ---
 
@@ -424,7 +424,7 @@ per hero E + Windows delta（[wireframe §163-172](./SPEC-21-capture-focus-windo
 ### Failure paths
 
 繼承 hero E 全表（ASR 全掛 / LLM 失敗 / 取消 LLM）。Windows-specific：
-- **背景 finalize**：主視窗 hide-to-tray 期間 finalize 仍跑（phantom serve 接管）；Done 時 tray icon flash 橘 3 秒 → 切回 idle；**Done toast 必 emit**（即使主視窗 active 或未開 — per wireframe §170，Windows 不抑制 active focus 通知，與 macOS focus-suppressed banner 行為不同）
+- **背景 finalize**：主視窗 hide-to-tray 期間 finalize 仍跑（spectyn serve 接管）；Done 時 tray icon flash 橘 3 秒 → 切回 idle；**Done toast 必 emit**（即使主視窗 active 或未開 — per wireframe §170，Windows 不抑制 active focus 通知，與 macOS focus-suppressed banner 行為不同）
 
 ---
 
@@ -439,7 +439,7 @@ per hero F + Windows delta。
 | `看完整逐字稿` button | label `focus.done.view_full`。主視窗內 route to `/focus/:id/transcript`；不開新 window |
 | `新 session` button | label `focus.done.new_session`。route 回 Focus tab Idle；不開 Start window（直接顯示 Focus tab Idle state — 因主視窗已在）|
 | takeaway card（truncated state）| tap 整張 / `focus.limit.view_full_takeaway` CTA → 等同 `看完整逐字稿`（per hero F）|
-| 主視窗 `[X]` close | hide-to-tray；下次 tray menu「Open Phantom Mesh」可重開 + takeaway card 仍在 |
+| 主視窗 `[X]` close | hide-to-tray；下次 tray menu「Open Spectyn Mesh」可重開 + takeaway card 仍在 |
 | Done toast click（D 已彈）| 若主視窗已在 takeaway card → 無動作（route 已 settle）；若主視窗未開 → cold-launch + route |
 
 ### Entry animation
@@ -483,18 +483,18 @@ per hero F + Windows delta。
 per SPEC-43 §6.3 Flow 2 + 上方螢幕 D：
 
 ```
-phantom serve emit toast (background, AUMID-anchored)
+spectyn serve emit toast (background, AUMID-anchored)
     ↓ (Action Center render ≤ 500ms p95)
 toast 進屏 + Action Center 歷史
     ↓ (user click)
-OS 解析 launch URI: phantom-mesh://focus/{session_id}
+OS 解析 launch URI: spectyn-mesh://focus/{session_id}
     ↓
     ├─ app 已在跑 (tray icon visible)
     │   → Tauri deep-link plugin 接 URI → React Router navigate
     │     ≤ 100ms 到 takeaway card
     │
     └─ app 未跑 (user 已 quit)
-        → HKCR\phantom-mesh registry → 啟動 phantom-mesh.exe with URI arg
+        → HKCR\spectyn-mesh registry → 啟動 spectyn-mesh.exe with URI arg
         → Tauri cold-launch → first paint ≤ 60s p95
         → deep-link route → takeaway card
 ```
@@ -504,15 +504,15 @@ OS 解析 launch URI: phantom-mesh://focus/{session_id}
 per SPEC-43 §8.1 + mockup §168-185：
 
 ```
-Idle (mic muted, phantom-muted per mockup)
+Idle (mic muted, spectyn-muted per mockup)
     ↓ Start session
-Recording (mic, phantom-warning per mockup 橘) ────┐
+Recording (mic, spectyn-warning per mockup 橘) ────┐
     ↓ Pause                                      │
-Paused (mic-off, phantom-muted)                  │
+Paused (mic-off, spectyn-muted)                  │
     ↓ Resume                                     │
 Recording ──────────────────────────────────────┘
     ↓ Mic 被搶 / OS interrupt
-Error (mic + 紅點 overlay, phantom-danger per mockup)
+Error (mic + 紅點 overlay, spectyn-danger per mockup)
     ↓ Resume (30s 寬限內 OS event .ended)
 Recording
     OR
@@ -601,7 +601,7 @@ Finalizing (橘維持) → Done (橘 3s) → Idle
 
 | # | Task | 測項 | 6-state 覆蓋 |
 |---|---|---|---|
-| 1 | **首次使用 + Empty state**：「請從 tray 開啟 Phantom Mesh，看 Focus tab 的 History（預期空白），再開一段 25 分鐘 focus」 | tray menu 教學 + Empty state + Start window flow | **Empty**（History）/ Loading（mic init）/ Ideal（done）|
+| 1 | **首次使用 + Empty state**：「請從 tray 開啟 Spectyn Mesh，看 Focus tab 的 History（預期空白），再開一段 25 分鐘 focus」 | tray menu 教學 + Empty state + Start window flow | **Empty**（History）/ Loading（mic init）/ Ideal（done）|
 | 2 | **Hotkey opt-in**：「請從 Settings 啟用 Win+Shift+F 全域熱鍵，並用它開始一段 focus」 | Settings → Hotkeys tab + hotkey register fallback chain + capture mode | Ideal / Error（若衝突走 fallback）|
 | 3 | **背景 + tray ambient**：「開始錄音後關閉主視窗，繼續工作 5 分鐘後從 tray 停止錄音」 | tray icon ambient + hide-to-tray + tray menu Stop | Loading（背景 finalize 感）/ Ideal |
 | 4 | **Interrupted**：「錄音中請開啟 Discord 並 join 語音通道（觸發 mic 搶佔），檢查 toast」 | WASAPI exclusive mode + Interrupted toast scenario=urgent + 30s 寬限 | Error（中斷態）|

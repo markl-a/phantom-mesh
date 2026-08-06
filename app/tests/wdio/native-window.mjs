@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const APP_BINARY = resolve(__dirname, '../../src-tauri/target/debug/phantom-mesh-app');
+const APP_BINARY = resolve(__dirname, '../../src-tauri/target/debug/spectyn-mesh-app');
 
 let failures = 0;
 const check = (name, cond, detail = '') => {
@@ -40,7 +40,7 @@ try {
   check('native window has a <body>', exists);
 
   const text = exists ? await body.getText() : '';
-  check('onboarding shows "Phantom Mesh"', text.includes('Phantom Mesh'),
+  check('onboarding shows "Spectyn Mesh"', text.includes('Spectyn Mesh'),
     `body text (first 120): ${JSON.stringify(text.slice(0, 120))}`);
   check('provider list shows "OpenRouter"', text.includes('OpenRouter'));
   check('provider list shows "Anthropic"', text.includes('Anthropic'));

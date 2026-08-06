@@ -1,11 +1,11 @@
 # promptfooconfig.yaml — LOCAL-FIRST, OFFLINE-BY-DEFAULT eval harness for
-# phantom-mesh's agent/provider layer.
+# spectyn-mesh's agent/provider layer.
 #
 # Privacy & offline guarantees:
 #   - sharing: false           → never uploads results to app.promptfoo.dev
 #   - PROMPTFOO_DISABLE_TELEMETRY=1 (set by run.sh)  → no usage analytics
-#   - The default provider is a local Node harness (scripts/eval/phantom_harness.js)
-#     that drives the local `phantom` CLI for DETERMINISTIC output and runs a
+#   - The default provider is a local Node harness (scripts/eval/spectyn_harness.js)
+#     that drives the local `spectyn` CLI for DETERMINISTIC output and runs a
 #     pure in-process route-resolution check. NO cloud, NO API key, NO network.
 #   - The single LLM-dependent case is GATED behind PROMPTFOO_LLM=1 and SKIPPED
 #     by default (see the `if:` guard on its assert).
@@ -13,7 +13,7 @@
 # Run:  npx promptfoo eval -c scripts/eval/promptfooconfig.yaml
 # CI:   bash scripts/eval/run.sh
 
-description: phantom-mesh offline agent/provider eval suite
+description: spectyn-mesh offline agent/provider eval suite
 
 # Disable result sharing/upload. Telemetry is additionally killed via env in run.sh.
 sharing: false
@@ -21,8 +21,8 @@ sharing: false
 # Default provider: our deterministic, offline Node harness (NOT an LLM).
 # Loaded as a class with id() + callApi() (the stable custom-provider interface).
 providers:
-  - id: file://phantom_harness.js
-    label: phantom-offline-harness
+  - id: file://spectyn_harness.js
+    label: spectyn-offline-harness
 
 # A trivial prompt; the harness ignores prompt content and dispatches on vars.cmd.
 prompts:
@@ -30,31 +30,31 @@ prompts:
 
 tests:
   # ── Case 1: version banner is well-formed (deterministic CLI output) ─────────
-  - description: 'phantom --version emits a semver build banner'
+  - description: 'spectyn --version emits a semver build banner'
     vars:
       cmd: version
     assert:
       - type: contains
-        value: 'phantom '
-      # phantom <semver>[-prerelease] (<gitsha>+, <target>, built <date>)
+        value: 'spectyn '
+      # spectyn <semver>[-prerelease] (<gitsha>+, <target>, built <date>)
       # allow an optional -rc.N / -beta.N pre-release suffix (e.g. 0.6.0-rc.1)
       - type: regex
-        value: 'phantom \d+\.\d+\.\d+(-[a-zA-Z0-9.]+)? \([0-9a-f]+\+?, [^,]+, built \d{4}-\d{2}-\d{2}\)'
+        value: 'spectyn \d+\.\d+\.\d+(-[a-zA-Z0-9.]+)? \([0-9a-f]+\+?, [^,]+, built \d{4}-\d{2}-\d{2}\)'
 
   # ── Case 2: top-level help advertises the core command surface ──────────────
-  - description: 'phantom --help lists the headless exec + serve + selftest commands'
+  - description: 'spectyn --help lists the headless exec + serve + selftest commands'
     vars:
       cmd: help
     assert:
       - type: contains
-        value: 'phantom exec'
+        value: 'spectyn exec'
       - type: contains
-        value: 'phantom serve'
+        value: 'spectyn serve'
       - type: contains
-        value: 'phantom selftest'
+        value: 'spectyn selftest'
 
   # ── Case 3: exec subcommand documents its headless CI contract ──────────────
-  - description: 'phantom exec --help documents stdin prompt + --json machine output'
+  - description: 'spectyn exec --help documents stdin prompt + --json machine output'
     vars:
       cmd: exec-help
     assert:
@@ -107,4 +107,4 @@ tests:
           }
           // When opted in, require the deterministic banner to still be present
           // (placeholder for a real local-Ollama assertion the operator can wire).
-          return /phantom \d+\.\d+\.\d+/.test(output);
+          return /spectyn \d+\.\d+\.\d+/.test(output);

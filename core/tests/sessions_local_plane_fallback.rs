@@ -1,4 +1,4 @@
-// Integration test: `phantom sessions` must degrade gracefully on a
+// Integration test: `spectyn sessions` must degrade gracefully on a
 // machine that is NOT logged in to the cross-mesh broker. Before this
 // change, `sessions_lines()` hard-required auth.json and bailed with
 // "not logged in" / HTTP 401. Now it tries the LOCAL loopback plane
@@ -6,13 +6,13 @@
 // the cross-mesh view — so a local-only run returns Ok with the local
 // view instead of an error.
 //
-// These path/auth helpers read process-global env (HOME / PHANTOM_HOME)
+// These path/auth helpers read process-global env (HOME / SPECTYN_HOME)
 // and the macOS/Linux home resolver, so this is gated to unix (matches
 // the repo pattern of the other $HOME-sandbox tests, e.g.
 // cuj03_broker_login_token_persist.rs).
 #![cfg(unix)]
 
-use phantom_mesh::cli_config::{local_sessions_lines, render_local_sessions, sessions_lines};
+use spectyn_mesh::cli_config::{local_sessions_lines, render_local_sessions, sessions_lines};
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -75,9 +75,9 @@ async fn sessions_lines_not_logged_in_degrades_to_ok() {
     // Hermetic HOME so auth::load() finds NO auth.json (never logged in).
     let home = TempDir::new().expect("tempdir for fake HOME");
     std::env::set_var("HOME", home.path());
-    std::env::set_var("PHANTOM_HOME", home.path());
+    std::env::set_var("SPECTYN_HOME", home.path());
 
-    // No `phantom serve` is bound in-test, so the loopback fetch will fail
+    // No `spectyn serve` is bound in-test, so the loopback fetch will fail
     // (connection refused) and the broker path will fail (no auth). The
     // command must still return Ok with the degraded notice.
     let result = sessions_lines().await;

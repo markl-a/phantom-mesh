@@ -7,7 +7,7 @@ export type WizardStep = "welcome" | "permissions" | "palette" | "mesh" | "done"
 export const WIZARD_STEPS: WizardStep[] = ["welcome", "permissions", "palette", "mesh", "done"];
 
 /** Back-compat: the v2 mode-picker used this key; reuse so existing installs skip onboarding. */
-export const ONBOARDED_KEY = "phantom_mesh_v2_onboarded";
+export const ONBOARDED_KEY = "spectyn_mesh_v2_onboarded";
 
 export function nextStep(s: WizardStep): WizardStep {
   const i = WIZARD_STEPS.indexOf(s);

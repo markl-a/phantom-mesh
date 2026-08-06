@@ -13,7 +13,7 @@
 //! `ProviderError::FallbackExhausted` → `CoachError::LlmAllProvidersFailed` →
 //! the engine's degraded branch.
 
-use phantom_mesh::coach_wire::{run_daily_review, DailyReviewRequest, ReviewStatus};
+use spectyn_mesh::coach_wire::{run_daily_review, DailyReviewRequest, ReviewStatus};
 
 mod harness {
     use std::sync::Mutex;
@@ -23,7 +23,7 @@ mod harness {
     pub static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     pub fn unique_home() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("phantom-cuj04-{}-{}", std::process::id(), nanos()))
+        std::env::temp_dir().join(format!("spectyn-cuj04-{}-{}", std::process::id(), nanos()))
     }
 
     fn nanos() -> u128 {
@@ -38,7 +38,7 @@ mod harness {
     /// on BOTH the happy and the degraded path). Populates the cache that
     /// `lookup_or_derive_event_key` reads first — no on-disk identity.key needed.
     pub fn set_event_key() {
-        phantom_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32])
+        spectyn_mesh::encryption_wire::install_event_key_from_seed(&[7u8; 32])
             .expect("install test EventKey from seed");
     }
 }
@@ -48,8 +48,8 @@ fn cuj04_all_providers_failed_degrades_to_stats_only() {
     let _guard = harness::ENV_LOCK.lock().unwrap();
 
     let home = harness::unique_home();
-    let pm = home.join(".phantom-mesh");
-    std::fs::create_dir_all(&pm).expect("create .phantom-mesh");
+    let pm = home.join(".spectyn-mesh");
+    std::fs::create_dir_all(&pm).expect("create .spectyn-mesh");
     std::fs::write(
         pm.join("agents.toml"),
         r#"
@@ -65,7 +65,7 @@ default_model = "llama-3.1-8b-instant"
     std::env::set_var("HOME", &home);
     // Guarantee the key is absent → the provider call fails offline.
     std::env::remove_var("GROQ_API_KEY");
-    std::env::remove_var("PHANTOM_MESH_GROQ_API_KEY");
+    std::env::remove_var("SPECTYN_MESH_GROQ_API_KEY");
     // EventKey present so the degraded review can be persisted.
     harness::set_event_key();
 

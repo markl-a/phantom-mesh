@@ -3,7 +3,7 @@
 一套即插即用、登錄表（registry）風格的測試框架。**每個新功能都附帶一個位於
 `scripts/selftest.d/` 底下的檔案**；協調器（orchestrator，`scripts/selftest.sh`）
 會自動探索（auto-discover）到它。輸出預設為人類可讀格式，需要時也可輸出機器可讀
-（JSON）格式，因此開發者與 LLM 代理（agent，如 Claude Code、phantom 本身、CI）
+（JSON）格式，因此開發者與 LLM 代理（agent，如 Claude Code、spectyn 本身、CI）
 都能用同樣的方式執行它。
 
 ## 執行它
@@ -11,26 +11,26 @@
 共有三個進入點（entry point）——它們做的事完全相同，挑一個符合你情境的就好：
 
 ```bash
-# 1. Native subcommand (works anywhere phantom is on PATH)
-phantom selftest                          # text, all features
-phantom selftest --json --out r.json      # JSON report
-phantom selftest --feature mcp            # just one feature
-phantom selftest --p0-only                # CI smoke run
-phantom selftest --list                   # show registered features
+# 1. Native subcommand (works anywhere spectyn is on PATH)
+spectyn selftest                          # text, all features
+spectyn selftest --json --out r.json      # JSON report
+spectyn selftest --feature mcp            # just one feature
+spectyn selftest --p0-only                # CI smoke run
+spectyn selftest --list                   # show registered features
 
 # 2. make targets (in the repo)
 make selftest
 make selftest-json
 make selftest-list
 
-# 3. The script directly (when you don't have a phantom binary handy)
+# 3. The script directly (when you don't have a spectyn binary handy)
 scripts/selftest.sh --json --out a.json
 
 # Env knobs (apply to all three)
-PHANTOM_BIN=/path/to/phantom phantom selftest
-COORD=http://10.0.0.5:7878   phantom selftest
-PHANTOM_SELFTEST_SCRIPT=/abs/path/selftest.sh phantom selftest   # script override
-PHANTOM_BASH=/path/to/bash.exe phantom selftest                  # bash override (Windows)
+SPECTYN_BIN=/path/to/spectyn spectyn selftest
+COORD=http://10.0.0.5:7878   spectyn selftest
+SPECTYN_SELFTEST_SCRIPT=/abs/path/selftest.sh spectyn selftest   # script override
+SPECTYN_BASH=/path/to/bash.exe spectyn selftest                  # bash override (Windows)
 ```
 
 ## 平台支援
@@ -39,23 +39,23 @@ PHANTOM_BASH=/path/to/bash.exe phantom selftest                  # bash override
 |---|---|
 | macOS    | ✅ 一等公民（first-class）—— bash 與 `python3` 預設隨附 |
 | Linux    | ✅ 一等公民（first-class）—— bash 與 `python3` 預設隨附 |
-| Windows + Git Bash | ✅ —— `phantom selftest` 會自動尋得 `bash.exe`。當缺少 `python3` 時，純 bash 的 JSON 建構器會接手執行，因此無需額外安裝。`jq` 為選用（僅在消費 JSON 時需要）。 |
+| Windows + Git Bash | ✅ —— `spectyn selftest` 會自動尋得 `bash.exe`。當缺少 `python3` 時，純 bash 的 JSON 建構器會接手執行，因此無需額外安裝。`jq` 為選用（僅在消費 JSON 時需要）。 |
 | Windows + WSL | ✅ —— 與 Linux 相同的一等公民體驗 |
-| Windows native（cmd / PowerShell，無 Git/WSL） | ❌ —— 沒有 bash。`phantom selftest` 會印出一次性的安裝提示，指向 `https://git-scm.com/download/win`。 |
+| Windows native（cmd / PowerShell，無 Git/WSL） | ❌ —— 沒有 bash。`spectyn selftest` 會印出一次性的安裝提示，指向 `https://git-scm.com/download/win`。 |
 
-`phantom selftest` 這個 Rust shim（薄墊片）在 Windows 上會以下列順序探測 bash：
+`spectyn selftest` 這個 Rust shim（薄墊片）在 Windows 上會以下列順序探測 bash：
 
-1. `$PHANTOM_BASH`（若已設定；檔案不存在 → 以清楚的錯誤訊息 exit 2）
+1. `$SPECTYN_BASH`（若已設定；檔案不存在 → 以清楚的錯誤訊息 exit 2）
 2. `$PATH` 上的 `bash` / `bash.exe`
 3. `C:\Program Files\Git\bin\bash.exe`
 4. `C:\Program Files (x86)\Git\bin\bash.exe`
 5. `%LOCALAPPDATA%\Programs\Git\bin\bash.exe`（每使用者的 Git 安裝）
 
-`phantom selftest` 是一個輕薄的 Rust shim：它會在 repo 中定位 `scripts/selftest.sh`
+`spectyn selftest` 是一個輕薄的 Rust shim：它會在 repo 中定位 `scripts/selftest.sh`
 （cwd → 從 cwd 往上層尋找 → 從二進位檔往上層尋找 →
-`~/.phantom-mesh/scripts/selftest.sh`），然後 exec bash 並轉發你所有的引數。
-因此一個驅動 phantom 的 LLM 代理 —— 或 phantom 透過自己的 `shell` 工具驅動自己 ——
-只需要知道 `phantom selftest` 即可。
+`~/.spectyn-mesh/scripts/selftest.sh`），然後 exec bash 並轉發你所有的引數。
+因此一個驅動 spectyn 的 LLM 代理 —— 或 spectyn 透過自己的 `shell` 工具驅動自己 ——
+只需要知道 `spectyn selftest` 即可。
 
 ## 結束碼（Exit codes）
 
@@ -67,7 +67,7 @@ PHANTOM_BASH=/path/to/bash.exe phantom selftest                  # bash override
 
 ## LLM 代理應如何消費輸出（自我除錯迴圈）
 
-本套件的設計讓代理 —— Claude Code、phantom 本身或 CI —— 能在沒有人類介入的情況下
+本套件的設計讓代理 —— Claude Code、spectyn 本身或 CI —— 能在沒有人類介入的情況下
 執行、診斷並修復。
 
 ```bash
@@ -100,7 +100,7 @@ JSON 的結構是穩定的。失敗的列總是包含 `repro`，並且（對於�
 
 ```json
 {
-  "phantom_version": "phantom 0.x.y (abc1234, ...)",
+  "spectyn_version": "spectyn 0.x.y (abc1234, ...)",
   "started_at": "2026-05-05T12:00:00Z",
   "duration_s": 14,
   "artifacts_dir": "test-results/selftest-20260505T120000Z",
@@ -111,15 +111,15 @@ JSON 的結構是穩定的。失敗的列總是包含 `repro`，並且（對於�
       "priority": "P0",
       "requires": "",
       "description": "...",
-      "hints": ["core/src/bin/phantom.rs", "core/src/main.rs"],
+      "hints": ["core/src/bin/spectyn.rs", "core/src/main.rs"],
       "file": "00-binary.sh",
       "tests": [
         {
-          "name": "phantom --version",
+          "name": "spectyn --version",
           "status": "pass",
-          "detail": "phantom 0.5.1 (abc1234, macos-aarch64, ...)",
-          "repro":  "/Users/me/.cargo/bin/phantom --version | grep -qE '^phantom [0-9]+\\.[0-9]+'",
-          "artifact": "test-results/selftest-.../binary/phantom-version.log"
+          "detail": "spectyn 0.5.1 (abc1234, macos-aarch64, ...)",
+          "repro":  "/Users/me/.cargo/bin/spectyn --version | grep -qE '^spectyn [0-9]+\\.[0-9]+'",
+          "artifact": "test-results/selftest-.../binary/spectyn-version.log"
         }
       ]
     }
@@ -192,7 +192,7 @@ JSON 的結構是穩定的。失敗的列總是包含 `repro`，並且（對於�
   一個巨大的測試 —— 五個小斷言能告訴你_是什麼_壞了。
 - **預設冪等（idempotent）且唯讀。** 自我測試必須能安全地在使用者的活機器上
   執行。若某個檢查會寫入狀態，請在同一個函式內復原，或把它移到由
-  像 `PHANTOM_SELFTEST_DESTRUCTIVE=1` 這類環境變數把關的
+  像 `SPECTYN_SELFTEST_DESTRUCTIVE=1` 這類環境變數把關的
   `requires=destructive` 優先級 P2 檔案中。
 - **廉價。** 目標是整個套件在一台溫機（warm）筆電上於 30 秒內完成。把昂貴的
   檢查（完整 evolve 週期、MLX 推論）移到 P2 並以
@@ -204,15 +204,15 @@ JSON 的結構是穩定的。失敗的列總是包含 `repro`，並且（對於�
 
 | | self-test | cargo test |
 |---|---|---|
-| 目標 | **已安裝的** `phantom` 二進位檔、**執行中的** daemon、真實網路 | Rust 單元 / 整合測試 |
+| 目標 | **已安裝的** `spectyn` 二進位檔、**執行中的** daemon、真實網路 | Rust 單元 / 整合測試 |
 | 由誰執行 | 使用者、Claude、CI 煙霧測試（smoke）任務 | 開發迴圈、CI 建置任務 |
 | 斷言風格 | 結束碼、HTTP、JSON 鍵、是否存在區段標籤 | `assert_eq!` |
 
 如果你在測試純 Rust 邏輯，請寫 `cargo test`。如果你在測試
-「已安裝的二進位檔是否仍產生正確的 `phantom doctor` 輸出」，
+「已安裝的二進位檔是否仍產生正確的 `spectyn doctor` 輸出」，
 那就是一個自我測試功能。
 
-## 實作範例：為新的 `phantom backup` 命令新增自我測試
+## 實作範例：為新的 `spectyn backup` 命令新增自我測試
 
 ```bash
 # scripts/selftest.d/45-backup.sh
@@ -220,20 +220,20 @@ selftest_feature_meta() {
   echo "name=backup"
   echo "priority=P1"
   echo "requires="
-  echo "description=phantom backup create + list round-trip on a temp dir"
+  echo "description=spectyn backup create + list round-trip on a temp dir"
 }
 
 selftest_run() {
   dest="$TMP/backup-test"
   mkdir -p "$dest"
-  if "$PHANTOM" backup create --dest "$dest" --dry-run >"$TMP/bk.out" 2>&1; then
+  if "$SPECTYN" backup create --dest "$dest" --dry-run >"$TMP/bk.out" 2>&1; then
     t_pass "backup create --dry-run" "$(head -1 $TMP/bk.out)"
   else
     t_fail "backup create --dry-run" "$(tail -1 $TMP/bk.out)"
     return
   fi
 
-  out="$("$PHANTOM" backup list --json 2>/dev/null)"
+  out="$("$SPECTYN" backup list --json 2>/dev/null)"
   if echo "$out" | jq -e '. | length >= 0' >/dev/null 2>&1; then
     t_pass "backup list returns JSON" ""
   else

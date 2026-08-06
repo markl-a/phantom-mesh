@@ -1,5 +1,5 @@
 // Dashboard life-log stats card — app counterpart of the TUI `/stats` + CLI
-// `phantom data stats` (BIG-GOAL P2 Life Track). Rolls up all captured Life
+// `spectyn data stats` (BIG-GOAL P2 Life Track). Rolls up all captured Life
 // Node events: total · date span · last-7d · by-kind. Read-only.
 
 import { useEffect, useState } from "react";
@@ -37,35 +37,35 @@ export default function LifeStatsPanel() {
     return () => { cancelled = true; };
   }, []);
 
-  if (error) return <p className="text-xs text-phantom-muted">{error}</p>;
-  if (!stats) return <p className="text-xs text-phantom-muted">載入中…</p>;
+  if (error) return <p className="text-xs text-spectyn-muted">{error}</p>;
+  if (!stats) return <p className="text-xs text-spectyn-muted">載入中…</p>;
 
   return (
     <div className="space-y-3" data-testid="life-stats-panel">
       <div className="flex items-baseline gap-4">
         <div>
-          <div className="text-2xl font-bold text-phantom-text">{stats.total}</div>
-          <div className="text-[11px] text-phantom-muted">總事件</div>
+          <div className="text-2xl font-bold text-spectyn-text">{stats.total}</div>
+          <div className="text-[11px] text-spectyn-muted">總事件</div>
         </div>
         <div>
-          <div className="text-2xl font-bold text-phantom-primary">{stats.last7d}</div>
-          <div className="text-[11px] text-phantom-muted">近 7 天</div>
+          <div className="text-2xl font-bold text-spectyn-primary">{stats.last7d}</div>
+          <div className="text-[11px] text-spectyn-muted">近 7 天</div>
         </div>
       </div>
       {stats.byKind.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {stats.byKind.map((k) => (
-            <span key={k.kind} className="text-xs px-2 py-0.5 rounded-full bg-phantom-bg border border-phantom-border text-phantom-text">
+            <span key={k.kind} className="text-xs px-2 py-0.5 rounded-full bg-spectyn-bg border border-spectyn-border text-spectyn-text">
               {KIND_EMOJI[k.kind] ?? "•"} {k.kind} {k.count}
             </span>
           ))}
         </div>
       )}
       {stats.earliest && stats.latest && (
-        <div className="text-[11px] text-phantom-muted">{stats.earliest} → {stats.latest}</div>
+        <div className="text-[11px] text-spectyn-muted">{stats.earliest} → {stats.latest}</div>
       )}
       {stats.total === 0 && (
-        <p className="text-xs text-phantom-muted">尚無事件 — 用專注 / 習慣 / 飲食頁開始記錄。</p>
+        <p className="text-xs text-spectyn-muted">尚無事件 — 用專注 / 習慣 / 飲食頁開始記錄。</p>
       )}
     </div>
   );

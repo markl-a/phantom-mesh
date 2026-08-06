@@ -153,11 +153,11 @@ export interface PersistedWizardState {
 
 export type WizardStep = 0 | 1 | 2 | 3 | 4 | 5;
 
-export const WIZARD_STORAGE_KEY = 'phantom_mesh_onboarding_state';
-export const ONBOARDED_KEY = 'phantom_mesh_onboarded';
+export const WIZARD_STORAGE_KEY = 'spectyn_mesh_onboarding_state';
+export const ONBOARDED_KEY = 'spectyn_mesh_onboarded';
 /** Local cosmetic identity profile (display name / email / avatar). NOT the
  *  on-device ed25519 identity key — that lives in the system keychain. */
-export const IDENTITY_KEY = 'phantom_mesh_identity';
+export const IDENTITY_KEY = 'spectyn_mesh_identity';
 
 /** Clear the local onboarding/session footprint so the next launch restarts
  *  the D1–D5 login-first flow from `fresh_install`. Wipes the cosmetic identity
@@ -173,8 +173,8 @@ export function clearSession(): void {
     localStorage.removeItem(IDENTITY_KEY);
     localStorage.removeItem(ONBOARDED_KEY);
     // FSM snapshot + context keys (mirrors lib/onboardingFsm.ts constants).
-    localStorage.removeItem('phantom_mesh_onboarding_snapshot');
-    localStorage.removeItem('phantom_mesh_onboarding_context');
+    localStorage.removeItem('spectyn_mesh_onboarding_snapshot');
+    localStorage.removeItem('spectyn_mesh_onboarding_context');
   } catch {
     /* private mode / quota — ignore */
   }

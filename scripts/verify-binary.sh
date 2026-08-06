@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# verify-binary.sh — health-check a phantom binary
+# verify-binary.sh — health-check a spectyn binary
 #
 # Usage:
 #   ./scripts/verify-binary.sh <binary-path> [options]
 #
 # Options:
-#   --expect-version <semver>   fail if phantom --version --short != <semver>
-#   --quick                     skip phantom doctor (just version + exists)
-#   --full                      include phantom selftest --p0-only (needs LLM key)
+#   --expect-version <semver>   fail if spectyn --version --short != <semver>
+#   --quick                     skip spectyn doctor (just version + exists)
+#   --full                      include spectyn selftest --p0-only (needs LLM key)
 #   --json                      machine-readable JSON output
 #   -v | --verbose              print each check's full output
 #   -h | --help                 this help
@@ -84,7 +84,7 @@ else
 fi
 
 # helper: run a command, capture exit + output (only continues if Check 1 passed)
-run_phantom() {
+run_spectyn() {
   local args="$1"
   local outvar="$2"
   local exitvar="$3"
@@ -101,9 +101,9 @@ run_phantom() {
   eval "$exitvar=$_exit"
 }
 
-# Check 2: phantom --version
+# Check 2: spectyn --version
 if [[ "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
-  run_phantom "--version" VERSION_OUT VERSION_EXIT
+  run_spectyn "--version" VERSION_OUT VERSION_EXIT
   if [[ "$VERSION_EXIT" -eq 0 ]]; then
     record "version_runs" "pass" "$(echo "$VERSION_OUT" | head -1)"
   else
@@ -111,9 +111,9 @@ if [[ "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
   fi
 fi
 
-# Check 3: phantom --version --short matches SemVer
+# Check 3: spectyn --version --short matches SemVer
 if [[ "${CHECK_STATUS[1]:-fail}" == "pass" ]]; then
-  run_phantom "--version --short" SHORT_OUT SHORT_EXIT
+  run_spectyn "--version --short" SHORT_OUT SHORT_EXIT
   SHORT_VER=$(echo "$SHORT_OUT" | tr -d '[:space:]')
   if [[ "$SHORT_EXIT" -eq 0 && "$SHORT_VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
     record "version_short_semver" "pass" "$SHORT_VER"
@@ -136,12 +136,12 @@ else
   record "version_match_expected" "skip" "version_runs failed"
 fi
 
-# Check 5: phantom doctor (skipped in --quick mode)
+# Check 5: spectyn doctor (skipped in --quick mode)
 if [[ "$QUICK" == "true" ]]; then
   record "doctor_runs" "skip" "--quick mode"
   record "doctor_json_parseable" "skip" "--quick mode"
 elif [[ "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
-  run_phantom "doctor" DOCTOR_OUT DOCTOR_EXIT
+  run_spectyn "doctor" DOCTOR_OUT DOCTOR_EXIT
   if [[ "$DOCTOR_EXIT" -eq 0 ]]; then
     record "doctor_runs" "pass" "exit 0; $(echo "$DOCTOR_OUT" | wc -l) lines"
   else
@@ -149,7 +149,7 @@ elif [[ "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
   fi
 
   # Check 6: doctor --json (best-effort; older binaries may not honor --json)
-  run_phantom "doctor --json" DOCTOR_JSON_OUT DOCTOR_JSON_EXIT
+  run_spectyn "doctor --json" DOCTOR_JSON_OUT DOCTOR_JSON_EXIT
   # crude JSON detection: starts with { and has "binary" or "version"
   if [[ "$DOCTOR_JSON_EXIT" -eq 0 && "$DOCTOR_JSON_OUT" =~ ^[[:space:]]*\{ ]]; then
     record "doctor_json_parseable" "pass" "valid JSON"
@@ -160,9 +160,9 @@ elif [[ "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
   fi
 fi
 
-# Check 7: phantom selftest --p0-only (only in --full; needs LLM key)
+# Check 7: spectyn selftest --p0-only (only in --full; needs LLM key)
 if [[ "$FULL" == "true" && "${CHECK_STATUS[0]:-fail}" == "pass" ]]; then
-  run_phantom "selftest --p0-only" SELFTEST_OUT SELFTEST_EXIT
+  run_spectyn "selftest --p0-only" SELFTEST_OUT SELFTEST_EXIT
   if [[ "$SELFTEST_EXIT" -eq 0 ]]; then
     record "selftest_p0" "pass" "exit 0"
   else
@@ -204,7 +204,7 @@ if [[ "$JSON_OUT" == "true" ]]; then
   echo "  ]"
   echo "}"
 else
-  echo "phantom verify-binary $SCRIPT_VERSION"
+  echo "spectyn verify-binary $SCRIPT_VERSION"
   echo "  binary:   $BINARY"
   echo "  duration: ${DURATION}s"
   echo ""

@@ -1,5 +1,5 @@
 name: 🐛 Bug 回報（Bug report）
-description: 回報缺陷，協助我們改善 Phantom Mesh
+description: 回報缺陷，協助我們改善 Spectyn Mesh
 title: "[Bug]: "
 labels: ["bug", "triage"]
 body:
@@ -22,7 +22,7 @@ body:
       label: 重現步驟（Steps to reproduce）
       description: 可複製即測的步驟（實際指令或點擊路徑）。
       placeholder: |
-        1. 執行 `phantom ...`
+        1. 執行 `spectyn ...`
         2. 點選 ...
         3. 觀察到 ...
     validations:
@@ -45,8 +45,8 @@ body:
     id: version
     attributes:
       label: 版本（Version）
-      description: "`phantom --version` 的輸出。"
-      placeholder: phantom 0.6.0
+      description: "`spectyn --version` 的輸出。"
+      placeholder: spectyn 0.6.0
     validations:
       required: true
   - type: dropdown
@@ -66,7 +66,7 @@ body:
     id: logs
     attributes:
       label: 相關日誌（Relevant log output）
-      description: 貼上 `phantom logs --tail` 或主控台輸出（請先移除密鑰／個資）。會自動以程式碼格式呈現。
+      description: 貼上 `spectyn logs --tail` 或主控台輸出（請先移除密鑰／個資）。會自動以程式碼格式呈現。
       render: shell
     validations:
       required: false

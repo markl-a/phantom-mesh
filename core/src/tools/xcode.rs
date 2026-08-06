@@ -1,7 +1,7 @@
-//! Xcode toolchain wrappers for phantom — `xcrun simctl` first, with room
+//! Xcode toolchain wrappers for spectyn — `xcrun simctl` first, with room
 //! for `xcodebuild` and `swift package` in follow-up commits.
 //!
-//! Goal: bring real Apple developer workflows under phantom subagent control
+//! Goal: bring real Apple developer workflows under spectyn subagent control
 //! — boot a simulator, install an app, list runtimes, etc.
 //!
 //! Gated `#[cfg(target_os = "macos")]`. Returns a clear error if Xcode
@@ -34,7 +34,7 @@ const ALLOWED_ACTIONS: &[&str] = &[
 ///   screenshot}.
 /// - `args` (optional, array of strings): forwarded after the action verb.
 ///   For `screenshot`, if no path is given we default to
-///   `/tmp/phantom-sim-<timestamp>.png`.
+///   `/tmp/spectyn-sim-<timestamp>.png`.
 /// - `device` (optional, string): defaults to `booted` for verbs that need
 ///   a target device.
 pub async fn simctl(args: &Value) -> String {
@@ -109,7 +109,7 @@ pub async fn simctl(args: &Value) -> String {
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0);
-                    format!("/tmp/phantom-sim-{}.png", ts)
+                    format!("/tmp/spectyn-sim-{}.png", ts)
                 });
             argv.push(path);
         }

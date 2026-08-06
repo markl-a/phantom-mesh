@@ -64,14 +64,14 @@ export default function MobileDashboard() {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Refresh banner */}
-      <div className="px-4 py-3 flex items-center justify-between border-b border-phantom-border">
+      <div className="px-4 py-3 flex items-center justify-between border-b border-spectyn-border">
         <div className="flex items-center gap-2 text-sm">
-          <Activity size={16} className="text-phantom-primary" />
-          <span className="text-phantom-text">{onlineCount}/{peers.length} 節點上線</span>
+          <Activity size={16} className="text-spectyn-primary" />
+          <span className="text-spectyn-text">{onlineCount}/{peers.length} 節點上線</span>
         </div>
         <button
           onClick={refresh}
-          className="text-phantom-muted hover:text-phantom-text p-2 -m-2"
+          className="text-spectyn-muted hover:text-spectyn-text p-2 -m-2"
           aria-label="重新整理"
         >
           <RefreshCw size={18} className={refreshing ? "animate-spin" : ""} />
@@ -84,29 +84,29 @@ export default function MobileDashboard() {
 
         {/* Providers */}
         <section>
-          <h2 className="text-xs font-semibold text-phantom-muted uppercase tracking-wide px-1 mb-2">
+          <h2 className="text-xs font-semibold text-spectyn-muted uppercase tracking-wide px-1 mb-2">
             LLM Providers
           </h2>
           {providers.length === 0 ? (
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 text-sm text-phantom-muted text-center">
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 text-sm text-spectyn-muted text-center">
               尚未配置 provider
             </div>
           ) : (
             <div className="space-y-2">
               {providers.map((p) => (
                 <div key={p.name}
-                  className="flex items-center justify-between bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5"
+                  className="flex items-center justify-between bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5"
                 >
                   <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${
-                      p.is_available ? "bg-phantom-success" : "bg-phantom-danger"
+                      p.is_available ? "bg-spectyn-success" : "bg-spectyn-danger"
                     }`} />
-                    <span className="text-sm font-medium text-phantom-text capitalize">
+                    <span className="text-sm font-medium text-spectyn-text capitalize">
                       {p.display_name || p.name}
                     </span>
                   </div>
                   <span className={`text-xs ${
-                    p.is_available ? "text-phantom-success" : "text-phantom-muted"
+                    p.is_available ? "text-spectyn-success" : "text-spectyn-muted"
                   }`}>
                     {p.health}
                   </span>
@@ -118,40 +118,40 @@ export default function MobileDashboard() {
 
         {/* Peers */}
         <section>
-          <h2 className="text-xs font-semibold text-phantom-muted uppercase tracking-wide px-1 mb-2">
+          <h2 className="text-xs font-semibold text-spectyn-muted uppercase tracking-wide px-1 mb-2">
             Cluster Nodes
           </h2>
           {loading ? (
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 text-sm text-phantom-muted text-center">
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 text-sm text-spectyn-muted text-center">
               載入中…
             </div>
           ) : peers.length === 0 ? (
-            <div className="bg-phantom-card border border-phantom-border rounded-lg p-4 text-sm text-phantom-muted text-center">
+            <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-4 text-sm text-spectyn-muted text-center">
               還沒連到其他節點
             </div>
           ) : (
             <div className="space-y-2">
               {peers.map((p) => (
                 <div key={p.url}
-                  className="bg-phantom-card border border-phantom-border rounded-lg px-3 py-2.5"
+                  className="bg-spectyn-card border border-spectyn-border rounded-lg px-3 py-2.5"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       {p.online ? (
-                        <Wifi size={16} className="text-phantom-success" />
+                        <Wifi size={16} className="text-spectyn-success" />
                       ) : (
-                        <WifiOff size={16} className="text-phantom-muted" />
+                        <WifiOff size={16} className="text-spectyn-muted" />
                       )}
-                      <span className="text-sm font-medium text-phantom-text">{p.name}</span>
+                      <span className="text-sm font-medium text-spectyn-text">{p.name}</span>
                     </div>
-                    <span className="text-xs text-phantom-muted">{fmtUptime(p.uptime_secs)}</span>
+                    <span className="text-xs text-spectyn-muted">{fmtUptime(p.uptime_secs)}</span>
                   </div>
-                  <div className="mt-1 text-[11px] text-phantom-muted truncate">{p.url}</div>
+                  <div className="mt-1 text-[11px] text-spectyn-muted truncate">{p.url}</div>
                   {p.capabilities && p.capabilities.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
                       {p.capabilities.slice(0, 4).map((c) => (
                         <span key={c}
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-phantom-bg border border-phantom-border text-phantom-muted"
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-spectyn-bg border border-spectyn-border text-spectyn-muted"
                         >{c}</span>
                       ))}
                     </div>

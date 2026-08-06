@@ -5,10 +5,10 @@
 
 > **🟥 DRIFT 標記（P0-1 · 2026-06-12 以 `core/src` 實機碼裁決）：** 本文件下方的「資料流」與 mermaid 圖描述的是
 > `core/src/event_storage_wire.rs` 的 **wire-layer 設計**（`meta.json` 明文 + `body.age` 加密 + `analysis.json`）。
-> **這不是 `phantom food` 等生產擷取路徑的實際磁碟佈局。** 實機真相（as-built）如下，以此為準：
+> **這不是 `spectyn food` 等生產擷取路徑的實際磁碟佈局。** 實機真相（as-built）如下，以此為準：
 >
-> - **生產擷取路徑** = `phantom food`（CLI → daemon `POST /api/events` → `serve.rs:4360` `EventStore::with_key`）、
->   `phantom note`（`note_capture.rs:60`）、`phantom focus`（`focus_session.rs:200`）一律走
+> - **生產擷取路徑** = `spectyn food`（CLI → daemon `POST /api/events` → `serve.rs:4360` `EventStore::with_key`）、
+>   `spectyn note`（`note_capture.rs:60`）、`spectyn focus`（`focus_session.rs:200`）一律走
 >   `core/src/life_node/storage.rs` 的 `EventStore`。
 > - **磁碟佈局** = `events/<uuid>/` 內含 `meta.json` + `modality_<idx>.<ext>`（每個非文字 modality 一檔，
 >   如 `modality_0.jpeg` / `modality_1.wav`；文字 modality 內嵌進 `meta.json`，無 `body.age`）+ `analysis.json`。

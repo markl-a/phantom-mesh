@@ -59,7 +59,7 @@ env:
   # Coverage threshold (line) per leaf-spec module. SPEC-60 §8.2 locks 80%.
   # Overrides for unsafe FFI shims live in
   # `.github/ship-gate-coverage-exceptions.yaml`, not here.
-  PHANTOM_V2_COVERAGE_THRESHOLD: '80'
+  SPECTYN_V2_COVERAGE_THRESHOLD: '80'
 
 jobs:
   gate-v2-coverage:
@@ -121,10 +121,10 @@ jobs:
 
       - name: Enforce per-spec ≥ 80% line coverage (with exception list)
         env:
-          PHANTOM_V2_COVERAGE_THRESHOLD: ${{ env.PHANTOM_V2_COVERAGE_THRESHOLD }}
-          PHANTOM_V2_COVERAGE_JSON: ${{ github.workspace }}/coverage.json
-          PHANTOM_V2_EXCEPTIONS_YAML: ${{ github.workspace }}/.github/ship-gate-coverage-exceptions.yaml
-          PHANTOM_V2_REPORT_OUT: ${{ github.workspace }}/coverage-per-spec-report.txt
+          SPECTYN_V2_COVERAGE_THRESHOLD: ${{ env.SPECTYN_V2_COVERAGE_THRESHOLD }}
+          SPECTYN_V2_COVERAGE_JSON: ${{ github.workspace }}/coverage.json
+          SPECTYN_V2_EXCEPTIONS_YAML: ${{ github.workspace }}/.github/ship-gate-coverage-exceptions.yaml
+          SPECTYN_V2_REPORT_OUT: ${{ github.workspace }}/coverage-per-spec-report.txt
         run: |
           bash scripts/ship-gate/v2-coverage-local.sh --ci
 

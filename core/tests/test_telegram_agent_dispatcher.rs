@@ -1,4 +1,4 @@
-//! Integration tests for [T1] — PhantomAgentDispatcher (real AgentRuntime
+//! Integration tests for [T1] — SpectynAgentDispatcher (real AgentRuntime
 //! invocation via a mock OpenAI-compatible HTTP server).
 //!
 //! See docs/superpowers/plans/2026-05-15-track-t1-telegram-dispatch.md.
@@ -15,11 +15,11 @@ use axum::Router;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
-use phantom_mesh::{
+use spectyn_mesh::{
     agent::AgentRuntime,
     config::{AgentEntry, AgentsConfig, ProviderEntry},
     remote_control::telegram::{RemoteTelegramDispatcher, RemoteTelegramBot, RemoteTelegramConfig},
-    remote_control::telegram_agent_dispatcher::PhantomAgentDispatcher,
+    remote_control::telegram_agent_dispatcher::SpectynAgentDispatcher,
 };
 
 // ── Mock LLM server (mirrors core/tests/test_agent.rs helpers) ─────────────
@@ -118,7 +118,7 @@ fn canned_reply(text: &str) -> Value {
 async fn dispatch_round_trips_through_agent_runtime() {
     let (base_url, _seen) = start_mock(vec![canned_reply("pong from agent")]).await;
     let runtime = Arc::new(AgentRuntime::new(config_pointing_at(&base_url)));
-    let dispatcher = PhantomAgentDispatcher::new(runtime, "master".into());
+    let dispatcher = SpectynAgentDispatcher::new(runtime, "master".into());
 
     let reply = dispatcher
         .dispatch_with_chat(42, "ping".into())
@@ -138,7 +138,7 @@ async fn same_chat_id_carries_history_into_second_turn() {
     ])
     .await;
     let runtime = Arc::new(AgentRuntime::new(config_pointing_at(&base_url)));
-    let dispatcher = PhantomAgentDispatcher::new(runtime, "master".into());
+    let dispatcher = SpectynAgentDispatcher::new(runtime, "master".into());
 
     let r1 = dispatcher
         .dispatch_with_chat(7777, "turn 1".into())
@@ -205,7 +205,7 @@ async fn different_chat_ids_are_isolated() {
     ])
     .await;
     let runtime = Arc::new(AgentRuntime::new(config_pointing_at(&base_url)));
-    let dispatcher = PhantomAgentDispatcher::new(runtime, "master".into());
+    let dispatcher = SpectynAgentDispatcher::new(runtime, "master".into());
 
     let chat_a: i64 = 1001;
     let chat_b: i64 = 1002;
@@ -259,7 +259,7 @@ async fn agent_error_becomes_user_visible_generic_reply() {
     // provider) AND ask for an agent name that does not exist → the
     // runtime returns Err with "No agent configuration" type message.
     let runtime = Arc::new(AgentRuntime::new(AgentsConfig::default()));
-    let dispatcher = Arc::new(PhantomAgentDispatcher::new(
+    let dispatcher = Arc::new(SpectynAgentDispatcher::new(
         runtime,
         "this-agent-does-not-exist".into(),
     ));
@@ -313,7 +313,7 @@ async fn history_is_bounded_by_limit() {
     .await;
     let runtime = Arc::new(AgentRuntime::new(config_pointing_at(&base_url)));
     // limit = 4 → keep last 2 user/assistant turns
-    let dispatcher = PhantomAgentDispatcher::new_with_limit(runtime, "master".into(), 4);
+    let dispatcher = SpectynAgentDispatcher::new_with_limit(runtime, "master".into(), 4);
 
     let chat_id = 9999_i64;
     dispatcher

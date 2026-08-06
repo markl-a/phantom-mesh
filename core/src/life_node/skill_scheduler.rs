@@ -1,7 +1,7 @@
 //! apex ② owned-memory skill-learn scheduler — desktop unit generators.
 //!
 //! The owned-memory learn loop's missing "spine": at the user's local 03:00
-//! (configurable) an OS scheduler must fire `phantom skill learn` so the daily
+//! (configurable) an OS scheduler must fire `spectyn skill learn` so the daily
 //! capture→drain→store tick runs unattended without the user typing a command.
 //! This module **only GENERATES** the per-OS unit text + the canonical install
 //! paths — it deliberately does NOT install / load them, because loading a
@@ -15,17 +15,17 @@
 //! (iOS `BGTaskScheduler` ≤ 30 s budget / Android `WorkManager` ≥ 15 min period)
 //! are a separate platform concern and are not generated here.
 //!
-//! The triggered command is `<phantom-exe> skill learn` (the owned-memory daily
+//! The triggered command is `<spectyn-exe> skill learn` (the owned-memory daily
 //! learn tick — drain captured corrections + the defensive Store step; see
-//! `phantom skill learn` in the CLI). The scheduler intentionally does NOT wake
+//! `spectyn skill learn` in the CLI). The scheduler intentionally does NOT wake
 //! the machine — it only fires while the host is already awake.
 
 use std::path::PathBuf;
 
 /// launchd `Label` / schtasks task name / systemd unit stem for the skill-learn
-/// job. Mirrors the existing `ai.phantommesh.serve` / `ai.phantommesh.coach`
+/// job. Mirrors the existing `ai.spectynmesh.serve` / `ai.spectynmesh.coach`
 /// service convention.
-pub const SKILL_LABEL: &str = "ai.phantommesh.skill-learn";
+pub const SKILL_LABEL: &str = "ai.spectynmesh.skill-learn";
 
 /// Default trigger: local 03:00 (the owned-memory learn time — a quiet hour,
 /// distinct from the coach review's 21:00).
@@ -66,11 +66,11 @@ impl SkillSchedule {
 /// The fired command is `skill learn` so each daily run drains every captured
 /// capture-after-correction candidate into the SPEC-25 `skills` store and runs
 /// the defensive Store step. stdout/stderr are redirected to
-/// `~/.phantom-mesh/skill-learn.{out,err}.log` (mirroring the serve / coach
+/// `~/.spectyn-mesh/skill-learn.{out,err}.log` (mirroring the serve / coach
 /// agents) so a failed run is diagnosable instead of vanishing into launchd's
 /// void.
 ///
-/// `exe_path` is the absolute path to the `phantom` binary (the caller resolves
+/// `exe_path` is the absolute path to the `spectyn` binary (the caller resolves
 /// it, e.g. via `std::env::current_exe`). XML-escaped so an unusual install
 /// path can't break the plist.
 pub fn launchd_plist(exe_path: &str, schedule: SkillSchedule) -> String {
@@ -106,11 +106,11 @@ pub fn launchd_plist(exe_path: &str, schedule: SkillSchedule) -> String {
 }
 
 /// `(stdout, stderr)` log paths the launchd skill-learn agent redirects to,
-/// under `~/.phantom-mesh/` next to the serve / coach agents' logs. Falls back
+/// under `~/.spectyn-mesh/` next to the serve / coach agents' logs. Falls back
 /// to bare filenames (cwd-relative) if there's no home dir — launchd always has
 /// one in practice, but the generator must stay total.
 fn skill_log_paths() -> (String, String) {
-    match crate::cli_config::phantom_data_dir() {
+    match crate::cli_config::spectyn_data_dir() {
         Ok(base) => (
             base.join("skill-learn.out.log").to_string_lossy().into_owned(),
             base.join("skill-learn.err.log").to_string_lossy().into_owned(),
@@ -133,7 +133,7 @@ fn skill_log_paths() -> (String, String) {
 pub fn systemd_service_unit(exe_path: &str) -> String {
     format!(
         "[Unit]\n\
-         Description=phantom-mesh owned-memory skill learn (apex ②)\n\
+         Description=spectyn-mesh owned-memory skill learn (apex ②)\n\
          \n\
          [Service]\n\
          Type=oneshot\n\
@@ -165,7 +165,7 @@ fn systemd_exec_escape(path: &str) -> String {
 pub fn systemd_timer_unit(schedule: SkillSchedule) -> String {
     format!(
         "[Unit]\n\
-         Description=phantom-mesh owned-memory skill learn timer (apex ②)\n\
+         Description=spectyn-mesh owned-memory skill learn timer (apex ②)\n\
          \n\
          [Timer]\n\
          OnCalendar=*-*-* {hour:02}:{minute:02}:00\n\
@@ -198,7 +198,7 @@ pub fn windows_schtasks_create_args(exe_path: &str, schedule: SkillSchedule) -> 
 }
 
 /// Canonical per-user LaunchAgent plist path:
-/// `~/Library/LaunchAgents/ai.phantommesh.skill-learn.plist`. `None` if no home
+/// `~/Library/LaunchAgents/ai.spectynmesh.skill-learn.plist`. `None` if no home
 /// dir.
 pub fn launchd_plist_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| {
@@ -209,8 +209,8 @@ pub fn launchd_plist_path() -> Option<PathBuf> {
 }
 
 /// Canonical systemd **user** unit directory: `~/.config/systemd/user`. The
-/// service + timer land here as `phantom-skill-learn.service` /
-/// `phantom-skill-learn.timer`. `None` if no home dir.
+/// service + timer land here as `spectyn-skill-learn.service` /
+/// `spectyn-skill-learn.timer`. `None` if no home dir.
 pub fn systemd_user_unit_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".config").join("systemd").join("user"))
 }
@@ -239,7 +239,7 @@ pub enum SchedulerTarget {
 }
 
 /// Render the operator-facing "here is your scheduler unit + how to install it"
-/// document for `phantom skill schedule`. PURE: returns a string, installs
+/// document for `spectyn skill schedule`. PURE: returns a string, installs
 /// nothing — the CLI writes it to stdout and the user installs manually (we
 /// never mutate the host automatically). The leading comment lines tell the
 /// user the exact install command for their platform.
@@ -249,12 +249,12 @@ pub fn render_cli_unit(target: SchedulerTarget, exe_path: &str, schedule: SkillS
             let path = launchd_plist_path()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| {
-                    "~/Library/LaunchAgents/ai.phantommesh.skill-learn.plist".to_string()
+                    "~/Library/LaunchAgents/ai.spectynmesh.skill-learn.plist".to_string()
                 });
             format!(
                 "# macOS launchd LaunchAgent — write the plist below to:\n\
                  #   {path}\n\
-                 # then load it (phantom does NOT auto-install):\n\
+                 # then load it (spectyn does NOT auto-install):\n\
                  #   launchctl load -w \"{path}\"\n\
                  {plist}",
                 plist = launchd_plist(exe_path, schedule),
@@ -266,11 +266,11 @@ pub fn render_cli_unit(target: SchedulerTarget, exe_path: &str, schedule: SkillS
                 .unwrap_or_else(|| "~/.config/systemd/user".to_string());
             format!(
                 "# Linux systemd user units — write BOTH files under:\n\
-                 #   {dir}/phantom-skill-learn.service  and  {dir}/phantom-skill-learn.timer\n\
-                 # then enable (phantom does NOT auto-install):\n\
-                 #   systemctl --user enable --now phantom-skill-learn.timer\n\
-                 # ===== phantom-skill-learn.service =====\n{svc}\
-                 # ===== phantom-skill-learn.timer =====\n{timer}",
+                 #   {dir}/spectyn-skill-learn.service  and  {dir}/spectyn-skill-learn.timer\n\
+                 # then enable (spectyn does NOT auto-install):\n\
+                 #   systemctl --user enable --now spectyn-skill-learn.timer\n\
+                 # ===== spectyn-skill-learn.service =====\n{svc}\
+                 # ===== spectyn-skill-learn.timer =====\n{timer}",
                 svc = systemd_service_unit(exe_path),
                 timer = systemd_timer_unit(schedule),
             )
@@ -278,7 +278,7 @@ pub fn render_cli_unit(target: SchedulerTarget, exe_path: &str, schedule: SkillS
         SchedulerTarget::Schtasks => {
             let args = windows_schtasks_create_args(exe_path, schedule);
             format!(
-                "# Windows Task Scheduler — review then run (phantom does NOT auto-install):\n\
+                "# Windows Task Scheduler — review then run (spectyn does NOT auto-install):\n\
                  schtasks {}\n",
                 args.join(" "),
             )
@@ -288,11 +288,11 @@ pub fn render_cli_unit(target: SchedulerTarget, exe_path: &str, schedule: SkillS
 
 // ── installer (the explicit side-effecting layer) ───────────────────────────
 //
-// Everything above is PURE (generates unit text + paths). `phantom skill
+// Everything above is PURE (generates unit text + paths). `spectyn skill
 // install-schedule` is the deliberate, operator-invoked step that finally
 // MUTATES the host: it writes the canonical unit file(s) and registers them
 // with the OS scheduler (launchctl / systemctl --user / schtasks) so the daily
-// `phantom skill learn` fires without the user typing anything. Kept here, next
+// `spectyn skill learn` fires without the user typing anything. Kept here, next
 // to the generators, so the install paths + commands stay in lock-step with the
 // unit text they consume.
 
@@ -319,7 +319,7 @@ pub struct InstallOutcome {
 ///
 /// So before we register the LaunchAgent we re-sign the target binary ad-hoc iff
 /// it is linker-signed. We only re-sign linker-signed binaries: a properly
-/// installed / Developer-ID-signed `phantom` is left untouched (re-signing would
+/// installed / Developer-ID-signed `spectyn` is left untouched (re-signing would
 /// strip a real signature). Best-effort + non-fatal.
 #[cfg(target_os = "macos")]
 fn ensure_launchd_runnable_signature(exe_path: &str) {
@@ -358,12 +358,12 @@ fn ensure_launchd_runnable_signature(exe_path: &str) {
 /// Install + load the macOS launchd LaunchAgent for the daily skill learn.
 ///
 /// Writes the canonical plist to
-/// `~/Library/LaunchAgents/ai.phantommesh.skill-learn.plist` then
+/// `~/Library/LaunchAgents/ai.spectynmesh.skill-learn.plist` then
 /// `launchctl load -w` it (idempotent: an already-loaded agent is unloaded first
 /// so re-running with a new `--at` actually re-registers the new time).
 ///
 /// Before loading we [`ensure_launchd_runnable_signature`] the target binary: a
-/// freshly built (linker-signed) `phantom` is SIGKILLed by launchd's
+/// freshly built (linker-signed) `spectyn` is SIGKILLed by launchd's
 /// code-signing monitor, so without this the trigger installs but never fires.
 #[cfg(target_os = "macos")]
 pub fn install_launchd(exe_path: &str, schedule: SkillSchedule) -> Result<InstallOutcome, String> {
@@ -404,14 +404,14 @@ pub fn install_launchd(exe_path: &str, schedule: SkillSchedule) -> Result<Instal
 
 /// Install + enable the Linux systemd **user** service + timer for the daily
 /// skill learn. Writes both units under `~/.config/systemd/user/`, reloads the
-/// user manager, then `systemctl --user enable --now phantom-skill-learn.timer`.
+/// user manager, then `systemctl --user enable --now spectyn-skill-learn.timer`.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn install_systemd(exe_path: &str, schedule: SkillSchedule) -> Result<InstallOutcome, String> {
     use std::process::Command;
     let dir = systemd_user_unit_dir().ok_or_else(|| "no home dir for systemd units".to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    let svc_path = dir.join("phantom-skill-learn.service");
-    let timer_path = dir.join("phantom-skill-learn.timer");
+    let svc_path = dir.join("spectyn-skill-learn.service");
+    let timer_path = dir.join("spectyn-skill-learn.timer");
     std::fs::write(&svc_path, systemd_service_unit(exe_path))
         .map_err(|e| format!("write {}: {e}", svc_path.display()))?;
     std::fs::write(&timer_path, systemd_timer_unit(schedule))
@@ -428,18 +428,18 @@ pub fn install_systemd(exe_path: &str, schedule: SkillSchedule) -> Result<Instal
         ));
     }
     let enable = Command::new("systemctl")
-        .args(["--user", "enable", "--now", "phantom-skill-learn.timer"])
+        .args(["--user", "enable", "--now", "spectyn-skill-learn.timer"])
         .output()
         .map_err(|e| format!("spawn systemctl: {e}"))?;
     if !enable.status.success() {
         return Err(format!(
-            "systemctl --user enable --now phantom-skill-learn.timer failed: {}",
+            "systemctl --user enable --now spectyn-skill-learn.timer failed: {}",
             String::from_utf8_lossy(&enable.stderr).trim()
         ));
     }
     Ok(InstallOutcome {
         files_written: vec![svc_path, timer_path],
-        loaded_with: "systemctl --user enable --now phantom-skill-learn.timer".to_string(),
+        loaded_with: "systemctl --user enable --now spectyn-skill-learn.timer".to_string(),
     })
 }
 
@@ -469,7 +469,7 @@ pub fn install_schtasks(exe_path: &str, schedule: SkillSchedule) -> Result<Insta
 
 /// Install the daily skill-learn trigger for the host OS. Dispatches to the
 /// per-platform installer above. `exe_path` is the absolute path to the
-/// `phantom` binary the scheduler should run.
+/// `spectyn` binary the scheduler should run.
 pub fn install_for_host(exe_path: &str, schedule: SkillSchedule) -> Result<InstallOutcome, String> {
     #[cfg(target_os = "macos")]
     {
@@ -515,11 +515,11 @@ pub fn uninstall_for_host() -> Result<Vec<PathBuf>, String> {
     {
         use std::process::Command;
         let _ = Command::new("systemctl")
-            .args(["--user", "disable", "--now", "phantom-skill-learn.timer"])
+            .args(["--user", "disable", "--now", "spectyn-skill-learn.timer"])
             .output();
         let mut removed = Vec::new();
         if let Some(dir) = systemd_user_unit_dir() {
-            for name in ["phantom-skill-learn.timer", "phantom-skill-learn.service"] {
+            for name in ["spectyn-skill-learn.timer", "spectyn-skill-learn.service"] {
                 let p = dir.join(name);
                 if p.exists() {
                     std::fs::remove_file(&p)
@@ -566,11 +566,11 @@ mod tests {
 
     #[test]
     fn launchd_plist_has_label_command_and_calendar_interval() {
-        let p = launchd_plist("/usr/local/bin/phantom", SkillSchedule::new(3, 0).unwrap());
+        let p = launchd_plist("/usr/local/bin/spectyn", SkillSchedule::new(3, 0).unwrap());
         assert!(p.starts_with("<?xml"), "valid plist header");
-        assert!(p.contains("<string>ai.phantommesh.skill-learn</string>"), "skill label");
-        // Triggers `phantom skill learn` (each fire runs the daily learn tick).
-        assert!(p.contains("<string>/usr/local/bin/phantom</string>"));
+        assert!(p.contains("<string>ai.spectynmesh.skill-learn</string>"), "skill label");
+        // Triggers `spectyn skill learn` (each fire runs the daily learn tick).
+        assert!(p.contains("<string>/usr/local/bin/spectyn</string>"));
         assert!(p.contains("<string>skill</string>") && p.contains("<string>learn</string>"));
         // Time-based, not run-at-load.
         assert!(p.contains("<key>StartCalendarInterval</key>"));
@@ -588,16 +588,16 @@ mod tests {
 
     #[test]
     fn launchd_plist_xml_escapes_path() {
-        let p = launchd_plist("/opt/a&b<c>d\"e'f/phantom", SkillSchedule::default());
-        assert!(p.contains("/opt/a&amp;b&lt;c&gt;d&quot;e&apos;f/phantom"), "all 5 escaped: {p}");
+        let p = launchd_plist("/opt/a&b<c>d\"e'f/spectyn", SkillSchedule::default());
+        assert!(p.contains("/opt/a&amp;b&lt;c&gt;d&quot;e&apos;f/spectyn"), "all 5 escaped: {p}");
         assert!(!p.contains("a&b<c>"), "raw markup must not survive");
     }
 
     #[test]
     fn systemd_units_fire_skill_learn_daily() {
-        let svc = systemd_service_unit("/usr/bin/phantom");
+        let svc = systemd_service_unit("/usr/bin/spectyn");
         assert!(svc.contains("Type=oneshot"));
-        assert!(svc.contains("ExecStart=\"/usr/bin/phantom\" skill learn"), "quoted exe: {svc}");
+        assert!(svc.contains("ExecStart=\"/usr/bin/spectyn\" skill learn"), "quoted exe: {svc}");
 
         let timer = systemd_timer_unit(SkillSchedule::new(3, 0).unwrap());
         assert!(timer.contains("OnCalendar=*-*-* 03:00:00"), "daily 03:00 local: {timer}");
@@ -609,13 +609,13 @@ mod tests {
     fn systemd_execstart_is_hostile_path_safe() {
         // Spaces must not split into extra argv; `%` must not become a systemd
         // specifier; quotes must be escaped inside the quoted value.
-        let svc = systemd_service_unit("/opt/my apps/100% phantom\"x/phantom");
+        let svc = systemd_service_unit("/opt/my apps/100% spectyn\"x/spectyn");
         assert!(
-            svc.contains("ExecStart=\"/opt/my apps/100%% phantom\\\"x/phantom\" skill learn"),
+            svc.contains("ExecStart=\"/opt/my apps/100%% spectyn\\\"x/spectyn\" skill learn"),
             "spaces quoted, %->%%, \" escaped: {svc}"
         );
         // The raw single-% (specifier risk) must not survive.
-        assert!(!svc.contains("100% phantom"), "literal % must be doubled");
+        assert!(!svc.contains("100% spectyn"), "literal % must be doubled");
     }
 
     #[test]
@@ -639,19 +639,19 @@ mod tests {
 
     #[test]
     fn windows_schtasks_args_are_shell_free_and_daily() {
-        let args = windows_schtasks_create_args("C:\\phantom.exe", SkillSchedule::new(3, 0).unwrap());
+        let args = windows_schtasks_create_args("C:\\spectyn.exe", SkillSchedule::new(3, 0).unwrap());
         assert!(args.contains(&"/Create".to_string()));
         assert!(args.contains(&"/SC".to_string()) && args.contains(&"DAILY".to_string()));
         assert!(args.contains(&"/F".to_string()), "idempotent overwrite");
         assert!(args.iter().any(|a| a == "03:00"), "start time 03:00");
         assert!(args.iter().any(|a| a.contains("skill learn")), "runs skill learn");
-        assert!(args.contains(&"ai.phantommesh.skill-learn".to_string()), "task name");
+        assert!(args.contains(&"ai.spectynmesh.skill-learn".to_string()), "task name");
     }
 
     #[test]
     fn install_paths_use_canonical_locations() {
         if let Some(p) = launchd_plist_path() {
-            assert!(p.ends_with("Library/LaunchAgents/ai.phantommesh.skill-learn.plist"), "{p:?}");
+            assert!(p.ends_with("Library/LaunchAgents/ai.spectynmesh.skill-learn.plist"), "{p:?}");
         }
         if let Some(d) = systemd_user_unit_dir() {
             assert!(d.ends_with(".config/systemd/user"), "{d:?}");
@@ -662,25 +662,25 @@ mod tests {
     fn render_cli_unit_embeds_unit_and_install_hint_per_target() {
         let sched = SkillSchedule::new(3, 0).unwrap();
 
-        let mac = render_cli_unit(SchedulerTarget::Launchd, "/usr/local/bin/phantom", sched);
+        let mac = render_cli_unit(SchedulerTarget::Launchd, "/usr/local/bin/spectyn", sched);
         assert!(mac.contains("launchctl load -w"), "macOS install hint: {mac}");
         assert!(mac.contains("<key>StartCalendarInterval</key>"), "embeds the plist");
-        assert!(mac.contains("phantom does NOT auto-install"), "no-auto-install disclaimer");
+        assert!(mac.contains("spectyn does NOT auto-install"), "no-auto-install disclaimer");
 
-        let linux = render_cli_unit(SchedulerTarget::Systemd, "/usr/bin/phantom", sched);
+        let linux = render_cli_unit(SchedulerTarget::Systemd, "/usr/bin/spectyn", sched);
         assert!(
-            linux.contains("systemctl --user enable --now phantom-skill-learn.timer"),
+            linux.contains("systemctl --user enable --now spectyn-skill-learn.timer"),
             "linux hint"
         );
         assert!(
-            linux.contains("phantom-skill-learn.service")
-                && linux.contains("phantom-skill-learn.timer")
+            linux.contains("spectyn-skill-learn.service")
+                && linux.contains("spectyn-skill-learn.timer")
         );
         assert!(linux.contains("OnCalendar=*-*-* 03:00:00"), "embeds the timer");
 
-        let win = render_cli_unit(SchedulerTarget::Schtasks, "C:\\phantom.exe", sched);
+        let win = render_cli_unit(SchedulerTarget::Schtasks, "C:\\spectyn.exe", sched);
         assert!(win.contains("schtasks /Create"), "windows command: {win}");
         assert!(win.contains("skill learn") && win.contains("/SC DAILY"));
-        assert!(win.contains("phantom does NOT auto-install"));
+        assert!(win.contains("spectyn does NOT auto-install"));
     }
 }

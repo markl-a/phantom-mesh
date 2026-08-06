@@ -16,7 +16,7 @@ export default function Dashboard() {
         <h1 className="text-2xl font-bold">儀表板</h1>
         <button
           onClick={() => setRefreshKey((k) => k + 1)}
-          className="flex items-center gap-2 border border-phantom-border text-phantom-muted px-3 py-1.5 rounded text-sm hover:text-phantom-text hover:border-phantom-primary/50 transition-colors"
+          className="flex items-center gap-2 border border-spectyn-border text-spectyn-muted px-3 py-1.5 rounded text-sm hover:text-spectyn-text hover:border-spectyn-primary/50 transition-colors"
           title="重新整理所有面板"
         >
           <RefreshCw size={14} />
@@ -28,8 +28,8 @@ export default function Dashboard() {
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Left ~60% — Tasks */}
         <div className="flex-[3] min-w-0 flex flex-col">
-          <div className="bg-phantom-card border border-phantom-border rounded-xl p-4 flex-1 overflow-y-auto">
-            <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wider mb-4">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-xl p-4 flex-1 overflow-y-auto">
+            <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wider mb-4">
               任務
             </h2>
             <TasksPanel key={`tasks-${refreshKey}`} />
@@ -39,24 +39,24 @@ export default function Dashboard() {
         {/* Right ~40% — NodeInfo (top) + Cost (bottom) */}
         <div className="flex-[2] min-w-0 flex flex-col gap-4">
           {/* Node Info */}
-          <div className="bg-phantom-card border border-phantom-border rounded-xl p-4 overflow-y-auto max-h-[55%]">
-            <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wider mb-4">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-xl p-4 overflow-y-auto max-h-[55%]">
+            <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wider mb-4">
               節點
             </h2>
             <NodeInfoPanel key={`nodes-${refreshKey}`} />
           </div>
 
           {/* Cost */}
-          <div className="bg-phantom-card border border-phantom-border rounded-xl p-4 overflow-y-auto flex-1">
-            <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wider mb-4">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-xl p-4 overflow-y-auto flex-1">
+            <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wider mb-4">
               成本
             </h2>
             <CostPanel key={`cost-${refreshKey}`} />
           </div>
 
           {/* Life-log stats (P2 Life Track) */}
-          <div className="bg-phantom-card border border-phantom-border rounded-xl p-4 overflow-y-auto">
-            <h2 className="text-sm font-semibold text-phantom-muted uppercase tracking-wider mb-4">
+          <div className="bg-spectyn-card border border-spectyn-border rounded-xl p-4 overflow-y-auto">
+            <h2 className="text-sm font-semibold text-spectyn-muted uppercase tracking-wider mb-4">
               生活紀錄
             </h2>
             <LifeStatsPanel key={`lifestats-${refreshKey}`} />

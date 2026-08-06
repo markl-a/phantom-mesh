@@ -11,8 +11,8 @@ selftest_feature_meta() {
   echo "name=mcp"
   echo "priority=P1"
   echo "requires=mcp"
-  echo "description=phantom mcp stdio server handshake + tools/list"
-  echo "hints=core/src/mcp.rs core/src/tools core/src/bin/phantom.rs"
+  echo "description=spectyn mcp stdio server handshake + tools/list"
+  echo "hints=core/src/mcp.rs core/src/tools core/src/bin/spectyn.rs"
 }
 
 # Resolve a `timeout`-equivalent. macOS doesn't ship GNU timeout; users often
@@ -36,11 +36,11 @@ selftest_run() {
   init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"selftest","version":"1"}}}'
   list='{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
   out="$SELFTEST_ARTIFACTS/mcp.out"
-  printf '%s\n%s\n' "$init" "$list" | "$TIMEOUT" 15 "$PHANTOM" mcp > "$out" 2>"$SELFTEST_ARTIFACTS/mcp.err" || true
+  printf '%s\n%s\n' "$init" "$list" | "$TIMEOUT" 15 "$SPECTYN" mcp > "$out" 2>"$SELFTEST_ARTIFACTS/mcp.err" || true
 
   # Pre-set repro/artifact so each t_pass/t_fail attaches them in the report.
   T_ARTIFACT="$out"
-  T_REPRO="printf '%s\n%s\n' '$init' '$list' | $TIMEOUT 15 $(printf '%q' "$PHANTOM") mcp"
+  T_REPRO="printf '%s\n%s\n' '$init' '$list' | $TIMEOUT 15 $(printf '%q' "$SPECTYN") mcp"
 
   # 1. Handshake response
   if grep -q '"serverInfo"' "$out"; then

@@ -65,7 +65,7 @@ pub async fn get(args: &serde_json::Value) -> String {
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
     // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
-    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    // unless SPECTYN_FETCH_ALLOW_LOCAL=1 is set.
     if let Err(e) = crate::tools::urlguard::validate_url(&url) {
         return format!("ERROR: {}", e);
     }
@@ -120,7 +120,7 @@ pub async fn post(args: &serde_json::Value) -> String {
         None => return "ERROR: missing required parameter 'url'".to_string(),
     };
     // T7b T13-N6: SSRF guard. Blocks loopback / private / link-local hosts
-    // unless PHANTOM_FETCH_ALLOW_LOCAL=1 is set.
+    // unless SPECTYN_FETCH_ALLOW_LOCAL=1 is set.
     if let Err(e) = crate::tools::urlguard::validate_url(&url) {
         return format!("ERROR: {}", e);
     }

@@ -1,7 +1,7 @@
-# FINAL Development Plan — phantom-quant
+# FINAL Development Plan — spectyn-quant
 
 ## What it is + current state
-`phantom-quant` is a Python 3.11 台股 (Taiwan stock) trading-engine package in the phantom-mesh
+`spectyn-quant` is a Python 3.11 台股 (Taiwan stock) trading-engine package in the spectyn-mesh
 ecosystem, at P0/pre-alpha. Deterministic offline CSV backtests run end-to-end with a single
 `SmaCross` strategy, 台股 fee/tax accounting, Parquet `save_bars`/`load_bars` helpers, and a short
 Markdown report, with focused pytest coverage. Gaps: the engine applies every `Order` blindly with
@@ -34,7 +34,7 @@ platform, paper trader, or live system.
   persistent state, no real-money path; reuses `Strategy.on_bar`.
 - **P3 — Shioaji live order gateway** (behind existing `broker` extra, dry-run default): stateful
   websocket order routing only — depends on the P2 driver. (Historical fetch already lives in P1.)
-- **P3 — phantom-mesh integration**: emit standardized backtest/paper/live events, reports, and
+- **P3 — spectyn-mesh integration**: emit standardized backtest/paper/live events, reports, and
   portfolio snapshots for sibling mesh services.
 
 ## Top-3 task breakdown

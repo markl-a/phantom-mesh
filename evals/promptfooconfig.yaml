@@ -1,4 +1,4 @@
-# Phantom Mesh — agent-behavior evals (promptfoo)
+# Spectyn Mesh — agent-behavior evals (promptfoo)
 # =================================================
 # Evaluates the Coach Node's user-facing behavior (SPEC-23 coach-engine /
 # SPEC-24 coach-delivery, E003): the coach must surface ONE concrete, small
@@ -19,7 +19,7 @@ description: "Coach Node — shame-free + exactly one concrete next action (SPEC
 
 prompts:
   - |
-    你是 Phantom 個人教練節點，一個支持型的觀察者，從使用者自己的資料中指出模式。
+    你是 Spectyn 個人教練節點，一個支持型的觀察者，從使用者自己的資料中指出模式。
     根據今天的回顧，給出「一個」最小、可執行、能推進目標的明日行動。
     語氣支持、不批判；不要說教，不要羅列多個行動。
 

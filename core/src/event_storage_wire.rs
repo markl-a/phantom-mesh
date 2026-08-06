@@ -19,7 +19,7 @@
 //   - That file already ships an early append + decrypt-by-day path (E002).
 //   - This file is the wire-shape view (ts-rs exported, camelCase JSON) used by
 //     RPC handlers + Tauri commands + the upcoming refactor.
-//   - A future cleanup may unify the two via a shared `phantom_types` crate
+//   - A future cleanup may unify the two via a shared `spectyn_types` crate
 //     (tracked in SPEC-16 §7.5 既有 pub fn anchor).
 
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ use ts_rs::TS;
 // debt explicitly. 中文：rpc_wire 已宣告 EventKind 4 變體，SPEC-16 §8 要 8
 // 變體；Stage 1 先 re-export 不擋路，Stage 2 統一。
 //
-// TODO Stage 2: unify EventKind via shared `phantom_types` crate OR widen
+// TODO Stage 2: unify EventKind via shared `spectyn_types` crate OR widen
 // rpc_wire::EventKind to the SPEC-16 §8 superset { Food, Focus, Habit, Image,
 // Audio, Coach, Skill, Memory }.
 pub use crate::rpc_wire::EventKind;
@@ -313,8 +313,8 @@ pub fn write_event_with_origin(
     analysis: Option<&AnalysisResult>,
     origin: MessageOrigin,
 ) -> Result<String, EventStoreError> {
-    // Step 1: ensure ~/.phantom-mesh/events/<uuid>/ directory exists
-    let event_dir = format!("~/.phantom-mesh/events/{}", meta.event_id);
+    // Step 1: ensure ~/.spectyn-mesh/events/<uuid>/ directory exists
+    let event_dir = format!("~/.spectyn-mesh/events/{}", meta.event_id);
     mkdir_p_pseudo(&event_dir)?;
     // Step 2: serialise EventMeta → meta.json (serde_json) and write
     write_json_pseudo(&format!("{}/meta.json", event_dir), meta)?;
@@ -372,7 +372,7 @@ fn write_bytes_pseudo(path: &str, bytes: &[u8]) -> Result<(), EventStoreError> {
 ///
 /// 中文: 讀 3 個檔回 EventRecord；body 不解密、key 缺則回 DecryptionUnavailable。
 pub fn read_event(event_id: &str) -> Result<EventRecord, EventStoreError> {
-    let event_dir = format!("~/.phantom-mesh/events/{}", event_id);
+    let event_dir = format!("~/.spectyn-mesh/events/{}", event_id);
     // Step 1: read meta.json → EventMeta
     let meta: EventMeta = read_json_pseudo(&format!("{}/meta.json", event_dir))?;
     // Step 2: read body.age ciphertext bytes
@@ -443,10 +443,10 @@ fn encryption_key_available_pseudo() -> bool {
     // (`install_event_key_from_seed` / `lookup_or_derive_event_key`).
     //
     // D30: use `lookup_or_derive_event_key`, NOT the passive `event_key_loaded`
-    // cache-check. In a CLI one-shot (`phantom habit list`) nothing installs the
+    // cache-check. In a CLI one-shot (`spectyn habit list`) nothing installs the
     // cache at startup, so the passive check returned false and reads
     // short-circuited to "decryption unavailable" even though
-    // `~/.phantom-mesh/identity.key` existed. `lookup_or_derive_event_key`
+    // `~/.spectyn-mesh/identity.key` existed. `lookup_or_derive_event_key`
     // derives-on-miss from that file (and the long-running daemon still hits the
     // already-installed cache on the fast path), so a present identity always
     // resolves here regardless of entry point.
@@ -471,7 +471,7 @@ fn decrypt_event_pseudo(ciphertext: &[u8]) -> Result<Vec<u8>, EventStoreError> {
 /// 中文: read_dir + filter；按 timestamp 升冪；套用 offset + limit。
 pub fn query_events(query: &EventStoreQuery) -> Result<Vec<EventRecord>, EventStoreError> {
     // Step 1: read_dir of the events root → vector of <uuid> sub-directories
-    let entries: Vec<String> = read_dir_pseudo("~/.phantom-mesh/events/")?;
+    let entries: Vec<String> = read_dir_pseudo("~/.spectyn-mesh/events/")?;
     // Step 2: for each entry, read meta and filter by date_iso starts_with
     // (local-calendar prefix match) / kind / tag predicates from query
     // SPEC-16 §8 G2: precompute the UTC day-bounds for `date_iso` ONCE (not per
@@ -493,7 +493,7 @@ pub fn query_events(query: &EventStoreQuery) -> Result<Vec<EventRecord>, EventSt
         // definition, not one of our events — SKIP it instead of aborting. (Our
         // own events still parse; the kind/tag filters below exclude the rest.)
         let meta: EventMeta = match read_json_pseudo(&format!(
-            "~/.phantom-mesh/events/{}/meta.json",
+            "~/.spectyn-mesh/events/{}/meta.json",
             event_id
         )) {
             Ok(m) => m,
@@ -597,13 +597,13 @@ fn read_dir_pseudo(path: &str) -> Result<Vec<String>, EventStoreError> {
 /// Delete an event. Stage 2: shred (3-pass overwrite) the ciphertext file
 /// then `remove_dir_all` the event directory. Note: SPEC-16 §3.1 G8 declares
 /// the storage layer append-only at the *public API* level — this function
-/// exists for the kill-switch path (SPEC-16 §16 `phantom data delete --all`)
+/// exists for the kill-switch path (SPEC-16 §16 `spectyn data delete --all`)
 /// and for `correction_of` cleanup, *not* for everyday update.
 ///
 /// 中文: 3-pass 覆寫密文後移除目錄；只給 kill switch + correction 路徑用，
 /// 一般 append-only。
 pub fn delete_event(event_id: &str) -> Result<(), EventStoreError> {
-    let event_dir = format!("~/.phantom-mesh/events/{}", event_id);
+    let event_dir = format!("~/.spectyn-mesh/events/{}", event_id);
     // Step 1: resolve the body.age path (the only file carrying ciphertext
     // we have to scrub; meta.json + analysis.json are removed wholesale in
     // step 3 via remove_dir_all)
@@ -694,8 +694,8 @@ pub fn index_fts5_with_origin(
     plaintext_summary: &str,
     origin: MessageOrigin,
 ) -> Result<FTS5Index, EventStoreError> {
-    // Step 1: open the sqlite handle for ~/.phantom-mesh/events.sqlite
-    let conn = sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")?;
+    // Step 1: open the sqlite handle for ~/.spectyn-mesh/events.sqlite
+    let conn = sqlite_open_pseudo("~/.spectyn-mesh/events.sqlite")?;
     // Step 2: idempotent upsert into the FTS5 contentless virtual table, now
     // carrying the origin marker column.
     let sql = "INSERT OR REPLACE INTO fts5_events(event_id, content, origin) VALUES(?, ?, ?)";
@@ -712,17 +712,17 @@ pub fn index_fts5_with_origin(
 /// Path- and data-root-explicit write twin of [`index_fts5_with_origin`]. Indexes
 /// the SAME FTS5 row (`fts5_events`, contentless virtual table, with the
 /// `"human"`/`"machine"` origin marker) into the `events.sqlite` at a
-/// caller-supplied `db_path` instead of the hardcoded `~/.phantom-mesh/events.sqlite`.
+/// caller-supplied `db_path` instead of the hardcoded `~/.spectyn-mesh/events.sqlite`.
 /// This is the write-side twin of the existing read-side [`search_fts5_hits_at`]
 /// and mirrors [`embed_and_store_at`]'s `_at` convention — it does NOT invent a
 /// new store, it points the existing one at a resolved path. Lets a
-/// data-root-aware caller (e.g. `phantom memory bootstrap`, which resolves the db
-/// via `cli_config::phantom_data_dir()` so it honors `PHANTOM_HOME`) and hermetic
+/// data-root-aware caller (e.g. `spectyn memory bootstrap`, which resolves the db
+/// via `cli_config::spectyn_data_dir()` so it honors `SPECTYN_HOME`) and hermetic
 /// tests target an isolated `events.sqlite`. Idempotent: `INSERT OR REPLACE`
 /// keyed on `event_id`, so re-indexing the same id overwrites rather than dups.
 ///
 /// 中文: index_fts5_with_origin 的「明確 db 路徑」寫入版,對齊 search_fts5_hits_at /
-/// embed_and_store_at;讓 honor PHANTOM_HOME 的呼叫端與測試指向隔離的 events.sqlite。
+/// embed_and_store_at;讓 honor SPECTYN_HOME 的呼叫端與測試指向隔離的 events.sqlite。
 pub fn index_fts5_with_origin_at(
     db_path: &std::path::Path,
     event_id: &str,
@@ -755,9 +755,9 @@ fn sqlite_open_pseudo(path: &str) -> Result<SqliteHandle, EventStoreError> {
     }
     // CUJ-04 DB-001: sqlite corruption recovery.
     //
-    // A previous phantom run that died mid-fsync, a disk-level error, or
+    // A previous spectyn run that died mid-fsync, a disk-level error, or
     // an OS-killed VACUUM can leave the sqlite file with a torn-page header
-    // or a broken btree. Without this guard, the next `phantom habit ...`
+    // or a broken btree. Without this guard, the next `spectyn habit ...`
     // would panic on the first SELECT and the user is locked out of every
     // capture command until they manually `rm` the file. Behaviour now:
     //
@@ -772,7 +772,7 @@ fn sqlite_open_pseudo(path: &str) -> Result<SqliteHandle, EventStoreError> {
     //      reopen a fresh empty db. The user's events written before
     //      corruption are NOT lost — they live in the encrypted
     //      `events/<uuid>/` directory (events.sqlite is just the FTS5
-    //      index + metadata cache); a `phantom data export` will
+    //      index + metadata cache); a `spectyn data export` will
     //      rebuild the index from the canonical files.
     //
     // The CREATE VIRTUAL TABLE below stays idempotent so the post-
@@ -978,7 +978,7 @@ pub fn embed_and_store(
             return Ok(false);
         }
     };
-    let conn = sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")?;
+    let conn = sqlite_open_pseudo("~/.spectyn-mesh/events.sqlite")?;
     upsert_events_emb(&conn, event_id, &vec, &model_id)?;
     Ok(true)
 }
@@ -1122,7 +1122,7 @@ fn migrate_fts5_add_origin(conn: &rusqlite::Connection) -> Result<(), EventStore
 /// get an empty db), `false` if the rename itself fails (in which case
 /// the caller MUST NOT proceed — we'd corrupt the fresh db too). Emits a
 /// stderr line (suppressed under the TUI flag) so the user sees the
-/// rotation even when it happens transparently during `phantom habit`.
+/// rotation even when it happens transparently during `spectyn habit`.
 fn rotate_corrupt_sqlite(path: &str, reason: &str) -> bool {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1133,9 +1133,9 @@ fn rotate_corrupt_sqlite(path: &str, reason: &str) -> bool {
         Ok(()) => {
             if !crate::diag::is_tui_active() {
                 eprintln!(
-                    "phantom: sqlite at {} was corrupt ({}) — moved to {} and starting fresh. \
+                    "spectyn: sqlite at {} was corrupt ({}) — moved to {} and starting fresh. \
                      Underlying events in events/<uuid>/ are unaffected; \
-                     a future `phantom data export` will rebuild the index.",
+                     a future `spectyn data export` will rebuild the index.",
                     path, reason, backup
                 );
             }
@@ -1148,7 +1148,7 @@ fn rotate_corrupt_sqlite(path: &str, reason: &str) -> bool {
         Err(e) => {
             if !crate::diag::is_tui_active() {
                 eprintln!(
-                    "phantom: sqlite at {} is corrupt ({}) but rotate failed: {}",
+                    "spectyn: sqlite at {} is corrupt ({}) but rotate failed: {}",
                     path, reason, e
                 );
             }
@@ -1319,7 +1319,7 @@ pub struct SqliteHandle {
 pub fn search_fts5(query: &str, limit: usize) -> Result<Vec<String>, EventStoreError> {
     // Step 1: prepare BM25-ranked MATCH query against the FTS5 virtual table.
     // Cap limit at 1000 per SPEC-16 §7.1.5 to keep memory bounded.
-    let conn = sqlite_open_pseudo("~/.phantom-mesh/events.sqlite")?;
+    let conn = sqlite_open_pseudo("~/.spectyn-mesh/events.sqlite")?;
     let capped = limit.min(1000);
     let sql = "SELECT event_id FROM fts5_events WHERE fts5_events MATCH ? ORDER BY rank LIMIT ?";
     // Step 2: execute via the typed query helper, binding the user query and
@@ -1354,14 +1354,14 @@ pub struct Fts5Hit {
 /// 中文: FTS5 MATCH 查詢回 (event_id, content) pairs；空查詢列出全部。
 pub fn search_fts5_hits(query: &str, limit: usize) -> Result<Vec<Fts5Hit>, EventStoreError> {
     search_fts5_hits_at(
-        &expand_tilde("~/.phantom-mesh/events.sqlite"),
+        &expand_tilde("~/.spectyn-mesh/events.sqlite"),
         query,
         limit,
     )
 }
 
 /// Path-explicit twin of [`search_fts5_hits`]: queries the FTS5 index in the
-/// `events.sqlite` at `db_path` instead of the default `~/.phantom-mesh/events.sqlite`.
+/// `events.sqlite` at `db_path` instead of the default `~/.spectyn-mesh/events.sqlite`.
 /// Lets `recall::search_events` honor a caller-supplied `events_dir` by reading
 /// the sibling `<base>/events.sqlite`, so a temp dir isolates BOTH the file store
 /// and the FTS5 store. The write/capture path keeps using [`search_fts5_hits`]'s
@@ -1385,7 +1385,7 @@ pub fn search_fts5_hits_at(
 /// machine-origin rows are excluded (`origin LIKE 'human%'`, which also keeps
 /// pre-migration rows that were backfilled as `human`) — this is the R2 recall
 /// gate that stops autonomous-loop / classifier captures from surfacing in a
-/// human's `phantom recall`. When `false`, behaviour is identical to the legacy
+/// human's `spectyn recall`. When `false`, behaviour is identical to the legacy
 /// query (all origins). Surfaces the row's `origin` on each [`Fts5Hit`] so a
 /// caller can render / audit provenance without a second lookup.
 ///
@@ -1400,7 +1400,7 @@ pub fn search_fts5_hits_at_with_filter(
     let conn = sqlite_open_pseudo(&db_path.to_string_lossy())?;
     let capped = limit.min(1000);
     // An empty MATCH is a syntax error in FTS5; for the "list all" recall case
-    // (bare `phantom recall`) fall back to a plain SELECT with no MATCH filter.
+    // (bare `spectyn recall`) fall back to a plain SELECT with no MATCH filter.
     // The `human_only` predicate is appended to whichever branch we take.
     let trimmed = query.trim();
     let origin_clause_where = if human_only { " WHERE origin LIKE 'human%'" } else { "" };
@@ -1450,17 +1450,17 @@ pub fn search_fts5_hits_at_with_filter(
 /// hit it already located via the FTS5 index. Returns `None` if the meta is
 /// absent or not this store's schema (e.g. a life_node-encrypted meta.json).
 pub fn read_meta_only(event_id: &str) -> Option<EventMeta> {
-    read_json_pseudo::<EventMeta>(&format!("~/.phantom-mesh/events/{}/meta.json", event_id)).ok()
+    read_json_pseudo::<EventMeta>(&format!("~/.spectyn-mesh/events/{}/meta.json", event_id)).ok()
 }
 
-/// The default FTS5 db location, `~/.phantom-mesh/events.sqlite`, fully expanded.
+/// The default FTS5 db location, `~/.spectyn-mesh/events.sqlite`, fully expanded.
 /// Used as the fallback when a caller-supplied `events_dir` has no parent.
 pub fn default_events_sqlite_path() -> std::path::PathBuf {
-    expand_tilde("~/.phantom-mesh/events.sqlite")
+    expand_tilde("~/.spectyn-mesh/events.sqlite")
 }
 
 /// Path-explicit twin of [`read_meta_only`]: reads `<events_dir>/<event_id>/meta.json`
-/// instead of the default `~/.phantom-mesh/events/<id>/meta.json`. Lets recall recover
+/// instead of the default `~/.spectyn-mesh/events/<id>/meta.json`. Lets recall recover
 /// a wire-store FTS5 hit's `kind`/`timestamp` from the SAME store it was indexed in,
 /// so a caller-supplied `events_dir` stays hermetic.
 pub fn read_meta_only_at(events_dir: &std::path::Path, event_id: &str) -> Option<EventMeta> {
@@ -1476,13 +1476,13 @@ pub fn read_meta_only_at(events_dir: &std::path::Path, event_id: &str) -> Option
 /// `body.age`, no encryption, no `analysis.json` side-car): the minimal on-disk
 /// shape a recall-visible FTS5 event needs when its searchable text lives in the
 /// FTS5 index (see [`index_fts5_with_origin_at`]). Honors a caller-supplied
-/// `events_dir` (resolved via `cli_config::phantom_data_dir()` in production, so
-/// `PHANTOM_HOME`-aware) → data-root overrides and hermetic tests stay isolated.
+/// `events_dir` (resolved via `cli_config::spectyn_data_dir()` in production, so
+/// `SPECTYN_HOME`-aware) → data-root overrides and hermetic tests stay isolated.
 /// Idempotent: a re-write of the same `event_id` truncates its `meta.json` in
 /// place (no duplicate dir).
 ///
 /// 中文: read_meta_only_at 的寫入版,只寫明文 meta.json(無 body.age/加密),供 FTS5
-/// 召回回填 kind/timestamp;對齊 events_dir 隔離(honor PHANTOM_HOME)。
+/// 召回回填 kind/timestamp;對齊 events_dir 隔離(honor SPECTYN_HOME)。
 pub fn write_event_meta_at(
     events_dir: &std::path::Path,
     meta: &EventMeta,
@@ -1502,7 +1502,7 @@ pub fn write_event_meta_at(
 /// dropped from recall by a missing marker.
 pub fn read_origin_only(event_id: &str) -> MessageOrigin {
     read_origin_only_at(
-        &expand_tilde("~/.phantom-mesh/events/"),
+        &expand_tilde("~/.spectyn-mesh/events/"),
         event_id,
     )
 }
@@ -1629,7 +1629,7 @@ mod tests {
     /// SPEC-16 §6.1 — write_event must create the event directory and drop
     /// `meta.json` + `body.age` (plus optional `analysis.json`). We point the
     /// data root at a `tempfile::TempDir` via `$HOME` override so the test
-    /// never touches the real `~/.phantom-mesh/`.
+    /// never touches the real `~/.spectyn-mesh/`.
     #[ignore = "integration / env-dependent — run via --ignored"]
     #[test]
     fn write_event_round_trip_creates_expected_files() {
@@ -1662,7 +1662,7 @@ mod tests {
         };
         let returned = write_event(&meta, b"ciphertext-bytes", None).expect("write_event");
         assert_eq!(returned, "kat-uuid-001");
-        let event_dir = tmp.path().join(".phantom-mesh/events/kat-uuid-001");
+        let event_dir = tmp.path().join(".spectyn-mesh/events/kat-uuid-001");
         assert!(event_dir.join("meta.json").exists());
         assert!(event_dir.join("body.age").exists());
         assert!(!event_dir.join("analysis.json").exists());
@@ -1982,7 +1982,7 @@ mod tests {
         index_fts5_with_origin("evt-machine", "lunch salad fatloss", MessageOrigin::Machine)
             .expect("index machine");
 
-        let db = expand_tilde("~/.phantom-mesh/events.sqlite");
+        let db = expand_tilde("~/.spectyn-mesh/events.sqlite");
 
         // human_only=true → ONLY the human event surfaces (R2 gate works).
         let human_hits =
@@ -2057,7 +2057,7 @@ mod tests {
         assert_eq!(read_origin_only("h-1"), MessageOrigin::Human);
 
         // An event dir with NO origin sidecar (pre-migration) → Human, never lost.
-        let no_sidecar_dir = tmp.path().join(".phantom-mesh/events/legacy-0");
+        let no_sidecar_dir = tmp.path().join(".spectyn-mesh/events/legacy-0");
         std::fs::create_dir_all(&no_sidecar_dir).unwrap();
         std::fs::write(no_sidecar_dir.join("meta.json"), b"{}").unwrap();
         assert_eq!(read_origin_only("legacy-0"), MessageOrigin::Human);

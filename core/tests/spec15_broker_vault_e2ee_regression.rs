@@ -15,7 +15,7 @@
 //   broker-facing wire types can never carry vault plaintext.
 //
 // MIGRATION TODO (out of this test's scope — server + client-caller agents):
-//   - Retire `phantommesh-io` `getSettingsRaw` / `deriveUserKey` /
+//   - Retire `spectynmesh-io` `getSettingsRaw` / `deriveUserKey` /
 //     `decryptForUser` / `ENV_VAULT_KEY`; replace with dumb `/vault/*` storage
 //     that never decrypts (see docs/integration/2026-05-29-spec15-vault-verification.md).
 //   - Migrate live plaintext callers: core/src/cli_config.rs and
@@ -24,7 +24,7 @@
 //     separate, human-reviewed step. This file only proves the E2EE primitive
 //     is sound and locks the no-plaintext invariant.
 
-use phantom_mesh::broker_vault_wire::{
+use spectyn_mesh::broker_vault_wire::{
     compute_client_hmac, generate_vault_seal_key, seal_vault_value, unseal_vault_value,
     VaultGetResponse, VaultSetRequest,
 };

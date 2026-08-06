@@ -66,15 +66,15 @@ export default function MobileSettings() {
             <button
               key={s.id}
               onClick={() => setSection(s.id)}
-              className="w-full text-left bg-phantom-card border border-phantom-border rounded-lg px-4 py-3 hover:border-phantom-primary transition"
+              className="w-full text-left bg-spectyn-card border border-spectyn-border rounded-lg px-4 py-3 hover:border-spectyn-primary transition"
             >
-              <div className="text-sm font-medium text-phantom-text">{s.title}</div>
-              <div className="text-xs text-phantom-muted mt-0.5">{s.subtitle}</div>
+              <div className="text-sm font-medium text-spectyn-text">{s.title}</div>
+              <div className="text-xs text-spectyn-muted mt-0.5">{s.subtitle}</div>
             </button>
           ))}
         </div>
-        <div className="p-4 mt-auto text-[11px] text-phantom-muted text-center">
-          Phantom Mesh — mobile mode
+        <div className="p-4 mt-auto text-[11px] text-spectyn-muted text-center">
+          Spectyn Mesh — mobile mode
         </div>
       </div>
     );
@@ -82,15 +82,15 @@ export default function MobileSettings() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-2 py-2.5 border-b border-phantom-border flex-shrink-0">
+      <div className="flex items-center px-2 py-2.5 border-b border-spectyn-border flex-shrink-0">
         <button
           onClick={exitToList}
-          className="text-phantom-text p-2 -m-2 flex items-center gap-1"
+          className="text-spectyn-text p-2 -m-2 flex items-center gap-1"
         >
           <ChevronLeft size={20} />
           <span className="text-sm">設定</span>
         </button>
-        <span className="text-sm font-medium text-phantom-text mx-auto pr-8">
+        <span className="text-sm font-medium text-spectyn-text mx-auto pr-8">
           {SECTIONS.find(s => s.id === section)?.title}
         </span>
       </div>

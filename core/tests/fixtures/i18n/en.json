@@ -8,5 +8,5 @@
   "settings.locale_label": "Display language",
   "error.network": "Network unavailable, please try again later",
   "error.auth_failed": "Sign-in failed: {reason}",
-  "onboarding.welcome": "Welcome to phantom-mesh"
+  "onboarding.welcome": "Welcome to spectyn-mesh"
 }

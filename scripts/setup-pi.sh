@@ -45,10 +45,10 @@ ROOT="$(dirname "$SCRIPT_DIR")"
 
 case "$MODEL" in
   pi4|pi5|pi3)
-    BINARY="$ROOT/core/target/aarch64-unknown-linux-gnu/release/phantom-mesh"
+    BINARY="$ROOT/core/target/aarch64-unknown-linux-gnu/release/spectyn-mesh"
     ;;
   pi2)
-    BINARY="$ROOT/core/target/armv7-unknown-linux-gnueabihf/release/phantom-mesh"
+    BINARY="$ROOT/core/target/armv7-unknown-linux-gnueabihf/release/spectyn-mesh"
     ;;
   *)
     echo "未知型號: $MODEL (支援: pi2 pi3 pi4 pi5)"
@@ -59,7 +59,7 @@ esac
 if [ ! -f "$BINARY" ]; then
   echo "找不到 binary: $BINARY"
   echo "請先執行:"
-  echo "  cargo zigbuild --target aarch64-unknown-linux-gnu --manifest-path core/Cargo.toml --bin phantom-mesh --release"
+  echo "  cargo zigbuild --target aarch64-unknown-linux-gnu --manifest-path core/Cargo.toml --bin spectyn-mesh --release"
   exit 1
 fi
 
@@ -67,34 +67,34 @@ echo "==> 部署到 $NODE_NAME_SAFE ($PI_IP)..."
 
 # ─ 1. 傳送 binary ─────────────────────────────────────────────────────────────
 echo "  傳送 binary..."
-$SCP_CMD "$BINARY" "$REMOTE:/tmp/phantom-mesh-new"
-$SSH_CMD "$REMOTE" "sudo mv /tmp/phantom-mesh-new /usr/local/bin/phantom-mesh && sudo chmod +x /usr/local/bin/phantom-mesh"
+$SCP_CMD "$BINARY" "$REMOTE:/tmp/spectyn-mesh-new"
+$SSH_CMD "$REMOTE" "sudo mv /tmp/spectyn-mesh-new /usr/local/bin/spectyn-mesh && sudo chmod +x /usr/local/bin/spectyn-mesh"
 
 # ─ 2. 傳送 config ─────────────────────────────────────────────────────────────
 echo "  傳送設定檔..."
-$SSH_CMD "$REMOTE" "mkdir -p ~/.config/phantom-mesh"
+$SSH_CMD "$REMOTE" "mkdir -p ~/.config/spectyn-mesh"
 $SCP_CMD "$ROOT/configs/agents.raspberrypi.toml" "$REMOTE:/tmp/agents.toml"
 $SSH_CMD "$REMOTE" "
   # 替換 node_name (使用淨化後的 NODE_NAME_SAFE 避免 ssh 注入)
   sed -i 's/node_name = \"pi-1\"/node_name = \"$NODE_NAME_SAFE\"/' /tmp/agents.toml
-  mv /tmp/agents.toml ~/.config/phantom-mesh/agents.toml
+  mv /tmp/agents.toml ~/.config/spectyn-mesh/agents.toml
 "
 
 # ─ 3. 設定 systemd 服務 ────────────────────────────────────────────────────────
 echo "  設定 systemd..."
 $SSH_CMD "$REMOTE" "
-sudo tee /etc/systemd/system/phantom-mesh.service > /dev/null << 'EOF'
+sudo tee /etc/systemd/system/spectyn-mesh.service > /dev/null << 'EOF'
 [Unit]
-Description=Phantom Mesh Node
+Description=Spectyn Mesh Node
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=$PI_USER
-ExecStart=/usr/local/bin/phantom-mesh
+ExecStart=/usr/local/bin/spectyn-mesh
 WorkingDirectory=/home/$PI_USER
-EnvironmentFile=-/home/$PI_USER/.config/phantom-mesh/env
+EnvironmentFile=-/home/$PI_USER/.config/spectyn-mesh/env
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -105,8 +105,8 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable phantom-mesh
-sudo systemctl restart phantom-mesh
+sudo systemctl enable spectyn-mesh
+sudo systemctl restart spectyn-mesh
 "
 
 # ─ 4. 安裝 Tailscale（如果還沒裝）─────────────────────────────────────────────
@@ -124,7 +124,7 @@ tailscale ip -4
 echo "  等待服務啟動..."
 sleep 5
 $SSH_CMD "$REMOTE" "
-  systemctl is-active phantom-mesh && echo '✓ 服務已啟動' || echo '✗ 服務未啟動'
+  systemctl is-active spectyn-mesh && echo '✓ 服務已啟動' || echo '✗ 服務未啟動'
   curl -s http://localhost:7878/health 2>/dev/null | python3 -m json.tool || echo '  (等待 port 7878 開啟...)'
 "
 
@@ -133,8 +133,8 @@ echo "✓ $NODE_NAME_SAFE 部署完成！"
 echo ""
 echo "後續步驟："
 echo "  1. 編輯 config 填入真實 IP："
-echo "     ssh $REMOTE nano ~/.config/phantom-mesh/agents.toml"
+echo "     ssh $REMOTE nano ~/.config/spectyn-mesh/agents.toml"
 echo "  2. 設定 API keys："
-echo "     ssh $REMOTE 'echo GROQ_API_KEY=你的key >> ~/.config/phantom-mesh/env'"
+echo "     ssh $REMOTE 'echo GROQ_API_KEY=你的key >> ~/.config/spectyn-mesh/env'"
 echo "  3. 查看日誌："
-echo "     ssh $REMOTE journalctl -fu phantom-mesh"
+echo "     ssh $REMOTE journalctl -fu spectyn-mesh"

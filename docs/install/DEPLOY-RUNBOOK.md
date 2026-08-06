@@ -1,10 +1,10 @@
-# Phantom Mesh — Deploy Runbook (fresh box → installed + logged in + owned-memory usable)
+# Spectyn Mesh — Deploy Runbook (fresh box → installed + logged in + owned-memory usable)
 
-This is the turnkey deploy guide for standing up phantom-mesh on a clean
+This is the turnkey deploy guide for standing up spectyn-mesh on a clean
 machine across all five OS targets. The goal for each target is the same:
 **go from a fresh box to a node that is installed, has an LLM key, is running
-`phantom serve`, and can store + recall a private memory** — the "owned
-memory" moat that makes phantom compound the more you use it.
+`spectyn serve`, and can store + recall a private memory** — the "owned
+memory" moat that makes spectyn compound the more you use it.
 
 > One source of truth: build from `origin/main`. The per-OS install docs
 > (`INSTALL-WINDOWS.md`, `INSTALL-MAC.md`, `INSTALL-ANDROID.md`,
@@ -18,7 +18,7 @@ memory" moat that makes phantom compound the more you use it.
 
 Slice-1 recall (inject relevant past notes before each run, capture on deny)
 is **default-on** and needs no feature flags — a plain `cargo build` ships it,
-and the kill-switch is the env var `PHANTOM_OWNED_MEMORY` (only `0` / `false`
+and the kill-switch is the env var `SPECTYN_OWNED_MEMORY` (only `0` / `false`
 / `off` / `no` disable it; anything else, including unset, leaves it ON).
 
 To get the **full learning loop** — the judge → extract → store auto-learning
@@ -29,26 +29,26 @@ hermes features:
 --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools
 ```
 
-Everywhere below where a deploy builds the `phantom` binary from source, it
+Everywhere below where a deploy builds the `spectyn` binary from source, it
 uses exactly those features. Verified behaviour: recall works, and the
 six-step loop (judge → extract → store → recall → apply → measure)
 round-trips.
 
 Common facts across all targets:
 
-- The data root is `~/.phantom-mesh` (on Windows, `%USERPROFILE%\.phantom-mesh`).
-  The owned-memory database lives at `~/.phantom-mesh/phantom.db`. Everything
+- The data root is `~/.spectyn-mesh` (on Windows, `%USERPROFILE%\.spectyn-mesh`).
+  The owned-memory database lives at `~/.spectyn-mesh/spectyn.db`. Everything
   except the binary lives under `$HOME` — easy to back up, easy to wipe. You
-  can redirect the data root with `PHANTOM_HOME` and the database alone with
-  `PHANTOM_DB_PATH`.
-- phantom is **BYOK (bring your own key)** — it never ships a provider key.
+  can redirect the data root with `SPECTYN_HOME` and the database alone with
+  `SPECTYN_DB_PATH`.
+- spectyn is **BYOK (bring your own key)** — it never ships a provider key.
   Supply at least one of Anthropic / OpenAI / Groq / Gemini / OpenRouter, via
-  the `phantom onboarding` wizard or an env var.
+  the `spectyn onboarding` wizard or an env var.
 - Every **mobile / thin client** (Android app, iOS app) and every **remote
   client** needs **Tailscale joined to the same tailnet** as a running
-  `phantom serve` coordinator. The mobile apps reach that coordinator by its
+  `spectyn serve` coordinator. The mobile apps reach that coordinator by its
   Tailscale IP; use the placeholder `<coordinator-tailscale-ip>` throughout.
-- Verify health any time with `phantom doctor` (11 colour-coded sections; `✓`
+- Verify health any time with `spectyn doctor` (11 colour-coded sections; `✓`
   green or `⚠` yellow are fine — `⚠` is normal for opt-in features you have
   not turned on; only a red `✗` needs fixing).
 
@@ -56,7 +56,7 @@ Common facts across all targets:
 
 ## 1. Windows (desktop / laptop node)
 
-A Windows node can be a full coordinator (`phantom serve`) and a desktop-app
+A Windows node can be a full coordinator (`spectyn serve`) and a desktop-app
 host. Tested native on Windows 11 (not WSL). PowerShell 7 recommended.
 
 ### 1.1 Prerequisites
@@ -78,48 +78,48 @@ winget install Microsoft.VisualStudio.2022.BuildTools --override "--add Microsof
 
 Clone `origin/main` and build via the bundled helper. `scripts\build-windows.ps1`
 puts `CARGO_TARGET_DIR` **outside** the worktree (default
-`D:\tmp\phantom-windows-target`) so Defender's real-time scan does not lock
+`D:\tmp\spectyn-windows-target`) so Defender's real-time scan does not lock
 freshly-emitted `.exe`/build-script artifacts mid-link (the `LNK1104` /
-`access denied (os error 5)` failure). It also stops any running `phantom.exe`
+`access denied (os error 5)` failure). It also stops any running `spectyn.exe`
 first so the link step can overwrite the binary.
 
 ```powershell
 cd $env:USERPROFILE\Documents
-git clone https://github.com/markl-a/phantom-mesh
-cd phantom-mesh
+git clone https://github.com/markl-a/spectyn-mesh
+cd spectyn-mesh
 
 # Build the CLI from origin/main WITH the owned-memory learning loop, then
-# deploy it to the canonical install paths (~/.phantom-mesh/bin + ~/.local/bin).
+# deploy it to the canonical install paths (~/.spectyn-mesh/bin + ~/.local/bin).
 $env:CARGO_BUILD_FLAGS = ""   # (none needed)
 .\scripts\build-windows.ps1 -Deploy `
-  -TargetDir D:\tmp\phantom-windows-target
+  -TargetDir D:\tmp\spectyn-windows-target
 ```
 
-> The helper builds `cargo build --release --bin phantom`. To bake in the
+> The helper builds `cargo build --release --bin spectyn`. To bake in the
 > learning-loop features, either build directly with them:
 >
 > ```powershell
-> $env:CARGO_TARGET_DIR = "D:\tmp\phantom-windows-target"
+> $env:CARGO_TARGET_DIR = "D:\tmp\spectyn-windows-target"
 > cd core
-> cargo build --release --bin phantom `
+> cargo build --release --bin spectyn `
 >   --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools
-> # then copy target\release\phantom.exe to ~\.phantom-mesh\bin and ~\.local\bin
+> # then copy target\release\spectyn.exe to ~\.spectyn-mesh\bin and ~\.local\bin
 > ```
 >
 > or run `.\scripts\build-windows.ps1 -Deploy` for the default build and add
 > the features on your next rebuild — slice-1 recall works either way; the
 > features only add the auto-learning leg.
 
-`-Deploy` copies `phantom.exe` to:
-- `%USERPROFILE%\.phantom-mesh\bin\phantom.exe` (used by the serve Scheduled Task)
-- `%USERPROFILE%\.local\bin\phantom.exe` (on the PowerShell user PATH)
+`-Deploy` copies `spectyn.exe` to:
+- `%USERPROFILE%\.spectyn-mesh\bin\spectyn.exe` (used by the serve Scheduled Task)
+- `%USERPROFILE%\.local\bin\spectyn.exe` (on the PowerShell user PATH)
 
-Confirm: `phantom --version`.
+Confirm: `spectyn --version`.
 
 ### 1.3 Login / provider key
 
 ```powershell
-phantom onboarding      # 90-second wizard, writes %USERPROFILE%\.phantom-mesh\agents.toml
+spectyn onboarding      # 90-second wizard, writes %USERPROFILE%\.spectyn-mesh\agents.toml
 ```
 
 Or skip the wizard and set a key in the environment (example: OpenRouter):
@@ -133,21 +133,21 @@ setx OPENROUTER_API_KEY "sk-or-..."   # persists; reopen the shell to pick it up
 Run it as a logon Scheduled Task so it survives reboots:
 
 ```powershell
-$action   = New-ScheduledTaskAction -Execute "$env:USERPROFILE\.phantom-mesh\bin\phantom.exe" -Argument "serve"
+$action   = New-ScheduledTaskAction -Execute "$env:USERPROFILE\.spectyn-mesh\bin\spectyn.exe" -Argument "serve"
 $trigger  = New-ScheduledTaskTrigger -AtLogon
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-Register-ScheduledTask -TaskName "phantom-serve" -Action $action -Trigger $trigger -Settings $settings
-Start-ScheduledTask -TaskName "phantom-serve"
+Register-ScheduledTask -TaskName "spectyn-serve" -Action $action -Trigger $trigger -Settings $settings
+Start-ScheduledTask -TaskName "spectyn-serve"
 ```
 
-(For a quick foreground run instead: `Start-Process phantom -ArgumentList "serve" -WindowStyle Hidden`.)
+(For a quick foreground run instead: `Start-Process spectyn -ArgumentList "serve" -WindowStyle Hidden`.)
 
 If this node is a coordinator for mobile clients, also bring up Tailscale and
 open the port:
 
 ```powershell
 tailscale up
-New-NetFirewallRule -DisplayName "phantom serve" -Direction Inbound -LocalPort 7878 -Protocol TCP -Action Allow
+New-NetFirewallRule -DisplayName "spectyn serve" -Direction Inbound -LocalPort 7878 -Protocol TCP -Action Allow
 ```
 
 ### 1.5 Desktop app (optional)
@@ -164,9 +164,9 @@ anyway".
 ### 1.6 Verify memory recall works
 
 ```powershell
-phantom doctor
-phantom note "deploy check: my favorite test fruit is durian" --tag selftest
-phantom recall "favorite test fruit"
+spectyn doctor
+spectyn note "deploy check: my favorite test fruit is durian" --tag selftest
+spectyn recall "favorite test fruit"
 ```
 
 The `recall` output should contain the note you just stored. See §6 for the
@@ -192,20 +192,20 @@ It is also the **only host that can build the iOS app** (see §5).
 ### 2.2 Build (owned-memory features)
 
 ```bash
-git clone https://github.com/markl-a/phantom-mesh
-cd phantom-mesh/core
+git clone https://github.com/markl-a/spectyn-mesh
+cd spectyn-mesh/core
 cargo install --path . \
   --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools
-phantom --version
+spectyn --version
 ```
 
-`cargo install --path .` puts `phantom` on PATH at `~/.cargo/bin/phantom`.
+`cargo install --path .` puts `spectyn` on PATH at `~/.cargo/bin/spectyn`.
 First build on Apple Silicon is ~2 minutes.
 
 ### 2.3 Login / provider key
 
 ```bash
-phantom onboarding     # writes ~/.phantom-mesh/agents.toml, runs doctor, prints next steps
+spectyn onboarding     # writes ~/.spectyn-mesh/agents.toml, runs doctor, prints next steps
 ```
 
 (Or export a key, e.g. `export OPENROUTER_API_KEY=sk-or-...` in your shell rc.)
@@ -213,12 +213,12 @@ phantom onboarding     # writes ~/.phantom-mesh/agents.toml, runs doctor, prints
 ### 2.4 Start serve (launchd, auto-start at every login)
 
 ```bash
-phantom service install     # copies a TCC-safe binary + loads ai.phantommesh.serve.plist
-phantom service status      # registered / pid / healthz
+spectyn service install     # copies a TCC-safe binary + loads ai.spectynmesh.serve.plist
+spectyn service status      # registered / pid / healthz
 ```
 
 If this Mac is the coordinator for mobile clients, join Tailscale
-(`tailscale up`) and confirm the `network` row of `phantom doctor` is green.
+(`tailscale up`) and confirm the `network` row of `spectyn doctor` is green.
 
 ### 2.5 Desktop app (optional)
 
@@ -234,9 +234,9 @@ notarization is deferred.
 ### 2.6 Verify memory recall works
 
 ```bash
-phantom doctor
-phantom note "deploy check: my favorite test fruit is durian" --tag selftest
-phantom recall "favorite test fruit"
+spectyn doctor
+spectyn note "deploy check: my favorite test fruit is durian" --tag selftest
+spectyn recall "favorite test fruit"
 ```
 
 The note should appear in the recall output. See §6.
@@ -256,44 +256,44 @@ A Linux box is a first-class coordinator (often the cheapest always-on one).
 ### 3.2 Build (owned-memory features)
 
 ```bash
-git clone https://github.com/markl-a/phantom-mesh
-cd phantom-mesh/core
+git clone https://github.com/markl-a/spectyn-mesh
+cd spectyn-mesh/core
 cargo install --path . \
   --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools
-phantom --version
+spectyn --version
 ```
 
 > A prebuilt binary is also served by `scripts/install.sh`
 > (`curl -fsSL https://phantommesh.io/install | sh`, SHA256-verified,
-> installs to `~/.phantom-mesh/bin/phantom`). The prebuilt path is the
+> installs to `~/.spectyn-mesh/bin/spectyn`). The prebuilt path is the
 > fastest first touch, but **build from source with the features above** when
 > you want the full learning loop on a deploy node.
 
 ### 3.3 Login / provider key
 
 ```bash
-phantom onboarding
+spectyn onboarding
 # or: export OPENROUTER_API_KEY=sk-or-...   (in ~/.bashrc / ~/.profile)
 ```
 
 ### 3.4 Start serve (systemd or foreground)
 
 ```bash
-phantom service install      # installs a systemd user/service unit where supported
-phantom service status
+spectyn service install      # installs a systemd user/service unit where supported
+spectyn service status
 # Fallback if service install is unavailable on this distro:
-#   nohup phantom serve >> ~/.phantom-mesh/phantom-serve.log 2>&1 &
+#   nohup spectyn serve >> ~/.spectyn-mesh/spectyn-serve.log 2>&1 &
 ```
 
 If this node is a coordinator for mobile clients: `tailscale up`, then verify
-the `network` row in `phantom doctor`.
+the `network` row in `spectyn doctor`.
 
 ### 3.5 Verify memory recall works
 
 ```bash
-phantom doctor
-phantom note "deploy check: my favorite test fruit is durian" --tag selftest
-phantom recall "favorite test fruit"
+spectyn doctor
+spectyn note "deploy check: my favorite test fruit is durian" --tag selftest
+spectyn recall "favorite test fruit"
 ```
 
 See §6.
@@ -304,10 +304,10 @@ See §6.
 
 Two independent flavors, both possible on the same phone:
 
-- **Tauri APK (thin client)** — a home-screen app that talks to a `phantom
+- **Tauri APK (thin client)** — a home-screen app that talks to a `spectyn
   serve` coordinator over Tailscale. This is the supervisor UI. **Recommended
   for a deploy.**
-- **Termux worker (headless / TUI)** — a real on-device `phantom serve` that
+- **Termux worker (headless / TUI)** — a real on-device `spectyn serve` that
   joins the cluster. Heavier; see `INSTALL-ANDROID.md` part B.
 
 This section covers the APK thin client.
@@ -317,7 +317,7 @@ This section covers the APK thin client.
 - An arm64 (aarch64) Android device.
 - Tailscale installed on the phone and joined to the **same tailnet** as your
   coordinator. From the phone, `ping <coordinator-tailscale-ip>` must succeed.
-- A reachable coordinator already running `phantom serve` (a Windows/macOS/
+- A reachable coordinator already running `spectyn serve` (a Windows/macOS/
   Linux node from §1–§3, built with the owned-memory features).
 
 ### 4.2 Build the arm64 APK
@@ -326,7 +326,7 @@ On a build host with the Android toolchain (Android SDK/NDK + Rust
 `aarch64-linux-android` target + Node):
 
 ```bash
-cd phantom-mesh/app
+cd spectyn-mesh/app
 npm install
 npx tauri android build --target aarch64
 ```
@@ -339,7 +339,7 @@ download it in the phone browser.
 ### 4.3 Install
 
 ```bash
-adb install path/to/phantom-mesh-arm64.apk
+adb install path/to/spectyn-mesh-arm64.apk
 ```
 
 (Or tap the downloaded APK on the device and allow "install from this
@@ -347,12 +347,12 @@ source" once for that browser.)
 
 ### 4.4 Configure the supervisor (login / reach the coordinator)
 
-Launch the **Phantom Mesh** app. It is a 7-tab supervisor. Point it at your
+Launch the **Spectyn Mesh** app. It is a 7-tab supervisor. Point it at your
 coordinator:
 
 - **Base URL**: `http://<coordinator-tailscale-ip>:7878`
 - **HMAC secret**: the cluster shared secret configured on the coordinator
-  (the `cluster_secret` / `PHANTOM_CLUSTER_SECRET` value).
+  (the `cluster_secret` / `SPECTYN_CLUSTER_SECRET` value).
 
 The app stores this locally; subsequent launches go straight to the UI. The
 agent loop, LLM calls, and owned-memory all run on the **coordinator** — the
@@ -361,7 +361,7 @@ phone is a control surface.
 ### 4.5 Verify memory recall works (via the coordinator)
 
 Because the agent runs on the coordinator, verify the moat **there** (§6) —
-e.g. `phantom note ...` + `phantom recall ...` on the coordinator, then
+e.g. `spectyn note ...` + `spectyn recall ...` on the coordinator, then
 confirm the same note surfaces in a chat you drive from the Android app. A
 quick reachability check from the phone:
 
@@ -380,9 +380,9 @@ coordinator it reaches over Tailscale. iOS apps are built **on a Mac** (§2).
 ### 5.1 Prerequisites
 
 - A Mac with Xcode 15+ (the iOS build host from §2).
-- An App Store Connect app record for bundle id **`ai.phantommesh.app`**, plus
+- An App Store Connect app record for bundle id **`ai.spectynmesh.app`**, plus
   an App Store Connect API key (key id + issuer id) for the upload.
-- The phone joined to the **same tailnet** as a running `phantom serve`
+- The phone joined to the **same tailnet** as a running `spectyn serve`
   coordinator.
 
 ### 5.2 Build the IPA (TestFlight / app-store-connect export)
@@ -396,12 +396,12 @@ TESTFLIGHT=1 APPLE_TEAM_ID=F7683B69U7 bash scripts/package-ios.sh
 
 `TESTFLIGHT=1` flips the export method to `app-store-connect` (distribution
 cert) and stamps a fresh, strictly-increasing `CFBundleVersion`. The signed
-IPA lands at `dist/phantom-mesh-ios.ipa`.
+IPA lands at `dist/spectyn-mesh-ios.ipa`.
 
 ### 5.3 Upload to TestFlight
 
 ```bash
-xcrun altool --upload-app -f dist/phantom-mesh-ios.ipa \
+xcrun altool --upload-app -f dist/spectyn-mesh-ios.ipa \
   --type ios --apiKey "$ASC_API_KEY_ID" --apiIssuer "$ASC_API_KEY_ISSUER_ID"
 ```
 
@@ -411,7 +411,7 @@ TestFlight.
 
 ### 5.4 Install + login
 
-Install via the **TestFlight** app on the device. Launch **Phantom Mesh**, and
+Install via the **TestFlight** app on the device. Launch **Spectyn Mesh**, and
 in the connect form set the coordinator host/port:
 
 - **Host**: `<coordinator-tailscale-ip>`
@@ -440,16 +440,16 @@ that runs the agent loop (any desktop coordinator from §1–§3). Mobile client
 verify against their coordinator.
 
 ```bash
-# 1. Store a private fact as an event in ~/.phantom-mesh/phantom.db
-phantom note "deploy check: the magic deploy phrase is BLUE-OTTER-42" --tag selftest
+# 1. Store a private fact as an event in ~/.spectyn-mesh/spectyn.db
+spectyn note "deploy check: the magic deploy phrase is BLUE-OTTER-42" --tag selftest
 
 # 2. Full-text recall (FTS5) — the stored note must come back
-phantom recall "magic deploy phrase"
+spectyn recall "magic deploy phrase"
 # → expect a line containing BLUE-OTTER-42
 
 # 3. Confirm the agent loop would INJECT it before a run
 #    (this is the exact system block recall prepends to the model context)
-phantom skill recall "magic deploy phrase"
+spectyn skill recall "magic deploy phrase"
 # → expect the BLUE-OTTER-42 memory in the recalled block,
 #   NOT "(no skills recalled for this query)"
 ```
@@ -457,19 +457,19 @@ phantom skill recall "magic deploy phrase"
 (On Windows, the same three commands run unchanged in PowerShell.)
 
 What this proves:
-- **Storage**: `phantom note` wrote an encrypted-at-rest event into the
-  owned-memory database under `~/.phantom-mesh`.
-- **Recall**: `phantom recall` retrieved it via the FTS5 hot path.
-- **Injection**: `phantom skill recall` shows the memory being assembled into
+- **Storage**: `spectyn note` wrote an encrypted-at-rest event into the
+  owned-memory database under `~/.spectyn-mesh`.
+- **Recall**: `spectyn recall` retrieved it via the FTS5 hot path.
+- **Injection**: `spectyn skill recall` shows the memory being assembled into
   the system block the agent prepends before each run — i.e. the agent will
   actually *use* what you stored. With the
   `experimental-hermes-{curator,memory,tools}` features built in, finished
   runs also feed the judge → extract → store learning loop, so the node gets
   better at your recurring tasks over time.
 
-If step 2 or 3 comes back empty: confirm `PHANTOM_OWNED_MEMORY` is not set to
-`0`/`false`/`off`/`no`, confirm the note landed (`phantom recall --json`), and
-re-run `phantom doctor` to check the binary/config rows are green.
+If step 2 or 3 comes back empty: confirm `SPECTYN_OWNED_MEMORY` is not set to
+`0`/`false`/`off`/`no`, confirm the note landed (`spectyn recall --json`), and
+re-run `spectyn doctor` to check the binary/config rows are green.
 
 ---
 
@@ -477,11 +477,11 @@ re-run `phantom doctor` to check the binary/config rows are green.
 
 | Target | Build from origin/main | Serve | Memory check |
 |---|---|---|---|
-| Windows | `scripts\build-windows.ps1 -Deploy` (out-of-tree target) | logon Scheduled Task `phantom serve` | `phantom note` + `phantom recall` (§6) |
-| macOS | `cargo install --path . --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools` | `phantom service install` (launchd) | §6 |
-| Linux | same `cargo install` line as macOS | `phantom service install` (systemd) | §6 |
+| Windows | `scripts\build-windows.ps1 -Deploy` (out-of-tree target) | logon Scheduled Task `spectyn serve` | `spectyn note` + `spectyn recall` (§6) |
+| macOS | `cargo install --path . --features experimental-hermes-curator,experimental-hermes-memory,experimental-hermes-tools` | `spectyn service install` (launchd) | §6 |
+| Linux | same `cargo install` line as macOS | `spectyn service install` (systemd) | §6 |
 | Android | `npx tauri android build --target aarch64` → `adb install` | thin client → coordinator | verify on coordinator (§6) |
 | iOS | `TESTFLIGHT=1 APPLE_TEAM_ID=F7683B69U7 bash scripts/package-ios.sh` → TestFlight | thin client → coordinator | verify on coordinator (§6) |
 
 All mobile/remote clients require Tailscale on the **same tailnet** as a
-running `phantom serve` coordinator, reached at `<coordinator-tailscale-ip>`.
+running `spectyn serve` coordinator, reached at `<coordinator-tailscale-ip>`.

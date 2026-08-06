@@ -1,12 +1,12 @@
-use phantom_mesh::project_context;
-use phantom_mesh::providers::traits::ChatMessage;
-use phantom_mesh::session::ConversationStore;
+use spectyn_mesh::project_context;
+use spectyn_mesh::providers::traits::ChatMessage;
+use spectyn_mesh::session::ConversationStore;
 /// Integration tests for improvements added by parallel agents A3, A4, A5, A7, A8, A10.
 ///
 /// Tests that exercise APIs not yet in main are marked `#[ignore]` with a comment
 /// explaining which agent adds the feature. Remove `#[ignore]` once the relevant
 /// agent's branch is merged and all assertions compile and pass.
-use phantom_mesh::tools::{file, shell};
+use spectyn_mesh::tools::{file, shell};
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -191,41 +191,41 @@ async fn test_file_read_show_line_numbers() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// A5 — shell: PHANTOM_AUTO_APPROVE gate and || operator handling
+// A5 — shell: SPECTYN_AUTO_APPROVE gate and || operator handling
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// A5: when PHANTOM_AUTO_APPROVE is not set, shell::run should return a response
+/// A5: when SPECTYN_AUTO_APPROVE is not set, shell::run should return a response
 /// containing "APPROVAL_REQUIRED" instead of executing the command.
 ///
 /// Depends on A5 adding the approval gate to `shell::run`.
 #[tokio::test]
 async fn test_shell_approval_required() {
     // Ensure the env var is absent for this test.
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     let result = shell::run(&json!({"command": "rm test.txt"})).await;
 
     assert!(
         result.contains("APPROVAL_REQUIRED"),
-        "expected APPROVAL_REQUIRED when PHANTOM_AUTO_APPROVE is unset, got: {result}"
+        "expected APPROVAL_REQUIRED when SPECTYN_AUTO_APPROVE is unset, got: {result}"
     );
 }
 
-/// A5: when PHANTOM_AUTO_APPROVE=1 is set, the command is executed rather than
+/// A5: when SPECTYN_AUTO_APPROVE=1 is set, the command is executed rather than
 /// being held for approval.
 ///
 /// Depends on A5 adding the approval gate to `shell::run`.
 #[tokio::test]
 async fn test_shell_auto_approve() {
-    std::env::set_var("PHANTOM_AUTO_APPROVE", "1");
+    std::env::set_var("SPECTYN_AUTO_APPROVE", "1");
 
     let result = shell::run(&json!({"command": "echo auto_approved"})).await;
 
-    std::env::remove_var("PHANTOM_AUTO_APPROVE");
+    std::env::remove_var("SPECTYN_AUTO_APPROVE");
 
     assert!(
         !result.contains("APPROVAL_REQUIRED"),
-        "command should execute when PHANTOM_AUTO_APPROVE=1, but got APPROVAL_REQUIRED: {result}"
+        "command should execute when SPECTYN_AUTO_APPROVE=1, but got APPROVAL_REQUIRED: {result}"
     );
     assert!(
         result.contains("auto_approved") || result.contains("[exit"),
@@ -340,21 +340,21 @@ async fn test_session_delete() {
 // A4 — context: load_project_config() / walk-up from CWD
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// `load_project_context` finds a PHANTOM.md placed directly in the given directory.
+/// `load_project_context` finds a SPECTYN.md placed directly in the given directory.
 ///
 /// This exercises the direct-hit case of the walk-up logic already present in
 /// `project_context::load_project_context`.
 #[tokio::test]
-async fn test_load_project_config_finds_phantom_md() {
+async fn test_load_project_config_finds_spectyn_md() {
     let dir = tempdir().unwrap();
-    let phantom_md = dir.path().join("PHANTOM.md");
-    std::fs::write(&phantom_md, "test content").unwrap();
+    let spectyn_md = dir.path().join("SPECTYN.md");
+    std::fs::write(&spectyn_md, "test content").unwrap();
 
     let result: Option<String> = project_context::load_project_context(dir.path()).await;
 
     assert!(
         result.is_some(),
-        "expected Some(content) when PHANTOM.md is present"
+        "expected Some(content) when SPECTYN.md is present"
     );
     let content = result.unwrap();
     assert!(
@@ -363,7 +363,7 @@ async fn test_load_project_config_finds_phantom_md() {
     );
 }
 
-/// `load_project_context` walks up the directory tree to find PHANTOM.md placed
+/// `load_project_context` walks up the directory tree to find SPECTYN.md placed
 /// only in a parent directory.
 #[tokio::test]
 async fn test_load_project_config_walk_up() {
@@ -371,24 +371,24 @@ async fn test_load_project_config_walk_up() {
     let child_dir = parent_dir.path().join("child");
     std::fs::create_dir_all(&child_dir).unwrap();
 
-    // Place PHANTOM.md only in the parent.
+    // Place SPECTYN.md only in the parent.
     std::fs::write(
-        parent_dir.path().join("PHANTOM.md"),
+        parent_dir.path().join("SPECTYN.md"),
         "parent project context",
     )
     .unwrap();
 
-    // Call from the child dir (no PHANTOM.md there).
+    // Call from the child dir (no SPECTYN.md there).
     let result: Option<String> = project_context::load_project_context(&child_dir).await;
 
     assert!(
         result.is_some(),
-        "expected walk-up to find PHANTOM.md in parent directory"
+        "expected walk-up to find SPECTYN.md in parent directory"
     );
     let content = result.unwrap();
     assert!(
         content.contains("parent project context"),
-        "expected parent's PHANTOM.md content, got: {content}"
+        "expected parent's SPECTYN.md content, got: {content}"
     );
 }
 
@@ -399,7 +399,7 @@ async fn test_load_project_config_walk_up() {
 /// A8: git::blame returns blame annotation for a file.
 #[tokio::test]
 async fn test_git_blame() {
-    use phantom_mesh::tools::git;
+    use spectyn_mesh::tools::git;
 
     // Use the project's own Cargo.toml so we know the file exists.
     let result = git::blame(&json!({
@@ -419,7 +419,7 @@ async fn test_git_blame() {
 /// A8: git::show returns information about a specific ref.
 #[tokio::test]
 async fn test_git_show() {
-    use phantom_mesh::tools::git;
+    use spectyn_mesh::tools::git;
 
     let result = git::show(&json!({
         "ref_": "HEAD"
@@ -440,7 +440,7 @@ async fn test_git_show() {
 /// A8: git::branch lists local branches without error.
 #[tokio::test]
 async fn test_git_branch() {
-    use phantom_mesh::tools::git;
+    use spectyn_mesh::tools::git;
 
     let result = git::branch(&json!({})).await;
 
@@ -458,7 +458,7 @@ async fn test_git_branch() {
 /// A8: git::stash list doesn't error (may return empty if no stashes).
 #[tokio::test]
 async fn test_git_stash() {
-    use phantom_mesh::tools::git;
+    use spectyn_mesh::tools::git;
 
     let result = git::stash(&json!({"action": "list"})).await;
 
@@ -480,10 +480,10 @@ async fn test_git_stash() {
 /// using an isolated temp file. Running sequentially avoids env-var races.
 #[tokio::test]
 async fn test_memory_list_delete_search() {
-    use phantom_mesh::tools::memory;
+    use spectyn_mesh::tools::memory;
 
     let f = tempfile::NamedTempFile::new().unwrap();
-    std::env::set_var("PHANTOM_MEMORY_FILE", f.path());
+    std::env::set_var("SPECTYN_MEMORY_FILE", f.path());
 
     // ── list ──────────────────────────────────────────────────────────────
     memory::store(&json!({"key": "list_key_a", "value": "value_a"})).await;
@@ -526,7 +526,7 @@ async fn test_memory_list_delete_search() {
 
     let search_result = memory::search(&json!({"query": "search_needle"})).await;
 
-    std::env::remove_var("PHANTOM_MEMORY_FILE");
+    std::env::remove_var("SPECTYN_MEMORY_FILE");
 
     assert!(
         search_result.contains("search_needle_key")

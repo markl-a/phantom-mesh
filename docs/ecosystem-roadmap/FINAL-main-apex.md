@@ -1,7 +1,7 @@
-# phantom-mesh (main) — apex-grounded roadmap (FINAL, 2026-06-17)
+# spectyn-mesh (main) — apex-grounded roadmap (FINAL, 2026-06-17)
 
 > 📍 **Provenance, not SSOT (2026-06-21)**: the roadmap source-of-truth is `docs/OPERATING-STANDARD.md §3`. This file is the apex-grounded detail/derivation that fed it — keep it for the per-item exit criteria + test strategy, but when status conflicts, §3 wins.
-> 🔄 **DRIFT**: the "② owned memory is still `unimplemented!()`" framing below is **stale** — `embedding_search()`/`skill_store()` are implemented (`core/src/skill_wire.rs:1372/1836`), recall is wired into the agent loop, and the `phantom skill` CLI shipped. The remaining ② gap is the semantic `ort` leg (deferred / human-led). See `main-P0-owned-memory/DECOMPOSITION.md`.
+> 🔄 **DRIFT**: the "② owned memory is still `unimplemented!()`" framing below is **stale** — `embedding_search()`/`skill_store()` are implemented (`core/src/skill_wire.rs:1372/1836`), recall is wired into the agent loop, and the `spectyn skill` CLI shipped. The remaining ② gap is the semantic `ort` leg (deferred / human-led). See `main-P0-owned-memory/DECOMPOSITION.md`.
 
 Pipeline: **codex draft (×2 rounds) → agy review (×2 rounds) → Claude finalize.**
 Anchored to `docs/superpowers/BIG-GOAL.md` (FINAL re-lock 2026-06-11). Governance: this

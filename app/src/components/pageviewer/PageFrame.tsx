@@ -17,7 +17,7 @@ export default function PageFrame({ html }: Props) {
 
       if (!tauriCommand) {
         iframeRef.current?.contentWindow?.postMessage(
-          { phantomId: id, error: `Unknown method: ${method}` }, "*"
+          { spectynId: id, error: `Unknown method: ${method}` }, "*"
         );
         return;
       }
@@ -31,9 +31,9 @@ export default function PageFrame({ html }: Props) {
         } else {
           result = await invoke(tauriCommand, args);
         }
-        iframeRef.current?.contentWindow?.postMessage({ phantomId: id, result }, "*");
+        iframeRef.current?.contentWindow?.postMessage({ spectynId: id, result }, "*");
       } catch (e) {
-        iframeRef.current?.contentWindow?.postMessage({ phantomId: id, error: String(e) }, "*");
+        iframeRef.current?.contentWindow?.postMessage({ spectynId: id, error: String(e) }, "*");
       }
     };
 
@@ -43,7 +43,7 @@ export default function PageFrame({ html }: Props) {
 
   if (!html) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-phantom-muted">
+      <div className="flex flex-col items-center justify-center h-full text-spectyn-muted">
         <p className="text-sm">選擇一個頁面，或請 Agent 生成新頁面</p>
         <p className="text-xs mt-1">例如：「做一個記帳頁面」</p>
       </div>

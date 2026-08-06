@@ -72,15 +72,15 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use phantom_mesh::evolve_checkpoint::{EvolveCheckpoint, JudgeVerdict};
-use phantom_mesh::skillbank::curator::{Curator, SkillExtractor, DEFAULT_JUDGE_MODEL};
-use phantom_mesh::skillbank::extract::extract_skill;
-use phantom_mesh::skillbank::skill::SkillDocument;
-use phantom_mesh::skillbank::tools::calculator::Calculator;
-use phantom_mesh::skillbank::tools::SkillTool;
-use phantom_mesh::skillbank::SkillbankRuntime;
-use phantom_mesh::remote_control::slack::SlackStub;
-use phantom_mesh::remote_control::Channel;
+use spectyn_mesh::evolve_checkpoint::{EvolveCheckpoint, JudgeVerdict};
+use spectyn_mesh::skillbank::curator::{Curator, SkillExtractor, DEFAULT_JUDGE_MODEL};
+use spectyn_mesh::skillbank::extract::extract_skill;
+use spectyn_mesh::skillbank::skill::SkillDocument;
+use spectyn_mesh::skillbank::tools::calculator::Calculator;
+use spectyn_mesh::skillbank::tools::SkillTool;
+use spectyn_mesh::skillbank::SkillbankRuntime;
+use spectyn_mesh::remote_control::slack::SlackStub;
+use spectyn_mesh::remote_control::Channel;
 
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -139,7 +139,7 @@ impl SkillExtractor for DemoSkillExtractor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    println!("==== phantom-mesh end-to-end smoke (DEMO-2 + A8: A1↔A2 polarity aligned) ====");
+    println!("==== spectyn-mesh end-to-end smoke (DEMO-2 + A8: A1↔A2 polarity aligned) ====");
     println!("(mocks: LLM=wiremock, Telegram=synthetic, worker=in-process)");
     println!();
 
@@ -206,7 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!();
 
     // ── [4/7] Dispatch: find a matching skill + tool, run the work ──────
-    println!("[4/7] Dispatching to phantom agent (in-process — no real cluster)");
+    println!("[4/7] Dispatching to spectyn agent (in-process — no real cluster)");
     let prior = runtime.find_tool_by_intent(inbound.text).await?;
     println!(
         "      FTS5 tool lookup (cold): hits={}, top={:?}",
@@ -230,7 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Failure-side: low score + populated checkpoint.
     let failure_verdict = JudgeVerdict {
         score: 2,
-        rubric_version: phantom_mesh::skillbank::RUBRIC_VERSION.to_string(),
+        rubric_version: spectyn_mesh::skillbank::RUBRIC_VERSION.to_string(),
         model: DEFAULT_JUDGE_MODEL.to_string(),
         rationale: "agent kept retrying the failing build".into(),
         judged_at_ms: 1_715_000_000_000,
@@ -249,7 +249,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Success-side: high score + successful step.
     let success_verdict = JudgeVerdict {
         score: 9,
-        rubric_version: phantom_mesh::skillbank::RUBRIC_VERSION.to_string(),
+        rubric_version: spectyn_mesh::skillbank::RUBRIC_VERSION.to_string(),
         model: DEFAULT_JUDGE_MODEL.to_string(),
         rationale: "shipped clean fix, tests green".into(),
         judged_at_ms: 1_715_000_000_000,
@@ -349,7 +349,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
     println!(
         "      first match (≤{} chars): {}",
-        phantom_mesh::skillbank::MEMORY_ROW_CHAR_CAP,
+        spectyn_mesh::skillbank::MEMORY_ROW_CHAR_CAP,
         warm_hits[0]
     );
     let reply_err = channel

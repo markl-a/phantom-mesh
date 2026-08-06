@@ -37,7 +37,7 @@ pub struct Task {
 }
 
 fn tasks_path(session: &str) -> std::path::PathBuf {
-    crate::cli_config::phantom_data_dir()
+    crate::cli_config::spectyn_data_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("tasks")
         .join(format!("{}.json", session))

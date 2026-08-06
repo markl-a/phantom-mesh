@@ -1,4 +1,4 @@
-title = "phantom-mesh gitleaks config"
+title = "spectyn-mesh gitleaks config"
 
 [allowlist]
 description = "Global allowlist"

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 #[tauri::command]
 pub async fn get_project_info() -> Result<Value, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    let info = phantom_mesh::project_info(&cwd);
+    let info = spectyn_mesh::project_info(&cwd);
     serde_json::to_value(info).map_err(|e| e.to_string())
 }
 
@@ -20,16 +20,16 @@ pub async fn set_project_cwd(path: String) -> Result<Value, String> {
         return Err(format!("Path is not a directory: {}", path));
     }
     std::env::set_current_dir(&p).map_err(|e| e.to_string())?;
-    let info = phantom_mesh::project_info(&p);
+    let info = spectyn_mesh::project_info(&p);
     serde_json::to_value(info).map_err(|e| e.to_string())
 }
 
-/// List recently used projects from ~/.phantom-mesh/recent_projects.json
+/// List recently used projects from ~/.spectyn-mesh/recent_projects.json
 #[tauri::command]
 pub async fn list_recent_projects() -> Result<Vec<Value>, String> {
     let path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("recent_projects.json");
 
     if !path.exists() {
@@ -46,7 +46,7 @@ pub async fn list_recent_projects() -> Result<Vec<Value>, String> {
 pub async fn add_recent_project(cwd: String) -> Result<(), String> {
     let path = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("recent_projects.json");
 
     std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;

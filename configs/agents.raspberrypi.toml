@@ -1,4 +1,4 @@
-# Phantom Mesh — Raspberry Pi Worker Node
+# Spectyn Mesh — Raspberry Pi Worker Node
 # ==========================================
 # 適用所有樹莓派型號（Pi 2 / 3 / 4 / 5）
 # 複製到每台 Pi 後修改 node_name 和 IP
@@ -12,7 +12,7 @@
 #   Pi 2           → 輕量 Worker，純 API 呼叫（效能有限）
 #
 # 複製到 Pi：
-#   scp agents.raspberrypi.toml pi@100.x.x.PI:~/.config/phantom-mesh/agents.toml
+#   scp agents.raspberrypi.toml pi@100.x.x.PI:~/.config/spectyn-mesh/agents.toml
 #
 # 設定 systemd 服務後會在開機時自動加入叢集
 
@@ -78,6 +78,6 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """你是 Phantom Mesh 叢集中的樹莓派工作節點。
+instructions = """你是 Spectyn Mesh 叢集中的樹莓派工作節點。
 專注接收計算任務、檔案操作、和 shell 指令。
 回覆要簡潔，節省算力。"""

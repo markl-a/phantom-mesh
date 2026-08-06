@@ -1,8 +1,8 @@
 //! Multi-bot dispatcher — keyed `HashMap<bot_id, Arc<dyn Channel>>`.
 //!
 //! In Remote Control terms (BIG-GOAL §P3) this is the "many remotes, one
-//! cluster" piece: one phantom process can host every remote the operator
-//! pairs to the mesh — `telegram:phantom_test_bot`, `slack:T01ABC123`,
+//! cluster" piece: one spectyn process can host every remote the operator
+//! pairs to the mesh — `telegram:spectyn_test_bot`, `slack:T01ABC123`,
 //! `whatsapp:+15551234567` — and route each inbound command to the right
 //! handler without the per-channel code knowing the others exist.
 //!
@@ -14,7 +14,7 @@
 //!
 //! Each registered channel is keyed by a stable `bot_id` string such as:
 //!
-//! - `"telegram:phantom_test_bot"`
+//! - `"telegram:spectyn_test_bot"`
 //! - `"slack:T01ABC123"`
 //! - `"whatsapp:+15551234567"`
 //!
@@ -224,22 +224,22 @@ mod multi_bot {
 
         let dispatcher = RemoteDispatcher::new();
         dispatcher
-            .register("telegram:phantom_test_bot", bot_a)
+            .register("telegram:spectyn_test_bot", bot_a)
             .await;
         dispatcher
-            .register("telegram:phantom_other_bot", bot_b)
+            .register("telegram:spectyn_other_bot", bot_b)
             .await;
 
         dispatcher
-            .send_to("telegram:phantom_test_bot", 100, "hello A")
+            .send_to("telegram:spectyn_test_bot", 100, "hello A")
             .await
             .unwrap();
         dispatcher
-            .send_to("telegram:phantom_other_bot", 200, "hello B")
+            .send_to("telegram:spectyn_other_bot", 200, "hello B")
             .await
             .unwrap();
         dispatcher
-            .send_to("telegram:phantom_test_bot", 100, "second to A")
+            .send_to("telegram:spectyn_test_bot", 100, "second to A")
             .await
             .unwrap();
 
@@ -374,7 +374,7 @@ mod multi_bot {
     }
 
     /// `bot_ids` returns a sorted snapshot — used by the future
-    /// `phantom remote list` command for stable diff-able output.
+    /// `spectyn remote list` command for stable diff-able output.
     #[tokio::test]
     async fn bot_ids_returns_sorted_snapshot() {
         let dispatcher = RemoteDispatcher::new();

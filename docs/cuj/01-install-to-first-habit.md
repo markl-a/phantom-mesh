@@ -1,6 +1,6 @@
 # CUJ-01: install → first habit captured
 
-> **Outcome**: user 從 0 (沒裝過 phantom) 到 ≤90 秒內成功 log 一筆習慣事件，且該事件可在隔日 coach review 看到。
+> **Outcome**: user 從 0 (沒裝過 spectyn) 到 ≤90 秒內成功 log 一筆習慣事件，且該事件可在隔日 coach review 看到。
 >
 > **Lifecycle phase**: activation (Day 1) — **最高槓桿** CUJ。day-1 churn 全業界 20-25%，唯一預測指標是「user 是否完成 meaningful first action」。第一條 habit event 就是這個 meaningful action。
 >
@@ -22,8 +22,8 @@
 ## Happy path (7 steps)
 
 1. user 從 phantommesh.io 或 store 下載 + install
-2. 第一次開啟 app → 看到「Phantom Mesh — 你的私人 AI 隊伍」歡迎畫面 + 一鍵繼續
-3. 系統背景產 identity.key (Ed25519 + HKDF event-key) + 初始化 ~/.phantom-mesh/events.sqlite
+2. 第一次開啟 app → 看到「Spectyn Mesh — 你的私人 AI 隊伍」歡迎畫面 + 一鍵繼續
+3. 系統背景產 identity.key (Ed25519 + HKDF event-key) + 初始化 ~/.spectyn-mesh/events.sqlite
 4. 顯示 12 starter habit palette (水 / 咖啡 / 運動 / 冥想 / ...)
 5. user tap 任一 chip (例: 水) → 直接寫入第一筆 habit event (P4 加密)
 6. 顯示「✓ 已記錄。streak=1」+ 引導下一步 (「想看到 coach review？登入 phantommesh.io」 / 「先逛逛」)

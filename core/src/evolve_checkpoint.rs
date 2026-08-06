@@ -2,7 +2,7 @@
 //!
 //! Inspired by jcode's `ReloadContext` (which preserved a one-line
 //! `task_context` string across binary swaps) — this version extends
-//! the idea along several axes that matter for phantom-mesh:
+//! the idea along several axes that matter for spectyn-mesh:
 //!
 //! 1. **Rich structure.** Stores not just "what the agent was working on"
 //!    but the full causal chain: plan → hypotheses → dead-ends →
@@ -14,7 +14,7 @@
 //!    on one peer (e.g., quota exhausted) can hand off to another peer with
 //!    the checkpoint in hand — that peer reads it, continues from where the
 //!    first peer left off.
-//!    jcode is single-machine; this is what phantom-mesh's mesh enables.
+//!    jcode is single-machine; this is what spectyn-mesh's mesh enables.
 //!
 //! 3. **Git-integrated.** When autoevolve commits a green fix, the commit
 //!    message embeds the plan + dead-ends + binary swap history. `git log`
@@ -23,7 +23,7 @@
 //! 4. **Atomic persistence.** Each update writes to a `.tmp` file and
 //!    renames atomically — no half-written checkpoint state on crash.
 //!
-//! Storage: `~/.phantom-mesh/evolve-checkpoints/<session-id>.json`.
+//! Storage: `~/.spectyn-mesh/evolve-checkpoints/<session-id>.json`.
 //! Schema is `serde_json` for cross-version readability and easy debug.
 
 use anyhow::{Context, Result};
@@ -33,7 +33,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Where evolve checkpoints live, keyed by session_id.
 pub fn checkpoints_dir() -> Result<PathBuf> {
-    let data = crate::cli_config::phantom_data_dir().context("home dir not resolved")?;
+    let data = crate::cli_config::spectyn_data_dir().context("home dir not resolved")?;
     let dir = data.join("evolve-checkpoints");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -217,7 +217,7 @@ pub struct EvolveCheckpoint {
     pub artifacts: Vec<Artifact>,
 
     /// History of binary swaps during the evolve loop. If the agent
-    /// rebuilt phantom mid-task and the new binary picked up the
+    /// rebuilt spectyn mid-task and the new binary picked up the
     /// checkpoint, each swap is recorded here.
     pub binary_swaps: Vec<BinarySwap>,
 
@@ -231,13 +231,13 @@ pub struct EvolveCheckpoint {
     /// Trail of node-to-node migrations.
     pub journey: Vec<NodeHop>,
 
-    /// H1: optional verdict from `phantom evolve --judge`. `None` until a
+    /// H1: optional verdict from `spectyn evolve --judge`. `None` until a
     /// judge run produces a score. `#[serde(default)]` so old checkpoint
     /// files (written before H1 shipped) continue to deserialize.
     #[serde(default)]
     pub judge_score: Option<JudgeVerdict>,
 
-    /// V2 (T28): optional ensemble verdict from `phantom evolve --judge --ensemble N`.
+    /// V2 (T28): optional ensemble verdict from `spectyn evolve --judge --ensemble N`.
     /// `None` for single-judge runs or pre-V2 checkpoints. Independent of
     /// `judge_score` — both may coexist.
     #[serde(default)]
@@ -431,7 +431,7 @@ impl EvolveCheckpoint {
 
     // ─── rendering ───────────────────────────────────────────────────────
 
-    /// Human-readable markdown timeline. Used by `phantom evolve replay`
+    /// Human-readable markdown timeline. Used by `spectyn evolve replay`
     /// and embedded in autoevolve commit messages so `git log` becomes a
     /// readable record of autonomous decisions.
     pub fn render_markdown(&self) -> String {
@@ -594,7 +594,7 @@ impl EvolveCheckpoint {
         s
     }
 
-    /// Compact one-line summary for `phantom evolve list`.
+    /// Compact one-line summary for `spectyn evolve list`.
     pub fn render_one_line(&self) -> String {
         format!(
             "{}  {}  steps={}  dead-ends={}  swaps={}  hops={}  goal=\"{}\"",
@@ -701,7 +701,7 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // Tests touch the filesystem at ~/.phantom-mesh/evolve-checkpoints,
+    // Tests touch the filesystem at ~/.spectyn-mesh/evolve-checkpoints,
     // so serialize them to avoid concurrent dir manipulation.
     static FS_LOCK: Mutex<()> = Mutex::new(());
 
@@ -941,7 +941,7 @@ mod tests {
 
     #[test]
     fn judge_verdict_serde_default_preserves_old_checkpoint_files() {
-        // A checkpoint JSON written by a phantom binary that predates H1
+        // A checkpoint JSON written by a spectyn binary that predates H1
         // will not contain the judge_score field. Serde must accept that
         // and default it to None, otherwise we break old user state.
         let json_without_field = r#"{

@@ -10,10 +10,10 @@
 //
 // In both cases the installer must exit non-zero, say something about sha /
 // mismatch / verify, and the target binary at
-// $HOME/.phantom-mesh/bin/phantom must NOT exist.
+// $HOME/.spectyn-mesh/bin/spectyn must NOT exist.
 //
 // This is the security invariant that stops a compromised mirror / MITM from
-// swapping in a malicious phantom binary.
+// swapping in a malicious spectyn binary.
 
 // scripts/install.sh is a POSIX shell script; this test shells out to `sh` and
 // spins up `python3 -m http.server`. On Windows both are usually absent, so the
@@ -41,15 +41,15 @@ fn r2_object() -> &'static str {
     // (Intel macs are unsupported by install.sh; CI runners are x86_64 linux.)
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        "phantom-linux-x86_64"
+        "spectyn-linux-x86_64"
     }
     #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
     {
-        "phantom-aarch64-unknown-linux-gnu"
+        "spectyn-aarch64-unknown-linux-gnu"
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
-        "phantom-aarch64-apple-darwin"
+        "spectyn-aarch64-apple-darwin"
     }
     #[cfg(not(any(
         all(target_os = "linux", target_arch = "x86_64"),
@@ -63,7 +63,7 @@ fn r2_object() -> &'static str {
 
 fn unique_dir(tag: &str) -> PathBuf {
     let p = std::env::temp_dir().join(format!(
-        "phantom-install-{}-{}-{}",
+        "spectyn-install-{}-{}-{}",
         tag,
         std::process::id(),
         std::time::SystemTime::now()
@@ -194,7 +194,7 @@ fn run_installer(case_tag: &str, write_sidecar: bool, sidecar_hash: Option<&str>
 
     // The "binary": arbitrary bytes. Its REAL sha will not match the sidecar in
     // the mismatch case.
-    let bin_bytes = b"#!/bin/sh\necho fake-phantom-binary\n";
+    let bin_bytes = b"#!/bin/sh\necho fake-spectyn-binary\n";
     std::fs::write(dist.join(obj), bin_bytes).expect("write fake binary");
 
     if write_sidecar {
@@ -211,18 +211,18 @@ fn run_installer(case_tag: &str, write_sidecar: bool, sidecar_hash: Option<&str>
 
     // Isolated HOME so a (bug-induced) install lands nowhere real.
     let home = unique_dir(&format!("{case_tag}-home"));
-    let target_bin = home.join(".phantom-mesh").join("bin").join("phantom");
+    let target_bin = home.join(".spectyn-mesh").join("bin").join("spectyn");
 
     let output = Command::new("sh")
         .arg(&script)
         .env("HOME", &home)
-        .env("PHANTOM_INSTALL_BASE", &base)
+        .env("SPECTYN_INSTALL_BASE", &base)
         // require_https refuses http://; the installer is being pointed at a
         // local fixture, so opt out of the scheme check ONLY. This does NOT
         // disable SHA verification — that is exactly what we're testing.
-        .env("PHANTOM_ALLOW_INSECURE", "1")
+        .env("SPECTYN_ALLOW_INSECURE", "1")
         // Make sure no ambient skip leaks in.
-        .env("PHANTOM_SKIP_VERIFY", "0")
+        .env("SPECTYN_SKIP_VERIFY", "0")
         .output()
         .expect("run install.sh");
 

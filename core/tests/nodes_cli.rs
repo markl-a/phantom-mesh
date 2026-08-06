@@ -1,8 +1,8 @@
-//! Real-path integration test for the `phantom nodes` CLI (mvp/node-manifest).
+//! Real-path integration test for the `spectyn nodes` CLI (mvp/node-manifest).
 //!
-//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_phantom")`) against a
-//! temp `$HOME` plus a `PHANTOM_HOME` data root so it reads the same
-//! `~/.phantom-mesh/peers.json`
+//! Spawns the actually-built binary (`env!("CARGO_BIN_EXE_spectyn")`) against a
+//! temp `$HOME` plus a `SPECTYN_HOME` data root so it reads the same
+//! `~/.spectyn-mesh/peers.json`
 //! roster a real user hits — no mocks. Asserts:
 //!
 //!   * `nodes caps --json` is a well-formed array carrying the local node,
@@ -13,9 +13,9 @@
 //!
 //! ## Isolation / platform gate
 //!
-//! `HOME` + `USERPROFILE` point at a unique temp dir and `PHANTOM_HOME` points
-//! at that temp dir's `.phantom-mesh` data root, so the child never touches the
-//! developer's real `~/.phantom-mesh`. Gated to `unix` to mirror
+//! `HOME` + `USERPROFILE` point at a unique temp dir and `SPECTYN_HOME` points
+//! at that temp dir's `.spectyn-mesh` data root, so the child never touches the
+//! developer's real `~/.spectyn-mesh`. Gated to `unix` to mirror
 //! `task_cli_roundtrip.rs`: on Windows a bare `dirs::home_dir()` fallback can
 //! still win in some child contexts; the platform-agnostic manifest/CLI logic
 //! is fully covered on the Linux CI runner.
@@ -24,13 +24,13 @@
 
 use std::process::Command;
 
-fn phantom_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_phantom")
+fn spectyn_bin() -> &'static str {
+    env!("CARGO_BIN_EXE_spectyn")
 }
 
 fn unique_home() -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
-        "phantom-nodes-cli-{}-{}",
+        "spectyn-nodes-cli-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -39,25 +39,25 @@ fn unique_home() -> std::path::PathBuf {
     ))
 }
 
-/// Run `phantom <args...>` under the temp `$HOME`, returning the captured output.
+/// Run `spectyn <args...>` under the temp `$HOME`, returning the captured output.
 fn run(home: &std::path::Path, args: &[&str]) -> std::process::Output {
     let home_s = home.to_string_lossy().to_string();
     let data_root_s = data_root(home).to_string_lossy().to_string();
-    Command::new(phantom_bin())
+    Command::new(spectyn_bin())
         .args(args)
         .env("HOME", &home_s)
         .env("USERPROFILE", &home_s)
-        .env("PHANTOM_HOME", &data_root_s)
+        .env("SPECTYN_HOME", &data_root_s)
         // Pin a deterministic local node name so resolution is predictable.
-        .env("PHANTOM_NODE_NAME", "test-local")
-        .env_remove("PHANTOM_LOCAL_FIRST")
-        .env_remove("PHANTOM_RUNTIME_OVERRIDE")
+        .env("SPECTYN_NODE_NAME", "test-local")
+        .env_remove("SPECTYN_LOCAL_FIRST")
+        .env_remove("SPECTYN_RUNTIME_OVERRIDE")
         .output()
-        .expect("phantom must spawn")
+        .expect("spectyn must spawn")
 }
 
 fn data_root(home: &std::path::Path) -> std::path::PathBuf {
-    home.join(".phantom-mesh")
+    home.join(".spectyn-mesh")
 }
 
 /// Seed a minimal peers.json roster with one peer.

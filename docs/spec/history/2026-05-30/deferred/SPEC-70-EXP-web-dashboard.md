@@ -31,7 +31,7 @@
 
 ### 1.1 繁中三段
 
-**問題**：使用者目前要知道 cluster（叢集 = 自己的 mesh）健康狀態，只能在某一台機器跑 `phantom cluster status` 或開該機器的 native（原生）app；若手邊只有 web browser（網頁瀏覽器）或沒裝 phantom 的裝置就完全看不到。Operator（操作者，本檔指 cluster 擁有者）需要一個「不必登入任何特定機器」的 read-only（唯讀）觀察面。
+**問題**：使用者目前要知道 cluster（叢集 = 自己的 mesh）健康狀態，只能在某一台機器跑 `spectyn cluster status` 或開該機器的 native（原生）app；若手邊只有 web browser（網頁瀏覽器）或沒裝 spectyn 的裝置就完全看不到。Operator（操作者，本檔指 cluster 擁有者）需要一個「不必登入任何特定機器」的 read-only（唯讀）觀察面。
 
 **方案**：在已部署的 `phantommesh.io` broker（中介伺服器）上加一個唯讀 web dashboard（網頁儀表板）。重用 SPEC-15 的 OAuth（開放授權）+ JWT（JSON Web Token，網頁權杖）登入 — 使用者用 Google/Apple 登入後，broker 從各 peer（節點）拉到的健康 metadata（中介資料 = 描述資料的資料）渲染成總覽 / cluster 詳情 / peer 列表 / event 串流四個畫面。所有 cluster 內容資料（vault 明文、event payload 明文）broker 端永遠看不到 — dashboard 只看 metadata。
 
@@ -39,7 +39,7 @@
 
 ### 1.2 English abstract
 
-phantommesh.io will expose an opt-in, read-only web dashboard so operators can observe cluster health from any browser without installing phantom. Authentication reuses SPEC-15's Google/Apple OAuth plus broker-issued JWTs. The dashboard surfaces metadata that peers voluntarily publish to the broker — peer liveness, capability flags, recent task counts, error rate — across four screens (overview, cluster detail, peers, event stream). It never exposes vault plaintext or event payload plaintext: peer-side data is sealed with the user's identity key before upload, and the broker only stores metadata. The dashboard is explicitly not a control plane — no settings edit, no task dispatch, no plaintext read — and is deferred to v0.7.0+. This EXP spec sketches the design only; wire-level schema and API contracts are left to a follow-up implementable spec.
+phantommesh.io will expose an opt-in, read-only web dashboard so operators can observe cluster health from any browser without installing spectyn. Authentication reuses SPEC-15's Google/Apple OAuth plus broker-issued JWTs. The dashboard surfaces metadata that peers voluntarily publish to the broker — peer liveness, capability flags, recent task counts, error rate — across four screens (overview, cluster detail, peers, event stream). It never exposes vault plaintext or event payload plaintext: peer-side data is sealed with the user's identity key before upload, and the broker only stores metadata. The dashboard is explicitly not a control plane — no settings edit, no task dispatch, no plaintext read — and is deferred to v0.7.0+. This EXP spec sketches the design only; wire-level schema and API contracts are left to a follow-up implementable spec.
 
 ### 1.3 Glossary
 
@@ -49,7 +49,7 @@ phantommesh.io will expose an opt-in, read-only web dashboard so operators can o
 > - **broker（中介伺服器）** — `phantommesh.io` 上跑的 Cloudflare Worker，本檔指它新增的 dashboard 路由
 > - **OAuth（開放授權）** — RFC 6749 三方授權框架；登入用 Google/Apple，重用 SPEC-15
 > - **JWT（JSON Web Token，網頁權杖）** — RFC 7519 bearer token，broker 簽發給瀏覽器 session
-> - **peer（節點）** — phantom mesh 裡的一台機器（手機 / 筆電 / 桌機都算）
+> - **peer（節點）** — spectyn mesh 裡的一台機器（手機 / 筆電 / 桌機都算）
 > - **cluster（叢集）** — 同一使用者所有 peer 組成的 mesh
 > - **metadata（中介資料）** — 描述資料的資料；本檔指 peer name / capability / 計數，不含明文內容
 > - **vault（保險庫）** — SPEC-15 定義的 broker 端 key 儲存區（永遠加密）
@@ -64,20 +64,20 @@ phantommesh.io will expose an opt-in, read-only web dashboard so operators can o
 
 v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / multimodal / evolve / encryption）跟 7 個 Sunday-deadline epic，沒有預算開新 surface。但在 dogfood（自食其力 = 自己用自家產品）過程中重複觀察到一個盲點：
 
-- Operator 在某一台機器（如 Mac）跑 `phantom cluster status`，只能看到「這台機器看到的 cluster 視圖」 — 其他 peer 是不是真活著、broker 看到幾台、有沒有 peer 卡住，要切到別台機器才知道。
+- Operator 在某一台機器（如 Mac）跑 `spectyn cluster status`，只能看到「這台機器看到的 cluster 視圖」 — 其他 peer 是不是真活著、broker 看到幾台、有沒有 peer 卡住，要切到別台機器才知道。
 - 手機 native app（SPEC-30/SPEC-33）有顯示「我這支手機的狀態」，但沒有 cluster-wide overview（叢集全景）。
-- 偶爾在沒裝 phantom 的裝置（如借朋友電腦、用平板 browser）只想看一眼 cluster 是不是還活著，目前無路徑。
+- 偶爾在沒裝 spectyn 的裝置（如借朋友電腦、用平板 browser）只想看一眼 cluster 是不是還活著，目前無路徑。
 
 因此 v0.7.0+ 規劃一個 broker-hosted（中介伺服器託管的）web dashboard 來補洞。
 
 ### 2.2 在 BIG-GOAL 哪裡
 
-- **P1 跨裝置 Mesh** — BIG-GOAL §Four pillars P1「Phantom is a peer-to-peer mesh, not server/client」。Dashboard 不違反這句話：它是觀察面（observability surface），不是控制面 — peer 之間照樣 P2P（peer-to-peer，端對端）通訊，broker 只是 metadata 中繼，不是必經路徑。
+- **P1 跨裝置 Mesh** — BIG-GOAL §Four pillars P1「Spectyn is a peer-to-peer mesh, not server/client」。Dashboard 不違反這句話：它是觀察面（observability surface），不是控制面 — peer 之間照樣 P2P（peer-to-peer，端對端）通訊，broker 只是 metadata 中繼，不是必經路徑。
 - **Cross-pillar X.observability** — 給 operator 「看見 mesh 正在跑」的能力，類似 SPEC-07-FOUNDATION-observability 的延伸；那份 spec 規範 client 端 telemetry（遙測），本檔規範把那些 telemetry 摘要呈現給瀏覽器。
 
 ### 2.3 既有解的歷史
 
-- v0.5.0：完全沒有 cluster overview surface — 只有 per-peer 的 `phantom cluster status` CLI（命令列）。
+- v0.5.0：完全沒有 cluster overview surface — 只有 per-peer 的 `spectyn cluster status` CLI（命令列）。
 - v0.6.0：SPEC-26-SYSTEM-cluster-dispatch 引入 peer registry（節點登記表）但只在 RPC（遠端程序呼叫）層、無 UI。
 - v0.6.0：native app（SPEC-30/SPEC-33/SPEC-40 等）有 per-platform 的 cluster 視圖，但無 cross-platform / no-install path。
 
@@ -99,14 +99,14 @@ v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / mu
 - `[G2]` Dashboard 提供 4 個唯讀畫面：overview（總覽）/ cluster detail（叢集詳情）/ peers list（節點列表）/ events stream（事件串流摘要）— 全程不暴露任何 vault 明文或 event payload 明文。`(verifies via: T-dashboard-readonly-audit)`
 - `[G3]` Broker 端對 dashboard 資料的處理符合「broker 不存明文」原則 — peer 上傳到 broker 的 health snapshot 必須先用 user 端 identity key 加密 metadata 欄位中的敏感片段（如 hostname、IP），broker 只在 dashboard render 前由 client 端 JavaScript 解密。`(verifies via: T-dashboard-privacy-e2e)`
 - `[G4]` Dashboard 是 opt-in — 使用者第一次登入 broker 不會自動 enable，需在 broker settings 明示啟用 `dashboard_enabled = true` 後 peer 才開始上傳 health snapshot。`(verifies via: T-dashboard-optin-default-off)`
-- `[G5]` Dashboard 前端不需要安裝任何 phantom binary（執行檔）— 任意 modern browser（Chrome / Safari / Firefox / Edge 近 2 年版本）開網址即可用。`(verifies via: T-dashboard-browser-compat)`
+- `[G5]` Dashboard 前端不需要安裝任何 spectyn binary（執行檔）— 任意 modern browser（Chrome / Safari / Firefox / Edge 近 2 年版本）開網址即可用。`(verifies via: T-dashboard-browser-compat)`
 
 ### 3.2 Non-Goals
 
 - `[NG1]` **不做控制面板** — dashboard 上沒有「重啟 peer」「派 task」「改設定」「刪 event」按鈕；任何寫入操作都要回到 native app 或 CLI。違反此原則等同把 broker 變成單一故障點（single point of failure），破壞 P1。
 - `[NG2]` **不暴露 vault 明文** — vault key 永遠加密、永遠 client-side seal/unseal；dashboard 連 key 的 metadata 都不顯示（連 key 名都不列）。
 - `[NG3]` **不暴露 event payload 明文** — event 內容（食物照片、focus session 音訊、coach 回應）broker 永不解密；dashboard 只看計數 / 時間軸 / 類別摘要。
-- `[NG4]` **不取代 native app** — 本檔的 dashboard 是「無 phantom 安裝時的 fallback 視窗」，不是主要 UX 介面。重大功能仍走 native app。
+- `[NG4]` **不取代 native app** — 本檔的 dashboard 是「無 spectyn 安裝時的 fallback 視窗」，不是主要 UX 介面。重大功能仍走 native app。
 - `[NG5]` **不做 multi-tenant admin** — 不會做「我幫朋友看他的 cluster」這種功能；每個登入帳號只看自己的 cluster。
 
 ### 3.3 Out-of-Scope for this version
@@ -121,7 +121,7 @@ v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / mu
 
 > Intercom 句型：**When** [情境], **I want to** [動機], **so I can** [結果]。每條映射到至少一個 §3.1 Goal。
 
-- `[J1]` **When** 我人在外面用借來的筆電，只想確認家裡 cluster 是否還活著，**I want to** 在 browser 開個網頁登入就能看到 overview，**so I can** 不必跑回家或安裝 phantom 就知道狀況。 (→ G1, G5)
+- `[J1]` **When** 我人在外面用借來的筆電，只想確認家裡 cluster 是否還活著，**I want to** 在 browser 開個網頁登入就能看到 overview，**so I can** 不必跑回家或安裝 spectyn 就知道狀況。 (→ G1, G5)
 - `[J2]` **When** 我手機 / 筆電 / 桌機 / 平板都有 peer，想看哪一台最近常掉線，**I want to** 在 dashboard 的 peers list 看到每台 last-seen（最後上線時間）+ uptime（運作時長）+ error count（錯誤計數），**so I can** 判斷要不要修哪一台。 (→ G2)
 - `[J3]` **When** 我擔心 broker 是否偷看我資料，**I want to** 開 browser devtool（開發者工具）就能驗證「broker 回來的 payload 是 ciphertext（密文），瀏覽器端用我 identity 解密」，**so I can** 信任這個 dashboard 沒違反 P4 加密為先。 (→ G3)
 - `[J4]` **When** 我從沒打開過 dashboard 也沒啟用，**I want to** 預設它就是關的、我 peer 不會自動上傳 health snapshot 給 broker，**so I can** 知道隱私是預設安全的。 (→ G4)
@@ -138,11 +138,11 @@ v0.6.0 cycle 把所有開發精力放在 4 pillars + 2 tracks 主幹（mesh / mu
 
 ### 5.2 Privacy-conscious power user（重視隱私的進階使用者）
 
-之前因 cloud SaaS（軟體即服務）走光資料而轉用 phantom；對 broker 任何新功能都先質疑「會不會看到我資料」。期待：dashboard 端對端可驗證 broker 看不到明文（J3 路徑）。
+之前因 cloud SaaS（軟體即服務）走光資料而轉用 spectyn；對 broker 任何新功能都先質疑「會不會看到我資料」。期待：dashboard 端對端可驗證 broker 看不到明文（J3 路徑）。
 
 ### 5.3 Onboarding-stage new user（初上手新使用者）
 
-剛裝完 phantom 30 秒 hello（SPEC-28）的人；還沒摸熟 native app。期待：dashboard 是「圖形化補充」，讓他在 browser 看一眼 cluster 比看 CLI 直覺。
+剛裝完 spectyn 30 秒 hello（SPEC-28）的人；還沒摸熟 native app。期待：dashboard 是「圖形化補充」，讓他在 browser 看一眼 cluster 比看 CLI 直覺。
 
 ---
 
@@ -181,8 +181,8 @@ flowchart LR
 
 | 元件 | 程式碼位置（規劃） | 職責一句話 | 對外介面（§9） |
 |---|---|---|---|
-| Dashboard SPA（single-page app，單頁應用） | `phantommesh-io/dashboard/src/` | 渲染 4 個唯讀畫面、client-side 解密 metadata | 呼叫 broker `/dashboard/*` |
-| Broker dashboard handler | `phantommesh-io/src/dashboard.ts` | 接 SPA 請求、查 D1/R2、回密文 + metadata | 暴露 `/dashboard/*` REST |
+| Dashboard SPA（single-page app，單頁應用） | `spectynmesh-io/dashboard/src/` | 渲染 4 個唯讀畫面、client-side 解密 metadata | 呼叫 broker `/dashboard/*` |
+| Broker dashboard handler | `spectynmesh-io/src/dashboard.ts` | 接 SPA 請求、查 D1/R2、回密文 + metadata | 暴露 `/dashboard/*` REST |
 | Peer health snapshot uploader | `core/src/dashboard_upload.rs` | opt-in 後每 N 秒上傳 sealed snapshot | 呼叫 broker `/dashboard/upload`（OoS — 詳細 endpoint v0.7.0+ 寫） |
 | Snapshot sealer | `core/src/dashboard_seal.rs` | 用 user identity 加密 metadata 敏感欄位 | 內呼 `crypto::age::encrypt`（SPEC-13） |
 
@@ -228,7 +228,7 @@ sequenceDiagram
 ### 7.1 `DashboardSession`（瀏覽器 session 元資料）
 
 ```typescript
-// phantommesh-io/dashboard/src/types.ts
+// spectynmesh-io/dashboard/src/types.ts
 export interface DashboardSession {
   session_id: string;          // ULID（Universally Unique Lexicographically Sortable Identifier，可排序 UUID）
   user_id: string;             // OAuth subject claim
@@ -259,7 +259,7 @@ pub enum IdentityUnwrapMethod { QrScan, Paste, DeviceLink }
 ### 7.2 `ClusterHealthSnapshot`（peer 上傳給 broker 的健康快照）
 
 ```typescript
-// phantommesh-io/dashboard/src/types.ts
+// spectynmesh-io/dashboard/src/types.ts
 export interface ClusterHealthSnapshot {
   snapshot_id: string;                 // ULID
   cluster_id: string;
@@ -448,15 +448,15 @@ n/a（新功能 — 從零部署）。
 
 ### 17.1 Native cross-platform desktop app（取代 web dashboard）
 
-**方案**：用 Tauri 寫獨立 cross-platform desktop 程式，叫 `phantom-dashboard.app`，由 user 安裝後看 cluster。
+**方案**：用 Tauri 寫獨立 cross-platform desktop 程式，叫 `spectyn-dashboard.app`，由 user 安裝後看 cluster。
 
-**為何沒選**：J1 場景（借來的筆電 / 沒裝 phantom 的裝置）直接破功 — 還是要安裝。而且 desktop app 重做一遍 packaging / sign / notarize 的 overhead 在 EXP 階段不划算。
+**為何沒選**：J1 場景（借來的筆電 / 沒裝 spectyn 的裝置）直接破功 — 還是要安裝。而且 desktop app 重做一遍 packaging / sign / notarize 的 overhead 在 EXP 階段不划算。
 
 **什麼條件會回來**：如果 web 端的 client-side 加解密 UX 太爛（identity 匯入流程使用者學不會），可能回頭做 desktop app 用本機 identity.key 自動讀。
 
 ### 17.2 Self-hosted dashboard（peer 自帶 web server）
 
-**方案**：每台 peer 跑一個本機 web server（如 `phantom serve --dashboard --port 8788`），user 在 LAN（區域網路）內開瀏覽器連 peer IP 看 dashboard。
+**方案**：每台 peer 跑一個本機 web server（如 `spectyn serve --dashboard --port 8788`），user 在 LAN（區域網路）內開瀏覽器連 peer IP 看 dashboard。
 
 **為何沒選**：違反 J1 「我人在外面」場景；且需要使用者懂 IP / port forwarding，新手退散。優點是 broker 完全不參與（更 P1 一致），缺點是 portability 接近 0。
 

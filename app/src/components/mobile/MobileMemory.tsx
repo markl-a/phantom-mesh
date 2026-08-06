@@ -155,7 +155,7 @@ export default function MobileMemory() {
     return (
       <div
         data-testid="mobile-memory-loading"
-        className="flex flex-1 flex-col items-center justify-center text-phantom-muted py-8"
+        className="flex flex-1 flex-col items-center justify-center text-spectyn-muted py-8"
       >
         <Brain size={28} className="mb-2 animate-pulse opacity-60" />
         <div className="text-sm">載入記憶中…</div>
@@ -168,27 +168,27 @@ export default function MobileMemory() {
       {/* Stats card */}
       <div
         data-testid="memory-stats"
-        className="grid grid-cols-3 gap-2 rounded-lg border border-phantom-border bg-phantom-card px-3 py-2.5"
+        className="grid grid-cols-3 gap-2 rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2.5"
       >
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-phantom-muted">總筆數</div>
-          <div className="text-sm text-phantom-text">
+          <div className="text-[10px] uppercase tracking-wide text-spectyn-muted">總筆數</div>
+          <div className="text-sm text-spectyn-text">
             {stats.totalEntries ?? '—'}
           </div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-phantom-muted">壓縮比</div>
-          <div className="text-sm text-phantom-text">{stats.compressionRatio ?? '—'}</div>
+          <div className="text-[10px] uppercase tracking-wide text-spectyn-muted">壓縮比</div>
+          <div className="text-sm text-spectyn-text">{stats.compressionRatio ?? '—'}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wide text-phantom-muted">最後同步</div>
-          <div className="text-sm text-phantom-text truncate">{stats.lastSync ?? '—'}</div>
+          <div className="text-[10px] uppercase tracking-wide text-spectyn-muted">最後同步</div>
+          <div className="text-sm text-spectyn-text truncate">{stats.lastSync ?? '—'}</div>
         </div>
       </div>
 
       {/* Search box */}
       <div className="flex items-center gap-2">
-        <Search size={15} className="flex-shrink-0 text-phantom-muted" />
+        <Search size={15} className="flex-shrink-0 text-spectyn-muted" />
         <input
           type="text"
           value={query}
@@ -196,14 +196,14 @@ export default function MobileMemory() {
           onKeyDown={(e) => e.key === 'Enter' && void onSearch()}
           placeholder="搜尋記憶…"
           data-testid="memory-search-input"
-          className="flex-1 bg-phantom-card border border-phantom-border rounded px-3 py-1.5 text-sm text-phantom-text placeholder-phantom-muted focus:outline-none focus:border-phantom-primary"
+          className="flex-1 bg-spectyn-card border border-spectyn-border rounded px-3 py-1.5 text-sm text-spectyn-text placeholder-spectyn-muted focus:outline-none focus:border-spectyn-primary"
         />
         <button
           type="button"
           data-testid="memory-search-go"
           onClick={() => void onSearch()}
           disabled={!query.trim() || searching}
-          className="bg-phantom-primary text-phantom-bg px-3 py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
+          className="bg-spectyn-primary text-spectyn-bg px-3 py-1.5 rounded text-sm font-medium hover:brightness-110 disabled:opacity-40"
         >
           {searching ? '搜尋中…' : '搜尋'}
         </button>
@@ -212,7 +212,7 @@ export default function MobileMemory() {
             type="button"
             data-testid="memory-search-clear"
             onClick={clearSearch}
-            className="text-xs text-phantom-muted hover:text-phantom-text"
+            className="text-xs text-spectyn-muted hover:text-spectyn-text"
           >
             清除
           </button>
@@ -221,7 +221,7 @@ export default function MobileMemory() {
           type="button"
           data-testid="memory-refresh"
           onClick={() => void refresh()}
-          className="text-phantom-muted hover:text-phantom-text"
+          className="text-spectyn-muted hover:text-spectyn-text"
           aria-label="重新整理"
         >
           <RefreshCw size={15} />
@@ -231,7 +231,7 @@ export default function MobileMemory() {
       {error && (
         <div
           data-testid="memory-error"
-          className="rounded border border-phantom-danger/30 bg-phantom-danger/10 px-3 py-2 text-xs text-phantom-danger"
+          className="rounded border border-spectyn-danger/30 bg-spectyn-danger/10 px-3 py-2 text-xs text-spectyn-danger"
         >
           {error}
         </div>
@@ -239,7 +239,7 @@ export default function MobileMemory() {
 
       {/* Entries list */}
       {visibleEntries.length === 0 ? (
-        <div data-testid="memory-empty" className="text-sm text-phantom-muted py-4 text-center">
+        <div data-testid="memory-empty" className="text-sm text-spectyn-muted py-4 text-center">
           {searchResults ? '沒有相符的記憶。' : '還沒有記憶資料。'}
         </div>
       ) : (
@@ -248,17 +248,17 @@ export default function MobileMemory() {
             <li
               key={m.id}
               data-testid={`memory-${m.id}`}
-              className="rounded-lg border border-phantom-border bg-phantom-card px-3 py-2"
+              className="rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2"
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] uppercase tracking-wide text-phantom-primary flex-shrink-0">
+                <span className="text-[10px] uppercase tracking-wide text-spectyn-primary flex-shrink-0">
                   {m.type}
                 </span>
                 {m.timestamp && (
-                  <span className="text-[10px] text-phantom-muted truncate">{m.timestamp}</span>
+                  <span className="text-[10px] text-spectyn-muted truncate">{m.timestamp}</span>
                 )}
               </div>
-              <p className="text-[12px] text-phantom-text line-clamp-3 whitespace-pre-wrap break-words">
+              <p className="text-[12px] text-spectyn-text line-clamp-3 whitespace-pre-wrap break-words">
                 {m.content}
               </p>
             </li>

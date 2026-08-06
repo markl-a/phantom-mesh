@@ -1,4 +1,4 @@
-# scripts/install.ps1 — F500 unified first-touch installer for phantom-mesh.
+# scripts/install.ps1 — F500 unified first-touch installer for spectyn-mesh.
 #
 # This is the "stranger-friendly" Windows entry point served at
 #   https://phantommesh.io/install.ps1
@@ -12,15 +12,15 @@
 #
 # What it does (no questions asked):
 #   1. Detects Windows arch (x86_64 only at v0.6.0).
-#   2. Downloads phantom.exe from
-#        $base/dist/phantom-x86_64-pc-windows.exe
-#      (matches publish-phantom-binary.yml's R2 object naming.)
+#   2. Downloads spectyn.exe from
+#        $base/dist/spectyn-x86_64-pc-windows.exe
+#      (matches publish-spectyn-binary.yml's R2 object naming.)
 #   3. Verifies SHA256 via the shared _verify-download.ps1 helper
 #      (the F-CRIT-3 / PR #111 contract).
-#   4. Installs to $env:USERPROFILE\.phantom-mesh\bin\phantom.exe.
+#   4. Installs to $env:USERPROFILE\.spectyn-mesh\bin\spectyn.exe.
 #   5. Best-effort: appends ...\bin to the user's PATH if not already
 #      there. Never breaks the install if the PATH edit fails.
-#   6. Prints exactly one final line: `Run \`phantom\` to start.`
+#   6. Prints exactly one final line: `Run \`spectyn\` to start.`
 #
 # What it does NOT do:
 #   - Require admin (User-scope env edits only; install path is per-user).
@@ -28,12 +28,12 @@
 #   - Register a Scheduled Task — the wizard offers, user opts in.
 #
 # Env knobs (PowerShell sets these via $env:NAME = 'value'):
-#   PHANTOM_INSTALL_BASE      Base URL. Default: https://phantommesh.io.
+#   SPECTYN_INSTALL_BASE      Base URL. Default: https://phantommesh.io.
 #                             Set to a staging URL for pre-L1 testing.
-#   PHANTOM_INSTALL_DRY_RUN   If '1': print detected arch + would-download
+#   SPECTYN_INSTALL_DRY_RUN   If '1': print detected arch + would-download
 #                             URL and exit 0 without writing anything.
-#   PHANTOM_ALLOW_INSECURE    See _verify-download.ps1 — opt out of HTTPS.
-#   PHANTOM_SKIP_VERIFY       See _verify-download.ps1 — opt out of SHA256.
+#   SPECTYN_ALLOW_INSECURE    See _verify-download.ps1 — opt out of HTTPS.
+#   SPECTYN_SKIP_VERIFY       See _verify-download.ps1 — opt out of SHA256.
 #
 # F-CRIT-3 invariants preserved:
 #   - Require-Https refuses plain http:// downloads.
@@ -45,16 +45,16 @@
 $ErrorActionPreference = 'Stop'
 
 # ── Config ──────────────────────────────────────────────────────────────────
-$installBase = if ($env:PHANTOM_INSTALL_BASE) { $env:PHANTOM_INSTALL_BASE } else { 'https://phantommesh.io' }
+$installBase = if ($env:SPECTYN_INSTALL_BASE) { $env:SPECTYN_INSTALL_BASE } else { 'https://phantommesh.io' }
 # Strip trailing slash for clean concatenation.
 $installBase = $installBase.TrimEnd('/')
 $distBase    = "$installBase/dist"
 
-$cfgDir     = Join-Path $env:USERPROFILE '.phantom-mesh'
+$cfgDir     = Join-Path $env:USERPROFILE '.spectyn-mesh'
 $installDir = Join-Path $cfgDir          'bin'
-$targetBin  = Join-Path $installDir      'phantom.exe'
+$targetBin  = Join-Path $installDir      'spectyn.exe'
 
-$dryRun = ($env:PHANTOM_INSTALL_DRY_RUN -eq '1')
+$dryRun = ($env:SPECTYN_INSTALL_DRY_RUN -eq '1')
 
 # Force TLS 1.2+ on PS 5.1 — System.Net.SecurityProtocolType.SystemDefault
 # in PS 5.1 still defaults to SSL3/TLS 1.0 on some Windows 10 builds.
@@ -71,7 +71,7 @@ function Detect-Target {
     switch -Regex ($arch) {
         '^AMD64$|^x86_64$' {
             $script:archKind  = 'x86_64'
-            $script:r2Object  = 'phantom-x86_64-pc-windows.exe'
+            $script:r2Object  = 'spectyn-x86_64-pc-windows.exe'
         }
         '^ARM64$' {
             throw "Windows on ARM is not yet supported by F500 (v0.6.0).`n  Watch docs/superpowers/features/F500-unified-install-one-liner.md."
@@ -106,7 +106,7 @@ function Load-Verifier {
                           -OutFile $helperFile `
                           -UseBasicParsing `
                           -TimeoutSec 10 `
-                          -Headers @{ 'User-Agent' = 'phantom-installer/1.0' } | Out-Null
+                          -Headers @{ 'User-Agent' = 'spectyn-installer/1.0' } | Out-Null
     } catch {
         Remove-Item -Force $helperFile -ErrorAction SilentlyContinue
         throw @"
@@ -128,16 +128,16 @@ Could not download $Url
   ($Inner)
 
   Most likely cause: the operator has not yet published this target to
-  the R2 bucket. The L1 'Publish phantom binary to R2' workflow needs
+  the R2 bucket. The L1 'Publish spectyn binary to R2' workflow needs
   to run for $script:r2Object.
 
   If you ARE the operator: follow
     docs/superpowers/runbooks/L1-cloudflare-creds.md
   to add CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID secrets and trigger
-  https://github.com/markl-a/phantom-mesh/actions/workflows/publish-phantom-binary.yml
+  https://github.com/markl-a/spectyn-mesh/actions/workflows/publish-spectyn-binary.yml
 
   In the meantime you can build from source:
-    cargo install --git https://github.com/markl-a/phantom-mesh --bin phantom
+    cargo install --git https://github.com/markl-a/spectyn-mesh --bin spectyn
 "@
 }
 
@@ -167,7 +167,7 @@ Detect-Target
 $binUrl = "$distBase/$script:r2Object"
 
 if ($dryRun) {
-    Write-Host "phantom-mesh installer (dry run)"
+    Write-Host "spectyn-mesh installer (dry run)"
     Write-Host "  detected OS:   windows"
     Write-Host "  detected arch: $script:archKind"
     Write-Host "  R2 object:     $script:r2Object"
@@ -176,24 +176,24 @@ if ($dryRun) {
     Write-Host "  would verify:  $binUrl.sha256"
     Write-Host "  would install: $targetBin"
     Write-Host ""
-    Write-Host "  PHANTOM_INSTALL_DRY_RUN=1 — no files written."
+    Write-Host "  SPECTYN_INSTALL_DRY_RUN=1 — no files written."
     exit 0
 }
 
-Write-Host "  phantom-mesh installer"
+Write-Host "  spectyn-mesh installer"
 Write-Host "    target: $script:r2Object"
 
 Load-Verifier
 
 # F-CRIT-3: Require-Https refuses plain http:// unless the operator
-# explicitly opts out with $env:PHANTOM_ALLOW_INSECURE = '1'.
+# explicitly opts out with $env:SPECTYN_ALLOW_INSECURE = '1'.
 Require-Https -Url $binUrl
 
 New-Item -ItemType Directory -Force $installDir | Out-Null
 
-# Stop a running phantom (if any) before overwriting the .exe; otherwise
+# Stop a running spectyn (if any) before overwriting the .exe; otherwise
 # Windows refuses to replace it. Best-effort.
-Get-Process phantom -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process spectyn -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # Download to a temp path so a mid-stream failure cannot leave a broken
 # binary in PATH.
@@ -208,7 +208,7 @@ try {
                       -OutFile $tmpExe `
                       -UseBasicParsing `
                       -TimeoutSec 120 `
-                      -Headers @{ 'User-Agent' = 'phantom-installer/1.0' }
+                      -Headers @{ 'User-Agent' = 'spectyn-installer/1.0' }
 } catch {
     Remove-Item -Force $tmpExe -ErrorAction SilentlyContinue
     Fail-MissingBinary -Url $binUrl -Inner $_.Exception.Message
@@ -233,5 +233,5 @@ Move-Item -Force -Path $tmpExe -Destination $targetBin
 Wire-Path -Dir $installDir
 
 # Per F500 spec: last stdout line must be EXACTLY this so the wizard (F501)
-# takes over cleanly on next `phantom` invocation. No banners.
-Write-Host 'Run `phantom` to start.'
+# takes over cleanly on next `spectyn` invocation. No banners.
+Write-Host 'Run `spectyn` to start.'

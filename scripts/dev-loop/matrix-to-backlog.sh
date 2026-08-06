@@ -6,13 +6,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 MATRIX="${1:-$ROOT/docs/FEATURE-MATRIX.md}"
-PHANTOM="${PHANTOM_BIN:-phantom}"
+SPECTYN="${SPECTYN_BIN:-spectyn}"
 LIMIT="${MATRIX_PLAN_LIMIT:-8}"   # cap specs posted per planner run
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-# Split `phantom matrix-plan` STDOUT into per-spec files at the "=== SPEC <id> ==="
+# Split `spectyn matrix-plan` STDOUT into per-spec files at the "=== SPEC <id> ==="
 # markers (STDERR advisories are left on the terminal, not captured).
-"$PHANTOM" matrix-plan "$MATRIX" | awk -v dir="$tmp" '
+"$SPECTYN" matrix-plan "$MATRIX" | awk -v dir="$tmp" '
   /^=== SPEC / { id=$3; f=dir"/"id".toml"; next }
   f { print >> f }
 '

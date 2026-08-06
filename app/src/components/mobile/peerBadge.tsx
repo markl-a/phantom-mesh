@@ -35,20 +35,20 @@ export function badgeStyleFor(status: PeerStatus | string | null | undefined): B
   switch (String(status ?? '').toLowerCase()) {
     case 'online':
       return {
-        dot: 'bg-phantom-success',
-        text: 'text-phantom-success',
+        dot: 'bg-spectyn-success',
+        text: 'text-spectyn-success',
         label: 'Online',
       };
     case 'unhealthy':
       return {
-        dot: 'bg-phantom-warning',
-        text: 'text-phantom-warning',
+        dot: 'bg-spectyn-warning',
+        text: 'text-spectyn-warning',
         label: 'Unhealthy',
       };
     default:
       return {
-        dot: 'bg-phantom-muted',
-        text: 'text-phantom-muted',
+        dot: 'bg-spectyn-muted',
+        text: 'text-spectyn-muted',
         label: 'Unknown',
       };
   }

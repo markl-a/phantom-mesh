@@ -3,7 +3,7 @@
 > 🔄 **STATUS UPDATE (2026-06-21)**: M1 (Store hand-off) is **DONE** — `skill_store()` now
 > persists the queued extract hand-off (`core/src/skill_wire.rs:1836`; tests
 > `skill_store_persists_queued_extract_handoff` :3304 / `skill_store_drains_queue_fifo_and_persists_all`
-> :3360), and recall-before-run is wired into the agent loop (`agent.rs:730`, `PHANTOM_OWNED_MEMORY`).
+> :3360), and recall-before-run is wired into the agent loop (`agent.rs:730`, `SPECTYN_OWNED_MEMORY`).
 > The two BIG-GOAL `unimplemented!()` fns are implemented (no longer stubs). **Remaining = the semantic
 > `ort` embedding leg (M3/M5, deferred / human-led)**; the FTS5 keyword path is the live default. The
 > 2026-06-17 table below is kept for the M2–M5 breakdown; treat M1 as ✅.

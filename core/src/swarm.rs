@@ -1,6 +1,6 @@
 //! Cluster-wide parallel prompt fan-out ("swarm").
 //!
-//! Extracted from `bin/phantom.rs::run_swarm` so both the CLI and the
+//! Extracted from `bin/spectyn.rs::run_swarm` so both the CLI and the
 //! `/rpc/swarm` HTTP endpoint share one implementation. The flow:
 //!
 //!   1. `refresh_all()` to find online peers.
@@ -278,7 +278,7 @@ mod target_filter_tests {
     }
 }
 
-/// Core fan-out used by both `phantom swarm` (CLI) and `POST /rpc/swarm`
+/// Core fan-out used by both `spectyn swarm` (CLI) and `POST /rpc/swarm`
 /// (HTTP). See module docs for the wire shape.
 ///
 /// `max_wait` caps the total time spent polling remote sub-jobs. The
@@ -301,7 +301,7 @@ pub async fn do_swarm(
 /// `targets`, when `Some`, restricts the fan-out to online peers whose URL
 /// contains any of the given substrings (case-insensitive) — e.g.
 /// `["peer-2", "192.168.1.7"]`. This is the selective-swarm path used by
-/// `phantom swarm --targets a,b`. `None` fans out to every online peer
+/// `spectyn swarm --targets a,b`. `None` fans out to every online peer
 /// (the original behaviour). Substring matching mirrors how the `task`
 /// tool's `node` parameter resolves a peer.
 pub async fn do_swarm_with_throttle(

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-mcp-tools.sh — end-to-end test that phantom mcp's tools work,
+# test-mcp-tools.sh — end-to-end test that spectyn mcp's tools work,
 # not just that they appear in tools/list.
 #
 # Complements scripts/selftest.d/30-mcp.sh (which only verifies the
@@ -9,10 +9,10 @@
 # Designed to be run BOTH:
 #   - as a CI gate (`scripts/test-mcp-tools.sh` in github actions)
 #   - by Claude Code mid-session via the Bash tool, so I can confirm
-#     phantom's tools are working before relying on `mcp__phantom__*`
+#     spectyn's tools are working before relying on `mcp__spectyn__*`
 #     calls.
 #
-# No external deps beyond bash, phantom, and standard POSIX text tools
+# No external deps beyond bash, spectyn, and standard POSIX text tools
 # (grep / sed / cut). No jq, no python — works in Git Bash on Windows.
 #
 # Usage:
@@ -22,21 +22,21 @@
 set -u
 
 VERBOSE="${1:-}"
-PHANTOM="${PHANTOM:-$(command -v phantom)}"
-[ -z "$PHANTOM" ] && { echo "✗ phantom not on PATH (or set PHANTOM=...)" >&2; exit 2; }
+SPECTYN="${SPECTYN:-$(command -v spectyn)}"
+[ -z "$SPECTYN" ] && { echo "✗ spectyn not on PATH (or set SPECTYN=...)" >&2; exit 2; }
 
 PASS=0
 FAIL=0
 
-echo "━━ phantom mcp tools/call e2e ($PHANTOM) ━━"
+echo "━━ spectyn mcp tools/call e2e ($SPECTYN) ━━"
 
-# Drive phantom mcp by piping a sequence of JSON-RPC lines, then grep
+# Drive spectyn mcp by piping a sequence of JSON-RPC lines, then grep
 # the response stream for the substring we expect. The MCP server
 # prints each response on its own line so substring grep is robust.
 _drive() {
     local input="$1"
     local out
-    out=$(printf '%s\n' "$input" | timeout 10 "$PHANTOM" mcp 2>/dev/null) || true
+    out=$(printf '%s\n' "$input" | timeout 10 "$SPECTYN" mcp 2>/dev/null) || true
     if [ -n "$VERBOSE" ]; then printf '  ── REQUEST ──\n%s\n  ── RESPONSE ──\n%s\n' "$input" "$out"; fi
     printf '%s' "$out"
 }
@@ -72,12 +72,12 @@ for tool in file_read file_write file_edit shell content_search git_status web_f
 done
 
 # ── 3. file_read on a known file ─────────────────────────────────────────────
-mkdir -p /tmp/phantom-mcp-test
-echo "phantom-test-marker-line-1" > /tmp/phantom-mcp-test/marker.txt
-echo "second line" >> /tmp/phantom-mcp-test/marker.txt
-call='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/tmp/phantom-mcp-test/marker.txt"}}}'
+mkdir -p /tmp/spectyn-mcp-test
+echo "spectyn-test-marker-line-1" > /tmp/spectyn-mcp-test/marker.txt
+echo "second line" >> /tmp/spectyn-mcp-test/marker.txt
+call='{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/tmp/spectyn-mcp-test/marker.txt"}}}'
 out=$(_drive "$_init"$'\n'"$call")
-if echo "$out" | grep -q 'phantom-test-marker-line-1'; then
+if echo "$out" | grep -q 'spectyn-test-marker-line-1'; then
     _check "file_read returns content" yes "$out"
 else
     _check "file_read returns content" no "$out"
@@ -113,8 +113,8 @@ else
 fi
 
 # ── 7. file_write + file_read round-trip ────────────────────────────────────
-write='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"file_write","arguments":{"path":"/tmp/phantom-mcp-test/written.txt","content":"round-trip-marker"}}}'
-read='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/tmp/phantom-mcp-test/written.txt"}}}'
+write='{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"file_write","arguments":{"path":"/tmp/spectyn-mcp-test/written.txt","content":"round-trip-marker"}}}'
+read='{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/tmp/spectyn-mcp-test/written.txt"}}}'
 out=$(_drive "$_init"$'\n'"$write"$'\n'"$read")
 if echo "$out" | grep -q 'round-trip-marker'; then
     _check "file_write→file_read round-trip" yes "$out"
@@ -123,7 +123,7 @@ else
 fi
 
 # ── cleanup + report ─────────────────────────────────────────────────────────
-rm -rf /tmp/phantom-mcp-test
+rm -rf /tmp/spectyn-mcp-test
 
 echo ""
 echo "━━ result: $PASS pass, $FAIL fail ━━"

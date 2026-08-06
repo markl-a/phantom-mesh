@@ -238,16 +238,16 @@ fn trim_tool_output_content(msg: &mut ChatMessage) {
 /// the first file found, truncated to 50 KB if necessary.
 pub fn load_project_config(cwd: &Path) -> Option<String> {
     // Project-config files, checked in priority order. Codex/Claude Code
-    // ecosystem convention: PHANTOM.md = phantom-native, CLAUDE.md = Claude
+    // ecosystem convention: SPECTYN.md = spectyn-native, CLAUDE.md = Claude
     // Code, AGENTS.md = tool-neutral handoff (Codex / OpenCode / others),
     // GEMINI.md = Gemini Code.
     const CANDIDATES: &[&str] = &[
-        "PHANTOM.md",
+        "SPECTYN.md",
         "CLAUDE.md",
         "AGENTS.md",
         "GEMINI.md",
-        ".phantom/config.md",
-        ".phantom",
+        ".spectyn/config.md",
+        ".spectyn",
     ];
 
     // Walk up from `cwd` toward the filesystem root.
@@ -656,7 +656,7 @@ pub struct WorkspaceContext {
     pub git_branch: Option<String>,
     /// `git status --short` output, or `None` when the tree is clean / no repo.
     pub git_status: Option<String>,
-    /// Contents of the first project-config file found (e.g. `PHANTOM.md`),
+    /// Contents of the first project-config file found (e.g. `SPECTYN.md`),
     /// truncated to 50 KB; `None` if none present.
     pub project_config: Option<String>,
     /// Dependency names detected from the project's manifest (up to 20).
@@ -784,7 +784,7 @@ mod tests {
     #[test]
     fn test_load_project_config_finds_file() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("PHANTOM.md"), "hello world").unwrap();
+        std::fs::write(dir.path().join("SPECTYN.md"), "hello world").unwrap();
 
         let result = load_project_config(dir.path());
         assert_eq!(result, Some("hello world".to_string()));
@@ -806,7 +806,7 @@ mod tests {
         let parent = tempfile::tempdir().unwrap();
         let child = parent.path().join("subdir");
         std::fs::create_dir(&child).unwrap();
-        std::fs::write(parent.path().join("PHANTOM.md"), "from parent").unwrap();
+        std::fs::write(parent.path().join("SPECTYN.md"), "from parent").unwrap();
 
         let result = load_project_config(&child);
         assert_eq!(result, Some("from parent".to_string()));
@@ -815,11 +815,11 @@ mod tests {
     #[test]
     fn test_load_project_config_priority_order() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("PHANTOM.md"), "phantom").unwrap();
+        std::fs::write(dir.path().join("SPECTYN.md"), "spectyn").unwrap();
         std::fs::write(dir.path().join("CLAUDE.md"), "claude").unwrap();
 
         let result = load_project_config(dir.path());
-        assert_eq!(result, Some("phantom".to_string()));
+        assert_eq!(result, Some("spectyn".to_string()));
     }
 
     #[test]

@@ -30,7 +30,7 @@
 ## 如何啟用
 
 ```toml
-phantom-mesh = { path = "core", features = ["experimental-extra-providers"] }
+spectyn-mesh = { path = "core", features = ["experimental-extra-providers"] }
 ```
 
 ```toml
@@ -44,8 +44,8 @@ default_model = "mistral-small-latest"
 ## 快速體驗
 
 ```rust,ignore
-use phantom_mesh::providers::{mistral, xai, together, fireworks};
-use phantom_mesh::config::ProviderEntry;
+use spectyn_mesh::providers::{mistral, xai, together, fireworks};
+use spectyn_mesh::config::ProviderEntry;
 
 let p = ProviderEntry { provider_type: mistral::PROVIDER_ID.into(), ..Default::default() };
 assert_eq!(mistral::streaming_url(&p), "https://api.mistral.ai/v1/chat/completions");
@@ -58,7 +58,7 @@ assert_eq!(value.to_str()?, "Bearer sk-abc");
 
 ```bash
 CARGO_TARGET_DIR=D:/tmp/skillbank-docs-target \
-  cargo run -p phantom-mesh \
+  cargo run -p spectyn-mesh \
     --example experimental_extra_providers_example \
     --features experimental-extra-providers
 ```

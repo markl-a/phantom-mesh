@@ -25,14 +25,14 @@ fail()  { FAIL=$((FAIL+1)); FAIL_LINES+=("$1 :: $2"); printf "  $(red '✗') %-5
 section() { printf "\n$(bold "%s")\n" "$1"; }
 
 mcp() {
-  echo "$1" | timeout 8 phantom mcp 2>/dev/null
+  echo "$1" | timeout 8 spectyn mcp 2>/dev/null
 }
 
 # ─── malformed MCP requests ───────────────────────────────────────────────
 section "47. malformed MCP JSON-RPC"
 
 # Truncated JSON
-resp=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"' | timeout 5 phantom mcp 2>&1 | head -c 500)
+resp=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"' | timeout 5 spectyn mcp 2>&1 | head -c 500)
 echo "$resp" | grep -qE 'error|parse|jsonrpc' \
   && ok "truncated JSON returns parse error" "" \
   || fail "truncated JSON returns parse error" "got: $(echo "$resp" | head -c 200)"
@@ -105,7 +105,7 @@ esac
 # ─── tool edge cases ──────────────────────────────────────────────────────
 section "49. tool edge cases"
 
-ABS_REPO="${PHANTOM_REPO:-$PWD}"
+ABS_REPO="${SPECTYN_REPO:-$PWD}"
 
 # file_read on non-existent file
 resp=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_read","arguments":{"path":"/this/does/not/exist.txt"}}}')
@@ -245,7 +245,7 @@ else
 fi
 
 # file_write to /etc/something (should fail with permission denied)
-resp=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_write","arguments":{"path":"/etc/phantom-test","content":"x"}}}')
+resp=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"file_write","arguments":{"path":"/etc/spectyn-test","content":"x"}}}')
 echo "$resp" | grep -qiE 'permission|denied|error|read.only' \
   && ok "file_write to /etc/* blocked by OS" "" \
   || ok "file_write to /etc/*: returned without error" ""

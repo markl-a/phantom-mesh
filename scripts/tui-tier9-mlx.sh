@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Tier-9: MLX local LLM (Apple Silicon zero-cost inference)
-#   - phantom mlx status before start
-#   - phantom mlx serve in background
+#   - spectyn mlx status before start
+#   - spectyn mlx serve in background
 #   - /v1/models endpoint shape
 #   - /v1/chat/completions inference round-trip
-#   - phantom run via mlx-local provider
+#   - spectyn run via mlx-local provider
 #   - measure first-token + total latency
-#   - phantom mlx stop cleanup
+#   - spectyn mlx stop cleanup
 
 set -o pipefail
 PASS=0; FAIL=0; FAIL_LINES=()
@@ -24,8 +24,8 @@ section() { printf "\n$(bold "%s")\n" "$1"; }
 
 cleanup() {
   echo ""
-  echo "  cleanup: phantom mlx stop"
-  phantom mlx stop 2>/dev/null
+  echo "  cleanup: spectyn mlx stop"
+  spectyn mlx stop 2>/dev/null
   pkill -f "mlx_lm.server" 2>/dev/null
 }
 trap cleanup EXIT
@@ -36,22 +36,22 @@ section "54. MLX pre-start state"
 # Confirm not running (would interfere)
 if curl -sf -m 1 "$MLX_URL/v1/models" >/dev/null 2>&1; then
   echo "  (server already running — stopping first)"
-  phantom mlx stop 2>/dev/null
+  spectyn mlx stop 2>/dev/null
   sleep 2
 fi
 
-resp=$(phantom mlx status 2>&1)
+resp=$(spectyn mlx status 2>&1)
 echo "$resp" | grep -qiE "import|server|reachable" \
-  && ok "phantom mlx status pre-start" "$(echo "$resp" | head -1 | head -c 80)" \
-  || fail "phantom mlx status" "got: $(echo "$resp" | head -c 200)"
+  && ok "spectyn mlx status pre-start" "$(echo "$resp" | head -1 | head -c 80)" \
+  || fail "spectyn mlx status" "got: $(echo "$resp" | head -c 200)"
 
 # ─── start server ─────────────────────────────────────────────────────────
 section "55. MLX server startup"
 
 # Start in background, redirect logs to TMP
-nohup phantom mlx serve > "$TMP/mlx.log" 2>&1 &
+nohup spectyn mlx serve > "$TMP/mlx.log" 2>&1 &
 SERVE_PID=$!
-echo "  started phantom mlx serve (pid $SERVE_PID), waiting for /v1/models..."
+echo "  started spectyn mlx serve (pid $SERVE_PID), waiting for /v1/models..."
 
 # Wait up to 90s for model load
 ready=0
@@ -154,8 +154,8 @@ echo "$chunks" | grep -qE '\[DONE\]' \
   && ok "streaming ends with [DONE]" "" \
   || fail "streaming ends with [DONE]" ""
 
-# ─── phantom run via mlx-local provider ───────────────────────────────────
-section "59. phantom run routed through mlx-local"
+# ─── spectyn run via mlx-local provider ───────────────────────────────────
+section "59. spectyn run routed through mlx-local"
 
 # Configure agents.toml to use mlx-local for a custom agent. The default
 # master might already be on Groq/Gemini — we want to force MLX. Use the
@@ -170,16 +170,16 @@ print(' '.join(d.get('agents', [])))
 echo "  available agents: $agents"
 
 t0=$(python3 -c "import time; print(time.time())")
-resp=$(timeout 60 phantom run --agent local "Reply with exactly two words: phantom alive" 2>&1 | tail -10)
+resp=$(timeout 60 spectyn run --agent local "Reply with exactly two words: spectyn alive" 2>&1 | tail -10)
 t1=$(python3 -c "import time; print(time.time())")
 elapsed=$(python3 -c "print(round($t1 - $t0, 2))")
 
-if echo "$resp" | grep -qiE 'phantom|alive|hello'; then
-  ok "phantom run --agent local succeeds via MLX" "${elapsed}s"
+if echo "$resp" | grep -qiE 'spectyn|alive|hello'; then
+  ok "spectyn run --agent local succeeds via MLX" "${elapsed}s"
 elif echo "$resp" | grep -qiE 'unknown.agent|invalid'; then
   ok "agent 'local' not configured, but no panic" "(skip — agents.toml may not have it)"
 else
-  fail "phantom run --agent local via MLX" "got: $(echo "$resp" | head -c 200)"
+  fail "spectyn run --agent local via MLX" "got: $(echo "$resp" | head -c 200)"
 fi
 
 # ─── cost is zero ─────────────────────────────────────────────────────────
@@ -202,14 +202,14 @@ else:
   || fail "MLX cost is zero or untracked" ""
 
 # ─── stop cleanup ─────────────────────────────────────────────────────────
-section "61. phantom mlx stop"
+section "61. spectyn mlx stop"
 
-phantom mlx stop 2>&1 | head -3
+spectyn mlx stop 2>&1 | head -3
 sleep 2
 if curl -sf -m 1 "$MLX_URL/v1/models" >/dev/null 2>&1; then
-  fail "phantom mlx stop kills server" "still responding"
+  fail "spectyn mlx stop kills server" "still responding"
 else
-  ok "phantom mlx stop kills server" ""
+  ok "spectyn mlx stop kills server" ""
 fi
 
 # ─── summary ──────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 // SPEC P2 Life Track — Recall (回想): content-search past Life Node events.
-// App counterpart of the TUI `/recall` + CLI `phantom recall`. /review browses
+// App counterpart of the TUI `/recall` + CLI `spectyn recall`. /review browses
 // by day; this finds by query across all captured events, newest-first.
 // Read-only; encrypted events decrypt only with the key (skipped otherwise).
 
@@ -43,14 +43,14 @@ export default function RecallSearch() {
   return (
     <div className="max-w-2xl mx-auto space-y-4" data-testid="recall-search">
       <header className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-phantom-primary/15 flex items-center justify-center">
-          <Search size={20} className="text-phantom-primary" />
+        <div className="w-10 h-10 rounded-lg bg-spectyn-primary/15 flex items-center justify-center">
+          <Search size={20} className="text-spectyn-primary" />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-phantom-text">回想</h1>
-          <p className="text-xs text-phantom-muted">Recall · 搜尋過往 Life Node 事件</p>
+          <h1 className="text-xl font-bold text-spectyn-text">回想</h1>
+          <p className="text-xs text-spectyn-muted">Recall · 搜尋過往 Life Node 事件</p>
         </div>
-        <button onClick={() => void run(query, kind)} className="text-phantom-muted hover:text-phantom-text p-1.5" title="重新搜尋" aria-label="重新搜尋">
+        <button onClick={() => void run(query, kind)} className="text-spectyn-muted hover:text-spectyn-text p-1.5" title="重新搜尋" aria-label="重新搜尋">
           <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
         </button>
       </header>
@@ -64,28 +64,28 @@ export default function RecallSearch() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="搜尋內容(例如:沙拉、deep work、散步)…"
-          className="flex-1 bg-phantom-bg border border-phantom-border rounded-lg px-3 py-2 text-sm text-phantom-text placeholder:text-phantom-muted focus:border-phantom-primary outline-none"
+          className="flex-1 bg-spectyn-bg border border-spectyn-border rounded-lg px-3 py-2 text-sm text-spectyn-text placeholder:text-spectyn-muted focus:border-spectyn-primary outline-none"
         />
-        <button type="submit" className="px-4 py-2 rounded-lg bg-phantom-primary/15 border border-phantom-primary/40 text-phantom-primary text-sm hover:bg-phantom-primary/25">搜尋</button>
+        <button type="submit" className="px-4 py-2 rounded-lg bg-spectyn-primary/15 border border-spectyn-primary/40 text-spectyn-primary text-sm hover:bg-spectyn-primary/25">搜尋</button>
       </form>
 
       <div className="flex flex-wrap gap-2">
         <button onClick={() => { setKind(null); void run(query, null); }} aria-pressed={kind === null}
-          className={`px-3 py-1 rounded-full text-xs border transition ${kind === null ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary" : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"}`}>全部</button>
+          className={`px-3 py-1 rounded-full text-xs border transition ${kind === null ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary" : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"}`}>全部</button>
         {KINDS.map((k) => (
           <button key={k} onClick={() => { setKind(k); void run(query, k); }} aria-pressed={kind === k}
-            className={`px-3 py-1 rounded-full text-xs border transition ${kind === k ? "bg-phantom-primary/15 border-phantom-primary/40 text-phantom-primary" : "bg-phantom-bg border-phantom-border text-phantom-text hover:border-phantom-primary/30"}`}>
+            className={`px-3 py-1 rounded-full text-xs border transition ${kind === k ? "bg-spectyn-primary/15 border-spectyn-primary/40 text-spectyn-primary" : "bg-spectyn-bg border-spectyn-border text-spectyn-text hover:border-spectyn-primary/30"}`}>
             {RECALL_KIND_META[k].emoji} {RECALL_KIND_META[k].label}
           </button>
         ))}
       </div>
 
       {error && (
-        <div className="bg-phantom-warning/10 border border-phantom-warning/40 rounded-lg p-3 text-sm text-phantom-warning">{error}</div>
+        <div className="bg-spectyn-warning/10 border border-spectyn-warning/40 rounded-lg p-3 text-sm text-spectyn-warning">{error}</div>
       )}
 
       {!error && searched && hits.length === 0 && !loading && (
-        <div className="bg-phantom-card border border-phantom-border rounded-lg p-6 text-center text-sm text-phantom-muted">
+        <div className="bg-spectyn-card border border-spectyn-border rounded-lg p-6 text-center text-sm text-spectyn-muted">
           {query.trim() ? `沒有符合「${query.trim()}」的事件。` : "尚無事件 — 用專注 / 習慣 / 飲食頁記錄後會出現在這裡。"}
         </div>
       )}
@@ -94,12 +94,12 @@ export default function RecallSearch() {
         {hits.map((h, i) => {
           const meta = RECALL_KIND_META[h.kind] ?? { label: h.kind, emoji: "•" };
           return (
-            <div key={h.eventId || `hit-${i}`} className="flex items-start gap-3 px-3 py-2 rounded bg-phantom-card border border-phantom-border">
+            <div key={h.eventId || `hit-${i}`} className="flex items-start gap-3 px-3 py-2 rounded bg-spectyn-card border border-spectyn-border">
               <span className="text-base w-6 text-center flex-shrink-0">{meta.emoji}</span>
               <div className="flex-1 min-w-0">
-                <span className="text-sm text-phantom-text break-words">{h.summary}</span>
+                <span className="text-sm text-spectyn-text break-words">{h.summary}</span>
               </div>
-              <span className="text-[11px] text-phantom-muted flex-shrink-0">{fmtTime(h.timestamp)}</span>
+              <span className="text-[11px] text-spectyn-muted flex-shrink-0">{fmtTime(h.timestamp)}</span>
             </div>
           );
         })}

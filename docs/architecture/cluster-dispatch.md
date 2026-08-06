@@ -1,6 +1,6 @@
 # 叢集派工（Cluster Dispatch）
 
-> 以能力為基礎（capability-based，依能力標籤）的路由機制，把任務派給 phantom-mesh 叢集（cluster，多機節點群）中最合適的對等節點（peer，對等夥伴）。
+> 以能力為基礎（capability-based，依能力標籤）的路由機制，把任務派給 spectyn-mesh 叢集（cluster，多機節點群）中最合適的對等節點（peer，對等夥伴）。
 > Spec 參考：SPEC-26（cluster dispatch）§6.2 評分、§7 資料模型、§8 狀態機、§9 API 合約、§11 錯誤目錄。
 
 ## 目的

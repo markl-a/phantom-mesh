@@ -384,9 +384,9 @@ mod sandbox_guard_tests {
 
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-    async fn fresh_temp_in_phantom(initial: &str) -> PathBuf {
+    async fn fresh_temp_in_spectyn(initial: &str) -> PathBuf {
         let home = dirs::home_dir().expect("HOME");
-        let dir = home.join(".phantom-mesh").join("test-c5-sandbox-patch");
+        let dir = home.join(".spectyn-mesh").join("test-c5-sandbox-patch");
         tokio::fs::create_dir_all(&dir).await.expect("mkdir");
         let n = COUNTER.fetch_add(1, Ordering::SeqCst);
         let path = dir.join(format!("c5-{}-{}.txt", std::process::id(), n));
@@ -425,9 +425,9 @@ mod sandbox_guard_tests {
     }
 
     #[tokio::test]
-    async fn sandbox_allows_apply_patch_in_phantom_mesh_dir() {
+    async fn sandbox_allows_apply_patch_in_spectyn_mesh_dir() {
         // Build a real file we can validly patch.
-        let path = fresh_temp_in_phantom("alpha\n").await;
+        let path = fresh_temp_in_spectyn("alpha\n").await;
         let rel = path.file_name().unwrap().to_string_lossy().to_string();
         let base = path.parent().unwrap().to_path_buf();
 
@@ -445,7 +445,7 @@ mod sandbox_guard_tests {
 
         assert!(
             result.starts_with("Applied"),
-            "apply_patch on ~/.phantom-mesh/ should succeed under sandbox, got: {}",
+            "apply_patch on ~/.spectyn-mesh/ should succeed under sandbox, got: {}",
             result
         );
         let _ = tokio::fs::remove_file(&path).await;
@@ -453,7 +453,7 @@ mod sandbox_guard_tests {
 
     #[tokio::test]
     async fn sandbox_disabled_back_compat_apply_patch() {
-        let path = fresh_temp_in_phantom("seed\n").await;
+        let path = fresh_temp_in_spectyn("seed\n").await;
         let rel = path.file_name().unwrap().to_string_lossy().to_string();
         let base = path.parent().unwrap().to_path_buf();
 

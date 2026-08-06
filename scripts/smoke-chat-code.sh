@@ -14,26 +14,26 @@ ok()   { echo "  ✓ $1"; PASS=$((PASS+1)); }
 bad()  { echo "  ✗ $1"; FAIL=$((FAIL+1)); }
 hdr()  { echo; echo "== $1 =="; }
 
-command -v phantom >/dev/null || { echo "phantom not on PATH"; exit 2; }
+command -v spectyn >/dev/null || { echo "spectyn not on PATH"; exit 2; }
 
 hdr "0. node health"
-phantom --version >/dev/null 2>&1 && ok "phantom binary runs" || bad "phantom --version"
+spectyn --version >/dev/null 2>&1 && ok "spectyn binary runs" || bad "spectyn --version"
 curl -sf http://127.0.0.1:7878/healthz >/dev/null 2>&1 \
   && ok "serve healthz 200 (localhost)" || echo "  ⚠ serve not up on 7878 (exec may run inline)"
 
 hdr "1. chat (exec returns an answer)"
-ANS=$(timeout 90 phantom exec --quiet "Reply with exactly: PONG" </dev/null 2>/dev/null | tail -1)
+ANS=$(timeout 90 spectyn exec --quiet "Reply with exactly: PONG" </dev/null 2>/dev/null | tail -1)
 [ -n "$ANS" ] && ok "chat answered: ${ANS:0:40}" || bad "chat returned empty"
 
 hdr "2. code (agent uses a tool to create a file)"
 # Write inside an allowed workspace root — file_write sandboxes to the repo +
-# ~/.phantom-mesh (it correctly REJECTS /tmp). Use ~/.phantom-mesh here.
-T="$HOME/.phantom-mesh/phantom_smoke_$$.txt"; rm -f "$T"
-timeout 120 phantom exec --quiet "Use your file_write tool to write the single line SMOKE_OK into the absolute path $T" </dev/null >/dev/null 2>&1
+# ~/.spectyn-mesh (it correctly REJECTS /tmp). Use ~/.spectyn-mesh here.
+T="$HOME/.spectyn-mesh/spectyn_smoke_$$.txt"; rm -f "$T"
+timeout 120 spectyn exec --quiet "Use your file_write tool to write the single line SMOKE_OK into the absolute path $T" </dev/null >/dev/null 2>&1
 if [ -f "$T" ] && grep -q SMOKE_OK "$T"; then ok "agent created $T with SMOKE_OK"; rm -f "$T"; else bad "code task did not produce $T"; fi
 
 hdr "3. recall (read back life-node events)"
-N=$(phantom recall "" --json --limit 5 </dev/null 2>/dev/null | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null)
+N=$(spectyn recall "" --json --limit 5 </dev/null 2>/dev/null | python3 -c "import sys,json;print(len(json.load(sys.stdin)))" 2>/dev/null)
 [ -n "${N:-}" ] && ok "recall returned $N event(s)" || bad "recall failed/empty"
 
 echo; echo "== result: $PASS passed, $FAIL failed =="

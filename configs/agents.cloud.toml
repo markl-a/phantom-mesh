@@ -1,4 +1,4 @@
-# Phantom Mesh — Cloud Node Config
+# Spectyn Mesh — Cloud Node Config
 # ==================================
 # For: GCP VM (x86_64) or Oracle Cloud VM (ARM, aarch64) — 24/7 always-on node
 # Role: Permanent daemon, Telegram bot gateway, task relay for the mesh
@@ -8,15 +8,15 @@
 #
 # ── Deployment ────────────────────────────────────────────────────────────────
 # 1. Copy this file to the VM:
-#      scp configs/agents.cloud.toml cloud-vm:~/.phantom-mesh/agents.toml
+#      scp configs/agents.cloud.toml cloud-vm:~/.spectyn-mesh/agents.toml
 #    (or let deploy-gcp.sh generate it automatically)
-# 2. Create an env file at /home/phantom/.phantom-mesh/env with:
+# 2. Create an env file at /home/spectyn/.spectyn-mesh/env with:
 #      ANTHROPIC_API_KEY=sk-ant-...
 #      OPENROUTER_API_KEY=sk-or-...
 #      TELEGRAM_BOT_TOKEN=<token from @BotFather>
-#      PHANTOM_CLUSTER_SECRET=<same value as all other nodes>
-# 3. Reference it in the systemd unit: EnvironmentFile=/home/phantom/.phantom-mesh/env
-# 4. Enable the service: sudo systemctl enable --now phantom-mesh
+#      SPECTYN_CLUSTER_SECRET=<same value as all other nodes>
+# 3. Reference it in the systemd unit: EnvironmentFile=/home/spectyn/.spectyn-mesh/env
+# 4. Enable the service: sudo systemctl enable --now spectyn-mesh
 #
 # ── Tailscale setup (required for mesh networking) ────────────────────────────
 # 1. Install Tailscale: curl -fsSL https://tailscale.com/install.sh | sh
@@ -26,11 +26,11 @@
 #    (run 'tailscale ip -4' on the Mac/PC coordinator to find it)
 # 5. On the coordinator, add this cloud node's Tailscale IP to its peers[] list
 #
-# Required env vars (set in /home/phantom/.phantom-mesh/env):
+# Required env vars (set in /home/spectyn/.spectyn-mesh/env):
 #   ANTHROPIC_API_KEY      — primary LLM provider
 #   OPENROUTER_API_KEY     — fallback LLM provider
 #   TELEGRAM_BOT_TOKEN     — from @BotFather on Telegram
-#   PHANTOM_CLUSTER_SECRET — shared secret matching all other nodes
+#   SPECTYN_CLUSTER_SECRET — shared secret matching all other nodes
 # ─────────────────────────────────────────────────────────────────────────────
 
 [core]
@@ -97,7 +97,7 @@ tools = [
   "memory_store",
   "memory_recall",
 ]
-instructions = """You are an AI assistant running as a 24/7 cloud relay node. You are the Telegram bot gateway for the Phantom Mesh network.
+instructions = """You are an AI assistant running as a 24/7 cloud relay node. You are the Telegram bot gateway for the Spectyn Mesh network.
 
 Key behaviors:
 - Receive tasks from mobile users via Telegram

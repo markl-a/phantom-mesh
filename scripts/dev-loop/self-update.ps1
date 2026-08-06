@@ -3,7 +3,7 @@
 # The Windows sibling of self-update.sh (S7). Same exit-code contract and the
 # same hardened safety (build-before-swap, ancestor guard against downgrade,
 # skip-when-busy/dirty, marker-only-after-verified-restart, detached contract),
-# with ONE structural difference forced by Windows: a running phantom.exe holds
+# with ONE structural difference forced by Windows: a running spectyn.exe holds
 # an EXCLUSIVE FILE LOCK, so cargo can't relink it while serve runs (the os
 # error 5 we hit live). Order is therefore stop-serve -> build -> start-serve;
 # the node is offline for the whole build (the honest cost of the file lock).
@@ -12,21 +12,21 @@
 # process control if the task isn't registered.
 #
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-loop\self-update.ps1 -Repo C:\Users\<you>\phantom-mesh
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\dev-loop\self-update.ps1 -Repo C:\Users\<you>\spectyn-mesh
 # Exit:  0 up-to-date · 1 updated+serve-healthy · 2 build failed (tree restored,
 #        old serve restarted) · 3 skipped (busy/dirty) · 4 setup error · 5
 #        updated but serve restart UNVERIFIED (tree restored, needs attention)
 param(
   [string]$Repo = "$(Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)))",
   [string]$Base = 'step3-coach-install-schedule',
-  [string]$TaskName = 'phantom-serve'
+  [string]$TaskName = 'spectyn-serve'
 )
 $ErrorActionPreference = 'Continue'
 $Repo = $Repo.TrimEnd('\')
-$state = Join-Path $env:USERPROFILE '.phantom-mesh'
+$state = Join-Path $env:USERPROFILE '.spectyn-mesh'
 New-Item -ItemType Directory -Force -Path $state | Out-Null
 $marker = Join-Path $state 'built-commit'
-$port = if ($env:PHANTOM_PORT) { $env:PHANTOM_PORT } else { 7878 }
+$port = if ($env:SPECTYN_PORT) { $env:SPECTYN_PORT } else { 7878 }
 
 $logfile = Join-Path $state 'self-update.log'
 function GitR { param([Parameter(ValueFromRemainingArguments=$true)]$a) & git -C $Repo @a }
@@ -89,7 +89,7 @@ function Stop-Serve {
     Disable-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   }
-  taskkill /f /im phantom.exe 2>$null | Out-Null
+  taskkill /f /im spectyn.exe 2>$null | Out-Null
   # Wait for the .exe lock to release: healthz must stop returning 200 (≤15s).
   foreach ($i in 1..15) { if ((Healthz) -ne 200) { return $true }; Start-Sleep -Seconds 1 }
   return ((Healthz) -ne 200)
@@ -106,7 +106,7 @@ function Start-Serve {
     if (Test-Path $loop) {
       Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$loop`" -Repo `"$Repo`""
     } else {
-      $bin = Join-Path $Repo 'core\target\release\phantom.exe'
+      $bin = Join-Path $Repo 'core\target\release\spectyn.exe'
       if (Test-Path $bin) { Start-Process $bin -ArgumentList 'serve' -WindowStyle Hidden }
     }
   }
@@ -142,7 +142,7 @@ if (-not (Stop-Serve)) {
 # ── build (single; serve is down so the .exe is writable) ────────────────────
 $buildOk = $false
 Push-Location (Join-Path $Repo 'core')
-try { & cargo build --release --bin phantom; $buildOk = ($LASTEXITCODE -eq 0) }
+try { & cargo build --release --bin spectyn; $buildOk = ($LASTEXITCODE -eq 0) }
 catch { $buildOk = $false }
 Pop-Location
 if (-not $buildOk) {

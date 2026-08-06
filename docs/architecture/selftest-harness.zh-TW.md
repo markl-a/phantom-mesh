@@ -4,8 +4,8 @@
 
 ## 用途
 
-Self-test harness 是 phantom-mesh 的端對端 smoke-test 層。它會以真實使用者
-或 LLM agent 的方式操作已 build 的 `phantom` binary：執行 CLI subcommands、
+Self-test harness 是 spectyn-mesh 的端對端 smoke-test 層。它會以真實使用者
+或 LLM agent 的方式操作已 build 的 `spectyn` binary：執行 CLI subcommands、
 透過 HTTP 呼叫 local daemon、操作 TUI、檢查 MCP 與 cluster RPC，最後輸出
 人類可讀表格與 machine-readable JSON report。
 
@@ -16,7 +16,7 @@ self-test harness 驗證實際出貨 artifact 與 runtime 行為。每個 featur
 唯一入口是：
 
 ```bash
-phantom selftest
+spectyn selftest
 ```
 
 ## 重要檔案
@@ -27,18 +27,18 @@ phantom selftest
 | `scripts/selftest.d/_lib.sh` | Helpers：`t_pass`、`t_fail`、`t_skip`、`t_run`、`t_check`、`t_have`、`t_http`、`t_http_json` |
 | `scripts/selftest.d/_template.sh` | 新增 feature test 的範本 |
 | `scripts/selftest.d/00-binary.sh` | P0 bootstrap：binary、`--version`、`--help`、subcommands |
-| `scripts/selftest.d/10-doctor.sh`, `15-doctor-json.sh` | `phantom doctor` text 與 JSON |
+| `scripts/selftest.d/10-doctor.sh`, `15-doctor-json.sh` | `spectyn doctor` text 與 JSON |
 | `scripts/selftest.d/20-serve.sh`, `25-run.sh`, `30-mcp.sh` | Daemon、run、MCP |
 | `scripts/selftest.d/35-tui.sh`, `36-tui-fuzz.sh`, `70-tui-double-tap.sh` | TUI smoke、fuzz、input handling |
 | `scripts/selftest.d/40-autoevolve.sh`, `45-autoevolve-queue.sh` | Auto-evolve pipeline 與 queue |
 | `scripts/selftest.d/50-snapshot-mac.sh`, `51-service-windows.sh` | 平台專用 integration |
 | `scripts/selftest.d/55-cluster-rpc.sh` | Multi-peer cluster RPC |
 | `scripts/selftest.d/60-cargo-test.sh` | 執行 workspace `cargo test` 的 P2 wrapper |
-| `core/src/bin/phantom.rs` | `phantom selftest` Rust shim |
+| `core/src/bin/spectyn.rs` | `spectyn selftest` Rust shim |
 
 ## 資料流程
 
-1. 使用者執行 `phantom selftest [flags]`。
+1. 使用者執行 `spectyn selftest [flags]`。
 2. Rust shim 尋找 `scripts/selftest.sh` 與可用 bash，轉送全部 flags。
 3. `selftest.sh` 找到 binary、建立 temp dir 與
    `test-results/selftest-<timestamp>/` artifacts 目錄，只保留最近 10 次。
@@ -50,7 +50,7 @@ phantom selftest
 
 ```mermaid
 flowchart TD
-  A["phantom selftest"] --> B["Rust shim：尋找 script + bash"]
+  A["spectyn selftest"] --> B["Rust shim：尋找 script + bash"]
   B --> C["selftest.sh orchestrator"]
   C --> D["搜尋 scripts/selftest.d/NN-*.sh"]
   D --> E["每個 feature 使用獨立 subshell"]
@@ -71,11 +71,11 @@ flowchart TD
 ## 執行
 
 ```bash
-phantom selftest
-phantom selftest --json
-phantom selftest --p0-only
-phantom selftest --feature serve
-phantom selftest --list
+spectyn selftest
+spectyn selftest --json
+spectyn selftest --p0-only
+spectyn selftest --feature serve
+spectyn selftest --list
 ```
 
 每次執行的 stdout、stderr、repro commands 會保留在

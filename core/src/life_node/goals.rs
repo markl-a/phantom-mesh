@@ -7,7 +7,7 @@
 //! storage** half; the deviation computation lives in the daily-review and is
 //! intentionally out of scope here.
 //!
-//! Storage is an append-only JSON-lines ledger at `~/.phantom-mesh/goals.jsonl`,
+//! Storage is an append-only JSON-lines ledger at `~/.spectyn-mesh/goals.jsonl`,
 //! mirroring the `partner-signals.jsonl` convention in [`crate::partner`]: no DB
 //! to provision, survives a crash mid-write (the worst case is one truncated
 //! trailing line, which the reader skips), and is trivially greppable. We
@@ -38,15 +38,15 @@ pub struct Goal {
     pub window: String,
 }
 
-/// Default goals-ledger file name under the `.phantom-mesh` home dir.
+/// Default goals-ledger file name under the `.spectyn-mesh` home dir.
 const GOALS_FILE: &str = "goals.jsonl";
 
-/// Path of the goals JSONL ledger: `~/.phantom-mesh/goals.jsonl`. Resolved from
+/// Path of the goals JSONL ledger: `~/.spectyn-mesh/goals.jsonl`. Resolved from
 /// `$HOME` (via `dirs::home_dir`) so a temp `$HOME` would isolate it; tests use
 /// the path-injectable [`define_goal_in`] / [`list_goals_in`] cores directly and
 /// never touch the real home dir. Mirrors `partner::signals_path`.
 pub fn goals_jsonl_path() -> PathBuf {
-    crate::cli_config::phantom_data_dir()
+    crate::cli_config::spectyn_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join(GOALS_FILE)
 }
@@ -95,7 +95,7 @@ pub fn list_goals_in(dir: &Path) -> std::io::Result<Vec<Goal>> {
     Ok(goals)
 }
 
-/// Append a goal to the real `~/.phantom-mesh/goals.jsonl` ledger. Thin wrapper
+/// Append a goal to the real `~/.spectyn-mesh/goals.jsonl` ledger. Thin wrapper
 /// over [`define_goal_in`] using the home-derived dir.
 pub fn define_goal(g: &Goal) -> std::io::Result<()> {
     let path = goals_jsonl_path();
@@ -106,7 +106,7 @@ pub fn define_goal(g: &Goal) -> std::io::Result<()> {
     define_goal_in(&dir, g)
 }
 
-/// List the effective goals from the real `~/.phantom-mesh/goals.jsonl` ledger.
+/// List the effective goals from the real `~/.spectyn-mesh/goals.jsonl` ledger.
 /// Thin wrapper over [`list_goals_in`] using the home-derived dir.
 pub fn list_goals() -> std::io::Result<Vec<Goal>> {
     let path = goals_jsonl_path();
@@ -118,13 +118,13 @@ pub fn list_goals() -> std::io::Result<Vec<Goal>> {
 }
 
 /// List the effective goals for a given `home` directory — the ledger lives at
-/// `<home>/.phantom-mesh/goals.jsonl`. This is the path-injectable entry point
+/// `<home>/.spectyn-mesh/goals.jsonl`. This is the path-injectable entry point
 /// the daily-review uses: production passes the real home, tests pass a tempdir,
 /// so the deviation computation reads a real `goals.jsonl` off real files in
 /// both cases (no mock). Resolves to the same dir `list_goals` would for the
 /// real `$HOME` and delegates to [`list_goals_in`].
 pub fn list_goals_for_home(home: &Path) -> std::io::Result<Vec<Goal>> {
-    let dir = crate::cli_config::phantom_dir_under(home);
+    let dir = crate::cli_config::spectyn_dir_under(home);
     list_goals_in(&dir)
 }
 
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn goal_round_trips_through_jsonl_ledger() {
         let dir = std::env::temp_dir().join(format!(
-            "phantom-goals-roundtrip-{}-{:?}",
+            "spectyn-goals-roundtrip-{}-{:?}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn newest_definition_wins_per_tag() {
         let dir = std::env::temp_dir().join(format!(
-            "phantom-goals-newestwins-{}-{:?}",
+            "spectyn-goals-newestwins-{}-{:?}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

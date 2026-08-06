@@ -21,11 +21,11 @@ export function DiffViewer({ path, hunks, className = '' }: DiffViewerProps) {
   if (hunks.length === 0) return null;
 
   return (
-    <div className={`rounded-lg overflow-hidden border border-phantom-border text-xs font-mono ${className}`}>
+    <div className={`rounded-lg overflow-hidden border border-spectyn-border text-xs font-mono ${className}`}>
       {/* File header */}
-      <div className="bg-phantom-card px-3 py-1.5 border-b border-phantom-border flex items-center gap-2">
-        <span className="text-phantom-muted">~</span>
-        <span className="text-phantom-text">{path}</span>
+      <div className="bg-spectyn-card px-3 py-1.5 border-b border-spectyn-border flex items-center gap-2">
+        <span className="text-spectyn-muted">~</span>
+        <span className="text-spectyn-text">{path}</span>
       </div>
 
       {/* Hunks */}
@@ -47,14 +47,14 @@ export function DiffViewer({ path, hunks, className = '' }: DiffViewerProps) {
               <span className={`w-6 text-center select-none flex-shrink-0 ${
                 line.type === 'add' ? 'text-green-400' :
                 line.type === 'remove' ? 'text-red-400' :
-                'text-phantom-muted'
+                'text-spectyn-muted'
               }`}>
                 {line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' '}
               </span>
               <span className={`flex-1 px-2 whitespace-pre-wrap break-all ${
                 line.type === 'add' ? 'text-green-300' :
                 line.type === 'remove' ? 'text-red-300' :
-                'text-phantom-muted'
+                'text-spectyn-muted'
               }`}>
                 {line.content}
               </span>

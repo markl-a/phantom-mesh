@@ -50,7 +50,7 @@ pub enum Tier {
 impl Tier {
     /// The main AGPL repo is the only `Main`; everything else is a satellite.
     pub fn for_repo(repo: &str) -> Tier {
-        if repo == "phantom-mesh" || repo == "phantom-mesh" {
+        if repo == "spectyn-mesh" || repo == "spectyn-mesh" {
             Tier::Main
         } else {
             Tier::Satellite
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn tier_of_known_repos() {
-        assert_eq!(Tier::for_repo("phantom-quant"), Tier::Satellite);
-        assert_eq!(Tier::for_repo("phantom-mesh"), Tier::Main);
+        assert_eq!(Tier::for_repo("spectyn-quant"), Tier::Satellite);
+        assert_eq!(Tier::for_repo("spectyn-mesh"), Tier::Main);
     }
 }

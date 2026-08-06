@@ -1,6 +1,6 @@
 //! Minimal CLI/TUI localization (i18n).
 //!
-//! Goal: let the phantom terminal render its UI strings (help, errors, TUI
+//! Goal: let the spectyn terminal render its UI strings (help, errors, TUI
 //! labels) in Traditional Chinese as well as English, chosen at runtime.
 //!
 //! Design — deliberately dependency-free and inline:
@@ -12,8 +12,8 @@
 //!     sync. `tr_owned` is the `String` form for already-formatted text.
 //!
 //! Locale resolution order (first match wins):
-//!   1. `PHANTOM_LANG`  — explicit per-invocation override (`PHANTOM_LANG=zh-TW`).
-//!   2. persisted preference — `phantom lang set …` writes `~/.phantom-mesh/lang`.
+//!   1. `SPECTYN_LANG`  — explicit per-invocation override (`SPECTYN_LANG=zh-TW`).
+//!   2. persisted preference — `spectyn lang set …` writes `~/.spectyn-mesh/lang`.
 //!   3. `LC_ALL`, then `LANG` — standard POSIX locale env.
 //!   4. default → `En`.
 //!
@@ -57,7 +57,7 @@ pub fn classify_locale(raw: &str) -> Lang {
     }
 }
 
-/// Strict parser for an EXPLICIT user-supplied language tag (`phantom lang set
+/// Strict parser for an EXPLICIT user-supplied language tag (`spectyn lang set
 /// <X>`). Unlike [`classify_locale`] — which is a best-effort system-locale
 /// sniffer that falls back to `En` for anything unrecognized — this returns
 /// `None` for an unknown value so the CLI can reject it instead of silently
@@ -78,17 +78,17 @@ pub fn parse_explicit_lang(raw: &str) -> Option<Lang> {
 }
 
 fn detect_lang() -> Lang {
-    let phantom = std::env::var("PHANTOM_LANG").ok();
+    let spectyn = std::env::var("SPECTYN_LANG").ok();
     let posix = std::env::var("LC_ALL")
         .or_else(|_| std::env::var("LANG"))
         .ok();
-    resolve_lang(phantom.as_deref(), persisted_lang(), posix.as_deref())
+    resolve_lang(spectyn.as_deref(), persisted_lang(), posix.as_deref())
 }
 
 /// Pure precedence resolver (unit-testable without touching env/disk). See the
 /// module-level resolution order. Empty strings are treated as unset.
-fn resolve_lang(phantom_lang: Option<&str>, persisted: Option<Lang>, posix: Option<&str>) -> Lang {
-    if let Some(raw) = phantom_lang.filter(|s| !s.is_empty()) {
+fn resolve_lang(spectyn_lang: Option<&str>, persisted: Option<Lang>, posix: Option<&str>) -> Lang {
+    if let Some(raw) = spectyn_lang.filter(|s| !s.is_empty()) {
         return classify_locale(raw);
     }
     if let Some(l) = persisted {
@@ -100,22 +100,22 @@ fn resolve_lang(phantom_lang: Option<&str>, persisted: Option<Lang>, posix: Opti
     Lang::En
 }
 
-/// Path of the persisted-language file: `$PHANTOM_LANG_FILE` (override, used in
-/// tests) or `~/.phantom-mesh/lang`. Home is resolved via `dirs::home_dir()`
-/// (the same primitive the rest of phantom uses) so it works on Windows, where
+/// Path of the persisted-language file: `$SPECTYN_LANG_FILE` (override, used in
+/// tests) or `~/.spectyn-mesh/lang`. Home is resolved via `dirs::home_dir()`
+/// (the same primitive the rest of spectyn uses) so it works on Windows, where
 /// `HOME` is unset in cmd/PowerShell and only `USERPROFILE` exists; `$HOME` is
 /// kept as a fallback for the rare case `dirs::home_dir()` returns `None`.
 fn lang_file_path() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("PHANTOM_LANG_FILE") {
+    if let Ok(p) = std::env::var("SPECTYN_LANG_FILE") {
         if !p.is_empty() {
             return Some(std::path::PathBuf::from(p));
         }
     }
-    let data = crate::cli_config::phantom_data_dir().ok()?;
+    let data = crate::cli_config::spectyn_data_dir().ok()?;
     Some(data.join("lang"))
 }
 
-/// The persisted language preference, if any (written by `phantom lang set …`).
+/// The persisted language preference, if any (written by `spectyn lang set …`).
 pub fn persisted_lang() -> Option<Lang> {
     let raw = std::fs::read_to_string(lang_file_path()?).ok()?;
     let raw = raw.trim();
@@ -125,7 +125,7 @@ pub fn persisted_lang() -> Option<Lang> {
     Some(classify_locale(raw))
 }
 
-/// Persist a language choice to `~/.phantom-mesh/lang` (or `$PHANTOM_LANG_FILE`),
+/// Persist a language choice to `~/.spectyn-mesh/lang` (or `$SPECTYN_LANG_FILE`),
 /// storing the canonical tag. Returns the path written. Takes effect on the
 /// NEXT run — the current process already cached its language in `current_lang`.
 pub fn set_persisted_lang(lang: Lang) -> std::io::Result<std::path::PathBuf> {
@@ -159,7 +159,7 @@ pub fn current_lang() -> Lang {
 }
 
 /// Pick a `&'static str` for the current language.
-/// `tr("Usage:", "用法：")` → "用法：" when `PHANTOM_LANG=zh-TW`, else "Usage:".
+/// `tr("Usage:", "用法：")` → "用法：" when `SPECTYN_LANG=zh-TW`, else "Usage:".
 pub fn tr(en: &'static str, zh_tw: &'static str) -> &'static str {
     match current_lang() {
         Lang::En => en,
@@ -215,14 +215,14 @@ mod tests {
 
     #[test]
     fn resolve_lang_precedence() {
-        // PHANTOM_LANG (explicit) wins over everything.
+        // SPECTYN_LANG (explicit) wins over everything.
         assert_eq!(resolve_lang(Some("zh-TW"), Some(Lang::En), Some("en_US")), Lang::ZhTw);
         assert_eq!(resolve_lang(Some("en"), Some(Lang::ZhTw), Some("zh_TW")), Lang::En);
-        // No PHANTOM_LANG → persisted choice wins over the POSIX locale. This is
+        // No SPECTYN_LANG → persisted choice wins over the POSIX locale. This is
         // the key case: a saved zh-TW must survive a system LANG=en_US.UTF-8.
         assert_eq!(resolve_lang(None, Some(Lang::ZhTw), Some("en_US.UTF-8")), Lang::ZhTw);
         assert_eq!(resolve_lang(None, Some(Lang::En), Some("zh_TW.UTF-8")), Lang::En);
-        // No PHANTOM_LANG + no persisted → POSIX locale.
+        // No SPECTYN_LANG + no persisted → POSIX locale.
         assert_eq!(resolve_lang(None, None, Some("zh-TW")), Lang::ZhTw);
         assert_eq!(resolve_lang(None, None, Some("en_US")), Lang::En);
         // Nothing set → En.
@@ -243,11 +243,11 @@ mod tests {
         // Serialize on the SAME mutex the other env-mutating tests use
         // (diag.rs / models_cache.rs / service mutate $HOME via env_lock).
         // sandbox::test_lock guards the sandbox atomic, NOT env vars — wrong
-        // lock here since this test set/remove_var's PHANTOM_LANG_FILE.
+        // lock here since this test set/remove_var's SPECTYN_LANG_FILE.
         let _g = crate::env_lock::acquire();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("lang");
-        std::env::set_var("PHANTOM_LANG_FILE", &path);
+        std::env::set_var("SPECTYN_LANG_FILE", &path);
         // unset → None
         assert_eq!(super::persisted_lang(), None);
         // write zh-TW → reads back ZhTw, canonical tag on disk
@@ -258,7 +258,7 @@ mod tests {
         // overwrite en → reads back En
         super::set_persisted_lang(Lang::En).unwrap();
         assert_eq!(super::persisted_lang(), Some(Lang::En));
-        std::env::remove_var("PHANTOM_LANG_FILE");
+        std::env::remove_var("SPECTYN_LANG_FILE");
     }
 
     /// `tr` is a pure selector over `current_lang()`. Since the process language
@@ -289,7 +289,7 @@ mod tests {
     /// passing the same string for both arms always yields that string.
     #[test]
     fn tr_returns_shared_literal_when_both_arms_equal() {
-        const KEY: &str = "phantom.status";
+        const KEY: &str = "spectyn.status";
         assert_eq!(tr(KEY, KEY), KEY);
     }
 
@@ -318,17 +318,17 @@ mod tests {
     fn lang_file_path_resolves_via_dirs_without_home() {
         // Regression (2026-05-28): on native Windows `HOME` is unset (only
         // USERPROFILE exists), so resolving the path from `$HOME` alone returned
-        // None and `phantom lang set` failed with "no $HOME for the lang file".
+        // None and `spectyn lang set` failed with "no $HOME for the lang file".
         // The path must resolve via `dirs::home_dir()` without `$HOME`.
         let _g = crate::env_lock::acquire();
-        let saved_file = std::env::var("PHANTOM_LANG_FILE").ok();
+        let saved_file = std::env::var("SPECTYN_LANG_FILE").ok();
         let saved_home = std::env::var("HOME").ok();
-        std::env::remove_var("PHANTOM_LANG_FILE");
+        std::env::remove_var("SPECTYN_LANG_FILE");
         std::env::remove_var("HOME");
         let resolved = super::lang_file_path();
         let dirs_home = dirs::home_dir();
         if let Some(f) = saved_file {
-            std::env::set_var("PHANTOM_LANG_FILE", f);
+            std::env::set_var("SPECTYN_LANG_FILE", f);
         }
         if let Some(h) = saved_home {
             std::env::set_var("HOME", h);
@@ -340,7 +340,7 @@ mod tests {
             let p = resolved
                 .expect("lang file path must resolve via dirs::home_dir() without $HOME");
             assert!(
-                p.ends_with(std::path::Path::new(".phantom-mesh").join("lang")),
+                p.ends_with(std::path::Path::new(".spectyn-mesh").join("lang")),
                 "unexpected lang file path: {}",
                 p.display()
             );

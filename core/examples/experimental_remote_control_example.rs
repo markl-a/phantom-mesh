@@ -6,15 +6,15 @@
 //!
 //! Run:
 //!   CARGO_TARGET_DIR=D:/tmp/skill-docs-target \
-//!     cargo run -p phantom-mesh \
+//!     cargo run -p spectyn-mesh \
 //!       --example experimental_remote_control_example \
 //!       --features experimental-remote-control
 //!
 //! Expected last line: `experimental-remote-control OK`. Exit code 0.
 
-use phantom_mesh::remote_control::slack::SlackStub;
-use phantom_mesh::remote_control::whatsapp::WhatsappStub;
-use phantom_mesh::remote_control::{Channel, ChannelError};
+use spectyn_mesh::remote_control::slack::SlackStub;
+use spectyn_mesh::remote_control::whatsapp::WhatsappStub;
+use spectyn_mesh::remote_control::{Channel, ChannelError};
 
 async fn exercise<C: Channel>(c: &C, allowed: i64, denied: i64) -> &'static str {
     assert!(

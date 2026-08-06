@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Comprehensive TUI input behaviour test.
 #
-# Each test launches a fresh phantom in tmux, sends keystrokes, captures the
+# Each test launches a fresh spectyn in tmux, sends keystrokes, captures the
 # pane, and reports OK / FAIL with the captured row and cursor position.
 # Goal: surface remaining layout/edit bugs end-to-end.
 
@@ -18,14 +18,14 @@ bold()   { printf "\033[1m%s\033[0m" "$1"; }
 ok()   { PASS=$((PASS+1)); printf "  $(green '✓') %-50s %s\n" "$1" "$(gray "$2")"; }
 fail() { FAIL=$((FAIL+1)); FAIL_LINES+=("$1 :: $2"); printf "  $(red '✗') %-50s %s\n" "$1" "$(gray "$2")"; }
 
-# Run a phantom session, send keystrokes, return the captured input row + cursor_x.
+# Run a spectyn session, send keystrokes, return the captured input row + cursor_x.
 # Args: <name> <description> <keystrokes...>
 # Special: TYPE:str, KEY:keyname, WAIT:secs
 run_test() {
   local name="$1"; shift
   local desc="$1"; shift
   local sess="phantest-$$-$RANDOM"
-  tmux new-session -d -s "$sess" -x 80 -y 25 phantom 2>/dev/null
+  tmux new-session -d -s "$sess" -x 80 -y 25 spectyn 2>/dev/null
   sleep 1.5
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -61,8 +61,8 @@ run_test "cjk-typing" "type 你好世界 (4 CJK chars)" "TYPE:你好世界"
   && ok "CJK typing cursor at col 9" "cursor_x=9 (8 cells + 1 border)" \
   || fail "CJK typing cursor at col 9" "got: $TMUX_INPUT_ROW cursor=$TMUX_CURSOR"
 
-run_test "mixed-typing" "type 'phantom 是個 AI'" "TYPE:phantom 是個 AI"
-[[ "$TMUX_INPUT_ROW" == *"phantom 是個 AI"* ]] \
+run_test "mixed-typing" "type 'spectyn 是個 AI'" "TYPE:spectyn 是個 AI"
+[[ "$TMUX_INPUT_ROW" == *"spectyn 是個 AI"* ]] \
   && ok "mixed ASCII+CJK typing" "" \
   || fail "mixed ASCII+CJK typing" "got: $TMUX_INPUT_ROW"
 
@@ -205,7 +205,7 @@ section "9. history Up/Down"
 # This test uses two sessions to confirm cross-restart persistence.
 HIST_MARKER="HISTMARK-$$-$RANDOM"
 sess1="phantest-h1-$$"
-tmux new-session -d -s "$sess1" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess1" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess1" -l "$HIST_MARKER"
 sleep 0.2
 tmux send-keys -t "$sess1" Enter
@@ -216,15 +216,15 @@ tmux kill-session -t "$sess1" 2>/dev/null
 sleep 0.4
 
 # File-level persistence
-if grep -qF "$HIST_MARKER" "$HOME/.phantom-mesh/tui-history" 2>/dev/null; then
-  ok "history persists to ~/.phantom-mesh/tui-history" ""
+if grep -qF "$HIST_MARKER" "$HOME/.spectyn-mesh/tui-history" 2>/dev/null; then
+  ok "history persists to ~/.spectyn-mesh/tui-history" ""
 else
-  fail "history persists to ~/.phantom-mesh/tui-history" ""
+  fail "history persists to ~/.spectyn-mesh/tui-history" ""
 fi
 
 # Cross-session Up arrow recall (Up x2 to skip /exit)
 sess2="phantest-h2-$$"
-tmux new-session -d -s "$sess2" -x 80 -y 25 phantom 2>/dev/null; sleep 1.5
+tmux new-session -d -s "$sess2" -x 80 -y 25 spectyn 2>/dev/null; sleep 1.5
 tmux send-keys -t "$sess2" Up; sleep 0.3
 tmux send-keys -t "$sess2" Up; sleep 0.3
 TMUX_CAP=$(tmux capture-pane -t "$sess2" -p)

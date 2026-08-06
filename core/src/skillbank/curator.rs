@@ -214,7 +214,7 @@ pub fn verdict_from_parsed(
 }
 
 /// HTTP-talking judge. Holds Anthropic API base + key + model + timeout.
-/// One Curator instance per `phantom evolve --judge` invocation.
+/// One Curator instance per `spectyn evolve --judge` invocation.
 pub struct Curator {
     /// Base URL, e.g. "https://api.anthropic.com" or a wiremock URI in tests.
     pub api_base: String,

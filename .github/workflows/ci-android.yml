@@ -83,16 +83,16 @@ jobs:
         run: cargo ndk -t arm64-v8a -P 21 test --release --no-run --lib
 
       # ── 2. Build the user-facing CLI binary ──────────────────────────────
-      - name: Build phantom binary
+      - name: Build spectyn binary
         working-directory: core
-        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin spectyn
 
       # ── 3. ELF sanity: arch + Bionic-only + no glibc symbols ─────────────
       - name: ELF sanity check
         run: |
           set -euo pipefail
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          BIN=core/target/aarch64-linux-android/release/phantom
+          BIN=core/target/aarch64-linux-android/release/spectyn
           ls -lh "$BIN"
 
           echo "--- file headers ---"
@@ -142,9 +142,9 @@ jobs:
       - name: Strip + size budget
         run: |
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          BIN=core/target/aarch64-linux-android/release/phantom
-          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-stripped
-          SIZE=$(stat -c%s phantom-stripped)
+          BIN=core/target/aarch64-linux-android/release/spectyn
+          "$NDK_BIN/llvm-strip" "$BIN" -o spectyn-stripped
+          SIZE=$(stat -c%s spectyn-stripped)
           SIZE_MB=$(( SIZE / 1024 / 1024 ))
           echo "stripped size: ${SIZE_MB} MB"
           # Soft cap: 30 MB. Today's release is ~18 MB; if we breach 30 MB

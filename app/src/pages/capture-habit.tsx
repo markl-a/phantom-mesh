@@ -50,17 +50,17 @@ export default function CaptureHabit() {
   return (
     <div
       data-testid="capture-habit"
-      className="min-h-screen bg-phantom-bg text-phantom-text pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] px-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
+      className="min-h-screen bg-spectyn-bg text-spectyn-text pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] px-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]"
     >
       <div className="flex min-h-screen flex-col">
         <main className="flex-1 overflow-y-auto px-4 pb-6 pt-5">
           <header className="mb-5">
-            <div className="mb-2 flex items-center gap-2 text-phantom-primary">
+            <div className="mb-2 flex items-center gap-2 text-spectyn-primary">
               <Flame aria-hidden="true" className="size-5" />
               <span className="text-base font-medium">習慣 / Habit</span>
             </div>
             <h1 className="text-lg font-semibold">記錄習慣 / Log habit</h1>
-            <p className="mt-2 text-base text-phantom-muted">
+            <p className="mt-2 text-base text-spectyn-muted">
               選一個習慣，或切換成自由記錄。
             </p>
           </header>
@@ -84,8 +84,8 @@ export default function CaptureHabit() {
                     "min-h-[44px] rounded-lg border px-2 py-2 text-base transition",
                     "motion-reduce:transition-none",
                     active
-                      ? "border-phantom-primary bg-phantom-primary text-phantom-bg"
-                      : "border-phantom-border bg-phantom-card text-phantom-text",
+                      ? "border-spectyn-primary bg-spectyn-primary text-spectyn-bg"
+                      : "border-spectyn-border bg-spectyn-card text-spectyn-text",
                   ].join(" ")}
                 >
                   <span aria-hidden="true" className="block text-lg">
@@ -99,7 +99,7 @@ export default function CaptureHabit() {
 
           <section className="mt-5 space-y-3">
             <label className="block">
-              <span className="mb-2 block text-base text-phantom-muted">
+              <span className="mb-2 block text-base text-spectyn-muted">
                 補充數量或備註 / Quantity or note
               </span>
               <input
@@ -108,7 +108,7 @@ export default function CaptureHabit() {
                 disabled={freeMode}
                 aria-label="補充數量或備註 / Quantity or note"
                 placeholder="例：20 分鐘、3 組、睡前完成"
-                className="min-h-[44px] w-full rounded-lg border border-phantom-border bg-phantom-card px-3 py-2 text-base text-phantom-text placeholder:text-phantom-muted disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2 text-base text-spectyn-text placeholder:text-spectyn-muted disabled:opacity-50"
               />
             </label>
 
@@ -121,20 +121,20 @@ export default function CaptureHabit() {
                 setError(null);
                 setDone(null);
               }}
-              className="flex min-h-[44px] w-full items-center justify-between rounded-lg border border-phantom-border bg-phantom-card px-3 py-2 text-left text-base transition motion-reduce:transition-none"
+              className="flex min-h-[44px] w-full items-center justify-between rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2 text-left text-base transition motion-reduce:transition-none"
             >
               <span className="flex items-center gap-2">
-                <PencilLine aria-hidden="true" className="size-5 text-phantom-primary" />
+                <PencilLine aria-hidden="true" className="size-5 text-spectyn-primary" />
                 自由記錄 / Free text
               </span>
-              <span className={freeMode ? "text-phantom-primary" : "text-phantom-muted"}>
+              <span className={freeMode ? "text-spectyn-primary" : "text-spectyn-muted"}>
                 {freeMode ? "On" : "Off"}
               </span>
             </button>
 
             {freeMode && (
               <label className="block">
-                <span className="mb-2 block text-base text-phantom-muted">
+                <span className="mb-2 block text-base text-spectyn-muted">
                   自由記錄內容 / Free text entry
                 </span>
                 <textarea
@@ -142,18 +142,18 @@ export default function CaptureHabit() {
                   onChange={(e) => setFreeText(e.target.value)}
                   aria-label="自由記錄內容 / Free text entry"
                   placeholder="今天完成了什麼？"
-                  className="min-h-[96px] w-full resize-none rounded-lg border border-phantom-border bg-phantom-card px-3 py-2 text-base text-phantom-text placeholder:text-phantom-muted"
+                  className="min-h-[96px] w-full resize-none rounded-lg border border-spectyn-border bg-spectyn-card px-3 py-2 text-base text-spectyn-text placeholder:text-spectyn-muted"
                 />
               </label>
             )}
 
             {error && (
-              <p role="alert" className="text-base text-phantom-warning">
+              <p role="alert" className="text-base text-spectyn-warning">
                 {error}
               </p>
             )}
             {done && (
-              <p role="status" className="flex items-center gap-2 text-base text-phantom-success">
+              <p role="status" className="flex items-center gap-2 text-base text-spectyn-success">
                 <Check aria-hidden="true" className="size-5" />
                 {done}
               </p>
@@ -161,13 +161,13 @@ export default function CaptureHabit() {
           </section>
         </main>
 
-        <footer className="sticky bottom-0 border-t border-phantom-border bg-phantom-bg px-4 py-3">
+        <footer className="sticky bottom-0 border-t border-spectyn-border bg-spectyn-bg px-4 py-3">
           <button
             type="button"
             aria-label="記錄習慣 / Log habit"
             disabled={busy || !canSubmit}
             onClick={submit}
-            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-phantom-primary px-4 py-3 text-base font-semibold text-phantom-bg transition disabled:opacity-50 motion-reduce:transition-none"
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-lg bg-spectyn-primary px-4 py-3 text-base font-semibold text-spectyn-bg transition disabled:opacity-50 motion-reduce:transition-none"
           >
             {busy && <Loader2 aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" />}
             {busy ? "記錄中 / Logging" : "記錄習慣 / Log habit"}

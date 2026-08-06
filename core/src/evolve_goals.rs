@@ -11,7 +11,7 @@
 //!
 //! ## Pending
 //! - [ ] Add cluster_secret rotation endpoint
-//! - [ ] Make `phantom evolve list` accept `--json`
+//! - [ ] Make `spectyn evolve list` accept `--json`
 //!
 //! ## Done
 //! - [x] (2026-04-30 sha=abc1234) Phase 2 mesh handoff
@@ -59,7 +59,7 @@ pub struct GoalsFile {
 
 impl GoalsFile {
     /// Load and parse a goals file. Missing file returns an empty document
-    /// rather than an error so a fresh repo can start with `phantom evolve
+    /// rather than an error so a fresh repo can start with `spectyn evolve
     /// goals add ...` and the file is created on first save.
     pub fn load(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
@@ -300,7 +300,7 @@ impl GoalsFile {
     }
 
     /// Map a 1-based ORDINAL over checkbox lines — in file order, the same
-    /// order `phantom evolve goals list` prints — to the underlying file-line
+    /// order `spectyn evolve goals list` prints — to the underlying file-line
     /// `idx` that [`Self::mark_done`] expects. Returns `None` when `ordinal` is
     /// 0 or past the last checkbox.
     ///
@@ -337,18 +337,18 @@ impl GoalsFile {
 
 /// Resolve which `EVOLVE-GOALS.md` to use, in priority order (D26):
 ///   1. an explicit `--file PATH` (the CLI flag), when non-empty;
-///   2. `$PHANTOM_EVOLVE_GOALS` (already honored by the TUI — now the CLI too);
+///   2. `$SPECTYN_EVOLVE_GOALS` (already honored by the TUI — now the CLI too);
 ///   3. `./EVOLVE-GOALS.md` IF it already exists, preserving the per-project
 ///      workflow where a repo deliberately keeps its own goals file;
-///   4. otherwise `~/.phantom-mesh/EVOLVE-GOALS.md` — a stable home-anchored
-///      default so running `phantom evolve goals …` in an arbitrary directory
+///   4. otherwise `~/.spectyn-mesh/EVOLVE-GOALS.md` — a stable home-anchored
+///      default so running `spectyn evolve goals …` in an arbitrary directory
 ///      no longer drops an `EVOLVE-GOALS.md` into whatever cwd you happened to
 ///      be in.
 ///
 /// Both the CLI and the TUI route through this so they never disagree on which
 /// file backs the goals queue.
 pub fn resolve_goals_path(explicit: Option<&str>) -> PathBuf {
-    let env = std::env::var("PHANTOM_EVOLVE_GOALS").ok();
+    let env = std::env::var("SPECTYN_EVOLVE_GOALS").ok();
     let cwd_has_file = Path::new("EVOLVE-GOALS.md").exists();
     resolve_goals_path_inner(explicit, env.as_deref(), cwd_has_file, dirs::home_dir())
 }
@@ -371,7 +371,7 @@ fn resolve_goals_path_inner(
         return PathBuf::from("EVOLVE-GOALS.md");
     }
     if let Some(h) = home {
-        return h.join(".phantom-mesh").join("EVOLVE-GOALS.md");
+        return h.join(".spectyn-mesh").join("EVOLVE-GOALS.md");
     }
     // No $HOME at all (extremely rare): fall back to cwd rather than panic.
     PathBuf::from("EVOLVE-GOALS.md")
@@ -478,13 +478,13 @@ Notes about the project go here. They survive a round trip.
         // The D26 fix: no explicit/env and NO ./EVOLVE-GOALS.md → home-anchored,
         // so an arbitrary cwd is never littered with a new file.
         let p = resolve_goals_path_inner(None, None, false, Some(PathBuf::from("/home/u")));
-        assert_eq!(p, PathBuf::from("/home/u/.phantom-mesh/EVOLVE-GOALS.md"));
+        assert_eq!(p, PathBuf::from("/home/u/.spectyn-mesh/EVOLVE-GOALS.md"));
     }
 
     #[test]
     fn resolve_goals_path_empty_explicit_and_env_are_ignored() {
         let p = resolve_goals_path_inner(Some(""), Some(""), false, Some(PathBuf::from("/h")));
-        assert_eq!(p, PathBuf::from("/h/.phantom-mesh/EVOLVE-GOALS.md"));
+        assert_eq!(p, PathBuf::from("/h/.spectyn-mesh/EVOLVE-GOALS.md"));
     }
 
     #[test]

@@ -52,7 +52,7 @@ tokio::task_local! {
     /// `MAX_ROUNDS_OVERRIDE.scope(Some(n), …)` so the cap propagates
     /// down to `run_inner` WITHOUT touching process-global state. This
     /// replaces the previous pattern where `subagent::run_one` mutated
-    /// `PHANTOM_MAX_ROUNDS` via `std::env::set_var` from concurrent
+    /// `SPECTYN_MAX_ROUNDS` via `std::env::set_var` from concurrent
     /// async tasks — which both raced (last writer wins, restore
     /// stomps on its sibling) AND triggered the `setenv()` thread-
     /// safety hazard on Linux.
@@ -153,7 +153,7 @@ pub enum AgentEvent {
     /// reply because we hit the max_tokens cap). The stream continues
     /// normally afterward — `Done` still fires. The UI renders this as a
     /// red warning so the user knows the answer is incomplete instead of
-    /// thinking phantom hung.
+    /// thinking spectyn hung.
     Notice {
         message: String,
     },
@@ -189,7 +189,7 @@ pub(crate) fn detect_truncation_notice(frame: &Value) -> Option<String> {
     let msg = move || {
         format!(
             "⚠ Response truncated: provider hit max_tokens cap ({}). \
-             Set `PHANTOM_MAX_TOKENS={}` and re-run for a larger limit, \
+             Set `SPECTYN_MAX_TOKENS={}` and re-run for a larger limit, \
              or split the prompt into smaller pieces.",
             cur_cap, suggested,
         )
@@ -207,7 +207,7 @@ pub(crate) fn detect_truncation_notice(frame: &Value) -> Option<String> {
 
     // OpenAI-shaped format: finish_reason="length" lives on the choice, not
     // inside the delta. We accept finish_reason at choices[0] (the standard
-    // single-choice shape phantom uses).
+    // single-choice shape spectyn uses).
     if frame["choices"][0]["finish_reason"].as_str() == Some("length") {
         return Some(msg());
     }
@@ -251,7 +251,7 @@ pub struct AgentRuntime {
     /// row's `job_uuid`. It is threaded into the governed cli_session run so the
     /// govern `task_id` IS the dispatch id (one correlation key), letting an
     /// approval raised mid-run stamp its `approval_id` onto the dispatch task row
-    /// live. `None` for ungoverned runs and standalone `phantom govern` (a fresh
+    /// live. `None` for ungoverned runs and standalone `spectyn govern` (a fresh
     /// id is minted as before — byte-identical behavior).
     pub(crate) dispatch_task_id: Option<uuid::Uuid>,
     /// Optional skillbank runtime. When set, each turn's user prompt is
@@ -280,7 +280,7 @@ pub struct AgentRuntime {
 /// `timeout` covers the whole request (LLM gen can be slow).
 /// `connect_timeout` fails fast on dead routes.
 /// Load the user's per-agent prompt override, if any. Returns
-/// `Some(text)` when `~/.phantom-mesh/extensions/prompts/<agent>.md`
+/// `Some(text)` when `~/.spectyn-mesh/extensions/prompts/<agent>.md`
 /// exists + reads OK; `None` otherwise (file missing, unreadable, or
 /// empty).
 ///
@@ -431,7 +431,7 @@ impl AgentRuntime {
     /// dispatch task row live. Builder-style (mirrors [`with_interrupt`]); cheap
     /// (`AgentRuntime` is `Clone`, internal state is `Arc`-shared). Absent (the
     /// default `None`) → a fresh govern id is minted as before (ungoverned runs and
-    /// standalone `phantom govern` are byte-identical).
+    /// standalone `spectyn govern` are byte-identical).
     pub fn with_dispatch_task_id(mut self, task_id: uuid::Uuid) -> Self {
         self.dispatch_task_id = Some(task_id);
         self
@@ -680,7 +680,7 @@ impl AgentRuntime {
         };
 
         // CONTRIBUTOR-FUNNEL §4 — Tier 1 sandbox prompt-override loader.
-        // SPEC-FREEZE-V1.1 §4.1-b: ~/.phantom-mesh/extensions/prompts/<agent>.md
+        // SPEC-FREEZE-V1.1 §4.1-b: ~/.spectyn-mesh/extensions/prompts/<agent>.md
         // is the user's per-agent prompt override.
         // Behaviour:
         //   - If the override file's first line is `<!-- replace -->`,
@@ -753,7 +753,7 @@ impl AgentRuntime {
         // block for the user's latest message. Always compiled (no feature flag)
         // and self-resolving (skill_wire opens the canonical DB itself), so the
         // compounding-memory moat turns on a plain `cargo build`. Default-ON;
-        // gated by `PHANTOM_OWNED_MEMORY`. Errors degrade to no injection inside
+        // gated by `SPECTYN_OWNED_MEMORY`. Errors degrade to no injection inside
         // the helper — this can never break the agent loop.
         {
             let block = crate::skill_wire::owned_memory_system_block(prompt);
@@ -779,7 +779,7 @@ impl AgentRuntime {
         //
         // Facet ⑤ limitation (fix #2): this picks the style from the
         // resolve_provider_order primary, which is computed BEFORE the
-        // PHANTOM_LOCAL_FIRST reorder applied at the call_with_fallback /
+        // SPECTYN_LOCAL_FIRST reorder applied at the call_with_fallback /
         // call_with_streaming sites below. So under local-first the system text
         // may be framed for the cloud primary even though the local server is
         // tried first. Acceptable for this minimal, reversible change: most
@@ -1281,17 +1281,17 @@ impl AgentRuntime {
         // Same priority resolution as call_with_fallback + streaming.rs.
         // This is the THIRD code path (repl streaming) — was hardcoded
         // (provider + alphabetical) before, ignoring agent.providers list
-        // AND PHANTOM_RUNTIME_OVERRIDE / runtime-override file. So /model
+        // AND SPECTYN_RUNTIME_OVERRIDE / runtime-override file. So /model
         // X:Y in TUI didn't reach repl-mode chat either. Now consistent.
         let mut provider_names =
             resolve_provider_order(agent_cfg, self.config.providers.keys().map(|s| s.as_str()));
         // Facet ⑤: local-first, cloud opt-in fallback (see call_with_fallback
-        // for the full rationale). Gated on PHANTOM_LOCAL_FIRST; reorders only,
+        // for the full rationale). Gated on SPECTYN_LOCAL_FIRST; reorders only,
         // never drops cloud providers; placed before the runtime override.
         if should_prioritize_local_servers() {
             inject_detected_local_servers(&mut provider_names).await;
         }
-        let runtime_over = std::env::var("PHANTOM_RUNTIME_OVERRIDE")
+        let runtime_over = std::env::var("SPECTYN_RUNTIME_OVERRIDE")
             .ok()
             .filter(|s| !s.trim().is_empty())
             .or_else(crate::cli_config::read_runtime_override);
@@ -1377,7 +1377,7 @@ impl AgentRuntime {
                     .as_deref()
                     .unwrap_or("(no api_key_env)");
                 let msg = format!(
-                    "[{}] no key — env var {} unset (vault sync? `phantom config pull`)",
+                    "[{}] no key — env var {} unset (vault sync? `spectyn config pull`)",
                     provider_name, env_name
                 );
                 errors.push(msg.clone());
@@ -1426,7 +1426,7 @@ impl AgentRuntime {
                 let prompt =
                     crate::providers::cli_session_provider::last_user_text(messages);
                 let first_line = prompt.lines().next().unwrap_or("").trim();
-                let reply = format!("phantom offline (stub): {}", first_line);
+                let reply = format!("spectyn offline (stub): {}", first_line);
                 on_token(AgentEvent::Token {
                     content: reply.clone(),
                 });
@@ -1980,7 +1980,7 @@ impl AgentRuntime {
             format!("\n  - {}", errors.join("\n  - "))
         };
         let hint = if !tried_any {
-            "\n\nNo provider had a usable key in env. Run `phantom config pull` to refresh \
+            "\n\nNo provider had a usable key in env. Run `spectyn config pull` to refresh \
              vault keys, or set them manually: [Environment]::SetEnvironmentVariable('OPENCODE_API_KEY','<key>','User').\n\
              View / reorder failover chain: /priority   (in TUI)"
         } else {
@@ -2011,7 +2011,7 @@ impl AgentRuntime {
         let mut provider_names =
             resolve_provider_order(agent_cfg, self.config.providers.keys().map(|s| s.as_str()));
         // Facet ⑤: local-first, cloud opt-in fallback. Gated on
-        // PHANTOM_LOCAL_FIRST (unset → no probe, no change). Reorders the chain
+        // SPECTYN_LOCAL_FIRST (unset → no probe, no change). Reorders the chain
         // so configured local servers come first IF reachable; never drops a
         // cloud provider, so the loop below still falls back to cloud when local
         // is down. Placed BEFORE the runtime-override block so an explicit
@@ -2020,12 +2020,12 @@ impl AgentRuntime {
             inject_detected_local_servers(&mut provider_names).await;
         }
         // Per-session runtime override. Two sources, env first then file:
-        //   1. PHANTOM_RUNTIME_OVERRIDE env (this process)
-        //   2. ~/.phantom-mesh/runtime-override (shared across all phantom
+        //   1. SPECTYN_RUNTIME_OVERRIDE env (this process)
+        //   2. ~/.spectyn-mesh/runtime-override (shared across all spectyn
         //      processes — so /model X:Y in the TUI also affects the
-        //      local `phantom serve` daemon and cluster RPC dispatch.)
+        //      local `spectyn serve` daemon and cluster RPC dispatch.)
         // First non-empty wins. Prepended to provider chain, de-duped.
-        let runtime_over = std::env::var("PHANTOM_RUNTIME_OVERRIDE")
+        let runtime_over = std::env::var("SPECTYN_RUNTIME_OVERRIDE")
             .ok()
             .filter(|s| !s.trim().is_empty())
             .or_else(crate::cli_config::read_runtime_override);
@@ -2104,7 +2104,7 @@ impl AgentRuntime {
                     .as_deref()
                     .unwrap_or("(no api_key_env)");
                 let msg = format!(
-                    "[{}] no key — env var {} unset (vault sync? `phantom config pull`)",
+                    "[{}] no key — env var {} unset (vault sync? `spectyn config pull`)",
                     provider_name, env_name
                 );
                 errors.push(msg.clone());
@@ -2153,7 +2153,7 @@ impl AgentRuntime {
                 let prompt =
                     crate::providers::cli_session_provider::last_user_text(messages);
                 let first_line = prompt.lines().next().unwrap_or("").trim();
-                let reply = format!("phantom offline (stub): {}", first_line);
+                let reply = format!("spectyn offline (stub): {}", first_line);
                 let synthetic = serde_json::json!({
                     "choices": [{"message": {"role": "assistant", "content": reply}}],
                     "usage": {}
@@ -2477,7 +2477,7 @@ impl AgentRuntime {
             format!("\n  - {}", errors.join("\n  - "))
         };
         let hint = if !tried_any {
-            "\n\nNo provider had a usable key. Run `phantom config pull` to refresh vault keys, \
+            "\n\nNo provider had a usable key. Run `spectyn config pull` to refresh vault keys, \
              or set them manually in user env. Open /priority in TUI to reorder failover chain."
         } else {
             "\n\nFix any of the above and the chain recovers automatically. \
@@ -2850,7 +2850,7 @@ fn resolve_provider_order_inner<'a>(
 /// Facet ⑤ (local-first, cloud opt-in fallback): is the local-first preference
 /// active for this request?
 ///
-/// Pure, side-effect-free except for reading the `PHANTOM_LOCAL_FIRST` env var.
+/// Pure, side-effect-free except for reading the `SPECTYN_LOCAL_FIRST` env var.
 /// Returns `true` only on an explicit opt-in (`"1"` / `"true"` / `"yes"`,
 /// case-insensitive). Unset / anything else → `false`, so the default provider
 /// order is unchanged (zero behavior change when the flag is absent).
@@ -2863,7 +2863,7 @@ fn resolve_provider_order_inner<'a>(
 /// `pub(crate)` so `streaming::stream_agent_full_with_resolver` (fix #2) can
 /// gate the same reorder on the identical opt-in.
 pub(crate) fn should_prioritize_local_servers() -> bool {
-    match std::env::var("PHANTOM_LOCAL_FIRST") {
+    match std::env::var("SPECTYN_LOCAL_FIRST") {
         Ok(val) => matches!(val.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
         Err(_) => false,
     }
@@ -2975,18 +2975,18 @@ fn estimate_message_tokens(msg: &Value) -> usize {
         }
         return total.max(1);
     }
-    // Plain string content: detect raw `<phantom-image .../>` sentinels and
+    // Plain string content: detect raw `<spectyn-image .../>` sentinels and
     // bill each one at the flat image cost (independent of base64 length, which
     // would otherwise dominate `len()/4` in misleading ways).
     let s = content.as_str().unwrap_or("");
-    let images = s.matches("<phantom-image ").count();
+    let images = s.matches("<spectyn-image ").count();
     let text_only_len = if images == 0 {
         s.len()
     } else {
         // Approximate text length by stripping each sentinel span.
         let mut remaining = s;
         let mut acc = 0usize;
-        while let Some(i) = remaining.find("<phantom-image ") {
+        while let Some(i) = remaining.find("<spectyn-image ") {
             acc += i;
             remaining = &remaining[i..];
             if let Some(j) = remaining.find("/>") {
@@ -3554,7 +3554,7 @@ mod tests {
 
     #[test]
     fn priority_skips_empty_names() {
-        // Defaulted AgentEntry has provider = "" — must not appear as a phantom entry.
+        // Defaulted AgentEntry has provider = "" — must not appear as a spectyn entry.
         let cfg = agent("", Some(vec!["groq", "", "cerebras"]));
         let order = resolve_provider_order(&cfg, ["groq", "cerebras"].into_iter());
         assert_eq!(order, vec!["groq", "cerebras"]);
@@ -3838,7 +3838,7 @@ mod tests {
         });
         let notice = detect_truncation_notice(&frame).expect("should detect");
         assert!(notice.contains("max_tokens"), "got: {notice}");
-        assert!(notice.contains("PHANTOM_MAX_TOKENS"), "got: {notice}");
+        assert!(notice.contains("SPECTYN_MAX_TOKENS"), "got: {notice}");
     }
 
     #[test]
@@ -3894,10 +3894,10 @@ mod tests {
 
     #[test]
     fn agent_estimate_tokens_accounts_for_image_sentinels() {
-        // 100 chars of text + one phantom-image sentinel (raw string form, as
+        // 100 chars of text + one spectyn-image sentinel (raw string form, as
         // it would appear before `prompt_to_content_value` parses it).
         let text_100 = "x".repeat(100);
-        let sentinel = r#"<phantom-image mime="image/png" data="AAAA"/>"#;
+        let sentinel = r#"<spectyn-image mime="image/png" data="AAAA"/>"#;
         let msg = json!({
             "role": "user",
             "content": format!("{} {}", text_100, sentinel),
@@ -3933,7 +3933,7 @@ mod tests {
 
     #[test]
     fn load_prompt_override_returns_none_when_no_override_file() {
-        // No file at ~/.phantom-mesh/extensions/prompts/<test-only-name>.md
+        // No file at ~/.spectyn-mesh/extensions/prompts/<test-only-name>.md
         // because tests run in real $HOME. Use a unique sentinel name that
         // a real user is extremely unlikely to have customised.
         let sentinel = "agent_runtime_test_zzzz_no_override";

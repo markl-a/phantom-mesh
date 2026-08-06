@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/package-macos.sh — build + sign a macOS .dmg of the phantom-mesh
+# scripts/package-macos.sh — build + sign a macOS .dmg of the spectyn-mesh
 # desktop "AI terminal" (the Tauri GUI app), with a Gatekeeper smoke check.
 #
 # Wave H3.5 (task-2026052613). Produces a distributable disk image for the
@@ -70,7 +70,7 @@ case "$SIGN_ID" in
   *)                            TIER="custom" ;;
 esac
 
-echo "package-macos: phantom-mesh desktop app"
+echo "package-macos: spectyn-mesh desktop app"
 echo "  identity : $SIGN_ID"
 echo "  tier     : $TIER"
 echo "  out      : $OUT_DIR"
@@ -107,9 +107,9 @@ codesign -dv --verbose=2 "$APP_PATH" 2>&1 | sed 's/^/    /'
 if [ -z "$DMG_PATH" ]; then
   echo "    creating .dmg via hdiutil from signed .app"
   VER="$(awk -F' *= *' '/^\[package\]/{p=1} p&&/^version/{gsub(/"/,"",$2); print $2; exit}' "$REPO_ROOT/core/Cargo.toml")"
-  DMG_PATH="$BUNDLE_DIR/dmg/phantom-mesh_${VER:-0.0.0}_aarch64.dmg"
+  DMG_PATH="$BUNDLE_DIR/dmg/spectyn-mesh_${VER:-0.0.0}_aarch64.dmg"
   mkdir -p "$(dirname "$DMG_PATH")"
-  hdiutil create -volname "Phantom Mesh" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH" >/dev/null
+  hdiutil create -volname "Spectyn Mesh" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH" >/dev/null
 fi
 
 # ── 4. Gatekeeper assessment (honest reporting) ────────────────────────────
@@ -129,8 +129,8 @@ fi
 # ── 4b. Optional notarization (only with Developer ID + creds) ─────────────
 if [ "$DO_NOTARIZE" = 1 ]; then
   if [[ "$SIGN_ID" == "Developer ID Application:"* ]] && command -v xcrun >/dev/null 2>&1; then
-    echo "    notarytool submit (requires keychain profile 'phantom-notary')"
-    xcrun notarytool submit "$DMG_PATH" --keychain-profile "phantom-notary" --wait 2>&1 | sed 's/^/    /' \
+    echo "    notarytool submit (requires keychain profile 'spectyn-notary')"
+    xcrun notarytool submit "$DMG_PATH" --keychain-profile "spectyn-notary" --wait 2>&1 | sed 's/^/    /' \
       && xcrun stapler staple "$DMG_PATH" 2>&1 | sed 's/^/    /' \
       || echo "    ⚠ notarization failed/skipped — check ASC credentials"
   else

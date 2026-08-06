@@ -4,7 +4,7 @@ import type { X25519Recipient } from "./X25519Recipient";
 
 /**
  * At-rest encryption envelope written to sqlite `events.blob` column and
- * `~/.phantom-mesh/blobs/<sha256>.age` files.
+ * `~/.spectyn-mesh/blobs/<sha256>.age` files.
  *
  * Per SPEC-13 §7.1.1 the inner `ciphertext` field carries the raw age v1
  * binary blob (magic line `age-encryption.org/v1\n` + recipient stanza +

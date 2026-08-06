@@ -28,7 +28,7 @@
 //!
 //!     cargo test --test identity_init_outcome_integration -- --ignored --nocapture
 
-use phantom_mesh::identity_wire::{
+use spectyn_mesh::identity_wire::{
     fingerprint_short, InitOutcome, KeystoreBackend,
 };
 
@@ -136,13 +136,13 @@ fn fingerprint_short_is_12_lowercase_hex_and_deterministic() {
 // account `"identity-master"` — there is no public API in Stage 3 to
 // override the account. Running this test on a Linux box with a real
 // identity will **clobber it** on the `force=true` branch. Back up first:
-//     phantom keys backup --to /tmp/backup-pre-test.json
+//     spectyn keys backup --to /tmp/backup-pre-test.json
 
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore]
 fn live_build_init_outcome_full_cycle_linux() {
-    use phantom_mesh::identity_wire::{
+    use spectyn_mesh::identity_wire::{
         build_init_outcome, delete_from_keystore, read_from_keystore,
         KeyDerivationError,
     };

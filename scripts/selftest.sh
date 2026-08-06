@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# phantom-mesh self-test orchestrator.
+# spectyn-mesh self-test orchestrator.
 #
 # Runs every feature test file under scripts/selftest.d/ and emits both a
 # human-readable table and a machine-readable JSON report. Designed so an
-# LLM agent (Claude Code, phantom itself, etc.) can ingest results
+# LLM agent (Claude Code, spectyn itself, etc.) can ingest results
 # unattended, and so each new feature is a single drop-in file.
 #
 # Usage:
@@ -15,7 +15,7 @@
 #   scripts/selftest.sh --list                # list registered features
 #
 # Env:
-#   PHANTOM_BIN=...   path to phantom (default: $(command -v phantom))
+#   SPECTYN_BIN=...   path to spectyn (default: $(command -v spectyn))
 #   COORD=...         daemon URL (default: http://127.0.0.1:7878)
 #
 # Exit codes:
@@ -54,21 +54,21 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Locate the phantom binary. On Windows the binary is `phantom.exe`, and
-# Git Bash's `command -v phantom` may or may not strip the suffix depending
+# Locate the spectyn binary. On Windows the binary is `spectyn.exe`, and
+# Git Bash's `command -v spectyn` may or may not strip the suffix depending
 # on PATHEXT — try both spellings before giving up.
-if [ -n "${PHANTOM_BIN:-}" ]; then
-  PHANTOM="$PHANTOM_BIN"
-elif command -v phantom >/dev/null 2>&1; then
-  PHANTOM="$(command -v phantom)"
-elif command -v phantom.exe >/dev/null 2>&1; then
-  PHANTOM="$(command -v phantom.exe)"
-elif [ -x "$HOME/.cargo/bin/phantom.exe" ]; then
-  PHANTOM="$HOME/.cargo/bin/phantom.exe"
+if [ -n "${SPECTYN_BIN:-}" ]; then
+  SPECTYN="$SPECTYN_BIN"
+elif command -v spectyn >/dev/null 2>&1; then
+  SPECTYN="$(command -v spectyn)"
+elif command -v spectyn.exe >/dev/null 2>&1; then
+  SPECTYN="$(command -v spectyn.exe)"
+elif [ -x "$HOME/.cargo/bin/spectyn.exe" ]; then
+  SPECTYN="$HOME/.cargo/bin/spectyn.exe"
 else
-  PHANTOM="$HOME/.cargo/bin/phantom"
+  SPECTYN="$HOME/.cargo/bin/spectyn"
 fi
-export PHANTOM
+export SPECTYN
 export COORD="${COORD:-http://127.0.0.1:7878}"
 export TMP="$(mktemp -d)"
 
@@ -117,17 +117,17 @@ if [ "$LIST_ONLY" = 1 ]; then
 fi
 
 # ── header ───────────────────────────────────────────────────────────────────
-PHANTOM_VER="(missing)"
-if [ -x "$PHANTOM" ]; then
-  PHANTOM_VER="$("$PHANTOM" --version 2>&1 | head -1)"
+SPECTYN_VER="(missing)"
+if [ -x "$SPECTYN" ]; then
+  SPECTYN_VER="$("$SPECTYN" --version 2>&1 | head -1)"
 fi
 START_EPOCH="$(date +%s)"
 START_ISO="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 if [ "$JSON_ONLY" = 0 ]; then
-  printf '\033[36mphantom self-test\033[0m  %s\n' "$START_ISO"
-  printf '  binary  : %s\n' "$PHANTOM"
-  printf '  version : %s\n' "$PHANTOM_VER"
+  printf '\033[36mspectyn self-test\033[0m  %s\n' "$START_ISO"
+  printf '  binary  : %s\n' "$SPECTYN"
+  printf '  version : %s\n' "$SPECTYN_VER"
   printf '  coord   : %s\n' "$COORD"
 fi
 
@@ -243,7 +243,7 @@ build_json() {
 
 build_json_python() {
   local py="$1"
-  "$py" - "$SELFTEST_LOG" "$DIR" "$LIB" "$PHANTOM_VER" "$START_ISO" "$DUR" \
+  "$py" - "$SELFTEST_LOG" "$DIR" "$LIB" "$SPECTYN_VER" "$START_ISO" "$DUR" \
     "$TOTAL_PASS" "$TOTAL_FAIL" "$TOTAL_SKIP" "$P0_FAILS" "$RUN_DIR" <<'PY'
 import json, os, subprocess, sys
 
@@ -285,7 +285,7 @@ with open(log_path) as fh:
             by_name[feat]['tests'].append(row)
 
 report = {
-    'phantom_version': ver,
+    'spectyn_version': ver,
     'started_at': started,
     'duration_s': int(dur),
     'artifacts_dir': run_dir,
@@ -314,7 +314,7 @@ _json_esc() {
 
 build_json_bash() {
   printf '{\n'
-  printf '  "phantom_version": "%s",\n' "$(_json_esc "$PHANTOM_VER")"
+  printf '  "spectyn_version": "%s",\n' "$(_json_esc "$SPECTYN_VER")"
   printf '  "started_at": "%s",\n'      "$(_json_esc "$START_ISO")"
   printf '  "duration_s": %s,\n'        "$DUR"
   printf '  "artifacts_dir": "%s",\n'   "$(_json_esc "$RUN_DIR")"

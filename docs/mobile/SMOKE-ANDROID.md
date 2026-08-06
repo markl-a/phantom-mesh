@@ -1,7 +1,7 @@
 # Android（Termux CLI 二進位檔）— 冒煙測試清單（smoke checklist，快速驗證清單）
 
 針對在真實 Android 裝置的 Termux 內，以叢集工作者（cluster worker，叢集中執行任務的節點）身分執行的
-`phantom-aarch64-linux-android` CLI 二進位檔，提供端對端（end-to-end，從頭到尾完整流程）驗證程序。
+`spectyn-aarch64-linux-android` CLI 二進位檔，提供端對端（end-to-end，從頭到尾完整流程）驗證程序。
 
 **涵蓋範圍：** 安裝 · CLI 子命令 · 常駐程式（daemon，背景服務）· HTTP/RPC 矩陣 · 內嵌
 網頁前端 · MCP（Model Context Protocol，模型上下文協議）stdio · HMAC（雜湊訊息驗證碼）強制驗證 · 真實 LLM（大型語言模型）派工 · 叢集
@@ -21,7 +21,7 @@
 [ ] Tailscale on phone — VPN icon in status bar, 100.x.y.z assigned
 [ ] Termux from F-Droid (NOT Play Store)
 [ ] Termux:Boot from F-Droid (optional; needed for Phase 12)
-[ ] Mac coordinator at <mac-tailscale-ip>:7878 with phantom serve running
+[ ] Mac coordinator at <mac-tailscale-ip>:7878 with spectyn serve running
 [ ] One usable Groq API key (gsk_…) — Phase 8 needs it
 [ ] Out-of-band shell to phone — pick one:
       - adb-tcp:  adb connect 100.64.0.10:38913
@@ -51,16 +51,16 @@ curl -fsSL "$COORD/scripts/termux-setup.sh" | sh
 
 該腳本會做的事：
 - 用 `pkg install` 安裝 curl/wget/git/termux-tools
-- 從 `<COORD>/dist/` 拉取最新的 `phantom-aarch64-linux-android`
-- 寫入帶有 cluster_secret 與 Groq key 的 `~/.phantom-mesh/agents.toml`
-- 在背景啟動 `phantom serve --port 7879`
+- 從 `<COORD>/dist/` 拉取最新的 `spectyn-aarch64-linux-android`
+- 寫入帶有 cluster_secret 與 Groq key 的 `~/.spectyn-mesh/agents.toml`
+- 在背景啟動 `spectyn serve --port 7879`
 - 印出三選一選單（TUI / 瀏覽器 / 叢集工作者）
 
 **通過條件：**
 ```bash
-which phantom                  # $PREFIX/bin/phantom
-file $(which phantom)          # ELF 64-bit ARM aarch64
-ls -lh ~/.phantom-mesh/        # bin/, data/, agents.toml
+which spectyn                  # $PREFIX/bin/spectyn
+file $(which spectyn)          # ELF 64-bit ARM aarch64
+ls -lh ~/.spectyn-mesh/        # bin/, data/, agents.toml
 curl -sS http://127.0.0.1:7879/healthz   # ok
 ```
 
@@ -69,25 +69,25 @@ curl -sS http://127.0.0.1:7879/healthz   # ok
 ## Phase 2 · CLI 健全性檢查（5 分鐘）
 
 ```bash
-phantom --version              # → phantom 0.4.0 (..., android-aarch64, …)
-phantom -V                     # same
-phantom doctor                 # 9 sections — most ✓ or ⚠
+spectyn --version              # → spectyn 0.4.0 (..., android-aarch64, …)
+spectyn -V                     # same
+spectyn doctor                 # 9 sections — most ✓ or ⚠
 
-phantom autoevolve log         # "no runs yet" on first boot — fine
-phantom evolve goals list      # tries to load EVOLVE-GOALS.md; "not found" is fine
+spectyn autoevolve log         # "no runs yet" on first boot — fine
+spectyn evolve goals list      # tries to load EVOLVE-GOALS.md; "not found" is fine
 ```
 
 預期會因平台限制而失敗（屬正確行為）：
 
 ```bash
-phantom service status         # ✗ not yet implemented on this platform
-phantom snapshot list          # ✗ macOS-only (uses tmutil)
+spectyn service status         # ✗ not yet implemented on this platform
+spectyn snapshot list          # ✗ macOS-only (uses tmutil)
 ```
 
 **避免這些 — 會讓 shell 卡住的已知 CLI bug：**
 ```bash
-# phantom serve --help     ← actually starts the daemon
-# phantom mcp --help       ← also broken; spawns the stdio server
+# spectyn serve --help     ← actually starts the daemon
+# spectyn mcp --help       ← also broken; spawns the stdio server
 ```
 
 **通過條件：** doctor 顯示 8/9 為 ✓ 或 ⚠（沒有 ✗），上述兩個受平台限制的命令以
@@ -100,12 +100,12 @@ phantom snapshot list          # ✗ macOS-only (uses tmutil)
 `termux-setup.sh` 已經啟動了 serve。確認它運作正常：
 
 ```bash
-PID=$(pgrep -f "phantom serve" | head -1)
+PID=$(pgrep -f "spectyn serve" | head -1)
 echo "PID=$PID"
 ss -ltn | grep 7879            # LISTEN 0.0.0.0:7879
 grep -E 'VmRSS|Threads' /proc/$PID/status
 
-tail -20 ~/.phantom-mesh/data/phantom-serve.log
+tail -20 ~/.spectyn-mesh/data/spectyn-serve.log
 ```
 
 **通過條件：** PID 存在 · 連接埠正在監聽 · log 中有啟動橫幅（banner）· RSS（常駐記憶體）< 50 MB · 0
@@ -156,7 +156,7 @@ http://127.0.0.1:7879/
 ```
 
 **預期：**
-- 標題列顯示 `phantom · mesh`
+- 標題列顯示 `spectyn · mesh`
 - 奶油色 / 深色主題的標頭
 - xterm.js 終端機面板有正確渲染（深色）
 - 可看到 Info 分頁，內含子分頁 Sessions / Cost / Todo / Tools
@@ -180,17 +180,17 @@ http://127.0.0.1:7879/m
 
 ```bash
 echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}},"id":1}' \
-  | phantom mcp 2>/dev/null
+  | spectyn mcp 2>/dev/null
 ```
 
 **預期：**
 ```json
-{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2024-11-05","serverInfo":{"name":"phantom-mesh","version":"0.4.0"}}}
+{"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{"listChanged":false}},"protocolVersion":"2024-11-05","serverInfo":{"name":"spectyn-mesh","version":"0.4.0"}}}
 ```
 
 ```bash
 echo '{"jsonrpc":"2.0","method":"tools/list","id":2}' \
-  | phantom mcp 2>/dev/null | head -c 1000
+  | spectyn mcp 2>/dev/null | head -c 1000
 ```
 
 **預期：** 工具陣列，開頭為 shell / file_read / file_write / web_fetch / …
@@ -202,14 +202,14 @@ echo '{"jsonrpc":"2.0","method":"tools/list","id":2}' \
 ```jsonc
 // ~/.claude.json
 "mcpServers": {
-  "phantom-android": {
+  "spectyn-android": {
     "command": "ssh",
-    "args": ["-p", "8022", "u0_a187@100.64.0.10", "phantom mcp"]
+    "args": ["-p", "8022", "u0_a187@100.64.0.10", "spectyn mcp"]
   }
 }
 ```
 
-重新啟動 Claude Code 後，`mcp__phantom-android__*` 工具應會出現在
+重新啟動 Claude Code 後，`mcp__spectyn-android__*` 工具應會出現在
 ToolSearch 中。
 
 ---
@@ -217,7 +217,7 @@ ToolSearch 中。
 ## Phase 7 · HMAC 強制驗證（5 分鐘）
 
 ```bash
-SECRET=$(grep cluster_secret ~/.phantom-mesh/agents.toml | sed 's/.*"\(.*\)"/\1/')
+SECRET=$(grep cluster_secret ~/.spectyn-mesh/agents.toml | sed 's/.*"\(.*\)"/\1/')
 BODY='{"agent":"master","prompt":"reply: ok"}'
 GOOD=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
 PORT=7879
@@ -242,13 +242,13 @@ curl -sS -X POST http://127.0.0.1:$PORT/rpc/task/assign \
 
 ## Phase 8 · 真實 LLM 派工（5 分鐘）
 
-確認 `~/.phantom-mesh/agents.toml` 中有 `[providers.groq].api_key = "gsk_…"`
+確認 `~/.spectyn-mesh/agents.toml` 中有 `[providers.groq].api_key = "gsk_…"`
 （真實的 key，而非預留佔位字串）。若仍是佔位字串：
 
 ```bash
-nano ~/.phantom-mesh/agents.toml   # set api_key
-pkill phantom
-nohup phantom serve > ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
+nano ~/.spectyn-mesh/agents.toml   # set api_key
+pkill spectyn
+nohup spectyn serve > ~/.spectyn-mesh/data/spectyn-serve.log 2>&1 &
 sleep 4
 ```
 
@@ -281,11 +281,11 @@ curl -sS http://127.0.0.1:7879/rpc/task/status/$JOB
 
 ```bash
 # Add Mac as peer
-nano ~/.phantom-mesh/agents.toml
+nano ~/.spectyn-mesh/agents.toml
 # under [cluster] add:
 #   peers = ["http://<mac-tailscale-ip>:7878"]
-pkill phantom
-nohup phantom serve > ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
+pkill spectyn
+nohup spectyn serve > ~/.spectyn-mesh/data/spectyn-serve.log 2>&1 &
 sleep 4
 
 curl -sS http://127.0.0.1:7879/rpc/peers      # Mac should appear
@@ -301,7 +301,7 @@ curl -sS http://$PHONE_IP:7879/healthz
 curl -sS http://$PHONE_IP:7879/rpc/ping
 
 # Mac → phone HMAC dispatch
-# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+# 請設定你自己的共享密鑰（須與各節點 SPECTYN_CLUSTER_SECRET 一致）
 SECRET="changeme-cluster-secret"
 BODY='{"agent":"master","prompt":"reply: hi from mac"}'
 AUTH=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | awk '{print $2}')
@@ -323,7 +323,7 @@ curl -sS http://$PHONE_IP:7879/rpc/task/status/$JOB
 ## Phase 10 · TUI（互動式，10 分鐘）
 
 ```bash
-phantom            # default = ratatui TUI
+spectyn            # default = ratatui TUI
 ```
 
 測試：
@@ -347,20 +347,20 @@ phantom            # default = ratatui TUI
 ## Phase 11 · Autoevolve（10 分鐘）
 
 > Autoevolve 假設目前的工作目錄（cwd）有一個 Cargo.toml。在尚未複製（clone）
-> phantom-mesh 倉庫的全新 Termux 上，它會優雅地失敗（fail gracefully，安全地結束而不崩潰）。
+> spectyn-mesh 倉庫的全新 Termux 上，它會優雅地失敗（fail gracefully，安全地結束而不崩潰）。
 > 請先 git-clone，或接受無目標（no-target）的結果。
 
 ```bash
 cd ~
-phantom autoevolve --once
-phantom autoevolve log --n 3
+spectyn autoevolve --once
+spectyn autoevolve log --n 3
 ```
 
 **預期：** 一筆紀錄；若無 Cargo.toml，狀態為 `no-target` 或 `cargo-missing`。
 
 ```bash
-phantom autoevolve schedule install
-phantom autoevolve schedule status
+spectyn autoevolve schedule install
+spectyn autoevolve schedule status
 ```
 
 **預期：** `not yet implemented on this platform`（Android 沒有
@@ -377,22 +377,22 @@ LaunchAgent / systemd）— 屬正確行為。
 
 ```bash
 mkdir -p ~/.termux/boot
-cat > ~/.termux/boot/phantom-serve <<'EOF'
+cat > ~/.termux/boot/spectyn-serve <<'EOF'
 #!/data/data/com.termux/files/usr/bin/sh
-~/.phantom-mesh/bin/phantom serve >> ~/.phantom-mesh/data/phantom-serve.log 2>&1 &
+~/.spectyn-mesh/bin/spectyn serve >> ~/.spectyn-mesh/data/spectyn-serve.log 2>&1 &
 EOF
-chmod +x ~/.termux/boot/phantom-serve
+chmod +x ~/.termux/boot/spectyn-serve
 ```
 
 **重新啟動手機**。在它喚醒後（給它 30 秒）：
 
 ```bash
 # in Termux
-pgrep phantom
+pgrep spectyn
 curl -sS http://127.0.0.1:7879/healthz
 ```
 
-**通過條件：** phantom 已自動執行中，且 healthz 回傳 `ok`。
+**通過條件：** spectyn 已自動執行中，且 healthz 回傳 `ok`。
 
 ---
 
@@ -410,7 +410,7 @@ END=$(date +%s%N)
 echo "$OK/100 OK, $(( (END-START)/1000000 ))ms total"
 
 # 10 concurrent dispatches (needs Groq key)
-# 請設定你自己的共享密鑰（須與各節點 PHANTOM_CLUSTER_SECRET 一致）
+# 請設定你自己的共享密鑰（須與各節點 SPECTYN_CLUSTER_SECRET 一致）
 SECRET="changeme-cluster-secret"
 for i in $(seq 1 10); do
   BODY="{\"agent\":\"master\",\"prompt\":\"echo $i\"}"
@@ -423,7 +423,7 @@ sleep 10
 curl -sS http://127.0.0.1:7879/api/sessions | head -c 400
 
 # memory after 1 h
-PID=$(pgrep -f "phantom serve")
+PID=$(pgrep -f "spectyn serve")
 grep VmRSS /proc/$PID/status
 ls /proc/$PID/fd | wc -l
 ```
@@ -441,7 +441,7 @@ ls /proc/$PID/fd | wc -l
 | 1 | 錯誤的供應商 key | 編輯 toml，設 `api_key = "gsk_invalid"`，重啟，派工 | status=error，error 包含 401 |
 | 2 | 網路中斷 | `tailscale down`，派工 | status=error，error 包含 timeout / connection refused |
 | 3 | OOM（記憶體不足）邊界 | 在 1 GB 手機上 5 個並行提示 | ≥ 3 個 done，無崩潰 |
-| 4 | `kill -9` 常駐程式 | `pkill -9 phantom`，檢查 log | log 乾淨，socket 已釋放，無崩潰訊息 |
+| 4 | `kill -9` 常駐程式 | `pkill -9 spectyn`，檢查 log | log 乾淨，socket 已釋放，無崩潰訊息 |
 | 5 | 連接埠衝突 | 在第 1 個尚未結束時啟動第 2 個 serve | 第 2 個以退出碼 1 結束並顯示 `Address already in use` |
 | 6 | 損壞的 agents.toml | `cluster_secret = `（無值），重啟 | 在綁定（bind）前以退出碼 1 結束並顯示 toml 解析錯誤 |
 | 7 | 磁碟滿（Termux home） | `dd if=/dev/zero of=~/big bs=1M count=$(df ~ \| awk 'NR==2{print $4}')` | 派工錯誤被記錄，無崩潰 |
@@ -455,19 +455,19 @@ ls /proc/$PID/fd | wc -l
 ## Phase 15 · 清理（5 分鐘）
 
 ```bash
-pkill phantom
+pkill spectyn
 sleep 2
-pgrep phantom || echo "all stopped"
+pgrep spectyn || echo "all stopped"
 
 # Optional full uninstall
-rm -rf ~/.phantom-mesh
-rm -f ~/.termux/boot/phantom-serve
+rm -rf ~/.spectyn-mesh
+rm -f ~/.termux/boot/spectyn-serve
 
-ls ~/.phantom-mesh 2>&1            # No such file or directory
-which phantom 2>&1                 # not found
+ls ~/.spectyn-mesh 2>&1            # No such file or directory
+which spectyn 2>&1                 # not found
 ```
 
-**通過條件：** phantom 及其設定目錄已從裝置上消失。
+**通過條件：** spectyn 及其設定目錄已從裝置上消失。
 
 ---
 
@@ -500,10 +500,10 @@ Phase  Title                              Result      Notes
 
 ## 已知注意事項（截至 2026-05-01）
 
-- `phantom serve --help` 與 `phantom mcp --help` 會啟動常駐程式，而非
+- `spectyn serve --help` 與 `spectyn mcp --help` 會啟動常駐程式，而非
   印出用法說明。在前景腳本中請避免使用。
-- `phantom serve --port <N>` 會被靜默忽略；常駐程式使用
-  `~/.phantom-mesh/agents.toml` 中 `[core].port` 的值（預設 7878）。Termux 設定
+- `spectyn serve --port <N>` 會被靜默忽略；常駐程式使用
+  `~/.spectyn-mesh/agents.toml` 中 `[core].port` 的值（預設 7878）。Termux 設定
   透過該 toml 選用 7879。
 - `/api/health`、`/api/peers`、`/api/tools` 在工作者上回傳 404。請改用
   對應的 `/rpc/*` 端點。

@@ -5,10 +5,10 @@
 //! detects and loads, starting from `cwd` and walking up to three parent
 //! directories:
 //!
-//! - **Instruction files** — the nearest `PHANTOM.md`, `CLAUDE.md`, or
+//! - **Instruction files** — the nearest `SPECTYN.md`, `CLAUDE.md`, or
 //!   `AGENTS.md`, picked by priority ([`InstructionSource`]).
 //! - **README excerpt** — the first 100 lines of the nearest `README.md`.
-//! - **Phantom config** — the contents of `.phantom/config.toml`, if present.
+//! - **Spectyn config** — the contents of `.spectyn/config.toml`, if present.
 //! - **Project type** — Rust, Node, Python, or Go metadata parsed from the
 //!   relevant manifest ([`ProjectType`], via [`detect_project_type`]).
 //! - **Git state** — branch, last commit subject, and dirty/uncommitted count
@@ -31,9 +31,9 @@ use std::path::{Path, PathBuf};
 /// Priority-ordered instruction files. Higher index = lower priority.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstructionSource {
-    /// `PHANTOM.md` — highest-priority instruction file.
-    PhantomMd,
-    /// `CLAUDE.md` — used when no `PHANTOM.md` is present.
+    /// `SPECTYN.md` — highest-priority instruction file.
+    SpectynMd,
+    /// `CLAUDE.md` — used when no `SPECTYN.md` is present.
     ClaudeMd,
     /// `AGENTS.md` — lowest-priority fallback instruction file.
     AgentsMd,
@@ -42,7 +42,7 @@ pub enum InstructionSource {
 impl InstructionSource {
     fn filename(&self) -> &'static str {
         match self {
-            Self::PhantomMd => "PHANTOM.md",
+            Self::SpectynMd => "SPECTYN.md",
             Self::ClaudeMd => "CLAUDE.md",
             Self::AgentsMd => "AGENTS.md",
         }
@@ -50,7 +50,7 @@ impl InstructionSource {
 
     fn label(&self) -> &'static str {
         match self {
-            Self::PhantomMd => "PHANTOM.md",
+            Self::SpectynMd => "SPECTYN.md",
             Self::ClaudeMd => "CLAUDE.md",
             Self::AgentsMd => "AGENTS.md",
         }
@@ -123,15 +123,15 @@ pub struct ProjectContext {
     /// The working directory the context was detected from.
     pub cwd: PathBuf,
 
-    /// The instruction file found (PHANTOM.md > CLAUDE.md > AGENTS.md).
+    /// The instruction file found (SPECTYN.md > CLAUDE.md > AGENTS.md).
     pub instruction_source: Option<InstructionSource>,
     pub instruction_content: Option<String>,
 
     /// First 100 lines of README.md (if present).
     pub readme_excerpt: Option<String>,
 
-    /// Contents of .phantom/config.toml (if present).
-    pub phantom_config: Option<String>,
+    /// Contents of .spectyn/config.toml (if present).
+    pub spectyn_config: Option<String>,
 
     /// Detected project type.
     pub project_type: ProjectType,
@@ -153,7 +153,7 @@ impl ProjectContext {
             instruction_source: None,
             instruction_content: None,
             readme_excerpt: None,
-            phantom_config: None,
+            spectyn_config: None,
             project_type: ProjectType::Unknown,
             git: GitContext::default(),
         };
@@ -174,11 +174,11 @@ impl ProjectContext {
             v
         };
 
-        // 1. Instruction files (PHANTOM.md > CLAUDE.md > AGENTS.md) — use the
+        // 1. Instruction files (SPECTYN.md > CLAUDE.md > AGENTS.md) — use the
         //    nearest dir that has any of them, with priority order.
         'outer: for dir in &dirs {
             for source in &[
-                InstructionSource::PhantomMd,
+                InstructionSource::SpectynMd,
                 InstructionSource::ClaudeMd,
                 InstructionSource::AgentsMd,
             ] {
@@ -207,12 +207,12 @@ impl ProjectContext {
             }
         }
 
-        // 3. .phantom/config.toml
+        // 3. .spectyn/config.toml
         for dir in &dirs {
-            let path = dir.join(".phantom").join("config.toml");
+            let path = dir.join(".spectyn").join("config.toml");
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 if !content.trim().is_empty() {
-                    ctx.phantom_config = Some(content.trim().to_string());
+                    ctx.spectyn_config = Some(content.trim().to_string());
                     break;
                 }
             }
@@ -237,13 +237,13 @@ impl ProjectContext {
     // Public API
     // -----------------------------------------------------------------------
 
-    /// Returns `true` if a `PHANTOM.md` file was found and loaded.
-    pub fn has_phantom_md(&self) -> bool {
-        matches!(self.instruction_source, Some(InstructionSource::PhantomMd))
+    /// Returns `true` if a `SPECTYN.md` file was found and loaded.
+    pub fn has_spectyn_md(&self) -> bool {
+        matches!(self.instruction_source, Some(InstructionSource::SpectynMd))
     }
 
     /// Returns the content of the highest-priority instruction file found
-    /// (PHANTOM.md, CLAUDE.md, or AGENTS.md), if any.
+    /// (SPECTYN.md, CLAUDE.md, or AGENTS.md), if any.
     pub fn project_instructions(&self) -> Option<&str> {
         self.instruction_content.as_deref()
     }
@@ -291,10 +291,10 @@ impl ProjectContext {
             out.push('\n');
         }
 
-        // Phantom config
-        if let Some(cfg) = &self.phantom_config {
+        // Spectyn config
+        if let Some(cfg) = &self.spectyn_config {
             out.push('\n');
-            out.push_str("## .phantom/config.toml\n```toml\n");
+            out.push_str("## .spectyn/config.toml\n```toml\n");
             out.push_str(cfg);
             out.push_str("\n```\n");
         }
@@ -668,14 +668,14 @@ async fn load_git_context(cwd: &Path) -> GitContext {
 // Legacy top-level functions (preserved for backward compatibility)
 // ---------------------------------------------------------------------------
 
-/// Walk up from `start_dir` looking for PHANTOM.md or .phantom-mesh/context.md.
+/// Walk up from `start_dir` looking for SPECTYN.md or .spectyn-mesh/context.md.
 /// Returns the content if found, None if not found.
 pub async fn load_project_context(start_dir: &Path) -> Option<String> {
     let mut dir = start_dir.to_path_buf();
 
     loop {
-        // Check for PHANTOM.md
-        let candidate = dir.join("PHANTOM.md");
+        // Check for SPECTYN.md
+        let candidate = dir.join("SPECTYN.md");
         if candidate.exists() {
             if let Ok(content) = tokio::fs::read_to_string(&candidate).await {
                 if !content.trim().is_empty() {
@@ -689,8 +689,8 @@ pub async fn load_project_context(start_dir: &Path) -> Option<String> {
             }
         }
 
-        // Check for .phantom-mesh/context.md
-        let alt = dir.join(".phantom-mesh").join("context.md");
+        // Check for .spectyn-mesh/context.md
+        let alt = dir.join(".spectyn-mesh").join("context.md");
         if alt.exists() {
             if let Ok(content) = tokio::fs::read_to_string(&alt).await {
                 if !content.trim().is_empty() {

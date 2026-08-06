@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cluster RPC integration test — spawns TWO phantom serve instances
+# Cluster RPC integration test — spawns TWO spectyn serve instances
 # on localhost (different ports, different HOMEs, shared cluster_secret)
 # and verifies they can see each other via the /rpc/* endpoints.
 #
@@ -18,7 +18,7 @@ selftest_feature_meta() {
   echo "name=cluster-rpc"
   echo "priority=P1"
   echo "requires=python3"
-  echo "description=2-node phantom serve cluster RPC + HMAC auth + wire-version negotiation"
+  echo "description=2-node spectyn serve cluster RPC + HMAC auth + wire-version negotiation"
   echo "hints=core/src/serve.rs core/src/mesh.rs"
 }
 
@@ -45,8 +45,8 @@ for _ in range(20):
 # Write a minimal agents.toml with the given cluster setup.
 _write_config() {
   local home_dir="$1" node_name="$2" port="$3" peer_url="$4" secret="$5"
-  mkdir -p "$home_dir/.phantom-mesh"
-  cat > "$home_dir/.phantom-mesh/agents.toml" <<EOF
+  mkdir -p "$home_dir/.spectyn-mesh"
+  cat > "$home_dir/.spectyn-mesh/agents.toml" <<EOF
 [core]
 host = "127.0.0.1"
 port = $port
@@ -80,9 +80,9 @@ selftest_run() {
   _write_config "$td_b" "node-b" "$port_b" "http://127.0.0.1:$port_a" "$secret"
 
   # Spawn both serves
-  HOME="$td_a" "$PHANTOM" serve --port "$port_a" > "$td_a/serve.log" 2>&1 &
+  HOME="$td_a" "$SPECTYN" serve --port "$port_a" > "$td_a/serve.log" 2>&1 &
   pid_a=$!
-  HOME="$td_b" "$PHANTOM" serve --port "$port_b" > "$td_b/serve.log" 2>&1 &
+  HOME="$td_b" "$SPECTYN" serve --port "$port_b" > "$td_b/serve.log" 2>&1 &
   pid_b=$!
   trap "kill $pid_a $pid_b 2>/dev/null; rm -rf $td_a $td_b" RETURN
 
@@ -96,12 +96,12 @@ selftest_run() {
     sleep 0.2
   done
   T_ARTIFACT="$td_a/serve.log"
-  T_REPRO="HOME=$td_a $PHANTOM serve --port $port_a  AND  HOME=$td_b $PHANTOM serve --port $port_b"
+  T_REPRO="HOME=$td_a $SPECTYN serve --port $port_a  AND  HOME=$td_b $SPECTYN serve --port $port_b"
   if [ "$both_up" != "1" ]; then
-    t_fail "2 phantom serves up + /healthz reachable" "didn't both come up after 6s"
+    t_fail "2 spectyn serves up + /healthz reachable" "didn't both come up after 6s"
     return
   fi
-  t_pass "2 phantom serves up + /healthz reachable" "ports $port_a + $port_b"
+  t_pass "2 spectyn serves up + /healthz reachable" "ports $port_a + $port_b"
 
   # ── 1. /rpc/peers includes the other node ──────────────────────────────
   local peers_a

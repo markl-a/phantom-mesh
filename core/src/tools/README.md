@@ -121,7 +121,7 @@ trait 為未來的工作（外掛載入器、hook 生命週期、跨對等節點
 | [`ask_user.rs`](ask_user.rs) | `ask_user` | 暫停 agent 並向人類提問。 |
 | [`subagent.rs`](subagent.rs) | `task`、`subagent`、`parallel_tasks` | 生成（spawn）另一個已設定的 agent；`parallel_tasks` 會扇出（fan out）。 |
 | [`cluster.rs`](cluster.rs) | `cluster_status`、`cluster_sessions`、`cluster_peers` | 唯讀的「誰可連線 / 在線」資訊，讓 agent 可為 `task`/`parallel_tasks` 挑選一個 `node:` 目標。 |
-| [`diag.rs`](diag.rs) | `diag_read` | 自我內省（Self-introspection）— 讀取 phantom 自身的診斷狀態。 |
+| [`diag.rs`](diag.rs) | `diag_read` | 自我內省（Self-introspection）— 讀取 spectyn 自身的診斷狀態。 |
 | [`image_gen.rs`](image_gen.rs) | `image_generate` | 生成影像。 |
 | [`video_gen.rs`](video_gen.rs) | `video_generate` | 生成影片。 |
 | [`music_gen.rs`](music_gen.rs) | `music_generate` | 生成音樂 / 音訊。 |
@@ -143,7 +143,7 @@ trait 為未來的工作（外掛載入器、hook 生命週期、跨對等節點
 
 | 模組 | 角色 |
 | --- | --- |
-| [`urlguard.rs`](urlguard.rs) | 為所有對外 HTTP 工具提供共用的 SSRF（server-side request forgery，伺服器端請求偽造）防護 — 封鎖 loopback（回送）/ 私有 IP / link-local（鏈結本地）主機。`PHANTOM_FETCH_ALLOW_LOCAL=1` 可在經過稽核的工作流程中選擇加入（opt in）本地主機。 |
+| [`urlguard.rs`](urlguard.rs) | 為所有對外 HTTP 工具提供共用的 SSRF（server-side request forgery，伺服器端請求偽造）防護 — 封鎖 loopback（回送）/ 私有 IP / link-local（鏈結本地）主機。`SPECTYN_FETCH_ALLOW_LOCAL=1` 可在經過稽核的工作流程中選擇加入（opt in）本地主機。 |
 | [`env_filter.rs`](env_filter.rs) | 過濾合併進工具所生成子行程（例如 `shell`、`bash_run_background`）的 `env: { K: V }` 對應表，以封鎖動態連結器注入（dynamic-linker injection）（`LD_*`、`DYLD_*`、…）。 |
 | [`validate.rs`](validate.rs) | 為 `shell`/`bash_bg`/`git`/`search` 提供共用的輸入驗證 — 包含黑名單繞過（blocklist-bypass）、git 選項注入（option-injection），以及 `rg`/`grep` 旗標注入（flag-injection）的防禦。 |
 | [`fs.rs`](fs.rs) | 檔案系統輔助程式（路徑安全的列舉），由 file/ls 工具共用。 |

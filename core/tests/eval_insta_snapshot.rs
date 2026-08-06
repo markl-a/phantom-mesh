@@ -16,7 +16,7 @@
 //  the accepted .snap file is checked in.)
 
 use insta::assert_json_snapshot;
-use phantom_mesh::providers_wire::ProviderConfig;
+use spectyn_mesh::providers_wire::ProviderConfig;
 
 /// A fixed, deterministic `ProviderConfig` with placeholder-only values so the
 /// JSON snapshot is byte-stable across machines and CI runs.

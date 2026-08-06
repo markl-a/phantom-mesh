@@ -41,16 +41,16 @@
 
 ### 1.2 English abstract
 
-This experimental spec extends Phantom Mesh from a single-user model to a household model (typical 2–6 family members sharing a LAN). Each member keeps an independent per-device `identity.key`; vault encryption stays per-identity, so no member can decrypt another's raw events. Cross-member visibility is restricted to opt-in aggregated daily summaries: the child computes the summary locally, encrypts it with the parent's public key, and the broker stores only ciphertext. Parents cannot see raw events; consent is revocable; one Google account at the broker can bind up to N (default 6) identities for billing. The spec deliberately excludes enterprise SSO (Single Sign-On), attribute-based access control, and cross-household sharing — those are SaaS problems and violate Pillar P4 (encryption-first).
+This experimental spec extends Spectyn Mesh from a single-user model to a household model (typical 2–6 family members sharing a LAN). Each member keeps an independent per-device `identity.key`; vault encryption stays per-identity, so no member can decrypt another's raw events. Cross-member visibility is restricted to opt-in aggregated daily summaries: the child computes the summary locally, encrypts it with the parent's public key, and the broker stores only ciphertext. Parents cannot see raw events; consent is revocable; one Google account at the broker can bind up to N (default 6) identities for billing. The spec deliberately excludes enterprise SSO (Single Sign-On), attribute-based access control, and cross-household sharing — those are SaaS problems and violate Pillar P4 (encryption-first).
 
 ### 1.3 縮寫對照表（glossary for §1）
 
 > | 縮寫 / 英文詞 | 中文意譯 | 一句解釋 |
 > |---|---|---|
 > | LAN（Local Area Network） | 區域網路 | 家裡 Wi-Fi 一張子網段，所有家庭成員 device 都在此 |
-> | mesh | 網狀網路 | Phantom 內每台 device 同時是 peer（同儕） + client（用戶端）的 P1 拓樸 |
+> | mesh | 網狀網路 | Spectyn 內每台 device 同時是 peer（同儕） + client（用戶端）的 P1 拓樸 |
 > | cluster | 叢集 | 共享一份 `cluster_secret` 而能 RPC（Remote Procedure Call，遠端程序呼叫）互通的 peer 集合 |
-> | vault | 保險庫 | 個人加密資料儲存區（`~/.phantom-mesh/vault/*.age`） |
+> | vault | 保險庫 | 個人加密資料儲存區（`~/.spectyn-mesh/vault/*.age`） |
 > | identity.key | 身分金鑰檔 | 每台 device 一把的 ed25519 私鑰，HKDF（雜湊金鑰衍生函數）派生 |
 > | broker | 中介伺服器 | phantommesh.io 的雲端服務，跨 NAT 配對 + 付費同步 |
 > | SaaS（Software as a Service） | 軟體即服務 | 廠商主機跑、使用者付費、廠商看得到資料的雲端產品模型 |
@@ -69,7 +69,7 @@ This experimental spec extends Phantom Mesh from a single-user model to a househ
 
 **v0.6.0 假設失效的觸發點**：operator 2026-05 自家 dogfood（自食其食，自己用自己產品）時發現以下三個情境同時出現：
 
-1. 自己在 Mac 跑 phantom focus capture（專注時段 audio 記錄），但家中 node-a（Lin + Win/WSL2 雙系統電腦）已被家人借用，無法 join cluster（叢集）— 因為 `identity.key` 是「**device + user**」綁定，沒有 multi-user 概念。
+1. 自己在 Mac 跑 spectyn focus capture（專注時段 audio 記錄），但家中 node-a（Lin + Win/WSL2 雙系統電腦）已被家人借用，無法 join cluster（叢集）— 因為 `identity.key` 是「**device + user**」綁定，沒有 multi-user 概念。
 2. 家長想知道小孩今天「是否有專注學習 30 分鐘」這個 daily aggregate metric（每日聚合指標），但不想看 raw audio / 不想看 raw text。v0.6.0 vault 是 all-or-nothing（全有或全無）加密，沒有「中間粒度（intermediate granularity）」分享能力。
 3. broker 計費單位是「1 OAuth（Open Authorization，開放授權）account = 1 vault」，但家庭 plan（方案）應該允許 1 account 綁 N 個 identity，否則家庭採購不可行。
 
@@ -126,7 +126,7 @@ This experimental spec extends Phantom Mesh from a single-user model to a househ
 
 ## §4 Job Stories
 
-- `[JS1]` **When** 我（家長）在客廳 Mac 設定好 phantom 後想把家中其他 4 人也納入同 cluster，**I want to** 不必每台 device 各自付費也不必每台重設 broker account，**so I can** 一次完成家庭佈署。（→ G1, G5）
+- `[JS1]` **When** 我（家長）在客廳 Mac 設定好 spectyn 後想把家中其他 4 人也納入同 cluster，**I want to** 不必每台 device 各自付費也不必每台重設 broker account，**so I can** 一次完成家庭佈署。（→ G1, G5）
 - `[JS2]` **When** 我（國中生 child）已 join 家庭 cluster 但不希望爸媽看到我聊天的 raw 內容，**I want to** 只勾選分享「daily focus minutes（每日專注分鐘）」與「is_active（今日是否在使用）」兩個 aggregate metric，**so I can** 維持隱私同時讓爸媽放心。（→ G2, G3）
 - `[JS3]` **When** 我（家長）想知道小孩今天有沒有專心 ≥ 30 分鐘，**I want to** 在 family dashboard（家庭儀表板）看到一個數字而非任何訊息內容，**so I can** 尊重小孩隱私的同時做基礎 wellbeing（健康狀態）關心。（→ G3, G6）
 - `[JS4]` **When** 我（child）對父母產生不信任、想撤回先前分享，**I want to** 在 app 內一鍵 revoke 並立即生效，**so I can** 不必聯絡客服、不必擔心廠商代我父母「申訴恢復」。（→ G4, G6）
@@ -138,8 +138,8 @@ This experimental spec extends Phantom Mesh from a single-user model to a househ
 
 從 BIG-GOAL Audience 6 種挑出 4 種對應的家庭角色：
 
-1. **Parent（家長，40 歲、工程背景）**：自己是 phantom power user（重度使用者），想把 P4 信任邊界（trust boundary）延伸到家人，但**不**想變成監控者。期待本 spec 提供「opt-in、可審計、不可繞過」的分享機制。
-2. **Child（國小高年級，10–12 歲）**：被父母引導裝 phantom 在自己 iPad，主要用 focus capture 做作業計時。期待**沒有人可以未經我同意看我的 raw 資料**。
+1. **Parent（家長，40 歲、工程背景）**：自己是 spectyn power user（重度使用者），想把 P4 信任邊界（trust boundary）延伸到家人，但**不**想變成監控者。期待本 spec 提供「opt-in、可審計、不可繞過」的分享機制。
+2. **Child（國小高年級，10–12 歲）**：被父母引導裝 spectyn 在自己 iPad，主要用 focus capture 做作業計時。期待**沒有人可以未經我同意看我的 raw 資料**。
 3. **Teen（國高中，13–17 歲）**：自主性強、對隱私敏感、可能對家長分享後又撤回（grant churn 授權頻繁變動）。期待 revoke 即時、且 UI 沒有 dark pattern（暗黑模式 UX 誘導）讓家長重新申請。
 4. **Spouse（配偶，家庭採購 / 行程協作角色）**：要跟另一半共享家庭日曆事件 / 採購清單，但個人工作 vault 維持私密。期待 vault-subset 分享。
 
@@ -284,7 +284,7 @@ pub struct HouseholdMembership {
 
 ### 7.2 Storage location
 
-- **本機**（child device）：`~/.phantom-mesh/household/grants.sqlite` — grant list + 本地 summary 計算 cache
+- **本機**（child device）：`~/.spectyn-mesh/household/grants.sqlite` — grant list + 本地 summary 計算 cache
 - **記憶體**：zustand store `useHouseholdStore`（key：`households`、`grants`、`familyMembers`）
 - **Broker 遠端**：
   - `/household/<household_id>/membership.json` — 公開（成員列表）
@@ -433,7 +433,7 @@ stateDiagram-v2
 - **Raw events 不離開 child device 解密狀態**。`SummaryAggregator` 必須在 child 本機跑、輸出僅是 numeric / boolean / enum，不含字串內容。
 - 允許的 metric whitelist（白名單）— v0.7.0+ 預期初版只開：
   - `focus_minutes`（int，當日專注分鐘總和）
-  - `is_active`（bool，當日是否使用 phantom ≥ 5 分鐘）
+  - `is_active`（bool，當日是否使用 spectyn ≥ 5 分鐘）
   - `daily_calorie_total`（int，當日食物 capture 估算熱量總和）
   - `screen_unlock_count`（int，bonus，當日 device 解鎖次數）
 - **不**允許 metric：raw text snippet / image hash / location / app usage 詳細
@@ -451,7 +451,7 @@ stateDiagram-v2
 | 地區 | 焦點法律 | 對本 spec 影響 |
 |---|---|---|
 | 歐盟（EU） | GDPR-K（兒童一般資料保護規則）、age of consent 13–16 各國不同 | 13/14 歲以下需家長 verifiable consent；本 spec 提供 audit log 但未自動驗證 |
-| 美國（US） | COPPA（Children's Online Privacy Protection Act，兒童線上隱私保護法，< 13 歲）| 不直接適用（phantom 不是 directed-to-children service），但 broker 端帳號註冊應加註 |
+| 美國（US） | COPPA（Children's Online Privacy Protection Act，兒童線上隱私保護法，< 13 歲）| 不直接適用（spectyn 不是 directed-to-children service），但 broker 端帳號註冊應加註 |
 | 台灣 | 個人資料保護法、兒少法 | 監護人對未成年資料管理權，本 spec 不剝奪此權 |
 | 中國大陸 | PIPL（Personal Information Protection Law，個人信息保護法）、未成年人保護法 | 14 歲以下需父母同意；mesh 在境內運作的合規性 case-by-case |
 
@@ -472,7 +472,7 @@ User 在 Household Settings 點「Convert to household」按鈕。
 1. broker 為現有 OAuth account 產生 `household_id`
 2. broker 把現有 `/vault/<user>/*` rename 為 `/vault/<household_id>/<owner_identity>/*`
 3. 現有 identity 在 `HouseholdMembership` 表登記為 `owner` role + capacity_slot=1
-4. broker 回 `{ household_id }` 給 device；device 本機重寫 `~/.phantom-mesh/config.toml` 加 `household_id` 欄
+4. broker 回 `{ household_id }` 給 device；device 本機重寫 `~/.spectyn-mesh/config.toml` 加 `household_id` 欄
 5. 後續 invite flow 開放
 
 ### 14.3 Rollback

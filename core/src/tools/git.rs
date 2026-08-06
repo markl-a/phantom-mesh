@@ -142,7 +142,7 @@ pub async fn commit(args: &Value) -> String {
 /// Stage a file for the next commit.
 ///
 /// Validates that the path does not contain shell injection characters.
-/// Requires PHANTOM_AUTO_APPROVE=1 or returns APPROVAL_REQUIRED.
+/// Requires SPECTYN_AUTO_APPROVE=1 or returns APPROVAL_REQUIRED.
 pub async fn add(args: &Value) -> String {
     let path = match args["path"].as_str() {
         Some(p) => p,
@@ -176,7 +176,7 @@ pub async fn add(args: &Value) -> String {
 
 /// Push commits to the remote repository.
 ///
-/// Requires PHANTOM_AUTO_APPROVE=1 to execute; otherwise returns APPROVAL_REQUIRED.
+/// Requires SPECTYN_AUTO_APPROVE=1 to execute; otherwise returns APPROVAL_REQUIRED.
 pub async fn push(args: &Value) -> String {
     // Audit H-4: validate option-injection BEFORE the approval gate. A
     // user-approved invocation must still not be allowed to push to a
@@ -194,9 +194,9 @@ pub async fn push(args: &Value) -> String {
         return e;
     }
 
-    if std::env::var("PHANTOM_AUTO_APPROVE").as_deref() != Ok("1") {
+    if std::env::var("SPECTYN_AUTO_APPROVE").as_deref() != Ok("1") {
         return "APPROVAL_REQUIRED: git push is a destructive/remote operation. \
-                Set PHANTOM_AUTO_APPROVE=1 to allow."
+                Set SPECTYN_AUTO_APPROVE=1 to allow."
             .to_string();
     }
 
@@ -220,7 +220,7 @@ pub async fn push(args: &Value) -> String {
 
 /// Reset the working tree.
 ///
-/// Mode "hard" requires PHANTOM_AUTO_APPROVE=1; other modes do not.
+/// Mode "hard" requires SPECTYN_AUTO_APPROVE=1; other modes do not.
 pub async fn reset(args: &Value) -> String {
     let mode = args["mode"].as_str().unwrap_or("soft");
     let repo_path = args["path"].as_str().unwrap_or(".");
@@ -235,9 +235,9 @@ pub async fn reset(args: &Value) -> String {
         return e;
     }
 
-    if mode == "hard" && std::env::var("PHANTOM_AUTO_APPROVE").as_deref() != Ok("1") {
+    if mode == "hard" && std::env::var("SPECTYN_AUTO_APPROVE").as_deref() != Ok("1") {
         return "APPROVAL_REQUIRED: git reset --hard is destructive (discards uncommitted changes). \
-                Set PHANTOM_AUTO_APPROVE=1 to allow."
+                Set SPECTYN_AUTO_APPROVE=1 to allow."
             .to_string();
     }
 
@@ -605,7 +605,7 @@ mod option_injection_tests {
         // documented option-injection vector that executes `sh` on the local
         // hook side. The validator now fires BEFORE the approval gate so
         // even an "approved" caller can't get past it (and the test does
-        // not need to touch PHANTOM_AUTO_APPROVE — avoiding cross-test
+        // not need to touch SPECTYN_AUTO_APPROVE — avoiding cross-test
         // env-var races).
         let result = push(&json!({"remote": "--exec=sh"})).await;
         assert!(

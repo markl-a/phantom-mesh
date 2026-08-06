@@ -2,9 +2,9 @@
 // Wraps two Tauri commands in `app/src-tauri/src/commands/daily_review_wire.rs`:
 //   - daily_review_load(date?)            → DailyReviewView   (offline; no LLM/network)
 //   - daily_review_generate(date?, save?) → DailyReviewView   (adds the Gemini
-//        "Tomorrow's one action" pass + optional save — == `phantom coach review`)
+//        "Tomorrow's one action" pass + optional save — == `spectyn coach review`)
 //
-// Both reuse the same backend as `phantom coach review` (life_node::daily_review),
+// Both reuse the same backend as `spectyn coach review` (life_node::daily_review),
 // so the screen shows the real captured Life Node events (food / focus / habit /
 // text) for a date, grouped by goal-tag, plus the coaching action on generate.
 
@@ -29,7 +29,7 @@ export async function loadDailyReview(date?: string): Promise<DailyReviewView | 
 
 /** Generate (and by default persist) a full coach review for `date` — runs the
  *  Gemini "Tomorrow's one action" pass on top of the aggregate, mirroring
- *  `phantom coach review --save`. Degrades gracefully (the action becomes a
+ *  `spectyn coach review --save`. Degrades gracefully (the action becomes a
  *  `(skipped: …)` note) when there's no GEMINI_API_KEY. Returns null in web mode
  *  where the command is unwired. */
 export async function generateReview(date: string, save = true): Promise<DailyReviewView | null> {

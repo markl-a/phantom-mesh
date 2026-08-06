@@ -10,8 +10,8 @@
 // full process isolation.
 //
 // Activation: on by default whenever `/usr/bin/sandbox-exec` exists.
-// Opt out per-session with `PHANTOM_SANDBOX=0`. Pass
-// `PHANTOM_SANDBOX=strict` to drop `$HOME` from the writable list
+// Opt out per-session with `SPECTYN_SANDBOX=0`. Pass
+// `SPECTYN_SANDBOX=strict` to drop `$HOME` from the writable list
 // (only cwd + tmp).
 //
 // Caveats:
@@ -53,7 +53,7 @@ const SBPL_PROFILE_RELAXED: &str = r#"(version 1)
 "#;
 
 /// Strict variant — drops `$HOME` from writable subpaths so the agent
-/// can't trash dotfiles. Pass `PHANTOM_SANDBOX=strict`.
+/// can't trash dotfiles. Pass `SPECTYN_SANDBOX=strict`.
 const SBPL_PROFILE_STRICT: &str = r#"(version 1)
 (deny default)
 (allow process-fork)
@@ -77,7 +77,7 @@ const SBPL_PROFILE_STRICT: &str = r#"(version 1)
 "#;
 
 fn mode() -> &'static str {
-    match std::env::var("PHANTOM_SANDBOX").as_deref() {
+    match std::env::var("SPECTYN_SANDBOX").as_deref() {
         Ok("0") | Ok("off") | Ok("disabled") => "off",
         Ok("strict") => "strict",
         _ => "relaxed",
@@ -163,22 +163,22 @@ mod tests {
     use super::*;
 
     // Each test acquires the shared env-lock guard so parallel test
-    // runners can't race on `PHANTOM_SANDBOX`. See `crate::env_lock`
+    // runners can't race on `SPECTYN_SANDBOX`. See `crate::env_lock`
     // in `lib.rs` for the rationale.
 
     #[test]
     fn wrap_returns_none_when_disabled() {
         let _g = crate::env_lock::acquire();
-        std::env::set_var("PHANTOM_SANDBOX", "0");
+        std::env::set_var("SPECTYN_SANDBOX", "0");
         let r = wrap("/bin/echo", &["hi".to_string()]);
-        std::env::remove_var("PHANTOM_SANDBOX");
+        std::env::remove_var("SPECTYN_SANDBOX");
         assert!(r.is_none());
     }
 
     #[test]
     fn wrap_inserts_sandbox_exec_with_profile() {
         let _g = crate::env_lock::acquire();
-        std::env::remove_var("PHANTOM_SANDBOX");
+        std::env::remove_var("SPECTYN_SANDBOX");
         let (p, a) = wrap("/bin/echo", &["hi".to_string()])
             .expect("sandbox should wrap by default on macOS");
         assert_eq!(p, "/usr/bin/sandbox-exec");
@@ -206,7 +206,7 @@ mod tests {
         }
 
         let pid = std::process::id();
-        let denied_target = format!("/Library/Caches/phantom-tdd-seatbelt-deny-{}.tmp", pid);
+        let denied_target = format!("/Library/Caches/spectyn-tdd-seatbelt-deny-{}.tmp", pid);
 
         let cwd = std::env::current_dir()
             .ok()
@@ -251,9 +251,9 @@ mod tests {
     #[test]
     fn strict_mode_drops_home_from_profile() {
         let _g = crate::env_lock::acquire();
-        std::env::set_var("PHANTOM_SANDBOX", "strict");
+        std::env::set_var("SPECTYN_SANDBOX", "strict");
         let (_p, a) = wrap("/bin/echo", &[]).expect("strict mode wraps");
-        std::env::remove_var("PHANTOM_SANDBOX");
+        std::env::remove_var("SPECTYN_SANDBOX");
         let profile = a.iter().find(|x| x.contains("(version 1)")).unwrap();
         assert!(
             !profile.contains("(subpath (param \"HOME\"))"),

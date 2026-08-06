@@ -1,11 +1,11 @@
 //! `Tool` trait — the future plugin surface.
 //!
-//! Phantom's existing dispatcher (`tools::execute`) is a 1500-line
+//! Spectyn's existing dispatcher (`tools::execute`) is a 1500-line
 //! match statement that hands every named tool off to a free function
 //! in this module's siblings. That works fine for the in-process
 //! built-ins, but it's a closed enum: third-party plugins, future
 //! channel adapters (external-gateway-style), and the cluster RPC bridge all
-//! want to register *new* tool names without recompiling phantom-mesh.
+//! want to register *new* tool names without recompiling spectyn-mesh.
 //!
 //! [`Tool`] is the smallest abstraction that supports those use
 //! cases. The two reference impls in this file —

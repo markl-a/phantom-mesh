@@ -47,9 +47,9 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            asset_name: phantom-mesh-x86_64-linux
+            asset_name: spectyn-mesh-x86_64-linux
           - target: aarch64-unknown-linux-gnu
-            asset_name: phantom-mesh-aarch64-linux
+            asset_name: spectyn-mesh-aarch64-linux
 
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +76,7 @@ jobs:
 
       - name: Rename binary
         run: |
-          cp target/${{ matrix.target }}/release/phantom-mesh ${{ matrix.asset_name }}
+          cp target/${{ matrix.target }}/release/spectyn-mesh ${{ matrix.asset_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -116,13 +116,13 @@ jobs:
         run: cross build --release --target x86_64-pc-windows-gnu --manifest-path core/Cargo.toml
 
       - name: Rename binary
-        run: cp target/x86_64-pc-windows-gnu/release/phantom-mesh.exe phantom-mesh-x86_64-windows.exe
+        run: cp target/x86_64-pc-windows-gnu/release/spectyn-mesh.exe spectyn-mesh-x86_64-windows.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-mesh-x86_64-windows
-          path: phantom-mesh-x86_64-windows.exe
+          name: spectyn-mesh-x86_64-windows
+          path: spectyn-mesh-x86_64-windows.exe
           retention-days: 7
 
   # ──────────────────────────────────────────────────────────────────────────
@@ -140,9 +140,9 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            asset_name: phantom-mesh-aarch64-macos
+            asset_name: spectyn-mesh-aarch64-macos
           - target: x86_64-apple-darwin
-            asset_name: phantom-mesh-x86_64-macos
+            asset_name: spectyn-mesh-x86_64-macos
 
     steps:
       - uses: actions/checkout@v4
@@ -167,7 +167,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary
-        run: cp core/target/${{ matrix.target }}/release/phantom-mesh ${{ matrix.asset_name }}
+        run: cp core/target/${{ matrix.target }}/release/spectyn-mesh ${{ matrix.asset_name }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -178,9 +178,9 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────────
   # Android aarch64 — built with the official NDK + cargo-ndk
-  # Termux/coordinator distribution: <coord>/dist/phantom-aarch64-linux-android
+  # Termux/coordinator distribution: <coord>/dist/spectyn-aarch64-linux-android
   # (consumed by scripts/termux-setup.sh and docs/INSTALL-ANDROID.md §B.2)
-  # Only the `phantom` user-facing binary is shipped — `phantom-mesh` daemon
+  # Only the `spectyn` user-facing binary is shipped — `spectyn-mesh` daemon
   # is not exercised on Termux.
   # ──────────────────────────────────────────────────────────────────────────
   build-android:
@@ -227,21 +227,21 @@ jobs:
 
       - name: Build with cargo-ndk
         working-directory: core
-        # API 21 matches package-android.sh; only build the `phantom` REPL bin.
-        run: cargo ndk -t arm64-v8a -P 21 build --release --bin phantom
+        # API 21 matches package-android.sh; only build the `spectyn` REPL bin.
+        run: cargo ndk -t arm64-v8a -P 21 build --release --bin spectyn
 
       - name: Strip and rename binary
         run: |
           NDK_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          BIN="core/target/aarch64-linux-android/release/phantom"
-          "$NDK_BIN/llvm-strip" "$BIN" -o phantom-aarch64-linux-android
-          ls -lh phantom-aarch64-linux-android
+          BIN="core/target/aarch64-linux-android/release/spectyn"
+          "$NDK_BIN/llvm-strip" "$BIN" -o spectyn-aarch64-linux-android
+          ls -lh spectyn-aarch64-linux-android
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: phantom-aarch64-linux-android
-          path: phantom-aarch64-linux-android
+          name: spectyn-aarch64-linux-android
+          path: spectyn-aarch64-linux-android
           retention-days: 7
 
   # ──────────────────────────────────────────────────────────────────────────

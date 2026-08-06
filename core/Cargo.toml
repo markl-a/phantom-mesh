@@ -1,16 +1,16 @@
 [package]
-name = "phantom-mesh"
+name = "spectyn-mesh"
 version = "0.6.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 
 # TODO(clippy-debt-2026-05-19): 68+ pre-existing clippy errors across the lib
 # and both binaries became hard errors when rustc 1.93.0 tightened `-D warnings`
-# defaults. CI was red on every PR (#260, #261, #262, all phantom-mesh
+# defaults. CI was red on every PR (#260, #261, #262, all spectyn-mesh
 # Dependabot bumps) because of this debt — not the PRs themselves. Each lint
 # below is real, fixable work; collectively a focused refactor (~3-6h, mostly
-# auto-fixable via `cargo clippy --fix --lib -p phantom-mesh --allow-no-vcs`
-# then a parallel `--bin phantom` + `--bin phantom-mesh` pass). When that
+# auto-fixable via `cargo clippy --fix --lib -p spectyn-mesh --allow-no-vcs`
+# then a parallel `--bin spectyn` + `--bin spectyn-mesh` pass). When that
 # refactor lands, this whole table should delete cleanly — verify with
 # `cargo clippy --all-targets -- -D warnings`. Do NOT extend this list
 # without a tracking issue; new lints should be fixed at the call site.
@@ -57,12 +57,12 @@ useless_format                    = "allow"
 while_let_loop                    = "allow"
 
 [[bin]]
-name = "phantom-mesh"
+name = "spectyn-mesh"
 path = "src/main.rs"
 
 [[bin]]
-name = "phantom"
-path = "src/bin/phantom.rs"
+name = "spectyn"
+path = "src/bin/spectyn.rs"
 
 [features]
 default = []
@@ -80,7 +80,7 @@ offline-stub-model = []
 experimental-extra-providers = []
 
 # Skill curator feature flag (weekend push 2026-05-15):
-# - Curator skeleton + LLM-judge wired into `phantom evolve --judge`
+# - Curator skeleton + LLM-judge wired into `spectyn evolve --judge`
 # - Skill Document parser/schema (pulls in serde_yaml)
 # Default OFF — `cargo build` (no flags) must produce a binary that does NOT
 # pull in any skillbank curator module code.
@@ -94,7 +94,7 @@ experimental-curator = ["dep:serde_yaml"]
 # WhatsApp + Slack channel adapters plus the per-channel
 # rate-limit (dashmap + arc-swap) and media handler.
 # The Telegram sub-feature brings in the optional `teloxide` dependency and
-# the remote_control::telegram launcher (phantom serve --telegram).
+# the remote_control::telegram launcher (spectyn serve --telegram).
 experimental-remote-control = [
     "experimental-remote-control-telegram",
     "experimental-remote-control-whatsapp",
@@ -115,7 +115,7 @@ experimental-remote-control-whatsapp = ["dep:dashmap", "dep:arc-swap"]
 experimental-remote-control-slack = ["dep:dashmap", "dep:arc-swap"]
 
 # Skill tool catalog. Default OFF; enabling pulls in chrono + url
-# only for the catalog. Existing phantom tools never reach this code.
+# only for the catalog. Existing spectyn tools never reach this code.
 # New tools pull in serde_yaml only when this flag is on; default cargo
 # build still does not compile it.
 experimental-tools = ["dep:url", "dep:serde_yaml", "uuid/v7"]
@@ -160,7 +160,7 @@ experimental-cluster-heartbeat = []
 # `age` is the file-encryption framework (ChaCha20-Poly1305 + X25519 / scrypt /
 # passphrase recipients). `bech32` is needed for age key serialisation
 # (AGE-SECRET-KEY-1… / age1…). `hkdf` + existing `sha2` derive the per-device
-# event encryption key from `~/.phantom-mesh/identity.key`. `zeroize` wipes
+# event encryption key from `~/.spectyn-mesh/identity.key`. `zeroize` wipes
 # secret material on drop.
 age = { version = "0.10", default-features = false }
 bech32 = "0.11"
@@ -196,7 +196,7 @@ subtle = "2.5"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 futures = "0.3"
 uuid = { version = "1", features = ["v4", "v7", "serde"] }  # v7 promoted to default (SPEC-16 §8 time-ordered ids: focus/food capture). Was experimental-tools-only.
-rustyline = { version = "14", features = ["derive"] }   # T57: NOT bumped — rustyline 15+ changed `Highlighter::highlight_char` signature (bool → CmdKind), which would require src/bin/phantom.rs source change. Deferred.
+rustyline = { version = "14", features = ["derive"] }   # T57: NOT bumped — rustyline 15+ changed `Highlighter::highlight_char` signature (bool → CmdKind), which would require src/bin/spectyn.rs source change. Deferred.
 regex = "1"
 rusqlite = { version = "0.39", features = ["bundled"] }
 pm-types = { path = "../crates/pm-types" }
@@ -287,7 +287,7 @@ jni = "0.21"
 
 # Windows-only: native screenshot (GDI BitBlt) + mouse/keyboard input
 # (SendInput) bindings for the computer-use MCP tools. Doc 28 §5 v0.6.0
-# gap: phantom can consume images but couldn't drive a GUI. The
+# gap: spectyn can consume images but couldn't drive a GUI. The
 # `windows` crate is split-feature so we only pay for the modules we
 # touch. `png` is a tiny pure-Rust encoder used to serialise the
 # captured BGRA framebuffer to a file.
@@ -304,7 +304,7 @@ windows = { version = "0.58", features = [
 png = "0.17"
 
 # ── build.rs deps ────────────────────────────────────────────────────────────
-# `build.rs` stamps a UTC build date into PHANTOM_BUILD_DATE for `phantom
+# `build.rs` stamps a UTC build date into SPECTYN_BUILD_DATE for `spectyn
 # --version`. It uses chrono (already a runtime dep) instead of shelling out to
 # the unix `date` binary, which doesn't exist on Windows. Only the `clock`
 # feature is needed for `Utc::now()`.
@@ -420,7 +420,7 @@ required-features = ["experimental-curator"]
 # F004 (2026-05-17): cluster forwarding selection-latency bench.
 # Pure-fn only — measures the in-process slice of the E001 "cross-host
 # forwarding p99 < 500ms" budget. The full LAN p50/p95/p99 measurement
-# lives in scripts/phantom-test/scenarios/cross_host_perf.sh. No feature
+# lives in scripts/spectyn-test/scenarios/cross_host_perf.sh. No feature
 # flag — runs under default `cargo bench`.
 [[bench]]
 name = "cluster_forwarding"

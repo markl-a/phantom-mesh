@@ -2,12 +2,12 @@
 //! skill candidates that the FTS5 memory backend can recall.
 //!
 //! Per E005 spec, input sources are pluggable. First impl
-//! (`from_daily_review`) reads `~/.phantom-mesh/reviews/<date>.md`.
+//! (`from_daily_review`) reads `~/.spectyn-mesh/reviews/<date>.md`.
 //! Future inputs (raw conversations, captured-event clusters) drop in
 //! as additional submodules sharing the same `SkillCandidate` shape.
 //!
 //! Backend-only — no UI, no DB write (a later slice will add a
-//! `phantom skill extract --date <date> --commit` CLI that persists to
+//! `spectyn skill extract --date <date> --commit` CLI that persists to
 //! `memory.db` via the existing FTS5 infra).
 
 pub mod from_daily_review;

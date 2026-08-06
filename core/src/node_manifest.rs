@@ -4,7 +4,7 @@
 //! has on disk (this node's `[cluster]` config from `agents.toml`, the runtime
 //! platform/capability detector, and the broker-pulled `peers.json` roster)
 //! into one serde-stable struct. It does **not** make network calls — no
-//! `/rpc/join`, no heartbeat. `phantom nodes inspect <node>` and `phantom nodes
+//! `/rpc/join`, no heartbeat. `spectyn nodes inspect <node>` and `spectyn nodes
 //! caps` render manifests built purely from cached/config state.
 //!
 //! 中文: NodeManifest 是「已知節點」的唯讀描述（本機 + peers.json 名冊）。
@@ -47,8 +47,8 @@ pub struct NodeManifest {
     /// from `[cluster].capabilities` in `agents.toml`; for a peer they come
     /// from its `peers.json` cache row.
     pub capabilities: Vec<String>,
-    /// `phantom` binary version string. Only known for the local node (same
-    /// value as `phantom --version --short` / `CARGO_PKG_VERSION`).
+    /// `spectyn` binary version string. Only known for the local node (same
+    /// value as `spectyn --version --short` / `CARGO_PKG_VERSION`).
     pub version: Option<String>,
     /// Base URL / address this node is reachable at. `None` for the local
     /// node (it has no outbound URL in this view); the peer URL otherwise.
@@ -62,7 +62,7 @@ pub struct NodeManifest {
 }
 
 impl NodeManifest {
-    /// The `phantom` binary version (matches `phantom --version`).
+    /// The `spectyn` binary version (matches `spectyn --version`).
     pub fn binary_version() -> String {
         env!("CARGO_PKG_VERSION").to_string()
     }

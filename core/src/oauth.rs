@@ -3,7 +3,7 @@
 //!
 //! # Why PKCE
 //!
-//! phantom is a public client (a native/desktop app, not a confidential server),
+//! spectyn is a public client (a native/desktop app, not a confidential server),
 //! so it cannot safely embed a long-lived client secret. PKCE protects the
 //! authorization-code exchange against interception:
 //!
@@ -21,7 +21,7 @@
 //! # Provider differences
 //!
 //! - **Google** — redirects to a local loopback URI (`http://localhost:<port>/oauth/callback`).
-//!   The client secret is read from the `PHANTOM_MESH_GOOGLE_CLIENT_SECRET` env var.
+//!   The client secret is read from the `SPECTYN_MESH_GOOGLE_CLIENT_SECRET` env var.
 //! - **Apple** — uses `response_mode=form_post` via a hosted relay (Apple does not
 //!   redirect to loopback). The `state` is encoded as `"<csrf>.<port>"` so the relay
 //!   can route the callback back to the correct local daemon. Apple has no static
@@ -46,7 +46,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const GOOGLE_CLIENT_ID: &str =
     "869770808980-0kom8ag838tc1p5sqvugitra2gnmbe50.apps.googleusercontent.com";
-const APPLE_CLIENT_ID: &str = "ai.phantommesh.auth";
+const APPLE_CLIENT_ID: &str = "ai.spectynmesh.auth";
 const APPLE_RELAY_URL: &str = "https://apple-oauth-relay.vercel.app/auth/apple-callback";
 const FRONTEND_URL: &str = "http://localhost:5173";
 
@@ -67,7 +67,7 @@ pub struct UserIdentity {
 
 /// Configuration required to mint Apple "Sign in with Apple" client secrets.
 ///
-/// Loaded from `~/.phantom-mesh/apple-auth.json` (or the XDG config path). The
+/// Loaded from `~/.spectyn-mesh/apple-auth.json` (or the XDG config path). The
 /// `.p8` private key it references is used to sign a short-lived ES256 JWT that
 /// serves as Apple's client secret during the token exchange.
 #[derive(Debug, Deserialize)]
@@ -100,18 +100,18 @@ fn gen_random_b64(n: usize) -> String {
 }
 
 /// The Google OAuth client id to use, env-overridable so a freshly registered
-/// "phantom-mesh" Google Cloud client can be swapped in without recompiling.
-/// Falls back to the compiled-in default when `PHANTOM_MESH_GOOGLE_CLIENT_ID`
+/// "spectyn-mesh" Google Cloud client can be swapped in without recompiling.
+/// Falls back to the compiled-in default when `SPECTYN_MESH_GOOGLE_CLIENT_ID`
 /// is unset.
 fn google_client_id() -> String {
-    std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_ID").unwrap_or_else(|_| GOOGLE_CLIENT_ID.to_string())
+    std::env::var("SPECTYN_MESH_GOOGLE_CLIENT_ID").unwrap_or_else(|_| GOOGLE_CLIENT_ID.to_string())
 }
 
 fn load_apple_config() -> Option<AppleAuthConfig> {
     let home = crate::providers::credential_scanner::home_dir_lenient()?;
     let paths = [
-        home.join(".phantom-mesh").join("apple-auth.json"),
-        home.join(".config").join("phantom-mesh").join("apple-auth.json"),
+        home.join(".spectyn-mesh").join("apple-auth.json"),
+        home.join(".config").join("spectyn-mesh").join("apple-auth.json"),
     ];
     for path in &paths {
         if let Ok(content) = std::fs::read_to_string(path) {
@@ -214,7 +214,7 @@ pub fn google_start_url(daemon_port: u16) -> String {
 /// `form_post` callback back to this daemon.
 pub fn apple_start_url(daemon_port: u16) -> Result<String, String> {
     let _config = load_apple_config()
-        .ok_or("Apple 登入需要設定檔。請建立 ~/.phantom-mesh/apple-auth.json")?;
+        .ok_or("Apple 登入需要設定檔。請建立 ~/.spectyn-mesh/apple-auth.json")?;
 
     let code_verifier = gen_random_b64(32);
     let code_challenge = {
@@ -302,7 +302,7 @@ async fn exchange_google(code: &str, pending: &PendingOAuth) -> Result<UserIdent
     let client_id = google_client_id();
     // PKCE-only ("Desktop app" type) clients need no secret; "Web app" type
     // clients still do. Include it only when configured so both work.
-    let client_secret = std::env::var("PHANTOM_MESH_GOOGLE_CLIENT_SECRET").ok();
+    let client_secret = std::env::var("SPECTYN_MESH_GOOGLE_CLIENT_SECRET").ok();
     let mut form: Vec<(&str, String)> = vec![
         ("grant_type", "authorization_code".to_string()),
         ("code", code.to_string()),

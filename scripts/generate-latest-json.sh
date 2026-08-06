@@ -6,7 +6,7 @@
 set -euo pipefail
 
 VERSION="${1:?請提供版本號，例如: v1.2.3}"
-REPO="${GITHUB_REPOSITORY:-markl-a/phantom-mesh}"
+REPO="${GITHUB_REPOSITORY:-markl-a/spectyn-mesh}"
 BASE_URL="https://github.com/$REPO/releases/download/$VERSION"
 NOTES="${RELEASE_NOTES:-版本 $VERSION 更新}"
 PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -29,24 +29,24 @@ cat > latest.json << EOF
   "pub_date": "$PUB_DATE",
   "platforms": {
     "linux-x86_64": {
-      "signature": "$(sign_file phantom-mesh-x86_64.AppImage.tar.gz.sig 2>/dev/null || echo '')",
-      "url": "$BASE_URL/phantom-mesh_${VERSION#v}_amd64.AppImage.tar.gz"
+      "signature": "$(sign_file spectyn-mesh-x86_64.AppImage.tar.gz.sig 2>/dev/null || echo '')",
+      "url": "$BASE_URL/spectyn-mesh_${VERSION#v}_amd64.AppImage.tar.gz"
     },
     "darwin-aarch64": {
-      "signature": "$(sign_file phantom-mesh-aarch64.app.tar.gz.sig 2>/dev/null || echo '')",
-      "url": "$BASE_URL/phantom-mesh_${VERSION#v}_aarch64.dmg"
+      "signature": "$(sign_file spectyn-mesh-aarch64.app.tar.gz.sig 2>/dev/null || echo '')",
+      "url": "$BASE_URL/spectyn-mesh_${VERSION#v}_aarch64.dmg"
     },
     "darwin-x86_64": {
-      "signature": "$(sign_file phantom-mesh-x86_64.app.tar.gz.sig 2>/dev/null || echo '')",
-      "url": "$BASE_URL/phantom-mesh_${VERSION#v}_x64.dmg"
+      "signature": "$(sign_file spectyn-mesh-x86_64.app.tar.gz.sig 2>/dev/null || echo '')",
+      "url": "$BASE_URL/spectyn-mesh_${VERSION#v}_x64.dmg"
     },
     "windows-x86_64": {
-      "signature": "$(sign_file phantom-mesh-x86_64-setup.exe.sig 2>/dev/null || echo '')",
-      "url": "$BASE_URL/phantom-mesh_${VERSION#v}_x64-setup.exe"
+      "signature": "$(sign_file spectyn-mesh-x86_64-setup.exe.sig 2>/dev/null || echo '')",
+      "url": "$BASE_URL/spectyn-mesh_${VERSION#v}_x64-setup.exe"
     },
     "android": {
       "signature": "",
-      "url": "$BASE_URL/phantom-mesh-$VERSION.apk"
+      "url": "$BASE_URL/spectyn-mesh-$VERSION.apk"
     }
   }
 }

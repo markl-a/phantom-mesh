@@ -3,7 +3,7 @@ HOST=${1:-localhost}
 PORT=${2:-7878}
 BASE="http://$HOST:$PORT"
 
-echo "Testing phantom-mesh at $BASE"
+echo "Testing spectyn-mesh at $BASE"
 curl -sf "$BASE/health" | jq . || { echo "FAIL: /health"; exit 1; }
 echo "OK: /health"
 

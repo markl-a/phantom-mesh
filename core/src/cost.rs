@@ -10,7 +10,7 @@
 //! 2. **The token/cost accounting struct** ([`CostTracker`]) — accumulates
 //!    prompt/completion token counts and derives `cost_usd` from the
 //!    pricing tables. It tracks lifetime totals (persisted to
-//!    `~/.phantom-mesh/costs.json`), a resettable global session, named
+//!    `~/.spectyn-mesh/costs.json`), a resettable global session, named
 //!    per-session buckets, and optional lifetime/task-scoped budget caps.
 //!
 //! Costs are computed automatically inside [`CostTracker::record`]: callers
@@ -122,7 +122,7 @@ impl Default for CostTrackerInner {
 ///
 /// Cloning is cheap: clones share the same underlying state via an
 /// [`Arc`]-wrapped mutex, so all handles observe the same running totals.
-/// Lifetime totals are persisted to `~/.phantom-mesh/costs.json`.
+/// Lifetime totals are persisted to `~/.spectyn-mesh/costs.json`.
 #[derive(Clone)]
 pub struct CostTracker {
     inner: Arc<tokio::sync::Mutex<CostTrackerInner>>,
@@ -131,12 +131,12 @@ pub struct CostTracker {
 
 impl CostTracker {
     /// Create a tracker, loading lifetime totals from
-    /// `~/.phantom-mesh/costs.json` if the file exists. Session-scoped and
+    /// `~/.spectyn-mesh/costs.json` if the file exists. Session-scoped and
     /// per-model state always starts empty; a missing or unreadable ledger
     /// falls back to zeroed totals.
     pub fn new() -> Self {
-        let path = crate::cli_config::phantom_data_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".phantom-mesh"))
+        let path = crate::cli_config::spectyn_data_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from(".").join(".spectyn-mesh"))
             .join("costs.json");
         let inner = if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {

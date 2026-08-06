@@ -12,8 +12,8 @@
 //
 // Reference: docs/superpowers/PHASE-E-INTEGRATION-TEST-PLAN.md §V12.
 
-use phantom_mesh::coach_wire::aggregate;
-use phantom_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
+use spectyn_mesh::coach_wire::aggregate;
+use spectyn_mesh::event_storage_wire::{AnalysisResult, EventKind, EventMeta};
 
 /// Build a deterministic mock `AnalysisResult` — matches the real wire shape
 /// in `event_storage_wire.rs` (confidence: f32, goal_impact/suggestion: String,

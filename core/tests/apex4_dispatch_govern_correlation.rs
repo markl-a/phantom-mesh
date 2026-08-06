@@ -7,17 +7,17 @@
 //! awaiter. codex/opencode/agy are `PostActionObserved` (alert-only, no pre-action
 //! decision → nothing to correlate). So the live correlation MUST happen inside the
 //! hook process, and that is exactly what `prod_decide_pretooluse_hook` now wires
-//! (it opens the canonical `phantom.db` and `.with_dispatch_store(..)` on its
+//! (it opens the canonical `spectyn.db` and `.with_dispatch_store(..)` on its
 //! escalator).
 //!
 //! Why this is not fake-green (the batch-6 DEFECT bar):
 //!   * The dispatch row is seeded in a REAL `TaskQueue` over a temp canonical
-//!     `phantom.db` (at `PHANTOM_HOME`) in `Running` — exactly what `serve.rs`
+//!     `spectyn.db` (at `SPECTYN_HOME`) in `Running` — exactly what `serve.rs`
 //!     `rpc_task_assign` does before launching the runner.
 //!   * The decision is driven through the REAL PRODUCTION entry point
 //!     `prod_decide_pretooluse_hook` (the claude PreToolUse-hook path — the only
 //!     production path that raises a pre-action approval). It
-//!     resolves the home, opens the SAME canonical `phantom.db`, builds the REAL
+//!     resolves the home, opens the SAME canonical `spectyn.db`, builds the REAL
 //!     `PhoneEscalator` with the dispatch store attached, mints a real
 //!     `ExecutionContract`, and calls the REAL `PhoneEscalator::await_decision` —
 //!     the production code that stamps the dispatch row.
@@ -33,8 +33,8 @@
 //!
 //! TEST-ONLY — drives production code, modifies none.
 
-use phantom_mesh::governed_run::permission::prod_decide_pretooluse_hook;
-use phantom_mesh::tasks::{TaskQueue, TaskStatus, TaskStore};
+use spectyn_mesh::governed_run::permission::prod_decide_pretooluse_hook;
+use spectyn_mesh::tasks::{TaskQueue, TaskStatus, TaskStore};
 use serde_json::json;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -42,8 +42,8 @@ use tempfile::tempdir;
 use tokio::runtime::Builder;
 use uuid::Uuid;
 
-/// `prod_decide_pretooluse_hook` reads PROCESS env (`PHANTOM_HOME`,
-/// `PHANTOM_GOVERN_TASK_ID`, deadline/poll), so the two tests that mutate it must
+/// `prod_decide_pretooluse_hook` reads PROCESS env (`SPECTYN_HOME`,
+/// `SPECTYN_GOVERN_TASK_ID`, deadline/poll), so the two tests that mutate it must
 /// not race each other (or other integration tests in this binary).
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -58,7 +58,7 @@ fn hook_in(tool: &str, input: serde_json::Value) -> serde_json::Value {
     })
 }
 
-/// Seed a dispatch row (known `job_uuid`) into the canonical `phantom.db` and move
+/// Seed a dispatch row (known `job_uuid`) into the canonical `spectyn.db` and move
 /// it to `Running` — exactly what `serve.rs` `rpc_task_assign` does before the run.
 fn seed_running_dispatch_row(rt: &tokio::runtime::Runtime, store: &TaskStore, job_uuid: Uuid) {
     let queue = TaskQueue::new(store.clone());
@@ -79,11 +79,11 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
     let tmp = tempdir().expect("tempdir must be created");
-    // PHANTOM_HOME IS the data root: phantom.db / pending / inbox all live under it
-    // (phantom_dir_under returns PHANTOM_HOME verbatim). This is the same data dir
-    // the parent `run.rs` passes the hook as PHANTOM_HOME.
+    // SPECTYN_HOME IS the data root: spectyn.db / pending / inbox all live under it
+    // (spectyn_dir_under returns SPECTYN_HOME verbatim). This is the same data dir
+    // the parent `run.rs` passes the hook as SPECTYN_HOME.
     let data_dir = tmp.path().to_path_buf();
-    let db_path = data_dir.join("phantom.db");
+    let db_path = data_dir.join("spectyn.db");
     let job_uuid = Uuid::new_v4();
 
     let rt = Builder::new_multi_thread()
@@ -91,7 +91,7 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
         .build()
         .expect("tokio runtime must be created");
 
-    // DISPATCH universe: the seeded row in the canonical phantom.db.
+    // DISPATCH universe: the seeded row in the canonical spectyn.db.
     let store = TaskStore::open_at(db_path.clone()).expect("open task store");
     seed_running_dispatch_row(&rt, &store, job_uuid);
 
@@ -102,20 +102,20 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
     assert_eq!(before.status, TaskStatus::Running, "seed must start Running");
     assert_eq!(before.approval_id, None, "seed must carry no approval_id");
 
-    // Wire the PRODUCTION hook's process env: PHANTOM_HOME = the data dir,
-    // PHANTOM_GOVERN_TASK_ID = the dispatch job_uuid (after D2 the govern task_id IS
+    // Wire the PRODUCTION hook's process env: SPECTYN_HOME = the data dir,
+    // SPECTYN_GOVERN_TASK_ID = the dispatch job_uuid (after D2 the govern task_id IS
     // the dispatch id). A generous deadline + short poll so the operator's reply
     // (written once the live pending card reveals the minted contract id) resolves
     // the gate promptly instead of via the fail-safe timeout.
     // SAFETY: these are restored at the end of the test (still under ENV_LOCK).
-    let prev_home = std::env::var_os("PHANTOM_HOME");
-    let prev_task = std::env::var_os("PHANTOM_GOVERN_TASK_ID");
-    let prev_dl = std::env::var_os("PHANTOM_GOVERN_DEADLINE_SECS");
-    let prev_poll = std::env::var_os("PHANTOM_GOVERN_POLL_SECS");
-    std::env::set_var("PHANTOM_HOME", &data_dir);
-    std::env::set_var("PHANTOM_GOVERN_TASK_ID", job_uuid.to_string());
-    std::env::set_var("PHANTOM_GOVERN_DEADLINE_SECS", "30");
-    std::env::set_var("PHANTOM_GOVERN_POLL_SECS", "1");
+    let prev_home = std::env::var_os("SPECTYN_HOME");
+    let prev_task = std::env::var_os("SPECTYN_GOVERN_TASK_ID");
+    let prev_dl = std::env::var_os("SPECTYN_GOVERN_DEADLINE_SECS");
+    let prev_poll = std::env::var_os("SPECTYN_GOVERN_POLL_SECS");
+    std::env::set_var("SPECTYN_HOME", &data_dir);
+    std::env::set_var("SPECTYN_GOVERN_TASK_ID", job_uuid.to_string());
+    std::env::set_var("SPECTYN_GOVERN_DEADLINE_SECS", "30");
+    std::env::set_var("SPECTYN_GOVERN_POLL_SECS", "1");
 
     // Drive the REAL production hook decision for a HIGH-RISK Bash tool. It runs on
     // the runtime; meanwhile the main thread watches for the live pending card the
@@ -125,12 +125,12 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
     let decision_handle = rt.spawn(async move { prod_decide_pretooluse_hook(hook_input).await });
 
     // Capture the production-minted contract id from the LIVE pending card (NOT
-    // injected): poll the pending store (under PHANTOM_HOME) until the escalator's
+    // injected): poll the pending store (under SPECTYN_HOME) until the escalator's
     // card appears, then send the operator's approval referencing that id.
     let contract_id = {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
-            let cards = phantom_mesh::pending_approvals::list_pending(&data_dir)
+            let cards = spectyn_mesh::pending_approvals::list_pending(&data_dir)
                 .expect("list pending cards");
             if let Some(card) = cards.into_iter().next() {
                 break card.approval_id;
@@ -155,7 +155,7 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
     );
 
     // Operator approves, correlated to the minted contract id (topic = the id).
-    phantom_mesh::inbox::write_message(&data_dir, "phone", "approve", Some(&contract_id))
+    spectyn_mesh::inbox::write_message(&data_dir, "phone", "approve", Some(&contract_id))
         .expect("write the operator's approval reply");
 
     let decision = rt
@@ -200,10 +200,10 @@ fn prod_hook_approval_stamps_dispatch_row_with_contract_id_and_awaiting_approval
     );
 
     // Restore the process env (still under ENV_LOCK).
-    restore("PHANTOM_HOME", prev_home);
-    restore("PHANTOM_GOVERN_TASK_ID", prev_task);
-    restore("PHANTOM_GOVERN_DEADLINE_SECS", prev_dl);
-    restore("PHANTOM_GOVERN_POLL_SECS", prev_poll);
+    restore("SPECTYN_HOME", prev_home);
+    restore("SPECTYN_GOVERN_TASK_ID", prev_task);
+    restore("SPECTYN_GOVERN_DEADLINE_SECS", prev_dl);
+    restore("SPECTYN_GOVERN_POLL_SECS", prev_poll);
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn prod_hook_low_risk_leaves_dispatch_row_without_approval_id() {
 
     let tmp = tempdir().expect("tempdir must be created");
     let data_dir = tmp.path().to_path_buf();
-    let db_path = data_dir.join("phantom.db");
+    let db_path = data_dir.join("spectyn.db");
     let job_uuid = Uuid::new_v4();
 
     let rt = Builder::new_multi_thread()
@@ -227,10 +227,10 @@ fn prod_hook_low_risk_leaves_dispatch_row_without_approval_id() {
     let store = TaskStore::open_at(db_path).expect("open task store");
     seed_running_dispatch_row(&rt, &store, job_uuid);
 
-    let prev_home = std::env::var_os("PHANTOM_HOME");
-    let prev_task = std::env::var_os("PHANTOM_GOVERN_TASK_ID");
-    std::env::set_var("PHANTOM_HOME", &data_dir);
-    std::env::set_var("PHANTOM_GOVERN_TASK_ID", job_uuid.to_string());
+    let prev_home = std::env::var_os("SPECTYN_HOME");
+    let prev_task = std::env::var_os("SPECTYN_GOVERN_TASK_ID");
+    std::env::set_var("SPECTYN_HOME", &data_dir);
+    std::env::set_var("SPECTYN_GOVERN_TASK_ID", job_uuid.to_string());
 
     // A low-risk Read never escalates: prod_decide_pretooluse_hook auto-allows it
     // WITHOUT calling await_decision, so the dispatch row is untouched. Resolves
@@ -258,8 +258,8 @@ fn prod_hook_low_risk_leaves_dispatch_row_without_approval_id() {
         "a run with no approval must leave the dispatch row Running (not AwaitingApproval)"
     );
 
-    restore("PHANTOM_HOME", prev_home);
-    restore("PHANTOM_GOVERN_TASK_ID", prev_task);
+    restore("SPECTYN_HOME", prev_home);
+    restore("SPECTYN_GOVERN_TASK_ID", prev_task);
 }
 
 /// Restore (or remove) a process env var to its captured prior value.

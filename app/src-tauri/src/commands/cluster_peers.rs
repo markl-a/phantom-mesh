@@ -55,7 +55,7 @@ const E_PERSIST:          &str = "E_CLUSTER_PERSIST";
 
 // ── PeerStatus wire mirror ───────────────────────────────────────────────
 //
-// We deliberately don't pull in `phantom_mesh::mesh::PeerStatus` directly —
+// We deliberately don't pull in `spectyn_mesh::mesh::PeerStatus` directly —
 // the mobile UI cares about a slimmer subset, and decoupling the wire type
 // from the IPC type lets the mobile app keep working when the core peer
 // type adds new fields (UI just ignores them). The shape below maps
@@ -113,10 +113,10 @@ pub struct PeerSummary {
 // Background: PR #169 introduced `validate_external_url` in onboarding.rs
 // for the `open_external_url` command, restricting it to https://* and
 // http://localhost. F100 needs a SIMILAR but DISTINCT allowlist for
-// outbound RPC calls to the phantom daemon, because:
+// outbound RPC calls to the spectyn daemon, because:
 //
 //   - Daemons run on the user's own machines, so http://localhost:* is
-//     the common case (the local in-process daemon `phantom serve` binds
+//     the common case (the local in-process daemon `spectyn serve` binds
 //     to 7878).
 //   - Cluster peers are reachable over Tailscale at `*.tail.ts.net` (or
 //     the user's chosen tailnet) — these are private network addresses
@@ -126,7 +126,7 @@ pub struct PeerSummary {
 //     the bearer token in plaintext.
 //
 // The validator REJECTS, with stable error code E_CLUSTER_URL_INVALID:
-//   - file://, javascript:, phantom://, ftp://, vscode://, anything else
+//   - file://, javascript:, spectyn://, ftp://, vscode://, anything else
 //   - http:// schemes whose host is NOT exactly localhost / 127.0.0.1 /
 //     ::1 / *.tail.ts.net (case-insensitive). The "exact" check uses the
 //     same userinfo-strip + lookalike-defense logic as PR #169.
@@ -417,7 +417,7 @@ pub async fn subscribe_cluster_events<R: tauri::Runtime>(
         match req.send().await {
             Ok(resp) if resp.status().is_success() => {
                 tracing::info!(
-                    target: "phantom-app::cluster",
+                    target: "spectyn-app::cluster",
                     "SSE connected to {} — F106 will replace this stub",
                     events_url
                 );
@@ -433,7 +433,7 @@ pub async fn subscribe_cluster_events<R: tauri::Runtime>(
             }
             Ok(resp) => {
                 tracing::warn!(
-                    target: "phantom-app::cluster",
+                    target: "spectyn-app::cluster",
                     "SSE endpoint {} returned HTTP {} — endpoint not implemented yet (F106)",
                     events_url,
                     resp.status().as_u16(),
@@ -441,7 +441,7 @@ pub async fn subscribe_cluster_events<R: tauri::Runtime>(
             }
             Err(e) => {
                 tracing::warn!(
-                    target: "phantom-app::cluster",
+                    target: "spectyn-app::cluster",
                     "SSE connect to {} failed: {} (expected until F106 lands)",
                     events_url, e
                 );
@@ -469,14 +469,14 @@ fn random_id() -> String {
 // the "this device" badge without having to introspect hostname / IP at
 // runtime (which is unreliable on iOS / Android sandboxes).
 //
-// Storage: `~/.phantom-mesh/cluster-ui.json` — a tiny JSON sidecar that
+// Storage: `~/.spectyn-mesh/cluster-ui.json` — a tiny JSON sidecar that
 // only this F100 module reads/writes. Chosen over tauri-plugin-store
 // because:
 //   1. The plugin's API requires a Tauri AppHandle, and the spec wants
 //      the inner persistence function to be testable without spinning up
 //      a full Tauri context.
 //   2. The existing broker_login.rs already writes ad-hoc JSON files in
-//      the same `~/.phantom-mesh/` dir (peers.json), so this matches the
+//      the same `~/.spectyn-mesh/` dir (peers.json), so this matches the
 //      established pattern in the same crate.
 //   3. Survives daemon restart for free — the file lives outside the
 //      app process.
@@ -492,13 +492,13 @@ struct ClusterUiState {
 fn cluster_ui_path() -> std::path::PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".phantom-mesh")
+        .join(".spectyn-mesh")
         .join("cluster-ui.json")
 }
 
 /// Test-injectable path override. Production code always uses
 /// `cluster_ui_path()`; tests set this so they can use a tempdir without
-/// touching the real `~/.phantom-mesh/`.
+/// touching the real `~/.spectyn-mesh/`.
 #[cfg(test)]
 static TEST_PATH_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option<std::path::PathBuf>>> = std::sync::OnceLock::new();
 
@@ -601,12 +601,12 @@ mod tests {
 
     #[test]
     fn validator_rejects_dangerous_schemes() {
-        // V8-HIGH-1: NO shell:* / phantom:* / vscode:* / file:* / javascript:*
+        // V8-HIGH-1: NO shell:* / spectyn:* / vscode:* / file:* / javascript:*
         for url in [
             "file:///etc/passwd",
             "javascript:alert(1)",
             "vscode://path",
-            "phantom://oauth/callback",
+            "spectyn://oauth/callback",
             "ftp://example.com/",
             "shell://anything",
         ] {
@@ -827,7 +827,7 @@ mod tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!(
-            "phantom-f100-{}-{}",
+            "spectyn-f100-{}-{}",
             std::process::id(),
             nanos
         ));

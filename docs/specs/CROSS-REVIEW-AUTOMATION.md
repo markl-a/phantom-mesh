@@ -13,7 +13,7 @@
 
 1. `ACCEL-REVIEWER-ROLE` — *"Reviewer agent role (read-only diff inspection, non-author verify → consensus + cross-platform green = merge gate); extends DispatchRole"* (status: **designed**, prio P3, `../_archive/MASTER-SPEC.md:147`).
 2. `ACCEL-MULTI-AI-CROSSREVIEW` — *"≥2 AI consensus gate ...; native integration pending P3 — **the key missing trust mechanism**"* (status: **partial**, prio P2, `../_archive/MASTER-SPEC.md:144`).
-3. `ACCEL-SPEC-GATE` — *"`phantom dev spec validate`: spec must declare which of 4 abilities + which MVP component"* (status: **designed**, prio P3, `../_archive/MASTER-SPEC.md:146`).
+3. `ACCEL-SPEC-GATE` — *"`spectyn dev spec validate`: spec must declare which of 4 abilities + which MVP component"* (status: **designed**, prio P3, `../_archive/MASTER-SPEC.md:146`).
 
 `MASTER-SPEC §5 Q7` (line 263) calls this out as the **trust mechanism** for moving from supervised stage-1 to the unattended self-igniting loop:
 
@@ -49,7 +49,7 @@ This is a design — every claim must hook into a real surface that already exis
 ### 1.3 `partner.rs` — origin handling + the anti-pollution wall
 **File:** `core/src/partner.rs`
 - `Intent` enum at `partner.rs:45-49` (`Record { body }` and `Ask`), with the pure detector `detect_intent()` at `partner.rs:57-79`.
-- `signals_path()` at `partner.rs:115-125` — the JSONL ledger location, overridable by `PHANTOM_PARTNER_SIGNALS` (line 116–119), defaulting to `~/.phantom-mesh/partner-signals.jsonl` (line 121–124).
+- `signals_path()` at `partner.rs:115-125` — the JSONL ledger location, overridable by `SPECTYN_PARTNER_SIGNALS` (line 116–119), defaulting to `~/.spectyn-mesh/partner-signals.jsonl` (line 121–124).
 - `record_signal()` at `partner.rs:147-151` — the canonical append helper used by every entry point.
 - `handle_message()` reactive entry point at `partner.rs:193-227` — the place the partner currently routes inbound text (one of two existing client-agnostic entry points the Reviewer role must NOT contaminate).
 - `record_location_behavior()` at `partner.rs:165-179` — typed wrapper for proactive sensor signals.
@@ -250,7 +250,7 @@ Step 5's `--no-ff` is the same merge style ACCEL-REVERTABLE-MERGES (`MASTER-SPEC
 Every signal emitted by the cross-review pipeline is machine-origin. Concretely:
 
 - Reviewer agent invocations are issued with the `MessageOrigin = Machine` marker (the policy intent at `MASTER-SPEC §3.5:152 ACCEL-DETECTION-HEURISTICS`). Stage 2 of this spec adds the `record_signal_with_origin` helper that `MASTER-SPEC §3.5:139` already names but `core/src/partner.rs:115-179` does not yet ship.
-- The full `ReviewVote` JSON is appended to `~/.phantom-mesh/dev-loop-log.jsonl` (`MASTER-SPEC §3.5:160 STATE-DEV-LOOP-LOG-JSONL`), NOT to `~/.phantom-mesh/partner-signals.jsonl` (`MASTER-SPEC §3.5:159`, the moat ledger).
+- The full `ReviewVote` JSON is appended to `~/.spectyn-mesh/dev-loop-log.jsonl` (`MASTER-SPEC §3.5:160 STATE-DEV-LOOP-LOG-JSONL`), NOT to `~/.spectyn-mesh/partner-signals.jsonl` (`MASTER-SPEC §3.5:159`, the moat ledger).
 - The existing test `dev_loop_never_writes_partner_signals` (`MASTER-SPEC §4 §2.4 item 3`) must remain green after Stage-2 wires the Reviewer; this is normative.
 
 This is the load-bearing reason the Reviewer role exists in core rather than only in the external thin orchestration layer: the in-core router is the only place we can enforce origin segregation without trusting an external script.
